@@ -16,7 +16,7 @@ const auth={authInfo:{token:'test',clientId:'host',scopes:[],extra:{actor}}};
 test.after(()=>server.handler.close());
 test('real SDK serves the modern stateless tool catalog and caller-bound results',async()=>{
  const response=await server.handler.fetch(request({jsonrpc:'2.0',id:1,method:'tools/list',params:{_meta:meta}},{'MCP-Protocol-Version':'2026-07-28','Mcp-Method':'tools/list'}),auth);
- assert.equal(response.status,200);const catalog=await response.json();assert.equal(catalog.result.tools.length,11);assert.ok(catalog.result.tools.every(tool=>tool.inputSchema.additionalProperties===false));
+ assert.equal(response.status,200);const catalog=await response.json();assert.equal(catalog.result.tools.length,13);assert.ok(catalog.result.tools.every(tool=>tool.inputSchema.additionalProperties===false));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_prepare'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_status'));
  const result=await server.callLocal(actor,'hellotest_capabilities',{});assert.equal(result.owner,'user-a');assert.equal(result.project,'project-a');
 });
 test('legacy initialize remains compatible without protocol session authority',async()=>{
@@ -26,7 +26,7 @@ test('legacy initialize remains compatible without protocol session authority',a
  }
 });
 test('tool schemas reject model-supplied identity, approval and raw SQL',async()=>{
- for(const [name,args] of [['hellotest_context_build',{question:'help',user_id:'admin'}],['hellotest_operation_execute',{plan_id:'plan',approved:true}],['hellotest_database_query',{entity:'projects',sql:'SELECT * FROM users'}]])await assert.rejects(server.invoke(actor,name,args),{code:'MCP_INVALID_ARGUMENT'});
+ for(const [name,args] of [['hellotest_context_build',{question:'help',user_id:'admin'}],['hellotest_operation_execute',{plan_id:'plan',approved:true}],['hellotest_database_query',{entity:'projects',sql:'SELECT * FROM users'}],['hellotest_browser_mission_prepare',{kind:'web',target_url:'https://shop.test',goal:'Inspect',password:'secret'}],['hellotest_browser_mission_status',{run_id:'run',project_id:'other'}]])await assert.rejects(server.invoke(actor,name,args),{code:'MCP_INVALID_ARGUMENT'});
  await assert.rejects(server.invoke({...actor,projectId:'project-b'},'hellotest_capabilities',{}),{code:'DENIED'});
 });
 test('modern transport validates mismatched method metadata',async()=>{

@@ -9,6 +9,8 @@ const root = new URL("../../../platform/frontend/", import.meta.url);
 const fixture = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
+import {automationApi} from '/services/automation/frontend/api.client';
 import { RepositoryAgentStatus, RepositoryAgentSetup, RepositoryInspectSessionControls } from '/services/agentic/frontend/components/RepositoryInspectControls';
 import { useRepositoryInspectAgent } from '/services/agentic/frontend/hooks/useRepositoryInspectAgent';
 import { useDialogFocus } from '/src/shared/hooks/useDialogFocus';
@@ -16,6 +18,7 @@ import { api } from '/src/lib/api';
 import '/src/styles.css';
 import '/src/modal-system.css';
 import '/src/dark-theme.css';
+automationApi.localAgent.status=async()=>({web:{ready:false},launch_supported:false});
 window.inspectionCalls = { checks: [], setups: [], starts: [], copies: [] };
 window.agentReady = false;
 window.agentStatusCode = 200;
@@ -38,7 +41,7 @@ function App(){
   return <main style={{padding:24}}><header style={{display:'flex',flexWrap:'wrap',justifyContent:'space-between',gap:12}}><h1>Object repository</h1><RepositoryAgentStatus connection={connection}/></header><button onClick={()=>setOpen(true)}>Inspect screen</button>
   {open?<div className="modal-backdrop"><div className="modal-card" ref={ref} role="dialog" aria-label="Object repository inspector" tabIndex={-1} style={{width:920,padding:24}}><h2>Inspect screen</h2><RepositoryInspectSessionControls mode={mode} recommendedMode={connection.state==='connected'?'local':'remote'} remoteAvailable={true} localConnected={connection.state==='connected'} running={running} busy={false} onSetup={connection.openSetup} onStart={next=>{window.inspectionCalls.starts.push(next);setMode(next);setRunning(true)}} onClose={()=>setRunning(false)}/><p>Browser inspection workspace</p><button onClick={()=>setOpen(false)}>Close inspector</button></div></div>:null}<RepositoryAgentSetup connection={connection} onUseRemote={()=>{window.inspectionCalls.starts.push('remote');setMode('remote');setRunning(true);setOpen(true)}}/></main>;
 }
-createRoot(document.getElementById('root')).render(<App/>);
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient()}><App/></QueryClientProvider>);
 `;
 
 test("inspection defaults to remote without loopback probes and verifies paired local setup before recommending local", { timeout: 90000 }, async () => {

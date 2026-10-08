@@ -3,11 +3,11 @@ const C = require('./qualityAgentContracts');
 const terminal = status => ['completed','failed','cancelled'].includes(status);
 const iso = value => value instanceof Date ? value.toISOString() : value || null;
 function createQualityAgentService(deps) {
-  const {store,scope,integration,workerUser,http,secret,proposePlan}=deps;
+  const {store,scope,integration,workerUser,http,secret,proposePlan,decideMission,resolveMissionModel}=deps;
   let processing=false,accepting=true;
   const publicRun=row=>{
     const m=row.metadata,r=m.request;
-    return {id:m.id,transaction_id:row.id,project_id:row.project_id,app_type_id:row.app_type_id||null,kind:r.kind,target_url:r.target_url,goal:r.goal,options:r.options,reviewed_plan:r.reviewed_plan,plan:r.reviewed_plan,status:m.run_status,outcome:m.outcome||null,created_at:iso(row.created_at),updated_at:iso(row.updated_at),started_at:iso(m.started_at||row.started_at),completed_at:iso(m.completed_at||row.completed_at),stages:m.stages||[],findings:m.findings||[],metrics:m.metrics||{},limitations:m.limitations||[],error:m.error||null,cancellation_requested:Boolean(m.cancellation_requested),baseline_id:r.baseline_id,artifacts:(m.artifacts||[]).map(a=>({...a,download_path:`/agentic-quality/runs/${m.id}/artifacts/${a.id}`}))};
+    return {id:m.id,transaction_id:row.id,project_id:row.project_id,app_type_id:row.app_type_id||null,kind:r.kind,target_url:r.target_url,goal:r.goal,options:r.options,mission_report:m.mission_report,reviewed_plan:r.reviewed_plan,plan:r.reviewed_plan,status:m.run_status,outcome:m.outcome||null,created_at:iso(row.created_at),updated_at:iso(row.updated_at),started_at:iso(m.started_at||row.started_at),completed_at:iso(m.completed_at||row.completed_at),stages:m.stages||[],findings:m.findings||[],metrics:m.metrics||{},limitations:m.limitations||[],error:m.error||null,cancellation_requested:Boolean(m.cancellation_requested),baseline_id:r.baseline_id,artifacts:(m.artifacts||[]).map(a=>({...a,download_path:`/agentic-quality/runs/${m.id}/artifacts/${a.id}`}))};
   };
   const publicBaseline=row=>{
     const m=row.metadata;
@@ -46,7 +46,7 @@ function createQualityAgentService(deps) {
         reason=available?undefined:'The Test Engine browser is unavailable. Install Chromium or configure its executable path.';
       } catch {reason='The configured Test Engine is unavailable or does not support quality agents.';capabilities=undefined;}
     }
-    return {agents:C.AGENTS.map(a=>({...a,kind:a.id,available})),limits:C.LIMITS,runtime:{configured:Boolean(connection),available,integration_name:connection?.name||null,reason,detail:available?'The Test Engine reports its browser binary is present. Each run still verifies launch and target access.':reason,...(capabilities?{checks:capabilities.checks,limitations:capabilities.limitations||[]}:{} )}};
+    return {agents:C.AGENTS.map(a=>({...a,kind:a.id,available})),limits:C.LIMITS,runtime:{configured:Boolean(connection),available,integration_name:connection?.name||null,missions:capabilities?.missions||{supported:false},reason,detail:available?'The Test Engine reports its browser binary is present. Each run still verifies launch and target access.':reason,...(capabilities?{checks:capabilities.checks,limitations:capabilities.limitations||[]}:{} )}};
   }
   async function plan(input,user) {
     if (!C.KINDS.has(input.kind)) throw C.fail('Choose a supported quality agent.');
@@ -58,14 +58,15 @@ function createQualityAgentService(deps) {
     const limitations=['No live application DOM has been inspected during planning. Review selectors and assertions before execution.'];
     if (input.kind==='web') {
       if (Array.isArray(input.steps)) steps=C.normalizeSteps(input.steps,target_url);
-      else if (goal && proposePlan) {
+      else if (goal && proposePlan && !options.mission) {
         try { const proposed=await proposePlan({...input,target_url,goal,options},user); if (proposed) {steps=C.normalizeSteps(proposed.steps,target_url);grounding=proposed.grounding||[];source='model';generation_mode='llm';} }
         catch(error) {if(error.statusCode===403)throw error;limitations.push('Model planning was unavailable or invalid. Add explicit browser steps to execute this goal.');}
       }
       if (!goal && !steps.length) steps=[{id:'step-1',label:'Verify the selected page',action:'assert_url',url:target_url}];
-      if (goal && !steps.length) limitations.push('This goal has no executable steps yet. Add concrete selectors and observable assertions before running.');
+      if (goal && !steps.length && !options.mission) limitations.push('This goal has no executable steps yet. Add concrete selectors and observable assertions before running.');
     } else limitations.push('This preset executes its published bounded checks. The goal provides review context and does not add arbitrary browser actions.');
     if(grounding.length)limitations.push('Suggestions use authorized saved Object Repository locators. Their current DOM matches remain unverified.');
+    if(options.mission) {limitations.splice(0,limitations.length,'The agent observes the current browser before each action. Review the target, credential reference, submission policy and execution limits.');}
     return {kind:input.kind,target_url,goal,steps,options,source,generation_mode,grounding,limitations,review_required:true};
   }
   async function createRun(input,user,{requestKey}={}) {
@@ -73,6 +74,8 @@ function createQualityAgentService(deps) {
     await scope(request.project_id,request.app_type_id,user,'agentic_workflow.run');
     const connection=await integration(request.integration_id,request.project_id,user);
     request.integration_id=connection.id;
+    if(request.options.mission&&resolveMissionModel)await resolveMissionModel(request,user);
+    if(request.options.mission){const capabilities=await engineRequest(connection,'/capabilities',undefined,{operation:'quality-agent.mission-preflight',deadlineMs:3000});if(capabilities?.missions?.supported!==true)throw C.fail('Update the configured browser engine to support autonomous missions.',503,'QUALITY_AGENT_MISSION_UNAVAILABLE');}
     let baseline;
     if (request.baseline_id) {
       if (request.kind!=='visual') throw C.fail('Baselines apply to visual regression only.');
@@ -117,15 +120,26 @@ function createQualityAgentService(deps) {
       const {timeout_ms,max_pages,...engineOptions}=r.options;
       const engine=m.engine_run_id
         ?await engineRequest(connection,`/runs/${m.engine_run_id}`,undefined,{operation:'quality-agent.poll'})
-        :await engineRequest(connection,'/runs',{client_run_id:m.id,kind:r.kind,target_url:r.target_url,scope:{project_id:row.project_id,app_type_id:row.app_type_id||null},options:{...engineOptions,...(r.kind==='web'?{approved_steps:r.reviewed_plan?.steps?.map(({id,label,...s})=>s)||[]} : {}),...(m.engine_baseline_id?{baseline_id:m.engine_baseline_id}:{})},limits:{max_pages,max_duration_ms:timeout_ms}},{operation:'quality-agent.start'});
+        :await engineRequest(connection,'/runs',{client_run_id:m.id,kind:r.kind,target_url:r.target_url,scope:{project_id:row.project_id,app_type_id:row.app_type_id||null},options:{...engineOptions,...(r.options.mission?{mission:{...r.options.mission,goal:r.goal}}:{}),...(r.kind==='web'&&!r.options.mission?{approved_steps:r.reviewed_plan?.steps?.map(({id,label,...s})=>s)||[]} : {}),...(m.engine_baseline_id?{baseline_id:m.engine_baseline_id}:{})},limits:{max_pages,max_duration_ms:timeout_ms}},{operation:'quality-agent.start'});
       C.validateEngineRun(engine,{id:m.id,...r,engine_run_id:m.engine_run_id});
-      patch={engine_run_id:engine.id,run_status:engine.state,outcome:engine.outcome,stages:engine.stages,findings:engine.findings,metrics:engine.metrics,artifacts:engine.artifacts,limitations:engine.limitations,started_at:engine.started_at||null,completed_at:engine.finished_at||null,error:engine.error?{code:C.text(engine.error.code,100),message:C.text(engine.error.message,1000)}:null};
+      if(engine.decision_request) {
+        if(!r.options.mission||!decideMission)throw C.fail('This browser run is not authorized for autonomous decisions.',403);
+        // Recheck identity/scope after model latency and before releasing the browser action.
+        const sequence=engine.decision_request.sequence;
+        if(!await store.checkpoint(row,{engine_run_id:engine.id,run_status:engine.state,stages:engine.stages,mission_report:engine.mission_report,metrics:engine.metrics,findings:engine.findings,artifacts:engine.artifacts,limitations:engine.limitations}))return;
+        const decision=m.last_decision?.sequence===sequence?m.last_decision.decision:await decideMission(r,actor,engine.decision_request,engine.mission_report?.actions||[],{session_id:row.id});
+        if(!await store.checkpoint(row,{last_decision:{sequence,decision}}))return;
+        const current=await store.findRun(m.id);if(!current||terminal(current.metadata.run_status))return;
+        const activeActor=await workerUser(row.created_by);await scope(row.project_id,row.app_type_id,activeActor,'agentic_workflow.run');
+        await engineRequest(connection,`/runs/${engine.id}/decision`,{sequence:engine.decision_request.sequence,scope:{project_id:row.project_id,app_type_id:row.app_type_id||null},decision},{operation:'quality-agent.decision'});
+      }
+      patch={engine_run_id:engine.id,run_status:engine.state,outcome:engine.outcome,stages:engine.stages,findings:engine.findings,metrics:engine.metrics,artifacts:engine.artifacts,mission_report:engine.mission_report,limitations:engine.limitations,started_at:engine.started_at||null,completed_at:engine.finished_at||null,error:engine.error?{code:C.text(engine.error.code,100),message:C.text(engine.error.message,1000)}:null};
       status=engine.state==='cancelled'?'failed':engine.state;
     } catch(error) {
       // A lost POST acknowledgement is safely retried with the same durable client_run_id.
       const retryable=error?.retryable===true || ['QUALITY_AGENT_ENGINE_UNAVAILABLE'].includes(error?.code);
       if (retryable && Date.now()-Date.parse(m.queued_at)<r.options.timeout_ms+90000) {patch={last_poll_error:'Test Engine temporarily unavailable; the saved review will retry.'};status=row.status;}
-      else {patch={run_status:'failed',outcome:'error',completed_at:new Date().toISOString(),error:{code:C.text(error?.code,100)||'QUALITY_AGENT_FAILED',message:error.publicMessage||'The review could not complete safely. Check the Test Engine connection and retry.'}};status='failed';if(m.engine_run_id||error?.code==='QUALITY_AGENT_DEADLINE')await remoteStop(row,{id:row.created_by});}
+      else {patch={run_status:'failed',outcome:'error',completed_at:new Date().toISOString(),error:{code:C.text(error?.code,100)||'QUALITY_AGENT_FAILED',message:error.publicMessage||'The review could not complete safely. Check the Test Engine connection and retry.'}};status='failed';const current=await store.findRun(m.id);patch.stages=(current?.metadata.stages||m.stages||[]).map(stage=>stage.status==='running'?{...stage,status:'failed'}:stage);if(current?.metadata.mission_report)patch.mission_report={...current.metadata.mission_report,status:'blocked',summary:patch.error.message};if(m.engine_run_id||r.options.mission||error?.code==='QUALITY_AGENT_DEADLINE')await remoteStop(current||row,{id:row.created_by});}
     }
     const updated=await store.updateClaim(row,patch,status);
     if(!updated&&patch.engine_run_id){const current=await store.findRun(m.id);if(current?.metadata.run_status==='cancelled')await remoteStop({...current,metadata:{...current.metadata,engine_run_id:patch.engine_run_id}},{id:row.created_by});}
@@ -172,6 +186,7 @@ function defaults() {
     if(!C.text(projectId,255)||!user?.id) throw C.fail('Select a project for this quality review.',400);
     await require(`${platform}/public/projectAccess`).getProject(projectId,user.id);
     if(!await permissions.hasPermission(user,permission,projectId)) throw C.fail(`Permission required: ${permission}`,403);
+    const features=require(`${platform}/services/featureFlag.service`);if(!await features.areEnabled(features.getFeatureKeysForPermission(permission),{user}))throw C.fail('Quality agents are disabled for this workspace.',403);
     if(appId){const app=await db.prepare('SELECT id,project_id FROM app_types WHERE id = ?').get(appId);if(!app||app.project_id!==projectId)throw C.fail('The application must belong to this project.',403);}
   };
   const integration=async(id,projectId,user,{worker=false}={})=>{
@@ -181,7 +196,7 @@ function defaults() {
     if(connection.config?.project_id&&connection.config.project_id!==projectId)throw C.fail('This Test Engine belongs to another project.',403);
     C.targetUrl(connection.base_url);return connection;
   };
-  return {store:require('./qualityAgentStore').createQualityAgentStore({db:obsDb,workspace}),scope,integration,http:require(`${platform}/src/utils/resilientHttpClient`).resilientHttpRequest,secret:c=>require(`${platform}/src/security/runtimeSecrets`).resolveTestEngineSecret(c.config?.shared_secret),workerUser:async id=>{const actor=await db.prepare('SELECT id,email,name,status,is_workspace_admin FROM users WHERE id = ?').get(id);if(!actor||actor.status!=='active')throw C.fail('The account that started this review is no longer active.',403);return {...actor,role:actor.is_workspace_admin?'admin':'member'};},proposePlan:require('./qualityAgentPlanner').proposePlan};
+  return {store:require('./qualityAgentStore').createQualityAgentStore({db:obsDb,workspace}),scope,integration,http:require(`${platform}/src/utils/resilientHttpClient`).resilientHttpRequest,secret:c=>require(`${platform}/src/security/runtimeSecrets`).resolveTestEngineSecret(c.config?.shared_secret),workerUser:async id=>{const actor=await db.prepare('SELECT id,email,name,status,is_workspace_admin FROM users WHERE id = ?').get(id);if(!actor||actor.status!=='active')throw C.fail('The account that started this review is no longer active.',403);return {...actor,role:actor.is_workspace_admin?'admin':'member'};},proposePlan:require('./qualityAgentPlanner').proposePlan,decideMission:require('./browserMissionPlanner').decideMission,resolveMissionModel:require('./browserMissionPlanner').resolveMissionModel};
 }
 const exported={createQualityAgentService};
 for(const name of ['catalog','plan','createRun','getRun','listRuns','cancelRun','processQueuedRuns','getArtifact','listBaselines','approveBaseline','getBaselineArtifact','shutdown']) exported[name]=(...args)=>(singleton||(singleton=createQualityAgentService(defaults())))[name](...args);

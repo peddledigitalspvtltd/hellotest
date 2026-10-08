@@ -44,17 +44,18 @@ function argumentsFor(op,actor,args={}) {
  query.limit=Math.min(50,Math.max(1,Number(query.limit)||25));
  query.page_size=Math.min(50,Math.max(1,Number(query.page_size)||25));
  if(query.offset!==undefined)query.offset=Math.min(10000,Math.max(0,Number(query.offset)||0));
- if(body.project_id!==undefined||op.path==='/executions')body.project_id=actor.projectId;
+ if(body.project_id!==undefined||['/executions','/agentic-quality/runs'].includes(op.path))body.project_id=actor.projectId;
  return {url:url+'?'+new URLSearchParams(query),body};
 }
 async function targetScope(op,actor,args) {
  const root=registry.rootFor(op.path);
  if(!root)throw fail('This operation needs a project-aware domain wrapper.',422,'MCP_WRAPPER_REQUIRED');
  const id=args.path?.id||args.path?.testCaseId||args.path?.executionId||args.path?.runId;
- if(id)await scopes.resolveEntityScope({entityType:root[1],entityId:id,projectId:actor.projectId});
+ if(id&&root[1]!=='browser_mission')await scopes.resolveEntityScope({entityType:root[1],entityId:id,projectId:actor.projectId});
  if(args.path?.project_id&&args.path.project_id!==actor.projectId)throw fail('Project does not match this connection.');
  const appType=args.body?.app_type_id||args.query?.app_type_id;
  if(appType){const row=await db.prepare('SELECT project_id FROM app_types WHERE id=?').get(appType);if(!row||row.project_id!==actor.projectId)throw fail('Application is outside the selected project.');}
+ if(root[1]==='browser_mission'&&id){const response=await app.inject({method:'GET',url:`/agentic-quality/runs/${encodeURIComponent(id)}`,headers:{authorization:'Bearer '+createToken(actor.user)}});if(response.statusCode!==200||response.json().project_id!==actor.projectId)throw fail('Browser mission is outside this MCP project.',404);}
  if(op.path==='/executions') {
   if(args.body?.suite_ids?.length)throw fail('Select explicit test cases for an MCP execution plan.',422);
   for(const caseId of args.body?.test_case_ids||[])await scopes.resolveEntityScope({entityType:'test_case',entityId:caseId,projectId:actor.projectId});
@@ -88,7 +89,7 @@ async function invokeOperation(actor,op,args,signal) {
  if(!op.path_parameters.length){
   const records=Array.isArray(safe)?safe:Array.isArray(safe.items)?safe.items:[];
   const root=registry.rootFor(op.path);
-  for(const record of records)if(record?.id)await scopes.resolveEntityScope({entityType:root[1],entityId:record.id,projectId:actor.projectId});
+  for(const record of records)if(record?.id&&!root[1].startsWith('browser_'))await scopes.resolveEntityScope({entityType:root[1],entityId:record.id,projectId:actor.projectId});
  }
  return safe;
 }
@@ -137,7 +138,7 @@ async function prepare(actor,{operation_id,arguments:args}) {
  let validate=actionSchemas.get(schemaKey);
  if(!validate){validate=actionValidator.compile(op.input_schema.body);actionSchemas.clear();actionSchemas.set(schemaKey,validate);}
  if(!validate(args.body||{}))throw fail('Action arguments do not match the domain input schema. Inspect the operation before preparing a plan.',400,'MCP_INVALID_ARGUMENT');
- const unsafe=value=>typeof value==='string'?require('@hellotest/platform/backend/src/security/aiTextPolicy').redactSensitiveData(value).redaction_count>0:value&&typeof value==='object'&&Object.entries(value).some(([key,item])=>sensitive.test(key)||unsafe(item));
+ const unsafe=value=>typeof value==='string'?(/\bmcp1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(value)||require('@hellotest/platform/backend/src/security/aiTextPolicy').redactSensitiveData(value).redaction_count>0):value&&typeof value==='object'&&Object.entries(value).some(([key,item])=>(sensitive.test(key)&&!(op.path==='/agentic-quality/runs'&&key==='credential_ref'&&typeof item==='string'&&/^[A-Za-z0-9_.:-]{1,128}$/.test(item)))||unsafe(item));
  if(canonical(args).length>40000||unsafe(args))throw fail('Use bounded action arguments without credentials or sensitive fields.',400,'MCP_INVALID_ARGUMENT');
  if(op.path==='/test-cases'&&(!args.body?.app_type_id||!args.body?.title))throw fail('A test case requires its application and title.',400);
  if(op.path==='/executions'&&(!Array.isArray(args.body?.test_case_ids)||!args.body.test_case_ids.length||args.body.test_case_ids.length>50))throw fail('Select 1–50 explicit cases.',400);
@@ -170,7 +171,7 @@ async function execute(actor,{plan_id},signal) {
   const observed=await invokeOperation(actor,get,{path:{id:result.id}},signal);
   if(observed.id!==result.id)throw fail('Persisted record could not be verified.',502,'MCP_UNVERIFIED_COMPLETION');
   if(op.path==='/test-cases'&&(observed.title!==row.arguments.body.title||observed.app_type_id!==row.arguments.body.app_type_id))throw fail('Persisted fields do not match the prepared plan.',502,'MCP_UNVERIFIED_COMPLETION');
-  state=op.path==='/executions'&&['local','remote'].includes(row.arguments.body.execution_mode)?'submitted':'succeeded_verified';
+  state=op.path==='/agentic-quality/runs'?'submitted':op.path==='/executions'&&['local','remote'].includes(row.arguments.body.execution_mode)?'submitted':'succeeded_verified';
   receipt={state,domain_id:result.id,verification:{record_id:observed.id,observed_at:new Date().toISOString()},data:bounded(result)};
  }catch(error){state=error.code==='MCP_DOMAIN_REJECTED'&&error.statusCode<500?'failed':'unknown';receipt={state,code:error.code||'MCP_EXECUTION_UNKNOWN',message:state==='unknown'?'The effect is uncertain. Reconcile this plan; do not submit a replacement.':'The domain rejected this operation.'};}
  await db.transaction(async()=>{

@@ -3,11 +3,13 @@ import { randomUUID, createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rename, writeFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import type { QualityArtifact, QualityBaseline, QualityFinding, QualityRun, QualityRunInput, QualityStage } from "../../contracts/qualityAgents.js";
+import type { QualityArtifact, QualityBaseline, QualityFinding, QualityRun, QualityRunInput, QualityStage, QualityDecision } from "../../contracts/qualityAgents.js";
 import { parseQualityInput, publicUrl, QualityError, safeText } from "./contracts.js";
 import { createQualityProxy, QualityNetworkPolicy } from "./network.js";
 import { comparePng } from "./png.js";
 import { scanAccessibility, scanSecurity } from "./scanners.js";
+
+import { observeMission, validateMissionDecision, applyMissionDecision, missionCredential, authenticateMission } from "./mission.js";
 
 type StoredRun = { input: QualityRunInput; run: QualityRun; fingerprint: string };
 type RuntimeOptions = { directory?: string; executablePath?: string; environment?: NodeJS.ProcessEnv; concurrency?: number };
@@ -25,6 +27,7 @@ export class QualityAgentRuntime {
   private queue: string[] = [];
   private active = 0;
   private executions = new Map<string, Promise<void>>();
+  private decisions = new Map<string, QualityDecision>();
   private closing = false;
   private acceptLock = Promise.resolve();
   private baselineLock = Promise.resolve();
@@ -36,7 +39,7 @@ export class QualityAgentRuntime {
   capabilities() {
     const configured=this.options.executablePath||this.environment.QUALITY_AGENT_BROWSER_PATH||this.environment.PLAYWRIGHT_EXECUTABLE_PATH;
     const available=existsSync(configured||chromium.executablePath());
-    return {contract_version:"1.0",available:available&&!this.closing,browser:{available,engine:"chromium",verification:available?"binary_present":"binary_missing",configured_path:Boolean(configured)},checks:{web:"reviewed_playwright_journeys",security:"passive_browser_posture",performance:"single_navigation_metrics",accessibility:"axe-core",visual:"reviewed_baseline_pixel_diff"},limits:{concurrency:this.options.concurrency||2,queued_runs:32,max_pages:5,max_duration_ms:120000,max_requests:250,max_artifacts:10,max_artifact_bytes:8*1024*1024,retained_runs:1000},active_runs:this.active,queued_runs:this.queue.length,limitations:["Browser availability verifies the installed binary, not a completed test launch.","Private QA targets and additional resource origins require exact administrator allowlists."]};
+    return {contract_version:"1.0",available:available&&!this.closing,browser:{available,engine:"chromium",verification:available?"binary_present":"binary_missing",configured_path:Boolean(configured)},missions:{supported:true,decision_transport:"scoped_polling",actions:["click","fill","select","press","navigate","extract","complete","blocked","scroll","hover","wait","back","assert_text"],credential_references:["http_basic","form"]},checks:{web:"reviewed_playwright_journeys",security:"passive_browser_posture",performance:"single_navigation_metrics",accessibility:"axe-core",visual:"reviewed_baseline_pixel_diff"},limits:{concurrency:this.options.concurrency||2,queued_runs:32,max_pages:5,max_duration_ms:120000,max_requests:250,max_artifacts:10,max_artifact_bytes:8*1024*1024,retained_runs:1000},active_runs:this.active,queued_runs:this.queue.length,limitations:["Browser availability verifies the installed binary, not a completed test launch.","Private QA targets and additional resource origins require exact administrator allowlists."]};
   }
   async initialize() {
     for (const name of ["runs", "artifacts", "baselines"]) await mkdir(join(this.directory,name), { recursive:true, mode:0o700 });
@@ -131,10 +134,19 @@ export class QualityAgentRuntime {
     await this.atomic(join(this.directory,"baselines",`${baseline.id}.png`),evidence.bytes);await this.atomic(join(this.directory,"baselines",`${baseline.id}.json`),JSON.stringify(baseline));this.baselines.set(baseline.id,baseline);return clone(baseline);
     } finally { unlock(); }
   }
+  async decide(id:string,value:{sequence:number;scope:{project_id:string;app_type_id?:string|null};decision:unknown}) {
+    const stored=this.records.get(id);if(!stored||stored.run.scope.project_id!==value.scope?.project_id||(stored.run.scope.app_type_id||null)!==(value.scope?.app_type_id||null))throw new QualityError("QUALITY_RUN_NOT_FOUND","Scoped browser run was not found.",404);
+    if(terminal(stored.run))throw new QualityError("QUALITY_RUN_FINISHED","This browser run has finished.",409);
+    const observation=stored.run.decision_request;if(!observation||observation.sequence!==value.sequence)throw new QualityError("QUALITY_DECISION_STALE","The browser observation has changed.",409);
+    const decision=validateMissionDecision(value.decision,observation,stored.input.target_url);
+    const key=`${id}:${value.sequence}`,previous=this.decisions.get(key);
+    if(previous&&JSON.stringify(previous)!==JSON.stringify(decision))throw new QualityError("QUALITY_DECISION_CONFLICT","A different decision already owns this observation.",409);
+    this.decisions.set(key,decision);return {accepted:true,sequence:value.sequence};
+  }
   async cancel(id:string) {
     const stored=this.records.get(id);if(!stored)throw new QualityError("QUALITY_RUN_NOT_FOUND","Quality run was not found.",404);
     if(terminal(stored.run))return clone(stored.run);
-    this.controllers.get(id)?.abort("cancelled");stored.run.state="cancelled";stored.run.outcome=null;stored.run.finished_at=timestamp();for(const stage of stored.run.stages)if(stage.status==="running")stage.status="failed";await this.persist(stored);return clone(stored.run);
+    this.controllers.get(id)?.abort("cancelled");if(stored.run.mission_report){stored.run.mission_report.status="cancelled";stored.run.mission_report.summary="Stopped. Partial browser observations are preserved.";}stored.run.state="cancelled";stored.run.outcome=null;stored.run.finished_at=timestamp();for(const stage of stored.run.stages)if(stage.status==="running")stage.status="failed";await this.persist(stored);return clone(stored.run);
   }
   async cancelByClient(clientId:string,scope:{project_id:string;app_type_id?:string|null}) {
     const stored=[...this.records.values()].find(record=>record.run.client_run_id===clientId&&record.run.scope.project_id===scope.project_id&&(record.run.scope.app_type_id||null)===(scope.app_type_id||null));
@@ -143,33 +155,40 @@ export class QualityAgentRuntime {
   async close() { this.closing=true;for(const id of [...this.records.keys()]){const stored=this.records.get(id)!;if(!terminal(stored.run))await this.cancel(id);}await Promise.allSettled([...this.executions.values()]);await Promise.allSettled([...this.writes.values()]); }
   private async execute(stored:StoredRun) {
     const controller=new AbortController();this.controllers.set(stored.run.id,controller);
+    let credential:ReturnType<typeof missionCredential>=null;
     let browser:Browser|undefined,activePage:Page|undefined,proxy:Awaited<ReturnType<typeof createQualityProxy>>|undefined;
     const deadline=Date.now()+(stored.input.limits?.max_duration_ms||60000);
     const active=()=>{if(controller.signal.aborted||terminal(stored.run))throw new QualityError(controller.signal.reason==="timeout"?"QUALITY_TIMEOUT":controller.signal.reason==="resource_limit"?"QUALITY_REQUEST_LIMIT":"QUALITY_CANCELLED",controller.signal.reason==="timeout"?"The bounded browser run exceeded its time limit.":controller.signal.reason==="resource_limit"?"The browser exceeded its 250-request limit.":"The run was cancelled.",409);};
     const timer=setTimeout(()=>controller.abort("timeout"),stored.input.limits?.max_duration_ms||60000);timer.unref?.();
     const abort=()=>{void browser?.close().catch(()=>undefined);};controller.signal.addEventListener("abort",abort);
-    const findings=(items:QualityFinding[])=>{stored.run.findings.push(...items.slice(0,100-stored.run.findings.length));};
+    const secretValues=()=>credential?.httpCredentials?[credential.httpCredentials.username,credential.httpCredentials.password]:credential?.steps.map((s:{value:string})=>s.value)||[];
+    const scrub=(value:string)=>secretValues().reduce((text:string,secret:string)=>secret?text.split(secret).join('[redacted]'):text,value);
+    const findings=(items:QualityFinding[])=>{stored.run.findings.push(...items.slice(0,100-stored.run.findings.length).map(item=>({...item,title:scrub(item.title),description:scrub(item.description),evidence:scrub(item.evidence),...(item.recommendation?{recommendation:scrub(item.recommendation)}:{})})));};
     try {
       active();stored.run.state="running";stored.run.started_at=timestamp();await this.stage(stored,"browser","Opening a protected browser");
       const policy=new QualityNetworkPolicy(stored.input.target_url,this.environment);await policy.resolve(stored.input.target_url);active();proxy=await createQualityProxy(policy);
       const executable=this.options.executablePath||this.environment.QUALITY_AGENT_BROWSER_PATH||this.environment.PLAYWRIGHT_EXECUTABLE_PATH;
       browser=await chromium.launch({headless:true,timeout:Math.max(1,Math.min(10000,deadline-Date.now())),proxy:{server:proxy.server,bypass:""},...(executable?{executablePath:executable}:{}),args:["--proxy-bypass-list=<-loopback>","--disable-quic","--disable-background-networking","--force-webrtc-ip-handling-policy=disable_non_proxied_udp"]});active();
-      const context=await browser.newContext({viewport:stored.input.options?.viewport||{width:1280,height:800},deviceScaleFactor:1,locale:"en-US",timezoneId:"UTC",colorScheme:"light",reducedMotion:"reduce",serviceWorkers:"block",acceptDownloads:false});
+      credential=missionCredential(stored.input,this.environment);
+      const context=await browser.newContext({...(credential?.httpCredentials?{httpCredentials:credential.httpCredentials}:{}),viewport:stored.input.options?.viewport||{width:1280,height:800},deviceScaleFactor:1,locale:"en-US",timezoneId:"UTC",colorScheme:"light",reducedMotion:"reduce",serviceWorkers:"block",acceptDownloads:false});
       let blocked=0,requests=0,popups=0;const requestErrors:string[]=[],consoleErrors:string[]=[];
       await context.route("**/*",async route=>{requests++;if(requests>250){blocked++;controller.abort("resource_limit");await route.abort("blockedbyclient").catch(()=>undefined);return;}if(!policy.allows(route.request().url())){blocked++;await route.abort("blockedbyclient");return;}try{await policy.resolve(route.request().url());if(controller.signal.aborted)await route.abort();else await route.continue();}catch{blocked++;await route.abort("blockedbyclient").catch(()=>undefined);}});
       context.on("page",page=>{if(context.pages().length>1){popups++;void page.close();}});
       const page=await context.newPage();activePage=page;page.setDefaultTimeout(8000);page.setDefaultNavigationTimeout(Math.max(1,Math.min(30000,deadline-Date.now())));
+      let response:Response|null=null;
+      page.on("response",event=>{if(event.request().isNavigationRequest()&&event.frame()===page.mainFrame())response=event;});
       page.on("pageerror",error=>{if(consoleErrors.length<20)consoleErrors.push(safeText(error.message,500));});
       page.on("console",message=>{if(message.type()==="error"&&consoleErrors.length<20)consoleErrors.push(safeText(message.text(),500));});
       page.on("requestfailed",request=>{if(requestErrors.length<20)requestErrors.push(`${publicUrl(request.url())}: ${safeText(request.failure()?.errorText,120)}`);});
       await page.addInitScript(()=>{const observed={lcp:null as number|null,cls:0};(window as unknown as {__qualityMetrics:typeof observed}).__qualityMetrics=observed;try{new PerformanceObserver(list=>{for(const entry of list.getEntries())observed.lcp=entry.startTime;}).observe({type:"largest-contentful-paint",buffered:true});new PerformanceObserver(list=>{for(const entry of list.getEntries() as Array<PerformanceEntry&{hadRecentInput?:boolean;value?:number}>)if(!entry.hadRecentInput)observed.cls+=entry.value||0;}).observe({type:"layout-shift",buffered:true});}catch{/* Unsupported browser metrics remain unavailable. */}});
       await this.stage(stored,"browser","Opening a protected browser","completed");active();await this.stage(stored,"navigation","Navigating the approved target");
-      const start=Date.now();let response:Response|null=await page.goto(stored.input.target_url,{waitUntil:stored.input.options?.wait_until||"load"});active();
+      const start=Date.now();response=await page.goto(stored.input.target_url,{waitUntil:stored.input.options?.wait_until||"load"});active();
+      await authenticateMission(page,credential,stored.input.target_url);active();
       stored.run.metrics.navigation_wall_ms=Date.now()-start;stored.run.metrics.http_status=response?.status()||null;
       if(response&&response.status()>=400)findings([{id:"web-http-status",category:"navigation",severity:"high",title:"The target returned an HTTP error",description:"The browser's main document response was unsuccessful.",evidence:`HTTP ${response.status()} at ${publicUrl(page.url())}.`}]);
       await this.stage(stored,"navigation","Navigating the approved target","completed");await this.stage(stored,"analysis",`Running ${stored.input.kind} checks`);active();
       let visited=1;
-      if(stored.input.kind==="web") {
+      if(stored.input.kind==="web" && !stored.input.options?.mission) {
         for(const [index,step] of (stored.input.options?.approved_steps||[]).entries()) {
           active();await this.stage(stored,`step-${index+1}`,`Step ${index+1}: ${step.action.replace(/_/g," ")}`);
           const before=page.url();const locator=page.locator(step.selector||"body");
@@ -187,12 +206,44 @@ export class QualityAgentRuntime {
         stored.run.metrics.journey_steps_completed=stored.input.options?.approved_steps?.length||0;
         stored.run.limitations.push(stored.input.options?.approved_steps?.length?"Only the explicitly reviewed journey actions were performed. No model-generated actions or credential entry were executed.":"Bounded same-origin navigation smoke checks only. Forms were not submitted and business workflow completeness was not inferred.");
       }
+      if(stored.input.options?.mission) {
+        const mission=stored.input.options.mission;
+        stored.run.mission_report={status:"running",summary:"Working on the requested browser task.",actions:[]};
+        let previousError:string|undefined;
+        for(let sequence=1;sequence<=mission.max_actions;sequence++) {
+          active();const observation=await observeMission(page,sequence);observation.previous_error=previousError;
+          for(const secret of secretValues())if(secret){observation.text=observation.text.split(secret).join('[redacted]');observation.title=observation.title.split(secret).join('[redacted]');observation.elements.forEach(e=>{e.label=e.label.split(secret).join('[redacted]');});}
+          stored.run.decision_request=observation;
+          await this.stage(stored,`mission-${sequence}`,`Observing browser · action ${sequence}`);
+          const key=`${stored.run.id}:${sequence}`;
+          while(!this.decisions.has(key)){active();await new Promise(resolve=>setTimeout(resolve,100));}
+          const decision=this.decisions.get(key)!;this.decisions.delete(key);delete stored.run.decision_request;active();
+          const entry={sequence,action:decision.action,summary:decision.summary,url:publicUrl(page.url()),status:"completed"};
+          if(decision.action==='complete'||decision.action==='blocked') {stored.run.mission_report.status=decision.action==='complete'?'completed':'blocked';stored.run.mission_report.summary=decision.summary;stored.run.mission_report.actions.push(entry);await this.stage(stored,`mission-${sequence}`,decision.summary,"completed");break;}
+          try {
+            if(!mission.allow_form_submission&&['click','press'].includes(decision.action)) {
+              const submitting=await page.locator(`[data-hellotest-mission="${decision.element_id}"]`).evaluate(element=>{const control=element as HTMLButtonElement;return Boolean(control.closest('form')&&(control.type==='submit'||control.tagName==='INPUT'||control.tagName==='TEXTAREA'));});
+              if(submitting&&(decision.action==='click'||decision.key==='Enter'))throw new QualityError('QUALITY_SUBMISSION_REVIEW','Form submission requires explicit mission authorization.',403);
+            }
+            const before=page.url();await applyMissionDecision(page,decision);active();
+            if(new URL(page.url()).origin!==new URL(stored.input.target_url).origin)throw new QualityError('QUALITY_ORIGIN_CHANGED','The mission left its approved origin.',403);
+            if(page.url()!==before)visited++;if(visited>(stored.input.limits?.max_pages||1))throw new QualityError('QUALITY_PAGE_LIMIT','The browser mission exceeded its page limit.',422);
+            previousError=undefined;
+            if(decision.action==='extract')findings([{id:`mission-extract-${sequence}`,category:'extraction',severity:'info',title:observation.title||'Extracted browser content',description:decision.summary,evidence:observation.text}]);
+          }catch(error){if(error instanceof QualityError&&['QUALITY_PAGE_LIMIT','QUALITY_ORIGIN_CHANGED'].includes(error.code))throw error;previousError='The browser action did not complete. Observe the current page and choose a different action.';entry.status='failed';}
+          stored.run.mission_report.actions.push(entry);await this.stage(stored,`mission-${sequence}`,decision.summary,entry.status==='failed'?'failed':'completed');
+        }
+        if(stored.run.mission_report.status==='running'){stored.run.mission_report.status='limit_reached';stored.run.mission_report.summary='The bounded mission reached its action limit.';}
+        if(stored.run.mission_report.status!=='completed')stored.run.outcome='needs_review';
+        stored.run.metrics.mission_actions=stored.run.mission_report.actions.length;
+        stored.run.limitations.push('Autonomous actions used observed browser elements within the authorized origin, page, time and action limits. Completion is a model assessment; inspect the retained browser evidence.');
+      }
       if(stored.input.kind==="security"){const scan=await scanSecurity(page,response);findings(scan.findings);Object.assign(stored.run.metrics,scan.metrics);stored.run.limitations.push(...scan.limitations);}
       if(stored.input.kind==="accessibility"){const scan=await scanAccessibility(page);findings(scan.findings);Object.assign(stored.run.metrics,scan.metrics);stored.run.limitations.push(...scan.limitations);if(scan.metrics.needs_manual_review&&!scan.findings.length)stored.run.outcome="needs_review";}
       if(stored.input.kind==="performance"){
-        const metrics=await page.evaluate(()=>{const navigation=performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming|undefined;const resources=performance.getEntriesByType("resource") as PerformanceResourceTiming[];const observed=(window as unknown as {__qualityMetrics?:{lcp:number|null;cls:number}}).__qualityMetrics;return {dom_content_loaded_ms:navigation?.domContentLoadedEventEnd||null,load_ms:navigation?.loadEventEnd||null,ttfb_ms:navigation?navigation.responseStart-navigation.requestStart:null,lcp_ms:observed?.lcp??null,cls:observed?.cls??null,resource_count:resources.length,transfer_bytes:resources.reduce((sum,item)=>sum+item.transferSize,0)+(navigation?.transferSize||0),cross_origin_transfer_unknown:resources.filter(item=>item.transferSize===0&&new URL(item.name).origin!==location.origin).length};});
+        const metrics=await page.evaluate(()=>{const navigation=performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming|undefined;const resources=performance.getEntriesByType("resource") as PerformanceResourceTiming[];const observed=(window as unknown as {__qualityMetrics?:{lcp:number|null;cls:number}}).__qualityMetrics;return {navigation_ms:navigation?.duration||null,dom_content_loaded_ms:navigation?.domContentLoadedEventEnd||null,load_ms:navigation?.loadEventEnd||null,ttfb_ms:navigation?navigation.responseStart-navigation.requestStart:null,lcp_ms:observed?.lcp??null,cls:observed?.cls??null,resource_count:resources.length,transfer_bytes:resources.reduce((sum,item)=>sum+item.transferSize,0)+(navigation?.transferSize||0),cross_origin_transfer_unknown:resources.filter(item=>item.transferSize===0&&new URL(item.name).origin!==location.origin).length};});
         Object.assign(stored.run.metrics,metrics);const budgets={navigation_ms:4000,lcp_ms:2500,cls:.1,resource_count:100,transfer_bytes:2000000,...stored.input.options?.budgets};
-        for(const [key,budget] of Object.entries(budgets)){const metric=key==="navigation_ms"?stored.run.metrics.navigation_wall_ms:stored.run.metrics[key];if(typeof metric==="number"&&metric>budget)findings([{id:`performance-${key}`,category:"performance_budget",severity:"medium",title:`${key.replace(/_/g," ")} exceeds the reviewed budget`,description:"The observed browser navigation exceeded this explicit threshold.",evidence:`Observed ${metric}; budget ${budget}.`}]);stored.run.metrics[`budget_${key}`]=budget;}
+        for(const [key,budget] of Object.entries(budgets)){const metric=key==="navigation_ms"?(stored.run.metrics.navigation_ms ?? stored.run.metrics.navigation_wall_ms):stored.run.metrics[key];if(typeof metric==="number"&&metric>budget)findings([{id:`performance-${key}`,category:"performance_budget",severity:"medium",title:`${key.replace(/_/g," ")} exceeds the reviewed budget`,description:"The observed browser navigation exceeded this explicit threshold.",evidence:`Observed ${metric}; budget ${budget}.`}]);stored.run.metrics[`budget_${key}`]=budget;}
         stored.run.limitations.push("One isolated Chromium navigation measurement; this is not load testing or a field Core Web Vitals assessment.","Resource transfer size may be hidden by cross-origin Timing-Allow-Origin policy. LCP is provisional at capture time; cache, network and machine load affect measurements.");
       }
       active();stored.run.metrics.visited_pages=visited;stored.run.metrics.browser_requests=requests;stored.run.metrics.blocked_requests=blocked;stored.run.metrics.blocked_popups=popups;
@@ -203,7 +254,7 @@ export class QualityAgentRuntime {
       }
       await this.stage(stored,"analysis",`Running ${stored.input.kind} checks`,"completed");await this.stage(stored,"artifacts","Saving browser evidence");
       await page.evaluate(async()=>{if(document.fonts)await document.fonts.ready;});active();
-      const masks=["input[type=password]","[data-sensitive]",...(stored.input.options?.masks||[])].map(selector=>page.locator(selector));
+      const masks=["input[type=password]","[data-sensitive]",...(credential?.masks||[]),...(stored.input.options?.masks||[])].map(selector=>page.locator(selector)).concat(secretValues().filter(Boolean).map((secret:string)=>page.getByText(secret,{exact:false})));
       const screenshot=await page.screenshot({type:"png",animations:"disabled",caret:"hide",fullPage:false,mask:masks,maskColor:"#e5e7eb",timeout:8000});active();
       await this.artifact(stored,screenshot,stored.input.kind==="visual"?"Visual candidate.png":"Browser evidence.png","screenshot","image/png");
       if(stored.input.kind==="visual"){
@@ -225,11 +276,12 @@ export class QualityAgentRuntime {
       if(stored.run.state!=="cancelled") {
         const failure=error instanceof QualityError?error:new QualityError("QUALITY_BROWSER_FAILED","The browser run could not complete. Check the target, browser installation and network policy.",500);
         const errorResult=controller.signal.reason==="timeout"?{code:"QUALITY_TIMEOUT",message:"The bounded browser run exceeded its time limit."}:controller.signal.reason==="resource_limit"?{code:"QUALITY_REQUEST_LIMIT",message:"The browser exceeded its 250-request limit."}:{code:failure.code,message:safeText(failure.message)};
+        if(stored.run.mission_report){stored.run.mission_report.status="blocked";stored.run.mission_report.summary=errorResult.message;}
         for(const stage of stored.run.stages)if(stage.status==="running")stage.status="failed";
-        if(!controller.signal.aborted&&activePage&&!activePage.isClosed())try{const screenshot=await activePage.screenshot({type:"png",animations:"disabled",caret:"hide",fullPage:false,mask:[activePage.locator('input[type=password],[data-sensitive]'),...(stored.input.options?.masks||[]).map(selector=>activePage!.locator(selector))],timeout:2000});await this.artifact(stored,screenshot,"Failure evidence.png","screenshot","image/png");}catch{/* Failure capture is best effort and never changes the run outcome. */}
+        if(!controller.signal.aborted&&activePage&&!activePage.isClosed())try{const screenshot=await activePage.screenshot({type:"png",animations:"disabled",caret:"hide",fullPage:false,mask:[activePage.locator('input[type=password],[data-sensitive]'),...(credential?.masks||[]).map((selector:string)=>activePage!.locator(selector)),...(stored.input.options?.masks||[]).map(selector=>activePage!.locator(selector)),...secretValues().filter(Boolean).map((secret:string)=>activePage!.getByText(secret,{exact:false}))],timeout:2000});await this.artifact(stored,screenshot,"Failure evidence.png","screenshot","image/png");}catch{/* Failure capture is best effort and never changes the run outcome. */}
         // Cancellation may happen while failure evidence is being saved.
         if((stored.run as QualityRun).state!=="cancelled"){stored.run.state="failed";stored.run.outcome="error";stored.run.error=errorResult;stored.run.finished_at=timestamp();await this.persist(stored);}
       }
-    }finally{clearTimeout(timer);controller.signal.removeEventListener("abort",abort);await browser?.close().catch(()=>undefined);await proxy?.close().catch(()=>undefined);this.controllers.delete(stored.run.id);}
+    }finally{delete stored.run.decision_request;await this.persist(stored).catch(()=>undefined);for(const key of this.decisions.keys())if(key.startsWith(`${stored.run.id}:`))this.decisions.delete(key);clearTimeout(timer);controller.signal.removeEventListener("abort",abort);await browser?.close().catch(()=>undefined);await proxy?.close().catch(()=>undefined);this.controllers.delete(stored.run.id);}
   }
 }

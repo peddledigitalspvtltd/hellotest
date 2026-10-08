@@ -1,5 +1,5 @@
 import specialistProfiles from "../../shared/workflowSpecialists.json";
-export type AgentCategory = "repository" | "planning" | "design" | "investigation";
+export type AgentCategory = "repository" | "planning" | "design" | "investigation" | "quality";
 export type AgentExperience = {
   category: AgentCategory;
   outcome: string;
@@ -12,6 +12,7 @@ export type AgentExperience = {
 };
 
 export const AGENT_CATEGORIES: Array<{ id: AgentCategory; label: string }> = [
+  { id: "quality", label: "Quality agents" },
   { id: "repository", label: "Build from source" },
   { id: "planning", label: "Plan & assess" },
   { id: "design", label: "Design & automate" },

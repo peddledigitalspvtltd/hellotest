@@ -122,7 +122,6 @@ export const WORKSPACE_SECTION_LABEL_KEYS: Record<string, string> = {
   "/issues": "page.issues",
   "/feedback": "page.feedback",
   "/agentic-workflows?view=agents": "workspace.aiAgents",
-  "/agentic-workflows?view=quality": "workspace.browserQuality",
   "/agentic-workflows?view=workflows": "workspace.workflows",
   "/agentic-workflows?view=runs": "workspace.workflowRuns",
   "/executions?view=suite-runs": "workspace.suiteRuns",

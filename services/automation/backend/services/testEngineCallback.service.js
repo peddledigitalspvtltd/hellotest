@@ -456,7 +456,12 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
   }
 
   const execution = await executionService.getExecution(executionId);
-  const integration = await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id);
+  let integration;
+  if(execution.trigger === "local") {
+    const dispatch=await workspaceTransactionService.findTransactionByRelated({related_kind:"testengine_run",related_id:engineRunId});
+    if(!dispatch || dispatch.project_id!==execution.project_id || dispatch.metadata?.source!=="hellotest.local-run" || dispatch.metadata?.queue_mode!=="direct-local" || dispatch.metadata?.execution_id!==execution.id || dispatch.metadata?.test_case_id!==testCaseId)throw new Error("This local callback does not match a dispatched run.");
+    integration={config:{}};
+  } else integration=await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id);
 
   if (!integration) {
     throw new Error("No active Test Engine integration is configured for this project");
@@ -605,7 +610,7 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
     ? await attachInlineArtifacts(transaction.id, payload.artifact_bundle)
     : [];
   const metadataPatch = {
-    source: "testengine",
+    source: execution.trigger === "local" ? "hellotest.local-run" : "testengine",
     engine_run_id: engineRunId,
     execution_id: execution.id,
     test_case_id: testCaseId,

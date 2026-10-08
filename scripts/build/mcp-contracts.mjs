@@ -26,7 +26,7 @@ function rulesSchema(rules){const properties={},required=[];for(const [name,rule
 function walk(node,file){
  if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&['get','post','put','patch','delete'].includes(node.expression.name.text)&&node.arguments[0]&&ts.isStringLiteral(node.arguments[0])){
   const method=node.expression.name.text.toUpperCase(),path=node.arguments[0].text,handler=node.arguments.at(-1);
-  if(handler&&(ts.isArrowFunction(handler)||ts.isFunctionExpression(handler))){const schema={};
+  if(handler&&(ts.isArrowFunction(handler)||ts.isFunctionExpression(handler))){const options=literal(node.arguments[1]);const schema={...(options?.schema||{})};
    function scan(child){if(ts.isCallExpression(child)&&ts.isPropertyAccessExpression(child.expression)&&child.expression.name.text==='validate'&&child.arguments[0]&&ts.isObjectLiteralExpression(child.arguments[0])){const target=child.arguments[1]?.getText(file)||'';const key=/\.body\b/.test(target)?'body':/\.query\b/.test(target)?'querystring':null;if(key)schema[key]=rulesSchema(literal(child.arguments[0]));}ts.forEachChild(child,scan);}
    scan(handler);if(Object.keys(schema).length)schemas[`${method} ${path}`]=schema;
   }

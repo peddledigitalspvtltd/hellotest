@@ -1293,7 +1293,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [repositoryConfigDrawerWidth, setRepositoryConfigDrawerWidth] = useState(REPOSITORY_CONFIG_DRAWER_DEFAULT_WIDTH);
   const [isInspectOpen, setIsInspectOpen] = useState(false);
   const [isInspectBrowserMaximized, setIsInspectBrowserMaximized] = useState(false);
-  const inspectAgent = useRepositoryInspectAgent(view === "repository" && Boolean(session) && canInspectRepository, projectId);
+  const inspectAgent = useRepositoryInspectAgent(Boolean(session) && canInspectRepository, projectId);
   const inspectCapabilities = useQuery({
     queryKey: ["repository-inspection-capabilities", projectId],
     queryFn: ({ signal }) => api.repositoryInspection.capabilities(projectId, { signal }),
@@ -5139,12 +5139,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
   return (
     <div className="page-content page-content--automation">
+          {canInspectRepository ? <RepositoryAgentSetup connection={inspectAgent} onUseRemote={inspectCapabilities.data?.remote.available && inspectRecorderSession?.status !== "running" && !isLaunchingInspectBrowser ? () => {
+            setIsInspectOpen(true);
+            void launchInspectBrowser("remote").catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to start remote inspection browser."));
+          } : undefined} /> : null}
       <PageHeader
         className={view === "repository" ? "object-repository-page-header" : selectedCaseId ? "automation-detail-page-header" : undefined}
         eyebrow={automationPageHeader.eyebrow}
         title={automationPageHeader.title}
         description={view === "cases" && selectedCaseId ? undefined : automationPageHeader.description}
-        actions={view === "repository" && canInspectRepository ? <RepositoryAgentStatus connection={inspectAgent} /> : undefined}
+        actions={canInspectRepository ? <RepositoryAgentStatus connection={inspectAgent} /> : undefined}
         meta={[
           { label: "Automation cases", value: testCasesQuery.data ? automatedCases.length : "—" },
           { label: "Mapped cases", value: testCasesQuery.data ? automatedCases.filter(item => item.automation_status === "ready").length : "—" },
@@ -6352,10 +6356,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	            </div>
 	          ) : null}
 
-          {canInspectRepository ? <RepositoryAgentSetup connection={inspectAgent} onUseRemote={inspectCapabilities.data?.remote.available && inspectRecorderSession?.status !== "running" && !isLaunchingInspectBrowser ? () => {
-            setIsInspectOpen(true);
-            void launchInspectBrowser("remote").catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to start remote inspection browser."));
-          } : undefined} /> : null}
+
 	          {isInspectOpen ? (
             <div className="modal-backdrop" role="presentation">
               <div className={`dialog object-repository-inspector${isInspectBrowserMaximized ? " is-browser-maximized" : ""}`} ref={repositoryInspectorRef} role="dialog" aria-modal="true" aria-label="Object repository inspector" tabIndex={-1}>

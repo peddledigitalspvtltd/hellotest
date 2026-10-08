@@ -7,7 +7,7 @@ const require = createRequire(new URL('../../../../testengine/backend/package.js
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = new URL('../../../platform/frontend/', import.meta.url);
 const catalogProfiles = JSON.parse(await readFile(new URL('../../shared/workflowSpecialists.json', import.meta.url), 'utf8'));
-const catalogSize = 4 + Object.keys(catalogProfiles).length;
+const catalogSize = 9 + Object.keys(catalogProfiles).length;
 const builtInCategories = { 'quality-orchestrator': 'planning', 'run-planner': 'planning', 'quality-evaluator': 'planning', 'story-architect': 'design', 'test-designer': 'design', 'automation-engineer': 'design', 'failure-analyst': 'investigation', 'bug-reporter': 'investigation', 'bug-triage': 'investigation', 'repository-curator': 'investigation' };
 const categorySize = category => Object.entries(catalogProfiles).filter(([id, profile]) => (builtInCategories[id] || profile.category || 'planning') === category).length;
 const fixture = `
@@ -66,6 +66,8 @@ const specialists = [
 ];
 const result = {
   headline: 'Checkout coverage needs one targeted review',
+  artifacts:[{kind:'story',title:'Complete checkout retry behavior',description:'Preserve one order when a user retries checkout.',priority:'P2',citation_ids:['story-checkout'],acceptance_criteria:['Given an existing checkout request, when the customer retries, then one order is retained.']},{kind:'test_case',title:'Verify a duplicate submission',description:'Check the observed order count after a retry.',priority:'P2',citation_ids:['story-checkout'],prerequisites:['An approved checkout state exists'],steps:[{action:'Submit the same checkout request twice',expected_result:'Exactly one order is retained'}]}],
+  agent_chain:[{agent_id:'quality-evaluator',name:'Quality Evaluator',status:'completed'},{agent_id:'story-architect',name:'Story Architect',status:'completed'}],
   executive_summary: 'The retry boundary is documented; the duplicate-order outcome needs confirmation.',
   response: 'Review the checkout retry behavior against the linked story before adding a case.\n\n## Design rationale\nUse negative paths and retry boundaries to verify one order.\n\n| Action | Expected result |\n| --- | --- |\n| Submit again | One order |\n\n' + Array.from({length:35},(_,index)=>`Review obligation ${index+1}: preserve the approved retry behavior.`).join('\n\n') + '\n\nFinal verification: one order remains.',
   recommendations: ['Review the retry acceptance boundary.', 'Add a duplicate-order scenario after confirming the contract.'],
@@ -113,6 +115,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     await page.getByRole('button', { name: 'Open Object Repository Generator', exact: true }).waitFor();
     assert.equal(await page.locator('.agent-library-card').count(), catalogSize);
     assert.deepEqual(await page.evaluate(() => window.workspaceCalls.providers), [], 'library avoids model lookups');
+    await page.getByRole('button',{name:/^Quality agents/}).click();assert.equal(await page.locator('.agent-library-card').count(),5);await page.getByRole('button',{name:/^All agents/}).click();
     await capture(page, screenshots + '/01-library-desktop.png');
     await page.getByLabel('Search agents', { exact: true }).fill('locators');
     assert.ok(await page.locator('.agent-library-card').count() > 0); assert.ok(await page.locator('.agent-library-card').count() < catalogSize);
@@ -182,6 +185,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(requests[0].body.mode, 'agent'); assert.ok(!requests[0].body.context_scopes.includes('bugs'));
     assert.equal(await page.getByRole('button', { name: 'Accept agent output', exact: true }).count(), 0);
     await page.getByText('Limited evidence', { exact: true }).waitFor();
+    const proposals=page.getByRole('region',{name:'Structured agent proposals'});await page.getByRole('heading',{name:'Proposals for review'}).waitFor();await page.getByRole('heading',{name:'Acceptance criteria',exact:true}).waitFor();await page.getByRole('navigation',{name:'Choose proposal'}).getByRole('button',{name:/Verify a duplicate submission/}).click();await page.getByText('Exactly one order is retained',{exact:true}).waitFor();await page.getByRole('navigation',{name:'Choose proposal'}).getByRole('button',{name:/Complete checkout retry behavior/}).click();
     await page.getByText(result.evidence_gaps[0], { exact: true }).waitFor();
     const outcome=page.locator('.agent-outcome-panel');const outputTabs=outcome.getByRole('tablist',{name:'Output sections'});
     await outputTabs.getByRole('tab',{name:'Overview',exact:true}).focus();await page.keyboard.press('ArrowRight');
@@ -216,7 +220,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.match(exported, /Checkout retry acceptance/); assert.match(exported, /No runtime retry trace/);
     assert.deepEqual(await page.evaluate(() => window.workspaceCalls.writes), []);
     await page.getByRole('button', { name: 'Finish editing', exact: true }).click();
-    await page.getByRole('button', { name: 'View outcome evidence', exact: true }).click();
+    await page.getByRole('button', { name: 'Sources', exact: true }).click();
     await page.getByRole('dialog', { name: 'Outcome evidence', exact: true }).waitFor();
     await page.getByText('Checkout retry acceptance', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Close Outcome evidence', exact: true }).click();
@@ -299,27 +303,12 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     await page.getByRole('heading',{name:'AI Agents',exact:true}).waitFor();assert.equal(await page.getByRole('heading',{name:'Recent work',exact:true}).count(),0);
     await page.evaluate(reply => window.navigateWorkspace('/agentic-workflows?view=workbench&agent=test-designer&session=older-review'),deep);
     await page.getByText(result.headline,{exact:true}).waitFor();
-    await page.getByText('Plan a reusable workflow', { exact: true }).click();
-    await page.getByText('Create a reusable specialist review with evidence evaluation and a human decision at the end.', { exact: false }).waitFor();
-    await page.getByRole('button', { name: 'Create workflow draft', exact: true }).click();
-    await page.getByRole('button', { name: 'Preview graph', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Readiness', exact: true }).waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Run workflow', exact: true }).count(), 0);
-    assert.deepEqual(await page.evaluate(() => window.workspaceCalls.writes), []);
-    assert.equal(await page.locator('.rovo-provider-status').count(), 0, 'workflow creation has no provider availability banner');
-    await capture(page, screenshots + '/06-workflow-preview.png');
-    await page.evaluate(() => window.enablePreviewFixture());
-    await page.getByRole('button', { name: 'Preview graph', exact: true }).click();
-    await page.getByText('Workflow preview captured. Tools and model calls were not executed.', { exact: true }).waitFor();
-    await page.getByText('Graph preview · simulated data', { exact: true }).waitFor();
-    const previewWrites = await page.evaluate(() => window.workspaceCalls.writes);
-    assert.deepEqual(previewWrites.map(call => call.name), ['workflow', 'workflow-preview']);
-    assert.equal(previewWrites[0].input.settings.source_review_id, 'older-review');
-    assert.deepEqual(previewWrites[0].input.settings.context_scopes, ['stories', 'test-cases']);
-    assert.equal(previewWrites[1].input.input_payload.request, deep.transaction.description);
-    assert.equal(previewWrites[1].input.input_payload.source_review_id, 'older-review');
-    assert.equal(previewWrites[1].input.input_payload.reviewed_outcome, result.response);
-    await capture(page, screenshots + '/09-workflow-preview-result.png');
+    assert.equal(await page.getByText('Plan a reusable workflow', {exact:true}).count(),0);
+    assert.equal(await page.getByText('Evidence review diagnostics', {exact:true}).count(),0);
+    assert.equal(await page.getByText('cited references', {exact:false}).count(),0);
+    await page.getByRole('button',{name:'Model calls',exact:true}).click();
+    await page.getByRole('heading',{name:'Model execution',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Review brief',exact:true}).click();
     await page.goto(baseUrl + '?readonly=true&route=' + encodeURIComponent('/agentic-workflows?view=workbench&agent=test-designer&session=viewer-review'));
     await page.getByText(result.headline, { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Review another task', exact: true }).click();

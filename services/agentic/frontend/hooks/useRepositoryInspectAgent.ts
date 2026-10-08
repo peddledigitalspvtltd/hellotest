@@ -168,9 +168,15 @@ export function useRepositoryInspectAgent(enabled: boolean, projectId: string) {
     };
   }, [enabled, optedIn, setupOpen, check, isCurrentScope]);
 
+  const runnerPairingCommand = useCallback((platform: "shell" | "windows") => {
+    if (!isCurrentScope()) return "";
+    const token=ensureToken(), origin=window.location.origin;
+    if(platform === "windows")return `$env:HELLOTEST_INSPECTOR_TOKEN='${token}'; $env:TESTENGINE_CORS_ORIGINS='${origin.replace(/'/g,"''")}'; .\\local-run\\bin\\start-host-recorder.cmd`;
+    return `HELLOTEST_INSPECTOR_TOKEN='${token}' TESTENGINE_CORS_ORIGINS='${origin.replace(/'/g,"'\\''")}' ./local-run/bin/start-host-recorder.sh`;
+  }, [ensureToken, isCurrentScope]);
   const currentSetup = enabled && setup?.projectId === projectId ? setup : null;
   const url = currentSetup?.download_url || "";
   const command = url ? `curl --fail --location '${url.replace(/'/g, "'\\''")}' --output "\${TMPDIR:-/tmp}/hellotest-inspection-agent.mjs" && node "\${TMPDIR:-/tmp}/hellotest-inspection-agent.mjs"` : "";
   const windowsCommand = url ? `$agentFile = Join-Path $env:TEMP 'hellotest-inspection-agent.mjs'; Invoke-WebRequest -Uri '${url.replace(/'/g, "''")}' -OutFile $agentFile; if ($?) { node $agentFile }` : "";
-  return { state, agent, message, setupOpen: enabled && setupOpen, setSetupOpen, openSetup, pauseChecks, check, command, windowsCommand, setupError, preparingSetup, prepareSetup, expiresAt: currentSetup?.expires_at };
+  return { state, agent, message, setupOpen: enabled && setupOpen, setSetupOpen, openSetup, pauseChecks, check, command, windowsCommand, runnerPairingCommand, setupError, preparingSetup, prepareSetup, expiresAt: currentSetup?.expires_at };
 }

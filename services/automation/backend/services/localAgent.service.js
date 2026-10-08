@@ -71,7 +71,7 @@ const probeCandidates = async (kind, candidates) => {
     const health = await withTimeout(`${baseUrl}/health`);
     attempts.push({ base_url: baseUrl, ...health });
 
-    if (health.ok) {
+    if (health.ok && (kind !== "playwright" || health.payload?.supported_web_engines?.includes("playwright"))) {
       return {
         kind,
         ready: true,

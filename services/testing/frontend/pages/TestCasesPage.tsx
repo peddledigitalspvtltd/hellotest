@@ -7982,7 +7982,7 @@ export function TestCasesPage() {
 	          test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
           test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
           test_data_set_id: resolvedRunDataSetId,
-          engine_base_url: isApiOnlyLocalRun ? "http://localhost:4301" : "http://localhost:4311"
+          engine_base_url: "http://host.docker.internal:4311"
         });
 
         await Promise.all([
@@ -7992,7 +7992,8 @@ export function TestCasesPage() {
         ]);
 
         navigate(`/executions?view=local-runs&execution=${response.id}&testCase=${testCaseId}`);
-        showSuccess(`${isApiOnlyLocalRun ? "Local API run" : "Local run"} started for ${testCase.title}.`);
+        if(response.acknowledgement === "unknown")showError(new Error(response.warnings?.[0] || "Inspect this run for incoming results before retrying."),"Local dispatch needs reconciliation");
+        else showSuccess(`${isApiOnlyLocalRun ? "Local API run" : "Local run"} started for ${testCase.title}.`);
         return;
       }
 

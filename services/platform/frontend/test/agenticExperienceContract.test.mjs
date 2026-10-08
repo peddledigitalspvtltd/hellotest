@@ -28,15 +28,15 @@ test("agent workbench exposes every governed QA specialist as a first-class acti
     assert.match(catalog, new RegExp(specialist));
   }
 
-  assert.match(component, /aria-label="Review format"/);
-  assert.match(component, /\/>\s*Question\s*</);
-  assert.match(component, /\/>\s*Review brief\s*</);
+  assert.match(component, /Start review/);
+  assert.doesNotMatch(component, /aria-label="Review format"/);
   assert.match(directory, /HELLOTEST_AGENT_CATALOG\.map/);
   assert.match(page, /<AgentDirectory/);
   assert.match(page, /onOpenSpecialist=\{openAgentWorkbench\}/);
   assert.match(page, /<AgentActivityTimeline/);
   assert.match(page, /<AgenticOutcomePanel/);
-  assert.match(page, /Create workflow draft/);
+  assert.doesNotMatch(page, /Plan a reusable workflow/);
+  assert.match(page, /Model calls/);
   assert.match(page, /setAssistantContextScopes\(agent\.contextScopes\)/);
   assert.match(component, /contextScopes: profile.scopes/);
 });
@@ -66,9 +66,7 @@ test("agent traces expose evidence and evaluation without hidden reasoning", asy
     assert.match(component, new RegExp(stage));
   }
 
-  for (const metric of ["Grounding", "Complete", "Traceable", "Guarded", "Evidence review diagnostics"]) {
-    assert.match(component, new RegExp(metric));
-  }
+  assert.doesNotMatch(component, /Evidence review diagnostics|className="agent-outcome-evidence"/);
 
   assert.match(component, /Human decision/);
   assert.match(component, /Decision summary/);

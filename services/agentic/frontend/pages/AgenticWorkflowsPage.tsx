@@ -48,6 +48,7 @@ import "./AgenticWorkflowsPage.css";
 import { WorkflowStudio } from "../workflows/WorkflowStudio";
 import { WorkflowExecutionView } from "../workflows/WorkflowExecutionView";
 import { WORKFLOW_TEMPLATES, draftFromTemplate } from "../workflows/workflowTemplates";
+import { isQualityAgentKind } from "../lib/qualityAgentExperience";
 import { QualityAgentLab } from "../quality/QualityAgentLab";
 
 type WorkflowViewMode = "tile" | "list";
@@ -83,12 +84,14 @@ export function AgenticWorkflowsPage() {
   const [agentEditorError, setAgentEditorError] = useState("");
   const [agentInputs, setAgentInputs] = useState<Record<string, unknown>>({});
   const requestedSurface = searchParams.get("view") || searchParams.get("surface");
-  const activeSurface: AgenticPageSurface = requestedSurface === "workbench"
+  const browserKind = searchParams.get("agent")?.replace(/^browser-/, "");
+  const browserAgent = searchParams.get("agent")?.startsWith("browser-") && isQualityAgentKind(browserKind);
+  const activeSurface: AgenticPageSurface = browserAgent ? "quality" : requestedSurface === "workbench"
     || requestedSurface === "repository"
     || requestedSurface === "agents"
     || requestedSurface === "workflows"
     || requestedSurface === "runs"
-    || requestedSurface === "quality"
+
     ? requestedSurface
     : "agents";
   const activeTab: WorkflowTab = activeSurface === "runs" ? "runs" : "workflows";
@@ -135,7 +138,7 @@ export function AgenticWorkflowsPage() {
   const [assistantIntegrationId, setAssistantIntegrationId] = useState("");
   const [selectedAssistantSessionId, setSelectedAssistantSessionId] = useState("");
   const [assistantReply, setAssistantReply] = useState<AgenticAssistantSessionResponse | null>(null);
-  const [assistantResultTab, setAssistantResultTab] = useState<"brief" | "activity" | "history">("brief");
+  const [assistantResultTab, setAssistantResultTab] = useState<"brief" | "model" | "activity" | "history">("brief");
   const [assistantNotice, setAssistantNotice] = useState("");
   const [assistantTaskExpanded, setAssistantTaskExpanded] = useState(false);
   const [assistantStartedAt, setAssistantStartedAt] = useState<number | null>(null);
@@ -1051,7 +1054,7 @@ export function AgenticWorkflowsPage() {
               : "Design reusable evidence reviews, execute registered specialists and inspect their saved outcomes."}
         meta={activeSurface === "agents"
           ? [
-              { label: "Agents", value: agentCatalog.length + REPOSITORY_AGENTS.length },
+              { label: "Agents", value: agentCatalog.length + REPOSITORY_AGENTS.length + 5 },
               { label: "Review gate", value: "Required" },
               { label: "Scope", value: selectedAppType?.name || selectedProject?.name || "Not selected" }
             ]
@@ -1072,7 +1075,7 @@ export function AgenticWorkflowsPage() {
 
       <div className="agentic-page-stage">
       {!draft && !selectedRun && activeSurface === "quality" ? <QualityAgentLab key={`${session?.user.id}:${projectId}:${appTypeId}`} projectId={projectId} appTypeId={appTypeId} scopeLabel={[selectedProject?.name, selectedAppType?.name].filter(Boolean).join(" · ")} userId={session?.user.id || ""} canRun={canRunAgenticWorkflows} canManage={canManageAgenticWorkflows} canCreateDefect={can("feedback.create")} /> : null}
-      {!draft && !selectedRun && activeSurface === "agents" ? <AgentDirectory key={`${session?.user.id}:${projectId}`} userId={session?.user.id || "anonymous"} onOpenRepository={openRepositoryAgent} onOpenSpecialist={openAgentWorkbench}
+      {!draft && !selectedRun && activeSurface === "agents" ? <AgentDirectory key={`${session?.user.id}:${projectId}`} userId={session?.user.id || "anonymous"} onOpenRepository={openRepositoryAgent} onOpenSpecialist={openAgentWorkbench} onOpenQuality={kind => setSearchParams({ view: "workbench", agent: `browser-${kind}`, quality_agent: kind })}
         projectAgents={projectAgents} canManage={Boolean(projectId) && canManageAgenticWorkflows} loading={projectAgentsQuery.isLoading} error={projectAgentsQuery.error instanceof Error ? projectAgentsQuery.error.message : undefined} onRetry={() => void projectAgentsQuery.refetch()}
         onCreate={() => { setAgentEditorError(""); setAgentEditor({}); }} onEdit={agent => { setAgentEditorError(""); setAgentEditor({ agent }); }} onCustomize={agent => { setAgentEditorError(""); setAgentEditor({ initial: agentFromSpecialist(agent.id, agent.name) }); }} /> : null}
       {!draft && !selectedRun && activeSurface === "repository" ? (
@@ -1112,16 +1115,17 @@ export function AgenticWorkflowsPage() {
               {!canRunAgenticWorkflows && <p className="agent-specialist-error">{!projectId ? "Select a project to start a review." : "Starting reviews requires agent run permission and the Agents feature to be enabled. Saved reviews remain available within your access."}</p>}
               {assistantMutation.isPending && <div className="agent-specialist-progress" role="status"><LoadingState label="Review in progress" /><div><strong>Review in progress · {assistantElapsed}s</strong><p>{assistantElapsed >= 20 ? "The specialist is still working. If a source or model is unavailable, the result will explain any evidence gaps." : "Gathering the evidence available for this task and preparing its review."}</p></div><button type="button" className="ghost-button" onClick={() => assistantController.current?.abort()}>Stop review</button></div>}
               {assistantNotice && <div role="alert" className="agent-specialist-error">{assistantNotice}</div>}
-              <div className="agent-specialist-result-tabs" role="group" aria-label="Specialist review views">{[{ id: "brief", label: "Review brief" }, { id: "activity", label: "Activity" }, { id: "history", label: "Saved reviews" }].map(tab => <button type="button" key={tab.id} aria-pressed={assistantResultTab === tab.id} onClick={() => setAssistantResultTab(tab.id as typeof assistantResultTab)}>{tab.label}{tab.id === "history" ? ` (${specialistSessions.length})` : ""}</button>)}</div>
+              <div className="agent-specialist-result-tabs" role="group" aria-label="Specialist review views">{[{ id: "brief", label: "Review brief" }, { id: "model", label: "Model calls" }, { id: "activity", label: "Activity" }, { id: "history", label: "Saved reviews" }].map(tab => <button type="button" key={tab.id} aria-pressed={assistantResultTab === tab.id} onClick={() => setAssistantResultTab(tab.id as typeof assistantResultTab)}>{tab.label}{tab.id === "history" ? ` (${specialistSessions.length})` : ""}</button>)}</div>
               {assistantResultTab === "brief" ? activeAssistantResult ? <>
                 <AgenticOutcomePanel key={selectedAssistantSessionId || assistantReply?.transaction.id || "current"} citations={activeAssistantCitations as Array<{ scope: string; id: string; label: string }>} guardrails={activeAssistantGuardrails as string[]} provenance={activeAssistantProvenance} result={activeAssistantResult} />
                 <div className="agent-specialist-destination"><p>Use this brief to guide your next change. Review and save it in the appropriate workspace.</p>{can(specialistExperience.destinationPermission) && areFeatureFlagsEnabled(featureFlags, requiredFeatureFlagsForPath(specialistExperience.destination)) && <Link className="ghost-button" to={specialistExperience.destination}>{specialistExperience.destinationLabel}<IconArrowRight size={16} /></Link>}</div>
-                {canManageAgenticWorkflows && <details className="agent-brief-diagnostics"><summary>Plan a reusable workflow</summary><p>Create a reusable specialist review with evidence evaluation and a human decision at the end.</p><button className="ghost-button" type="button" onClick={openAssistantWorkflowDraft}>Create workflow draft</button></details>}
+
               </> : <div className="agent-specialist-ready"><span className="agent-eyebrow">{selectedAssistantSessionId ? "Saved review" : "What you will get"}</span><h3>{selectedAssistantSessionId ? assistantSavedSessionQuery.isLoading ? <LoadingState label="Loading saved review" /> : savedAssistant?.session_state === "running" ? "This review is still in progress" : savedAssistant?.session_state === "failed" ? "This review could not finish" : "This saved review is unavailable" : specialistExperience.output}</h3><p>{selectedAssistantSessionId ? savedAssistantMessage : "A decision summary, cited findings, proposed next actions and explicit evidence gaps. The generated brief is saved in your review history."}</p></div>
+              : assistantResultTab === "model" ? <section className="agent-specialist-ready" aria-label="Model calls"><h3>Model execution</h3>{activeAssistantResult?.model_execution ? <><p>{activeAssistantResult.model_execution.effective_model} · {activeAssistantResult.model_execution.model_calls} calls</p>{activeAssistantResult.agent_chain?.some(agent=>agent.trace_id) ? <ul>{activeAssistantResult.agent_chain.filter(agent=>agent.trace_id).map((agent,index)=><li key={`${agent.agent_id}:${index}`}><Link className="ghost-button" to={`/ops-telemetry?monitoring=ai&llm_trace=${encodeURIComponent(agent.trace_id!)}`}>{agent.name} · View model call</Link></li>)}</ul> : activeAssistantResult.model_execution.trace_id && <Link className="ghost-button" to={`/ops-telemetry?monitoring=ai&llm_trace=${encodeURIComponent(activeAssistantResult.model_execution.trace_id)}`}>View model call</Link>}</> : <p>Model calls appear after the agent runs.</p>}</section>
               : assistantResultTab === "activity" ? activeAssistantEvents?.length ? <AgentActivityTimeline activeAgentName={activeAssistantName} events={activeAssistantEvents} running={false} /> : <div className="agent-specialist-ready"><h3>{assistantMutation.isPending ? "Activity will be available with the result" : "No recorded activity yet"}</h3><p>Completed reviews include the actual context, validation and model events recorded by the service.</p></div>
               : <div className="agent-specialist-history">{assistantSessionsQuery.isError && <div className="agent-specialist-error" role="alert">Saved reviews could not be loaded. <button className="ghost-button compact" type="button" disabled={assistantSessionsQuery.isFetching} onClick={() => void assistantSessionsQuery.refetch()}>Retry saved reviews</button></div>}{assistantSessionsQuery.isLoading && <LoadingState label="Loading saved reviews" />}{specialistSessions.map(item => <button type="button" key={item.id} aria-pressed={selectedAssistantSessionId === item.id} onClick={() => openAssistantSession(String(item.metadata.agent_id), item.id)}><IconHistory size={17} aria-hidden="true" /><span><strong>{item.title}</strong><small>{item.status === "completed" ? "Saved review" : item.status} · {item.event_count || 0} recorded events</small></span><time>{formatTimestamp(item.created_at)}</time><IconArrowRight size={16} /></button>)}{!assistantSessionsQuery.isLoading && !assistantSessionsQuery.isError && !specialistSessions.length && <div className="agent-specialist-ready"><h3>No saved reviews for this specialist</h3><p>Start a task above. Its result and source evidence will remain available here.</p></div>}</div>}
             </div>
-            <aside className="agent-specialist-guide" aria-label="Specialist task guidance"><section><span className="agent-eyebrow">The outcome</span><h3>{specialistExperience.output}</h3><p>{specialistExperience.outcome}</p><span className="agent-eyebrow">Useful evidence</span><p>{specialistExperience.inputs}</p><p>Live records are limited to your permissions. Relevant indexed knowledge is included when available.</p></section><section><span className="agent-eyebrow">Try a task</span>{specialistExperience.starters.map((prompt, index) => <button type="button" key={prompt} disabled={assistantMutation.isPending} onClick={() => setAssistantPrompt(prompt)}><strong>{index === 0 ? "Start with a focused review" : "Explore a related question"}</strong><br />{prompt}</button>)}<p>These specialists prepare briefs. Source builders publish test drafts, objects and knowledge after your review.</p></section></aside>
+            <aside className="agent-specialist-guide" aria-label="Specialist task guidance"><section><span className="agent-eyebrow">The outcome</span><h3>{specialistExperience.output}</h3><p>{specialistExperience.outcome}</p><span className="agent-eyebrow">Useful evidence</span><p>{specialistExperience.inputs}</p><p>Live records are limited to your permissions. Relevant indexed knowledge is included when available.</p></section><section><span className="agent-eyebrow">Try a task</span>{specialistExperience.starters.map((prompt, index) => <button type="button" key={prompt} disabled={assistantMutation.isPending} onClick={() => setAssistantPrompt(prompt)}><strong>{index === 0 ? "Start with a focused review" : "Explore a related question"}</strong><br />{prompt}</button>)}<p>Specialists return evidence-based reviews and structured proposals. Review the drafts before saving changes.</p></section></aside>
           </div>
         </section>
       ) : null}

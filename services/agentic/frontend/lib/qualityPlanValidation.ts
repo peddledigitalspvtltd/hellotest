@@ -6,7 +6,7 @@ export function qualityPlanIssues(plan: QualityAgentPlan): string[] {
   const targetIssue = qualityTargetError(plan.target_url);
   if (targetIssue) issues.push(targetIssue);
   if (plan.steps.length > 12) issues.push('Keep the browser journey to 12 steps.');
-  if (plan.kind === 'web' && plan.goal.trim() && !plan.steps.length) issues.push('Add the browser steps that fulfil this goal before execution.');
+  if (plan.kind === 'web' && !plan.options.mission && plan.goal.trim() && !plan.steps.length) issues.push('Add the browser steps that fulfil this goal before execution.');
   for (const [index, step] of plan.steps.entries()) {
     const prefix = `Step ${index + 1}`;
     if (['click', 'fill'].includes(step.action) && !step.selector?.trim()) issues.push(`${prefix}: add a selector.`);

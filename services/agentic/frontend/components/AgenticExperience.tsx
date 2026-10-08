@@ -1,4 +1,5 @@
 import { FormattedText } from "@hellotest/platform/frontend/src/shared/components/FormattedText";
+import { AgentArtifactReview } from "../agents/AgentArtifactReview";
 import { AiProposalCompare } from "@hellotest/ai/frontend/components/AiProposalCompare";
 import { AutomationRepairReview } from "@hellotest/ai/frontend/components/AutomationRepairReview";
 import { QualityEvidencePanel } from "@hellotest/ai/frontend/components/QualityEvidencePanel";
@@ -1039,16 +1040,10 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   ].filter(Boolean).join("\n\n");
   const readiness = result.readiness?.status;
 
-  const metrics: Array<[keyof AgenticAssistantEvaluation, string]> = [
-    ["grounding", "Grounding"],
-    ["completeness", "Complete"],
-    ["traceability", "Traceable"],
-    ["risk_control", "Guarded"]
-  ];
   return (
     <section className="agent-outcome-panel">
       <header>
-        <div><span>Agent outcome · {contextRouteLabel}</span><strong>{result.headline || "Ready for human review"}</strong></div>
+        <div><span>Agent outcome</span><strong>{result.headline || "Ready for human review"}</strong></div>
         <span className="agent-brief-readiness" data-readiness={readiness || "unverified"}>{readiness === "ready_for_review" ? "Ready for review" : readiness === "limited_evidence" ? "Limited evidence" : readiness === "insufficient_evidence" ? "More evidence needed" : "Review required"}</span>
       </header>
       <nav className="agent-artifact-navigation" aria-label="Output sections" role="tablist">{[
@@ -1062,7 +1057,8 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         if (next >= 0) { event.preventDefault(); setActiveSection(sections[next].id); event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus(); }
       }} role="tab" tabIndex={activeSection === section.id ? 0 : -1} type="button">{section.label}{typeof section.count === "number" ? <span>{section.count}</span> : null}</button>)}</nav>
 
-      {result.model_execution?.trace_id && <a className="ghost-button compact" href={`/ops-telemetry?monitoring=ai&llm_trace=${encodeURIComponent(result.model_execution.trace_id)}`}>View model call</a>}
+
+      {result.artifacts?.length ? <AgentArtifactReview artifacts={result.artifacts} chain={result.agent_chain || []} /> : null}
       {result.automation_repair&&<AutomationRepairReview summary={result.automation_repair}/>}
       {result.quality_assessment && <QualityEvidencePanel key={result.quality_assessment.snapshot_hash} report={result.quality_assessment} />}
       {result.verification && <details className="agent-brief-limitations" open={result.verification.status !== "passed"}><summary>Completion checks · {result.verification.status === "passed" ? "passed · human review required" : "more input needed"}</summary><ul>{result.verification.checks.map(check => <li key={check.id}>{check.passed ? "Passed" : "Unmet"}: {check.label}</li>)}</ul>{result.verification.limitations.map(item => <p key={item}>{item}</p>)}{result.model_execution && <p>Model: {result.model_execution.effective_model} · {result.model_execution.model_calls}/{result.model_execution.max_model_calls} calls · agent v{result.model_execution.agent_version}</p>}</details>}
@@ -1099,13 +1095,6 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         <label htmlFor={editing ? `${surfaceId}-response` : undefined}><span>Detailed specialist output</span><em>{editing ? "Editing export copy" : "Review brief"}</em></label>
         {editing ? <textarea id={`${surfaceId}-response`} onChange={(event) => { setDraftResponse(event.target.value); setAccepted(false); }} rows={10} value={draftResponse} /> : <div aria-label="Complete specialist output" className="agent-brief-body" role="region" tabIndex={0}><FormattedText text={draftResponse} /></div>}
       </div>
-      <details className="agent-brief-diagnostics"><summary>{result.evaluation.label || "Evidence review diagnostics"}</summary><p>These diagnostics describe the review and its available evidence. They do not measure execution success or release readiness.</p><div className="agent-outcome-scores">
-        {metrics.map(([key, label]) => (
-          <div key={key}><span>{label}</span><strong>{result.evaluation[key] as number}</strong><i><b style={{ width: `${result.evaluation[key]}%` }} /></i></div>
-        ))}
-      </div>
-      <p className="agent-outcome-rationale"><IconShieldCheck size={17} stroke={1.9} />{result.evaluation.rationale}</p>
-      </details>
       {draftRecommendations.length ? (
         <div aria-labelledby={`${surfaceId}-tab-actions`} className="agent-outcome-section agent-outcome-recommendation-review" hidden={activeSection !== "actions" && !editing} id={`${surfaceId}-actions`} role="tabpanel">
           <strong>Recommended next actions</strong>
@@ -1119,15 +1108,10 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
       ) : null}
       {result.assumptions.length ? <details className="agent-outcome-details"><summary>Assumptions to verify ({result.assumptions.length})</summary><ul>{result.assumptions.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
       {evidenceGaps.length ? <details className="agent-outcome-details is-evidence-gap" open><summary>Evidence gaps ({evidenceGaps.length})</summary><ul>{evidenceGaps.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
-      <div className="agent-outcome-evidence">
-        <span><IconDatabase size={16} stroke={1.9} /><strong>{groundedCitations.length}</strong> cited references</span>
-        <span><IconShieldCheck size={16} stroke={1.9} /><strong>{guardrails.length}</strong> guardrails</span>
-        <span><IconRoute size={16} stroke={1.9} /><strong>{contextRouteLabel}</strong> route</span>
-        <AiEvidenceButton label="View outcome evidence" onClick={() => setIsEvidenceOpen(true)} />
-      </div>
+      <AiEvidenceButton label="Sources" onClick={() => setIsEvidenceOpen(true)} />
       <div className="agent-outcome-action-dock">
       <div className="agent-brief-tools">
-        <span>{provenance?.generation_mode === "llm" ? "Model-assisted review" : "Evidence summary"} · {groundedCitations.length} cited sources</span>
+        <span>{provenance?.generation_mode === "llm" ? "Model-assisted review" : "Evidence summary"}</span>
         <button className="ghost-button compact" type="button" aria-pressed={editing} onClick={() => { setEditing(value => !value); setActiveSection("details"); }}>{editing ? "Finish editing" : "Edit brief"}</button>
         <button className="ghost-button compact" type="button" onClick={async () => { try { await navigator.clipboard.writeText(briefText()); setExportNotice("Brief copied."); } catch { setExportNotice("Copy is unavailable. Download the brief instead."); } }}><IconCopy size={15} aria-hidden="true" />Copy</button>
         <button className="ghost-button compact" type="button" onClick={() => { const blob = new Blob([briefText()], { type: "text/markdown;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "specialist-review.md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setExportNotice("Review brief downloaded."); }}><IconDownload size={15} aria-hidden="true" />Download brief</button>

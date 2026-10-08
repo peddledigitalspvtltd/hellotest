@@ -1,3 +1,4 @@
+const { readBoundedResponseJson } = require("@hellotest/platform/backend/src/utils/boundedResponse");
 const { redactSharedStepData, regenerateSharedStepData } = require("./sharedStepDataSnapshot.service");
 const { snapshotExecutionHooks, redactExecutionHooks, regenerateExecutionHooks } = require("./executionHookSnapshots.service");
 const { normalizeDataOptions, composeScopedTestData, sharedParameterNames } = require("@hellotest/platform/backend/src/utils/scopedTestData");
@@ -381,20 +382,10 @@ function normalizeLocalEngineBaseUrl(value) {
     throw new Error("Local execution engine URL must use http or https.");
   }
 
-  const hostname = parsed.hostname.toLowerCase();
-  const isPrivate =
-    hostname === "localhost"
-    || hostname === "host.docker.internal"
-    || hostname === "testengine"
-    || hostname === "127.0.0.1"
-    || hostname === "::1"
-    || /^10\./.test(hostname)
-    || /^192\.168\./.test(hostname)
-    || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
-
-  if (!isPrivate) {
-    throw new Error("Local execution engine URL must point to localhost, the local Docker service, or a private network address.");
-  }
+  if(parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== "/")throw new Error("Use the configured local runner base URL without credentials, a path, query or fragment.");
+  const approved=new Set(["http://localhost:4311","http://127.0.0.1:4311","http://host.docker.internal:4311","http://[::1]:4311"]);
+  if(process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL){try{approved.add(new URL(process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL).origin);}catch{}}
+  if(!approved.has(parsed.origin))throw Object.assign(new Error("Use the configured host Playwright runner. Additional local endpoints must be configured by an administrator."),{statusCode:400,code:"LOCAL_AGENT_TARGET_INVALID"});
 
   return parsed.toString().replace(/\/+$/, "");
 }
@@ -402,7 +393,7 @@ function normalizeLocalEngineBaseUrl(value) {
 async function canReachLocalEngine(baseUrl) {
   try {
     const response = await resilientHttpRequest(`${baseUrl}/health`, {
-      method: "GET"
+      method: "GET", redirect: "error"
     }, {
       dependency: "local-execution-engine",
       operation: "health.probe",
@@ -413,7 +404,8 @@ async function canReachLocalEngine(baseUrl) {
       failureThreshold: 10,
       resetTimeoutMs: 5_000
     });
-    return response.ok;
+    const health = await readBoundedResponseJson(response, {maxBytes:256 * 1024,label:"Local Playwright health"});
+    return response.ok && health?.supported_web_engines?.includes("playwright") === true;
   } catch {
     return false;
   }
@@ -422,14 +414,11 @@ async function canReachLocalEngine(baseUrl) {
 async function resolveLocalEngineBaseUrl(preferredUrl) {
   const candidates = [
     preferredUrl,
-    process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL,
-    "http://localhost:4311",
-    "http://127.0.0.1:4311",
     "http://host.docker.internal:4311",
-    "http://localhost:4301",
-    "http://127.0.0.1:4301",
-    "http://testengine:4301"
-  ];
+    "http://127.0.0.1:4311",
+    "http://localhost:4311",
+    process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL
+  ].filter(value => { if (!value) return false; try { return !['testengine','testengine-gateway'].includes(new URL(value).hostname) && new URL(value).port !== '4301'; } catch { return false; } });
   const normalizedCandidates = [];
 
   candidates.forEach((candidate) => {
@@ -450,7 +439,7 @@ async function resolveLocalEngineBaseUrl(preferredUrl) {
     }
   }
 
-  throw new Error("Local Test Engine is not connected.");
+  throw Object.assign(new Error("Local Playwright agent is not connected. Start the local agent and check its connection before running."), { statusCode: 503, code: "LOCAL_AGENT_UNAVAILABLE" });
 }
 
 function normalizeParameterValues(values = {}) {
@@ -1512,7 +1501,11 @@ exports.createExecution = async ({
       throw new Error("All test cases must belong to the selected app type");
     }
 
-    const primarySuite = await selectPrimarySuiteForCaseExecution.get(testCaseId);
+    let primarySuite = await selectPrimarySuiteForCaseExecution.get(testCaseId);
+    if(!primarySuite && (trigger === "local" || execution_mode === "local")) {
+      const suite=await require('./localRunSuite.service').ensure({projectId:project_id,appTypeId:app_type_id,testCaseId,createdBy:created_by});
+      primarySuite={suite_id:suite.id,suite_name:suite.name,suite_parameter_values:{}};
+    }
     directCaseRows.push({
       ...testCase,
       suite_id: primarySuite?.suite_id || null,
@@ -1624,6 +1617,13 @@ exports.createExecution = async ({
       await insertExecutionSuite.run(id, suiteRow.suite_id, suiteRow.suite_name);
     }
 
+    const receiptSuiteIds=new Set(suiteRows.map(s=>s.suite_id));
+    for(const directCase of directCaseRows) {
+      if(directCase.suite_id && !receiptSuiteIds.has(directCase.suite_id)) {
+        await insertExecutionSuite.run(id,directCase.suite_id,directCase.suite_name);
+        receiptSuiteIds.add(directCase.suite_id);
+      }
+    }
     const snapshotPayload = await buildSnapshotPayload(id, suiteRows, {
       persisted: true,
       directCases: directCaseRows,
@@ -1659,6 +1659,7 @@ exports.createLocalRun = async (input = {}) => {
   const localEngineBaseUrl = await resolveLocalEngineBaseUrl(input.engine_base_url);
   const created = await exports.createExecution({
     ...input,
+    execution_mode: "manual",
     engine_base_url: localEngineBaseUrl,
     trigger: "local",
     initial_status: "running",
@@ -1675,6 +1676,7 @@ exports.createLocalRun = async (input = {}) => {
       ...result
     };
   } catch (error) {
+    if(error.code === "LOCAL_DISPATCH_UNCERTAIN")return {id:created.id,started:false,execution_mode:"local",engine_base_url:localEngineBaseUrl,acknowledgement:"unknown",warnings:[error.message]};
     await db.prepare(`
       UPDATE executions
       SET status = 'failed', ended_at = CURRENT_TIMESTAMP
@@ -1957,7 +1959,7 @@ exports.startExecution = async (id, options = {}) => {
   let shouldMarkAsCi = false;
 
   if (!skipTestEngineDispatch) {
-    dispatchPlan = await testEngineDispatchService.planExecutionDispatch(execution);
+    dispatchPlan = await testEngineDispatchService.planExecutionDispatch(execution,options.execution_mode === "local" ? {allowIncompleteAutomation:true,allowApiCasesWithoutAutomation:true} : {});
 
     if (dispatchPlan.eligible_automated_case_count > 0) {
       testEngineIntegration = await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id);
@@ -2049,6 +2051,10 @@ exports.startExecution = async (id, options = {}) => {
             initiatedBy: options.initiated_by || null
           });
     } catch (error) {
+      if(options.execution_mode === "local" && error.code !== "LOCAL_DISPATCH_UNCERTAIN") {
+        await db.prepare("UPDATE executions SET status = 'failed', ended_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'running'").run(id);
+        throw error;
+      }
       dispatchSummary = {
         automated_case_count: dispatchPlan.automated_case_count,
         queued_for_engine_count: 0,

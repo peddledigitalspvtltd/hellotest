@@ -29,9 +29,13 @@ function createQualityAgentStore({ db, workspace }) {
           ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`).get(RUN);
         if (!row) return null;
         const lease_token=randomUUID();
-        return db.prepare(`UPDATE workspace_transactions SET metadata = metadata || jsonb_build_object('lease_token',?::text,'lease_until',(CURRENT_TIMESTAMP + INTERVAL '25 seconds')::text)
+        return db.prepare(`UPDATE workspace_transactions SET metadata = metadata || jsonb_build_object('lease_token',?::text,'lease_until',(CURRENT_TIMESTAMP + INTERVAL '60 seconds')::text)
           WHERE id = ? RETURNING *`).get(lease_token,row.id);
       })();
+    },
+    async checkpoint(row,patch) {
+      return db.prepare(`UPDATE workspace_transactions SET metadata = metadata || ?::jsonb, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND metadata->>'lease_token' = ? AND status IN ('queued','running') RETURNING *`).get({...patch,lease_until:new Date(Date.now()+60000).toISOString()},row.id,row.metadata.lease_token);
     },
     async updateClaim(row, patch, status) {
       return db.prepare(`UPDATE workspace_transactions SET metadata = metadata || ?::jsonb,
@@ -41,7 +45,7 @@ function createQualityAgentStore({ db, workspace }) {
     },
     async cancel(row) {
       return db.prepare(`UPDATE workspace_transactions SET status = 'failed',metadata = metadata || ?::jsonb,completed_at = CURRENT_TIMESTAMP,updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status IN ('queued','running') RETURNING *`).get({run_status:'cancelled',cancellation_requested:true,lease_token:null,lease_until:null,error:null,outcome:null},row.id);
+        WHERE id = ? AND status IN ('queued','running') RETURNING *`).get({run_status:'cancelled',cancellation_requested:true,lease_token:null,lease_until:null,error:null,outcome:null,stages:(row.metadata?.stages||[]).map(stage=>stage.status==='running'?{...stage,status:'failed'}:stage),...(row.metadata?.mission_report?{mission_report:{...row.metadata.mission_report,status:'cancelled',summary:'Stopped. Partial browser observations are preserved.'}}:{})},row.id);
     },
     event:(row,entry)=>workspace.appendTransactionEvent(row.id,entry),
     async saveBaseline(row, metadata, bytes) {

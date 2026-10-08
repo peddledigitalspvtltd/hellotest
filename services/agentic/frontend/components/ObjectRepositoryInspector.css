@@ -288,3 +288,5 @@
 .repository-agent-command { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-subtle); font-size: 11px; line-height: 1.6; user-select: all; }
 .repository-agent-setup .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--border-subtle); flex: 0 0 auto; }
 .repository-agent-remote-option { margin-inline-end: auto; }
+
+.repository-local-runner-status{display:flex;align-items:flex-start;gap:16px;padding:16px;border:1px solid var(--app-border,var(--border));border-radius:12px;margin:16px 0;min-width:0}.repository-local-runner-status>div{flex:1;min-width:0}.repository-local-runner-status p{margin:8px 0;line-height:1.5}.repository-local-runner-status code{display:block;overflow-wrap:anywhere;font-size:12px}.repository-agent-status{max-height:none;flex-wrap:wrap;white-space:normal}@media(max-width:600px){.repository-local-runner-status{flex-direction:column}.repository-agent-status{font-size:12px;padding:7px 10px}}

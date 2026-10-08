@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconArrowRight, IconBookmark, IconCheck, IconSearch, IconSparkles, IconPlus, IconRobot } from "@tabler/icons-react";
+import { IconArrowRight, IconBookmark, IconCheck, IconSearch, IconSparkles, IconPlus, IconRobot, IconRoute, IconShieldCheck, IconBolt, IconAccessible, IconPhoto } from "@tabler/icons-react";
 import { HELLOTEST_AGENT_CATALOG, type HelloTestAgent } from "../components/AgenticExperience";
 import { REPOSITORY_AGENTS } from "./RepositoryAgents";
 import type { RepositoryAgentType } from "./agentTypes";
 import { AGENT_CATEGORIES, AGENT_EXPERIENCES } from "./agentExperience";
 import "./AgentWorkspace.css";
+import { QUALITY_AGENT_EXPERIENCES, QUALITY_AGENT_KINDS, type QualityExperienceKind } from "../lib/qualityAgentExperience";
 import type { ProjectAgent } from "./agentDefinitions";
 
+const qualityIcons = { web: IconRoute, security: IconShieldCheck, performance: IconBolt, accessibility: IconAccessible, visual: IconPhoto };
 const builtInEntries = [
+  ...QUALITY_AGENT_KINDS.map(kind => { const Icon = qualityIcons[kind]; return { id: `browser-${kind}`, name: QUALITY_AGENT_EXPERIENCES[kind].name, icon: <Icon />, builder: false }; }),
   ...REPOSITORY_AGENTS.map(agent => ({ id: agent.id, name: agent.name, icon: agent.icon, builder: true })),
   ...HELLOTEST_AGENT_CATALOG.map(agent => ({ id: agent.id, name: agent.name, icon: agent.icon, builder: false }))
 ];
@@ -20,15 +23,17 @@ function readPinnedAgents(key: string): string[] {
   try { const saved = JSON.parse(localStorage.getItem(key) || "[]"); return Array.isArray(saved) ? [...new Set(saved.filter(id => typeof id === "string"))].slice(0, 200) : []; } catch { return []; }
 }
 
-export function AgentDirectory({ userId, onOpenRepository, onOpenSpecialist, projectAgents = [], canManage = false, onCreate, onEdit, onCustomize, loading, error, onRetry }: {
+export function AgentDirectory({ userId, onOpenRepository, onOpenSpecialist, onOpenQuality, projectAgents = [], canManage = false, onCreate, onEdit, onCustomize, loading, error, onRetry }: {
   userId: string;
   projectAgents?: ProjectAgent[]; canManage?: boolean; loading?: boolean; error?: string; onRetry?: () => void;
   onCreate?: () => void; onEdit?: (agent: ProjectAgent) => void; onCustomize?: (agent: HelloTestAgent) => void;
+  onOpenQuality: (kind: QualityExperienceKind) => void;
   onOpenRepository: (id: RepositoryAgentType) => void;
   onOpenSpecialist: (agent: HelloTestAgent) => void;
 }) {
   const entries = useMemo(() => [...builtInEntries, ...projectAgents.filter(agent => !agent.archived).map(agent => ({ id: agent.id, name: agent.definition.name, icon: <IconRobot />, builder: false }))], [projectAgents]);
   const experienceFor = (id: string) => {
+    if (id.startsWith("browser-")) { const profile = QUALITY_AGENT_EXPERIENCES[id.slice(8) as QualityExperienceKind]; return { category: "quality", outcome: profile.description, inputs: "Browser task, target URL & scoped credential reference", output: profile.outcome }; }
     const agent = projectAgents.find(item => item.id === id);
     return AGENT_EXPERIENCES[id] || { category: "custom", outcome: agent?.definition.description || agent?.definition.objective || "", inputs: "Configured project evidence & task input", output: "Structured AI review" };
   };
@@ -43,6 +48,7 @@ export function AgentDirectory({ userId, onOpenRepository, onOpenSpecialist, pro
     return () => window.removeEventListener("storage", sync);
   }, [preferenceKey]);
   const open = (id: string) => {
+    if (id.startsWith("browser-")) { onOpenQuality(id.slice(8) as QualityExperienceKind); return; }
     const saved = projectAgents.find(agent => agent.id === id);
     if (saved) {
       const definition = saved.active_definition || saved.definition;
@@ -80,7 +86,7 @@ export function AgentDirectory({ userId, onOpenRepository, onOpenSpecialist, pro
         const experience = experienceFor(agent.id);
         const saved = projectAgents.find(item => item.id === agent.id);
         return <article className="agent-library-card" data-category={experience.category} data-agent={agent.id} key={agent.id}>
-          <header><span className="agent-library-icon">{agent.icon}</span><span className="agent-library-kind">{agent.builder ? "Source builder" : saved ? "Project AI agent" : "Workspace specialist"}</span><button className="agent-pin" type="button" aria-label={`${pinned.includes(agent.id) ? "Unpin" : "Pin"} ${agent.name}`} aria-pressed={pinned.includes(agent.id)} onClick={() => togglePin(agent.id)}><IconBookmark size={17} fill={pinned.includes(agent.id) ? "currentColor" : "none"} aria-hidden="true" /></button></header>
+          <header><span className="agent-library-icon">{agent.icon}</span><span className="agent-library-kind">{agent.builder ? "Source builder" : saved ? "Project AI agent" : experience.category === "quality" ? "Browser mission agent" : "Workspace specialist"}</span><button className="agent-pin" type="button" aria-label={`${pinned.includes(agent.id) ? "Unpin" : "Pin"} ${agent.name}`} aria-pressed={pinned.includes(agent.id)} onClick={() => togglePin(agent.id)}><IconBookmark size={17} fill={pinned.includes(agent.id) ? "currentColor" : "none"} aria-hidden="true" /></button></header>
           <div className="agent-library-copy"><h3>{agent.name}</h3><p>{experience.outcome}</p></div>
           <details className="agent-library-details"><summary>Inputs & output</summary><dl><div><dt>Uses</dt><dd>{experience.inputs}</dd></div><div><dt>Delivers</dt><dd>{experience.output}</dd></div></dl></details>
           {saved && <p className="agent-version">{saved.active_version ? `Active v${saved.active_version}${saved.current_version !== saved.active_version ? ` · Draft v${saved.current_version}` : ""}` : "Draft · activate to run"}</p>}

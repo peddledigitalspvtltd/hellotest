@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { automationApi } from "@hellotest/automation/frontend/api.client";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconChevronDown, IconCloud, IconDeviceDesktop, IconPlugConnected } from "@tabler/icons-react";
@@ -12,13 +14,15 @@ export type InspectSessionMode = "local" | "remote";
 type AgentConnection = ReturnType<typeof useRepositoryInspectAgent>;
 
 export function RepositoryAgentStatus({ connection }: { connection: AgentConnection }) {
+  const runner = useQuery({queryKey:["local-playwright-runner-status"],queryFn:automationApi.localAgent.status,staleTime:15000,retry:false});
   const label = connection.state === "connected" ? "Connected" : connection.state === "checking" ? "Checking…" : connection.state === "unchecked" ? "Not checked" : "Not connected";
   return <button className={`ghost-button repository-agent-status ${connection.state === "connected" ? "is-connected" : ""}`} onClick={connection.openSetup} type="button" aria-label={`Local agent: ${label}. Setup and connection status`}>
-    <IconPlugConnected size={16} /><span>Local agent</span><span className="repository-agent-status-dot" aria-hidden="true" /><small>{label}</small>
+    <IconPlugConnected size={16} /><span>Local agent</span><span className="repository-agent-status-dot" aria-hidden="true" /><small>{connection.state === "connected" ? "Browser paired" : runner.data?.web.ready ? "Runner ready" : label}</small>
   </button>;
 }
 
 export function RepositoryAgentSetup({ connection, onUseRemote }: { connection: AgentConnection; onUseRemote?: () => void }) {
+  const runner = useQuery({queryKey:["local-playwright-runner-status"],queryFn:automationApi.localAgent.status,enabled:connection.setupOpen,staleTime:15000,retry:false});
   const [platform, setPlatform] = useState<"shell" | "windows">(() => /Win/i.test(navigator.platform) ? "windows" : "shell");
   const [copyMessage, setCopyMessage] = useState("");
   const dialogRef = useDialogFocus<HTMLDivElement>({ active: connection.setupOpen, onClose: () => connection.setSetupOpen(false) });
@@ -29,6 +33,7 @@ export function RepositoryAgentSetup({ connection, onUseRemote }: { connection: 
       <header className="dialog-header"><div><h2 id="repository-agent-setup-title">Connect local inspection agent</h2><p>Inspect private apps and use a visible browser on this computer.</p></div><DialogCloseButton label="Close local agent setup" onClick={() => connection.setSetupOpen(false)} /></header>
       <div className="repository-agent-setup-body">
         <div className={`repository-agent-connection ${connection.state === "connected" ? "is-connected" : ""}`} role="status"><IconPlugConnected size={20} /><div><strong>{connection.state === "connected" ? "Agent connected" : connection.state === "checking" ? "Checking agent…" : "Agent not connected"}</strong><p>{connection.message}</p></div></div>
+        <section className="repository-local-runner-status" aria-label="Local execution connection"><div><strong>Local Playwright execution</strong><p>{runner.isFetching ? "Checking the host runner…" : runner.data?.web.ready ? "Runner is reachable. Local runs execute immediately and retain evidence in Test Runs." : "A paired inspection browser and an execution runner are separate capabilities. Start the local Playwright runner to execute saved cases."}</p>{!runner.data?.web.ready && <code>./local-run/bin/start-host-recorder.sh</code>}{runner.data?.web.ready && <><p>To pair this full runner with browser inspection, stop its terminal process, then run the pairing command from your HelloTest folder. This keeps execution and inspection on one runner.</p><button className="ghost-button compact" type="button" onClick={async()=>{try{await navigator.clipboard.writeText(connection.runnerPairingCommand(platform));setCopyMessage("Runner pairing command copied");}catch{setCopyMessage("Clipboard access is unavailable.");}}}>Copy runner pairing command</button></>}</div><button className="ghost-button compact" disabled={runner.isFetching} type="button" onClick={()=>void runner.refetch()}>{runner.isFetching ? "Checking…" : "Check runner"}</button></section>
         <ol><li>Open a terminal on this computer with Node.js 20 or newer and npm installed.</li><li>Run this command. It downloads the HelloTest agent, installs Playwright and Chromium, and starts a browser you can inspect.</li></ol>
         <div className="repository-agent-command-heading"><label>Terminal<select value={platform} onChange={event => { setPlatform(event.target.value as "shell" | "windows"); setCopyMessage(""); }}><option value="shell">macOS / Linux</option><option value="windows">Windows PowerShell</option></select></label><button className="ghost-button compact" disabled={!command || connection.preparingSetup || Boolean(connection.setupError)} onClick={async () => { try { await navigator.clipboard.writeText(command); setCopyMessage("Command copied"); } catch { setCopyMessage("Select and copy the command below."); } }} type="button"><CopyIcon size={14} />Copy command</button></div>
         {connection.preparingSetup ? <p role="status">Preparing your paired setup command…</p> : connection.setupError ? <div role="alert"><p>{connection.setupError}</p><button className="ghost-button compact" onClick={() => void connection.prepareSetup()} type="button">Retry setup command</button></div> : <pre className="repository-agent-command" tabIndex={0}><code>{command}</code></pre>}

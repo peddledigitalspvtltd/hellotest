@@ -722,7 +722,7 @@ const resolveDirectCallbackBaseUrl = (integration) =>
   normalizeText(process.env.HELLOTEST_LOCAL_CALLBACK_BASE_URL)
   || normalizeText(process.env.HELLOTEST_PUBLIC_API_BASE_URL)
   || normalizeText(integration?.config?.local_callback_base_url)
-  || "http://localhost:3000";
+  || (process.env.HELLOTEST_DEPLOYMENT_MODE === "docker" ? "http://host.docker.internal:8080" : "http://localhost:8080");
 
 const resolveCallbackSecret = (integration) =>
   resolveTestEngineSecret(
@@ -1650,10 +1650,16 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       ...(integration?.config || {}),
       active_web_engine: activeWebEngine,
       headless: false,
+      video_mode: "on",
+      trace_mode: "on",
+      web_session_mode: "new",
+      web_session_reuse_key: null,
+      connect_over_cdp_endpoint: null,
+      playwright_cdp_endpoint: null,
       live_view_url: `${engineHost}/api/v1/live-session?provider=playwright`
     }
   };
-  const callback = buildDirectCallback(directIntegration);
+  const callback = buildDirectCallback({...directIntegration,config:{...directIntegration.config,callback_secret:null}});
   const dispatchSecret = resolveTestEngineSecret();
 
   for (const item of plan.eligibleCases) {
@@ -1726,6 +1732,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
     try {
       response = await resilientHttpRequest(`${engineHost}/api/v1/runs`, {
         method: "POST",
+        redirect: "error",
         headers: {
           "content-type": "application/json",
           accept: "application/json",
@@ -1744,14 +1751,10 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       });
     } catch (error) {
       await updateQueueTransaction(transaction.id, {
-        status: "failed",
-        metadata: {
-          ...transactionMetadata,
-          failure: error instanceof Error ? error.message : "Unable to reach local runner"
-        },
-        completed_at: new Date().toISOString()
+        status: "running",
+        metadata: {...transactionMetadata,acknowledgement:"unknown",failure_code:"LOCAL_DISPATCH_UNCERTAIN"}
       });
-      throw new Error(`Unable to reach ${isApiOnlyRun ? "local Test Engine" : "local Playwright runner"} at ${engineHost}: ${error instanceof Error ? error.message : "request failed"}`);
+      throw Object.assign(new Error("The local runner acknowledgement was lost. Keep this run receipt and inspect incoming results before starting another run."), {code:"LOCAL_DISPATCH_UNCERTAIN",statusCode:502});
     }
 
     const payload = await readBoundedResponseJson(response, {

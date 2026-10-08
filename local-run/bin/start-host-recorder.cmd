@@ -21,6 +21,8 @@ if "%ERRORLEVEL%"=="0" (
   exit /b 0
 )
 
+if exist "%ENGINE_DIR%\src\server.ts" goto source_runner
+
 if exist "%HELLOTEST_HOST_RECORDER_BIN%" (
   echo Starting HelloTest host recorder from packaged binary
   echo   Binary: %HELLOTEST_HOST_RECORDER_BIN%
@@ -33,10 +35,11 @@ if exist "%HELLOTEST_HOST_RECORDER_BIN%" (
   set "ARTIFACT_ROOT=%HELLOTEST_HOST_RECORDER_ARTIFACT_ROOT%"
   set "RECORDER_HEADLESS=false"
   set "PLAYWRIGHT_BROWSERS_PATH=%HELLOTEST_PLAYWRIGHT_BROWSERS_PATH%"
-  "%HELLOTEST_HOST_RECORDER_BIN%"
+  node "%SCRIPT_DIR%start-local-runner.mjs" "%HELLOTEST_HOST_RECORDER_BIN%"
   exit /b %ERRORLEVEL%
 )
 
+:source_runner
 cd /d "%ENGINE_DIR%" || exit /b 1
 
 if not exist node_modules (
@@ -56,4 +59,4 @@ set "ENGINE_NAME=hellotest-host-recorder"
 set "ENGINE_PUBLIC_URL=http://localhost:%HELLOTEST_HOST_RECORDER_PORT%"
 set "ARTIFACT_ROOT=%HELLOTEST_HOST_RECORDER_ARTIFACT_ROOT%"
 set "RECORDER_HEADLESS=false"
-node dist\server.js
+node "%SCRIPT_DIR%start-local-runner.mjs" node dist\server.js

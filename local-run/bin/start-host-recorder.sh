@@ -18,7 +18,9 @@ if [ -x "$HOST_RECORDER_BIN" ]; then
     "$ENGINE_DIR/src/lib/webEngine.ts" \
     "$ENGINE_DIR/src/lib/recorder.ts" \
     "$ENGINE_DIR/src/lib/pipeline.ts" \
-    "$ENGINE_DIR/src/lib/executor.ts"
+    "$ENGINE_DIR/src/lib/executor.ts" \
+    "$ENGINE_DIR/src/lib/qualityAgents/runtime.ts" \
+    "$ENGINE_DIR/src/lib/qualityAgents/mission.ts"
   do
     if [ -f "$source_file" ] && [ "$source_file" -nt "$HOST_RECORDER_BIN" ]; then
       SOURCE_NEWER_THAN_RECORDER=true
@@ -74,7 +76,7 @@ if [ -x "$HOST_RECORDER_BIN" ] && [ "$USE_PACKAGED_RECORDER" = "true" ]; then
   ARTIFACT_ROOT="$ARTIFACT_DIR" \
   RECORDER_HEADLESS=false \
   PLAYWRIGHT_BROWSERS_PATH="$BROWSER_DIR" \
-  "$HOST_RECORDER_BIN"
+  node "$SCRIPT_DIR/start-local-runner.mjs" "$HOST_RECORDER_BIN"
   exit $?
 fi
 
@@ -99,4 +101,4 @@ ENGINE_PUBLIC_URL="http://localhost:$PORT" \
 ARTIFACT_ROOT="$ARTIFACT_DIR" \
 RECORDER_HEADLESS=false \
 PLAYWRIGHT_BROWSERS_PATH="$BROWSER_DIR" \
-node dist/server.js
+node "$SCRIPT_DIR/start-local-runner.mjs" node dist/server.js

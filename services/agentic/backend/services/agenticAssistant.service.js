@@ -1,5 +1,6 @@
 const { getOptionalEvidenceAccess } = require("@hellotest/platform/backend/services/optionalEvidenceAccess.service");
 const crypto = require("crypto");
+const artifacts = require("./agentArtifacts");
 const agentRegistry = require("../agents/agentRegistry.service");
 const agentContract = require("../agents/agentDefinition");
 const { policy: specialistPolicy } = require("../workflows/specialistPolicy");
@@ -156,7 +157,7 @@ const normalizeCitedItems = (value, { maxItems = 8, maxContent = 2_400 } = {}) =
 
 const collectCandidateCitationIds = (candidate) => [...new Set([
   ...(Array.isArray(candidate?.citation_ids) ? candidate.citation_ids : []),
-  ...[...(Array.isArray(candidate?.findings) ? candidate.findings : []), ...(Array.isArray(candidate?.deliverables) ? candidate.deliverables : [])]
+  ...[...(Array.isArray(candidate?.findings) ? candidate.findings : []), ...(Array.isArray(candidate?.deliverables) ? candidate.deliverables : []), ...(Array.isArray(candidate?.artifacts) ? candidate.artifacts : [])]
     .flatMap((item) => Array.isArray(item?.citation_ids) ? item.citation_ids : [])
 ].map((item) => normalizeText(typeof item === "string" ? item : item?.id, 255)).filter(Boolean))];
 
@@ -189,6 +190,7 @@ const normalizeResult = (candidate, fallback, citations = [], { allowUncited = f
     activity_summary: normalizeText(candidate?.activity_summary, 2_000) || "",
     findings,
     deliverables,
+    artifacts: artifacts.normalizeArtifacts(candidate.artifacts, citations),
     recommendations: recommendations.map((item) => normalizeText(item, 1_200)).filter(Boolean).slice(0, 8),
     assumptions: assumptions.map((item) => normalizeText(item, 900)).filter(Boolean).slice(0, 6),
     evidence_gaps: (Array.isArray(candidate?.evidence_gaps) ? candidate.evidence_gaps : (fallback.evidence_gaps || []))
@@ -476,6 +478,7 @@ const requestLlmResult = async ({ integration, agent, mode, prompt, context, cit
         "Make the output decision-ready and easy to scan. Separate observed facts from recommendations and from assumptions.",
         agent.outputInstructions || "Provide complete, actionable artifacts and an evidence-based design rationale. Match depth to the task rather than forcing a short answer.",
         "Use Markdown headings, numbered steps, and tables inside response and deliverable.detail where appropriate. Include a design rationale, not private chain of thought. Never abbreviate executable test steps or expected results merely to make the answer short.",
+        artifacts.CONTRACT,
         "Return strict JSON with headline, executive_summary, response, activity_summary, findings, deliverables, recommendations, assumptions, evidence_gaps, suggested_handoffs, citation_ids, and evaluation.",
         ...(context.automation_repair ? ["For automation repair, additionally return automation_repair: {kind:'replace_locator',step_id,new_locator,rationale} matching the pinned contract, or null when unsupported. Only typed literal locator replacements are allowed. Never return executable patch code, modified assertions, retry policies or timeout changes."] : []),
         "findings items require title, detail, priority (critical|high|medium|low|info), and citation_ids. deliverables items require type, title, detail, and citation_ids.",
@@ -882,6 +885,25 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       if (budget.used < budget.max) await appendEvent(transactionId, { level: "warning", phase: "specialist", message: "Model output failed validation; requesting one bounded correction.", details: { model_calls: budget.used, model_max_calls: budget.max } });
     }
     if (result === baseline) throw agentContract.fail("The model did not return a valid result with permitted evidence references. No fallback answer was produced.", "AGENT_OUTPUT_INVALID");
+    const followupId = !registered && !policy.custom_task ? artifacts.followup(normalizedAgentId, requestedScopes, result, normalizedPrompt) : null;
+    result.agent_chain = [{agent_id:normalizedAgentId,name:agent.name,status:"completed",trace_id:modelObservation?.trace_id||null}];
+    if(followupId && budget.used < budget.max && Date.now()+5000 < deadline) {
+      const profile=specialistProfiles[followupId];
+      await appendEvent(transactionId,{phase:"handoff",message:`${agent.name} handed the findings to ${profile.name} to prepare structured proposals.`,details:{from_agent:normalizedAgentId,to_agent:followupId,progress:78}});
+      try {
+        execution.assertActive();
+        if(!await permissionService.hasPermission(user,"agentic_workflow.run",projectId))throw agentError("Agent run access changed.",403);
+        const handoffPayload={...boundedPayload,previous_specialist_review:{agent_id:normalizedAgentId,summary:result.executive_summary,findings:result.findings,recommendations:result.recommendations,evidence_gaps:result.evidence_gaps}};
+        const candidate=await requestLlmResult({integration,agent:{...agent,name:profile.name,objective:profile.description,outputInstructions:profile.outputInstructions},mode:normalizedMode,prompt:`${normalizedPrompt}\nUse the previous specialist's findings and the original evidence to produce complete structured proposals. Address its recommendations. Return actual story/test/defect drafts in artifacts, not a plan to draft them.`,context,citations:suppliedCitations,history:[],contextRoute,knowledgeRetrieval,promptPayload:JSON.stringify(handoffPayload),deadline,budget});
+        const next=normalizeResult(candidate,baseline,suppliedCitations);
+        if(next===baseline||!next.artifacts?.length)throw Object.assign(new Error("The follow-up returned no structured proposals."),{code:"AI_INVALID_RESPONSE"});
+        result.artifacts=next.artifacts;result.recommendations=next.recommendations;result.deliverables=[...(result.deliverables||[]),...(next.deliverables||[])].slice(0,20);
+        result.citation_ids=[...new Set([...result.citation_ids,...next.citation_ids])];
+        result.evidence_gaps=[...new Set([...result.evidence_gaps,...next.evidence_gaps])].slice(0,8);
+        result.agent_chain.push({agent_id:followupId,name:profile.name,status:"completed",trace_id:candidate._model?.trace_id||null});modelObservation=candidate._model;
+        await appendEvent(transactionId,{phase:"handoff.completed",message:`${profile.name} prepared ${next.artifacts.length} structured proposals for review.`,details:{agent_id:followupId,artifact_count:next.artifacts.length,progress:84}});
+      }catch(error){execution.assertActive();if(error.statusCode===403)throw error;result.agent_chain.push({agent_id:followupId,name:profile.name,status:"needs_input"});result.evidence_gaps=[...new Set([...result.evidence_gaps,'The follow-up specialist could not produce a valid structured proposal within this run. Review the findings or retry with a narrower scope.'])].slice(0,8);}
+    }
     execution.assertActive();
     const generationMode = "llm", providerError = null;
     const limitations = [...contextLimitations];
@@ -921,7 +943,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     await appendEvent(transactionId, {
       level: result.readiness.status === "ready_for_review" ? "success" : "warning",
       phase: "evaluation",
-      message: `Review readiness: ${result.readiness.status.replace(/_/g, " ")}. Evidence diagnostics are available for inspection.`,
+      message: `Review readiness: ${result.readiness.status.replace(/_/g, " ")}.`,
       details: { evaluation: result.evaluation, verification: result.verification, model_execution: result.model_execution, progress: 100 }
     });
 

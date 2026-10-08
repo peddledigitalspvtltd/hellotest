@@ -14,6 +14,7 @@ function fixture(extra={}) {
     listBaselines:async scope=>[...baselines.values()].filter(r=>r.project_id===scope.project_id&&(!scope.app_type_id||r.app_type_id===scope.app_type_id)).map(clone),
     async create(r,u,m,key){const prior=[...rows.values()].find(row=>row.project_id===r.project_id&&row.created_by===u.id&&key&&row.metadata.request_key===key);if(prior)return {row:clone(prior),existing:true};const row={id:randomUUID(),related_id:m.id,project_id:r.project_id,app_type_id:r.app_type_id,created_by:u.id,status:'queued',created_at:new Date().toISOString(),updated_at:new Date().toISOString(),metadata:clone(m)};rows.set(m.id,row);return {row:clone(row)};},
     async claim(){const row=[...rows.values()].find(r=>['queued','running'].includes(r.status)&&!r.metadata.lease_token);if(!row)return null;row.metadata.lease_token=randomUUID();return clone(row);},
+    async checkpoint(row,patch){const current=rows.get(row.related_id);if(!['queued','running'].includes(current.status)||current.metadata.lease_token!==row.metadata.lease_token)return null;current.metadata={...current.metadata,...clone(patch)};return clone(current);},
     async updateClaim(row,patch,status){const current=rows.get(row.related_id);if(!['queued','running'].includes(current.status)||current.metadata.lease_token!==row.metadata.lease_token)return null;current.metadata={...current.metadata,...clone(patch),lease_token:null};current.status=status;return clone(current);},
     async cancel(row){const current=rows.get(row.related_id);if(!['queued','running'].includes(current.status))return null;current.status='failed';current.metadata={...current.metadata,run_status:'cancelled',cancellation_requested:true,lease_token:null};return clone(current);},
     event:async(row,e)=>events.push({row,e}),
@@ -122,4 +123,22 @@ test('PostgreSQL store guards write leases and cancellation; baseline image is w
   await store.cancel({id:'transaction-a'});assert.match(queries[1].sql,/status IN \('queued','running'\)/);
   db.prepare=sql=>({get:async()=>{if(sql.startsWith('SELECT'))return null;return {id:'transaction-a',metadata:{}};}});
   await store.saveBaseline({related_id:'run-a',project_id:'project-a'}, {source_run_id:'run-a',source_artifact_id:'artifact-a'},Buffer.from('image'));assert.deepEqual(writes,['begin','png','commit']);
+});
+
+test('autonomous missions checkpoint decisions before dispatch and reuse the same decision after lost acknowledgement',async()=>{
+ let f,launch,decisions=0,posted=0;
+ const observed={sequence:1,url:input.target_url,title:'Shop',text:'Product details',elements:[{id:'element-1',tag:'a',label:'Product details',type:'',sensitive:false,href:'https://qa.example.test/product'}]};
+ f=fixture({decideMission:async()=>{decisions++;return {action:'click',element_id:'element-1',summary:'Open product details'};},http:async(url,init)=>{
+  if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});
+  if(url.endsWith('/decision')){posted++;assert.equal(f.rows.get(launch.client_run_id).metadata.last_decision.sequence,1,'Decision is durable before releasing a browser action');if(posted===1)throw Object.assign(new Error('lost acknowledgement'),{retryable:true});return Response.json({accepted:true});}
+  launch=init.body?JSON.parse(init.body):launch;
+  return Response.json({contract_version:'1.0',id:'engine-mission-1234',client_run_id:launch.client_run_id,kind:'web',target_url:input.target_url,scope:launch.scope,state:'running',outcome:null,stages:[],findings:[],metrics:{},artifacts:[],limitations:[],decision_request:observed});
+ }});
+ const run=await f.service.createRun({...input,goal:'Open product details',options:{mission:{max_actions:3,allow_form_submission:false}}},user);
+ await f.service.processQueuedRuns();await f.service.processQueuedRuns();assert.equal(decisions,1);assert.equal(posted,2);assert.equal((await f.service.getRun(run.id,user)).status,'running');
+});
+test('cancellation during browser model latency prevents action dispatch',async()=>{
+ let f,run,posted=0;
+ f=fixture({decideMission:async()=>{await f.service.cancelRun(run.id,user);return {action:'complete',summary:'Done'};},http:async(url,init)=>{if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});if(url.endsWith('/decision')){posted++;return Response.json({accepted:true});}if(url.endsWith('/cancel'))return Response.json({cancelled:true});const value=JSON.parse(init.body);return Response.json({contract_version:'1.0',id:'engine-mission-1234',client_run_id:value.client_run_id,kind:'web',target_url:input.target_url,scope:value.scope,state:'running',outcome:null,stages:[],findings:[],metrics:{},artifacts:[],limitations:[],decision_request:{sequence:1,url:input.target_url,title:'Shop',text:'Ready',elements:[]}});}});
+ run=await f.service.createRun({...input,goal:'Read the page',options:{mission:{max_actions:3,allow_form_submission:false}}},user);await f.service.processQueuedRuns();assert.equal(posted,0);assert.equal((await f.service.getRun(run.id,user)).status,'cancelled');
 });
