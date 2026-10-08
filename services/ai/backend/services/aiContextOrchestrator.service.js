@@ -469,6 +469,7 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
     const appClause = "";
     const stories = await safeRows(`
       SELECT requirements.id, requirements.display_id, requirements.title, requirements.status,
+        requirements.description, requirements.additional_fields->'acceptance_criteria' AS acceptance_criteria, requirements.revision,
         requirements.priority, requirements.sprint, requirements.release, requirements.fix_version,
         requirements.created_at${canViewCoverage ? ", COUNT(DISTINCT requirement_test_cases.test_case_id)::INTEGER AS linked_test_case_count" : ""}
       FROM requirements

@@ -1,3 +1,4 @@
+import { takeAgentProposal } from "@hellotest/platform/frontend/src/lib/agentProposalDraft";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
 const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
 const AiCaseAuthoringModal = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiCaseAuthoringModal")["AiCaseAuthoringModal"]> & {}>("ai", "AiCaseAuthoringModal", () => import("@hellotest/ai/frontend/components/AiCaseAuthoringModal"), "ai");
@@ -3387,9 +3388,14 @@ export function TestCasesPage() {
       setExpandedStepGroupIds(preconditionGroupId ? [preconditionGroupId] : []);
     }
 
+    const agentProposal = canCreateTestCases ? takeAgentProposal(searchParams.get("agent_proposal"), projectId, appTypeId, "test_case") : null;
+    if (agentProposal) {
+      setCaseDraft(current => ({ ...current, title: agentProposal.title, description: [agentProposal.description, agentProposal.prerequisites?.length ? `Prerequisites:\n${agentProposal.prerequisites.join("\n")}` : ""].filter(Boolean).join("\n\n"), priority: Number(agentProposal.priority.slice(1)) || 3, authoring_mode: "structured" }));
+      setDraftSteps((agentProposal.steps || []).map(step => ({ id: createDraftStepId(), action: step.action, expected_result: step.expected_result, step_type: "web", automation_code: "", api_request: null, group_id: null, group_name: null, group_kind: null, reusable_group_id: null })));
+    }
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
-      ["create", "source", "module", "suite", "requirement", "release_id", "release", "sprint_id", "sprint"]
+      ["create", "agent_proposal", "source", "module", "suite", "requirement", "release_id", "release", "sprint_id", "sprint"]
         .forEach((key) => next.delete(key));
       return next;
     }, { replace: true });

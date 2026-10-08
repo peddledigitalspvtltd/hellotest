@@ -1,3 +1,4 @@
+import { takeAgentProposal } from "@hellotest/platform/frontend/src/lib/agentProposalDraft";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
 const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
 const AiDesignStudioModal = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiDesignStudioModal")["AiDesignStudioModal"]> & {}>("ai", "AiDesignStudioModal", () => import("@hellotest/ai/frontend/components/AiDesignStudioModal"), "ai");
@@ -868,6 +869,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const [optimizeContext, setOptimizeContext] = useState("");
   const [optimizeExternalLinksText, setOptimizeExternalLinksText] = useState("");
   const [optimizeReferenceImages, setOptimizeReferenceImages] = useState<AiDesignImageInput[]>([]);
+  const agentProposalRevisionRef = useRef<{ id: string; revision: number } | null>(null);
   const [optimizationSuggestion, setOptimizationSuggestion] = useState<RequirementOptimizationSuggestion | null>(null);
   const [requirementCreationDrafts, setRequirementCreationDrafts] = useState<RequirementCreationSuggestion[]>([]);
   const [storyAiHumanEditedFieldsByDraftId, setStoryAiHumanEditedFieldsByDraftId] = useState<Record<string, string[]>>({});
@@ -3216,9 +3218,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       isRequestedReleaseClosed ? undefined : requestedLocalRelease,
       requestedJiraVersion?.name || ""
     );
+    const agentProposal = canCreateRequirements ? takeAgentProposal(searchParams.get("agent_proposal"), projectId, appTypeId, "story") : null;
+    if (agentProposal) setCreateDraft(current => ({ ...current, title: agentProposal.title, description: agentProposal.description, acceptanceCriteriaText: (agentProposal.acceptance_criteria || []).join("\n"), priority: Number(agentProposal.priority.slice(1)) || 3 }));
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      ["create", "release_id", "release", "sprint_id", "sprint"].forEach((key) => next.delete(key));
+      ["create", "agent_proposal", "release_id", "release", "sprint_id", "sprint"].forEach((key) => next.delete(key));
       return next;
     }, { replace: true });
     const invalidContexts = [
@@ -4332,6 +4336,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   };
 
   const invalidateRequirementAiDraft = (active = isOptimizeModalOpen) => {
+    agentProposalRevisionRef.current = null;
     // A new identity prevents any older mutation, poll, or Gherkin response
     // from updating a reopened dialog, a different Story, or another scope.
     storyAiRequestRef.current.active = false;
@@ -4537,6 +4542,25 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setIsRequirementAiSidebarCollapsed(false);
     setIsOptimizeModalOpen(true);
 	  }
+
+  // Reuse AI Complete Story's field selection, comparison and revision-aware apply flow.
+  useEffect(() => {
+    const proposalId = searchParams.get("agent_proposal");
+    if (!proposalId || searchParams.get("create") === "1" || !selectedRequirement || requirementDetailQuery.data?.id !== selectedRequirement.id || requirementDetailQuery.isPending || !canUseRequirementAi || !canUpdateRequirements) return;
+    const proposal = takeAgentProposal(proposalId, projectId, appTypeId, "story");
+    if (!proposal) return;
+    if (proposal.target_id !== selectedRequirement.id || proposal.target_revision !== selectedRequirement.revision) {
+      showError(null, "The Story changed since the agent review. Run the review again before applying this proposal.");
+      setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("agent_proposal"); return next; }, { replace: true });
+      return;
+    }
+    openRequirementOptimization([selectedRequirement.id]);
+    agentProposalRevisionRef.current = { id: selectedRequirement.id, revision: proposal.target_revision! };
+    setOptimizationSuggestion({ title: proposal.title, description: proposal.description, acceptance_criteria: proposal.acceptance_criteria || [], external_references: selectedRequirement.external_references || [], priority: selectedRequirement.priority || 3, status: selectedRequirement.status || defaultRequirementStatus, risks: [], open_questions: [], change_summary: ["Prepared from the agent review findings. Review the complete proposal before applying."], evidence_refs: proposal.citation_ids });
+    setIncludeGherkin(false);
+    setOptimizationFields({ title: true, description: true, external_references: false, priority: false, status: false, gherkin: false });
+    setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("agent_proposal"); return next; }, { replace: true });
+  }, [searchParams, selectedRequirement, requirementDetailQuery.isPending, canUseRequirementAi, canUpdateRequirements, projectId, appTypeId]);
 
   const openAiRequirementCreation = () => {
     if (!canUseRequirementAi || !canCreateRequirements || !projectId) {
@@ -5002,6 +5026,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     if (!fullRequirement || fullRequirement.id !== activeOptimizeRequirement.id) {
       setPreviewTone("error");
       setPreviewMessage("The selected Story's full HelloTest context is not available. Reload it before applying AI changes.");
+      return;
+    }
+
+    const proposalRevision = agentProposalRevisionRef.current;
+    if (proposalRevision && (proposalRevision.id !== fullRequirement.id || proposalRevision.revision !== fullRequirement.revision)) {
+      setPreviewTone("error");
+      setPreviewMessage("The Story changed since the agent review. Run the review again before applying this proposal.");
       return;
     }
 

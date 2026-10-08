@@ -1,3 +1,4 @@
+import { takeAgentProposal } from "@hellotest/platform/frontend/src/lib/agentProposalDraft";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
 const DefectTriageDialog = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/DefectTriageDialog")["DefectTriageDialog"]> & {}>("ai", "DefectTriageDialog", () => import("@hellotest/ai/frontend/components/DefectTriageDialog"), "ai");
 const StoryAiStudioShell = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/StoryAiStudioShell")["StoryAiStudioShell"]> & {}>("ai", "StoryAiStudioShell", () => import("@hellotest/ai/frontend/components/StoryAiStudioShell"), "ai");
@@ -51,7 +52,7 @@ import { getDomainOptions, getDomainSuggestions } from "@hellotest/platform/fron
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
 import { useFeatureFlags } from "@hellotest/platform/frontend/src/platform/hooks/useFeatureFlags";
 import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAiPromptRegistry";
-import { useCurrentProject } from "@hellotest/platform/frontend/src/platform/hooks/useCurrentProject";
+import { useCurrentProject, useCurrentAppType } from "@hellotest/platform/frontend/src/platform/hooks/useCurrentProject";
 import { api } from "@hellotest/platform/frontend/src/lib/api";
 import { BUG_TO_TEST_CASE_STORAGE_KEY, buildBugToTestCaseDraft } from "../lib/bugToTestCaseConversion";
 import { isJiraCoreFieldRequired } from "@hellotest/integration/frontend/lib/jiraCreateMetadata";
@@ -527,6 +528,7 @@ export function IssuesPage() {
   const { session } = useAuth();
   const { getLlmIntegrationId, getMetricCriteria, getPrompt } = useAiPromptRegistry();
   const [projectId] = useCurrentProject();
+  const [appTypeId] = useCurrentAppType(projectId);
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const { can } = useCapabilityAccess(projectId);
   const canViewTestCases = can("testcase.view");
@@ -639,7 +641,7 @@ export function IssuesPage() {
   const [aiBugMode, setAiBugMode] = useState<"create" | "improve">("create");
   const aiImproveTarget = useRef<{ projectId: string; issueId: string; signature: string } | null>(null);
   const [aiImproveFields, setAiImproveFields] = useState<string[]>(["title", "message", "steps_to_reproduce", "expected_result", "actual_result", "severity", "priority", "environment", "build", "labels"]);
-  const canUseAiBugImprove = (isCreating ? canCreateBugs : canManageBugs) && canViewTestCases && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.bug_triage"]);
+  const canUseAiBugImprove = !isCreating && searchParams.get("create") !== "1" && Boolean(selectedIssueId) && canManageBugs && canViewTestCases && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.bug_triage"]);
   const canUseCurrentAiDraft = aiBugMode === "improve" ? canUseAiBugImprove : canUseAiBugDraft;
   const aiBugRequestSequence = useRef(0);
   const aiBugProjectRef = useRef(projectId);
@@ -1311,6 +1313,8 @@ export function IssuesPage() {
     const deliveryPrefill = readDeliveryScopePrefill(searchParams);
     const resolvedDeliveryPrefill = resolveDeliveryScopePrefill(deliveryPrefill, deliveryScopeCatalog);
     const nextDraft = createIssueDraftFromQuery(searchParams, defaultIssueStatus, session?.user.id);
+    const agentProposal = takeAgentProposal(searchParams.get("agent_proposal"), projectId, appTypeId, "defect");
+    if (agentProposal) Object.assign(nextDraft, { title: agentProposal.title, message: agentProposal.description, steps_to_reproduce: (agentProposal.reproduction_steps || []).join("\n"), expected_result: agentProposal.expected_result || "", actual_result: agentProposal.actual_result || "", severity: agentProposal.severity || "medium", priority: ({ P1: "Highest", P2: "High", P3: "Medium", P4: "Low" } as Record<string, string>)[agentProposal.priority] || "Medium" });
     nextDraft.release = resolvedDeliveryPrefill.release || nextDraft.release;
     nextDraft.sprint = resolvedDeliveryPrefill.sprint || nextDraft.sprint;
 
@@ -1325,6 +1329,7 @@ export function IssuesPage() {
 
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("create");
+    nextParams.delete("agent_proposal");
     nextParams.delete("issue");
     setSearchParams(nextParams, { replace: true });
   }, [canCreateBugs, defaultIssueStatus, deliveryScopeCatalog, searchParams, setSearchParams, session?.user.id]);
@@ -1539,7 +1544,7 @@ export function IssuesPage() {
 
   const openSelectedBugTriage = () => {
     const selectedIssueIds = selectedActionIssues.map((item) => item.id);
-    if (!projectId || !selectedIssueIds.length || !canUseAiBugTriage) return;
+    if (isCreating || searchParams.get("create") === "1" || !projectId || !selectedIssueIds.length || !canUseAiBugTriage) return;
     if (selectedIssueIds.length > MAX_AI_BUG_TRIAGE_ITEMS) {
       setMessageTone("error");
       setMessage(`Select no more than ${MAX_AI_BUG_TRIAGE_ITEMS} Defects for one AI triage preview. This keeps workspace reads and AI usage bounded.`);
@@ -2007,7 +2012,7 @@ export function IssuesPage() {
     <div className="page-content issues-page">
       {isBugImportOpen && canCreateBugs && projectId ? <IssueImportDialog key={projectId} projectId={projectId} people={assigneeLabelById} canViewBatchProcess={can("transaction.view")} onQueued={id => setPendingBugImport({ id, projectId })} onClose={() => setIsBugImportOpen(false)} /> : null}
       {confirmationDialog}
-      {isAiBugTriageOpen && canUseAiBugTriage && projectId ? <DefectTriageDialog
+      {!isCreating && searchParams.get("create") !== "1" && isAiBugTriageOpen && canUseAiBugTriage && projectId ? <DefectTriageDialog
         key={projectId}
         projectId={projectId}
         issues={triageIssues}
@@ -2449,7 +2454,7 @@ export function IssuesPage() {
                   <button className="ghost-button catalog-selection-button" type="button" disabled={!projectId} onClick={() => downloadCsvRecords("hellotest-bug-import-template.csv", buildIssueImportTemplate())}><ExportIcon /><span>Bug template</span></button>
                   <button className="ghost-button catalog-selection-button" type="button" disabled={!projectId} onClick={() => setIsBugImportOpen(true)}><ImportIcon /><span>Import Bugs</span></button>
                 </> : null}
-                {canUseAiBugTriage ? (
+                {!isCreating && searchParams.get("create") !== "1" && canUseAiBugTriage ? (
                   <button
                     className="ghost-button catalog-selection-button"
                     disabled={!selectedActionIssues.length || isDeletingSelectedIssues || isExportingIssues}
@@ -2662,7 +2667,7 @@ export function IssuesPage() {
             actions={(
               <div className="defect-ai-form-actions">
                   {canUseAiBugImprove ? <button className="ghost-button" disabled={!draft.title.trim() || isAiBugContextBusy || isSavingIssue} onClick={openAiBugImprove} type="button"><SparkIcon/>AI Defect Improve</button> : null}
-                  {!isCreating && selectedItem && canUseAiBugTriage ? <button className="ghost-button" onClick={() => { setTriageIssues([selectedItem]); setIsAiBugTriageOpen(true); }} type="button"><SparkIcon/>AI Defect Triage</button> : null}
+                  {!isCreating && searchParams.get("create") !== "1" && selectedItem && canUseAiBugTriage ? <button className="ghost-button" onClick={() => { setTriageIssues([selectedItem]); setIsAiBugTriageOpen(true); }} type="button"><SparkIcon/>AI Defect Triage</button> : null}
                 {!isCreating && selectedItem && canCreateTestCases ? (
               <button
                 className="ghost-button issue-detail-convert-button"

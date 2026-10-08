@@ -1020,7 +1020,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
     setSelectedRecommendationIndexes(result.recommendations.map((_, index) => index));
     setAccepted(false);
     setEditing(false);
-    setActiveSection("summary");
+    setActiveSection(result.artifacts?.length ? "actions" : "summary");
     setComparing(false);
     setExportNotice("");
   }, [result]);
@@ -1033,6 +1033,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
     deliverables.length ? `## Deliverables\n${deliverables.map(item => `### ${item.title}\n${item.detail}${item.citation_ids?.length ? `\nSources: ${item.citation_ids.join(", ")}` : ""}`).join("\n\n")}` : "",
     result.readiness?.limitations?.length ? `## Review limitations\n${result.readiness.limitations.map(item => `- ${item}`).join("\n")}` : "",
     selectedRecommendationIndexes.length ? `## Next actions\n${selectedRecommendationIndexes.map(index => `- ${draftRecommendations[index]}`).join("\n")}` : "",
+    result.artifacts?.length ? `## Structured proposals\n${JSON.stringify(result.artifacts, null, 2)}` : "",
     result.assumptions.length ? `## Assumptions\n${result.assumptions.map(item => `- ${item}`).join("\n")}` : "",
     evidenceGaps.length ? `## Evidence gaps\n${evidenceGaps.map(item => `- ${item}`).join("\n")}` : "",
     `## Sources\n${groundedCitations.length ? groundedCitations.map(item => `- ${item.label} (${item.scope}: ${item.id})`).join("\n") : "No verified references were returned."}`,
@@ -1051,14 +1052,13 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         ...(findings.length ? [{ id: "findings", label: "Findings", count: findings.length }] : []),
         ...(deliverables.length ? [{ id: "deliverables", label: "Artifacts", count: deliverables.length }] : []),
         { id: "details", label: "Full brief", count: undefined },
-        ...(draftRecommendations.length ? [{ id: "actions", label: "Next actions", count: draftRecommendations.length }] : [])
+        ...((draftRecommendations.length || result.artifacts?.length || (result.agent_chain?.length || 0) > 1) ? [{ id: "actions", label: "Next actions", count: result.artifacts?.length || draftRecommendations.length }] : [])
       ].map((section, index, sections) => <button aria-controls={`${surfaceId}-${section.id}`} aria-selected={activeSection === section.id} id={`${surfaceId}-tab-${section.id}`} key={section.id} onClick={() => setActiveSection(section.id)} onKeyDown={event => {
         const next = event.key === "ArrowRight" ? (index + 1) % sections.length : event.key === "ArrowLeft" ? (index + sections.length - 1) % sections.length : event.key === "Home" ? 0 : event.key === "End" ? sections.length - 1 : -1;
         if (next >= 0) { event.preventDefault(); setActiveSection(sections[next].id); event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus(); }
       }} role="tab" tabIndex={activeSection === section.id ? 0 : -1} type="button">{section.label}{typeof section.count === "number" ? <span>{section.count}</span> : null}</button>)}</nav>
 
 
-      {result.artifacts?.length ? <AgentArtifactReview artifacts={result.artifacts} chain={result.agent_chain || []} /> : null}
       {result.automation_repair&&<AutomationRepairReview summary={result.automation_repair}/>}
       {result.quality_assessment && <QualityEvidencePanel key={result.quality_assessment.snapshot_hash} report={result.quality_assessment} />}
       {result.verification && <details className="agent-brief-limitations" open={result.verification.status !== "passed"}><summary>Completion checks · {result.verification.status === "passed" ? "passed · human review required" : "more input needed"}</summary><ul>{result.verification.checks.map(check => <li key={check.id}>{check.passed ? "Passed" : "Unmet"}: {check.label}</li>)}</ul>{result.verification.limitations.map(item => <p key={item}>{item}</p>)}{result.model_execution && <p>Model: {result.model_execution.effective_model} · {result.model_execution.model_calls}/{result.model_execution.max_model_calls} calls · agent v{result.model_execution.agent_version}</p>}</details>}
@@ -1095,21 +1095,24 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         <label htmlFor={editing ? `${surfaceId}-response` : undefined}><span>Detailed specialist output</span><em>{editing ? "Editing export copy" : "Review brief"}</em></label>
         {editing ? <textarea id={`${surfaceId}-response`} onChange={(event) => { setDraftResponse(event.target.value); setAccepted(false); }} rows={10} value={draftResponse} /> : <div aria-label="Complete specialist output" className="agent-brief-body" role="region" tabIndex={0}><FormattedText text={draftResponse} /></div>}
       </div>
-      {draftRecommendations.length ? (
+      {(draftRecommendations.length || result.artifacts?.length || (result.agent_chain?.length || 0) > 1) ? (
         <div aria-labelledby={`${surfaceId}-tab-actions`} className="agent-outcome-section agent-outcome-recommendation-review" hidden={activeSection !== "actions" && !editing} id={`${surfaceId}-actions`} role="tabpanel">
-          <strong>Recommended next actions</strong>
-          {editing ? <div>{draftRecommendations.map((item, index) => (
+          <header className="agent-next-actions-heading"><div><h3>Next actions</h3><p>{result.artifacts?.length ? 'The applicable specialists prepared these outcomes from the primary review. Review and accept or decline each draft.' : 'Follow-up work is shown only when the findings support it.'}</p></div></header>
+          {(result.agent_chain?.length || 0) > 1 && <ol className="agent-handoff-list" aria-label="Agent handoffs">{result.agent_chain!.slice(1).map((step, index) => <li key={`${step.agent_id}-${index}`} data-status={step.status}><div><strong>{step.name}</strong><span>{step.status === 'completed' ? `${step.artifact_count || 'Structured'} proposal${step.artifact_count === 1 ? '' : 's'} ready` : 'Needs follow-up'}</span></div><p>{step.reason || 'Prepared proposals from the review findings.'}</p>{step.detail && <p>{step.detail}</p>}</li>)}</ol>}
+          {result.artifacts?.length ? <AgentArtifactReview artifacts={result.artifacts} chain={result.agent_chain || []} /> : null}
+          {draftRecommendations.length > 0 && <h4>Remaining review considerations</h4>}
+          {editing ? <div className="agent-recommendation-editor">{draftRecommendations.map((item, index) => (
             <label data-selected={selectedRecommendationIndexes.includes(index) || undefined} key={`${index}:${result.recommendations[index]}`}>
               <input checked={selectedRecommendationIndexes.includes(index)} onChange={(event) => { setSelectedRecommendationIndexes((current) => event.target.checked ? [...new Set([...current, index])] : current.filter((itemIndex) => itemIndex !== index)); setAccepted(false); }} type="checkbox" />
               <textarea aria-label={`Edit next action ${index + 1}`} onChange={(event) => { setDraftRecommendations((current) => current.map((recommendation, itemIndex) => itemIndex === index ? event.target.value : recommendation)); setAccepted(false); }} rows={2} value={item} />
             </label>
-          ))}</div> : <div className="agent-brief-action-selection">{draftRecommendations.map((item, index) => <label key={index}><input checked={selectedRecommendationIndexes.includes(index)} onChange={event => { setSelectedRecommendationIndexes(current => event.target.checked ? [...new Set([...current, index])] : current.filter(itemIndex => itemIndex !== index)); setAccepted(false); }} type="checkbox" /><span>{item}</span></label>)}</div>}
+          ))}</div> : <div className="agent-brief-action-selection">{draftRecommendations.map((item, index) => <label key={index}><input checked={selectedRecommendationIndexes.includes(index)} onChange={event => { setSelectedRecommendationIndexes(current => event.target.checked ? [...new Set([...current, index])] : current.filter(itemIndex => itemIndex !== index)); setAccepted(false); }} type="checkbox" /><div className="agent-next-action-copy"><FormattedText text={item} /></div></label>)}</div>}
         </div>
       ) : null}
       {result.assumptions.length ? <details className="agent-outcome-details"><summary>Assumptions to verify ({result.assumptions.length})</summary><ul>{result.assumptions.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
       {evidenceGaps.length ? <details className="agent-outcome-details is-evidence-gap" open><summary>Evidence gaps ({evidenceGaps.length})</summary><ul>{evidenceGaps.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
       <AiEvidenceButton label="Sources" onClick={() => setIsEvidenceOpen(true)} />
-      <div className="agent-outcome-action-dock">
+      <div className="agent-outcome-action-dock" hidden={activeSection === "actions" && Boolean(result.artifacts?.length) && !editing}>
       <div className="agent-brief-tools">
         <span>{provenance?.generation_mode === "llm" ? "Model-assisted review" : "Evidence summary"}</span>
         <button className="ghost-button compact" type="button" aria-pressed={editing} onClick={() => { setEditing(value => !value); setActiveSection("details"); }}>{editing ? "Finish editing" : "Edit brief"}</button>

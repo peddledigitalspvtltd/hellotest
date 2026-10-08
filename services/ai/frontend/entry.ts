@@ -11,5 +11,6 @@ export const views = {
   DefectAiDraftWorkspace: () => import("./components/DefectAiDraftWorkspace"),
   StoryGroomingWorkspace: () => import("./components/StoryGroomingWorkspace"),
   StoryAiStudioShell: () => import("./components/StoryAiStudioShell"),
+  StoryAiDraftInspector: () => import("./components/StoryAiStudioContent"),
   StoryAiStudioContent: () => import("./components/StoryAiStudioContent"),
 };

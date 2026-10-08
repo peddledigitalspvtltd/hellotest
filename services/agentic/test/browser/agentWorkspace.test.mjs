@@ -185,7 +185,12 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(requests[0].body.mode, 'agent'); assert.ok(!requests[0].body.context_scopes.includes('bugs'));
     assert.equal(await page.getByRole('button', { name: 'Accept agent output', exact: true }).count(), 0);
     await page.getByText('Limited evidence', { exact: true }).waitFor();
-    const proposals=page.getByRole('region',{name:'Structured agent proposals'});await page.getByRole('heading',{name:'Proposals for review'}).waitFor();await page.getByRole('heading',{name:'Acceptance criteria',exact:true}).waitFor();await page.getByRole('navigation',{name:'Choose proposal'}).getByRole('button',{name:/Verify a duplicate submission/}).click();await page.getByText('Exactly one order is retained',{exact:true}).waitFor();await page.getByRole('navigation',{name:'Choose proposal'}).getByRole('button',{name:/Complete checkout retry behavior/}).click();
+    const proposals=page.getByRole('region',{name:'Structured agent proposals'});await page.getByRole('heading',{name:'Proposals for review'}).waitFor();await page.getByText('Acceptance Criteria:',{exact:true}).waitFor();await page.getByRole('navigation',{name:'Choose proposal'}).getByRole('button',{name:/Verify a duplicate submission/}).click();assert.equal(await page.getByLabel('Expected result 1',{exact:true}).inputValue(),'Exactly one order is retained');await page.getByRole('navigation',{name:'Choose proposal'}).getByRole('button',{name:/Complete checkout retry behavior/}).click();
+    await proposals.getByRole('button',{name:'Decline',exact:true}).click();await proposals.getByText('Proposal declined. No application changes were saved.',{exact:true}).waitFor();
+    await proposals.getByRole('button',{name:'Accept draft',exact:true}).click();await proposals.getByRole('button',{name:'Continue in Stories',exact:true}).waitFor();
+    await page.getByLabel('Story title',{exact:true}).fill('Reviewed checkout retry behavior');assert.equal(await proposals.getByRole('button',{name:'Accept draft',exact:true}).isEnabled(),true,'Editing invalidates the prior acceptance');await proposals.getByRole('button',{name:'Accept draft',exact:true}).click();
+    await capture(page,screenshots+'/09-next-actions-story-desktop.png');await fit(page,390);await capture(page,screenshots+'/10-next-actions-story-mobile.png');await fit(page,1440);
+    assert.deepEqual(await page.evaluate(()=>window.workspaceCalls.writes),[],'Accepting a draft does not silently mutate a domain record');
     await page.getByText(result.evidence_gaps[0], { exact: true }).waitFor();
     const outcome=page.locator('.agent-outcome-panel');const outputTabs=outcome.getByRole('tablist',{name:'Output sections'});
     await outputTabs.getByRole('tab',{name:'Overview',exact:true}).focus();await page.keyboard.press('ArrowRight');
@@ -315,6 +320,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(await page.getByRole('button', { name: 'Start review', exact: true }).isDisabled(), true);
     assert.equal(await page.getByRole('button', { name: 'Accept agent output', exact: true }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Create workflow draft', exact: true }).count(), 0);
+    await page.locator('.agent-outcome-panel').getByRole('tab',{name:'Overview',exact:true}).click();
     await page.getByRole('button', { name: 'Download brief', exact: true }).waitFor();
     assert.deepEqual(errors, []);
   } finally {

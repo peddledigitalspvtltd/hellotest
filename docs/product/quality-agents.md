@@ -52,17 +52,17 @@ External ChatGPT/LLM MCP hosts discover `hellotest_browser_mission_prepare` and 
 
 Workspace review output omits the diagnostic scores, repeated citation/guardrail/route badges and reusable-workflow prompt. Model-call details are in the second **Model calls** tab. Source inspection remains available through **Sources**.
 
-A built-in review can invoke one applicable authoring specialist using its original permitted evidence, citations, findings, recommendations and gaps. The shared two-call budget and deadline still apply; there is no recursive model-selected delegation.
+A built-in or saved specialist review can invoke up to three applicable authoring specialists using its original permitted evidence, citations, findings, recommendations and gaps. The shared default budget is four model calls (including the primary review), with the existing deadline and cancellation boundary. Saved definitions retain their explicit model-call budgets, instructions and constraints. Explicit smaller budgets still apply. The server selects supported Story, Test Case and Defect outcomes from actionable, cited findings and permitted scopes; there is no recursive model-selected delegation. Already supplied artifact kinds and reviews without actionable evidence do not trigger additional calls. Each subsequent specialist receives the original review and any earlier proposals, clearly labeled as draft context rather than new source evidence. Failed or budget-limited steps remain visible in the handoff list.
 
 | Review | Follow-up when applicable |
 | --- | --- |
 | Story assurance or grooming | Story completion |
-| Quality, release, risk, impact or run planning | Story architect, test designer or defect reporter, selected from the task and available evidence scopes |
+| Quality, release, risk, impact or run planning | Story completion, test designer and/or defect reporter, selected from actionable findings and available evidence scopes |
 | Failure analysis, flakiness or defect triage | Defect reporter |
 | Automation readiness, repair or repository maintenance | Test designer |
 | Authoring specialist | Produces its own structured proposal; does not delegate to itself |
 
-Stories contain a title, description, priority and acceptance criteria. Test cases contain prerequisites and complete action/expected-result steps. Defects contain reproduction steps, expected/observed behavior and severity. Each draft must cite supplied evidence; invented citations, missing fields and empty assertions are rejected. Cards expose the proposals in a readable, responsive layout and link to the destination workspace. These are reviewable proposals; domain records are not changed automatically. If the follow-up cannot finish, the original review remains available with an explicit gap.
+Stories contain a title, description, priority and acceptance criteria. Test cases contain prerequisites and complete action/expected-result steps. Defects contain reproduction steps, expected/observed behavior and severity. Each draft must cite supplied evidence; invented citations, missing fields and empty assertions are rejected. The **Next actions** tab contains the handoff status and editable proposals, with independent accept/decline decisions. Story proposals reuse the native AI Story inspector. Accepting marks a draft reviewed; Continue opens the populated native form where domain permissions, required fields and explicit saving still apply. Proposal content stays in one-use, project/application-bound session storage for at most 30 minutes, with only an opaque token in the URL. An existing Story target must match an exact ID and revision from cited, authorized live evidence. Its proposal opens AI Complete Story with comparison and field selection; stale revisions are rejected both on opening and applying. Unknown targets are never inferred from a model-supplied name. Test Case steps and Defect reproduction/expected/observed fields transfer into native creation forms. Domain records are not changed automatically. If a follow-up cannot finish, the original review remains available with an explicit gap.
 
 ## Local execution
 
