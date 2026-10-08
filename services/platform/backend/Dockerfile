@@ -38,6 +38,7 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
 COPY --chown=node:node services/capabilities.json ./services/capabilities.json
 COPY --chown=node:node services/platform/backend ./services/platform/backend
+COPY --chown=node:node services/platform/shared ./services/platform/shared
 COPY --chown=node:node services/mcp/backend ./services/mcp/backend
 COPY --chown=node:node services/testing/backend ./services/testing/backend
 COPY --chown=node:node services/knowledge/backend ./services/knowledge/backend
@@ -54,6 +55,9 @@ COPY --chown=node:node services/integration/backend ./services/integration/backe
 ARG HELLOTEST_CAPABILITY=all
 ENV HELLOTEST_SERVICE_PROFILE=$HELLOTEST_CAPABILITY
 COPY --from=capability-ui --chown=node:node /capability-ui ./capability-ui
+
+COPY scripts/build/check-runtime-exports.cjs ./scripts/build/check-runtime-exports.cjs
+RUN node scripts/build/check-runtime-exports.cjs /app
 
 USER node
 
