@@ -476,7 +476,22 @@ print_redacted_env_file() {
 }
 
 compose() {
-  compose_cmd --env-file "$RESOLVED_ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  if [ "$STACK" = "local" ] && [ "$HELLOTEST_OPS_ENABLED" = "true" ]; then
+    if [ "${1:-}" = "up" ]; then
+      # The app may start before monitoring, or after the API was recreated.
+      # Declare the shared network in Compose rather than relying on a later
+      # imperative attachment that disappears when a container is replaced.
+      if ! docker network inspect hellotest-ops >/dev/null 2>&1; then
+        docker network create hellotest-ops >/dev/null \
+          || docker network inspect hellotest-ops >/dev/null 2>&1 \
+          || die "Could not prepare the monitoring network"
+      fi
+    fi
+    compose_cmd --env-file "$RESOLVED_ENV_FILE" -f "$COMPOSE_FILE" \
+      -f "$ROOT_DIR/local-run/docker-compose.ops-network.yml" "$@"
+  else
+    compose_cmd --env-file "$RESOLVED_ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  fi
 }
 
 prepare_object_storage_image() {

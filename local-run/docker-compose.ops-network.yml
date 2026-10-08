@@ -1,0 +1,14 @@
+# Included by hellotest.sh when local monitoring is enabled. Network membership
+# belongs to Compose so container recreation retains monitoring connectivity.
+services:
+  api:
+    networks:
+      - ops-monitoring
+  frontend:
+    networks:
+      - default
+      - ops-monitoring
+networks:
+  ops-monitoring:
+    name: hellotest-ops
+    external: true

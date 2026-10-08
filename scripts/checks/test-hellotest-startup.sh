@@ -14,6 +14,7 @@ set -eu
 
 case "$1" in
   ps) exit 0 ;;
+  network) exit 0 ;;
   inspect) printf 'attached\n'; exit 0 ;;
   image)
     [ "$2" = inspect ] || exit 92
@@ -28,10 +29,11 @@ esac
 
 [ "$1" != "version" ] || exit 0
 MOCK_IS_OPS=0
+MOCK_HAS_OPS_NETWORK=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --env-file) shift 2 ;;
-    -f) case "$2" in */docker-compose.ops.yml) MOCK_IS_OPS=1 ;; esac; shift 2 ;;
+    -f) case "$2" in */docker-compose.ops.yml) MOCK_IS_OPS=1 ;; */docker-compose.ops-network.yml) MOCK_HAS_OPS_NETWORK=1 ;; esac; shift 2 ;;
     *) break ;;
   esac
 done
@@ -40,6 +42,11 @@ if [ "$MOCK_IS_OPS" = 1 ]; then
   printf 'ops %s\n' "$*" >> "$MOCK_DOCKER_TRACE"
   [ "$1" != up ] || exit "${MOCK_OPS_STATUS:-0}"
   exit 0
+fi
+
+if [ "${MOCK_REQUIRE_OPS_NETWORK:-0}" = 1 ] && [ "$MOCK_IS_OPS" = 0 ] && [ "$MOCK_HAS_OPS_NETWORK" != 1 ]; then
+  echo 'Monitoring-enabled startup must include declarative network membership' >&2
+  exit 94
 fi
 
 if [ "$1" = config ]; then
@@ -212,7 +219,7 @@ printf 'PASS: instance setup selection reaches the generated Compose environment
 
 reset_case
 unset HELLOTEST_OPS_ENABLED
-TESTENGINE_WEB_REPLICAS=1 "$ROOT_DIR/hellotest.sh" up --build --stack local --no-cache > "$TEST_DIR/output" 2>&1
+MOCK_REQUIRE_OPS_NETWORK=1 TESTENGINE_WEB_REPLICAS=1 "$ROOT_DIR/hellotest.sh" up --build --stack local --no-cache > "$TEST_DIR/output" 2>&1
 assert_trace 'pull --ignore-buildable --include-deps --policy missing
 build --no-cache
 up -d

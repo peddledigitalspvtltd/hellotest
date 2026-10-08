@@ -249,3 +249,13 @@ bin/fix-recorder-integration.sh
 Use `bin/status.sh`, `bin/health.sh` and `bin/logs.sh` first. `bin/stop.sh` stops the stack without deleting the named data volumes. Restart only the affected service after diagnosing the failure; changed environment settings require a recreated container. Do not use `bin/reset-data.sh` or Compose `down -v` to apply a schema update or repair an unavailable provider.
 
 For host recording, install the dependencies described in [CONTRIBUTING](../CONTRIBUTING.md), then use the launcher appropriate to the host OS. Container URLs such as `http://testengine:4301` are for API-to-engine traffic inside Compose; browser live views need a host-reachable URL. For mobile execution, the provider still needs a separate Appium server, driver and configured device/application; starting the local stack does not create them.
+
+### Monitoring connectivity after container recreation
+
+When local monitoring is enabled, `hellotest.sh` includes
+`docker-compose.ops-network.yml` and creates the shared `hellotest-ops` network
+before starting application containers. API and frontend membership is then part
+of Compose configuration and survives recreation. The standalone monitoring
+launcher also repairs connectivity for already-running or older deployments.
+If running Compose directly with monitoring, include this override after the
+base file and prepare the shared network first; using the launcher handles both.
