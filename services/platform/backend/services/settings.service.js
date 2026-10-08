@@ -155,9 +155,14 @@ exports.getWorkspacePreferences = async (userId) => {
     readGovernedWorkspacePreferences()
   ]);
 
+  const [managed,metrics] = await Promise.all([require("./aiConfiguration.service").publishedOverrides(),require("./metricGovernance.service").publishedOverrides()]);
   return {
     ...personalPreferences,
-    ...governedPreferences
+    ...governedPreferences,
+    ai_metric_criteria_overrides: { ...governedPreferences.ai_metric_criteria_overrides, ...metrics.criteria },
+    ai_metric_formula_values: { ...governedPreferences.ai_metric_formula_values, ...metrics.parameters },
+    ai_prompt_registry_overrides: { ...governedPreferences.ai_prompt_registry_overrides, ...managed.prompts },
+    ai_prompt_registry_llm_overrides: { ...governedPreferences.ai_prompt_registry_llm_overrides, ...managed.integrations }
   };
 };
 

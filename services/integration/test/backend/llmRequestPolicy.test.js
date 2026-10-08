@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { prepareChatRequest } = require('../../../platform/backend/src/utils/llmRequestPolicy');
+const configuration = require('../../../platform/backend/services/aiConfiguration.service');
+configuration.resolve = async id => { const item = configuration.catalog.find(item=>item.id===id);return {...item,config:item.defaults,published_version:0,fingerprint:configuration.hash(item.defaults)}; };
 const { fetchLlmWithRetry } = require('../../../platform/backend/src/utils/llmHttpClient');
 
 const init = (extra = {}) => ({ method: 'POST', body: JSON.stringify({

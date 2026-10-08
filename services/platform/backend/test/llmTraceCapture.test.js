@@ -49,3 +49,11 @@ test('invalid and missing responses retain explicit failures, not fabricated usa
     assert.doesNotMatch(JSON.stringify(f.writes),/credential detail/);
   });
 });
+
+test('instance-scoped calls and required-context preflight failures are traced without a synthetic project',async()=>{
+ const f=fixture();
+ await context.run({actor_id:'instance-admin',project_id:null},async()=>{
+  await assert.rejects(f.client.fetchLlmWithRetry('https://provider-never-dispatched.invalid/chat/completions',{method:'POST',body:JSON.stringify({model:'fixture',messages:[{role:'user',content:'Review'}]})},{operation:'unmapped.preflight-fixture',mcpContextPolicy:{mode:'mcp',required:true}}),{code:'AI_MCP_SCOPE_REQUIRED'});
+  assert.equal(f.writes.length,2);assert.equal(f.writes[0].values[1],null);assert.equal(f.writes[0].values[2],'instance-admin');assert.equal(f.writes[0].values[17].scope,'instance');assert.equal(f.writes[0].values[17].mcp_context,'scope_missing');assert.equal(f.writes[1].values[1],'failed');
+ });
+});

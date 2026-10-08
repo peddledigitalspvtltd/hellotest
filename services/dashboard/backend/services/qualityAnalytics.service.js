@@ -1,3 +1,4 @@
+const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const db = require("@hellotest/platform/backend/src/db");
 const { RELATIONAL_METRICS, buildRelationalEvidence, QA_DONE, DEV_DONE, status: storyStatus } = require("./qualityDashboardRelations");
 const { releaseStoryMembershipSql, releaseExecutionMembershipSql } = require("@hellotest/platform/backend/src/utils/deliveryScopeSql");
@@ -549,7 +550,7 @@ const explainQualityInsights = async ({ projectId, release, sprint, userId, inte
   const baseline = await qualityInsights({ projectId, release, sprint });
   const reviewer = require("@hellotest/ai/backend/services/structuredReview.service");
   const review = await reviewer.review({ projectId, userId, integrationId, usageKey: "ai.quality.insights",
-    task: "Explain the recorded project quality signals. Counts and metrics are fixed code inputs. Linked coverage is not assertion adequacy. An advisory score is not release readiness. Distinguish observed failures from hypotheses and missing evidence.",
+    task: aiInstructionBlock("ai.quality.portfolio_insights", "qualityAnalytics.review.task"),
     evidence: { ref: "quality:metrics", scope: baseline.scope, metrics: baseline.metrics, findings: baseline.findings, limitations: baseline.limitations },
     contract: '{"summary":"string","findings":[{"id":"existing finding id","explanation":"string","action":"string","evidence_refs":["quality:metrics"]}]}',
     validate: value => {

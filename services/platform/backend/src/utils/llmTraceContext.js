@@ -14,6 +14,8 @@ function current(integration) {
     request_id: req?.id || null,
     trace_id: req?.traceId || null,
     feature: selected.usageKey || null,
+    integration_explicit: selected.explicit === true,
+    integration_fallback: selected.fallback || null,
     ...Object.fromEntries(Object.entries(local).filter(([key]) => key !== 'request'))
   };
 }

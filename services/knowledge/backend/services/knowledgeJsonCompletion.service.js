@@ -37,12 +37,13 @@ const openAiJsonCompletion = async ({ integration, messages, operation, signal, 
     body: JSON.stringify({
       model: integration.model,
       [outputTokenField]: maxOutputTokens,
-      ...(includeTemperature ? { temperature: 0 } : {}),
+      ...(includeTemperature ? {  } : {}),
       ...(useJsonMode ? { response_format: { type: "json_object" } } : {}),
       messages
     })
   }, {
     integration,
+    sampling: includeTemperature,
     compatibility: false,
     // This gateway records usage and exposes its established MODEL_* errors.
     validateResponse: false,

@@ -7,27 +7,9 @@ const METRIC_FORMULA_VALUES_KEY = "ai_metric_formula_values";
 const TERMINAL_RESULT_STATUSES = new Set(["passed", "failed", "blocked"]);
 const CLOSED_BUG_STATUSES = new Set(["closed", "resolved", "done", "accepted"]);
 
-const DEFAULT_FORMULA_VALUES = Object.freeze({
-  "metric.project.portfolio_health": Object.freeze({ story_weight: 35, automation_weight: 25, pass_weight: 40 }),
-  "metric.project.risky_classification": Object.freeze({ pass_confidence_threshold: 60 }),
-  "metric.project.release_ready": Object.freeze({ readiness_threshold: 80 }),
-  "metric.project.execution_evidence": Object.freeze({ minimum_coverage_percent: 80 }),
-  "metric.project.needs_attention": Object.freeze({ priority_project_limit: 3 }),
-  "metric.project.execution_failures": Object.freeze({ priority_impact_limit: 2 }),
-  "metric.project.bugs": Object.freeze({ open_bug_attention_threshold: 1, priority_impact_limit: 2 })
-});
-
-const CONFIG_LIMITS = Object.freeze({
-  "metric.project.portfolio_health": {
-    story_weight: [0, 100], automation_weight: [0, 100], pass_weight: [0, 100]
-  },
-  "metric.project.risky_classification": { pass_confidence_threshold: [0, 100] },
-  "metric.project.release_ready": { readiness_threshold: [1, 100] },
-  "metric.project.execution_evidence": { minimum_coverage_percent: [0, 100] },
-  "metric.project.needs_attention": { priority_project_limit: [1, 8] },
-  "metric.project.execution_failures": { priority_impact_limit: [1, 5] },
-  "metric.project.bugs": { open_bug_attention_threshold: [0, 1000], priority_impact_limit: [1, 5] }
-});
+const metricCatalog = require("@hellotest/platform/shared/metricCatalog.json");
+const DEFAULT_FORMULA_VALUES = Object.freeze(Object.fromEntries(metricCatalog.filter(item => item.parameters?.length).map(item => [item.key,Object.freeze(Object.fromEntries(item.parameters.map(p => [p.key,p.defaultValue])))])));
+const CONFIG_LIMITS = Object.freeze(Object.fromEntries(metricCatalog.filter(item => item.parameters?.length).map(item => [item.key,Object.fromEntries(item.parameters.map(p => [p.key,[p.min,p.max]]))])));
 
 const toNumber = (value, fallback, min, max) => {
   const parsed = Number(value);

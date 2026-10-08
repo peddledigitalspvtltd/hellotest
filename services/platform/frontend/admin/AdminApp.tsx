@@ -1,3 +1,5 @@
+import { MetricGovernance } from "./MetricGovernance";
+import { AiControls } from "./AiControls";
 import { metricTitle } from "../src/shared/lib/metricTitle";
 import { LoadingState } from "../src/shared/components/LoadingState";
 import { AuthFeatureCarousel } from "../src/platform/components/AuthFeatureCarousel";
@@ -22,7 +24,7 @@ import {
 } from "./api";
 import { createFeatureFlagPatch, effectiveFeatureFlags } from "../src/platform/lib/featureFlags";
 
-type Section = "overview" | "people" | "setup" | "features" | "dropdowns" | "integrations" | "audit" | "security";
+type Section = "metric-governance" | "ai-controls" | "overview" | "people" | "setup" | "features" | "dropdowns" | "integrations" | "audit" | "security";
 type LoadState = "idle" | "loading" | "ready" | "error";
 
 const nav: Array<{ id: Section; label: string; icon: ReactNode }> = [
@@ -31,12 +33,16 @@ const nav: Array<{ id: Section; label: string; icon: ReactNode }> = [
   { id: "setup", label: "Instance setup", icon: <Database size={19} /> },
   { id: "features", label: "Feature availability", icon: <Feature size={19} /> },
   { id: "dropdowns", label: "Dropdown values", icon: <ListDetails size={19} /> },
+  { id: "metric-governance", label: "Metric governance", icon: <Gauge size={19} /> },
+  { id: "ai-controls", label: "AI Controls", icon: <Sparkles size={19} /> },
   { id: "integrations", label: "Backend integrations", icon: <PlugZap size={19} /> },
   { id: "audit", label: "Audit activity", icon: <Activity size={19} /> },
   { id: "security", label: "Security", icon: <ShieldCheck size={19} /> }
 ];
 
 const title: Record<Section, { eyebrow: string; heading: string; copy: string }> = {
+  "metric-governance": { eyebrow: "Quality measurement", heading: "Metric governance", copy: "Govern metric definitions, thresholds, weights and review criteria. Save drafts, publish reviewed values and retain a versioned audit trail." },
+  "ai-controls": { eyebrow: "AI governance", heading: "AI Controls", copy: "Configure each AI feature’s instructions, guardrails, model settings and MCP context. Review drafts, publish versions and track model outcomes." },
   overview: { eyebrow: "Instance command", heading: "Control center", copy: "A live view of launch readiness, platform capacity, and the configuration that keeps HelloTest healthy." },
   people: { eyebrow: "Identity & access", heading: "Administrators", copy: "Onboard trusted operators and keep control-plane access intentional." },
   setup: { eyebrow: "Launch sequence", heading: "Instance setup", copy: "Validate the shared schema and install safe, idempotent sample content module by module." },
@@ -303,7 +309,7 @@ export function AdminApp() {
   const [dropdownDirty, setDropdownDirty] = useState(false);
   const navigate = useCallback((next: Section) => {
     if (next === section) return;
-    if (section === "dropdowns" && dropdownDirty && !window.confirm("Leave Dropdown values and discard unsaved changes?")) return;
+    if (["dropdowns", "ai-controls", "metric-governance"].includes(section) && dropdownDirty && !window.confirm("Leave this section and discard unsaved configuration changes?")) return;
     setDropdownDirty(false); setSection(next); setSelectedFeatureKey(""); writeAdminLocation(next);
   }, [section, dropdownDirty]);
   const selectFeature = useCallback((key: string) => {
@@ -313,7 +319,7 @@ export function AdminApp() {
   useEffect(() => {
     const onPopState = () => {
       const next = readAdminLocation();
-      if (next.section !== section && section === "dropdowns" && dropdownDirty && !window.confirm("Leave Dropdown values and discard unsaved changes?")) {
+      if (next.section !== section && ["dropdowns", "ai-controls", "metric-governance"].includes(section) && dropdownDirty && !window.confirm("Leave this section and discard unsaved configuration changes?")) {
         writeAdminLocation(section, selectedFeatureKey);
         return;
       }
@@ -327,7 +333,7 @@ export function AdminApp() {
   useEffect(() => { if (session) void loadOverview(); }, [session, loadOverview]);
   const refreshSession = async () => { try { const next = await adminApi.session(); sessionStore.write(next); setSession(next); } catch { /* current page already explains any failure */ } };
   const activeMeta = title[section];
-  const content = useMemo(() => { if (!overview) return null; if (section === "overview") return <OverviewPage data={overview} onNavigate={navigate} />; if (section === "people" && session) return <PeoplePage session={session} notify={notify} />; if (section === "setup") return <SetupPage schema={overview.schema} notify={notify} refresh={() => void loadOverview()} />; if (section === "features") return <FeaturesPage notify={notify} selectedFeatureKey={selectedFeatureKey} onSelectFeature={selectFeature} />; if (section === "dropdowns") return <DropdownValues onDirtyChange={setDropdownDirty} />; if (section === "integrations") return <IntegrationsPage notify={notify} />; if (section === "audit") return <AuditPage />; if (section === "security" && session) return <SecurityPage session={session} notify={notify} onRefresh={refreshSession} />; return null; }, [overview, section, session, loadOverview, navigate, selectedFeatureKey, selectFeature]);
+  const content = useMemo(() => { if (!overview) return null; if (section === "overview") return <OverviewPage data={overview} onNavigate={navigate} />; if (section === "people" && session) return <PeoplePage session={session} notify={notify} />; if (section === "setup") return <SetupPage schema={overview.schema} notify={notify} refresh={() => void loadOverview()} />; if (section === "features") return <FeaturesPage notify={notify} selectedFeatureKey={selectedFeatureKey} onSelectFeature={selectFeature} />; if (section === "metric-governance") return <MetricGovernance onDirtyChange={setDropdownDirty} />; if (section === "ai-controls") return <AiControls onDirtyChange={setDropdownDirty} />; if (section === "dropdowns") return <DropdownValues onDirtyChange={setDropdownDirty} />; if (section === "integrations") return <IntegrationsPage notify={notify} />; if (section === "audit") return <AuditPage />; if (section === "security" && session) return <SecurityPage session={session} notify={notify} onRefresh={refreshSession} />; return null; }, [overview, section, session, loadOverview, navigate, selectedFeatureKey, selectFeature]);
   if (!session) return <Login onAuthenticated={setSession} />;
   const logout = () => { if (dropdownDirty && !window.confirm("Sign out and discard unsaved dropdown changes?")) return; setDropdownDirty(false); sessionStore.clear(); setSession(null); };
   return <div className="admin-shell">

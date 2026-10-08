@@ -1,3 +1,4 @@
+const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const executionService = require("./execution.service");
 const executionResultService = require("./executionResult.service");
 const emailService = require("@hellotest/platform/backend/src/services/email.service");
@@ -147,9 +148,9 @@ const buildAiAnalysisPrompt = (report) => {
     }));
 
   return [
-    "Analyze this QA execution and return strict JSON only.",
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.1"),
     "",
-    "Run summary:",
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.29"),
     JSON.stringify({
       name: report.execution.name || report.execution.id,
       status: report.execution.status || "queued",
@@ -163,29 +164,29 @@ const buildAiAnalysisPrompt = (report) => {
       duration: formatDuration(report.summary.duration_ms)
     }, null, 2),
     "",
-    "Suites needing attention:",
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.2"),
     JSON.stringify(failedSuites, null, 2),
     "",
-    "Failed or blocked test case details:",
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.3"),
     JSON.stringify(failedCases, null, 2),
     "",
-    "Return this exact JSON shape:",
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.4"),
     "{",
-    '  "headline": "string",',
-    '  "summary": "string",',
-    '  "risk_level": "low | medium | high",',
-    '  "key_findings": ["string"],',
-    '  "recommended_actions": ["string"],',
-    '  "failed_cases": [',
-    '    { "suite": "string", "case": "string", "analysis": "string" }',
-    "  ]",
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.5"),
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.6"),
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.7"),
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.8"),
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.9"),
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.30"),
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.10"),
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.31"),
     "}",
     "",
-    "Guidance:",
-    "- Mention pass/fail/not executed counts and the practical release risk.",
-    "- Focus on failed suites, failed cases, blocked cases, recurring symptoms, and likely next triage actions.",
-    "- Keep the response concise enough for a PDF/email report.",
-    "- Do not include markdown or commentary outside the JSON."
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.32"),
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.11"),
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.12"),
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.13"),
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.14")
   ].join("\n");
 };
 
@@ -203,12 +204,12 @@ const requestAiAnalysisCompletion = async ({ integration, prompt }) => {
       },
       body: JSON.stringify({
         model: integration.model,
-        temperature: 0.2,
+
         response_format: { type: "json_object" },
         messages: [
           {
             role: "system",
-            content: "You are a senior QA release analyst. Return strict JSON only."
+            content: aiInstructionBlock("ai.execution.analysis", "executionReport.response.15")
           },
           {
             role: "user",

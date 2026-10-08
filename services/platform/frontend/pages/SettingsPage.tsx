@@ -1,4 +1,3 @@
-import { metricTitle } from "../src/shared/lib/metricTitle";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../src/auth/AuthContext";
@@ -12,16 +11,9 @@ import { ToastMessage } from "../src/shared/components/ToastMessage";
 import { api } from "../src/lib/api";
 import {
   AI_METRIC_CRITERIA_OVERRIDES_KEY,
-  AI_METRIC_CRITERIA_REGISTRY,
   AI_METRIC_FORMULA_VALUES_KEY,
   AI_PROMPT_LLM_OVERRIDES_KEY,
-  AI_PROMPT_OVERRIDES_KEY,
-  AI_PROMPT_REGISTRY,
-  normalizeAiMetricCriteriaOverrides,
-  normalizeAiMetricFormulaValues,
-  normalizeAiPromptLlmOverrides,
-  normalizeAiPromptOverrides,
-  resolveAiPromptRegistryValue
+  AI_PROMPT_OVERRIDES_KEY
 } from "@hellotest/integration/frontend/lib/aiPromptRegistry";
 import { parseLocalizationPack, MAX_LOCALIZATION_BYTES } from "../src/platform/lib/localizationPack";
 import { DEFAULT_LOCALIZATION_STRINGS } from "../src/platform/lib/localization";
@@ -83,7 +75,6 @@ type SettingsSectionId =
   | "general"
   | "apiKeys"
   | "automationDefaults"
-  | "aiPromptMapping"
   | "exportRetention"
   | "notifications"
   | "localization";
@@ -92,7 +83,6 @@ const DEFAULT_EXPANDED_SETTINGS_SECTIONS: Record<SettingsSectionId, boolean> = {
   general: true,
   apiKeys: false,
   automationDefaults: false,
-  aiPromptMapping: false,
   exportRetention: false,
   notifications: true,
   localization: false
@@ -121,14 +111,6 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [autoExport, setAutoExport] = useState(false);
   const [projectAutomationSettings, setProjectAutomationSettings] = useState<ProjectAutomationSettings>(DEFAULT_PROJECT_AUTOMATION_SETTINGS);
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
-  const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>(() =>
-    Object.fromEntries(AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, prompt.value]))
-  );
-  const [promptLlmDrafts, setPromptLlmDrafts] = useState<Record<string, string>>({});
-  const [metricCriteriaDrafts, setMetricCriteriaDrafts] = useState<Record<string, string>>(() =>
-    Object.fromEntries(AI_METRIC_CRITERIA_REGISTRY.map((metric) => [metric.key, metric.criteria]))
-  );
-  const [metricFormulaDrafts, setMetricFormulaDrafts] = useState(() => normalizeAiMetricFormulaValues({}));
   const [apiKeyName, setApiKeyName] = useState("");
   const [apiKeyScope, setApiKeyScope] = useState<ApiKeyScope>("user");
   const [createdApiKey, setCreatedApiKey] = useState("");
@@ -146,16 +128,12 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canManageApiKeys = hasPermission(session, "api_key.manage")
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.api.keys"]);
-  const canManageAiPrompts = hasPermission(session, "ai_prompt.manage")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.prompt_mapping"]);
-  const canManageMetricFormulas = hasPermission(session, "workspace_preferences.manage")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ops.settings", "hellotest.ops.admin"]);
   const canManageLocalization = hasPermission(session, "localization.manage")
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ops.settings", "hellotest.ops.admin"]);
-  const canViewIntegrations = hasPermission(session, "integration.view")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.api.integrations"]);
   const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
-  const integrationsQuery = useQuery({ queryKey: queryKeys.integrations.all(), queryFn: () => api.integrations.list(), enabled: Boolean(session && canViewIntegrations && canManageAiPrompts) });
+  const canViewIntegrations = hasPermission(session, "integration.view") && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.api.integrations"]);
+  const integrationsQuery = useQuery({ queryKey: queryKeys.integrations.all(), queryFn: () => api.integrations.list(), enabled: Boolean(session && canViewIntegrations && canUseAutomationWorkspace) });
+  const llmIntegrations = useMemo(() => (integrationsQuery.data || []).filter((integration: Integration) => integration.type === "llm" && integration.is_active && !isRovoIntegrationId(integration.id)), [integrationsQuery.data]);
   const workspacePreferencesQuery = useQuery({
     queryKey: queryKeys.settings.workspacePreferences(),
     queryFn: api.settings.getWorkspacePreferences,
@@ -166,26 +144,10 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     queryFn: api.settings.listApiKeys,
     enabled: Boolean(session && canManageApiKeys)
   });
-  const llmIntegrations = useMemo(
-    () => (integrationsQuery.data || []).filter((integration: Integration) => integration.type === "llm" && integration.is_active && !isRovoIntegrationId(integration.id)),
-    [integrationsQuery.data]
-  );
   const apiKeyScopeOptions = useMemo(
     () => (apiKeysQuery.data?.scopes?.length ? apiKeysQuery.data.scopes : DEFAULT_API_KEY_SCOPE_OPTIONS)
       .filter((scope) => canUseAutomationWorkspace || scope.value !== "automation"),
     [apiKeysQuery.data, canUseAutomationWorkspace]
-  );
-  const visibleAiPromptRegistry = useMemo(
-    () => AI_PROMPT_REGISTRY.filter((prompt) => canUseAutomationWorkspace || !prompt.key.startsWith("ai.automation.")),
-    [canUseAutomationWorkspace]
-  );
-  const visibleAiMetricCriteriaRegistry = useMemo(
-    () => AI_METRIC_CRITERIA_REGISTRY.filter((metric) => canUseAutomationWorkspace || metric.key !== "metric.automation.coverage"),
-    [canUseAutomationWorkspace]
-  );
-  const promptWithLengthError = useMemo(
-    () => visibleAiPromptRegistry.find((prompt) => prompt.maxLength && (promptDrafts[prompt.key] ?? prompt.value).length > prompt.maxLength),
-    [promptDrafts, visibleAiPromptRegistry]
   );
   const apiKeyScopeLabels = useMemo(
     () => Object.fromEntries(apiKeyScopeOptions.map((scope) => [scope.value, scope.label])) as Record<ApiKeyScope, string>,
@@ -207,45 +169,8 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     return () => window.removeEventListener(PREFERENCES_UPDATED_EVENT, syncJiraTheme);
   }, []);
 
-  useEffect(() => {
-    const overrides = normalizeAiPromptOverrides(workspacePreferencesQuery.data?.preferences?.[AI_PROMPT_OVERRIDES_KEY]);
-    const llmOverrides = normalizeAiPromptLlmOverrides(workspacePreferencesQuery.data?.preferences?.[AI_PROMPT_LLM_OVERRIDES_KEY]);
-    const metricCriteriaOverrides = normalizeAiMetricCriteriaOverrides(workspacePreferencesQuery.data?.preferences?.[AI_METRIC_CRITERIA_OVERRIDES_KEY]);
-    const metricFormulaValues = normalizeAiMetricFormulaValues(workspacePreferencesQuery.data?.preferences?.[AI_METRIC_FORMULA_VALUES_KEY]);
-    setPromptDrafts(
-      Object.fromEntries(
-        AI_PROMPT_REGISTRY.map((prompt) => [
-          prompt.key,
-          resolveAiPromptRegistryValue(prompt.key, overrides)
-        ])
-      )
-    );
-    setPromptLlmDrafts(
-      Object.fromEntries(
-        AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, isRovoIntegrationId(llmOverrides[prompt.key]) ? "" : llmOverrides[prompt.key] || ""])
-      )
-    );
-    setMetricCriteriaDrafts(Object.fromEntries(
-      AI_METRIC_CRITERIA_REGISTRY.map((metric) => [metric.key, metricCriteriaOverrides[metric.key] || metric.criteria])
-    ));
-    setMetricFormulaDrafts(metricFormulaValues);
-  }, [workspacePreferencesQuery.data]);
 
   const saveSettings = async () => {
-    if (canManageAiPrompts && promptWithLengthError) {
-      setMessageTone("error");
-      setMessage(`${promptWithLengthError.label} guidance must be ${promptWithLengthError.maxLength?.toLocaleString()} characters or fewer.`);
-      return;
-    }
-    const portfolioWeights = metricFormulaDrafts["metric.project.portfolio_health"] || {};
-    const portfolioWeightTotal = Number(portfolioWeights.story_weight || 0)
-      + Number(portfolioWeights.automation_weight || 0)
-      + Number(portfolioWeights.pass_weight || 0);
-    if (canManageMetricFormulas && portfolioWeightTotal !== 100) {
-      setMessageTone("error");
-      setMessage(`Project portfolio readiness weights must total 100%. They currently total ${portfolioWeightTotal}%.`);
-      return;
-    }
     setIsSavingSettings(true);
 
     try {
@@ -268,26 +193,6 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
       const preferencesToSave: Record<string, unknown> = Object.fromEntries(
         Object.entries(workspacePreferencesQuery.data?.preferences || {}).filter(([key]) => !governedPreferenceKeys.has(key))
       );
-      if (canManageAiPrompts) {
-        Object.assign(preferencesToSave, {
-          [AI_PROMPT_OVERRIDES_KEY]: Object.fromEntries(
-            AI_PROMPT_REGISTRY.map((prompt) => [prompt.key, promptDrafts[prompt.key] ?? prompt.value])
-          ),
-          [AI_PROMPT_LLM_OVERRIDES_KEY]: Object.fromEntries(
-            AI_PROMPT_REGISTRY
-              .map((prompt) => [prompt.key, promptLlmDrafts[prompt.key] || ""])
-              .filter(([, integrationId]) => Boolean(integrationId))
-          ),
-          [AI_METRIC_CRITERIA_OVERRIDES_KEY]: Object.fromEntries(
-            AI_METRIC_CRITERIA_REGISTRY.map((metric) => [metric.key, metricCriteriaDrafts[metric.key] || metric.criteria])
-          )
-        });
-      }
-      if (canManageMetricFormulas) {
-        Object.assign(preferencesToSave, {
-          [AI_METRIC_FORMULA_VALUES_KEY]: normalizeAiMetricFormulaValues(metricFormulaDrafts)
-        });
-      }
 
       await api.settings.updateWorkspacePreferences({ preferences: preferencesToSave });
       await workspacePreferencesQuery.refetch();
@@ -496,7 +401,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const settingsActions = (
     <button
       className="primary-button"
-      disabled={isSavingSettings || isSavingLocalization || Boolean(canManageAiPrompts && promptWithLengthError)}
+      disabled={isSavingSettings || isSavingLocalization}
       onClick={() => void saveSettings()}
       type="button"
     >
@@ -794,156 +699,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
           </Panel>
 	        )) : null}
 
-        {renderSettingsSection("aiPromptMapping", "AI", "Prompt key mapping", (
-          <Panel
-            title="AI prompt registry"
-            subtitle={!canManageAiPrompts && !canManageMetricFormulas
-              ? "Read-only. Prompt governance requires ai_prompt.manage; formula governance requires workspace_preferences.manage."
-              : canUseAutomationWorkspace
-                ? "Central keys for AI prompt surfaces used by story, test design, automation, execution, and test data flows."
-                : "Central keys for enabled AI story, test design, execution, and test data surfaces."}
-          >
-            <div className="settings-prompt-grid">
-              {visibleAiPromptRegistry.map((prompt) => (
-                <article className="settings-prompt-card" key={prompt.key}>
-                  <div>
-                    <strong>{prompt.label}</strong>
-                    <span>{prompt.surface}</span>
-                  </div>
-                  <code>{prompt.key}</code>
-                  <label className="settings-input-field settings-prompt-llm-field">
-                    <span>LLM for this prompt</span>
-                    <select
-                      aria-label={`${prompt.label} LLM integration`}
-                      disabled={!canManageAiPrompts}
-                      onChange={(event) => setPromptLlmDrafts((current) => ({ ...current, [prompt.key]: event.target.value }))}
-                      value={promptLlmDrafts[prompt.key] || ""}
-                    >
-                      <option value="">Use current fallback</option>
-                      {llmIntegrations.map((integration) => (
-                        <option key={integration.id} value={integration.id}>
-                          {integration.name}{integration.model ? ` (${integration.model})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <small>Overrides automatic LLM selection only for this prompt key.</small>
-                  </label>
-                  <textarea
-                    aria-label={`${prompt.label} prompt text`}
-                    disabled={!canManageAiPrompts}
-                    maxLength={prompt.maxLength}
-                    onChange={(event) => setPromptDrafts((current) => ({ ...current, [prompt.key]: event.target.value }))}
-                    rows={5}
-                    value={promptDrafts[prompt.key] ?? prompt.value}
-                  />
-                  {prompt.maxLength ? (
-                    <small
-                      aria-live="polite"
-                      className={(promptDrafts[prompt.key] ?? prompt.value).length > prompt.maxLength ? "settings-prompt-limit error" : "settings-prompt-limit"}
-                    >
-                      {(promptDrafts[prompt.key] ?? prompt.value).length.toLocaleString()} / {prompt.maxLength.toLocaleString()} characters · Used as evidence-bound guidance, not as instructions that can override grounding rules.
-                    </small>
-                  ) : null}
-                  {canManageAiPrompts ? (<button
-                    className="ghost-button compact"
-                    disabled={!canManageAiPrompts || (promptDrafts[prompt.key] ?? prompt.value) === prompt.value}
-                    onClick={() => setPromptDrafts((current) => ({ ...current, [prompt.key]: prompt.value }))}
-                    type="button"
-                  >
-                    Reset default
-                  </button>) : null}
-                </article>
-              ))}
-            </div>
-            <div className="settings-governance-heading">
-              <div>
-                <strong>Metric prompts & formula values</strong>
-                <span>Workspace-wide numeric rules drive deterministic calculations; bounded criteria shape explanations, ranking rationale, and recommendations.</span>
-              </div>
-              <span className="count-pill">{visibleAiMetricCriteriaRegistry.length} governed metrics</span>
-            </div>
-            <div className="settings-prompt-grid settings-metric-criteria-grid">
-              {visibleAiMetricCriteriaRegistry.map((metric) => (
-                <article className="settings-prompt-card settings-metric-criteria-card" key={metric.key}>
-                  <div>
-                    <strong>{metricTitle(metric.label)}</strong>
-                    <span>{metric.surface}</span>
-                  </div>
-                  <code>{metric.key}</code>
-                  <div className="settings-metric-methodology">
-                    <strong>Deterministic formula</strong>
-                    <p>{metric.formula}</p>
-                  </div>
-                  {metric.parameters?.length ? (
-                    <fieldset className="settings-metric-parameter-grid">
-                      <legend>Formula values</legend>
-                      {metric.parameters.map((parameter) => (
-                        <label className="settings-input-field" key={parameter.key}>
-                          <span>{parameter.label}</span>
-                          <div className="settings-metric-number-input">
-                            <input
-                              aria-label={`${metric.label} ${parameter.label}`}
-                              disabled={!canManageMetricFormulas}
-                              max={parameter.max}
-                              min={parameter.min}
-                              onChange={(event) => setMetricFormulaDrafts((current) => ({
-                                ...current,
-                                [metric.key]: {
-                                  ...(current[metric.key] || {}),
-                                  [parameter.key]: Number(event.target.value)
-                                }
-                              }))}
-                              step={parameter.step || 1}
-                              type="number"
-                              value={metricFormulaDrafts[metric.key]?.[parameter.key] ?? parameter.defaultValue}
-                            />
-                            {parameter.suffix ? <span>{parameter.suffix}</span> : null}
-                          </div>
-                          <small>{parameter.help}</small>
-                        </label>
-                      ))}
-                    </fieldset>
-                  ) : null}
-                  <label className="settings-input-field">
-                    <span>Organization review criteria</span>
-                    <textarea
-                      aria-label={`${metric.label} organization criteria`}
-                      disabled={!canManageAiPrompts}
-                      onChange={(event) => setMetricCriteriaDrafts((current) => ({ ...current, [metric.key]: event.target.value }))}
-                      rows={5}
-                      value={metricCriteriaDrafts[metric.key] ?? metric.criteria}
-                    />
-                    <small>Used as bounded policy context. It cannot override evidence, project scope, denominators, or locked numeric scores.</small>
-                  </label>
-                  {canManageAiPrompts ? (<button
-                    className="ghost-button compact"
-                    disabled={
-                      (!canManageAiPrompts && !canManageMetricFormulas)
-                      || (
-                        (!canManageAiPrompts || (metricCriteriaDrafts[metric.key] ?? metric.criteria) === metric.criteria)
-                        && (!canManageMetricFormulas || (metric.parameters || []).every((parameter) => metricFormulaDrafts[metric.key]?.[parameter.key] === parameter.defaultValue))
-                      )
-                    }
-                    onClick={() => {
-                      if (canManageAiPrompts) {
-                        setMetricCriteriaDrafts((current) => ({ ...current, [metric.key]: metric.criteria }));
-                      }
-                      if (canManageMetricFormulas) {
-                        setMetricFormulaDrafts((current) => ({
-                          ...current,
-                          [metric.key]: Object.fromEntries((metric.parameters || []).map((parameter) => [parameter.key, parameter.defaultValue]))
-                        }));
-                      }
-                    }}
-                    type="button"
-                  >
-                    Reset metric
-                  </button>) : null}
-                </article>
-              ))}
-            </div>
-          </Panel>
-	        ), { visible: canManageAiPrompts || canManageMetricFormulas })}
+
 
         {renderSettingsSection("exportRetention", "Evidence", "Export and retention", (
           <div className="two-column-grid">

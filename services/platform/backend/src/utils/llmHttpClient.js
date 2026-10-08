@@ -16,13 +16,24 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
   // Older feature callers append this suffix even when the integration stores
   // the complete endpoint. Normalize only that duplicate, preserving the host.
   if (typeof url === "string") url = url.replace(/(\/chat\/completions)(?:\/chat\/completions)+\/?$/i, "$1");
+  const managed = await require("./aiFeatureRuntime").apply(init, options);
+  init = managed.init; options = managed.options;
+  if (managed.url) url = managed.url;
   const timeoutMs = Math.max(1_000, Number(options.timeoutMs || DEFAULT_TIMEOUT_MS));
   const maxAttempts = Math.max(1, Math.min(4, Number(options.maxAttempts || DEFAULT_MAX_ATTEMPTS)));
   const operation = String(options.operation || "llm.request");
   const startedAt = Date.now();
-  init = await require("@hellotest/mcp/backend/gateway").enrichChatRequest(init, { ...options, timeoutMs });
-  const prepared = prepareChatRequest(init, { ...options, operation });
-  init = prepared.init;
+  options.timeoutMs = timeoutMs;
+  let prepared;
+  try {
+    init = await require("@hellotest/mcp/backend/gateway").enrichChatRequest(init, options);
+    prepared = prepareChatRequest(init, { ...options, operation });
+    init = prepared.init;
+  } catch (error) {
+    const preflight = await traces.begin({ url, init, options: { ...options, operation } });
+    await traces.finish(preflight, { error });
+    throw error;
+  }
   let lastTrace = null, lastResponse = null, attempts = 1;
   const request = async (init, remainingMs = timeoutMs) => {
     if (lastTrace) await traces.finish(lastTrace, { response: lastResponse, attempts });
@@ -74,6 +85,7 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     init = next;
     response = await request(init, remainingMs);
   }
+  await require("./aiFeatureRuntime").validateResponse(response, managed.profile);
   const valid = options.validateResponse === false ? false : await validateChatResponse(response, prepared.payload);
   if (valid && options.integration) {
     // Preferences must not turn a successful generation into a failed request.

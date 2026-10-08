@@ -20,7 +20,10 @@ export function useAiPromptRegistry(enabled = true) {
   const query = useQuery({
     queryKey: ["settings", "workspace-preferences", "ai-prompts"],
     queryFn: platformApi.settings.getWorkspacePreferences,
-    enabled
+    enabled,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true
   });
 
   const overrides = useMemo<AiPromptOverrides>(

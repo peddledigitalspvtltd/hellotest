@@ -81,10 +81,12 @@ exports.resolveLlmIntegrationForUsage = async ({
   allowMissing = false
 } = {}) => {
   const explicitIntegrationId = normalizeText(integrationId);
-  const context = { userId: normalizeText(userId), usageKey: normalizeText(usageKey), projectId: normalizeText(projectId) };
+  const context = { userId: normalizeText(userId), usageKey: normalizeText(usageKey), projectId: normalizeText(projectId), explicit: Boolean(explicitIntegrationId), fallback };
   const remember = (integration) => {
     const validated = validateLlmIntegration(integration);
     if (validated) {
+      const providerProject = normalizeText(validated.config?.project_id);
+      if (providerProject && providerProject !== context.projectId) throw Object.assign(new Error("The selected model belongs to another project."), { statusCode: 403, code: "LLM_PROJECT_SCOPE_DENIED" });
       selectionContexts.set(validated, context);
       require("@hellotest/platform/backend/src/utils/llmTraceContext").bindIntegration(validated, context);
     }

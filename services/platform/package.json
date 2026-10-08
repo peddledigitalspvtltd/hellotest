@@ -8,7 +8,8 @@
     "frontend",
     "dist/ui",
     "package.json",
-    "README.md"
+    "README.md",
+    "shared"
   ],
   "exports": {
     "./backend": "./backend/service.manifest.js",
@@ -189,7 +190,13 @@
     "./backend/src/db/createPostgresAdapter": "./backend/src/db/createPostgresAdapter.js",
     "./backend/src/utils/token": "./backend/src/utils/token.js",
     "./backend/src/security/permissions.catalog": "./backend/src/security/permissions.catalog.js",
-    "./frontend/src/lib/agentProposalDraft": "./frontend/src/lib/agentProposalDraft.ts"
+    "./frontend/src/lib/agentProposalDraft": "./frontend/src/lib/agentProposalDraft.ts",
+    "./backend/services/aiConfiguration.service": "./backend/services/aiConfiguration.service.js",
+    "./backend/src/utils/aiInstructionBlocks": "./backend/src/utils/aiInstructionBlocks.js",
+    "./shared/aiFeatureCatalog.json": "./shared/aiFeatureCatalog.json",
+    "./shared/aiPromptDefaults.json": "./shared/aiPromptDefaults.json",
+    "./shared/metricCatalog.json": "./shared/metricCatalog.json",
+    "./backend/services/metricGovernance.service": "./backend/services/metricGovernance.service.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs platform",
@@ -220,8 +227,9 @@
     "@hellotest/integration": "^1.0.0",
     "@hellotest/knowledge": "^1.0.0",
     "@hellotest/manual": "^1.0.0",
+    "@hellotest/mcp": "^1.0.0",
     "@hellotest/testing": "^1.0.0",
     "@hellotest/trace": "^1.0.0",
-    "@hellotest/mcp": "^1.0.0"
+    "ajv": "^8.20.0"
   }
 }

@@ -23,6 +23,8 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   app.register(require('../../src/plugins/errorHandler'));app.register(require('../../src/plugins/validator'));app.register(require('../../src/plugins/accessControl'));app.register(require('@hellotest/mcp/backend/plugin'));app.register(require('../../src/routes'));
   await app.ready();
   const {createToken}=require('../../src/utils/token');
+  await require('./aiConfiguration.fixture').verify({app,db,obsDb,createToken});
+  await require('./metricGovernance.fixture').verify({app,db,createToken});
   const webToken=createToken({id:'mcp-a'}),headers={authorization:'Bearer '+webToken};
   const issued=await app.inject({method:'POST',url:'/agentic-workflows/mcp/credentials',headers,payload:{project_id:'mcp-p-a'}});
   assert.equal(issued.statusCode,200,issued.body);assert.equal(issued.headers['cache-control'],'no-store');const credential=issued.json();

@@ -131,11 +131,10 @@ test("project administration uses catalogued target-project permissions", async 
   assert.match(page, /hasPermission\(session, "app_type\.manage", selectedProjectId\)/);
 });
 
-test("global metric formula preferences require workspace preference administration", async () => {
-  const settingsRoutes = await readSource("../routes/settings.routes.js");
-
-  assert.match(settingsRoutes, /const WORKSPACE_PREFERENCE_ADMIN_KEYS = new Set\(\[\s*"ai_metric_formula_values"/);
-  assert.match(settingsRoutes, /requirePermission\("workspace_preferences\.manage"\)/);
+test("global metric formula governance is administered through the authenticated admin portal", async () => {
+  const [settingsRoutes,adminRoutes] = await Promise.all([readSource("../routes/settings.routes.js"),readSource("../routes/adminPortal.routes.js")]);
+  assert.match(settingsRoutes, /METRIC_GOVERNANCE_MOVED/);
+  assert.match(adminRoutes, /metric-governance[\s\S]*preHandler: \[fastify\.requireAdmin\]/);
 });
 
 test("scheduled Run creation always attributes the authenticated actor", async () => {

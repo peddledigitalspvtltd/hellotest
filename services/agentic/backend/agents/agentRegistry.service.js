@@ -5,10 +5,10 @@ const integrations = require('@hellotest/integration/backend/services/integratio
 const rag = require('@hellotest/knowledge/backend/services/knowledgeRag.service');
 const contract = require('./agentDefinition');
 
-async function resolveModel(projectId, userId, integrationId) {
+async function resolveModel(projectId, userId, integrationId, usageKey = 'ai.agentic.workflow') {
   let integration;
   try {
-    integration = await selection.resolveLlmIntegrationForUsage({ integrationId, userId, projectId, usageKey: 'ai.agentic.workflow', fallback: 'project-then-global', allowMissing: true });
+    integration = await selection.resolveLlmIntegrationForUsage({ integrationId, userId, projectId, usageKey, fallback: 'project-then-global', allowMissing: true });
     rag.assertLlmIntegrationProjectScope(integration, projectId);
   } catch (cause) {
     if (cause.statusCode === 403) throw cause;

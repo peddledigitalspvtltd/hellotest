@@ -1,3 +1,4 @@
+const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const structuredReview = require("./structuredReview.service");
 const crypto = require("crypto");
 const db = require("@hellotest/platform/backend/src/db");
@@ -205,7 +206,7 @@ const previewFailureClusters = async ({ user, executionId, requestedScope, integ
   })).sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
   const evidence = clusters.flatMap((cluster) => cluster.evidence_refs);
   const review = await structuredReview.review({ projectId: scope.projectId, userId: user?.id, integrationId,
-    usageKey: "ai.execution.analysis", task: "Explain the observed failure groups. Keyword groups are symptoms, never confirmed causes. Give competing hypotheses and a discriminating check. Do not reclassify passing attempts or change recorded group counts.",
+    usageKey: "ai.execution.analysis", task: aiInstructionBlock("ai.execution.analysis", "qualityAssistance.failureReview.task"),
     evidence: { execution: { id: executionId, build: execution.build, environment: execution.test_environment_name }, clusters: clusters.map(cluster => ({ id: cluster.id, evidence_refs: cluster.evidence_refs, members: cluster.members })), total_failures: failures.length },
     contract: '{"summary":"string","clusters":[{"id":"existing cluster id","explanation":"observations and hypotheses","recommended_action":"next discriminating check","evidence_refs":["exact supplied reference"]}]}',
     validate: value => {

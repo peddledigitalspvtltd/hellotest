@@ -1,3 +1,4 @@
+const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const db = require("@hellotest/platform/backend/src/db");
 const { randomUUID: uuid } = require("crypto");
@@ -638,12 +639,12 @@ const requestReleaseNotesNarrative = async ({ integration, release, readiness, s
     },
     body: JSON.stringify({
       model: integration.model,
-      temperature: 0.15,
+
       response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
-          content: "You are a mature product release manager. Compose audience-ready release notes strictly from supplied evidence. Lead with observable product changes, group them by change type, call out known limitations, and keep test/readiness data in a short validation summary. Do not turn delivery statuses into the release narrative. Return JSON only with audience_summary, change_groups (array of {title, items}), known_limitations, and validation_summary. Never invent features, dates, quality claims, or customer impact."
+          content: aiInstructionBlock("ai.release.notes", "requirementRelease.response.1")
         },
         {
           role: "user",

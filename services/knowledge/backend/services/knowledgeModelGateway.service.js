@@ -42,6 +42,21 @@ const reserveAttempt = (input, maxOutputTokens, context) => {
 
 const request = async (input) => {
   execution.assertActive();
+  // Resolve a stage's managed provider before reserving cost/call budgets. The
+  // HTTP boundary then sees this same verified integration, not a late switch.
+  const scope = require('@hellotest/platform/backend/src/utils/llmTraceContext').current(input.integration);
+  if (scope.actor_id && input.integration?.id && !scope.integration_explicit) {
+    const controls = require('@hellotest/platform/backend/services/aiConfiguration.service');
+    const id = controls.featureId(input.operation, scope.feature);
+    if (id) {
+      const profile = await controls.resolve(id), providerId = profile.config.integration_id;
+      if (providerId && providerId !== input.integration.id) {
+        const integration = await require('@hellotest/integration/backend/services/aiLlmSelection.service').resolveLlmIntegrationForUsage({integrationId:providerId,userId:scope.actor_id,projectId:scope.project_id,usageKey:id,fallback:scope.integration_fallback||'none'});
+        if (scope.integration_fallback === 'project-scoped' && integration.config?.project_id !== scope.project_id) throw Object.assign(new Error('This stage requires a project-scoped model.'), {statusCode:403,code:'LLM_PROJECT_SCOPE_DENIED'});
+        input = {...input,integration};
+      }
+    }
+  }
   const protocol = input.integration.config?.protocol || "openai_compatible";
   const adapter = adapters.get(protocol) || (protocol === "openai_compatible" ? require("./knowledgeJsonCompletion.service") : null);
   if (!adapter) throw Object.assign(new Error(`Unsupported model protocol: ${protocol}`), { code: "MODEL_PROTOCOL_UNSUPPORTED" });

@@ -20,6 +20,37 @@ module.exports = async function (fastify) {
     return adminPortalService.login(req.body);
   });
 
+  const metricGovernance = require("../services/metricGovernance.service");
+  fastify.get("/admin-portal/metric-governance", { preHandler: [fastify.requireAdmin] }, async (_req, reply) => {
+    reply.header("Cache-Control", "no-store"); return metricGovernance.list();
+  });
+  fastify.get("/admin-portal/metric-governance/:id", { preHandler: [fastify.requireAdmin] }, async (req, reply) => {
+    reply.header("Cache-Control", "no-store"); return metricGovernance.detail(req.params.id);
+  });
+  for (const mode of ["draft", "publish", "rollback"]) {
+    fastify.post(`/admin-portal/metric-governance/:id/${mode}`, { preHandler: [fastify.requireAdmin] }, (req) =>
+      metricGovernance.mutate(req.params.id, req.body, { actorId: req.user.id, ipAddress: clientIp(req) }, mode));
+  }
+
+  const aiConfiguration = require("../services/aiConfiguration.service");
+  fastify.get("/admin-portal/ai-configuration", { preHandler: [fastify.requireAdmin] }, async (_req, reply) => {
+    reply.header("Cache-Control", "no-store"); return aiConfiguration.list();
+  });
+  fastify.get("/admin-portal/ai-configuration/metrics", { preHandler: [fastify.requireAdmin] }, async (_req, reply) => {
+    reply.header("Cache-Control", "no-store"); return aiConfiguration.metrics();
+  });
+  fastify.get("/admin-portal/ai-configuration/:id", { preHandler: [fastify.requireAdmin] }, async (req, reply) => {
+    reply.header("Cache-Control", "no-store"); return aiConfiguration.detail(req.params.id);
+  });
+  for (const mode of ["draft", "publish", "rollback"]) {
+    fastify.post(`/admin-portal/ai-configuration/:id/${mode}`, { preHandler: [fastify.requireAdmin] }, (req) =>
+      aiConfiguration.mutate(req.params.id, req.body, { actorId: req.user.id, ipAddress: clientIp(req) }, mode));
+  }
+  fastify.post("/admin-portal/ai-configuration/:id/optimize", { preHandler: [fastify.requireAdmin] }, (req) => {
+    if (!req.body || Object.keys(req.body).some(key => !["config", "integration_id"].includes(key))) throw Object.assign(new Error("Only configuration and optional integration are accepted."), { statusCode: 400 });
+    return aiConfiguration.optimize(req.params.id, req.body, { actorId: req.user.id, ipAddress: clientIp(req) });
+  });
+
   fastify.get("/admin-portal/overview", { preHandler: [fastify.requireAdmin] }, () => adminPortalService.getOverview());
 
   fastify.get("/admin-portal/dropdowns", { preHandler: [fastify.requireAdmin] }, async (_req, reply) => {
