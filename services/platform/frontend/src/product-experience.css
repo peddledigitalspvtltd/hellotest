@@ -431,3 +431,44 @@ body #root .mcp-server-catalog .agent-library-icon {
 @supports selector(::-webkit-scrollbar) {
   :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list { scrollbar-width: auto; scrollbar-color: auto; }
 }
+
+/* Desktop density follows the shared rem scale, without changing browser zoom,
+   viewport geometry, fixed positioning, or the existing responsive breakpoints.
+   Percent sizing continues to respect the user's preferred browser font size. */
+@media screen and (min-width: 1101px) {
+  :root:not(:has(.auth-page)) {
+    /* Existing desktop base is 14px: 14 × .85 = 11.9px at default settings. */
+    font-size: 74.375%;
+  }
+  :root:not(:has(.auth-page)):not([data-sidebar="collapsed"]) body #root .app-shell.workspace-experience-v2 {
+    --workspace-sidebar-width: 20rem;
+  }
+  :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-context-bar {
+    min-height: 4.571429rem !important;
+    height: 4.571429rem !important;
+  }
+  :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .page-header {
+    min-height: 5.285714rem;
+    gap: 1.142857rem;
+    padding-block: 1.428571rem !important;
+  }
+  :root:not(:has(.auth-page)) body .page-header-title {
+    font-size: clamp(1.571429rem, 1.7vw, 2rem) !important;
+  }
+  :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar:not(.is-collapsed) .nav-link {
+    min-height: 3.142857rem;
+    padding:  .785714rem .928571rem !important;
+    font-size: max(12px, 1rem);
+  }
+  :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-label {
+    font-size: max(12px, 1rem);
+  }
+  :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-submenu-link {
+    min-height: 2.714286rem;
+    padding: .642857rem .785714rem !important;
+    font-size: max(12px, .928571rem);
+  }
+  :root:not(:has(.auth-page)) body :is(.primary-button,.ghost-button,.run-button) {
+    min-height: 2.714286rem;
+  }
+}
