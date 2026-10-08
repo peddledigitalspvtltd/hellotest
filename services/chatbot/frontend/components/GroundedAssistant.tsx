@@ -643,7 +643,7 @@ export function GroundedAssistant() {
         type="button"
       >
         <span className="grounded-assistant-trigger-icon"><IconSparkles size={22} stroke={1.9} /></span>
-        <span className="grounded-assistant-trigger-label">Ask HelloTest</span>
+        <span className="grounded-assistant-trigger-label">Ask<span className="grounded-assistant-trigger-name"> HelloTest</span></span>
       </button>
 
       {isOpen ? (

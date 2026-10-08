@@ -35,6 +35,14 @@
 .grounded-assistant-trigger:hover { transform: translateY(-2px); box-shadow: 0 9px 26px rgb(56 61 139 / 30%); }
 .grounded-assistant-trigger-icon { display: grid; place-items: center; width: 28px; height: 28px; }
 .grounded-assistant-trigger-label { white-space: nowrap; }
+.grounded-assistant-trigger-name {
+  display: inline-block; max-width: 0; overflow: hidden; vertical-align: bottom;
+  white-space: pre; opacity: 0; transition: max-width .2s ease, opacity .2s ease;
+}
+.grounded-assistant-trigger:is(:hover, :focus-visible) .grounded-assistant-trigger-name { max-width: 100px; opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .grounded-assistant-trigger-name { transition: none; }
+}
 .grounded-assistant-trigger[aria-expanded="true"] { visibility: hidden; pointer-events: none; }
 :root[data-theme="dark"] .grounded-assistant-trigger,
 :root[data-theme="dark"] .grounded-assistant-composer > button { color: #12332f; }

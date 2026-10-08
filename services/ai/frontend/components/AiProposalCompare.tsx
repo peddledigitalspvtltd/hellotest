@@ -6,7 +6,7 @@ export function AiProposalCompare({ fields }: { fields: Array<{ label: string; b
     <header><span>Current</span><span>Proposal</span></header>
     {fields.map(field => <div className="ai-proposal-compare__field" data-changed={field.before.trim() !== field.after.trim() || undefined} key={field.label}>
       <strong>{field.label}<small>{field.before.trim() === field.after.trim() ? "Unchanged" : "Changed"}</small></strong>
-      <pre>{field.before || "Not set"}</pre><pre>{field.after || "Not set"}</pre>
+      <pre aria-label={`Current ${field.label}`}>{field.before || "Not set"}</pre><pre aria-label={`Proposed ${field.label}`}>{field.after || "Not set"}</pre>
     </div>)}
   </section>;
 }

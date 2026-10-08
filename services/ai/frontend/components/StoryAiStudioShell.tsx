@@ -115,7 +115,7 @@ export function StoryAiStudioShell({
     : agentStatus === "running" ? "Generation in progress" : agentStatus === "failed" ? "Generation needs attention" : "Ready to generate";
 
   return (
-    <section aria-describedby={descriptionId} aria-labelledby={titleId} className={`story-studio-shell ai-test-generator-modal ai-command-studio${hasProposal && draftCount ? " has-proposal" : ""}`} data-mode={mode}>
+    <section aria-describedby={descriptionId} aria-labelledby={titleId} className={`story-studio-shell ai-test-generator-modal ai-command-studio has-review-footer${hasProposal && draftCount ? " has-proposal" : ""}`} data-mode={mode}>
       <header className="ai-test-generator-header">
         <div><IconSparkles size={20} /><h1 id={titleId}>{title}</h1></div>
         {descriptionId ? <p className="sr-only" id={descriptionId}>{studioDescription || "Configure context, generate Story drafts, and review the selected changes before saving."}</p> : null}
@@ -149,10 +149,7 @@ export function StoryAiStudioShell({
             {agentStatus === "running" ? <AiGenerationProgress modelLabel={providerLabel} onCancel={onCancel} processing={processing} /> : null}
             {queue ? cloneElement(queue, { activeContent: inspector, searchQuery: draftSearch, viewMode }) : inspector}
           </div>
-          <footer className="story-studio-command-bar ai-test-generator-footer">
-            <strong>{draftSearch && !hasVisibleDraft ? "Clear search to review drafts" : mode === "create" ? `${selectedCount} Selected` : "Review selected fields"}</strong>
-            <div>{generateAction}<fieldset className="story-studio-review-actions" disabled={Boolean(draftSearch && !hasVisibleDraft)}>{commandBar}</fieldset></div>
-          </footer>
+
         </main>
 
       </div>
@@ -161,6 +158,10 @@ export function StoryAiStudioShell({
           {contextOnly(settingsPane)}
           {showIncludeGherkin ? <section className="ai-test-generator-section"><label className="story-studio-gherkin-control"><input checked={includeGherkin} disabled={includeGherkinDisabled || !onIncludeGherkinChange} onChange={event => onIncludeGherkinChange?.(event.target.checked)} type="checkbox" />{includeControlLabel}</label><p>Generate scenarios from the supplied acceptance criteria.</p></section> : null}
       </AiContextPeek>
+          <footer className="story-studio-command-bar ai-test-generator-footer">
+            <strong>{draftSearch && !hasVisibleDraft ? "Clear search to review drafts" : mode === "create" ? `${selectedCount} Selected` : "Review selected fields"}</strong>
+            <div>{generateAction}<fieldset className="story-studio-review-actions" disabled={Boolean(draftSearch && !hasVisibleDraft)}>{commandBar}</fieldset></div>
+          </footer>
       <footer className="ai-test-generator-status-footer"><span>Saved changes require your review</span><div><span>LLM: {providerLabel}</span><span aria-live="polite" role="status">{stateLabel}</span></div></footer>
     </section>
   );

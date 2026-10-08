@@ -1139,8 +1139,8 @@
 /* Keep insertion controls in flow: removing them on textarea blur shifts the
    next review checkbox between pointer-down and pointer-up on small screens. */
 .story-studio-shell .story-studio-inline-action.story-studio-criteria-add { display: inline-flex; }
-.story-studio-shell .story-studio-inspector__title-input { min-height: 36px !important; height: auto !important; resize: vertical; }
-.story-studio-shell .story-studio-criteria li textarea { min-height: 30px !important; height: auto !important; padding: 4px 6px; }
+.story-studio-shell .story-studio-inspector__title-input { min-height: 36px !important; resize: vertical; }
+.story-studio-shell .story-studio-criteria li textarea { min-height: 30px !important; padding: 4px 6px; }
 .story-studio-intelligence-evidence { padding: 16px; border-top: 1px solid var(--border); min-width: 0; }
 .story-studio-intelligence-evidence > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
 .story-studio-intelligence-evidence h3 { margin: 0; font-size: 13px; }

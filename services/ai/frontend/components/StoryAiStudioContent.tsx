@@ -1,3 +1,4 @@
+import { useAiOutputSizing } from "../lib/useAiOutputSizing";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   IconBold,
@@ -172,6 +173,7 @@ export function StoryAiDraftInspector({
   statusContent?: ReactNode;
 }) {
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const outputRef = useAiOutputSizing<HTMLDivElement>(draft);
   const [editingScenarioIndex, setEditingScenarioIndex] = useState<number | null>(null);
   const [comparing, setComparing] = useState(false);
 
@@ -225,15 +227,21 @@ export function StoryAiDraftInspector({
   };
 
   return (
-    <div className="story-studio-inspector">
+    <div className="story-studio-inspector" ref={outputRef}>
       {statusContent}
       <header className="story-studio-inspector__title">
         <div className="story-studio-inspector__badges">
           <span>{draft.generated ? `DRAFT #${draft.sequence || 1}` : draft.displayId || "SELECTED STORY"}</span>
           <span><IconSparkles size={14} stroke={1.9} />{draft.generated ? "AI Generated" : "Existing context"}</span>
-          {baseline ? <button aria-pressed={comparing} className="ai-context-chip" onClick={() => setComparing(current => !current)} type="button">{comparing ? "Hide comparison" : "Compare changes"}</button> : null}
         </div>
-        {evidencePlacement === "inspector" ? <StoryAiEvidenceReview draft={draft} /> : null}
+        {baseline || evidencePlacement === "inspector" ? <div className="ai-proposal-review-toolbar">
+          <div><strong>Review proposal</strong><span>Check the changes and supporting evidence.</span></div>
+          <div className="ai-proposal-review-toolbar__actions">
+            {baseline ? <button aria-pressed={comparing} className="ai-context-chip" onClick={() => setComparing(current => !current)} type="button">{comparing ? "Hide comparison" : "Compare changes"}</button> : null}
+            {evidencePlacement === "inspector" ? <StoryAiEvidenceReview draft={draft} /> : null}
+          </div>
+        </div> : null}
+      {baseline && comparing ? <AiProposalCompare fields={[{ label: "Title", before: baseline.title, after: draft.title }, { label: "Description", before: baseline.description, after: draft.description }]} /> : null}
         <section className="story-studio-card story-studio-title-card">
           <div className="story-studio-card__toolbar"><h2>Title</h2></div>
           <div className="story-studio-title-card__body">
@@ -242,7 +250,7 @@ export function StoryAiDraftInspector({
             <textarea
               aria-describedby={hasInvalidTitle ? `${draft.id}-title-error` : undefined}
               aria-invalid={hasInvalidTitle || undefined}
-              aria-label="Story title"
+              data-ai-auto-size aria-label="Story title"
               className="story-studio-inspector__title-input"
               maxLength={255}
               onChange={(event) => onTitleChange(event.target.value)}
@@ -259,7 +267,6 @@ export function StoryAiDraftInspector({
           </div>
         </section>
       </header>
-      {baseline && comparing ? <AiProposalCompare fields={[{ label: "Title", before: baseline.title, after: draft.title }, { label: "Description", before: baseline.description, after: draft.description }]} /> : null}
 
       {outputFormat === "structured" ? <><section className="story-studio-card story-studio-description-card">
         <div className="story-studio-card__toolbar">
@@ -274,7 +281,7 @@ export function StoryAiDraftInspector({
         </div>
         <div className="story-studio-description-card__body">
           <textarea
-            aria-label="Story description"
+            data-ai-auto-size aria-label="Story description"
             onChange={(event) => onDescriptionChange?.(event.target.value)}
             readOnly={!editable}
             ref={descriptionRef}
@@ -292,7 +299,7 @@ export function StoryAiDraftInspector({
                       {editable && onAcceptanceCriteriaChange ? (
                         <>
                           <textarea
-                            aria-label={`Acceptance criterion ${index + 1}`}
+                            data-ai-auto-size aria-label={`Acceptance criterion ${index + 1}`}
                             onChange={(event) => onAcceptanceCriteriaChange(criteria.map((item, itemIndex) => itemIndex === index ? event.target.value : item))}
                             placeholder="Describe a testable outcome"
                             rows={Math.max(1, Math.min(3, Math.ceil((criterion.length || 40) / 78)))}

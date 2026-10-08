@@ -29,3 +29,7 @@
 .ai-lifecycle-shell[open] > summary::after { content: "−"; }
 .ai-lifecycle-shell > .ai-lifecycle-review { margin: 0; border: 0; border-top: 1px solid var(--line, #dfe5ee); border-radius: 0 0 14px 14px; }
 @media (max-width: 600px) { .ai-lifecycle-shell > summary span { display: none; } }
+
+.ai-lifecycle-result { min-width:0; overflow-wrap:anywhere; }
+.ai-lifecycle-result .knowledge-formatted-text { min-width:0; line-height:1.7; }
+.ai-lifecycle-result :is(pre, .knowledge-answer-table-scroll) { max-width:100%; }
