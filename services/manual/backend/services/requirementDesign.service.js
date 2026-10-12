@@ -238,7 +238,7 @@ const normalizeGeneratedCases = (payload, maxCases, requirements, authoringMode)
   const seen = new Set();
   return collection.slice(0, maxCases).map((item, index) => normalizeCaseDraft(item, index, {
     requirements,
-    requireRequirementMapping: true,
+    requireRequirementMapping: requirements.length > 0,
     applicableDomain,
     authoringMode
   })).filter(candidate => {
@@ -401,7 +401,7 @@ const normalizeAcceptedCases = (cases = [], requirements = []) => {
 
   return cases.map((item, index) => normalizeCaseDraft(item, index, {
     requirements,
-    requireRequirementMapping: true,
+    requireRequirementMapping: requirements.length > 0,
     authoringMode: item?.authoring_mode || item?.authoringMode
   }));
 };
@@ -419,9 +419,6 @@ exports.previewRequirementsTestCases = async ({
 }) => {
   const scopedRequirements = uniqueById(requirements);
 
-  if (!scopedRequirements.length) {
-    throw new Error("At least one requirement is required");
-  }
   if (scopedRequirements.length > 10) throw Object.assign(new Error("Preview Test Cases for at most ten Stories at a time."), { statusCode: 400 });
   if (Number(max_cases) > 10) throw Object.assign(new Error("Generate at most ten Test Cases per preview; use smaller batches for additional coverage."), { statusCode: 400 });
 
@@ -434,10 +431,10 @@ exports.previewRequirementsTestCases = async ({
   const authoringMode = normalizeAuthoringMode(authoring_mode);
   const integration = await resolveIntegration(integration_id, {
     userId: user_id,
-    projectId: appType.project_id || scopedRequirements[0].project_id,
+    projectId: appType.project_id || scopedRequirements[0]?.project_id,
     usageKey: "ai.test_case.design"
   });
-  const knowledge = await aiKnowledgeService.buildKnowledgeContextPackage(scopedRequirements[0].project_id, {
+  const knowledge = await aiKnowledgeService.buildKnowledgeContextPackage(appType.project_id || scopedRequirements[0]?.project_id, {
     app_type_id: appType.id,
     query: additionalContext,
     module_name: appType.module_name || null,

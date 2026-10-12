@@ -92,7 +92,7 @@ test('real workspace shell keeps navigation, preferences, mobile focus and full-
   await page.locator('.workspace-experience-v2').waitFor();
   if(await page.getByRole('button',{name:'Expand sidebar',exact:true}).isVisible())await page.getByRole('button',{name:'Expand sidebar',exact:true}).click();
   await page.getByRole('button',{name:'Collapse sidebar',exact:true}).waitFor();
-  assert.match(await page.locator('#app-sidebar .nav-submenu-link').filter({hasText:'Quality analytics'}).getAttribute('class'),/is-active/,'Analytics remains active when days is present');
+  assert.match(await page.locator('#app-sidebar .nav-submenu-link').filter({hasText:'Quality Analytics'}).getAttribute('class'),/is-active/,'Analytics remains active when days is present');
   await shellGeometry(page,{sidebarWidth:256,headerHeight:70});await independentScroll(page);
   await noOverflow(page,'desktop analytics');await page.screenshot({path:artifacts+'/after-main.png'});
   for(const kind of ['project','application']){await page.locator('.workspace-scope-trigger--'+kind).click();await page.getByRole('listbox').waitFor();await page.screenshot({path:artifacts+'/after-'+kind+'-dropdown.png'});await page.keyboard.press('Escape')}

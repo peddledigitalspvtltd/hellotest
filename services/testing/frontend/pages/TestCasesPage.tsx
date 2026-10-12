@@ -7616,7 +7616,7 @@ export function TestCasesPage() {
 	      return;
 	    }
 
-	    if (!appTypeId || !aiRequirementIds.length) {
+	    if (!appTypeId) {
 	      return;
 	    }
 
@@ -7677,9 +7677,9 @@ export function TestCasesPage() {
 	      return;
 	    }
 
-	    if (!appTypeId || !aiCaseAuthoringRequirementId) {
+	    if (!appTypeId) {
 	      setAiCaseAuthoringTone("error");
-      setAiCaseAuthoringMessage("Choose the linked story before generating an AI authoring preview.");
+      setAiCaseAuthoringMessage("Select an application before generating an AI authoring preview.");
       return;
     }
 
@@ -7690,7 +7690,7 @@ export function TestCasesPage() {
     try {
       const response = await previewCaseAuthoring.mutateAsync({ signal: controller.signal, input: {
         app_type_id: appTypeId,
-        requirement_id: aiCaseAuthoringRequirementId,
+        requirement_id: aiCaseAuthoringRequirementId || undefined,
         authoring_mode: authoringMode,
         integration_id: integrationId || undefined,
         additional_context: aiCaseAuthoringAdditionalContext || undefined,
@@ -7704,8 +7704,8 @@ export function TestCasesPage() {
       setAiCaseAuthoringTone("success");
       setAiCaseAuthoringMessage(
         response.context_reduced ? response.context_reduction_reason || "Reduced context was used; review against the original Story." : response.case.authoring_mode === "gherkin"
-          ? "Prepared an improved Gherkin specification from the selected Story and current Test Case. Review it before applying."
-          : `Prepared ${response.case.step_count} assisted step${response.case.step_count === 1 ? "" : "s"} from the selected Story and current draft. Review before applying.`
+          ? "Prepared an improved Gherkin specification from the current Test Case and available context. Review it before applying."
+          : `Prepared ${response.case.step_count} assisted step${response.case.step_count === 1 ? "" : "s"} from the current draft and available context. Review before applying.`
       );
     } catch (error) {
       if (controller.signal.aborted || aiCaseAuthoringControllerRef.current !== controller) return;
@@ -7825,7 +7825,7 @@ export function TestCasesPage() {
 	      return;
 	    }
 
-	    if (!appTypeId || !aiRequirementIds.length || !aiPreviewCases.length) {
+	    if (!appTypeId || !aiPreviewCases.length) {
 	      return;
 	    }
     const selectedCaseSet = new Set(selectedClientIds?.length ? selectedClientIds : aiPreviewCases.map((item) => item.client_id));
@@ -8791,7 +8791,7 @@ export function TestCasesPage() {
         {isCaseWorkspaceOpen && canUseTestCaseAi ? (
           <button
             className="ghost-button test-case-workspace-named-action"
-            disabled={!appTypeId || !integrations.length || !requirements.length}
+            disabled={!appTypeId || !integrations.length}
             onClick={openAiCaseAuthoring}
             title="Author manual test steps with AI"
             type="button"
@@ -10063,10 +10063,10 @@ export function TestCasesPage() {
                   },
                   {
                     label: "AI Test Cases Generation",
-                    description: "Generate draft test cases from linked stories with AI assistance.",
+                    description: "Generate draft test cases from your instructions and optional Story context.",
                     icon: <TestCaseSparkIcon />,
-                    visible: canUseTestCaseAi && canCreateTestCases && canViewRequirements,
-                    disabled: !canUseTestCaseAi || !canCreateTestCases || !canViewRequirements || !appTypeId,
+                    visible: canUseTestCaseAi && canCreateTestCases,
+                    disabled: !canUseTestCaseAi || !canCreateTestCases || !appTypeId,
                     onClick: openAiStudio
                   }
                 ]}
@@ -12702,7 +12702,7 @@ export function TestCasesPage() {
           applyLabel={isCreating ? "Apply Improvement To Draft" : "Apply Reviewed Improvement"}
           closeDisabled={previewCaseAuthoring.isPending || updateTestCase.isPending}
 	          disableApply={!canUseTestCaseAi || (!isCreating && !canUpdateTestCases) || (aiCaseAuthoringNeedsAutomationEdit && !canEditAutomationCode) || !aiCaseAuthoringPreview || updateTestCase.isPending}
-	          disableGenerate={!canUseTestCaseAi || !appTypeId || !aiCaseAuthoringRequirementId || previewCaseAuthoring.isPending || !integrations.length}
+	          disableGenerate={!canUseTestCaseAi || !appTypeId || previewCaseAuthoring.isPending || !integrations.length}
           hasAutomationWarning={aiCaseAuthoringAutomationStepCount > 0}
           integrationId={integrationId}
           integrations={integrations}
@@ -12772,7 +12772,7 @@ export function TestCasesPage() {
           appTypeName={appTypes.find((item) => item.id === appTypeId)?.name || "No app type selected"}
           closeDisabled={previewDesignedCases.isPending || acceptDesignedCases.isPending || createGenerationJob.isPending}
 	          disableAccept={!canCreateTestCases || !aiPreviewCases.length || acceptDesignedCases.isPending}
-	          disablePreview={!canUseTestCaseAi || !aiRequirementIds.length || !appTypeId || previewDesignedCases.isPending || !integrations.length}
+	          disablePreview={!canUseTestCaseAi || !appTypeId || previewDesignedCases.isPending || !integrations.length}
 	          disableSchedule={!canUseTestCaseAi || !canCreateTestCases || !aiRequirementIds.length || !appTypeId || createGenerationJob.isPending || !integrations.length}
           existingCases={aiExistingCases}
           existingCasesSubtitle="These reusable cases are already linked to one or more of the selected stories in the current app type."
@@ -12854,7 +12854,7 @@ export function TestCasesPage() {
           onPreviewMessageDismiss={() => setAiPreviewMessage("")}
           previewTone={aiPreviewTone}
           referenceImages={aiReferenceImages}
-          requirementHelpText="Select one or more stories, provide extra context, then review the generated drafts before approving them into the reusable library."
+          requirementHelpText="Story selection is optional. Select the most relevant Story for better context, or describe the behavior and coverage you need in your instructions."
           requirementLabel="Stories"
           requirements={requirements}
           scheduleHelperText="Schedule batch AI generation for selected stories. The worker processes one story at a time with a cooldown between stories to reduce LLM rate-limit pressure, then returns generated cases as drafts with green accept and red reject actions."

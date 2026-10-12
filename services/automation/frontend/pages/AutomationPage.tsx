@@ -17,9 +17,9 @@ const AiAssurancePanel = capabilityView<import("react").ComponentProps<typeof im
 import { mapRunHooksToExecutionHooks } from "@hellotest/testing/frontend/lib/runHooks";
 import { type ChangeEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconArrowUp, IconArrowDown, IconArrowRight, IconBraces, IconCheck, IconCircleDot, IconCode, IconCpu, IconDeviceDesktop, IconSettings, IconWand, IconDots, IconShieldCheck, IconTargetArrow } from "@tabler/icons-react";
+import { IconWorld, IconApi, IconBrandAndroid, IconBrandApple, IconArrowUp, IconArrowDown, IconArrowRight, IconBraces, IconCheck, IconCircleDot, IconCode, IconCpu, IconDeviceDesktop, IconSettings, IconWand, IconDots, IconShieldCheck, IconTargetArrow } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, RefreshIcon, SelectionToggleIcon, SparkIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
+import { AddIcon, CollapseExpandIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, RefreshIcon, SelectionToggleIcon, SparkIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 
 import { RepositoryLocatorBuilder } from "../components/RepositoryLocatorBuilder";
 import { isRepositoryMemberUsed } from "../lib/repositoryLocators";
@@ -579,22 +579,19 @@ function AutomationAccordionSection({
   title: ReactNode;
 }) {
   return (
-    <section className={["editor-accordion-section", isExpanded ? "is-expanded" : ""].filter(Boolean).join(" ")} data-automation-stage={stage}>
+    <section aria-label={typeof title === "string" ? title : undefined} className={["editor-accordion-section", title === "Preconditions" || title === "Steps" ? "automation-program-flow" : "", isExpanded ? "is-expanded" : ""].filter(Boolean).join(" ")} data-automation-stage={stage}>
       <div className="editor-accordion-head">
-        <button className="editor-accordion-toggle" onClick={onToggle} type="button">
-          <span className="editor-accordion-icon"><ChevronIcon isExpanded={isExpanded} /></span>
-          <span className="editor-accordion-toggle-main">
-            <span className="editor-accordion-toggle-copy">
-              <strong>{title}</strong>
-              <span>{summary}</span>
-            </span>
-            <span className="editor-accordion-toggle-meta">
-              {countLabel ? <span className="editor-accordion-toggle-count">{countLabel}</span> : null}
-              <span className="editor-accordion-toggle-state">{isExpanded ? "Hide" : "Show"}</span>
-            </span>
-          </span>
+        <button aria-expanded={isExpanded} className="editor-accordion-toggle" onClick={onToggle} type="button">
+          <div className="editor-accordion-toggle-main">
+            <span aria-hidden="true" className={isExpanded ? "editor-accordion-icon is-expanded" : "editor-accordion-icon"}><svg fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18"><path d="m9 5 7 7-7 7" /></svg></span>
+            <div className="editor-accordion-toggle-copy"><strong>{title}</strong><span>{summary}</span></div>
+          </div>
         </button>
-        {actions ? <div className="automation-accordion-actions">{actions}</div> : null}
+        <div className="editor-accordion-toggle-meta">
+          {countLabel ? <span className="editor-accordion-toggle-count">{countLabel}</span> : null}
+          {actions ? <div className="editor-accordion-actions">{actions}</div> : null}
+          <button aria-label={isExpanded ? "Collapse section" : "Expand section"} aria-expanded={isExpanded} className="editor-accordion-toggle-state explorer-icon-button" onClick={onToggle} title={isExpanded ? "Collapse section" : "Expand section"} type="button"><CollapseExpandIcon isExpanded={isExpanded} /></button>
+        </div>
       </div>
       {isExpanded ? <div className="editor-accordion-body">{children}</div> : null}
     </section>
@@ -1212,6 +1209,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [saveAutomationGroupAsShared, setSaveAutomationGroupAsShared] = useState(false);
   const [isSharedGroupLibraryOpen, setIsSharedGroupLibraryOpen] = useState(false);
   const [automationStepView, setAutomationStepView] = useState<AutomationStepView>("keyword");
+  const [visibleInstructionIds, setVisibleInstructionIds] = useState<string[]>([]);
+  const [flowExpanded, setFlowExpanded] = useState({ preconditions: true, steps: true });
   const [expandedAutomationStepIds, setExpandedAutomationStepIds] = useState<string[]>([]);
   const [automationStudioStep, setAutomationStudioStep] = useState<TestStep | null>(null);
   const [caseDraft, setCaseDraft] = useState<AutomationCaseDraft>({
@@ -5146,7 +5145,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             void launchInspectBrowser("remote").catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to start remote inspection browser."));
           } : undefined} /> : null}
       <PageHeader
-        className={view === "repository" ? "object-repository-page-header" : selectedCaseId ? "automation-detail-page-header" : undefined}
+        className={view === "repository" ? "object-repository-page-header" : "automation-cases-page-header" + (selectedCaseId ? " automation-detail-page-header" : "")}
         eyebrow={automationPageHeader.eyebrow}
         title={automationPageHeader.title}
         description={view === "cases" && selectedCaseId ? undefined : automationPageHeader.description}
@@ -5231,7 +5230,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     <OpenIcon />
 
                   </button>) : null}
-                  </> : <span className="automation-selection-hint">Select cases to build or run</span>}
+                  </> : null}
                   {canCreateAutomationDraft ? <button className="primary-button automation-choose-manual-toolbar-button" disabled={!appTypeId} onClick={() => setIsCreateAutomationOpen(true)} type="button">
                     <AddIcon />
                     <span>Create automation case</span>
@@ -5388,7 +5387,6 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   <>
                   {canRunLocalAutomation ? <button className="primary-button" disabled={!isAutomationCaseDetailReady || runSelectedAutomationCases.isPending || activeCase.automated !== "yes" || Boolean(recorderSession)} onClick={() => requestAutomationRun("local", [activeCase.id])} type="button"><PlayIcon/><span>Run local</span></button> : null}
                   {canRunRemoteAutomation ? <button className="ghost-button" disabled={!isAutomationCaseDetailReady || runSelectedAutomationCases.isPending || activeCase.automated !== "yes" || Boolean(recorderSession)} onClick={() => requestAutomationRun("remote", [activeCase.id])} type="button"><OpenIcon size={17}/><span>Run remote</span></button> : null}
-                  <AutomationIconButton label="Execution context" disabled={!isAutomationCaseDetailReady} onClick={() => setIsExecutionContextOpen(true)}><IconSettings size={17}/></AutomationIconButton>
                   </>
                 ) : null}
               </div>
@@ -5681,14 +5679,14 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     </div> : null}
                     {automatedStepsQuery.isError ? <div className="empty-state compact" role="alert">Unable to load the plan.<button className="ghost-button" onClick={() => void automatedStepsQuery.refetch()} type="button">Retry</button></div> : null}
                     {automationStepView === "code" && canViewAutomationCode ? <details className="automation-agent-brief"><summary>Complete automation code</summary><pre className="automation-code-block automation-code-block--complete">{completeAutomationCode}</pre><button className="ghost-button compact" onClick={() => navigator.clipboard?.writeText(completeAutomationCode)} type="button">Copy code</button></details> : null}
-                    {[true, false].map((precondition) => <section className="automation-program-flow" key={String(precondition)} aria-label={precondition ? "Preconditions" : "Test steps"}>
-                      <div className="automation-plan-heading"><h3>{precondition ? "Preconditions" : "Steps"}</h3>{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => { setNewStepIsPrecondition(precondition); setNewStepPlacement({ mode: "end", stepId: "" }); setIsNewSectionOpen(true); }} type="button"><AddIcon size={14} />{precondition ? "Add precondition" : "Add section"}</button>) : null}</div>
+                    {[true, false].map((precondition) => <AutomationAccordionSection key={String(precondition)} title={precondition ? "Preconditions" : "Steps"} summary={precondition ? "Setup assumptions and pre-run steps captured before the main flow." : "Actions and expected results for the automation flow."} countLabel={String(automatedSteps.filter(step => isAutomationPrecondition(step) === precondition).length)} isExpanded={flowExpanded[precondition ? "preconditions" : "steps"]} onToggle={() => setFlowExpanded(current => ({ ...current, [precondition ? "preconditions" : "steps"]: !current[precondition ? "preconditions" : "steps"] }))} actions={canEditAutomationCode ? <button className="ghost-button compact" onClick={() => { setNewStepIsPrecondition(precondition); setNewStepPlacement({ mode: "end", stepId: "" }); setIsNewSectionOpen(true); }} type="button"><AddIcon size={14} />{precondition ? "Add precondition" : "Add section"}</button> : undefined}>
                       {!automatedSteps.some((step) => isAutomationPrecondition(step) === precondition) ? <p className="muted">{precondition ? "No preconditions." : "Add a named section, insert a Shared Step Group, or record a flow."}</p> : null}
                       {automationStepGroups.filter((group) => isAutomationPrecondition(group.steps[0]) === precondition).map((group) => {
                         const rows = group.steps.map((step) => {
                           const draft = stepDrafts[step.id] || parseAutomationStepDraft(step);
                           const options = stepOptionDrafts[step.id] || parseAutomationStepOptions(step);
                           const expanded = expandedAutomationStepIds.includes(step.id);
+                          const instructionsVisible = visibleInstructionIds.includes(step.id);
                           const spec = getAutomationKeywordInputSpec(draft.keyword, draft.step_type);
                           const sourceCode = stepCodeDrafts[step.id] ?? step.automation_code ?? "";
                           const savedDraft = parseAutomationStepDraft(step);
@@ -5715,15 +5713,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           return <article className={`automation-plan-row automation-program-section${expanded ? " is-editing" : ""}`} key={step.id}>
                             <div className="automation-plan-summary">
                               <input aria-label={`Select step ${step.step_order}`} checked={selectedAutomationStepIds.includes(step.id)} disabled={!canEditAutomationCode || precondition} onChange={(event) => setSelectedAutomationStepIds((current) => event.target.checked ? [...current, step.id] : current.filter((id) => id !== step.id))} type="checkbox" />
-                              <button aria-controls={`automation-plan-step-${step.id}`} aria-expanded={expanded} onClick={() => toggleAutomationStep(step.id)} type="button">
-                                <span className="automation-section-chevron" aria-hidden="true">{expanded ? "⌄" : "›"}</span><span className="automation-plan-number">{String(step.step_order).padStart(2, "0")}</span>
-                                <span className="automation-plan-copy"><strong><StepParameterizedText text={sectionName} values={mergedParameterValues} /></strong>{draft.expected_result ? <small><span className="automation-section-expect">Expect</span><StepParameterizedText text={richTextToPlainText(draft.expected_result)} values={mergedParameterValues} /></small> : null}</span><span className="automation-section-platform">{draft.step_type === "ios" ? "iOS" : draft.step_type.toUpperCase()}</span>{hasChanges ? <span className="automation-section-unsaved">Unsaved</span> : null}
-                                <span className={`automation-plan-state${isAutomationStepMapped(step) ? " is-ready" : ""}`}>{isAutomationStepMapped(step) ? "Ready" : "Not implemented"}</span>
+                              <button aria-controls={`automation-plan-step-${step.id}`} aria-expanded={instructionsVisible} onClick={() => setVisibleInstructionIds(current => current.includes(step.id) ? current.filter(id => id !== step.id) : [...current, step.id])} type="button">
+                                <span className="automation-section-chevron" aria-hidden="true">{instructionsVisible ? "⌄" : "›"}</span><span className="automation-plan-number">{String(step.step_order).padStart(2, "0")}</span><span className="automation-section-platform" title={draft.step_type === "ios" ? "iOS" : draft.step_type.toUpperCase()} aria-label={draft.step_type === "ios" ? "iOS" : draft.step_type.toUpperCase()}>{draft.step_type === "api" ? <IconApi size={17} /> : draft.step_type === "android" ? <IconBrandAndroid size={17} /> : draft.step_type === "ios" ? <IconBrandApple size={17} /> : <IconWorld size={17} />}</span>
+                                <span className="automation-plan-copy"><strong><StepParameterizedText text={sectionName} values={mergedParameterValues} /></strong>{draft.expected_result ? <small><span className="automation-section-expect">Expect</span><StepParameterizedText text={richTextToPlainText(draft.expected_result)} values={mergedParameterValues} /></small> : null}</span>{hasChanges ? <span className="automation-section-unsaved">Unsaved</span> : null}
+
                               </button>
-                            </div>
-                            {canViewAutomationCode ? <AutomationInstructionPreview view={automationStepView === "code" ? "source" : "instructions"} formatInstruction={summarizeAutomationInstruction} renderArgument={argument => <StepParameterizedText text={argument} values={mergedParameterValues} />} code={step.step_type === "api" ? "" : sourceCode} apiRequest={step.step_type === "api" ? step.api_request : null} sectionName={sectionName} emptyAction={canEditAutomationCode ? <button className="ghost-button compact" onClick={openInstructionEditor} type="button"><AddIcon size={13} />Add instruction</button> : undefined} /> : null}
                             {canEditAutomationCode ? <div className="automation-section-tools">
-                              <span>{isAutomationStepMapped(step) ? "" : "Add an implementation"}</span>
                               <AutomationIconButton label="Move up" disabled={reorderAutomationStep.isPending || automatedSteps.findIndex(item => item.id === step.id) === 0 || isAutomationPrecondition(automatedSteps[automatedSteps.findIndex(item => item.id === step.id) - 1] || step) !== precondition} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "up" })}><IconArrowUp size={15} /></AutomationIconButton>
                               <AutomationIconButton label="Move down" disabled={reorderAutomationStep.isPending || automatedSteps.findIndex(item => item.id === step.id) === automatedSteps.length - 1 || isAutomationPrecondition(automatedSteps[automatedSteps.findIndex(item => item.id === step.id) + 1] || step) !== precondition} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "down" })}><IconArrowDown size={15} /></AutomationIconButton>
                               <AutomationIconButton label="Edit" onClick={() => toggleAutomationStep(step.id)}><PencilIcon size={15} /></AutomationIconButton>
@@ -5736,9 +5731,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                                 { label: "Remove section", icon: <TrashIcon size={15} />, tone: "danger", disabled: removeAutomationPlanStep.isPending, onClick: () => removeAutomationPlanStep.mutate(step) }
                               ]} />
                             </div> : null}
+                            </div>
+                            <div id={`automation-plan-step-${step.id}`} hidden={!instructionsVisible}>
+                            {instructionsVisible && canViewAutomationCode ? <AutomationInstructionPreview view={automationStepView === "code" ? "source" : "instructions"} formatInstruction={summarizeAutomationInstruction} renderArgument={argument => <StepParameterizedText text={argument} values={mergedParameterValues} />} code={step.step_type === "api" ? "" : sourceCode} apiRequest={step.step_type === "api" ? step.api_request : null} sectionName={sectionName} emptyAction={canEditAutomationCode ? <button className="ghost-button compact" onClick={openInstructionEditor} type="button"><AddIcon size={13} />Add instruction</button> : undefined} /> : null}
                             {step.step_type === "api" && !programNeedsEditor && step.api_request?.query_params?.length ? <div className="automation-plan-api-parameters" aria-label={`Step ${step.step_order} query parameters`}>{step.api_request.query_params.filter((parameter) => parameter.key).map((parameter, index) => <span key={`${parameter.key}:${index}`}><code>{parameter.key}</code><span>=</span>{/password|secret|token|api.?key/i.test(parameter.key) ? <span>Hidden value</span> : <StepParameterizedText text={parameter.value} values={mergedParameterValues} fallback="Empty value" />}</span>)}</div> : null}
                             {step.step_type === "api" && !programNeedsEditor ? <AutomationReferencedParameters parameters={collectStepParameters([step]).map((parameter) => detectedStepParameters.find((available) => available.name === parameter.name) || parameter)} values={mergedParameterValues} /> : null}
-                            {expanded ? <AutomationOverlay title="Edit section" subtitle={`${String(step.step_order).padStart(2, "0")} · ${sectionName}`} icon={<PencilIcon size={20} />} onClose={() => toggleAutomationStep(step.id)} closeDisabled={updateAutomationStep.isPending || updateAutomationStepCode.isPending}><fieldset disabled={!canEditAutomationCode} className="automation-plan-editor" id={`automation-plan-step-${step.id}`} style={{ border: 0, margin: 0, minWidth: 0 }}>
+                            </div>
+                            {expanded ? <AutomationOverlay title="Edit section" subtitle={`${String(step.step_order).padStart(2, "0")} · ${sectionName}`} icon={<PencilIcon size={20} />} onClose={() => toggleAutomationStep(step.id)} closeDisabled={updateAutomationStep.isPending || updateAutomationStepCode.isPending}><fieldset disabled={!canEditAutomationCode} className="automation-plan-editor" id={`automation-plan-step-editor-${step.id}`} style={{ border: 0, margin: 0, minWidth: 0 }}>
                               <div className="automation-section-details"><div className="automation-plan-behavior-fields">
                                 <label className="form-field"><span>Section name</span><GherkinStepTextField ariaLabel={`Step ${step.step_order} action`} availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(name) => updateDraft({ name })} value={draft.name} /></label>
                                 <label className="form-field"><span>Expected result</span><GherkinStepTextField ariaLabel={`Step ${step.step_order} expected result`} availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(expected_result) => updateDraft({ expected_result })} value={draft.expected_result} /></label>
@@ -5769,7 +5768,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                         });
                         return group.isStandalone || precondition ? <div className="automation-program-sections" key={group.id}>{rows}</div> : <details className="automation-plan-group automation-program-group" open key={group.id}><summary><strong>{group.title}</strong><span>{group.steps.length} sections{group.steps[0]?.group_kind === "reusable" ? " · Shared Step Group" : ""}</span></summary><div className="automation-plan-actions">{group.steps[0]?.reusable_group_id ? <span className="muted">Edits also update the Shared Step Group.</span> : null}{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode || ungroupAutomationSteps.isPending} onClick={() => ungroupAutomationSteps.mutate(group.steps[0].group_id as string)} aria-label="Ungroup" title="Ungroup" type="button"><LayersIcon size={15} /></button>) : null}{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => { setNewStepIsPrecondition(false); setNewStepPlacement({ mode: "after", stepId: group.steps[group.steps.length - 1].id }); setIsNewSectionOpen(true); }} aria-label="Add section to group" title="Add section to group" type="button"><AddIcon size={15} /></button>) : null}</div>{rows}</details>;
                       })}
-                    </section>)}
+                    </AutomationAccordionSection>)}
 
                   </section>
                 ) : null}

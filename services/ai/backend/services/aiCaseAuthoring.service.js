@@ -241,7 +241,7 @@ const buildPrompt = ({ requirement, appType, currentCase, authoringMode, additio
   application_contract:{output_schema:caseOutputSchema(authoringMode),authoring_mode:authoringMode},
   generation_request:splitGenerationContext(additionalContext),
   application:{id:appType.id,name:appType.name,type:appType.type},
-  story:storyAiSnapshot(requirement),
+  story:requirement ? storyAiSnapshot(requirement) : null,
   current_case:currentCase,
   external_references:externalLinks.map(url=>({url,content_retrieved:false})),
   reference_images:images.map(image=>({name:image.name}))
@@ -338,9 +338,6 @@ exports.previewCaseAuthoring = async ({
   external_links,
   images
 }) => {
-  if (!requirement) {
-    throw new Error("A linked requirement is required for AI authoring");
-  }
 
   if (!appType) {
     throw new Error("An app type is required for AI authoring");
@@ -395,10 +392,7 @@ exports.previewCaseAuthoring = async ({
       type: integration.type,
       model: integration.model
     },
-    requirement: {
-      id: requirement.id,
-      title: requirement.title
-    },
+    requirement: requirement ? { id: requirement.id, title: requirement.title } : null,
     app_type: {
       id: appType.id,
       name: appType.name

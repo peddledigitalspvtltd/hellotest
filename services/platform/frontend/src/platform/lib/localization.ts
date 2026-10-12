@@ -140,7 +140,7 @@ Object.assign(DEFAULT_LOCALIZATION_STRINGS, {
   "navigator.execute": "Execute",
   "navigator.investigate": "Investigate",
   "navigator.manage": "Manage",
-  "capability.analytics.name": "Quality analytics",
+  "capability.analytics.name": "Quality Analytics",
   "capability.analytics.description": "Track coverage, execution trends and quality signals.",
   "capability.readiness.name": "Release readiness",
   "capability.readiness.description": "Assess release evidence and unresolved risk.",

@@ -150,3 +150,16 @@
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
+
+/* Keep status, step actions and platform identity aligned with their headings. */
+#root .page-content--automation .automation-cases-page-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 16px; row-gap: 4px; }
+#root .page-content--automation .automation-cases-page-header > .page-header-text { display: contents; }
+#root .page-content--automation .automation-cases-page-header .eyebrow { grid-column: 1; grid-row: 1; }
+#root .page-content--automation .automation-cases-page-header .page-header-title-row { grid-column: 1; grid-row: 2; align-self: center; }
+#root .page-content--automation .automation-cases-page-header .page-actions { grid-column: 2; grid-row: 2; margin-left: auto; align-self: center; width: auto; }
+.page-content--automation .automation-program-section .automation-plan-summary { min-height: 44px; padding: 0 12px; }
+.page-content--automation .automation-plan-summary .automation-section-tools { flex: 0 0 auto; border: 0; background: transparent; padding: 0; }
+.page-content--automation .automation-plan-summary .automation-section-platform { display: inline-flex; flex: 0 0 auto; align-items: center; margin-left: 0; }
+@media (max-width: 600px) { .page-content--automation .automation-plan-summary { gap: 4px; } .page-content--automation .automation-plan-summary .automation-section-tools { gap: 0; } }
+
+#root .page-content--automation .automation-cases-page-header .page-header-meta { grid-column: 1 / -1; grid-row: 3; }

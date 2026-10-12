@@ -339,7 +339,7 @@ export function AnalyticsMissionControl({
         </button>
 
         <div className="qa-mission-title-block">
-          <h1>Quality analytics</h1>
+          <h1>Quality Analytics</h1>
           <p>{projectName} - Evidence-led release posture, traceability, test design, execution confidence, and prioritized quality risk.</p>
         </div>
         <button className="qa-personalize" onClick={onOpenLayout} type="button">

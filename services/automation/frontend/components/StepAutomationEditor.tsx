@@ -2088,18 +2088,6 @@ export function StepAutomationDialog({
     [normalizedApiRequest, parameterValues]
   );
 
-  const previewCode = useMemo(
-    () =>
-      resolveStepAutomationCode({
-        step_order: step.step_order || 1,
-        action: step.action || null,
-        expected_result: step.expected_result || null,
-        step_type: stepType,
-        automation_code: stepType === "api" ? "" : automationCode,
-        api_request: normalizedApiRequest
-      }),
-    [automationCode, normalizedApiRequest, step.action, step.expected_result, step.step_order, stepType]
-  );
   const instructionLineCount = useMemo(
     () => automationProgramLines(automationCode).length,
     [automationCode]
@@ -3066,13 +3054,6 @@ export function StepAutomationDialog({
                 </details>
               </>
             )}
-
-            <details className="automation-request-details automation-editor-section">
-              <summary><span>Generated code</span><strong>Preview</strong></summary>
-              <div className="automation-request-details-body">
-                <pre className="automation-code-block automation-code-block--compact"><code>{previewCode}</code></pre>
-              </div>
-            </details>
           </div>
           <div className="resource-form-actions action-row">
             <button

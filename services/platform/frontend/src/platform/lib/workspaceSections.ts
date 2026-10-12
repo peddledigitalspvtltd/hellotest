@@ -30,7 +30,7 @@ export type WorkspaceSectionItem = {
 };
 
 export const DASHBOARD_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: "/?view=analytics", label: "Quality analytics", shortLabel: "Analytics", icon: "analytics" },
+  { to: "/?view=analytics", label: "Quality Analytics", shortLabel: "Analytics", icon: "analytics" },
   { to: "/?view=readiness", label: "Release readiness", shortLabel: "Readiness", icon: "analytics" },
   { to: "/?view=custom", label: "Custom dashboards", shortLabel: "Custom", icon: "dashboard" }
 ];

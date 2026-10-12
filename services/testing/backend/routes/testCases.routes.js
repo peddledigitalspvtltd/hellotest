@@ -27,10 +27,10 @@ const OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE = 200;
 
 const resolveTestCaseListProjectId = testCaseScopeService.resolveListProjectId;
 
-const resolveScopedRequirements = async (requirementIds = [], projectId) => {
+const resolveScopedRequirements = async (requirementIds = [], projectId, allowEmpty = false) => {
   const ids = [...new Set((Array.isArray(requirementIds) ? requirementIds : []).filter(Boolean))];
 
-  if (!ids.length) {
+  if (!ids.length && !allowEmpty) {
     throw new Error("Select at least one requirement");
   }
 
@@ -1167,7 +1167,7 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       app_type_id: { required: true, type: "string" },
-      requirement_ids: { required: true, type: "array", items: "string" },
+      requirement_ids: { required: false, type: "array", items: "string" },
       integration_id: { required: false, type: "string" },
       max_cases: { required: false, type: "number" },
       authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
@@ -1178,7 +1178,7 @@ module.exports = async function (fastify) {
 
     const appType = await appTypeService.getAppType(req.body.app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
-    const requirements = await resolveScopedRequirements(req.body.requirement_ids, appType.project_id);
+    const requirements = await resolveScopedRequirements(req.body.requirement_ids, appType.project_id, true);
     await requireMobileAuthoringPermission(fastify, req, appType.project_id, {
       appType,
       payload: req.body.cases
@@ -1202,7 +1202,7 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       app_type_id: { required: true, type: "string" },
-      requirement_id: { required: true, type: "string" },
+      requirement_id: { required: false, type: "string" },
       authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
       integration_id: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
@@ -1213,7 +1213,7 @@ module.exports = async function (fastify) {
 
     const appType = await appTypeService.getAppType(req.body.app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
-    const [requirement] = await resolveScopedRequirements([req.body.requirement_id], appType.project_id);
+    const [requirement] = await resolveScopedRequirements([req.body.requirement_id], appType.project_id, true);
 
     return aiCaseAuthoringService.previewCaseAuthoring({
       requirement,
@@ -1268,7 +1268,7 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       app_type_id: { required: true, type: "string" },
-      requirement_ids: { required: true, type: "array", items: "string" },
+      requirement_ids: { required: false, type: "array", items: "string" },
       status: { required: false, type: "string", enum: TEST_CASE_STATUS_VALUES },
       cases: { required: true, type: "array" }
     }, req.body);
@@ -1279,7 +1279,7 @@ module.exports = async function (fastify) {
 
     const appType = await appTypeService.getAppType(req.body.app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
-    const requirements = await resolveScopedRequirements(req.body.requirement_ids, appType.project_id);
+    const requirements = await resolveScopedRequirements(req.body.requirement_ids, appType.project_id, true);
 
     return requirementDesignService.acceptGeneratedTestCases({
       requirements,

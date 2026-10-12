@@ -396,3 +396,17 @@ test("Defect improvement rejects missing or foreign Test Case context before cal
   await assert.rejects(service.preview({ user, project_id: "project", intent: "Improve the current defect", evidence: "Recorded failure", linked_test_case_ids: ["missing-or-foreign-case"], require_case_context: true }), error => error.statusCode === 400 && /context is unavailable/.test(error.message));
   assert.deepEqual(fixture.calls, [], "Unusable context does not spend model requests or produce a proposal");
 });
+
+ test("AI authoring and generation support no Story without inventing traceability", async () => {
+   const author = providerFixture(validCase);
+   const result = await load("aiCaseAuthoring.service", author.overrides).previewCaseAuthoring({ appType, user_id: user.id, test_case: { title: "Invoice approval", steps }, additional_context: "Measure invoice approval latency" });
+   assert.equal(result.requirement, null);
+   assert.equal(JSON.parse(author.calls[0].body.messages[1].content).story, null);
+   const generated = providerFixture({ testCases: [{ ...validCase, requirement_refs: [] }] });
+   const service = load("requirementDesign.service", { ...generated.overrides, "./aiKnowledge.service": { buildKnowledgeContextPackage: async (projectId) => { assert.equal(projectId, "project"); return { knowledge: [] }; } } });
+   const preview = await service.previewRequirementsTestCases({ requirements: [], appType, user_id: user.id, max_cases: 1, additional_context: "Measure invoice approval latency" });
+   assert.deepEqual(preview.cases[0].requirement_ids, []);
+   const input = JSON.parse(generated.calls[0].body.messages[1].content);
+   assert.deepEqual(input.stories, []);
+   assert.equal(input.application_contract.output_schema.properties.testCases.items.properties.requirement_refs.maxItems, 0);
+ });

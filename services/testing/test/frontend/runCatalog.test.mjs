@@ -16,7 +16,9 @@ test("suite and independent case runs share one catalog without changing run sco
 
 test("legacy catalog links resolve to Suite Runs while other routes stay intact", () => {
   assert.equal(normalizeRunCatalogView("test-case-runs"), "suite-runs");
-  for (const view of ["suite-runs", "local-runs", "scheduled-runs", null]) {
+  assert.equal(normalizeRunCatalogView(null), "suite-runs");
+  assert.equal(normalizeRunCatalogView(""), "suite-runs");
+  for (const view of ["suite-runs", "local-runs", "scheduled-runs"]) {
     assert.equal(normalizeRunCatalogView(view), view);
   }
 });

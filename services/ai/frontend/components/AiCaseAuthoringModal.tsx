@@ -153,7 +153,7 @@ export function AiCaseAuthoringModal(props: AiCaseAuthoringModalProps) {
     promptTemplateAppTypeId={promptTemplateAppTypeId}
     promptTemplateProjectId={promptTemplateProjectId}
     referenceImages={referenceImages}
-    requirementHelpText="Choose the Story this existing Test Case must continue to satisfy."
+    requirementHelpText="Story selection is optional. Select the most relevant Story for better context; you can also improve the current Test Case using your instructions."
     requirementLabel="Story"
     requirements={requirements}
     selectedRequirementIds={requirementId ? [requirementId] : []}

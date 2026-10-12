@@ -169,7 +169,7 @@ export function analyticsCsv(data: QualityOverview) {
     return `"${(/^[\s]*[=+@-]/.test(text) ? "'" : "") + text.replace(/"/g, '""')}"`;
   };
   const rows: unknown[][] = [
-    ["Quality analytics", data.project.name],
+    ["Quality Analytics", data.project.name],
     ["Evaluated at", data.evaluated_at],
     ["UTC window start", data.window.from],
     ["UTC window end", data.window.to],

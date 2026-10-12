@@ -1830,7 +1830,7 @@ export type AiCaseAuthoringPreviewResponse = {
   requirement: {
     id: string;
     title: string;
-  };
+  } | null;
   app_type: {
     id: string;
     name: string;

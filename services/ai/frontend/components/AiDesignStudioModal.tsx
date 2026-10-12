@@ -200,7 +200,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
         <FormField label="Search Stories"><input autoFocus disabled={closeIsDisabled} onChange={(event) => setStorySearch(event.target.value)} placeholder="Search title, description, or status" value={storySearch} /></FormField>
         <div className="test-case-studio-story-picker__actions">{allowMultipleRequirements ? <button onClick={() => setDraftStoryIds(visibleStories.map((item) => item.id))} type="button"><SelectionToggleIcon checked />Select visible</button> : null}<button onClick={() => setDraftStoryIds([])} type="button"><SelectionToggleIcon checked={false} />Clear</button></div>
         <div className="test-case-studio-story-picker__list">{visibleStories.map((story) => <label key={story.id}><input checked={draftStoryIds.includes(story.id)} name={allowMultipleRequirements ? undefined : "ai-test-story-context"} onChange={(event) => toggleStory(story.id, event.target.checked)} type={allowMultipleRequirements ? "checkbox" : "radio"} /><span><strong>{story.title}</strong><small>{plainText(story.description) || "No description available."}</small><em>Priority P{story.priority ?? 3} · {story.status || "open"}</em></span></label>)}</div>
-        <footer><button onClick={() => setStoryPickerOpen(false)} type="button">Cancel</button><button className="primary-button" disabled={!draftStoryIds.length} onClick={() => { onRequirementSelectionChange(draftStoryIds); setStoryPickerOpen(false); }} type="button">Use selected context</button></footer>
+        <footer><button onClick={() => setStoryPickerOpen(false)} type="button">Cancel</button><button className="primary-button" onClick={() => { onRequirementSelectionChange(draftStoryIds); setStoryPickerOpen(false); }} type="button">Use selected context</button></footer>
       </div>
     </div>
   ) : null;
@@ -233,7 +233,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
               title={sourceCase ? "What should improve?" : "What should we cover?"}
               placeholder={sourceCase ? "Describe what to clarify, preserve, or add to this Test Case." : "Describe the risks, user journeys, and acceptance boundaries to cover."}
               chips={[
-                { id: "stories", label: selectedStories.length > 1 ? "Stories attached" : selectedStory?.title || "Attach a Story", count: selectedStories.length, onClick: () => { setDraftStoryIds(selectedRequirementIds); setStorySearch(""); setStoryPickerOpen(true); } },
+                { id: "stories", label: selectedStories.length > 1 ? "Stories attached" : selectedStory?.title || "Story (optional)", count: selectedStories.length, onClick: () => { setDraftStoryIds(selectedRequirementIds); setStorySearch(""); setStoryPickerOpen(true); } },
                 ...(sourceCase ? [{ id: "source", label: sourceCase.displayId || "Current Test Case", onClick: () => setContextOpen(true) }] : []),
                 { id: "evidence", label: additionalContext.includes("[HELLOTEST_SMART_CONTEXT_START]") ? "Reviewed evidence included" : additionalContext.includes("[HELLOTEST_TEMPLATE_CONTEXT_START]") ? "Template included" : "Attach evidence", count: linkCount + referenceImages.length, onClick: () => setContextOpen(true) }
               ]}
@@ -254,7 +254,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
 
             <div className={`ai-test-generator-drafts is-${viewMode}`} ref={outputRef} aria-busy={isPreviewing}>
               {isPreviewing ? <AiGenerationProgress modelLabel={integrationLabel} onCancel={onCancel} /> : null}
-              {!previewCases.length && !isPreviewing ? <div className="ai-test-generator-empty"><h3>{selectedStories.length ? "Your proposal will appear here" : "Attach a Story to begin"}</h3><p>{selectedStories.length ? "Generate a proposal, then refine and save the drafts you choose." : requirementHelpText}</p></div> : null}
+              {!previewCases.length && !isPreviewing ? <div className="ai-test-generator-empty"><h3>{selectedStories.length ? "Your proposal will appear here" : "Your proposal will appear here"}</h3><p>{selectedStories.length ? "Generate a proposal, then refine and save the drafts you choose." : requirementHelpText}</p></div> : null}
               {visibleDrafts.length ? <div className="ai-artifact-workspace">
                 <nav aria-label="Proposal outline" className="ai-artifact-outline">
                   <div className="ai-artifact-outline__tools"><label><input aria-label="Select all" checked={visibleDrafts.every(item => selectedIds.includes(item.client_id))} disabled={busy} onChange={event => setSelectedIds(current => event.target.checked ? [...new Set([...current, ...visibleDrafts.map(item => item.client_id)])] : current.filter(id => !visibleDrafts.some(item => item.client_id === id)))} type="checkbox" />Select all</label><button disabled={!selectedIds.length || busy} onClick={() => setSelectedIds([])} type="button">Clear selection</button></div>
@@ -312,7 +312,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
 
             <section className="ai-test-generator-section">
               <label className="ai-test-generator-label">Target {allowMultipleRequirements ? "Stories" : "Story"}</label>
-              <button className="ai-test-generator-story-select" disabled={busy} onClick={() => { setDraftStoryIds(selectedRequirementIds); setStorySearch(""); setStoryPickerOpen(true); }} type="button"><span>{selectedStories.length === 1 ? `${selectedStory?.display_id || selectedStory?.id}: ${selectedStory?.title}` : selectedStories.length > 1 ? `${selectedStories.length} Stories selected` : "Choose a Story"}</span><IconChevronDown size={17} /></button>
+              <button className="ai-test-generator-story-select" disabled={busy} onClick={() => { setDraftStoryIds(selectedRequirementIds); setStorySearch(""); setStoryPickerOpen(true); }} type="button"><span>{selectedStories.length === 1 ? `${selectedStory?.display_id || selectedStory?.id}: ${selectedStory?.title}` : selectedStories.length > 1 ? `${selectedStories.length} Stories selected` : "Select a Story (optional)"}</span><IconChevronDown size={17} /></button>
               {selectedStory ? <div className="ai-test-generator-story-meta"><span>ID: {selectedStory.display_id || selectedStory.id}</span><span>{selectedStory.status || "Open"}</span></div> : null}<p>{requirementHelpText}</p>
             </section>
             {sourceCase ? <section className="ai-test-generator-section ai-test-generator-source-case" aria-label="Existing Test Case details">

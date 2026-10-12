@@ -280,7 +280,7 @@ testCases: {
       }),
     previewCaseAuthoring: (input: {
       app_type_id: string;
-      requirement_id: string;
+      requirement_id?: string;
       authoring_mode?: "structured" | "gherkin";
       integration_id?: string;
       additional_context?: string;

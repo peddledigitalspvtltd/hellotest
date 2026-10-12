@@ -31,7 +31,7 @@ const copy = {
   ],
   allActions: ["View all {count} signals", "Ver las {count} señales"],
   fewerActions: ["Show priority signals", "Mostrar señales prioritarias"],
-  title: ["Quality analytics", "Análisis de calidad"],
+  title: ["Quality Analytics", "Análisis de calidad"],
   subtitle: [
     "Understand coverage, follow execution trends and focus the next improvement.",
     "Entiende la cobertura, sigue las ejecuciones y prioriza la próxima mejora.",
@@ -133,7 +133,7 @@ const copy = {
     "No se pudo actualizar. Se conserva el último resumen cargado.",
   ],
   loadError: [
-    "Quality analytics could not be loaded",
+    "Quality Analytics could not be loaded",
     "No se pudo cargar el análisis de calidad",
   ],
   retry: ["Try again", "Reintentar"],

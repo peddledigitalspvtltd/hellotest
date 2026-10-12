@@ -7,7 +7,7 @@ function caseOutputSchema(mode='structured',{count,refs}={}) {
   const properties={title:{type:'string',minLength:1,maxLength:255},description:string,authoring_mode:{enum:[mode]},parameter_values:parameters,steps:{type:'array',minItems:mode==='gherkin'?0:1,maxItems:30,items:step},gherkin_document:mode==='gherkin'?{type:'string',minLength:1}:{type:['string','null']}};
   if(count!=null) {
     properties.priority={type:'integer',minimum:1,maximum:5};
-    properties.requirement_refs={type:'array',minItems:1,items:{type:'string',enum:refs}};
+    properties.requirement_refs={type:'array',minItems:refs?.length ? 1 : 0,maxItems:refs?.length || 0,items:refs?.length ? {type:'string',enum:refs} : {type:'string'}};
     return {type:'object',required:['testCases'],properties:{applicable_domain:string,testCases:{type:'array',minItems:1,maxItems:count,items:{type:'object',required:['title','requirement_refs',mode==='gherkin'?'gherkin_document':'steps'],properties}}}};
   }
   properties.summary=string;
