@@ -12,6 +12,10 @@ const context = load('smartContext');
 const design = load('aiDesignStudio');
 const llm = load('aiLlmDefault');
 const hit = (id, overrides = {}) => ({ id, chunk_id: id, source_id: 'story-' + id, source_kind: 'requirement', title: 'Checkout ' + id, content: 'Evidence for ' + id, ...overrides });
+test('Smart Context retrieves acceptance arrays and executable specifications', () => {
+ const query=context.buildSmartContextQuery(JSON.stringify({title:'Refund',acceptance_criteria:['Reject duplicate refunds'],specification_content:'Refund at most the settled amount',gherkin_scenarios:['Given a refunded order When retried Then reject']}));
+ assert.match(query,/Reject duplicate refunds/);assert.match(query,/settled amount/);assert.match(query,/refunded order/);
+});
 
 test('feature context excludes other domains, empty excerpts and repeated chunks/content', () => {
   const hits = [hit('a'), hit('a'), hit('duplicate', { content: 'Evidence  for a' }), hit('run', { source_kind: 'execution' }), hit('empty', { content: '' }), hit('b')];

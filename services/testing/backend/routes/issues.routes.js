@@ -1,3 +1,4 @@
+const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const service = require("../services/issues.service");
 const aiBugDraftService = require("@hellotest/ai/backend/services/aiBugDraft.service");
 const aiBugTriageService = require("@hellotest/ai/backend/services/aiBugTriage.service");
@@ -144,7 +145,7 @@ function registerFeedbackRoutes(fastify, basePath) {
       intent: req.body.intent, evidence: req.body.evidence,
       linked_test_case_ids: req.body.linked_test_case_ids, require_case_context: true,
       integration_id: req.body.integration_id,
-      prompt_guidance: "Improve the supplied existing Defect using only its recorded facts and the selected Test Cases. Preserve observed behavior and intent. Clarify reproduction and expected/actual results. Flag missing evidence; never invent observations. Return an editable proposal for explicit field review. " + (req.body.prompt_guidance || "")
+      prompt_guidance: aiInstructionBlock("ai.bug.draft", "aiBugDraft.improveExisting") + (req.body.prompt_guidance || "")
     });
   });
 

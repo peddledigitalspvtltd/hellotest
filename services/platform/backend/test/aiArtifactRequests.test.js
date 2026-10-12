@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { createRequire } = require("node:module");
 const { storyAiSnapshot, testCaseAiSnapshot } = require("../src/utils/aiArtifactContext");
+const { expandManagedInstructions } = require('./helpers/managedInstructions');
 
 function load(name, overrides = {}, directory = "services") {
   const filename = sourceFile(`${name}.js`, directory);
@@ -33,6 +34,34 @@ const appType = { id: "app", project_id: "project", type: "web", name: "Billing"
 const steps = [{ step_order: 1, step_type: "web", action: "Approve the invoice", expected_result: "The invoice is approved" }];
 const validCase = { title: "Approval", description: "Valid invoice approval", priority: 2, steps, requirement_refs: ["R1"] };
 const response = value => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(value) } }] }), { headers: { "content-type": "application/json" } });
+test('Story description rephrase selects its own profile while project HTML uses its native bullet contract', async () => {
+  for (const entityType of ['requirement','project']) {
+    const calls=[],selections=[];
+    const service=load('richTextAi.service',{
+      './aiLlmSelection.service':{resolveLlmIntegrationForUsage:async input=>{selections.push(input);return integration;}},
+      '../utils/llmHttpClient':{fetchLlmWithRetry:async(_url,init,policy)=>{calls.push({body:JSON.parse(init.body),policy});return new Response(JSON.stringify({choices:[{message:{content:'<p>Preserved business behavior.</p>'}}]}));}}
+    });
+    await service.rephrase({user,projectId:'project',content:'Preserved business behavior.',entityType,fieldLabel:'Description'});
+    assert.equal(selections[0].usageKey,entityType==='requirement'?'ai.requirement.description_rephrase':'ai.content.rephrase');
+    assert.equal(calls[0].policy.featureKey,selections[0].usageKey);
+    if(entityType==='project')assert.match(calls[0].body.messages[0].content,/richTextAi.response.7/);
+  }
+});
+test('Story change-impact selects its own controls and supplies saved and proposed snapshots',async()=>{
+ const fixture=providerFixture({summary:'Review the changed acceptance behavior.',dimensions:[{id:'design-maturity',explanation:'The draft changes acceptance.',evidence:['saved:story:story','draft:story:story']}]});
+ const service=load('artifactAssurance.service',fixture.overrides);
+ await service.reviewArtifact({artifactType:'story',reviewPurpose:'change-impact',savedArtifact:story,proposedChange:{title:'Proposed refund approval'},user,projectId:'project'});
+ assert.equal(fixture.selections[0].usageKey,'ai.requirement.change_impact');assert.equal(fixture.calls[0].policy.featureKey,'ai.requirement.change_impact');
+ assert.match(fixture.calls[0].body.messages[1].content,/saved:story:story/);assert.match(fixture.calls[0].body.messages[1].content,/Proposed refund approval/);
+});
+test('automation step rephrase selects its profile and retains user guidance beyond 4 KB in fallback',async()=>{
+ const fixture=providerFixture({action:'Submit the refund',expected_result:'The over-limit refund is rejected',step_type:'web'});
+ const service=load('aiCaseAuthoring.service',fixture.overrides);
+ const guidance='Context '.repeat(650)+'USER_GUIDANCE_AT_END';
+ await service.rephraseTestStep({requirement:story,appType,user_id:user.id,ai_feature:'ai.automation.step_rephrase',test_case:{title:'Refund'},step:{action:'Submit refund',expected_result:'Reject excessive amount'},additional_context:guidance});
+ assert.equal(fixture.selections[0].usageKey,'ai.automation.step_rephrase');assert.match(fixture.calls[0].body.messages[1].content,/USER_GUIDANCE_AT_END/);assert.match(fixture.calls[0].policy.contextFallbackContent,/USER_GUIDANCE_AT_END/);
+ await assert.rejects(service.rephraseTestStep({appType,ai_feature:'ai.admin.prompt_optimization',step:{action:'Submit'}}),{statusCode:400});
+});
 function providerFixture(result, { contentBlocks = false } = {}) {
   const calls = [];
   const selections = [];
@@ -40,7 +69,15 @@ function providerFixture(result, { contentBlocks = false } = {}) {
     calls, selections,
     overrides: {
       "./aiLlmSelection.service": { async resolveLlmIntegrationForUsage(args) { selections.push(args); return integration; } },
-      "../utils/llmHttpClient": { async fetchLlmWithRetry(url, options, policy) { calls.push({ url, options, body: JSON.parse(options.body), policy }); if (result instanceof Error) throw result; return contentBlocks ? new Response(JSON.stringify({ choices: [{ message: { content: [{ type: "text", text: JSON.stringify(result) }] } }] }), { headers: { "content-type": "application/json" } }) : response(result); } }
+      "../utils/llmHttpClient": { async fetchLlmWithRetry(url, options, policy) {
+        const body = JSON.parse(options.body);
+        for (const message of body.messages || []) {
+          if (typeof message.content === 'string') message.content = expandManagedInstructions(message.content);
+          else if (Array.isArray(message.content)) for (const part of message.content) if (part.type === 'text') part.text = expandManagedInstructions(part.text);
+        }
+        if (typeof policy.contextFallbackContent === 'string') policy = { ...policy, contextFallbackContent: expandManagedInstructions(policy.contextFallbackContent) };
+        calls.push({ url, options, body, policy }); if (result instanceof Error) throw result; return contentBlocks ? new Response(JSON.stringify({ choices: [{ message: { content: [{ type: "text", text: JSON.stringify(result) }] } }] }), { headers: { "content-type": "application/json" } }) : response(result);
+      } }
     }
   };
 }
@@ -53,8 +90,8 @@ test("authoring parses visible content blocks and preserves the input format whe
   } });
   assert.equal(result.case.authoring_mode, "structured");
   const prompt = fixture.calls[0].body.messages[1].content;
-  assert.match(prompt, /Current format: Gherkin/);
-  assert.match(prompt, /Requested output format: Structured steps/);
+  assert.equal(JSON.parse(prompt).current_case.authoring_mode,"gherkin");
+  assert.equal(JSON.parse(prompt).application_contract.authoring_mode,"structured");
   assert.match(prompt, /LIVE_INPUT/);
   assert.doesNotMatch(prompt, /STALE_CACHE/);
   assert.match(fixture.calls[0].policy.contextFallbackContent, /LIVE_INPUT/);
@@ -68,6 +105,7 @@ test("authoring includes complete reviewed context within its UI budget and reje
   const reviewed = "x".repeat(12_000) + "REVIEWED_CONTEXT_END";
   await service.previewCaseAuthoring({ requirement: story, appType, test_case: {}, additional_context: reviewed });
   assert.match(fixture.calls[0].body.messages[1].content, /REVIEWED_CONTEXT_END/);
+  assert.match(fixture.calls[0].policy.contextFallbackContent, /REVIEWED_CONTEXT_END/);
   await assert.rejects(service.previewCaseAuthoring({ requirement: story, appType, test_case: {}, additional_context: "x".repeat(18_001) }), { code: "AI_INPUT_BUDGET_EXCEEDED", statusCode: 422 });
   assert.equal(fixture.calls.length, 1, "Over-budget authored context is not silently sliced before dispatch");
 });

@@ -72,7 +72,7 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     const detail = await response.clone().text();
     let next = options.compatibility === false ? null : compatibleChatRequest(init, response.status, detail);
     if (!next && !contextReduced && options.contextFallback !== false && isContextSizeRejection(response.status, detail)) {
-      const body = buildContextFallbackBody(init.body, options.contextFallbackContent);
+      const body = buildContextFallbackBody(init.body, options.contextFallbackContent, options.contextFallbackInstructions);
       if (body) {
         next = { ...init, body };
         contextReduced = true;

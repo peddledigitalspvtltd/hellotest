@@ -1,3 +1,5 @@
+const { splitGenerationContext, generationRetrievalQuery } = require('@hellotest/platform/backend/src/utils/aiGenerationContext');
+const { caseOutputSchema } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const testCaseService = require("@hellotest/testing/backend/services/testCase.service");
 const aiKnowledgeService = require("@hellotest/knowledge/backend/services/aiKnowledge.service");
@@ -248,106 +250,17 @@ const normalizeGeneratedCases = (payload, maxCases, requirements, authoringMode)
 };
 
 const buildPrompt = ({ requirements, appType, maxCases, additionalContext, externalLinks, images, knowledge, authoringMode }) => {
-  const references = buildRequirementReferenceMap(requirements);
-  const prompt = [
-    aiInstructionBlock("ai.test_case.design", "requirementDesign.prompt.3"),
-    aiInstructionBlock("ai.test_case.design", "requirementDesign.prompt.4"),
-    aiInstructionBlock("ai.test_case.design", "requirementDesign.prompt.5"),
-    aiInstructionBlock("ai.test_case.design", "requirementDesign.prompt.6"),
-    "",
-    aiInstructionBlock("ai.test_case.design", "requirementDesign.prompt.7")
-  ];
-
-  references.forEach((requirement) => {
-    prompt.push(JSON.stringify(requirement));
+  const stories=buildRequirementReferenceMap(requirements);
+  const items=Array.isArray(knowledge)?knowledge:Array.isArray(knowledge?.knowledge)?knowledge.knowledge:[];
+  return JSON.stringify({
+    application_contract:{output_schema:caseOutputSchema(authoringMode,{count:maxCases,refs:stories.map(item=>item.ref)}),max_cases:maxCases,authoring_mode:authoringMode},
+    generation_request:splitGenerationContext(additionalContext),
+    application:{id:appType.id,name:appType.name,type:appType.type},
+    stories,
+    knowledge:items.slice(0,6).map(item=>({title:boundedText(item.title,180),content:boundedText(item.content||item.description,1200)})),
+    external_references:externalLinks.map(url=>({url,content_retrieved:false})),
+    reference_images:images.map(image=>({name:image.name}))
   });
-
-  prompt.push("");
-  prompt.push(`Application type: ${appType.name} (${appType.type})`);
-
-  if (additionalContext) {
-    prompt.push("");
-    prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.8"));
-    prompt.push(additionalContext);
-  }
-
-  const knowledgeItems = Array.isArray(knowledge) ? knowledge : Array.isArray(knowledge?.knowledge) ? knowledge.knowledge : [];
-
-  if (knowledgeItems.length > 0) {
-    prompt.push("");
-    prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.9"));
-    knowledgeItems.slice(0, 6).forEach((k) => {
-      prompt.push(`- [${boundedText(k.title, 180)}]: ${boundedText(k.content || k.description, 1200)}`);
-    });
-  }
-
-  if (externalLinks.length) {
-    prompt.push("");
-    prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.10"));
-    externalLinks.forEach((link, index) => {
-      prompt.push(`- Link ${index + 1}: ${link}`);
-    });
-  }
-
-  if (images.length) {
-    prompt.push("");
-    prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.11"));
-    images.forEach((image, index) => {
-      prompt.push(`- Image ${index + 1}: ${image.name}`);
-    });
-  }
-
-  prompt.push("");
-  prompt.push(`Return up to ${maxCases} test cases as strict JSON with this exact processable shape:`);
-  prompt.push("{");
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.12"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.13"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.14"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.15"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.16"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.17"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.18"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.19"));
-  prompt.push(`      "authoring_mode": "${authoringMode}",`);
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.20"));
-  if (authoringMode === "gherkin") {
-    prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.21"));
-  }
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.22"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.23"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.24"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.25"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.26"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.27"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.28"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.29"));
-  prompt.push("}");
-  prompt.push("");
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.30"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.31"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.32"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.33"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.34"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.35"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.36"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.37"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.38"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.39"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.40"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.41"));
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.42"));
-  if (authoringMode === "gherkin") {
-    prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.43"));
-    prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.44"));
-    prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.45"));
-    prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.46"));
-  } else {
-    prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.47"));
-    prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.48"));
-  }
-  prompt.push(aiInstructionBlock("ai.test_case.design", "requirementDesign.buildPrompt.49"));
-
-  return prompt.join("\n");
 };
 
 const resolveIntegration = async (integration_id, { userId, projectId, usageKey } = {}) => {
@@ -374,7 +287,7 @@ const resolveIntegration = async (integration_id, { userId, projectId, usageKey 
   return integration;
 };
 
-const requestChatCompletion = async ({ integration, content, fallbackContent, contextState }) => {
+const requestChatCompletion = async ({ integration, content, fallbackContent, contextState, authoringMode="structured", recovery=false }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/+$/, "");
   const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
   const response = await fetchLlmWithRetry(url, {
@@ -390,7 +303,7 @@ const requestChatCompletion = async ({ integration, content, fallbackContent, co
       messages: [
         {
           role: "system",
-          content: aiInstructionBlock("ai.test_case.design", "requirementDesign.response.1")
+          content: [aiInstructionBlock("ai.test_case.design","legacy.reviewed"),aiInstructionBlock("ai.test_case.design",`format.${authoringMode}`),...(recovery?[aiInstructionBlock("ai.test_case.design","recovery.images")]:[])].join("\n\n")
         },
         {
           role: "user",
@@ -398,7 +311,7 @@ const requestChatCompletion = async ({ integration, content, fallbackContent, co
         }
       ]
     })
-  }, { integration, operation: "requirement-design.generate", contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
+  }, { integration, operation: "requirement-design.generate", contextRetrievalQuery:generationRetrievalQuery(content), contextFallbackContent: fallbackContent, contextFallbackInstructions: aiInstructionBlock("ai.test_case.design","recovery.context_size"), onContextFallback: () => { if (contextState) contextState.reduced = true; } });
 
   if (!response.ok) {
     const raw = await response.text();
@@ -445,9 +358,9 @@ const requestGeneratedCases = async ({
   });
 
   const fallbackContent = buildPrompt({
-    requirements: requirements.map(({ id, title }) => ({ id, title: String(title || "").slice(0, 500) })),
+    requirements: requirements.map(story => storyAiSnapshot(story, { textLimit: 600, itemLimit: 200, listLimit: 4 })),
     appType: { name: "Selected application", type: appType.type }, maxCases,
-    additionalContext: "Only Story titles are available after a provider size limit. Generate proposed test coverage for human review; do not claim omitted acceptance criteria or details were verified.",
+    additionalContext,
     externalLinks: [], images: [], knowledge: null, authoringMode
   });
   try {
@@ -455,7 +368,7 @@ const requestGeneratedCases = async ({
       ? await requestChatCompletion({
           integration,
           fallbackContent,
-          contextState,
+          contextState, authoringMode,
           content: [
             { type: "text", text: prompt },
             ...images.map((image) => ({
@@ -466,7 +379,7 @@ const requestGeneratedCases = async ({
             }))
           ]
         })
-      : await requestChatCompletion({ integration, content: prompt, fallbackContent, contextState });
+      : await requestChatCompletion({ integration, content: prompt, fallbackContent, contextState, authoringMode });
 
     return normalizeGeneratedCases(extractJsonPayload(content), maxCases, requirements, authoringMode);
   } catch (error) {
@@ -475,14 +388,8 @@ const requestGeneratedCases = async ({
       throw error;
     }
 
-    const fallbackPrompt = [
-      prompt,
-      "",
-      aiInstructionBlock("ai.test_case.design", "requirementDesign.fallbackPrompt.2"),
-      ...images.map((image, index) => `- Image ${index + 1}: ${image.name}`)
-    ].join("\n");
-
-    const content = await requestChatCompletion({ integration, content: fallbackPrompt, fallbackContent, contextState });
+    const fallbackPrompt = buildPrompt({requirements,appType,maxCases,additionalContext,externalLinks,images,knowledge,authoringMode});
+    const content = await requestChatCompletion({ integration, content: fallbackPrompt, fallbackContent, contextState, authoringMode, recovery:true });
     return normalizeGeneratedCases(extractJsonPayload(content), maxCases, requirements, authoringMode);
   }
 };
@@ -568,7 +475,7 @@ exports.previewRequirementsTestCases = async ({
       name: appType.name
     },
     context_reduced: contextState.reduced,
-    context_reduction_reason: contextState.reduced ? "The provider rejected the full context size. Drafts were generated from Story titles only; review them against the full acceptance criteria." : null,
+    context_reduction_reason: contextState.reduced ? "The provider rejected the full context size. Drafts used bounded Story excerpts and user guidance; review them against the full acceptance criteria and omitted evidence." : null,
     generated: generatedCases.length,
     cases: generatedCases.map((candidate, index) => ({
       ...candidate,
@@ -719,3 +626,5 @@ exports.generateRequirementTestCases = async ({
     created: accepted.created
   };
 };
+
+exports._promptBuilders={buildPrompt};

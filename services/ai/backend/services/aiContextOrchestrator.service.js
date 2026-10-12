@@ -4,10 +4,11 @@ const obsDb = require("@hellotest/platform/backend/src/obsDb");
 const execution = require("@hellotest/knowledge/backend/services/knowledgeExecution.service");
 const permissionService = require("@hellotest/platform/backend/services/permission.service");
 const { sanitizeAiText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
+const { storyAiSnapshot } = require("@hellotest/platform/backend/src/utils/aiArtifactContext");
 
 const CONTEXT_SCOPES = Object.freeze(["stories", "test-cases", "automation", "runs", "bugs", "knowledge"]);
 
-const AGENT_CONTEXT_POLICIES = Object.freeze({
+const BASE_AGENT_CONTEXT_POLICIES = Object.freeze({
   "quality-orchestrator": {
     priority_scopes: ["stories", "test-cases", "runs", "bugs", "automation", "knowledge"],
     retrieval_focus: "release readiness, traceability gaps, failed or blocked evidence, open defects, and accountable specialist handoffs",
@@ -79,6 +80,18 @@ const AGENT_CONTEXT_POLICIES = Object.freeze({
     deliverable_contract: "A repository curation plan listing duplicates, reuse candidates, low-confidence bindings, locator policy, and approval-required changes."
   }
 });
+
+// Shared specialist intent is the source of truth for every Studio agent, including
+// the assurance specialists added after the original context router.
+const specialistIntents = require('@hellotest/platform/shared/agentContextPolicies.json');
+const AGENT_CONTEXT_POLICIES = Object.freeze(Object.fromEntries(Object.entries(specialistIntents).map(([id, profile]) => [id, {
+  ...(BASE_AGENT_CONTEXT_POLICIES[id] || {}),
+  priority_scopes: profile.scopes,
+  retrieval_focus: BASE_AGENT_CONTEXT_POLICIES[id]?.retrieval_focus || profile.description,
+  outcome_sections: BASE_AGENT_CONTEXT_POLICIES[id]?.outcome_sections || ['findings', 'evidence', 'risk', 'reviewable next items'],
+  decision_question: BASE_AGENT_CONTEXT_POLICIES[id]?.decision_question || profile.description,
+  deliverable_contract: profile.outputInstructions,
+}])));
 
 const DEFAULT_AGENT_POLICY = AGENT_CONTEXT_POLICIES["quality-orchestrator"];
 const MAX_LIVE_EVIDENCE_CHARS = 9_000;
@@ -292,7 +305,8 @@ const rankRecords = (records, prompt, fields) => {
   return records.map((record, index) => {
     const haystack = fields.map((field) => normalizeText(record?.[field], 2_000)).join(" ").toLowerCase();
     const tokenMatches = tokens.filter((token) => haystack.includes(token)).length;
-    return { record, rank: tokenMatches * 10 - index * 0.001 };
+    const exactReference = record?.id && String(prompt || '').includes(JSON.stringify(String(record.id)));
+    return { record, rank: (exactReference ? 1000 : 0) + tokenMatches * 10 - index * 0.001 };
   }).sort((left, right) => right.rank - left.rank).map((entry) => entry.record);
 };
 
@@ -421,8 +435,14 @@ const makeLiveHit = ({ projectId, scope, title, content, score = 0.96 }) => {
   };
 };
 
-const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, route, requestedScopes, sourceKinds } = {}) => {
+const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, route, requestedScopes, sourceKinds, evidenceScope } = {}) => {
   const contextRoute = route || planContext({ prompt, requestedScopes });
+  const scoped = require("./agentEvidenceScope");
+  evidenceScope = scoped.normalize(evidenceScope, contextRoute.live_scopes);
+  const storyScope = scoped.predicate("story", "requirements", evidenceScope);
+  const caseScope = scoped.predicate("test_case", "test_cases", evidenceScope);
+  const runScope = scoped.predicate("run", "executions", evidenceScope);
+  const bugScope = scoped.predicate("bug", "feedback", evidenceScope);
   execution.assertActive();
   if (!contextRoute.live_scopes?.length) return { hits: [], route: contextRoute, counts: {} };
   const project = await safeRow("SELECT id, display_id, name, description, visibility, created_at FROM projects WHERE id = ?", [projectId]);
@@ -457,7 +477,9 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
         as_of: new Date().toISOString(),
         project: { id: project.id, key: project.display_id || project.id, name: project.name, description: project.description || null, visibility: project.visibility },
         applications: appTypes.map((item) => ({ id: item.id, name: item.name, type: item.type, unified: Boolean(item.is_unified) })),
-        selected_application_id: appTypeId || null
+        selected_application_id: appTypeId || null,
+        evidence_scope: scoped.normalize(evidenceScope),
+        count_scope: Object.keys(scoped.normalize(evidenceScope)).length ? "filtered evidence scope; not project-wide totals" : "project/application"
       }, null, 2),
       score: liveEvidenceScore(contextRoute, "project-overview", 0.89)
     }));
@@ -466,19 +488,25 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
   if (scopeSet.has("stories") && kindAllowed("requirement") && await canView("requirement.view")) {
     execution.emit("READING_STORIES", "started", { message: "Reading current Stories, delivery fields, and linked coverage." });
     const canViewCoverage = await canView("testcase.view");
-    const appClause = "";
+    const referencedIds = unique([...String(prompt || '').matchAll(/"(?:id|client_id|requirement_id|story_id)"\s*:\s*"([A-Za-z0-9_.:-]{1,255})"/g)].map(match => match[1])).slice(0, 16);
+    const referenceOrder = referencedIds.length ? `CASE WHEN requirements.id IN (${referencedIds.map(() => '?').join(',')}) THEN 0 ELSE 1 END,` : '';
+    const appClause = storyScope.sql;
     const stories = await safeRows(`
       SELECT requirements.id, requirements.display_id, requirements.title, requirements.status,
         requirements.description, requirements.additional_fields->'acceptance_criteria' AS acceptance_criteria, requirements.revision,
         requirements.priority, requirements.sprint, requirements.release, requirements.fix_version,
+        requirements.specification_format, requirements.specification_content, requirements.gherkin_scenarios,
+        requirements.additional_fields->>'dev_status' AS dev_status, requirements.additional_fields->>'qa_status' AS qa_status,
+        requirements.labels, requirements.external_references, requirements.iteration_id, requirements.scrum_team,
+        requirements.dev_completion_target_date, requirements.qa_completion_target_date,
         requirements.created_at${canViewCoverage ? ", COUNT(DISTINCT requirement_test_cases.test_case_id)::INTEGER AS linked_test_case_count" : ""}
       FROM requirements
       ${canViewCoverage ? "LEFT JOIN requirement_test_cases ON requirement_test_cases.requirement_id = requirements.id" : ""}
       WHERE requirements.project_id = ? ${appClause}
       GROUP BY requirements.id
-      ORDER BY ${canViewCoverage ? "COUNT(DISTINCT requirement_test_cases.test_case_id) ASC," : ""} requirements.priority ASC NULLS LAST, requirements.created_at DESC NULLS LAST
+      ORDER BY ${referenceOrder} ${canViewCoverage ? "COUNT(DISTINCT requirement_test_cases.test_case_id) ASC," : ""} requirements.priority ASC NULLS LAST, requirements.created_at DESC NULLS LAST
       LIMIT 120
-    `, [projectId]);
+    `, [projectId, ...storyScope.params, ...referencedIds]);
     const storyTotals = await safeRow(`
       SELECT COUNT(*)::INTEGER AS total${canViewCoverage ? `,
         COUNT(*) FILTER (WHERE EXISTS (
@@ -487,8 +515,8 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
         COUNT(*) FILTER (WHERE (
           SELECT COUNT(*) FROM requirement_test_cases WHERE requirement_test_cases.requirement_id = requirements.id
         ) = 1)::INTEGER AS thin_coverage` : ""}
-      FROM requirements WHERE project_id = ?
-    `, [projectId]);
+      FROM requirements WHERE project_id = ? ${storyScope.sql}
+    `, [projectId, ...storyScope.params]);
     counts.stories = Number(storyTotals?.total || stories.length);
     const selected = rankRecords(stories, prompt, ["display_id", "title", "status", "sprint", "release", "fix_version"]).slice(0, 16);
     const coverageGaps = rankRecords(stories.filter((story) => Number(story.linked_test_case_count || 0) === 0), prompt, ["display_id", "title", "status", "sprint", "release", "fix_version"]).slice(0, 24);
@@ -507,12 +535,55 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
         uncovered_records: canViewCoverage ? Math.max(0, counts.stories - Number(storyTotals?.covered || 0)) : null,
         thin_coverage_records: canViewCoverage ? Number(storyTotals?.thin_coverage || 0) : null,
         coverage_policy: canViewCoverage ? "Zero linked Test Cases is uncovered. One linked Test Case is flagged as thin coverage, not automatically sufficient. Domain sufficiency still requires acceptance-boundary review." : "Test Case coverage is unavailable with current access; no coverage conclusion can be drawn.",
-        coverage_gaps: canViewCoverage ? coverageGaps : [],
-        thin_coverage_examples: canViewCoverage ? thinCoverage : [],
-        records: selected
+        coverage_gaps: canViewCoverage ? coverageGaps.map(story => ({ id: story.id, title: normalizeText(story.title, 180), priority: story.priority })) : [],
+        thin_coverage_examples: canViewCoverage ? thinCoverage.map(story => ({ id: story.id, title: normalizeText(story.title, 180), priority: story.priority })) : [],
+        records: selected.map(story => ({ ...storyAiSnapshot(story, { textLimit: 600, itemLimit: 200, listLimit: 4 }), revision: story.revision,
+          ...(canViewCoverage ? { linked_test_case_count: Number(story.linked_test_case_count || 0) } : {}) }))
       }, null, 2),
       score: liveEvidenceScore(contextRoute, "stories", 0.96)
     }));
+    // Supporting records are separate evidence so revoking comment or attachment
+    // access does not invalidate the base Story facts. Never send object keys,
+    // raw files or author profiles to the model.
+    const supportIds = selected.slice(0, 4).map(story => story.id);
+    if (supportIds.length) {
+      const placeholders = supportIds.map(() => '?').join(',');
+      const canViewComments = await canView('comment.view');
+      const canViewAttachments = await canView('attachment.view');
+      const related = await safeRows(`
+        SELECT owner.id AS story_id, related.id, related.display_id, related.title, related.status, relations.relation
+        FROM requirement_relations relations
+        JOIN requirements owner ON owner.id IN (${placeholders}) AND owner.project_id = ?
+          AND (owner.id = relations.requirement_id OR owner.id = relations.related_requirement_id)
+        JOIN requirements related ON related.project_id = owner.project_id AND related.id =
+          CASE WHEN owner.id = relations.requirement_id THEN relations.related_requirement_id ELSE relations.requirement_id END
+        ORDER BY owner.id, related.id LIMIT 24
+      `, [...supportIds, projectId]);
+      const comments = canViewComments ? await safeRows(`
+        SELECT entity_id AS story_id, id, LEFT(body, 500) AS excerpt, updated_at
+        FROM entity_comments WHERE project_id = ? AND entity_type = 'requirement' AND entity_id IN (${placeholders})
+        ORDER BY updated_at DESC NULLS LAST, created_at DESC LIMIT 12
+      `, [projectId, ...supportIds]) : [];
+      const attachments = canViewAttachments ? await safeRows(`
+        SELECT entity_id AS story_id, id, file_name, mime_type, size_bytes, created_at
+        FROM attachments WHERE project_id = ? AND entity_type = 'requirement' AND entity_id IN (${placeholders})
+        ORDER BY created_at DESC LIMIT 12
+      `, [projectId, ...supportIds]) : [];
+      const attachmentReader = require('./storyAttachmentContext');
+      const excerptResults = await Promise.allSettled(attachments.filter(attachmentReader.isTextAttachment).slice(0, 3)
+        .map(item => attachmentReader.excerpt({ item, projectId, user })));
+      execution.assertActive();
+      const attachmentExcerpts = excerptResults.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+      if (related.length || comments.length || attachments.length) hits.push(makeLiveHit({ projectId, scope: 'stories',
+        title: 'Relevant Story relationships, comments and attachment references',
+        content: { evidence_type: 'authoritative_live_story_support', evidence_permissions: ['requirement.view',
+          ...(canViewComments ? ['comment.view'] : []), ...(canViewAttachments ? ['attachment.view'] : [])],
+          selected_story_ids: supportIds,
+          related_items: related.map(row => ({ ...row, title: normalizeText(row.title, 180) })),
+          comments, attachments, attachment_excerpts: attachmentExcerpts,
+          limitations: ['Related items and comments are bounded supporting evidence. Attachment metadata does not prove file content was read; use authorized indexed file excerpts or explicitly supplied compressed images.'] },
+        score: liveEvidenceScore(contextRoute, 'stories', 0.96) }));
+    }
     execution.emit("READING_STORIES", "completed", { evidence_count: selected.length,
       message: `Read ${counts.stories} Stor${counts.stories === 1 ? "y" : "ies"} and selected ${selected.length} relevant record${selected.length === 1 ? "" : "s"}.` });
   }
@@ -521,17 +592,21 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
   if (canViewCases) {
     execution.emit("READING_TEST_CASES", "started", { message: "Reading Test Cases, steps, traceability, suites, and shared coverage." });
     const canViewStories = await canView("requirement.view");
-    const params = appTypeId ? [projectId, appTypeId] : [projectId];
-    const appClause = appTypeId ? "AND test_cases.app_type_id = ?" : "";
+    const params = [...(appTypeId ? [projectId, appTypeId] : [projectId]), ...caseScope.params];
+    const appClause = (appTypeId ? "AND test_cases.app_type_id = ?" : "") + caseScope.sql;
     const cases = await safeRows(`
       SELECT test_cases.id, test_cases.display_id, test_cases.title, test_cases.status,
         test_cases.priority, test_cases.automated, test_cases.automation_status,
         test_cases.authoring_mode, test_cases.test_case_type, test_cases.created_at,
-        ${canViewStories ? "COUNT(DISTINCT requirement_test_cases.requirement_id)::INTEGER AS linked_story_count," : ""}
+        test_cases.description, test_cases.gherkin_document, test_cases.parameter_values,
+        ${canViewStories ? "COUNT(DISTINCT requirement_test_cases.requirement_id)::INTEGER AS linked_story_count, COALESCE(jsonb_agg(DISTINCT requirement_test_cases.requirement_id) FILTER (WHERE requirement_test_cases.requirement_id IS NOT NULL), '[]'::jsonb) AS requirement_ids," : ""}
         COUNT(DISTINCT test_steps.id)::INTEGER AS step_count
       FROM test_cases
       JOIN app_types ON app_types.id = test_cases.app_type_id
-      ${canViewStories ? "LEFT JOIN requirement_test_cases ON requirement_test_cases.test_case_id = test_cases.id" : ""}
+      ${canViewStories ? `LEFT JOIN LATERAL (
+        SELECT link.requirement_id FROM requirement_test_cases link WHERE link.test_case_id = test_cases.id
+        UNION SELECT test_cases.requirement_id WHERE test_cases.requirement_id IS NOT NULL
+      ) requirement_test_cases ON EXISTS (SELECT 1 FROM requirements visible_story WHERE visible_story.id = requirement_test_cases.requirement_id AND visible_story.project_id = app_types.project_id)` : ""}
       LEFT JOIN test_steps ON test_steps.test_case_id = test_cases.id
       WHERE app_types.project_id = ? ${appClause}
       GROUP BY test_cases.id
@@ -543,18 +618,33 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       SELECT COUNT(*)::INTEGER AS total,
         COUNT(*) FILTER (WHERE test_cases.automated = 'yes' OR test_cases.automation_status = 'ready')::INTEGER AS automated_or_ready,
         ${canViewStories ? `COUNT(*) FILTER (WHERE NOT EXISTS (
-          SELECT 1 FROM requirement_test_cases WHERE requirement_test_cases.test_case_id = test_cases.id
+          SELECT 1 FROM requirements visible_story WHERE visible_story.project_id = app_types.project_id AND (visible_story.id = test_cases.requirement_id OR EXISTS (SELECT 1 FROM requirement_test_cases link WHERE link.test_case_id = test_cases.id AND link.requirement_id = visible_story.id))
         ))::INTEGER AS without_story_traceability,` : ""}
         COUNT(*) FILTER (WHERE NOT EXISTS (
           SELECT 1 FROM test_steps WHERE test_steps.test_case_id = test_cases.id
-        ))::INTEGER AS without_steps
+        ) AND NOT (test_cases.authoring_mode = 'gherkin' AND NULLIF(TRIM(test_cases.gherkin_document),'') IS NOT NULL))::INTEGER AS without_steps
       FROM test_cases
       JOIN app_types ON app_types.id = test_cases.app_type_id
       WHERE app_types.project_id = ? ${appClause}
     `, params);
     counts.test_cases = Number(caseTotals?.total || cases.length);
     const selected = rankRecords(cases, prompt, ["display_id", "title", "status", "automation_status", "test_case_type"]).slice(0, 12);
+    const selectedIds = selected.map(item => item.id);
+    const stepRows = selectedIds.length ? await safeRows(`SELECT test_case_id, step_order, action, expected_result, step_type FROM (
+      SELECT test_steps.test_case_id, test_steps.step_order, test_steps.action, test_steps.expected_result, test_steps.step_type,
+        ROW_NUMBER() OVER (PARTITION BY test_steps.test_case_id ORDER BY test_steps.step_order, test_steps.id) AS position
+      FROM test_steps JOIN test_cases ON test_cases.id = test_steps.test_case_id
+      JOIN app_types ON app_types.id = test_cases.app_type_id
+      WHERE app_types.project_id = ? AND test_cases.id IN (${selectedIds.map(() => '?').join(',')})
+    ) excerpt WHERE position <= 6 ORDER BY test_case_id, step_order`, [projectId,...selectedIds]) : [];
     const compactCase = (testCase) => ({
+      id: testCase.id,
+      description: normalizeText(testCase.description,700),
+      parameter_tokens: Object.keys(testCase.parameter_values || {}).slice(0,20),
+      gherkin_excerpt_complete: String(testCase.gherkin_document || '').length <= 1600,
+      gherkin_excerpt: testCase.authoring_mode === 'gherkin' ? normalizeText(testCase.gherkin_document,1600) : null,
+      steps: stepRows.filter(step => step.test_case_id === testCase.id).map(step => ({step_order:step.step_order,step_type:step.step_type,action:normalizeText(step.action,400),expected_result:normalizeText(step.expected_result,400)})),
+      step_excerpt_complete: Number(testCase.step_count || 0) <= 6 && stepRows.filter(step => step.test_case_id === testCase.id).length === Number(testCase.step_count || 0),
       display_id: testCase.display_id || testCase.id,
       title: testCase.title,
       status: testCase.status,
@@ -562,10 +652,10 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       test_case_type: testCase.test_case_type,
       authoring_mode: testCase.authoring_mode,
       automation_status: testCase.automation_status,
-      ...(canViewStories ? { linked_story_count: Number(testCase.linked_story_count || 0) } : {}),
+      ...(canViewStories ? { linked_story_count: Number(testCase.linked_story_count || 0), requirement_ids: asArray(testCase.requirement_ids).slice(0,16) } : {}),
       step_count: Number(testCase.step_count || 0)
     });
-    const withoutSteps = rankRecords(cases.filter((testCase) => Number(testCase.step_count || 0) === 0), prompt, ["display_id", "title", "status", "test_case_type"]).slice(0, 10).map(compactCase);
+    const withoutSteps = rankRecords(cases.filter((testCase) => Number(testCase.step_count || 0) === 0 && !(testCase.authoring_mode === "gherkin" && normalizeText(testCase.gherkin_document, 1))), prompt, ["display_id", "title", "status", "test_case_type"]).slice(0, 10).map(compactCase);
     const withoutTraceability = rankRecords(cases.filter((testCase) => Number(testCase.linked_story_count || 0) === 0), prompt, ["display_id", "title", "status", "test_case_type"]).slice(0, 10).map(compactCase);
     const supportingParams = appTypeId ? [projectId, appTypeId] : [projectId];
     const supportingAppClause = appTypeId ? "AND app_types.id = ?" : "";
@@ -637,8 +727,8 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
   if (scopeSet.has("runs") && kindAllowed("execution") && await canView("run.view")) {
     execution.emit("READING_RUNS", "started", { message: "Reading Test Runs and their permitted result outcomes." });
     const canViewResults = await canView("result.view");
-    const params = appTypeId ? [projectId, appTypeId] : [projectId];
-    const appClause = appTypeId ? "AND executions.app_type_id = ?" : "";
+    const params = [...(appTypeId ? [projectId, appTypeId] : [projectId]), ...runScope.params];
+    const appClause = (appTypeId ? "AND executions.app_type_id = ?" : "") + runScope.sql;
     const runs = await safeRows(`
       SELECT executions.id, executions.name, executions.status, executions.trigger,
         executions.execution_mode, executions.release, executions.sprint, executions.build,
@@ -840,19 +930,19 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       SELECT id, display_id, title, status, severity, priority, environment, build,
         release, fix_version, sprint, linked_test_run_id, linked_test_case_ids,
         linked_requirement_ids, labels, created_at, updated_at
-      FROM feedback WHERE project_id = ?
+      FROM feedback WHERE project_id = ? ${bugScope.sql}
       ORDER BY
         CASE WHEN LOWER(COALESCE(status, 'open')) NOT IN ('closed', 'resolved', 'done', 'accepted') THEN 0 ELSE 1 END,
         CASE WHEN LOWER(COALESCE(severity, priority, '')) IN ('critical', 'highest', 'high') THEN 0 ELSE 1 END,
         updated_at DESC NULLS LAST, created_at DESC NULLS LAST
       LIMIT 100
-    `, [projectId]);
+    `, [projectId, ...bugScope.params]);
     const bugTotals = await safeRow(`
       SELECT COUNT(*)::INTEGER AS total,
         COUNT(*) FILTER (WHERE LOWER(COALESCE(status, 'open')) NOT IN ('closed', 'resolved', 'done', 'accepted'))::INTEGER AS open_records,
         COUNT(*) FILTER (WHERE LOWER(COALESCE(severity, priority, '')) IN ('critical', 'highest', 'high'))::INTEGER AS critical_or_high
-      FROM feedback WHERE project_id = ?
-    `, [projectId]);
+      FROM feedback WHERE project_id = ? ${bugScope.sql}
+    `, [projectId, ...bugScope.params]);
     counts.bugs = Number(bugTotals?.total || bugs.length);
     const compactBug = (bug) => ({
       display_id: bug.display_id || bug.id,

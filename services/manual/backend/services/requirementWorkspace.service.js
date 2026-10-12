@@ -669,53 +669,14 @@ const groomingSourceSnapshot = (sources) => sources.map((item) => ({
 
 const buildGroomingPrompt = ({ requirement, project, sources, promptGuidance = "", unavailableSources = [] }) => [
   aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.1"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.2"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.3"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.4"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.5"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.6"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.7"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.8"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.9"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.10"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.11"),
   [aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.service.buildGroomingPrompt.segment.1"),String(JSON.stringify({ prompt_guidance: promptGuidance || null })),""].join(''),
   "",
   aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.12"),
   "{",
   aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.44"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.13"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.14"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.15"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.16"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.17"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.18"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.19"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.45"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.20"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.21"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.22"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.23"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.24"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.25"),
   "}",
   "",
   aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.26"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.27"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.28"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.29"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.30"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.31"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.32"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.33"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.34"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.35"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.36"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.37"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.38"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.39"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.40"),
-  aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.buildGroomingPrompt.41"),
   "",
   [aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.service.buildGroomingPrompt.segment.2"),String(JSON.stringify({ id: project.id, key: project.display_id || project.id })),""].join(''),
   [aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.service.buildGroomingPrompt.segment.3"),String(JSON.stringify(unavailableSources)),aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.service.buildGroomingPrompt.segment.4")].join(''),
@@ -932,27 +893,7 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
   });
 };
 
-exports.previewGherkin = ({ requirements = [] }) => {
-  const drafts = requirements.slice(0, 20).map((item, index) => {
-    const clientId = String(item.client_id || `requirement-${index + 1}`);
-    const title = excerpt(item.title, 180) || `Requirement ${index + 1}`;
-    const criteria = normalizeList(item.acceptance_criteria).map((value) => excerpt(value, 300)).filter(Boolean);
-    return {
-      client_id: clientId,
-      gherkin_scenarios: criteria.slice(0, 8).map((criterion, criterionIndex) => {
-        const lines = criterion.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-        const hasStructuredSteps = lines.some((line) => /^Given\b/i.test(line))
-          && lines.some((line) => /^When\b/i.test(line))
-          && lines.some((line) => /^Then\b/i.test(line));
-        const heading = `Scenario: ${title}${criteria.length > 1 ? ` - criterion ${criterionIndex + 1}` : ""}`;
-        if (hasStructuredSteps) return `${heading}\n  ${lines.join("\n  ")}`;
-        return `${heading}\n  Given the documented Story context applies\n  When the reviewed behavior is exercised\n  Then ${criterion.replace(/[.]$/, "")}`;
-      })
-    };
-  });
-  const skippedStoryCount = drafts.filter((item) => !item.gherkin_scenarios.length).length;
-  return { requirements: drafts, fallback_used: false, fallback_reason: skippedStoryCount ? "Stories without explicit acceptance criteria were skipped rather than converted from generic description text." : null, validation: { story_count: drafts.length, scenario_count: drafts.reduce((total, item) => total + item.gherkin_scenarios.length, 0), repaired_story_count: 0, skipped_story_count: skippedStoryCount, exact_story_draft_used: true } };
-};
+exports.previewGherkin = (input) => require("@hellotest/ai/backend/services/storyGherkin.service").preview(input);
 
 exports.exportRequirements = async ({ projectId, requirementIds = [], userId, format = "csv" }) => {
   const ids = [...new Set(requirementIds.map((value) => String(value || "").trim()).filter(Boolean))];

@@ -2,12 +2,16 @@ const test=require('node:test');const assert=require('node:assert/strict');const
 const filename=path.resolve(__dirname,'../../backend/services/agenticAssistant.service.js');
 function fixture({ reviewPatch = {}, failKind = null } = {}){
  const native=createRequire(filename),orchestrator=native('@hellotest/ai/backend/services/aiContextOrchestrator.service');
- const events=[],requests=[];let transaction={id:'review',metadata:{}};
- const citation={id:'K-live-stories-1',scope:'stories',label:'Approved checkout story',source_kind:'authoritative_live_stories'};
+ const events=[],requests=[],retrievals=[];let transaction={id:'review',metadata:{}};
+ const citation={id:'K-live-stories-1',scope:'stories',label:'Approved checkout story',source_kind:'live_project',source_id:'live-project-p-stories'};
  const reviewer={headline:'Clarify checkout acceptance',executive_summary:'The story omits retry behavior.',response:'The approved story needs retry acceptance criteria [K-live-stories-1].',activity_summary:'Reviewed the story.',findings:[{title:'Retry acceptance is missing',detail:'Define the observable retry behavior.',priority:'high',citation_ids:[citation.id]}],deliverables:[],recommendations:['Complete this story with retry acceptance criteria.'],assumptions:[],evidence_gaps:[],suggested_handoffs:['story-architect'],citation_ids:[citation.id],evaluation:{grounding:80,completeness:80,traceability:80,risk_control:80,maturity_score:80,rationale:'Source-supported proposal'}};
  Object.assign(reviewer, reviewPatch);
  const author={...reviewer,headline:'Completed story proposal',response:'Review the proposed retry boundary [K-live-stories-1].',recommendations:['Review and apply the completed story proposal.'],artifacts:[{kind:'story',target_id:'story-checkout',title:'Checkout retry',description:'Proposed behavior: a retry preserves one order.',priority:'P2',citation_ids:[citation.id],acceptance_criteria:['Given a pending checkout, when the request is retried, then one order remains.']}]};
+ const configuration=native('@hellotest/platform/backend/services/aiConfiguration.service');
+ const sourceHit={chunk_id:citation.id,title:'Approved checkout story',source_kind:'live_project',source_id:citation.source_id,content:JSON.stringify({evidence_type:'authoritative_live_story_snapshot',evidence_permissions:['requirement.view'],records:[{id:'story-checkout',title:'Checkout',description:'Checkout creates one order.',revision:3}]}),citation};
  const mocks={
+  '@hellotest/platform/backend/services/aiConfiguration.service':{...configuration,resolve:async id=>({config:configuration.catalog.find(item=>item.id===id).defaults})},
+  '@hellotest/knowledge/backend/services/knowledgeRetrieval.service':{retrieveSearch:async input=>{retrievals.push(input);return {results:[sourceHit],retrieval:{context_transport:'mcp',live_context_counts:{stories:1}}};},authorizeFreshEvidence:async({hits})=>({allowed:hits,denied_ids:[]})},
   '@hellotest/platform/backend/services/optionalEvidenceAccess.service':{getOptionalEvidenceAccess:async(u,p,codes)=>Object.fromEntries(codes.map(c=>[c,true]))},
   '../agents/agentRegistry.service':{resolveModel:async()=>({id:'model',name:'Fixture model',model:'test-model',base_url:'https://model.fixture/v1',is_active:true})},
   '@hellotest/platform/backend/services/permission.service':{hasPermission:async()=>true},
@@ -17,7 +21,7 @@ function fixture({ reviewPatch = {}, failKind = null } = {}){
   '@hellotest/platform/backend/src/utils/llmHttpClient':{fetchLlmWithRetry:async(url,init)=>{requests.push(JSON.parse(init.body));return Response.json({model:'test-model',choices:[{finish_reason:'stop',message:{content:JSON.stringify(requests.length===1?reviewer:(()=>{const payload=JSON.parse(requests.at(-1).messages.at(-1).content);const kind=payload.requested_outcome.kind;if(kind===failKind)return {...author,artifacts:[]};if(kind==='story')return author;return {...author,artifacts:[kind==='test_case'?{kind,title:'Retry one order',description:'Verify checkout retries',priority:'P2',citation_ids:[citation.id],prerequisites:['Checkout is pending'],steps:[{action:'Retry checkout',expected_result:'One order is retained'}]}:{kind,title:'Duplicate order observed',description:'Observed duplicate orders',priority:'P2',citation_ids:[citation.id],reproduction_steps:['Retry checkout'],expected_result:'One order',actual_result:'Two orders observed',severity:'high'}]};})())}}]},{headers:{'x-hellotest-llm-trace-id':`trace-${requests.length}`}});}}
  };
  const module={exports:{}};new Function('require','module','exports','__filename','__dirname',fs.readFileSync(filename,'utf8'))(id=>mocks[id]||native(id),module,module.exports,filename,path.dirname(filename));
- return {service:module.exports,requests,events,reviewer,author};
+ return {service:module.exports,requests,events,reviewer,author,retrievals};
 }
 test('a real specialist service chains the review into an authoring call with original evidence and complete structured output',async()=>{
  const f=fixture();const reply=await f.service.respond({project_id:'p',user:{id:'u'},agent_id:'quality-evaluator',context_scopes:['stories'],prompt:'Evaluate this story and complete its missing acceptance criteria.'});

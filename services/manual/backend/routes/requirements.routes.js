@@ -78,10 +78,10 @@ module.exports = async function (fastify) {
 
   fastify.post("/requirements/ai-gherkin-preview", async (req) => {
     await fastify.authenticate(req);
-    fastify.validate({ project_id: { required: true, type: "string", maxLength: 255 }, requirements: { required: true, type: "array", maxItems: 20 } }, req.body || {});
+    fastify.validate({ project_id: { required: true, type: "string", maxLength: 255 }, requirements: { required: true, type: "array", maxItems: 20 }, integration_id: { required: false, type: "string", maxLength: 255 }, additional_context: { required: false, type: "string", maxLength: 18000 } }, req.body || {});
     await projectService.getProject(req.body.project_id, req.user.id);
     await fastify.requirePermission("requirement.ai", { projectId: req.body.project_id })(req);
-    return requirementWorkspaceService.previewGherkin(req.body);
+    return requirementWorkspaceService.previewGherkin({ ...req.body, user: req.user });
   });
 
   fastify.post("/requirements/ai-create-jobs", async (req, reply) => {

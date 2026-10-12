@@ -18,7 +18,7 @@ The existing durable worker dispatches an isolated Playwright browser. The engin
 
 The worker checkpoints each decision before dispatch and reuses that decision after a lost acknowledgement. Each observation has a sequence number; stale decisions, conflicting decisions and cross-project/application commands are rejected. The account, project membership, feature availability and run permission are checked on each worker step and again after model latency. Cancellation during model latency prevents the next action. A restarted engine does not replay partially executed actions.
 
-Stages and the action report arrive through the existing 1.5-second active-run polling. These are incremental browser observations, not synthetic model progress or private reasoning. Screenshots and downloadable JSON reports retain their integrity hashes and authorized download paths.
+Stages, action reports and structured outcomes arrive through an authenticated progress stream. The stream rechecks project access for each snapshot and stops when the run completes, the client disconnects or access changes. Active-run polling remains the fallback when streaming is unavailable. These are incremental browser observations, not synthetic model progress or private reasoning. Screenshots and downloadable JSON reports retain their integrity hashes and authorized download paths.
 
 Limits remain explicit: 12 actions, five same-origin pages, 120 seconds and 250 browser requests. Missing models, failed actions and exhausted limits are visible outcomes. Completion is a model assessment supported by the retained observations, not independent proof of business correctness. Payment, destructive, communication and access-changing controls need a separately reviewed workflow; a general task does not bypass those boundaries.
 
@@ -79,3 +79,9 @@ The design uses the observation/action loop and concrete retained artifacts rath
 - [MCP security best practices](https://modelcontextprotocol.io/docs/draft/tutorials/security/security_best_practices): identity, target and credential boundaries.
 
 Real Chromium fixtures verify navigation, fresh observations, extraction, cancellation, retained reports and the five deterministic specialist checks. Worker tests use controlled model/HTTP responses for checkpoint/retry, cancellation and scoped decision handling. UI fixtures verify the directory, task lifecycle, structured proposals, evidence/history, role restrictions and desktop/mobile layouts. No paid model request or external user account is used by these checks.
+
+## Grounded mission outcomes
+
+Each browser kind has its own governed model profile and intent-specific default context sources. Review or narrow the sources, evidence identifiers and Smart Context before launch. The model receives that task context together with current and bounded prior browser observations. Context may explain expected behavior; observed browser evidence establishes what happened.
+
+Extraction or completion can include a structured outcome with a title, summary and a table. Each row cites an observation sequence and an exact observed quote. The server rejects fabricated quotes and keeps the validated result with the run; it does not send report fields back as executable engine actions. Native performance, accessibility, security and visual measurements remain authoritative. The UI displays the table and observed source links alongside the action report, findings, metrics and model calls. These outcomes require review and do not certify business correctness or approve publication.

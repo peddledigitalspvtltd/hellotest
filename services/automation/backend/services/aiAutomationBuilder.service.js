@@ -1,3 +1,5 @@
+const { buildFeature } = require('./aiAutomationFeaturePolicy');
+const { resilientHttpRequest } = require('@hellotest/platform/backend/src/utils/resilientHttpClient');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { getOptionalEvidenceAccess } = require("@hellotest/platform/backend/services/optionalEvidenceAccess.service");
 const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../lib/automationBrowserAgent");
@@ -477,8 +479,8 @@ const extractJsonPayload = (content) => {
   }
 };
 
-const fetchWithTimeout = async (url, init = {}, timeoutMs = LLM_TIMEOUT_MS, integration) => {
-  return fetchLlmWithRetry(url, init, { integration, timeoutMs, operation: "automation.generate" });
+const fetchWithTimeout = async (url, init = {}, timeoutMs = LLM_TIMEOUT_MS, integration, featureKey) => {
+  return fetchLlmWithRetry(url, init, { integration, featureKey, timeoutMs, operation: "automation.generate" });
 };
 
 const resolveLlmIntegration = async (integrationId, { allowFallback = true, userId, usageKey, projectId } = {}) => {
@@ -510,7 +512,7 @@ const resolveLlmIntegration = async (integrationId, { allowFallback = true, user
   return integration;
 };
 
-const requestChatCompletion = async ({ integration, prompt, content, timeoutMs = LLM_TIMEOUT_MS }) => {
+const requestChatCompletion = async ({ integration, prompt, content, featureKey, timeoutMs = LLM_TIMEOUT_MS }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
   const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -524,21 +526,12 @@ const requestChatCompletion = async ({ integration, prompt, content, timeoutMs =
       response_format: { type: "json_object" },
       messages: [
         {
-          role: "system",
-          content: [
-            aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.response.39"),
-            aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.response.40"),
-            aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.response.41"),
-            aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.response.42")
-          ].join(" ")
-        },
-        {
           role: "user",
           content: content || prompt
         }
       ]
     })
-  }, timeoutMs, integration);
+  }, timeoutMs, integration, featureKey);
 
   if (!response.ok) {
     const raw = await response.text();
@@ -837,14 +830,9 @@ const buildRecorderRepositoryNamingPrompt = ({ pages, fields, testCase }) => [
   aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRecorderRepositoryNamingPrompt.2"),
   "{",
   aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRecorderRepositoryNamingPrompt.3"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRecorderRepositoryNamingPrompt.4"),
   "}",
   "",
   aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRecorderRepositoryNamingPrompt.43"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRecorderRepositoryNamingPrompt.5"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRecorderRepositoryNamingPrompt.6"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRecorderRepositoryNamingPrompt.7"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRecorderRepositoryNamingPrompt.8"),
   "",
   [aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.service.buildRecorderRepositoryNamingPrompt.segment.1"),String(testCase.title),""].join(''),
   [aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.service.buildRecorderRepositoryNamingPrompt.segment.2"),String(testCase.description || "No description provided."),""].join(''),
@@ -912,7 +900,7 @@ const buildAiRecorderRepositoryNameSuggestions = async ({
     integration = await resolveLlmIntegration(integrationId, {
       userId,
       projectId: testCase.project_id,
-      usageKey: "ai.automation.locator_repair"
+      usageKey: "ai.automation.dom_extraction"
     });
   } catch (error) {
     return {
@@ -935,7 +923,8 @@ const buildAiRecorderRepositoryNameSuggestions = async ({
   try {
     const content = await requestChatCompletion({
       integration,
-      prompt: buildRecorderRepositoryNamingPrompt({ pages, fields, testCase })
+      prompt: buildRecorderRepositoryNamingPrompt({ pages, fields, testCase }),
+      featureKey: 'ai.automation.dom_extraction'
     });
     const payload = extractJsonPayload(content);
     const screenSuggestions = new Map();
@@ -1910,34 +1899,22 @@ const buildRecorderMappingPrompt = ({
   capturedActions,
   additionalContext
 }) => [
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.1"),
+  aiInstructionBlock("ai.automation.recorder_mapping", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.1"),
   "",
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.2"),
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.3"),
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.4"),
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.5"),
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.6"),
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.7"),
+  aiInstructionBlock("ai.automation.recorder_mapping", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.2"),
   "",
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.8"),
+  aiInstructionBlock("ai.automation.recorder_mapping", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.8"),
   "{",
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.9"),
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.10"),
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.11"),
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.12"),
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.13"),
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.14"),
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.15"),
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.16"),
+  aiInstructionBlock("ai.automation.recorder_mapping", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.9"),
   "}",
   "",
-  [aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.buildRecorderMappingPrompt.segment.3"),String(testCase.title),""].join(''),
-  [aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.buildRecorderMappingPrompt.segment.4"),String(testCase.description || "No description provided."),""].join(''),
+  [aiInstructionBlock("ai.automation.recorder_mapping", "aiAutomationBuilder.service.buildRecorderMappingPrompt.segment.3"),String(testCase.title),""].join(''),
+  [aiInstructionBlock("ai.automation.recorder_mapping", "aiAutomationBuilder.service.buildRecorderMappingPrompt.segment.4"),String(testCase.description || "No description provided."),""].join(''),
   "",
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.17"),
+  aiInstructionBlock("ai.automation.recorder_mapping", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.17"),
   JSON.stringify(manualSteps.map(summarizeStep), null, 2),
   "",
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.18"),
+  aiInstructionBlock("ai.automation.recorder_mapping", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.18"),
   JSON.stringify(stepCandidates.map((candidate) => ({
     source_action_index: candidate.source_action_index,
     generated_order: candidate.step_order,
@@ -1946,7 +1923,7 @@ const buildRecorderMappingPrompt = ({
     automation_code: candidate.automation_code
   })), null, 2),
   "",
-  aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.19"),
+  aiInstructionBlock("ai.automation.recorder_mapping", "aiAutomationBuilder.service.js.buildRecorderMappingPrompt.final.19"),
   JSON.stringify(capturedActions.slice(0, MAX_CAPTURED_ACTIONS), null, 2),
   additionalContext ? `\nAdditional guidance:\n${additionalContext}` : ""
 ].filter(Boolean).join("\n");
@@ -2035,7 +2012,7 @@ const buildAiRecorderMappings = async ({
     integration = await resolveLlmIntegration(integrationId, {
       userId,
       projectId: testCase.project_id,
-      usageKey: "ai.automation.keyword_generation"
+      usageKey: "ai.automation.recorder_mapping"
     });
   } catch (error) {
     return {
@@ -2058,6 +2035,7 @@ const buildAiRecorderMappings = async ({
   try {
     const content = await requestChatCompletion({
       integration,
+      featureKey: "ai.automation.recorder_mapping",
       prompt: buildRecorderMappingPrompt({
         testCase,
         manualSteps,
@@ -2123,51 +2101,10 @@ const buildPrompt = ({
     aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.44"),
     "",
     aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.45"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.46"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.47"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.48"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.49"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.50"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.51"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.52"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.53"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.54"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.55"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.56"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.57"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.58"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.59"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.60"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.61"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.62"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.63"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.64"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.65"),
     "",
     aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.66"),
     "{",
     aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.67"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.68"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.69"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.70"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.71"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.72"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.73"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.74"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.75"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.76"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.77"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.78"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.79"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.80"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.81"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.82"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.83"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.84"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.85"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.86"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.87"),
-    aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.88"),
     "}",
     "",
     [aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.service.prompt.segment.5"),String(testCase.project_name || testCase.project_id || "Unknown project"),""].join(''),
@@ -2224,16 +2161,9 @@ const buildRepositoryImprovePrompt = ({ entry, guidance }) => [
   aiInstructionBlock("ai.automation.locator_repair", "aiAutomationBuilder.buildRepositoryImprovePrompt.12"),
   "{",
   aiInstructionBlock("ai.automation.locator_repair", "aiAutomationBuilder.buildRepositoryImprovePrompt.13"),
-  aiInstructionBlock("ai.automation.locator_repair", "aiAutomationBuilder.buildRepositoryImprovePrompt.14"),
-  aiInstructionBlock("ai.automation.locator_repair", "aiAutomationBuilder.buildRepositoryImprovePrompt.15"),
-  aiInstructionBlock("ai.automation.locator_repair", "aiAutomationBuilder.buildRepositoryImprovePrompt.98"),
   "}",
   "",
   aiInstructionBlock("ai.automation.locator_repair", "aiAutomationBuilder.buildRepositoryImprovePrompt.99"),
-  aiInstructionBlock("ai.automation.locator_repair", "aiAutomationBuilder.buildRepositoryImprovePrompt.16"),
-  aiInstructionBlock("ai.automation.locator_repair", "aiAutomationBuilder.buildRepositoryImprovePrompt.17"),
-  aiInstructionBlock("ai.automation.locator_repair", "aiAutomationBuilder.buildRepositoryImprovePrompt.18"),
-  aiInstructionBlock("ai.automation.locator_repair", "aiAutomationBuilder.buildRepositoryImprovePrompt.19"),
   "",
   aiInstructionBlock("ai.automation.locator_repair", "aiAutomationBuilder.buildRepositoryImprovePrompt.20"),
   JSON.stringify(entry, null, 2),
@@ -2247,27 +2177,9 @@ const buildRepositoryExtractPrompt = ({ screenName, pageUrl, domStructure, busin
   aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.22"),
   "{",
   aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.23"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.24"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.100"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.101"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.25"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.26"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.27"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.28"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.29"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.30"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.31"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.32"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.102"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.103"),
   "}",
   "",
   aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.104"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.33"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.34"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.35"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.36"),
-  aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.buildRepositoryExtractPrompt.37"),
   "",
   [aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.service.buildRepositoryExtractPrompt.segment.14"),String(screenName),""].join(''),
   [aiInstructionBlock("ai.automation.dom_extraction", "aiAutomationBuilder.service.buildRepositoryExtractPrompt.segment.15"),String(pageUrl || "Not supplied"),""].join(''),
@@ -2704,6 +2616,7 @@ const applyBuild = async ({ build }) => db.transaction(async () => {
 const buildCaseCore = async ({
   test_case_id,
   integration_id,
+  ai_feature,
   created_by,
   start_url,
   allow_browser_actions = false,
@@ -2789,7 +2702,7 @@ const buildCaseCore = async ({
     integration = await resolveLlmIntegration(integration_id, {
       userId: created_by,
       projectId: testCase.project_id,
-      usageKey: "ai.automation.keyword_generation"
+      usageKey: buildFeature(ai_feature)
     });
   } catch (error) {
     throw error;
@@ -2803,10 +2716,10 @@ const buildCaseCore = async ({
     if (startUrl && steps.some((step) => normalizeTestStepType(step.step_type, "web") === "web")) {
       const engine = await resolveTestEngineIntegration(testCase);
       browser = await connectAutomationBrowser({ integration: engine, startUrl, allowBrowserActions: allow_browser_actions === true });
-      payload = await runAutomationBrowserAgent({ prompt, browser, startUrl, complete: (input, remainingMs) => requestChatCompletion({ integration, prompt: input, timeoutMs: Math.min(LLM_TIMEOUT_MS, remainingMs) }), parse: extractJsonPayload, onProgress: (event) => appendEvent(transaction_id, { ...event, metadata: { current_phase: event.phase, phase_message: event.message } }) });
+      payload = await runAutomationBrowserAgent({ prompt, browser, startUrl, complete: (input, remainingMs) => requestChatCompletion({ integration, featureKey: buildFeature(ai_feature), prompt: input, timeoutMs: Math.min(LLM_TIMEOUT_MS, remainingMs) }), parse: extractJsonPayload, onProgress: (event) => appendEvent(transaction_id, { ...event, metadata: { current_phase: event.phase, phase_message: event.message } }) });
     } else {
       await appendEvent(transaction_id, { phase: "automation.agent.context", message: "Generating from the supplied case and repository context. No live web inspection was requested." });
-      payload = extractJsonPayload(await requestChatCompletion({ integration, prompt }));
+      payload = extractJsonPayload(await requestChatCompletion({ integration, prompt, featureKey: buildFeature(ai_feature) }));
     }
     build = normalizeLlmBuild(payload, steps, cacheRows, startUrl);
     await appendEvent(transaction_id, { phase: "automation.llm.completed", message: `Generated ${build.updates.length} complete step mappings. Run the case to verify behavior.`, details: { generated_steps: build.updates.length } });
@@ -3173,6 +3086,7 @@ const finalizeRecorderBuild = async ({
 exports.buildAutomationForCase = async ({
   test_case_id,
   integration_id,
+  ai_feature,
   created_by,
   start_url,
   allow_browser_actions = false,
@@ -3187,6 +3101,7 @@ exports.buildAutomationForCase = async ({
   transaction_title,
   transaction_description
 } = {}) => {
+  const selectedFeature = buildFeature(ai_feature);
   const normalizedCaseId = normalizeText(test_case_id);
 
   if (!normalizedCaseId) {
@@ -3249,6 +3164,7 @@ exports.buildAutomationForCase = async ({
     const result = await buildCaseCore({
       test_case_id: normalizedCaseId,
       integration_id,
+      ai_feature: selectedFeature,
       created_by,
       start_url,
       allow_browser_actions,
@@ -4122,6 +4038,7 @@ exports.improveLearningCacheEntry = async ({ id, integration_id, user_id, guidan
     try {
       const content = await requestChatCompletion({
         integration,
+        featureKey: "ai.automation.locator_repair",
         prompt: buildRepositoryImprovePrompt({ entry: existing, guidance: normalizeText(guidance) })
       });
       suggestion = extractJsonPayload(content);
@@ -4202,7 +4119,8 @@ exports.extractRepositoryFields = async ({
   business_meaning,
   candidate_fields,
   integration_id,
-  user_id
+  user_id,
+  project_id
 } = {}) => {
   const screenName = normalizeText(screen_name) || "Screen";
   const pageUrl = normalizeText(page_url);
@@ -4218,7 +4136,8 @@ exports.extractRepositoryFields = async ({
   try {
     integration = await resolveLlmIntegration(integration_id, {
       userId: user_id,
-      usageKey: "ai.automation.locator_repair"
+      projectId: project_id,
+      usageKey: "ai.automation.dom_extraction"
     });
   } catch {
     integration = null;
@@ -4248,7 +4167,7 @@ exports.extractRepositoryFields = async ({
         { type: "image_url", image_url: { url: screenshotUrl } }
       ]
       : prompt;
-    const response = await requestChatCompletion({ integration, prompt, content });
+    const response = await requestChatCompletion({ integration, prompt, content, featureKey: "ai.automation.dom_extraction" });
     const payload = extractJsonPayload(response);
     const hasAiFields = Array.isArray(payload?.fields) && payload.fields.length > 0;
     return {
@@ -4301,13 +4220,14 @@ const hasRemoteMobileProvider = (integration) => {
 };
 
 const readEngineJson = async (url, init = {}) => {
-  const response = await fetchWithTimeout(url, {
+  const response = await resilientHttpRequest(url, {
     ...init,
     headers: {
       accept: "application/json",
       ...(init.headers || {})
     }
-  }, ENGINE_TIMEOUT_MS);
+  }, { dependency: 'test-engine', operation: 'automation.engine.request', deadlineMs: ENGINE_TIMEOUT_MS,
+    attemptTimeoutMs: ENGINE_TIMEOUT_MS, maxAttempts: 1, idempotent: !init.method || init.method === 'GET' });
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {

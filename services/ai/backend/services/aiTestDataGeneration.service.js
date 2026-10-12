@@ -58,11 +58,8 @@ const requestValues = async ({ integration, prompt, fieldContext, count, promptI
           role: "system",
           content: [
             aiInstructionBlock("ai.test_data.synthetic", "aiTestDataGeneration.response.1"),
-            aiInstructionBlock("ai.test_data.synthetic", "aiTestDataGeneration.response.2"),
             [aiInstructionBlock("ai.test_data.synthetic", "aiTestDataGeneration.service.js.response.final.1"),String(count),aiInstructionBlock("ai.test_data.synthetic", "aiTestDataGeneration.service.js.response.final.2")].join(''),
-            aiInstructionBlock("ai.test_data.synthetic", "aiTestDataGeneration.response.3"),
-            aiInstructionBlock("ai.test_data.synthetic", "aiTestDataGeneration.response.4"),
-            aiInstructionBlock("ai.test_data.synthetic", "aiTestDataGeneration.response.5")
+            aiInstructionBlock("ai.test_data.synthetic", "aiTestDataGeneration.response.3")
           ].join(" ")
         },
         {

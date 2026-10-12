@@ -4,13 +4,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { createRequire } = require("node:module");
 
-function templates(rows = []) {
+function templates(rows = [], configs = {}) {
   const filename = path.resolve(__dirname, "../../backend/services/aiPromptTemplate.service.js");
   const localRequire = createRequire(filename);
   const module = { exports: {} };
   const requests = [];
   const db = { prepare: sql => ({ all: async (...args) => { requests.push({ sql, args }); return rows; } }) };
-  new Function("require", "module", "exports", fs.readFileSync(filename, "utf8"))(id => id === "@hellotest/platform/backend/src/db" ? db : localRequire(id), module, module.exports);
+  new Function("require", "module", "exports", fs.readFileSync(filename, "utf8"))(id => id === "@hellotest/platform/backend/src/db" ? db : id.endsWith("/aiConfiguration.service") ? {resolve:async key=>({config:configs[key]||require("../../../platform/shared/aiFeatureCatalog.json").find(item=>item.id===key).defaults})} : localRequire(id), module, module.exports);
   return { service: module.exports, requests };
 }
 
@@ -36,4 +36,12 @@ test("saved Story templates remain available with counts bounded to the actual g
   assert.equal(results[0].id, "saved");
   assert.equal(results[0].test_count, 6);
   assert.ok(results.some(item => item.id === "builtin-story-user-outcome"));
+});
+
+test("built-in picker and selected template both consume reviewed admin instructions",async()=>{
+ const profile=require("../../../platform/shared/aiFeatureCatalog.json").find(item=>item.id==='ai.requirement.creation');
+ const config={...profile.defaults,instruction_blocks:{...profile.defaults.instruction_blocks,'template.builtin-story-user-outcome':'Reviewed Story template from admin.'}};
+ const {service}=templates([],{[profile.id]:config});
+ assert.equal((await service.getPromptTemplate('builtin-story-user-outcome')).prompt_text,'Reviewed Story template from admin.');
+ assert.equal((await service.listPromptTemplates({project_id:'project',scope:'requirement_creation'})).find(item=>item.id==='builtin-story-user-outcome').prompt_text,'Reviewed Story template from admin.');
 });

@@ -104,6 +104,9 @@ const buildRetrievalRequest = ({ projectId, tenantId, query, filters, smartConte
       source_ids: uniqueStrings(input.source_ids),
       source_kinds: uniqueStrings(input.source_kinds || input.source_types, 20, 80),
       app_type_id: compactText(input.app_type_id, 255) || null,
+      ...(Array.isArray(input.requested_scopes) ? { requested_scopes: uniqueStrings(input.requested_scopes, 6, 30) } : {}),
+      ...(input.agent_id ? { agent_id: compactText(input.agent_id, 255) } : {}),
+      ...(input.evidence_scope ? { evidence_scope: Object.fromEntries(['story_id','test_case_id','execution_id','release_id','build','environment_id'].filter(key => compactText(input.evidence_scope[key], 255)).map(key => [key, compactText(input.evidence_scope[key], 255)])) } : {}),
       ...(input.as_of ? {
         as_of: iso(input.as_of)
       } : {})

@@ -23,7 +23,9 @@ export function buildSmartContextQuery(artifactContext: string, additionalContex
   try {
     const artifact = JSON.parse(artifactContext);
     if (artifact && typeof artifact === "object" && !Array.isArray(artifact)) {
-      const fields = [artifact.title, artifact.description, artifact.acceptance_criteria, artifact.specification, artifact.gherkin_document];
+      const criteria = Array.isArray(artifact.acceptance_criteria) ? artifact.acceptance_criteria.slice(0, 8) : [artifact.acceptance_criteria];
+      const scenarios = Array.isArray(artifact.gherkin_scenarios) ? artifact.gherkin_scenarios.slice(0, 4) : [];
+      const fields = [artifact.title, artifact.description, ...criteria, artifact.specification, artifact.specification_content, ...scenarios, artifact.gherkin_document];
       const steps = Array.isArray(artifact.steps) ? artifact.steps.slice(0, 8).flatMap((step: Record<string, unknown>) => [step?.action, step?.expected_result]) : [];
       artifactText = [...fields, ...steps].filter((value) => typeof value === "string").join("\n");
     }

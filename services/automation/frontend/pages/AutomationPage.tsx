@@ -3001,7 +3001,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       const results = await Promise.allSettled(automationActionTargetIds.map((testCaseId) =>
         api.testCases.buildAutomation(testCaseId, {
           start_url: startUrl || undefined,
-          additional_context: [builderContext, getPrompt("ai.automation.gap_analysis")].filter(Boolean).join("\n\n") || undefined,
+          ai_feature: "ai.automation.gap_analysis",
+          additional_context: builderContext || undefined,
           test_environment_id: selectedExecutionEnvironmentId || undefined,
           test_configuration_id: selectedExecutionConfigurationId || undefined,
           test_data_set_id: selectedExecutionDataSetId || undefined
@@ -3292,7 +3293,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
       return api.testCases.queueAutomationGenerator(activeCase.id, {
         allow_browser_actions: allowBrowserActions,
-        additional_context: getPrompt("ai.automation.review"),
+        ai_feature: "ai.automation.review",
         ai_requested: true
       });
     },
@@ -3571,7 +3572,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       const response = await api.testCases.rephraseStep({
         app_type_id: appTypeId,
         requirement_id: activeCase.requirement_id || undefined,
-        additional_context: [getPrompt("ai.automation.step_rephrase"), agentMission].filter(Boolean).join("\n\n"),
+        ai_feature: "ai.automation.step_rephrase",
+        additional_context: agentMission || undefined,
         test_case: {
           title: activeCase.title,
           description: activeCase.description || "",

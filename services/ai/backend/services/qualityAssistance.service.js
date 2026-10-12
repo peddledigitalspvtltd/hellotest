@@ -92,7 +92,7 @@ const previewRequirementImpact = async ({ user, requirementId, proposedChange, i
   const riskScore = Math.min(100, (Number(priority || 3) <= 2 ? 35 : 15) + Math.min(testCases.length * 8, 32) + Math.min(runs.length * 6, 24) + (automation.length ? 9 : 0));
   const riskLevel = riskScore >= 65 ? "high" : riskScore >= 30 ? "medium" : "low";
   const evidence = [requirement, ...testCases, ...suites, ...runs, ...automation].map((item) => `${item.display_id || item.id}`);
-  const aiReview = await reviewArtifact({ artifactType: "story", savedArtifact: requirement, proposedChange,
+  const aiReview = await reviewArtifact({ artifactType: "story", reviewPurpose: 'change-impact', savedArtifact: requirement, proposedChange,
     baseline: assuranceBaseline, linkedEvidence: testCases.map(item => reference(item, "test-case")), user,
     projectId: scope.projectId, integrationId, promptGuidance, additionalContext });
   return assisted({
@@ -132,7 +132,7 @@ const previewTestCaseImpact = async ({ user, testCaseId, proposedChange, integra
   const lowConfidence = automation.filter((item) => Number(item.confidence || 0) < 0.75);
   const signals = [Number(testCase.priority || 3) <= 2 ? "High-priority test case." : null, runs.some((item) => ["queued", "running"].includes(item.status)) ? "Included in a queued or active run." : null, testCase.automation_status === "incomplete" ? "Automation is incomplete." : null, lowConfidence.length ? `${lowConfidence.length} locator dependency item(s) have confidence below 75%.` : null, requirements.length || !access["requirement.view"] ? null : "No linked requirement was found."].filter(Boolean);
   const evidence = [testCase, ...requirements, ...suites, ...runs, ...automation].map((item) => item.display_id || item.id);
-  const aiReview = await reviewArtifact({ artifactType: "test-case", savedArtifact: { ...testCase, steps }, proposedChange,
+  const aiReview = await reviewArtifact({ artifactType: "test-case", reviewPurpose: 'change-impact', savedArtifact: { ...testCase, steps }, proposedChange,
     baseline: assuranceBaseline, linkedEvidence: requirements.map(item => ({ ...item, kind: "requirement" })), user,
     projectId: scope.projectId, integrationId, promptGuidance, additionalContext });
   return assisted({
@@ -206,7 +206,7 @@ const previewFailureClusters = async ({ user, executionId, requestedScope, integ
   })).sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
   const evidence = clusters.flatMap((cluster) => cluster.evidence_refs);
   const review = await structuredReview.review({ projectId: scope.projectId, userId: user?.id, integrationId,
-    usageKey: "ai.execution.analysis", task: aiInstructionBlock("ai.execution.analysis", "qualityAssistance.failureReview.task"),
+    usageKey: "ai.execution.failure_clustering", task: aiInstructionBlock("ai.execution.analysis", "qualityAssistance.failureReview.task"),
     evidence: { execution: { id: executionId, build: execution.build, environment: execution.test_environment_name }, clusters: clusters.map(cluster => ({ id: cluster.id, evidence_refs: cluster.evidence_refs, members: cluster.members })), total_failures: failures.length },
     contract: '{"summary":"string","clusters":[{"id":"existing cluster id","explanation":"observations and hypotheses","recommended_action":"next discriminating check","evidence_refs":["exact supplied reference"]}]}',
     validate: value => {

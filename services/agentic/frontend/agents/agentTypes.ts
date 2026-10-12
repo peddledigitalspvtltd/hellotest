@@ -58,6 +58,7 @@ export type RepositoryAgentRun = {
   completed_at?: string;
   published?: { items: RepositoryAgentPublishedItem[]; [key: string]: unknown };
   result?: {
+    llm_reviews?: Array<{ session_id: string; batch: number; finding_ids: string[]; response: string; model_execution?: { effective_model: string; model_calls: number } }>;
     llm_review?: { session_id: string; response: string; model_execution?: { effective_model: string; model_calls: number } };
     schema_version: number;
     agent_type: RepositoryAgentType;
@@ -75,7 +76,8 @@ export type RepositoryAgentRun = {
 };
 
 export type RepositoryAgentRunPage = { items: RepositoryAgentRun[]; total: number; has_more: boolean };
-export type RepositoryAgentRunInput = {
+export type RepositoryAgentRunInput = import("../lib/qualityAgentContracts").QualityAgentContext & {
+  goal?: string;
   project_id: string;
   app_type_id?: string;
   agent_type: RepositoryAgentType;

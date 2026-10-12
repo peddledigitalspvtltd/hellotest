@@ -19,4 +19,11 @@ function policy(data = {}) {
   if (guidance.join("\n").length > 5000 || context.length > 4000) throw fail("Keep task, instructions, skills and guardrails within 5,000 characters, and context within 4,000 characters.");
   return { skills, allowed_tools: [...new Set(allowedTools)], context_scopes: [...new Set(selectedScopes)], guardrails, context };
 }
-module.exports = { policy, profiles };
+function instructionFor(skill, configurationKey) {
+  const id=String(configurationKey||'').replace(/^ai\.agentic\./,'');
+  const original=profiles[id]?.skills.find(item=>item.id===skill.id);
+  return original && original.instructions===skill.instructions
+    ? require('@hellotest/platform/backend/src/utils/aiInstructionBlocks').aiInstructionBlock(configurationKey,`specialist.skill.${skill.id}`)
+    : skill.instructions;
+}
+module.exports = { policy, profiles, instructionFor };

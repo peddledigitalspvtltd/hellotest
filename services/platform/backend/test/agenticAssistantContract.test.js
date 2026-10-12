@@ -100,7 +100,7 @@ test("context orchestration distinguishes questions and applies specialist evide
   assert.match(storyRoute.retrieval_focus, /acceptance boundaries/);
   assert.ok(storyRoute.outcome_sections.includes("proposed wording"));
   assert.match(storyRoute.decision_question, /testable without guessing/i);
-  assert.match(storyRoute.deliverable_contract, /rewritten acceptance criteria/i);
+  assert.match(storyRoute.deliverable_contract, /numbered acceptance criteria/i);
 });
 
 test("context orchestration resolves referential follow-ups before choosing evidence", () => {
@@ -231,7 +231,7 @@ test("deterministic agent fallback produces a decision-ready specialist brief fr
 
   assert.match(result.executive_summary, /NO-GO/);
   assert.match(result.findings[0].detail, /3 of 5 Stories/);
-  assert.match(result.deliverables[0].detail, /go\/watch\/no-go quality brief/);
+  assert.match(result.deliverables[0].detail, /quality decision brief.*evidence table/);
   assert.deepEqual(result.citation_ids, [citation.id]);
 });
 

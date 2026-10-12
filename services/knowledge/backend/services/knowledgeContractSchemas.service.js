@@ -88,6 +88,9 @@ const filters = object({
   source_ids: array(id),
   source_kinds: array(string(80), 20),
   source_types: array(string(80), 20),
+  requested_scopes: array(enumeration(['stories','test-cases','automation','runs','bugs','knowledge']),6),
+  agent_id: id,
+  evidence_scope: object(Object.fromEntries(['story_id','test_case_id','execution_id','release_id','build','environment_id'].map(key => [key,id]))),
   app_type_id: nullable(id),
   project: array(id),
   as_of: nullable(timestamp)

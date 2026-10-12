@@ -20,10 +20,12 @@ import { KnowledgeRepoPage } from '/services/knowledge/frontend/pages/KnowledgeR
 import '/src/styles.css'; import '/src/dark-theme.css'; import '/src/modal-system.css'; import '/src/workspace-layout.css';
 const params = new URLSearchParams(window.location.search);
 const readOnly = params.get('readonly') === 'true';
-const session = { token: 'repository-fixture', user: { id: 'reviewer', role: readOnly ? 'member' : 'admin', name: 'Reviewer', email: 'reviewer@example.test', permissions: ['workspace.view', 'agentic_workflow.view', 'knowledge.view'] } };
+const session = { token: 'repository-fixture', user: { id: 'reviewer', role: readOnly ? 'member' : 'admin', name: 'Reviewer', email: 'reviewer@example.test', permissions: ['workspace.view', 'agentic_workflow.view', 'knowledge.view'], project_permissions: { project: ['agentic_workflow.view', 'knowledge.view'], other: ['agentic_workflow.view'] } } };
 sessionStorage.write(session); setCurrentScope('project', 'app');
 window.realRepositoryAgents = { ...api.repositoryAgents };
 for (const methods of Object.values(api)) if (methods && typeof methods === 'object') for (const [name, value] of Object.entries(methods)) if (typeof value === 'function') methods[name] = async () => [];
+const stubKnowledgeReads = object => { for (const [key,value] of Object.entries(object || {})) { if (typeof value === 'function') object[key] = async () => []; else if (value && typeof value === 'object') stubKnowledgeReads(value); } };
+stubKnowledgeReads(knowledgeApi);
 api.auth.session = async () => session;
 api.settings.getWorkspacePreferences = async () => ({ preferences: {} });
 api.featureFlags.snapshot = async () => ({ flags: new Proxy({}, { get: () => true }) });
@@ -79,7 +81,7 @@ test('repository agents retain source/review choices, bound results, and avoid s
     const baseUrl = `${process.env.VITE_TEST_URL || 'http://127.0.0.1:5178'}/${name}.html`;
     await page.goto(baseUrl);
     await page.getByRole('button', { name: 'Open Object Repository Generator', exact: true }).waitFor();
-    assert.equal(await page.locator('.agent-library-card').count(), 14);
+    assert.equal(await page.locator('.agent-library-card').count(), 31);
     for (const name of ['Object Repository Generator', 'API Test Case Generator', 'Repository Knowledge Builder', 'Component Test Generator']) assert.equal(await page.getByRole('button', { name: 'Open ' + name, exact: true }).count(), 1);
     assert.deepEqual(await page.evaluate(() => window.agentExpensiveCalls), []);
     const requests = [];
@@ -104,6 +106,7 @@ test('repository agents retain source/review choices, bound results, and avoid s
     await page.screenshot({ path: screenshots + '/catalog-desktop.png', fullPage: true });
     await page.getByRole('button', { name: 'Open Object Repository Generator', exact: true }).click();
     await page.getByRole('heading', { name: 'Choose your repository', exact: true }).waitFor();
+    await page.locator('.repository-agent-source-support > summary').click();
     await page.getByText('JSX, TSX, HTML and static Vue / Svelte markup', { exact: true }).waitFor();
     await page.screenshot({ path: screenshots + '/source-desktop.png', fullPage: true });
     await page.setViewportSize({ width: 390, height: 1050 });
@@ -116,7 +119,7 @@ test('repository agents retain source/review choices, bound results, and avoid s
     const analyze = page.getByRole('button', { name: 'Analyze repository', exact: true });
     assert.equal(await analyze.isDisabled(), true);
     await page.getByLabel('Repository ZIP archive', { exact: true }).setInputFiles({ name: 'repository.txt', mimeType: 'text/plain', buffer: Buffer.from('invalid') });
-    await analyze.click(); await page.getByRole('alert').filter({ hasText: 'nonempty .zip' }).waitFor();
+    assert.equal(await analyze.isDisabled(), true); await page.getByRole('alert').filter({ hasText: 'nonempty .zip' }).waitFor();
     assert.equal(await page.evaluate(() => window.agentCalls.upload.length), 0);
     await page.getByLabel('Repository ZIP archive', { exact: true }).setInputFiles({ name: 'checkout-source.zip', mimeType: 'application/zip', buffer: Buffer.from('PK-test-archive') });
     await page.evaluate(() => window.agentMode = 'error'); await analyze.click();

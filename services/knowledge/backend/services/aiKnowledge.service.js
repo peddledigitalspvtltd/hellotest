@@ -433,7 +433,7 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
       user: options.user,
       integrationId: options.integration_id,
       signal: options.signal,
-      budgets: { max_evidence_items: Math.min(12, Number(options.limit || 12)), deadline_ms: 12000, max_context_tokens: 5000 }
+      budgets: { max_evidence_items: Math.min(12, Number(options.limit || 12)), deadline_ms: 12000, max_context_tokens: options.context_token_budget || 5000 }
     });
     retrievalSummary = retrieval.retrieval;
     retrievalGuardrails = retrieval.guardrails;

@@ -82,7 +82,10 @@ const readReviewResponse = async (response) => {
   }
 };
 
-async function reviewArtifact({ artifactType, savedArtifact, proposedChange, baseline, linkedEvidence = [], user, projectId, integrationId, promptGuidance, additionalContext }) {
+async function reviewArtifact({ artifactType, savedArtifact, proposedChange, baseline, linkedEvidence = [], user, projectId, integrationId, promptGuidance, additionalContext, reviewPurpose = 'assurance' }) {
+  const featureKey = reviewPurpose === 'change-impact'
+    ? (artifactType === 'story' ? 'ai.requirement.change_impact' : 'ai.test_case.change_impact')
+    : (artifactType === 'story' ? 'ai.quality.story_assurance' : 'ai.quality.test_case_assurance');
   const dimensionIds = DIMENSIONS[artifactType];
   const draft = { ...savedArtifact, ...object(proposedChange), id: savedArtifact.id,
     additional_fields: { ...object(savedArtifact.additional_fields), ...object(proposedChange?.additional_fields) } };
@@ -93,17 +96,13 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     ...(item.kind === "requirement" ? { content: storyAiSnapshot(item, { textLimit: 1200, itemLimit: 250, listLimit: 4 }) } : {})
   }))];
   const reviewedContext = text(additionalContext, 12000);
+  if (reviewPurpose === 'change-impact') sources.push({ ref: `saved:${artifactType}:${savedArtifact.id}`, type: artifactType,
+    content: artifactType === 'story' ? storyAiSnapshot(savedArtifact) : testCaseAiSnapshot(savedArtifact) });
   if (reviewedContext) sources.push({ ref: "review:context", type: "reviewed-context", content: reviewedContext });
   const lockedScores = normalizeBaseline(baseline, dimensionIds);
   const prompt = [
     [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.1"),String(artifactType === "story" ? "Story" : "Test Case"),aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.2")].join(''),
     aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.prompt.1"),
-    aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.prompt.2"),
-    aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.prompt.3"),
-    aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.prompt.4"),
-    aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.prompt.5"),
-    aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.prompt.6"),
-    aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.prompt.7"),
     [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.3"),String(JSON.stringify(dimensionIds)),aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.4")].join(''),
     aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.prompt.8"),
     [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.5"),String(JSON.stringify(text(promptGuidance, 12000))),""].join(''),
@@ -115,7 +114,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
   let integration;
   try {
     integration = await selection.resolveLlmIntegrationForUsage({ integrationId, userId: user?.id, projectId,
-      usageKey: artifactType === "story" ? "ai.quality.story_assurance" : "ai.quality.test_case_assurance", fallback: "project-then-global", allowMissing: true });
+      usageKey: featureKey, fallback: "project-then-global", allowMissing: true });
     if (!integration) throw Object.assign(new Error("Configure an active LLM to run AI assurance."), { code: "AI_MODEL_REQUIRED", statusCode: 422 });
     const baseUrl = String(integration.base_url || "https://api.openai.com/v1").replace(/\/+$/, "");
     const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
@@ -127,7 +126,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       modelCalls += 1;
       return fetchLlmWithRetry(url, { method: "POST", headers, body: JSON.stringify({
       model: integration.model,  response_format: { type: "json_object" }, messages
-    }) }, { integration, operation, timeoutMs: Math.min(timeoutMs, remaining), maxOutputTokens, maxAttempts: 1, compatibility: false, contextFallback: false });
+    }) }, { integration, operation, featureKey, timeoutMs: Math.min(timeoutMs, remaining), maxOutputTokens, maxAttempts: 1, compatibility: false, contextFallback: false });
     };
     const allowedRefs = new Set(sources.map(item => item.ref));
     let review;

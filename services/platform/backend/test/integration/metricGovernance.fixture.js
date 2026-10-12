@@ -6,7 +6,7 @@ exports.verify=async({app,db,createToken})=>{
  try{
   const id='metric.project.portfolio_health',previous={story_weight:30,automation_weight:20,pass_weight:50};
   await db.prepare('INSERT INTO app_settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value').run('workspace_governed_preference:ai_metric_formula_values',{[id]:previous});
-  const result=await app.inject({url:root,headers});assert.equal(result.statusCode,200,result.body);assert.equal(result.json().metrics.length,42);
+  const result=await app.inject({url:root,headers});assert.equal(result.statusCode,200,result.body);assert.equal(result.json().metrics.length,44);
   const metric=result.json().metrics.find(item=>item.id===id);assert.deepEqual(metric.config.parameters,previous);assert.equal(metric.source,'legacy');
   const config={criteria:'Review the scoped portfolio evidence and keep uncertainty explicit.',parameters:{story_weight:40,automation_weight:30,pass_weight:30}};
   const mutate=(mode,body,auth=headers)=>app.inject({method:'POST',url:`${root}/${id}/${mode}`,headers:auth,payload:body});

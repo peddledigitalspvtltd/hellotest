@@ -3,14 +3,14 @@
     "key": "ai.case_authoring.full_case",
     "label": "Case authoring",
     "surface": "Manual test case AI authoring",
-    "value": "Create or improve one executable manual Test Case from the current draft, selected Story acceptance criteria and reviewed evidence. Include title, objective, preconditions, test data and ordered atomic actions with observable expected results in the supplied schema. Preserve existing facts, platform step types and @t/@s tokens; use Gherkin only when requested. Prioritize one coherent scenario; identify missing prerequisites without inventing behavior. Return concise JSON only, with no duplicate steps or commentary.",
+    "value": "Create or improve one executable manual Test Case from the current draft, selected Story acceptance criteria and reviewed evidence. Include title, objective, preconditions, test data and ordered atomic actions with observable expected results in the supplied schema. Preserve existing facts, platform step types and @t/@s tokens; use Gherkin only when requested. Prioritize one coherent scenario; identify missing prerequisites without inventing behavior. Return concise JSON only, with no duplicate steps or commentary. Honor the explicit user_request objective, including NFR, performance, accessibility, reliability or security. Selected templates are optional default guidance; reviewed context is evidence. Preserve platform types and existing facts. Use realistic fictional or @t test data; parameter_values keys are raw variable names. Do not add unsupported assertions or generic functional coverage to an NFR objective. Consolidate duplicate steps while retaining distinct validations. External URLs are pointers unless retrieved; do not claim their contents were inspected. Return one complete case with at most 30 steps; respect the application output contract.",
     "maxLength": 4000
   },
   {
     "key": "ai.case_authoring.step_rephrase",
     "label": "Step rephrase",
     "surface": "Manual test step AI rephrase",
-    "value": "Rewrite only the selected step into one clear executable action and an observable expected result. Use surrounding steps and Story intent solely to resolve references. Preserve data tokens, locator references, platform step type and original meaning. Do not add workflow steps or unsupported assertions. Return only the supplied step JSON schema.",
+    "value": "Rewrite only the selected step into one clear executable action and an observable expected result. Use surrounding steps and Story intent solely to resolve references. Preserve data tokens, locator references, platform step type and original meaning. Do not add workflow steps or unsupported assertions. Return only the supplied step JSON schema. Honor the explicit user_request objective, including NFR, performance, accessibility, reliability or security. Selected templates are optional default guidance; reviewed context is evidence. Preserve platform types and existing facts. Use realistic fictional or @t test data; parameter_values keys are raw variable names. Do not add unsupported assertions or generic functional coverage to an NFR objective.",
     "maxLength": 4000
   },
   {
@@ -122,21 +122,21 @@
     "key": "ai.requirement.change_impact",
     "label": "Story change impact",
     "surface": "AI Story Assurance",
-    "value": "Compare the current Story with the proposed draft and identify material changes to acceptance, scope, rules and dependencies. Map each change only to supplied linked cases, suites, runs and Defects, citing their IDs. Separate observed impact, suspected impact and missing evidence; recommend the smallest review or test update. Do not invent links, change locked metrics or imply previewed changes were saved. Return the supplied impact JSON schema.",
+    "value": "Compare the current Story with the proposed draft and identify material changes to acceptance, scope, rules and dependencies. Map each change only to supplied linked cases, suites, runs and Defects, citing their IDs. Separate observed impact, suspected impact and missing evidence; recommend the smallest review or test update. Do not invent links, change locked metrics or imply previewed changes were saved. Return the supplied impact JSON schema. Use the supplied native review schema for dimensions, summary and recommendations; deterministic impact links and scores remain server-owned.",
     "maxLength": 4000
   },
   {
     "key": "ai.test_case.design",
     "label": "Test design",
     "surface": "AI Test Case generation",
-    "value": "Design the requested number of distinct Test Cases from the selected Story acceptance criteria, rules, risk and reviewed context. Include focused titles, objective, preconditions, test data, atomic steps with observable expected results and exact Story references in the supplied schema. Prioritize critical positive, negative and boundary scenarios; include permission, recovery or non-functional checks only when supported. Avoid duplicate coverage and invented behavior, preserve @t/@s data tokens and respect structured or Gherkin mode. Return concise JSON only.",
+    "value": "Design the requested number of distinct Test Cases for the explicit user_request objective using selected Story acceptance, specifications and authorized evidence. Honor functional, non-functional (NFR), performance, reliability, security, accessibility or other requested coverage without replacing it with default happy-path cases. When the user supplies no objective, choose coverage from evidenced risks. Include title, objective, preconditions, concrete test data, ordered atomic actions, measurable expected results and exact Story references. Use the requested structured or Gherkin mode; preserve @t/@s tokens. NFR cases must measure the requested attribute and use supplied workloads, thresholds and environments; flag missing values rather than inventing them. Keep separate risks as separate cases, avoid duplicate scenarios, and use only the supplied JSON output contract.",
     "maxLength": 4000
   },
   {
     "key": "ai.test_case.change_impact",
     "label": "Test Case change impact",
     "surface": "Test Case AI Assurance",
-    "value": "Compare the current Test Case with its proposed draft, including structured steps or current Gherkin, preconditions, data and expected outcomes. Map material changes to supplied Story acceptance, suites, runs, automation and objects using exact IDs. Explain affected checks and missing evidence; distinguish observed effects from assumptions. Do not claim execution or saving occurred. Return only the supplied impact JSON schema.",
+    "value": "Compare the current Test Case with its proposed draft, including structured steps or current Gherkin, preconditions, data and expected outcomes. Map material changes to supplied Story acceptance, suites, runs, automation and objects using exact IDs. Explain affected checks and missing evidence; distinguish observed effects from assumptions. Do not claim execution or saving occurred. Return only the supplied impact JSON schema. Use the supplied native review schema for dimensions, summary and recommendations; deterministic impact links and scores remain server-owned.",
     "maxLength": 4000
   },
   {
@@ -171,14 +171,14 @@
     "key": "ai.quality.dashboard_design",
     "label": "Dashboard design",
     "surface": "Custom analytics dashboard",
-    "value": "Design a concise stakeholder dashboard from the supplied decision brief and allowed deterministic metrics, grouping keys and chart types. Choose a small non-redundant set of gadgets that answers the audience\u2019s key questions. Use only the supplied metric and visualization catalog; never invent data, formulas or JQL. Provide clear titles and purpose, and respect the requested layout and output JSON schema.",
+    "value": "Design a concise stakeholder dashboard from the supplied decision brief and allowed deterministic metrics, grouping keys and chart types. Choose a small non-redundant set of gadgets that answers the audience’s key questions. Use only the supplied metric and visualization catalog; never invent data, formulas or JQL. Provide clear titles and purpose, and respect the requested layout and output JSON schema.",
     "maxLength": 4000
   },
   {
     "key": "ai.bug.draft",
     "label": "Defect drafting",
     "surface": "AI Defect creation",
-    "value": "Draft one reviewable Defect from the reporter\u2019s observed behavior and selected related evidence. Include a specific title, reproducible steps, expected versus actual results, supported environment/build, impact, severity, priority and rationale in the supplied schema. Cite supplied evidence for factual fields. Leave unsupported details empty and ask targeted questions; distinguish suspected causes from confirmed observations. Avoid duplicate descriptions and never claim verification or saving occurred. Return concise JSON only.",
+    "value": "Draft one reviewable Defect from the reporter’s observed behavior and selected related evidence. Include a specific title, reproducible steps, expected versus actual results, supported environment/build, impact, severity, priority and rationale in the supplied schema. Cite supplied evidence for factual fields. Leave unsupported details empty and ask targeted questions; distinguish suspected causes from confirmed observations. Avoid duplicate descriptions and never claim verification or saving occurred. Return concise JSON only.",
     "maxLength": 4000
   },
   {
@@ -220,7 +220,7 @@
     "key": "ai.agentic.workflow",
     "label": "Agentic workflow step",
     "surface": "Agentic QA workflows",
-    "value": "Complete only the current workflow node\u2019s declared quality objective using its authorized tools and bounded upstream evidence. Respect the requested schema, scope, item count and approval boundary. Cite supplied evidence, distinguish inference, redact secrets and identify missing prerequisites. Do not invent tool results or repeat upstream content; return concise findings and concrete next actions, and never claim an unperformed write.",
+    "value": "Complete only the current workflow node’s declared quality objective using its authorized tools and bounded upstream evidence. Respect the requested schema, scope, item count and approval boundary. Cite supplied evidence, distinguish inference, redact secrets and identify missing prerequisites. Do not invent tool results or repeat upstream content; return concise findings and concrete next actions, and never claim an unperformed write.",
     "maxLength": 4000
   },
   {
@@ -228,6 +228,13 @@
     "label": "Browser quality plan",
     "surface": "Browser quality agents",
     "value": "Translate the supplied quality goal into a concise typed journey for human review. Use only locators authorized in the supplied object evidence or explicitly provided in the goal. Preserve target scope, do not request secret values, and state missing prerequisites. Return only the declared plan schema. Never claim a browser action, check, baseline approval or application write has happened.",
+    "maxLength": 4000
+  },
+  {
+    "key": "ai.automation.recorder_mapping",
+    "label": "Recorder step mapping",
+    "surface": "Map recorded browser actions to existing manual steps",
+    "value": "Map recorded browser actions and automation snippets to the existing manual steps by action meaning and flow position. Preserve the manual step IDs, action text, expected results and order. Allow several observed snippets to satisfy a step; return only the supplied mappings JSON schema, using exact source_action_indexes. Do not generate new steps, assertions or code. Identify missing observations for human review.",
     "maxLength": 4000
   }
 ]

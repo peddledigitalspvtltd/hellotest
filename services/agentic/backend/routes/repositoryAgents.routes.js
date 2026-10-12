@@ -18,13 +18,18 @@ module.exports = async function repositoryAgentsRoutes(fastify) {
   fastify.post('/repository-agents/runs', { bodyLimit: LIMITS.max_archive_bytes + 1024 * 1024 }, async (req, reply) => {
     await fastify.authenticate(req);
     let input = req.body || {}, file;
+    try {
     if (req.isMultipart()) {
       input = {};
-      for await (const part of req.parts({ limits: { files: 1, fields: 3, fileSize: LIMITS.max_archive_bytes, fieldSize: 1000 } })) {
+      for await (const part of req.parts({ limits: { files: 1, fields: 4, fileSize: LIMITS.max_archive_bytes, fieldSize: 24000 } })) {
         if (part.type === 'file') {
           if (part.fieldname !== 'file') throw error('Choose a source ZIP archive.');
-          file = { filename: part.filename, buffer: await part.toBuffer(), truncated: Boolean(part.file.truncated) };
-        } else if (['project_id','app_type_id','agent_type'].includes(part.fieldname)) input[part.fieldname] = part.value;
+          if (!input.project_id) throw error('Send project and application scope before the source file.');
+          await fastify.requirePermission('agentic_workflow.run', { projectId: input.project_id })(req);
+          await service.requireScope(input.project_id, input.app_type_id || null, req.user, 'agentic_workflow.run');
+          file = await require('../agents/archiveTransfer').spoolArchive(part.file, { filename: part.filename });
+          file.truncated = Boolean(part.file.truncated);
+        } else if (part.fieldname === 'context') { let context; try { context = JSON.parse(part.value); } catch { throw error('The repository context selection is invalid.'); } const selected = require('../services/qualityAgentContracts').contextSelection(context); Object.assign(input, selected, { goal: typeof context.goal === 'string' ? context.goal.trim().slice(0,2000) : '' }); } else if (['project_id','app_type_id','agent_type'].includes(part.fieldname)) input[part.fieldname] = part.value;
       }
       if (!file) throw error('Choose a source ZIP archive.');
     }
@@ -32,6 +37,7 @@ module.exports = async function repositoryAgentsRoutes(fastify) {
     if (input.source?.integration_id) await fastify.requirePermission('integration.view', { projectId: input.project_id })(req);
     const run = await service.createRun(input, req.user, { file, requestKey: req.headers['idempotency-key'] });
     return reply.code(202).header('Location', `/repository-agents/runs/${run.id}`).send(run);
+    } finally { await file?.dispose?.(); }
   });
   fastify.get('/repository-agents/runs/:id', async req => {
     await fastify.authenticate(req);

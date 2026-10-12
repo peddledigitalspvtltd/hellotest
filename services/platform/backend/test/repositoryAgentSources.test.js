@@ -193,7 +193,7 @@ test('enforces archive limit during chunked streaming and cancels unread bytes',
   const calls = network(t, [commit(), new Response(body)]);
   await assert.rejects(downloadGithubSource(source), { statusCode: 413 });
   assert.equal(cancelled, true);
-  assert.ok(sent <= 22, `Only bounded chunks should be requested: ${sent}`);
+  assert.ok(sent <= Math.ceil(MAX_ARCHIVE_BYTES / (1024 * 1024)) + 2, `Only bounded chunks should be requested: ${sent}`);
   assert.equal(calls.length, 2);
 });
 

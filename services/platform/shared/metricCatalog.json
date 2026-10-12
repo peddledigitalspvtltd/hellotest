@@ -581,5 +581,27 @@
     ],
     "formula": "A locked 90% first-draft evidence prior, reduced by 4 points per additional draft and increased by 3 points when bounded supporting context exists, clamped to 58–95%; the single fallback draft uses 78% with context or 62% without it.",
     "criteria": "Use the score only to order draft review. It is not writing quality, factual certainty, or approval; inspect source context, assumptions, risks, and acceptance criteria."
+  },
+  {
+    "key": "metric.story.backlog_readiness",
+    "label": "Story Readiness",
+    "surface": "Story readiness checklist and review",
+    "aliases": [
+      "story readiness",
+      "backlog readiness checklist"
+    ],
+    "formula": "Current checks marked met ÷ five required checks × 100; no verified checks yields an unknown score. Unverified checks remain in the denominator.",
+    "criteria": "Use only saved Story evidence and current, attributable reviews bound to the Story content hash. Disclose met, not met and unverified counts. Wireframe reviews require an attachment still on this Story; dependencies and team estimation require review. This checklist is advisory and cannot authorize release approval."
+  },
+  {
+    "key": "metric.story.release_readiness",
+    "label": "Story Release Readiness",
+    "surface": "Story readiness checklist and review",
+    "aliases": [
+      "story release readiness",
+      "release readiness checklist"
+    ],
+    "formula": "Current checks marked met ÷ five required checks × 100; no verified checks yields an unknown score. Unverified checks remain in the denominator.",
+    "criteria": "Use only saved Story evidence and current, attributable reviews bound to the Story content hash. Disclose met, not met and unverified counts. Acceptance-test review requires complete latest finalized passing linked-case evidence; critical-defect state uses current linked project Defects. Code review, CI and Product Owner sign-off require attributable review. This checklist is advisory and cannot authorize release approval."
   }
 ]

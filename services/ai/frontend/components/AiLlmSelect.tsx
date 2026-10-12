@@ -10,9 +10,10 @@ type AiLlmSelectProps = {
   autoLabel?: string;
   defaultIntegrationId?: string;
   scopeKey?: string;
+  autoSelect?: boolean;
 };
 
-export function AiLlmSelect({ integrations, value, onChange, disabled = false, id, autoLabel = "Configured LLM", defaultIntegrationId = "", scopeKey }: AiLlmSelectProps) {
+export function AiLlmSelect({ integrations, value, onChange, disabled = false, id, autoLabel = "Configured LLM", defaultIntegrationId = "", scopeKey, autoSelect = true }: AiLlmSelectProps) {
   const generatedId = useId();
   const inputId = id || generatedId;
   const userSelected = useRef(false);
@@ -25,11 +26,11 @@ export function AiLlmSelect({ integrations, value, onChange, disabled = false, i
     requestedDefault.current = "";
   }, [scopeKey]);
   useEffect(() => {
-    if (!value && !disabled && !userSelected.current && defaultId && requestedDefault.current !== defaultId) {
+    if (autoSelect && !value && !disabled && !userSelected.current && defaultId && requestedDefault.current !== defaultId) {
       requestedDefault.current = defaultId;
       onChange(defaultId);
     }
-  }, [defaultId, disabled, onChange, value]);
+  }, [autoSelect, defaultId, disabled, onChange, value]);
   const unavailable = Boolean(value && !activeIntegrations.some((integration) => integration.id === value));
 
   return (

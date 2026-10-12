@@ -8,6 +8,8 @@ import { platformApi } from "@hellotest/platform/frontend/api.client";
 import { deriveStoryReadiness, storyReadinessMethodology, type StoryReadinessCheck } from '../lib/storyReadiness';
 import { useDialogFocus } from '@hellotest/platform/frontend/src/shared/hooks/useDialogFocus';
 import { DialogCloseButton } from '@hellotest/platform/frontend/src/shared/components/DialogCloseButton';
+import { useAiPromptRegistry } from '@hellotest/integration/frontend/hooks/useAiPromptRegistry';
+import { MetricMethodologyInfo } from '@hellotest/ai/frontend/components/MetricMethodologyInfo';
 import './StoryReadinessChecklist.css';
 
 type StoryReadinessChecklistProps = {
@@ -18,6 +20,8 @@ export function StoryReadinessChecklist({ story, canEdit, canViewAttachments, on
   expanded?:boolean; onPendingChange?:(pending:boolean) => void;
 }) {
   const readiness = deriveStoryReadiness(story);
+  const { getMetricCriteria } = useAiPromptRegistry();
+  const metricKey = `metric.story.${readiness.mode}_readiness`;
   const [editing, setEditing] = useState<StoryReadinessCheck|null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -39,7 +43,7 @@ export function StoryReadinessChecklist({ story, canEdit, canViewAttachments, on
     finally { setPending(false); onPendingChange?.(false); }
   };
   const content = <>
-    <p>{storyReadinessMethodology}</p>
+    <p>{storyReadinessMethodology} <MetricMethodologyInfo criteriaKey={metricKey} organizationCriteria={getMetricCriteria(metricKey)} /></p>
     <ul>
       {readiness.checks.map(check => <li className={`is-${check.status}`} key={check.key}>
         <div className="story-readiness-check-heading"><span aria-hidden="true" className="story-readiness-check-icon">{check.status === 'met' ? <IconCheck size={17} /> : check.status === 'not_met' ? <IconX size={17} /> : <IconCircleDashed size={17} />}</span><strong>{check.label}</strong><span className={`story-readiness-status is-${check.status}`}>{check.status === 'met' ? 'Met' : check.status === 'not_met' ? 'Not Met' : 'Unverified'}</span></div>

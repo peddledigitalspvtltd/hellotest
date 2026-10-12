@@ -21,8 +21,9 @@ function validate(input, id) {
   const allowed = Object.keys(item.defaults);
   if (Object.keys(input).some(key => !allowed.includes(key))) throw fail('Unknown configuration field.');
   const value = { ...copy(item.defaults), ...input };
+  if(value.instruction_format_version!==3)throw fail('Reload the current instruction template format before saving.');
   for (const field of ['role','task','domain','prompt','guardrails']) {
-    if (typeof value[field] !== 'string' || !value[field].trim() || value[field].length > (field === 'prompt' ? item.maxLength : 16000)) throw fail(`Invalid ${field}: use bounded, nonempty text.`);
+    if (typeof value[field] !== 'string' || !value[field].trim() || value[field].length > (field === 'prompt' ? item.maxLength : field==='guardrails'?32768:16000)) throw fail(`Invalid ${field}: use bounded, nonempty text.`);
     value[field] = value[field].trim();
   }
   for (const [field,min,max,integer] of [['temperature',0,2,false],['top_p',0.01,1,false],['max_output_tokens',256,16384,true]]) {
@@ -52,48 +53,88 @@ function validate(input, id) {
   const blocks=value.instruction_blocks;
   if(!blocks || typeof blocks!=='object' || Array.isArray(blocks) || Object.keys(blocks).length!==Object.keys(item.defaults.instruction_blocks).length)throw fail('Instruction blocks must preserve the registered block keys.');
   for(const [key,original] of Object.entries(item.defaults.instruction_blocks)) {
-    if(typeof blocks[key]!=='string'||!blocks[key].trim()||blocks[key].length>16000)throw fail(`Invalid instruction block: ${key}.`);
+    if(typeof blocks[key]!=='string'||(!blocks[key].trim()&&!item.optional_instruction_blocks?.includes(key))||blocks[key].length>(item.instruction_limits?.[key]||16000))throw fail(`Invalid instruction block: ${key}.`);
     if(blocks[key].includes('⟦HELLOTEST_AI:'))throw fail('Instruction blocks cannot contain nested runtime markers.');
   }
   if(Object.keys(blocks).some(key=>!Object.hasOwn(item.defaults.instruction_blocks,key)))throw fail('Unknown instruction block.');
-  if (Buffer.byteLength(JSON.stringify(value)) > 200000) throw fail('Configuration exceeds 100 KB.');
+  if (Buffer.byteLength(JSON.stringify(value)) > 200000) throw fail('Configuration exceeds 200 KB.');
   return value;
 }
 async function legacyOverrides() {
   const rows = await db.prepare('SELECT key,value FROM app_settings WHERE key IN (?,?)').all('workspace_governed_preference:ai_prompt_registry_overrides','workspace_governed_preference:ai_prompt_registry_llm_overrides');
   return Object.fromEntries(rows.map(row => [row.key.split(':').at(-1),row.value || {}]));
 }
-function adaptStored(item, stored) {
-  const config={...copy(item.defaults),...stored};
-  config.instruction_blocks=Object.fromEntries(Object.entries(item.defaults.instruction_blocks).map(([key,value])=>[key,typeof stored?.instruction_blocks?.[key]==='string'?stored.instruction_blocks[key]:value]));
+function adaptStored(item, stored, inheritedBlocks=item.defaults.instruction_blocks) {
+  const config={...copy(item.defaults),...stored,instruction_format_version:3};
+  const previous={...stored?.instruction_blocks};
+  const format=stored?.instruction_format_version || 1;
+  if(format<2) for(const [key,fragments] of Object.entries(item.legacy_instruction_block_migrations || item.instruction_block_migrations || {})) {
+    if(fragments.slice(1).some(fragment=>Object.hasOwn(previous,fragment.key)))previous[key]=fragments.map(fragment=>typeof previous[fragment.key]==='string'?previous[fragment.key]:fragment.default).join('\n');
+  }
+  if(format<3 && item.guardrail_migration) {
+    const old=item.guardrail_migration,policy=previous['platform.requestPolicy'] || old.request_policy;
+    config.guardrails=config.guardrails===old.default && policy===old.request_policy ? item.defaults.guardrails : [config.guardrails,policy].filter(Boolean).join('\n\n');
+  }
+  if(item.prompt_default_migrations?.includes(config.prompt))config.prompt=item.defaults.prompt;
+  config.instruction_blocks=Object.fromEntries(Object.entries(item.defaults.instruction_blocks).map(([key,value])=>{
+    const fragments=item.instruction_layout_migrations?.[key];
+    // Historical versions used one field per template line. Preserve every
+    // reviewed edit when loading drafts, published versions and rollbacks.
+    if(format<3 && fragments?.some(fragment=>Object.hasOwn(previous,fragment.key))) {
+      return [key,fragments.map(fragment=>typeof previous[fragment.key]==='string'?previous[fragment.key]:fragment.default).join('\n')];
+    }
+    if(key.startsWith('template.') && item.legacy_instruction_blocks?.[key]===previous[key])return [key,value];
+    return [key,typeof previous[key]==='string'?previous[key]:inheritedBlocks[key] ?? value];
+  }));
+  if(format<3 && item.legacy_instruction_blocks) {
+    const transferred=new Set(Object.values(item.instruction_layout_migrations || {}).flat().map(fragment=>fragment.key));
+    const edits=Object.entries(item.legacy_instruction_blocks).filter(([key,original])=>!transferred.has(key)&&!key.startsWith('template.')&&typeof previous[key]==='string'&&previous[key]!==original);
+    config.instruction_blocks['legacy.reviewed']=edits.map(([key,value])=>`Previously reviewed guidance (${key}):\n${previous[key]}`).join('\n\n');
+  }
   return config;
 }
-function effective(item, record, legacy={}) {
+function effective(item, record, legacy={}, parent=null, instructionSources=[]) {
   const base = copy(item.defaults);
+  for(const source of instructionSources) for(const [key,value] of Object.entries(source.config.instruction_blocks)) {
+    if(Object.hasOwn(base.instruction_blocks,key))base.instruction_blocks[key]=value;
+  }
+  const inherited = !record?.published && parent && (parent.published_version || parent.fingerprint !== hash(parent.defaults));
+  if (inherited) {
+    for (const key of ['temperature','top_p','max_output_tokens','context','integration_id','guardrails','output_schema']) base[key] = copy(parent.config[key]);
+    base.prompt = `${parent.config.prompt}\nSpecific agent intent: ${item.defaults.prompt}`.slice(0,item.maxLength);
+    base.instruction_blocks = Object.fromEntries(Object.entries(item.defaults.instruction_blocks).map(([key,value])=>[key,parent.config.instruction_blocks?.[key] || value]));
+  }
   const oldPrompt = legacy.ai_prompt_registry_overrides?.[item.id];
-  if (typeof oldPrompt === 'string' && oldPrompt.trim()) base.prompt=oldPrompt.slice(0,item.maxLength);
+  if (typeof oldPrompt === 'string' && oldPrompt.trim()) base.prompt=item.prompt_default_migrations?.includes(oldPrompt)?item.defaults.prompt:oldPrompt.slice(0,item.maxLength);
   const oldIntegration = legacy.ai_prompt_registry_llm_overrides?.[item.id];
   if (typeof oldIntegration==='string' && oldIntegration.trim()) base.integration_id=oldIntegration;
-  const config=record?.published?adaptStored(item,record.published.config):base;
+  const config=record?.published?adaptStored(item,record.published.config,base.instruction_blocks):base;
   return { ...item, defaults: copy(item.defaults), config, revision:record?.revision || 0,
+    inherited_from:inherited?{id:parent.id,version:parent.published_version,fingerprint:parent.fingerprint}:null,
     published_version:record?.published?.version || 0, published_at:record?.published?.at || null,
-    draft:record?.draft?{...record.draft,config:adaptStored(item,record.draft.config)}:null, history:record?.history || [], fingerprint:hash(config) };
+    draft:record?.draft?{...record.draft,config:adaptStored(item,record.draft.config,base.instruction_blocks)}:null, history:record?.history || [], fingerprint:hash(config) };
+}
+function publicFeature(profile) {
+  const {instruction_block_migrations,legacy_instruction_blocks,legacy_instruction_block_migrations,instruction_layout_migrations,guardrail_migration,prompt_default_migrations,...result}=profile;
+  return result;
 }
 async function list() {
   const [rows,legacy] = await Promise.all([db.prepare('SELECT key,value FROM app_settings WHERE key LIKE ?').all(KEY+'%'),legacyOverrides()]);
   const records = new Map(rows.map(row=>[row.key.slice(KEY.length),row.value]));
-  return { features:catalog.map(item=>effective(item,records.get(item.id),legacy)), groups:[...new Set(catalog.map(item=>item.group))],
+  const resolved = new Map();
+  const resolveItem = item => { if (!resolved.has(item.id)) resolved.set(item.id,effective(item,records.get(item.id),legacy,item.parent_id ? resolveItem(definition(item.parent_id)) : null,(item.instruction_sources||[]).map(id=>resolveItem(definition(id))))); return resolved.get(item.id); };
+  return { features:catalog.map(item=>publicFeature(resolveItem(item))), groups:[...new Set(catalog.map(item=>item.group))],
     protections:['Verified project permissions','MCP identity and source ACLs','Native artifact validators','Reviewed writes and execution limits'], retention_days:14 };
 }
 async function resolve(id) {
   const item=definition(id);
   const row=await db.prepare("SELECT jsonb_build_object('published',value->'published','revision',value->'revision') AS value FROM app_settings WHERE key = ?").get(KEY+id);
-  return effective(item,row?.value,row?.value?.published?{}:await legacyOverrides());
+  return effective(item,row?.value,row?.value?.published?{}:await legacyOverrides(),item.parent_id && !row?.value?.published ? await resolve(item.parent_id) : null,await Promise.all((item.instruction_sources||[]).map(resolve)));
 }
 async function detail(id) {
   const item=definition(id);
   const row=await db.prepare('SELECT value FROM app_settings WHERE key = ?').get(KEY+id);
-  return effective(item,row?.value,await legacyOverrides());
+  return publicFeature(effective(item,row?.value,await legacyOverrides(),item.parent_id && !row?.value?.published ? await resolve(item.parent_id) : null,await Promise.all((item.instruction_sources||[]).map(resolve))));
 }
 async function checkProvider(config) {
   if(!config?.integration_id)return;
@@ -102,6 +143,8 @@ async function checkProvider(config) {
   if(provider.type!=='llm'||!provider.is_active)throw fail('Select an active LLM integration.',422);
 }
 async function mutate(id, body, actor, mode) {
+  if (!['draft','publish','rollback'].includes(mode)) throw fail('Unsupported AI configuration action.');
+  if (definition(id).runtime_status === 'reserved') throw fail('This reserved profile has no model invocation to configure.',422);
   if(definition(id).transport==='embedding')throw fail('Embedding models follow the Knowledge Assistant integration to preserve document/query index compatibility. Manage them in Backend integrations.',422);
   if (!body || !Number.isSafeInteger(body.expected_revision) || body.expected_revision<0) throw fail('An expected revision is required.');
   const config=mode==='rollback'?null:validate(body.config,id);
@@ -119,6 +162,11 @@ async function mutate(id, body, actor, mode) {
       const historical=mode==='rollback'?await db.prepare('SELECT value FROM app_settings WHERE key = ?').get(`ai_feature_version:${id}:${body.version}`):null;
       const restored=mode==='rollback'?historical?.value?.config||current.history.find(v=>v.version===body.version)?.config:config;
       if(!restored)throw fail('The selected historical version is unavailable.',404);
+      // Early records kept reviewed snapshots inline. Archive them before
+      // reducing history to metadata, so publication cannot erase rollback data.
+      for(const snapshot of (current.history||[]).slice(0,30))if(snapshot.config&&Number.isSafeInteger(snapshot.version)&&snapshot.version>0) {
+        await db.prepare('INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(key) DO NOTHING').run(`ai_feature_version:${id}:${snapshot.version}`,snapshot);
+      }
       const version={config:validate(adaptStored(definition(id),restored),id),version:(current.published?.version||0)+1,at:new Date().toISOString(),actor_id:actor.actorId};
       await db.prepare('INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(key) DO NOTHING').run(`ai_feature_version:${id}:${version.version}`,version);
       await checkProvider(version.config);
@@ -138,7 +186,8 @@ async function publishedOverrides() {
 }
 async function metrics() {
   const obs=require('../src/obsDb');
-  const result=await obs.pool.query({text:`SELECT feature,operation,COUNT(*)::integer calls,
+  const result=await obs.pool.query({text:`SELECT feature,operation,capture->>'configuration_version' AS configuration_version,COUNT(*)::integer calls,
+    COUNT(*) FILTER(WHERE status='succeeded')::integer successes,
     COUNT(*) FILTER(WHERE status IN ('failed','invalid'))::integer failures,
     COUNT(*) FILTER(WHERE status='invalid')::integer invalid,
     COUNT(*) FILTER(WHERE correction_of IS NOT NULL)::integer corrections,
@@ -148,18 +197,19 @@ async function metrics() {
     COALESCE(SUM(CASE WHEN usage->>'total_tokens' ~ '^[0-9]{1,16}$' THEN (usage->>'total_tokens')::bigint ELSE 0 END),0)::text total_tokens,
     COUNT(*) FILTER(WHERE usage->>'total_tokens' IS NULL)::integer usage_unknown
     FROM llm_request_traces WHERE started_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours' AND expires_at > CURRENT_TIMESTAMP
-    GROUP BY feature,operation ORDER BY calls DESC LIMIT 250`,values:[],query_timeout:4000});
+    GROUP BY feature,operation,capture->>'configuration_version' ORDER BY calls DESC LIMIT 250`,values:[],query_timeout:4000});
   return {items:result.rows,window_hours:24,retention_days:14,trace_storage:require('../src/utils/llmTraceCapture').diagnostics(),note:'Provider transport outcomes, not semantic quality scores. Unknown token usage is reported separately.'};
 }
 module.exports={list,detail,resolve,mutate,metrics,publishedOverrides,featureId,validate,catalog,hash};
 
 module.exports.optimize = async (id, input, actor) => {
+  if (definition(id).runtime_status === 'reserved') throw fail('This reserved profile has no model invocation to optimize.',422);
   if(input.integration_id!=null&&(typeof input.integration_id!=='string'||!input.integration_id.trim()||input.integration_id.length>128))throw fail('Invalid optimizer integration.');
   const config=validate(input.config,id);
   const selection=require('@hellotest/integration/backend/services/aiLlmSelection.service');
   const integration=await selection.resolveLlmIntegrationForUsage({userId:actor.actorId,usageKey:'ai.admin.prompt_optimization',integrationId:input.integration_id||undefined,allowMissing:true});
   if(!integration)throw fail('Configure an active LLM integration before optimizing a prompt.',422);
-  const safe=require('../src/security/aiTextPolicy').sanitizeAiText(JSON.stringify({feature:{id,label:definition(id).label,domain:definition(id).group},configuration:{role:config.role,domain:config.domain,task:config.task,prompt:config.prompt,guardrails:config.guardrails,output_schema:config.output_schema}})).text;
+  const safe=require('../src/security/aiTextPolicy').sanitizeAiText(JSON.stringify({feature:{id,label:definition(id).label,domain:definition(id).group},configuration:{role:config.role,domain:config.domain,task:config.task,prompt:config.prompt,guardrails:config.guardrails,instruction_blocks:config.instruction_blocks,output_schema:config.output_schema}})).text;
   const base=String(integration.base_url||'https://api.openai.com/v1').replace(/\/+$/,'');
   const response=await require('../src/utils/llmTraceContext').run({actor_id:actor.actorId,project_id:null},()=>require('../src/utils/llmHttpClient').fetchLlmWithRetry(/\/chat\/completions$/.test(base)?base:`${base}/chat/completions`,{
     method:'POST',headers:{'Content-Type':'application/json',...(integration.api_key?{Authorization:`Bearer ${integration.api_key}`}:{})},body:JSON.stringify({model:integration.model,response_format:{type:'json_object'},messages:[{role:'user',content:safe}]})
@@ -167,8 +217,10 @@ module.exports.optimize = async (id, input, actor) => {
   if(!response.ok)throw require('../src/utils/upstreamLlmError').createLlmProviderError({status:response.status,detail:await response.text()});
   let value;try{value=JSON.parse(require('../src/utils/llmResponse').getCompletionContent(await response.json()).trim().replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,''));}catch{throw fail('The optimizer returned invalid JSON. No configuration was changed.',502);}
   const fields=['role','task','domain','prompt','guardrails'];
-  if(!value?.proposal || Object.keys(value.proposal).some(key=>!fields.includes(key)) || fields.some(key=>typeof value.proposal[key]!=='string') || typeof value.summary!=='string' || value.summary.length>2000 || !Array.isArray(value.changes) || value.changes.length>20 || value.changes.some(item=>typeof item!=='string'||item.length>1000))throw fail('The optimizer returned an unsupported proposal. No configuration was changed.',502);
-  const proposal=validate({...config,...value.proposal},id);
+  if(!value?.proposal || Object.keys(value.proposal).some(key=>!fields.includes(key)&&key!=='instruction_blocks') || fields.some(key=>typeof value.proposal[key]!=='string') || typeof value.summary!=='string' || value.summary.length>2000 || !Array.isArray(value.changes) || value.changes.length>20 || value.changes.some(item=>typeof item!=='string'||item.length>1000))throw fail('The optimizer returned an unsupported proposal. No configuration was changed.',502);
+  const edits=value.proposal.instruction_blocks;
+  if(edits!=null && (typeof edits!=='object'||Array.isArray(edits)||Object.keys(edits).some(key=>!Object.hasOwn(config.instruction_blocks,key))))throw fail('The optimizer cannot introduce instruction templates.',502);
+  const proposal=validate({...config,...value.proposal,instruction_blocks:{...config.instruction_blocks,...edits}},id);
   await require('./adminPortal.service').recordAudit({...actor,action:'ai_configuration.optimize',targetType:'ai_feature',targetId:id,summary:`Prepared optimization suggestions for ${definition(id).label}.`,metadata:{fingerprint:hash(config)}});
   return {proposal,summary:value.summary,changes:value.changes,trace_id:response.headers.get('x-hellotest-llm-trace-id'),published:false};
 };

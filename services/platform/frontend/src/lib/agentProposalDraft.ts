@@ -4,6 +4,7 @@ const PREFIX = 'hellotest.agent-proposal.';
 type ProposalEnvelope = { projectId: string; appTypeId: string; createdAt: number; artifact: AgentStructuredArtifact };
 // Keep sensitive proposal text out of URLs; this is an unsaved draft, never write authority.
 export function stageAgentProposal(artifact: AgentStructuredArtifact, projectId: string, appTypeId: string) {
+  if (artifact.kind === 'run') throw new Error('Accept the reviewed Run draft in Agent Studio before opening it in Runs.');
   if (!projectId) throw new Error('Select the proposal’s project before continuing.');
   const id = crypto.randomUUID();
   window.sessionStorage.setItem(PREFIX + id, JSON.stringify({ projectId, appTypeId, createdAt: Date.now(), artifact }));

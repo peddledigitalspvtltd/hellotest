@@ -12,20 +12,21 @@ const authorizeFreshEvidence = async ({ projectId, user, hits, asOf, signal = ex
   const permissionService = require("@hellotest/platform/backend/services/permission.service");
   const projectService = require("@hellotest/platform/backend/public/projectAccess");
   const unavailable = () => ({ allowed: [], denied_ids: hits.map((hit) => hit.evidence_id || hit.citation?.id || hit.chunk_id || hit.id), partial: hits.length > 0 });
+  let canReadKnowledge = false;
   try {
-    const [canReadKnowledge] = await Promise.all([
+    [canReadKnowledge] = await Promise.all([
       permissionService.hasPermission(user, "knowledge.view", projectId),
       projectService.getProject(projectId, user?.id)
     ]);
     checkActive();
-    if (!canReadKnowledge) return unavailable();
   } catch (error) {
     if (error.statusCode === 403 || error.statusCode === 404) return unavailable();
     throw error;
   }
   const live = hits.filter((hit) => (hit.source_kind || hit.citation?.source_kind) === "live_project");
   const indexed = hits.filter((hit) => !live.includes(hit));
-  const result = await knowledgeAuthorization.getEvidenceAccess({ projectId, user, evidence: indexed, asOf, signal });
+  const result = canReadKnowledge ? await knowledgeAuthorization.getEvidenceAccess({ projectId, user, evidence: indexed, asOf, signal })
+    : { allowed: [], denied_ids: indexed.map(hit => hit.evidence_id || hit.citation?.id || hit.chunk_id || hit.id), partial: indexed.length > 0 };
   checkActive();
   if (!live.length) return result;
   const { getOptionalEvidenceAccess } = require("@hellotest/platform/backend/services/optionalEvidenceAccess.service");
@@ -36,7 +37,8 @@ const authorizeFreshEvidence = async ({ projectId, user, hits, asOf, signal = ex
     "object-repository": ["automation.view"], bugs: ["feedback.view"]
   };
   const corePermissions = { stories: ["requirement.view"], "test-cases": ["testcase.view"], runs: ["run.view"], "execution-context": [] };
-  const permissionAccess = await getOptionalEvidenceAccess(user, projectId, [...new Set(Object.values(livePermissions).flat())]);
+  const storySupportPermissions = ['comment.view', 'attachment.view'];
+  const permissionAccess = await getOptionalEvidenceAccess(user, projectId, [...new Set([...Object.values(livePermissions).flat(), ...storySupportPermissions])]);
   checkActive();
   for (const hit of live) {
     const sourceId = hit.source_id || hit.citation?.source_id || "";
@@ -49,7 +51,8 @@ const authorizeFreshEvidence = async ({ projectId, user, hits, asOf, signal = ex
       let snapshot;
       try { snapshot = JSON.parse(String(hit.content || "")); } catch { /* Legacy citation. */ }
       const declared = snapshot?.evidence_permissions;
-      if (Array.isArray(declared) && declared.length && declared.every(permission => requirements.includes(permission))) {
+      const allowedDeclarations = scope === 'stories' ? [...requirements, ...storySupportPermissions] : requirements;
+      if (Array.isArray(declared) && declared.length && declared.every(permission => allowedDeclarations.includes(permission))) {
         requirements = [...new Set([...corePermissions[scope], ...declared])];
       }
     }
@@ -95,6 +98,9 @@ const normalizeAssistantFilters = async ({ projectId, appTypeId, base, override 
     }
   }
   const filters = {};
+  if (Array.isArray(merged.requested_scopes)) filters.requested_scopes = [...new Set(merged.requested_scopes.filter(scope => ['stories','test-cases','runs','bugs','automation','knowledge'].includes(scope)))];
+  if (typeof merged.agent_id === 'string') filters.agent_id = normalizeText(merged.agent_id, 255);
+  if (merged.evidence_scope && typeof merged.evidence_scope === 'object') filters.evidence_scope = Object.fromEntries(['story_id','test_case_id','execution_id','release_id','build','environment_id'].filter(key => typeof merged.evidence_scope[key] === 'string' && merged.evidence_scope[key].trim()).map(key => [key, normalizeText(merged.evidence_scope[key], 255)]));
   if (collectionIds.length) filters.collection_ids = collectionIds;
   const sourceKinds = [...new Set(asArray(merged.source_kinds).map((value) => normalizeText(value, 80)).filter(Boolean))].slice(0, 20);
   if (sourceKinds.length) filters.source_kinds = sourceKinds;
@@ -259,7 +265,7 @@ const retrieveDirect = (input) => execution.run({ signal: input.signal || execut
   execution.emit("QUERY_RECEIVED", "completed");
   if (filters.as_of) await knowledgeAuthorization.assertHistoricalAccess(input.user, input.projectId);
   const started = Date.now();
-  const planning = await require("./knowledgeIntentPlanning.service").planIntent({ request, user: input.user,
+  const planning = Array.isArray(filters.requested_scopes) && !filters.requested_scopes.length ? {mode:"disabled",plan:null,reason:"NO_REQUESTED_CONTEXT"} : await require("./knowledgeIntentPlanning.service").planIntent({ request, user: input.user,
     integration: input.integration, integrationId: input.integrationId, history: input.history, signal: input.signal || execution.current()?.signal });
   const intentModelCalls = Number(execution.current().modelStats.calls || 0);
   const retrievalRequest = { ...request, budgets: { ...request.budgets,

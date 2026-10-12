@@ -1071,6 +1071,10 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
             <article data-priority={finding.priority || "info"} key={`${finding.title}:${index}`}>
               <header><strong>{finding.title}</strong><span>{finding.priority || "info"}</span></header>
               <p>{finding.detail}</p>
+              {(finding.observation || finding.gap || finding.proposed_action) && <dl className="agent-finding-facts">{[
+                ['Observed evidence', finding.observation], ['Coverage / quality gap', finding.gap], ['Impact', finding.impact],
+                ['Proposed change', finding.proposed_action], ['Acceptance check', finding.acceptance_check],
+              ].filter(([,value]) => value).map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
               {finding.citation_ids?.length ? <small>{finding.citation_ids.length} supporting reference{finding.citation_ids.length === 1 ? "" : "s"}</small> : <small>Evidence gap · verify before use</small>}
             </article>
           ))}</div>

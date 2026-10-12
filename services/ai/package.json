@@ -20,6 +20,7 @@
     "./backend/services/aiTestDataGeneration.service": "./backend/services/aiTestDataGeneration.service.js",
     "./backend/services/richTextAi.service": "./backend/services/richTextAi.service.js",
     "./backend/services/storyReadiness.service": "./backend/services/storyReadiness.service.js",
+    "./backend/services/storyGherkin.service": "./backend/services/storyGherkin.service.js",
     "./backend/workers": "./backend/workers.js",
     "./client": "./frontend/api.client.ts",
     "./frontend/api.client": "./frontend/api.client.ts",
@@ -58,7 +59,10 @@
     "./backend/services/qualityRecordSchema": "./backend/services/qualityRecordSchema.js",
     "./backend/services/qualityGraphChanges": "./backend/services/qualityGraphChanges.js",
     "./backend/services/automationRepair.service": "./backend/services/automationRepair.service.js",
-    "./frontend/components/AutomationRepairReview": "./frontend/components/AutomationRepairReview.tsx"
+    "./frontend/components/AutomationRepairReview": "./frontend/components/AutomationRepairReview.tsx",
+    "./frontend/components/AiTestCaseStepTable": "./frontend/components/AiTestCaseStepTable.tsx",
+    "./frontend/components/AiTestCaseDraftFields": "./frontend/components/AiTestCaseDraftFields.tsx",
+    "./frontend/lib/draftReadiness": "./frontend/lib/draftReadiness.ts"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs ai",

@@ -2,8 +2,8 @@ const integrations = require('@hellotest/integration/backend/services/integratio
 const { resilientHttpRequest } = require('@hellotest/platform/backend/src/utils/resilientHttpClient');
 const { SERVICE_ERROR_CODES } = require('@hellotest/platform/backend/src/utils/serviceErrors');
 
-const MAX_ARCHIVE_BYTES = 20 * 1024 * 1024;
-const DOWNLOAD_BUDGET_MS = 60_000;
+const MAX_ARCHIVE_BYTES = require("./catalog").LIMITS.max_archive_bytes;
+const DOWNLOAD_BUDGET_MS = 180_000;
 const API_ORIGIN = 'https://api.github.com';
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 
@@ -57,7 +57,7 @@ function normalizeGithubSource(source) {
 function throwIfAborted(signal, timedOut) {
   if (!signal.aborted) return;
   throw timedOut()
-    ? sourceError('GitHub download exceeded 60 seconds. Retry, or upload a repository ZIP smaller than 20 MB.', 504, 'REPOSITORY_SOURCE_TIMEOUT')
+    ? sourceError('GitHub download exceeded the download budget. Retry, or upload a repository ZIP within the configured storage quota.', 504, 'REPOSITORY_SOURCE_TIMEOUT')
     : sourceError('Repository download was cancelled.', 499, 'REPOSITORY_SOURCE_CANCELLED');
 }
 
@@ -148,7 +148,7 @@ function normalizeArchiveRedirect(location, source, sha) {
  * https://docs.github.com/en/rest/commits/commits#get-a-commit
  * https://docs.github.com/en/rest/repos/contents#download-a-repository-archive-zip
  */
-async function downloadGithubSource(input, { signal: externalSignal, projectId } = {}) {
+async function downloadGithubSource(input, { signal: externalSignal, projectId, diskBacked = false } = {}) {
   const source = normalizeGithubSource(input);
   const controller = new AbortController();
   let timedOut = false;
@@ -182,7 +182,7 @@ async function downloadGithubSource(input, { signal: externalSignal, projectId }
         maxConcurrent: 2,
         baseDelayMs: 100,
         maxDelayMs: 500,
-        bufferResponse: true
+        bufferResponse: !archive || !diskBacked
       });
     };
     const repoApi = `${API_ORIGIN}/repos/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}`;
@@ -214,6 +214,10 @@ async function downloadGithubSource(input, { signal: externalSignal, projectId }
     }
     if (!archive.ok) throw httpFailure(archive, 'archive');
     throwIfAborted(signal, didTimeOut);
+    if (diskBacked) {
+      const file = await require('./archiveTransfer').spoolArchive(require('node:stream').Readable.fromWeb(archive.body), { signal });
+      return { file, source: { type: 'github', name: source.name, repository_url: source.repository_url, ref, commit_sha: sha } };
+    }
     const buffer = Buffer.from(await archive.arrayBuffer());
     throwIfAborted(signal, didTimeOut);
     if (buffer.length < 4 || ![0x04034b50, 0x06054b50].includes(buffer.readUInt32LE(0))) {
@@ -222,11 +226,11 @@ async function downloadGithubSource(input, { signal: externalSignal, projectId }
     return { buffer, source: { type: 'github', name: source.name, repository_url: source.repository_url, ref, commit_sha: sha } };
   } catch (error) {
     if (error?.code === SERVICE_ERROR_CODES.RESPONSE_TOO_LARGE) {
-      throw sourceError('The repository download exceeds its size limit (20 MB for ZIP archives). Upload a smaller source archive.', 413, 'REPOSITORY_SOURCE_TOO_LARGE');
+      throw sourceError('The repository download exceeds the configured repository storage quota.', 413, 'REPOSITORY_SOURCE_TOO_LARGE');
     }
     throwIfAborted(signal, didTimeOut);
     if (String(error?.code || '').startsWith('REPOSITORY_SOURCE_')) throw error;
-    if (error?.code === SERVICE_ERROR_CODES.TIMEOUT) throw sourceError('GitHub did not respond in time. Retry, or upload a repository ZIP smaller than 20 MB.', 504, 'REPOSITORY_SOURCE_TIMEOUT');
+    if (error?.code === SERVICE_ERROR_CODES.TIMEOUT) throw sourceError('GitHub did not respond in time. Retry, or upload a repository ZIP within the configured storage quota.', 504, 'REPOSITORY_SOURCE_TIMEOUT');
     throw sourceError('The GitHub download could not complete. Check connectivity and retry, or upload a repository ZIP.', 502, 'REPOSITORY_SOURCE_UNAVAILABLE');
   } finally {
     clearTimeout(timeout);

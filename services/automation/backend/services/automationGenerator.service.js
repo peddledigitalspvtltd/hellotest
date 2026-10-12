@@ -1,3 +1,4 @@
+const { buildFeature } = require('./aiAutomationFeaturePolicy');
 const db = require("@hellotest/platform/backend/src/db");
 const { normalizeScheduledAt } = require("@hellotest/platform/backend/src/utils/automationSchedule");
 const obsDb = require("@hellotest/platform/backend/src/obsDb");
@@ -137,12 +138,14 @@ exports.queueGeneratorJob = async ({
   start_url,
   allow_browser_actions = false,
   additional_context,
+  ai_feature,
   test_environment_id,
   test_configuration_id,
   test_data_set_id,
   scheduled_at,
   created_by
 } = {}) => {
+  const selectedFeature = buildFeature(ai_feature);
   const scheduledAt = normalizeScheduledAt(scheduled_at);
   const testCaseId = normalizeText(test_case_id);
 
@@ -191,6 +194,7 @@ exports.queueGeneratorJob = async ({
     start_url: normalizeText(start_url),
     allow_browser_actions: allow_browser_actions === true,
     additional_context: normalizeText(additional_context),
+    ai_feature: selectedFeature,
     test_environment_id: normalizeText(test_environment_id),
     test_configuration_id: normalizeText(test_configuration_id),
     test_data_set_id: normalizeText(test_data_set_id)
@@ -311,6 +315,7 @@ exports.runLeasedJob = async ({ job_id, worker_id, agent_plan, llm_model } = {})
     const result = await aiAutomationBuilderService.buildAutomationForCase({
       test_case_id: payload.test_case_id || job.test_case_id,
       integration_id: payload.integration_id,
+      ai_feature: buildFeature(payload.ai_feature),
       created_by: job.created_by,
       start_url: payload.start_url,
       allow_browser_actions: payload.allow_browser_actions === true,

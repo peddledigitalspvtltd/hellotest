@@ -62,6 +62,14 @@ test('a stalled MCP read returns a context gap within its budget and cancels the
  const result=await traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(request('help'),{mcpContextTimeoutMs:20}));
  assert.equal(signal.aborted,true);assert.match(JSON.parse(result.body).messages[1].content,/missing evidence as a gap/);
 });
+test('configured item and context budgets disclose omitted evidence and required empty evidence fails closed',async()=>{
+ const instance=gateway(async()=>({packet:{project_id:'p',evidence:Array.from({length:6},(_,i)=>({evidence_id:'e'+i,content:'evidence '.repeat(30)}))}}));
+ const result=await traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(request('refunds'),{mcpContextPolicy:{mode:'mcp',max_items:2,token_budget:256}}));
+ const text=JSON.parse(result.body).messages[1].content,packet=JSON.parse(text.slice(text.indexOf('\n')+1));
+ assert.ok(packet.evidence.length<=2);assert.ok(packet.omitted_evidence_count>=4);assert.match(packet.limitations.join(' '),/omitted/);
+ const empty=gateway(async()=>({packet:{project_id:'p',evidence:[]}}));
+ await assert.rejects(traces.run({actor_id:'a',project_id:'p'},()=>empty.enrichChatRequest(request('refunds'),{mcpContextPolicy:{mode:'mcp',required:true}})),{code:'AI_MCP_CONTEXT_REQUIRED'});
+});
 
 test('user cancellation stops enrichment instead of proceeding to the model with a gap',async()=>{
  let entered;const started=new Promise(resolve=>entered=resolve);

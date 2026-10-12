@@ -11,10 +11,10 @@ import zipfile
 from collections import Counter
 from pathlib import PurePosixPath
 
-MAX_ARCHIVE_BYTES = 20 * 1024 * 1024
-MAX_SOURCE_BYTES = 40 * 1024 * 1024
+MAX_ARCHIVE_BYTES = max(20 * 1024 * 1024, int(os.environ.get("REPOSITORY_ARCHIVE_QUOTA_BYTES", 1024 * 1024 * 1024)))
+MAX_SOURCE_BYTES = 128 * 1024 * 1024
 MAX_FILE_BYTES = 512 * 1024
-MAX_FILES = 3000
+MAX_FILES = 30000
 MAX_INPUT_BYTES = 64 * 1024 * 1024
 SOURCE_EXTENSIONS = {
     '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json', '.yaml', '.yml',
@@ -135,9 +135,9 @@ def load_sources(payload):
             selected_candidates += 1
             total_bytes += size
             if selected_candidates > MAX_FILES:
-                raise SourceError('A source may contain at most 3,000 eligible files.')
+                raise SourceError('A source may contain at most 30,000 eligible files.')
             if total_bytes > MAX_SOURCE_BYTES:
-                raise SourceError('Expanded eligible source exceeds the 40 MB limit.')
+                raise SourceError('Expanded eligible source exceeds the configured 128 MB source processing budget.')
         return path, reason
 
     def append(path, data):
@@ -157,7 +157,7 @@ def load_sources(payload):
     if has_files:
         files = payload['files']
         if not isinstance(files, list) or len(files) > MAX_FILES:
-            raise SourceError('files must be an array of at most 3,000 source files.')
+            raise SourceError('files must be an array of at most 30,000 source files.')
         for item in files:
             if not isinstance(item, dict) or not isinstance(item.get('content'), str):
                 raise SourceError('Each source file requires a path and text content.')
@@ -166,10 +166,20 @@ def load_sources(payload):
             if not reason:
                 append(path, data)
     else:
-        import io
-        data = read_regular(payload['archive_path'], MAX_ARCHIVE_BYTES)
+        # Open the server-owned archive directly. ZIP members are decompressed
+        # individually; dependency/binary entries never occupy source memory.
+        flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)
         try:
-            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            fd = os.open(payload['archive_path'], flags)
+        except (OSError, TypeError) as exc:
+            raise SourceError('The server-controlled archive could not be read safely.') from exc
+        handle = os.fdopen(fd, 'rb')
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_ARCHIVE_BYTES:
+            handle.close()
+            raise SourceError('The archive exceeds the configured storage quota.')
+        try:
+            with handle, zipfile.ZipFile(handle) as archive:
                 infos = archive.infolist()
                 if len(infos) > MAX_FILES * 2:
                     raise SourceError('Archive contains too many entries.')

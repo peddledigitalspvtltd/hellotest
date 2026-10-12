@@ -17,3 +17,17 @@ test('browser decisions support bounded scroll/hover/wait/back/assertions withou
  for(const value of [{action:'scroll',direction:'down'},{action:'hover',element_id:'element-1'},{action:'wait'},{action:'back'},{action:'assert_text',text:'Observed content'}])assert.equal(f.decision({...value,summary:'Reviewed action'},observation,request.target_url).action,value.action);
  for(const value of [{action:'scroll',direction:'sideways'},{action:'hover',element_id:'invented'},{action:'evaluate',code:'fetch(private)'},{action:'assert_text',text:'Bearer private-token'}])assert.throws(()=>f.decision({...value,summary:'Bad action'},observation,request.target_url));
 });
+
+test('browser task outcomes keep useful tables and reject fabricated observation quotes',()=>{
+ const f=fixture(null);
+ const outcome={title:'Observed checkout facts',summary:'The visible checkout exposes a menu.',columns:['Control','Observed state'],rows:[{cells:['Menu','Visible'],evidence:{sequence:1,quote:'Menu'}}]};
+ const result=f.decision({action:'complete',summary:'Requested controls reviewed',outcome},observation,request.target_url);
+ assert.equal(result.outcome.rows[0].evidence.url,request.target_url);
+ assert.deepEqual(result.outcome.rows[0].cells,['Menu','Visible']);
+ assert.throws(()=>f.decision({action:'complete',summary:'Reviewed',outcome:{...outcome,rows:[{cells:['Payment','Successful'],evidence:{sequence:1,quote:'Payment succeeded'}}]}},observation,request.target_url),error=>error.code==='QUALITY_AGENT_OUTCOME_INVALID');
+ assert.throws(()=>f.decision({action:'click',element_id:'element-1',summary:'Open menu',outcome},observation,request.target_url));
+ const previous={...observation,sequence:1,text:'Order total: 25',elements:[]};
+ const second={...observation,sequence:2};
+ const historyOutcome={...outcome,rows:[{cells:['Total','25'],evidence:{sequence:1,quote:'Order total: 25'}}]};
+ assert.equal(f.decision({action:'complete',summary:'Reviewed two pages',outcome:historyOutcome},second,request.target_url,[previous]).outcome.rows[0].evidence.sequence,1);
+});

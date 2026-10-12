@@ -25,3 +25,7 @@
 .quality-mission-report{padding:20px;margin:16px 0;border:1px solid var(--app-border);border-radius:12px;overflow-wrap:anywhere}.quality-mission-report li{padding:8px}.quality-mission-report small{display:block;color:var(--app-text-muted)}
 
 .quality-mission-settings label:has(input[type=checkbox]){flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:flex-start}.quality-mission-settings input[type=checkbox]{width:16px;min-width:16px;height:16px;min-height:16px;flex:0 0 16px;padding:0;margin:0}
+
+.quality-mission-outcome-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.quality-mission-outcome-table th, .quality-mission-outcome-table td { text-align: start; vertical-align: top; padding: 12px; border-bottom: 1px solid var(--border); min-width: 120px; }
+.quality-mission-outcome-table blockquote { margin: 8px 0; color: var(--text-muted); white-space: pre-wrap; }

@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { readdirSync, existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 const files = [];
@@ -10,7 +10,7 @@ function walk(directory) {
 }
 const servicesRoot = fileURLToPath(new URL('../../../../', import.meta.url));
 for (const item of readdirSync(servicesRoot, { withFileTypes: true })) {
-  if (item.isDirectory()) walk(join(servicesRoot, item.name, 'frontend'));
+  if (item.isDirectory() && existsSync(join(servicesRoot, item.name, 'frontend'))) walk(join(servicesRoot, item.name, 'frontend'));
 }
 // Source-inspection tests identify a component by name, independent of its owner.
 export function sourceFile(name, layer) {

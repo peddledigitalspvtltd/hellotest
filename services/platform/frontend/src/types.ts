@@ -2912,7 +2912,7 @@ export type QualityEvidenceReport = {
 };
 
 export type AutomationRepairSummary = {id?:string;project_id?:string;status:string;detail:string;patch?:{before:string;after:string;rationale:string;hash:string}};
-export type AgentStructuredArtifact = {target_id?:string;target_revision?:number;kind:"story"|"test_case"|"defect";title:string;description:string;priority:string;citation_ids:string[];acceptance_criteria?:string[];prerequisites?:string[];steps?:Array<{action:string;expected_result:string}>;reproduction_steps?:string[];expected_result?:string;actual_result?:string;severity?:string};
+export type AgentStructuredArtifact = {target_id?:string;target_revision?:number;kind:"story"|"test_case"|"defect"|"run";title:string;description:string;priority:string;citation_ids:string[];acceptance_criteria?:string[];authoring_mode?:"structured"|"gherkin";gherkin_document?:string;test_case_ids?:string[];exit_criteria?:string[];prerequisites?:string[];requirement_ids?:string[];test_data?:string[];cleanup?:string[];steps?:Array<{action:string;expected_result:string;step_type?:"web"|"api"|"android"|"ios"}>;reproduction_steps?:string[];expected_result?:string;actual_result?:string;severity?:string};
 export type AgenticAssistantResult = {
   artifacts?: AgentStructuredArtifact[];
   model_call_records?: Array<{name:string;trace_id:string|null;status:string;attempt:number}>;
@@ -2936,6 +2936,7 @@ export type AgenticAssistantResult = {
   response: string;
   activity_summary: string;
   findings?: Array<{
+    observation?: string; gap?: string; impact?: string; proposed_action?: string; acceptance_check?: string;
     title: string;
     detail: string;
     priority?: "critical" | "high" | "medium" | "low" | "info" | string;

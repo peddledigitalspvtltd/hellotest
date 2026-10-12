@@ -7,7 +7,7 @@ function createQualityAgentService(deps) {
   let processing=false,accepting=true;
   const publicRun=row=>{
     const m=row.metadata,r=m.request;
-    return {id:m.id,transaction_id:row.id,project_id:row.project_id,app_type_id:row.app_type_id||null,kind:r.kind,target_url:r.target_url,goal:r.goal,options:r.options,mission_report:m.mission_report,reviewed_plan:r.reviewed_plan,plan:r.reviewed_plan,status:m.run_status,outcome:m.outcome||null,created_at:iso(row.created_at),updated_at:iso(row.updated_at),started_at:iso(m.started_at||row.started_at),completed_at:iso(m.completed_at||row.completed_at),stages:m.stages||[],findings:m.findings||[],metrics:m.metrics||{},limitations:m.limitations||[],error:m.error||null,cancellation_requested:Boolean(m.cancellation_requested),baseline_id:r.baseline_id,artifacts:(m.artifacts||[]).map(a=>({...a,download_path:`/agentic-quality/runs/${m.id}/artifacts/${a.id}`}))};
+    return {id:m.id,transaction_id:row.id,project_id:row.project_id,app_type_id:row.app_type_id||null,kind:r.kind,target_url:r.target_url,goal:r.goal,options:r.options,mission_outcome:m.mission_outcome,mission_report:m.mission_report,reviewed_plan:r.reviewed_plan,plan:r.reviewed_plan,status:m.run_status,outcome:m.outcome||null,created_at:iso(row.created_at),updated_at:iso(row.updated_at),started_at:iso(m.started_at||row.started_at),completed_at:iso(m.completed_at||row.completed_at),stages:m.stages||[],findings:m.findings||[],metrics:m.metrics||{},limitations:m.limitations||[],error:m.error||null,cancellation_requested:Boolean(m.cancellation_requested),baseline_id:r.baseline_id,artifacts:(m.artifacts||[]).map(a=>({...a,download_path:`/agentic-quality/runs/${m.id}/artifacts/${a.id}`}))};
   };
   const publicBaseline=row=>{
     const m=row.metadata;
@@ -64,10 +64,10 @@ function createQualityAgentService(deps) {
       }
       if (!goal && !steps.length) steps=[{id:'step-1',label:'Verify the selected page',action:'assert_url',url:target_url}];
       if (goal && !steps.length && !options.mission) limitations.push('This goal has no executable steps yet. Add concrete selectors and observable assertions before running.');
-    } else limitations.push('This preset executes its published bounded checks. The goal provides review context and does not add arbitrary browser actions.');
+    } else if (!options.mission) limitations.push('This preset executes its published bounded checks. The goal provides review context and does not add arbitrary browser actions.');
     if(grounding.length)limitations.push('Suggestions use authorized saved Object Repository locators. Their current DOM matches remain unverified.');
     if(options.mission) {limitations.splice(0,limitations.length,'The agent observes the current browser before each action. Review the target, credential reference, submission policy and execution limits.');}
-    return {kind:input.kind,target_url,goal,steps,options,source,generation_mode,grounding,limitations,review_required:true};
+    return {...C.contextSelection(input),kind:input.kind,target_url,goal,steps,options,source,generation_mode,grounding,limitations,review_required:true};
   }
   async function createRun(input,user,{requestKey}={}) {
     const request=C.normalizeLaunch(input);
@@ -127,11 +127,13 @@ function createQualityAgentService(deps) {
         // Recheck identity/scope after model latency and before releasing the browser action.
         const sequence=engine.decision_request.sequence;
         if(!await store.checkpoint(row,{engine_run_id:engine.id,run_status:engine.state,stages:engine.stages,mission_report:engine.mission_report,metrics:engine.metrics,findings:engine.findings,artifacts:engine.artifacts,limitations:engine.limitations}))return;
-        const decision=m.last_decision?.sequence===sequence?m.last_decision.decision:await decideMission(r,actor,engine.decision_request,engine.mission_report?.actions||[],{session_id:row.id});
-        if(!await store.checkpoint(row,{last_decision:{sequence,decision}}))return;
+        const observations = [...(m.mission_observations || []).filter(item => item.sequence !== sequence), require('./browserMissionPlanner').observation(engine.decision_request,r.target_url)].slice(-12);
+        const decision=m.last_decision?.sequence===sequence?m.last_decision.decision:await decideMission(r,actor,engine.decision_request,engine.mission_report?.actions||[],{session_id:row.id,observations});
+        if(!await store.checkpoint(row,{last_decision:{sequence,decision},mission_observations:observations,...(decision.outcome?{mission_outcome:decision.outcome}:{})}))return;
         const current=await store.findRun(m.id);if(!current||terminal(current.metadata.run_status))return;
         const activeActor=await workerUser(row.created_by);await scope(row.project_id,row.app_type_id,activeActor,'agentic_workflow.run');
-        await engineRequest(connection,`/runs/${engine.id}/decision`,{sequence:engine.decision_request.sequence,scope:{project_id:row.project_id,app_type_id:row.app_type_id||null},decision},{operation:'quality-agent.decision'});
+        const {outcome:reviewedOutcome,...browserDecision} = decision;
+        await engineRequest(connection,`/runs/${engine.id}/decision`,{sequence:engine.decision_request.sequence,scope:{project_id:row.project_id,app_type_id:row.app_type_id||null},decision:browserDecision},{operation:'quality-agent.decision'});
       }
       patch={engine_run_id:engine.id,run_status:engine.state,outcome:engine.outcome,stages:engine.stages,findings:engine.findings,metrics:engine.metrics,artifacts:engine.artifacts,mission_report:engine.mission_report,limitations:engine.limitations,started_at:engine.started_at||null,completed_at:engine.finished_at||null,error:engine.error?{code:C.text(engine.error.code,100),message:C.text(engine.error.message,1000)}:null};
       status=engine.state==='cancelled'?'failed':engine.state;

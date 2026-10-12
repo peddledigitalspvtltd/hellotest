@@ -196,7 +196,12 @@
     "./shared/aiFeatureCatalog.json": "./shared/aiFeatureCatalog.json",
     "./shared/aiPromptDefaults.json": "./shared/aiPromptDefaults.json",
     "./shared/metricCatalog.json": "./shared/metricCatalog.json",
-    "./backend/services/metricGovernance.service": "./backend/services/metricGovernance.service.js"
+    "./backend/services/metricGovernance.service": "./backend/services/metricGovernance.service.js",
+    "./shared/agentContextPolicies.json": "./shared/agentContextPolicies.json",
+    "./shared/agentEvidenceScopeFields.json": "./shared/agentEvidenceScopeFields.json",
+    "./shared/aiPromptTemplateCatalog.json": "./shared/aiPromptTemplateCatalog.json",
+    "./backend/src/utils/aiGenerationContext": "./backend/src/utils/aiGenerationContext.js",
+    "./backend/src/utils/aiGenerationContracts": "./backend/src/utils/aiGenerationContracts.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs platform",

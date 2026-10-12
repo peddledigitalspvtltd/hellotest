@@ -3,7 +3,7 @@ import { AI_REQUEST_TIMEOUT_MS } from "@hellotest/platform/frontend/src/platform
 import type { RepositoryAgentCatalog, RepositoryAgentPublishResult, RepositoryAgentRun, RepositoryAgentRunInput, RepositoryAgentRunPage } from "./agents/agentTypes";
 import type { AgenticAssistantMode, AgenticAssistantSessionResponse, AgenticAssistantSavedSessionResponse, AgenticWorkflow, AgenticWorkflowRun, AgenticWorkflowReadiness, RecorderSessionResponse, WorkspaceTransaction } from "@hellotest/platform/frontend/src/types";
 import { resolveServiceBase } from "@hellotest/platform/frontend/src/platform/lib/serviceEndpoints";
-import { API_BASE_URL, request, requestBlob, requestForm, toQueryString } from "@hellotest/platform/frontend/src/lib/httpClient";
+import { API_BASE_URL, readRequestSession, request, requestBlob, requestForm, toQueryString } from "@hellotest/platform/frontend/src/lib/httpClient";
 
 import type { AgentDefinition, ProjectAgent } from "./agents/agentDefinitions";
 import type { QualityAgentBaseline, QualityAgentCatalog, QualityAgentKind, QualityAgentLaunch, QualityAgentPlan, QualityAgentPlanInput, QualityAgentRun } from "./lib/qualityAgentContracts";
@@ -18,7 +18,7 @@ type AgenticApiAgentTestInput = {
   credential?: Record<string, unknown> | null;
 };
 
-export type AgentProposalReceipt = { id: string; kind: 'story' | 'test_case' | 'defect'; updated: boolean; proposal_index: number; saved: boolean; reused?: boolean };
+export type AgentProposalReceipt = { id: string; kind: 'story' | 'test_case' | 'defect' | 'run'; updated: boolean; proposal_index: number; saved: boolean; reused?: boolean };
 export const agenticApi = {
   agentProposals: {
     list: (sessionId: string) => request<Array<{ proposal_index: number; receipt: AgentProposalReceipt }>>(`/agentic-assistant/sessions/${encodeURIComponent(sessionId)}/proposals`, { cache: 'no-store' }),
@@ -34,6 +34,26 @@ export const agenticApi = {
     authorize: (projectId:string,id:string,digest:string) => request(`/agentic-workflows/mcp/plans/${encodeURIComponent(id)}/authorize`,{method:"POST",body:JSON.stringify({project_id:projectId,digest})}),
   },
   qualityAgents: {
+    stream: async (id: string, onProgress: (run: QualityAgentRun) => void, signal: AbortSignal) => {
+      const path = `/agentic-quality/runs/${encodeURIComponent(id)}/events`;
+      const session = readRequestSession();
+      const response = await fetch(`${resolveServiceBase(path, API_BASE_URL)}${path}`, { headers: session.token ? { Authorization: `Bearer ${session.token}`, Accept: 'text/event-stream' } : { Accept: 'text/event-stream' }, signal });
+      if (!response.ok || !response.body) throw new Error('Live progress is unavailable.');
+      const reader = response.body.getReader(), decoder = new TextDecoder(); let pending = '';
+      try {
+        while (!signal.aborted) {
+          if (readRequestSession().revision !== session.revision) break;
+          const { done, value } = await reader.read(); if (done) break;
+          pending += decoder.decode(value, { stream: true });
+          if (pending.length > 4 * 1024 * 1024) throw new Error('The progress event exceeded its budget.');
+          let boundary;
+          while ((boundary = pending.indexOf('\n\n')) >= 0) {
+            const event = pending.slice(0,boundary); pending = pending.slice(boundary+2);
+            if (event.startsWith('event: progress\n')) { const run = JSON.parse(event.slice(event.indexOf('data: ')+6)) as QualityAgentRun; if (run.id !== id) throw new Error('Progress belongs to another run.'); onProgress(run); }
+          }
+        }
+      } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    },
     catalog: (scope: { project_id: string; app_type_id?: string }, options?: { signal?: AbortSignal }) => request<QualityAgentCatalog>(`/agentic-quality/catalog${toQueryString(scope)}`, { signal: options?.signal }),
     plan: (input: QualityAgentPlanInput, options?: { signal?: AbortSignal }) => request<QualityAgentPlan>("/agentic-quality/plan", { method: "POST", body: JSON.stringify(input), signal: options?.signal }, AI_REQUEST_TIMEOUT_MS),
     list: (scope: { project_id: string; app_type_id?: string; limit?: number }, options?: { signal?: AbortSignal }) => request<{ items: QualityAgentRun[] }>(`/agentic-quality/runs${toQueryString(scope)}`, { signal: options?.signal, cache: "no-store" }),
@@ -81,11 +101,12 @@ repositoryAgents: {
       request<RepositoryAgentRun>(`/repository-agents/runs/${encodeURIComponent(id)}`, { signal: options?.signal, cache: "no-store" }),
     create: (input: RepositoryAgentRunInput, options?: { signal?: AbortSignal; idempotencyKey?: string }) =>
       request<RepositoryAgentRun>("/repository-agents/runs", { method: "POST", body: JSON.stringify(input), signal: options?.signal, headers: options?.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined }, 120_000),
-    upload: (input: { project_id: string; app_type_id?: string; agent_type: RepositoryAgentRunInput["agent_type"]; file: File }, options?: { signal?: AbortSignal; idempotencyKey?: string }) => {
+    upload: (input: import("./lib/qualityAgentContracts").QualityAgentContext & { goal?: string; project_id: string; app_type_id?: string; agent_type: RepositoryAgentRunInput["agent_type"]; file: File }, options?: { signal?: AbortSignal; idempotencyKey?: string }) => {
       const formData = new FormData();
       formData.set("project_id", input.project_id);
       if (input.app_type_id) formData.set("app_type_id", input.app_type_id);
       formData.set("agent_type", input.agent_type);
+      formData.set("context", JSON.stringify({ llm_integration_id: input.llm_integration_id, goal: input.goal, context_scopes: input.context_scopes, evidence_scope: input.evidence_scope, smart_context: input.smart_context }));
       formData.set("file", input.file);
       return requestForm<RepositoryAgentRun>("/repository-agents/runs", formData, options);
     },

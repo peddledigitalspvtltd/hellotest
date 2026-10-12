@@ -173,20 +173,9 @@ const buildAiAnalysisPrompt = (report) => {
     aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.4"),
     "{",
     aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.5"),
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.6"),
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.7"),
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.8"),
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.9"),
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.30"),
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.10"),
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.31"),
     "}",
     "",
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.32"),
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.11"),
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.12"),
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.13"),
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.14")
+    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.32")
   ].join("\n");
 };
 

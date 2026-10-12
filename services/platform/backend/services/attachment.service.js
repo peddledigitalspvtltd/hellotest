@@ -217,6 +217,7 @@ const download = async ({ user, id, permissionCode = "attachment.view" }) => {
   await assertExecutionAttachmentAccess({ user, scope, operation: "download" });
   const storedStream = await objectStorage.getObject({ bucket: row.bucket_name, objectName: row.object_name });
   const stream = row.compression === "gzip" ? storedStream.pipe(createGunzip()) : storedStream;
+  if (stream !== storedStream) stream.once('close', () => storedStream.destroy());
   return {
     row,
     stream

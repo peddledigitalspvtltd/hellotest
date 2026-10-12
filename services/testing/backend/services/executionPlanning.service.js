@@ -797,7 +797,6 @@ const buildPrompt = ({
   const isPartialLibrary = candidateCaseCount < sourceCaseCount;
   const prompt = [
     aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.prompt.4"),
-    aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.prompt.5"),
     "",
     [aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.service.prompt.segment.1"),String(appType.name),aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.service.prompt.segment.2"),String(appType.type),aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.service.prompt.segment.3")].join(''),
     [aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.service.prompt.segment.4"),String(DIRECT_CASE_SUITE_NAME),aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.service.prompt.segment.5"),String(DIRECT_CASE_SUITE_ID),aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.service.prompt.segment.6")].join('')
@@ -850,28 +849,15 @@ const buildPrompt = ({
   prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.12"));
   prompt.push(caseCsv);
   prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.13"));
-  prompt.push("");
-  prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.14"));
   prompt.push("{");
   prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.15"));
-  prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.16"));
-  prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.17"));
-  prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.18"));
-  prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.19"));
-  prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.20"));
-  prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.21"));
   prompt.push("}");
   prompt.push("");
   prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.22"));
-  prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.23"));
-  prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.24"));
-  prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.25"));
-  prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.26"));
   if (isPartialLibrary) {
     prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.27"));
   }
   prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.28"));
-  prompt.push(aiInstructionBlock("ai.execution.smart_plan", "executionPlanning.buildPrompt.29"));
 
   return prompt.join("\n");
 };

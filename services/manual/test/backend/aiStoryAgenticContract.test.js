@@ -124,8 +124,14 @@ test("Story evidence uses stable common fields and identifies pointer-only refer
   assert.deepEqual(ranked.map((item) => item.id), ["relevant"]);
 });
 
-test("Gherkin preview skips Stories without explicit criteria and does not invent access", () => {
-  const response = requirementWorkspaceService.previewGherkin({
+test("Gherkin preview skips Stories without explicit criteria and uses a grounded model review", async t => {
+  const review = require('../../../ai/backend/services/structuredReview.service');
+  t.mock.method(review, 'review', async input => {
+    assert.equal(input.usageKey,'ai.requirement.gherkin');
+    return { result: input.validate({requirements:[{client_id:'with-criteria',scenarios:[{gherkin:'Scenario: Export visible rows\nGiven a report showing rows\nWhen the report is exported\nThen A CSV download contains the visible rows',criterion_refs:['with-criteria:AC1']}]}]}),integration:{id:'fixture'},model_execution:{model_calls:1} };
+  });
+  const response = await requirementWorkspaceService.previewGherkin({
+    project_id:'project', user:{id:'reviewer'},
     requirements: [
       { client_id: "no-criteria", title: "Export report", description: "Export a report." },
       { client_id: "with-criteria", title: "Export report", acceptance_criteria: ["A CSV download contains the visible rows."] }

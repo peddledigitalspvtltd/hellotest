@@ -42,6 +42,10 @@ module.exports = async function (fastify) {
   fastify.get("/admin-portal/ai-configuration/:id", { preHandler: [fastify.requireAdmin] }, async (req, reply) => {
     reply.header("Cache-Control", "no-store"); return aiConfiguration.detail(req.params.id);
   });
+  fastify.post("/admin-portal/ai-configuration/:id/preview", { preHandler: [fastify.requireAdmin] }, async (req,reply) => {
+    reply.header('Cache-Control','no-store');
+    return require('../services/aiRequestPreview.service').preview(req.params.id,req.body);
+  });
   for (const mode of ["draft", "publish", "rollback"]) {
     fastify.post(`/admin-portal/ai-configuration/:id/${mode}`, { preHandler: [fastify.requireAdmin] }, (req) =>
       aiConfiguration.mutate(req.params.id, req.body, { actorId: req.user.id, ipAddress: clientIp(req) }, mode));

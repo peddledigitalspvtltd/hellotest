@@ -50,20 +50,32 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
     : Promise.resolve({ allowed: [], denied_ids: [], partial: false });
   const filters = request.filters || {};
   const pinned = array(filters.source_ids).length || array(filters.collection_ids).length;
-  const requestedScopes = unique(array(filters.source_kinds).map(kind => PLAN_SCOPE_BY_SOURCE_KIND[kind]).filter(Boolean));
-  const route = planContext({ prompt: request.query, mode: "chat", history, requestedScopes });
+  const scopedLive = Array.isArray(filters.requested_scopes) && Object.keys(filters.evidence_scope || {}).length > 0;
+  const nativeSourceKinds = unique(array(filters.requested_scopes).flatMap(scope => ({stories:['requirement'],'test-cases':['test_case'],automation:['test_case'],runs:['execution'],bugs:['bug']}[scope] || [])));
+  const requestedScopes = array(filters.requested_scopes).length ? filters.requested_scopes : unique(array(filters.source_kinds).map(kind => PLAN_SCOPE_BY_SOURCE_KIND[kind]).filter(Boolean));
+  const route = planContext({ prompt: request.query, mode: "chat", history, requestedScopes, agentId: filters.agent_id });
   const plannedKinds = unique(array(intentPlan?.source_kinds).map((kind) => String(kind || "").trim().toLowerCase()).filter((kind) => PLAN_SCOPE_BY_SOURCE_KIND[kind]));
   const plannedScopes = unique(plannedKinds.map((kind) => PLAN_SCOPE_BY_SOURCE_KIND[kind]));
-  if (!array(filters.source_kinds).length && !pinned && plannedScopes.length) {
+  if (!array(filters.requested_scopes).length && !array(filters.source_kinds).length && !pinned && plannedScopes.length) {
     route.effective_scopes = unique([...plannedScopes, ...array(route.effective_scopes), "knowledge"]);
     route.priority_scopes = unique([...plannedScopes, ...array(route.priority_scopes)]).filter((scope) => route.effective_scopes.includes(scope));
     route.live_scopes = route.effective_scopes.filter((scope) => scope !== "knowledge");
     route.indexed_source_kinds = unique([...plannedKinds, ...array(route.indexed_source_kinds)]);
   }
+  if (Array.isArray(filters.requested_scopes)) {
+    route.effective_scopes = [...filters.requested_scopes];
+    route.live_scopes = filters.requested_scopes.filter(scope => scope !== 'knowledge');
+    route.priority_scopes = array(route.priority_scopes).filter(scope => filters.requested_scopes.includes(scope));
+    const selectedKinds = { stories: ['requirement'], 'test-cases': ['test_case'], automation: ['test_case'], runs: ['execution'], bugs: ['bug'], knowledge: ['knowledge_item','file','text','chat','url'] };
+    route.indexed_source_kinds = unique(filters.requested_scopes.flatMap(scope => selectedKinds[scope] || []));
+  }
   route.information_needs = unique([...array(intentPlan?.information_needs), ...array(route.information_needs)]).slice(0, 12);
   route.intent_plan_applied = Boolean(plannedKinds.length || array(intentPlan?.queries).length);
   route.query_class = request.query_class;
-  const effectiveFilters = array(filters.source_kinds).length || pinned ? filters : { ...filters, source_kinds: route.indexed_source_kinds };
+  const allowedKinds = new Set(route.indexed_source_kinds || []);
+  const selectedKinds = Array.isArray(filters.requested_scopes) && array(filters.source_kinds).length ? filters.source_kinds.filter(kind => allowedKinds.has(kind)) : filters.source_kinds;
+  const indexedSelectionConflict = Array.isArray(filters.requested_scopes) && array(filters.source_kinds).length > 0 && !array(selectedKinds).length;
+  const effectiveFilters = array(filters.source_kinds).length || pinned ? {...filters,...(Array.isArray(filters.requested_scopes) ? {source_kinds:array(filters.source_kinds).length ? selectedKinds : route.indexed_source_kinds} : {})} : { ...filters, source_kinds: route.indexed_source_kinds };
   const projectScope = { project_id: request.project_id, app_type_id: filters.app_type_id || null, filters: effectiveFilters, context_route: route };
   execution.emit("QUERY_UNDERSTANDING", "completed", { query_class: request.query_class });
   execution.emit("AUTHORIZATION", "started");
@@ -81,12 +93,12 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
   let skippedQueryCount = 0;
   let accessChangedBeforeAssembly = false;
   const searchMode = execution.current()?.searchMode || "hybrid";
-  let initialQueries = [...new Set([request.query, ...array(intentPlan?.queries), smartContext.query, route.retrieval_query].filter(Boolean))]
+  let initialQueries = Array.isArray(filters.requested_scopes) && !filters.requested_scopes.length ? [] : [...new Set([request.query, ...array(intentPlan?.queries), smartContext.query, route.retrieval_query].filter(Boolean))]
     .slice(0, Math.min(5, budget.remaining().queries));
   let queries = initialQueries;
   execution.emit("RETRIEVAL_PLANNING", "completed", { query_count: queries.length });
   while (queries.length && budget.canContinue()) {
-    const liveEnabled = !rounds.length && !pinned && !filters.as_of && budget.remaining().tool_calls >= 2;
+    const liveEnabled = (!Array.isArray(filters.requested_scopes) || array(route.live_scopes).length > 0) && !rounds.length && (!pinned || scopedLive) && !filters.as_of && budget.remaining().tool_calls >= 2;
     if (!budget.consumeRound(queries.length, liveEnabled ? 2 : 1)) break;
     queries.forEach((query) => seen.add(query.toLowerCase()));
     const before = new Set(hits.map(identity));
@@ -97,8 +109,8 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
     try {
       const searchTimeoutMs = stageTime(5_000, authorizationReserveMs * 2);
       const liveTimeoutMs = Math.min(2_500, searchTimeoutMs);
-      const jobs = [stage((signal) => search({ queries, mode: searchMode, projectId: request.project_id, filters: effectiveFilters, integrationId: integration?.id, user, signal, timeoutMs: Math.max(1, searchTimeoutMs - Math.min(50, Math.floor(searchTimeoutMs / 10))), maxCandidates: Math.max(0, budget.limits.max_candidates - candidateCount) }), "INDEXED_SEARCH_TIMEOUT", searchTimeoutMs)];
-      if (liveEnabled) jobs.push(stage((signal) => liveEvidence({ projectId: request.project_id, appTypeId: filters.app_type_id, prompt: request.query, user, route, sourceKinds: effectiveFilters.source_kinds, signal, timeoutMs: liveTimeoutMs }), "LIVE_CONTEXT_TIMEOUT", liveTimeoutMs));
+      const jobs = [indexedSelectionConflict ? Promise.resolve({results:[],errors:[]}) : stage((signal) => search({ queries, mode: searchMode, projectId: request.project_id, filters: effectiveFilters, integrationId: integration?.id, user, signal, timeoutMs: Math.max(1, searchTimeoutMs - Math.min(50, Math.floor(searchTimeoutMs / 10))), maxCandidates: Math.max(0, budget.limits.max_candidates - candidateCount) }), "INDEXED_SEARCH_TIMEOUT", searchTimeoutMs)];
+      if (liveEnabled) jobs.push(stage((signal) => liveEvidence({ projectId: request.project_id, appTypeId: filters.app_type_id, prompt: request.query, user, route, sourceKinds: scopedLive ? nativeSourceKinds : effectiveFilters.source_kinds, evidenceScope: filters.evidence_scope, signal, timeoutMs: liveTimeoutMs }), "LIVE_CONTEXT_TIMEOUT", liveTimeoutMs));
       const settled = await Promise.allSettled(jobs);
       execution.assertActive();
       for (const [index, entry] of settled.entries()) {

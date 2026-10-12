@@ -547,6 +547,7 @@ const ROUTE_PERMISSION_RULES = [
   ["GET", "/agentic-quality/runs", "agentic_workflow.view"],
   ["POST", "/agentic-quality/runs", "agentic_workflow.run"],
   ["GET", "/agentic-quality/runs/:id", "agentic_workflow.view"],
+  ["GET", "/agentic-quality/runs/:id/events", "agentic_workflow.view"],
   ["POST", "/agentic-quality/runs/:id/cancel", "agentic_workflow.run"],
   ["GET", "/agentic-quality/runs/:id/artifacts/:artifactId", "agentic_workflow.view"],
   ["GET", "/agentic-quality/baselines", "agentic_workflow.view"],

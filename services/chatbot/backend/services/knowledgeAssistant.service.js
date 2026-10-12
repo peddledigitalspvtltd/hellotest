@@ -400,14 +400,7 @@ const requestRetrievalPlan = async ({ integration, question, hits = [], history 
       {
         role: "system",
         content: [
-          aiInstructionBlock("ai.knowledge.intent", "knowledgeAssistant.requestRetrievalPlan.2"),
-          aiInstructionBlock("ai.knowledge.intent", "knowledgeAssistant.requestRetrievalPlan.3"),
-          aiInstructionBlock("ai.knowledge.intent", "knowledgeAssistant.requestRetrievalPlan.4"),
-          aiInstructionBlock("ai.knowledge.intent", "knowledgeAssistant.requestRetrievalPlan.5"),
-          aiInstructionBlock("ai.knowledge.intent", "knowledgeAssistant.requestRetrievalPlan.6"),
-          aiInstructionBlock("ai.knowledge.intent", "knowledgeAssistant.requestRetrievalPlan.7"),
-          aiInstructionBlock("ai.knowledge.intent", "knowledgeAssistant.requestRetrievalPlan.8"),
-          aiInstructionBlock("ai.knowledge.intent", "knowledgeAssistant.requestRetrievalPlan.9")
+          aiInstructionBlock("ai.knowledge.intent", "knowledgeAssistant.requestRetrievalPlan.2")
         ].join(" ")
       },
       { role: "user", content: JSON.stringify(data) }
@@ -441,23 +434,7 @@ const requestGroundedAnswer = async ({ integration, question, hits, history = []
     outputSchema: modelRequest.output_schema,
     messages: [
       { role: "system", content: [
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.10"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.11"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.12"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.13"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.14"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.15"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.16"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.17"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.18"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.19"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.20"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.21"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.22"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.23"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.24"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.25"),
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.26")
+        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.10")
       ].join(" ") + aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.27") + JSON.stringify(modelRequest.output_schema) },
       { role: "user", content: JSON.stringify(data) }
     ]
@@ -471,7 +448,7 @@ const requestGroundedAnswer = async ({ integration, question, hits, history = []
       // 30-second attempt previously cancelled otherwise valid completions.
       attemptTimeoutMs: remainingMs,
       messages: repair ? [
-        { ...request.messages[0], content: `${request.messages[0].content} The previous completion did not satisfy the output contract. Return a compact JSON object with status and at most 8 supported_claims; each claim needs statement and nonempty citation_ids copied exactly from context_packet.evidence[].evidence_id. Never set status to answered with uncited claims. If the evidence cannot support an answer, use insufficient_context and explain the missing evidence. Omit presentation. Include only claims supported by the original evidence. Do not repeat the invalid response.` },
+        { ...request.messages[0], content: `${request.messages[0].content} ${aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.contractRepair")}` },
         request.messages[1]
       ] : request.messages
     });
@@ -506,13 +483,7 @@ const requestGroundedVerification = async ({ integration, question, hits, draft,
     {
       role: "system",
       content: [
-        aiInstructionBlock("ai.knowledge.verification", "knowledgeAssistant.requestGroundedVerification.28"),
-        aiInstructionBlock("ai.knowledge.verification", "knowledgeAssistant.requestGroundedVerification.29"),
-        aiInstructionBlock("ai.knowledge.verification", "knowledgeAssistant.requestGroundedVerification.30"),
-        aiInstructionBlock("ai.knowledge.verification", "knowledgeAssistant.requestGroundedVerification.31"),
-        aiInstructionBlock("ai.knowledge.verification", "knowledgeAssistant.requestGroundedVerification.32"),
-        aiInstructionBlock("ai.knowledge.verification", "knowledgeAssistant.requestGroundedVerification.33"),
-        aiInstructionBlock("ai.knowledge.verification", "knowledgeAssistant.requestGroundedVerification.34")
+        aiInstructionBlock("ai.knowledge.verification", "knowledgeAssistant.requestGroundedVerification.28")
       ].join(" ")
     },
     {

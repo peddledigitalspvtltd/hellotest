@@ -14,7 +14,7 @@ async function resolveModel(projectId, userId, integrationId, usageKey = 'ai.age
     if (cause.statusCode === 403) throw cause;
     throw contract.fail(cause.publicMessage || 'The selected model connection is unavailable. Check Integrations.', 'AGENT_MODEL_UNAVAILABLE', 422);
   }
-  if (!integration || !integration.model?.trim() || !integrations.isUsableApiCredential(integration.api_key) || integration.is_active === false) throw contract.fail('An active LLM connection with a model and usable credential is required. Configure it in Integrations.', 'AGENT_MODEL_REQUIRED', 422);
+  if (!integration || !integration.model?.trim() || integration.is_active === false) throw contract.fail('An active LLM connection with a model is required. Configure it in Integrations.', 'AGENT_MODEL_REQUIRED', 422);
   return integration;
 }
 const store = {

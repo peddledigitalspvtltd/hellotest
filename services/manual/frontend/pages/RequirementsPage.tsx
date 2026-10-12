@@ -885,7 +885,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const storyAiScope = JSON.stringify([projectId, appTypeId]);
   const storyAiScopeRef = useRef(storyAiScope);
   storyAiScopeRef.current = storyAiScope;
-  const storyAiRequestRef = useRef({ active: false, scope: storyAiScope, busy: false, jobId: "", includeGherkin: false, integrationId: "" });
+  const storyAiRequestRef = useRef({ active: false, scope: storyAiScope, busy: false, jobId: "", includeGherkin: false, integrationId: "", additionalContext: "" });
   const isCurrentStoryAiRequest = (request: typeof storyAiRequestRef.current) =>
     request.active && storyAiRequestRef.current === request && request.scope === storyAiScopeRef.current;
   const [optimizationFields, setOptimizationFields] = useState({
@@ -1670,6 +1670,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         void api.requirements.previewGherkin({
           project_id: projectId,
           integration_id: request.integrationId || undefined,
+          additional_context: request.additionalContext || undefined,
           requirements: evidencedDraftsForGherkin.map((item) => ({
             client_id: item.client_id,
             title: item.title,
@@ -4340,7 +4341,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     // A new identity prevents any older mutation, poll, or Gherkin response
     // from updating a reopened dialog, a different Story, or another scope.
     storyAiRequestRef.current.active = false;
-    storyAiRequestRef.current = { active, scope: storyAiScopeRef.current, busy: false, jobId: "", includeGherkin: false, integrationId: "" };
+    storyAiRequestRef.current = { active, scope: storyAiScopeRef.current, busy: false, jobId: "", includeGherkin: false, integrationId: "", additionalContext: "" };
     createRequirementGenerationJob.reset();
     previewRequirementCreation.reset();
     previewRequirementOptimization.reset();
@@ -4688,7 +4689,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 	      return;
     }
 
-    const request = { active: true, scope: storyAiScopeRef.current, busy: true, jobId: "", includeGherkin, integrationId };
+    const request = { active: true, scope: storyAiScopeRef.current, busy: true, jobId: "", includeGherkin, integrationId, additionalContext: optimizeContext };
     storyAiRequestRef.current.active = false;
     storyAiRequestRef.current = request;
     previewRequirementOptimization.reset();
@@ -4801,6 +4802,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             project_id: projectId,
             integration_id: integrationId || undefined,
             model: selectedIntegration?.model || undefined,
+            additional_context: request.additionalContext || undefined,
             requirements: [{
               client_id: selectedRequirementForAi!.id,
               title: suggestion.title,

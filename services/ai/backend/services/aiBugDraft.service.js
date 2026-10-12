@@ -416,10 +416,6 @@ const requestLlmDraft = async (integration, input, context, evidenceSources, ima
   const allowedRefs = evidenceSources.map((source) => source.ref);
   const prompt = [
     aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.js.prompt.final.1"),
-    aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.js.prompt.final.2"),
-    aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.js.prompt.final.3"),
-    aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.js.prompt.final.4"),
-    aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.js.prompt.final.5"),
     input.prompt_guidance ? `Workspace editorial guidance (lower priority than the evidence rules above):\n${input.prompt_guidance}` : "",
     [aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.prompt.segment.1"),String(JSON.stringify(allowedRefs)),""].join(''),
     aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.js.prompt.final.6"),

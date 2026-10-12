@@ -8,13 +8,14 @@ export type QualityAgentOptions = {
   budgets?: { navigation_ms?: number; lcp_ms?: number; cls?: number; resource_count?: number; transfer_bytes?: number };
   max_diff_ratio?: number; pixel_threshold?: number;
 };
-export type QualityAgentPlan = {
+export type QualityAgentContext = { llm_integration_id?: string | null; context_scopes?: string[]; evidence_scope?: Record<string,string>; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; };
+export type QualityAgentPlan = QualityAgentContext & {
   kind: QualityAgentKind; target_url: string; goal: string; steps: QualityJourneyStep[];
   options: QualityAgentOptions; generation_mode: "llm" | "deterministic"; source: "model" | "preset";
   limitations: string[]; review_required: true;
   grounding?: Array<{source:"object_repository";id:string;name:string;screen:string;selector:string}>;
 };
-export type QualityAgentLaunch = {
+export type QualityAgentLaunch = QualityAgentContext & {
   project_id: string; app_type_id?: string; integration_id?: string; kind: QualityAgentKind; target_url: string;
   options?: QualityAgentOptions; goal?: string; baseline_id?: string;
   reviewed_plan?: { reviewed: true; goal: string; steps: QualityJourneyStep[] }; idempotency_key?: string;
@@ -25,6 +26,7 @@ export type QualityAgentFinding = { id: string; title: string; severity: "critic
 export type QualityAgentArtifact = { id: string; name: string; type: "screenshot" | "visual_diff" | "report"; content_type: string; bytes: number; sha256: string; download_path: string };
 export type QualityAgentStage = { id: string; label: string; status: "pending" | "running" | "completed" | "failed"; started_at?: string; completed_at?: string };
 export type QualityAgentRun = {
+  mission_outcome?: { title:string;summary:string;columns:string[];rows:Array<{cells:string[];evidence:{sequence:number;quote:string;url:string}}> };
   id: string; transaction_id: string; project_id: string; app_type_id: string | null; kind: QualityAgentKind;
   target_url: string; goal: string; options: QualityAgentOptions; reviewed_plan?: QualityAgentLaunch["reviewed_plan"];
   status: QualityAgentStatus; outcome: null | "passed" | "findings" | "needs_review" | "error"; plan?: QualityAgentLaunch["reviewed_plan"];

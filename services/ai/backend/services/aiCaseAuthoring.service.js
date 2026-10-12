@@ -1,3 +1,5 @@
+const { splitGenerationContext, generationRetrievalQuery } = require('@hellotest/platform/backend/src/utils/aiGenerationContext');
+const { caseOutputSchema, stepOutputSchema } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const aiLlmSelectionService = require("@hellotest/integration/backend/services/aiLlmSelection.service");
 const { normalizeRichText, normalizeTestStepType } = require("@hellotest/platform/backend/src/utils/testStepAutomation");
@@ -166,7 +168,7 @@ const resolveChatCompletionsUrl = (baseUrl) => {
   return `${normalizedBaseUrl.replace(/\/+$/, "")}/chat/completions`;
 };
 
-const requestChatCompletion = async ({ integration, prompt, images = [], fallbackContent, contextState, operation = "case-authoring.generate" }) => {
+const requestChatCompletion = async ({ integration, prompt, images = [], fallbackContent, contextState, featureKey = "ai.case_authoring.full_case", authoringMode = "structured", operation = "case-authoring.generate" }) => {
   const headers = {
     "Content-Type": "application/json"
   };
@@ -202,7 +204,7 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
         messages: [
           {
             role: "system",
-            content: aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.requestChatCompletion.1")
+            content: [aiInstructionBlock(featureKey,"legacy.reviewed"),...(featureKey==="ai.case_authoring.full_case"?[aiInstructionBlock(featureKey,`format.${authoringMode}`)]:[])].join("\n\n")
           },
           {
             role: "user",
@@ -210,7 +212,7 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
           }
         ]
       })
-    }, { integration, operation, contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
+    }, { integration, operation, featureKey, contextRetrievalQuery:generationRetrievalQuery(userContent), contextFallbackContent: fallbackContent, contextFallbackInstructions: aiInstructionBlock(featureKey,"recovery.context_size"), onContextFallback: () => { if (contextState) contextState.reduced = true; } });
   } catch (error) {
     if (error?.name === "AbortError") {
       throw Object.assign(new Error("AI authoring timed out while waiting for the LLM provider"), { statusCode: 504 });
@@ -235,178 +237,24 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
   return messageContent;
 };
 
-const buildPrompt = ({ requirement, appType, currentCase, authoringMode, additionalContext, externalLinks, images }) => {
-  const prompt = [
-    aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.prompt.4"),
-    "",
-    aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.prompt.5"),
-    JSON.stringify(storyAiSnapshot(requirement)),
-    "",
-    [aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.service.prompt.segment.1"),String(appType.name),aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.service.prompt.segment.2"),String(appType.type),aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.service.prompt.segment.3")].join(''),
-    "",
-    aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.prompt.6"),
-    [aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.service.prompt.segment.4"),String(currentCase.title || "Untitled draft"),""].join(''),
-    [aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.service.prompt.segment.5"),String(currentCase.description || "No description yet."),""].join(''),
-    [aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.service.prompt.segment.6"),String(JSON.stringify({ priority: currentCase.priority, status: currentCase.status, test_case_type: currentCase.test_case_type, labels: currentCase.labels, external_references: currentCase.external_references, automation_status: currentCase.automation_status, module_ids: currentCase.module_ids, reviewer_id: currentCase.reviewer_id, review_status: currentCase.review_status, test_data_set_ids: currentCase.test_data_set_ids, test_data_options: currentCase.test_data_options, context_limits: currentCase.context_limits, step_text_truncated: currentCase.step_text_truncated })),""].join(''),
-    [aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.service.prompt.segment.7"),String(currentCase.authoring_mode === "gherkin" ? "Gherkin" : "Structured steps"),""].join(''),
-    [aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.service.prompt.segment.8"),String(authoringMode === "gherkin" ? "Gherkin" : "Structured steps"),""].join('')
-  ];
+const buildPrompt = ({ requirement, appType, currentCase, authoringMode, additionalContext, externalLinks, images }) => JSON.stringify({
+  application_contract:{output_schema:caseOutputSchema(authoringMode),authoring_mode:authoringMode},
+  generation_request:splitGenerationContext(additionalContext),
+  application:{id:appType.id,name:appType.name,type:appType.type},
+  story:storyAiSnapshot(requirement),
+  current_case:currentCase,
+  external_references:externalLinks.map(url=>({url,content_retrieved:false})),
+  reference_images:images.map(image=>({name:image.name}))
+});
 
-  if (currentCase.gherkin_document) {
-    prompt.push("");
-    prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.7"));
-    prompt.push(currentCase.gherkin_document);
-  }
-
-  if (Object.keys(currentCase.parameter_values).length) {
-    prompt.push("");
-    prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.8"));
-    Object.entries(currentCase.parameter_values).forEach(([key, value]) => {
-      prompt.push(`- ${key}: ${value || "(empty)"}`);
-    });
-  } else {
-    prompt.push("");
-    prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.9"));
-  }
-
-  prompt.push("");
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.10"));
-
-  if (currentCase.steps.length) {
-    currentCase.steps.forEach((step) => {
-      prompt.push(`- Step ${step.step_order} [${step.step_type}]: ${step.action || "No action written."}`);
-      prompt.push(`  Expected: ${step.expected_result || "No expected result written."}`);
-    });
-  } else {
-    prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.11"));
-  }
-
-  if (additionalContext) {
-    prompt.push("");
-    prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.12"));
-    prompt.push(additionalContext);
-  }
-
-  if (externalLinks.length) {
-    prompt.push("");
-    prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.13"));
-    externalLinks.forEach((link, index) => {
-      prompt.push(`- Link ${index + 1}: ${link}`);
-    });
-  }
-
-  if (images.length) {
-    prompt.push("");
-    prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.14"));
-    images.forEach((image, index) => {
-      prompt.push(`- Image ${index + 1}: ${image.name}`);
-    });
-  }
-
-  prompt.push("");
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.15"));
-  prompt.push("{");
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.16"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.17"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.18"));
-  prompt.push(`  "authoring_mode": "${authoringMode}",`);
-  prompt.push(`  "gherkin_document": ${authoringMode === "gherkin" ? '"Feature: ...\\n\\nBackground: ...\\n  Given ...\\n\\nScenario Outline: ...\\n  When ...\\n  Then ...\\n\\nExamples:\\n  | variable |\\n  | value |"' : "null"},`);
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.19"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.20"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.21"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.22"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.23"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.24"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.25"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.26"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.27"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.28"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.29"));
-  prompt.push("}");
-  prompt.push("");
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.30"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.31"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.32"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.33"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.34"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.35"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.36"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.37"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.38"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.39"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.40"));
-  if (authoringMode === "gherkin") {
-    prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.41"));
-    prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.42"));
-    prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.43"));
-    prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.44"));
-  } else {
-    prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.45"));
-  }
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.46"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.47"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.buildPrompt.48"));
-
-  return prompt.join("\n");
-};
-
-const buildStepRephrasePrompt = ({ requirement, appType, currentCase, step, additionalContext }) => {
-  const prompt = [
-    aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.prompt.49"),
-    "",
-    aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.prompt.50"),
-    [aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.service.prompt.segment.9"),String(appType.name),aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.service.prompt.segment.10"),String(appType.type),aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.service.prompt.segment.11")].join(''),
-    "",
-    aiInstructionBlock("ai.case_authoring.full_case", "aiCaseAuthoring.prompt.51")
-  ];
-
-  if (requirement) {
-    prompt.push(JSON.stringify(storyAiSnapshot(requirement, { textLimit: 1500, itemLimit: 250, listLimit: 4 })));
-  } else {
-    prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.52"));
-  }
-
-  prompt.push("");
-  prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.53"));
-  prompt.push(`- Title: ${currentCase.title || "Untitled draft"}`);
-  prompt.push(`- Description: ${currentCase.description || "No description yet."}`);
-
-  if (Object.keys(currentCase.parameter_values).length) {
-    prompt.push("");
-    prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.54"));
-    Object.entries(currentCase.parameter_values).forEach(([key, value]) => {
-      prompt.push(`- ${key}: ${value || "(empty)"}`);
-    });
-  }
-
-  prompt.push("");
-  prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.55"));
-  prompt.push(`- Step ${step.step_order} [${step.step_type}]: ${step.action || "No action written."}`);
-  prompt.push(`- Expected: ${step.expected_result || "No expected result written."}`);
-
-  if (additionalContext) {
-    prompt.push("");
-    prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.56"));
-    prompt.push(additionalContext);
-  }
-
-  prompt.push("");
-  prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.57"));
-  prompt.push("{");
-  prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.58"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.59"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.60"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.61"));
-  prompt.push("}");
-  prompt.push("");
-  prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.62"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.63"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.64"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.65"));
-  prompt.push(aiInstructionBlock("ai.case_authoring.step_rephrase", "aiCaseAuthoring.buildStepRephrasePrompt.66"));
-
-  return prompt.join("\n");
-};
+const buildStepRephrasePrompt = ({ requirement, appType, currentCase, step, additionalContext }) => JSON.stringify({
+  application_contract:{output_schema:stepOutputSchema(),step_type:step.step_type},
+  generation_request:splitGenerationContext(additionalContext),
+  application:{id:appType.id,name:appType.name,type:appType.type},
+  story:requirement?storyAiSnapshot(requirement,{textLimit:1500,itemLimit:250,listLimit:4}):null,
+  current_case:{title:currentCase.title,description:currentCase.description,parameter_values:currentCase.parameter_values},
+  selected_step:step
+});
 
 const normalizePreview = (payload, currentCase, fallbackStepType, authoringMode = "structured") => {
   const title = normalizeText(payload?.title) || currentCase.title || null;
@@ -534,10 +382,10 @@ exports.previewCaseAuthoring = async ({
     requirement,
     appType,
     currentCase,
-    authoringMode, additionalContext: undefined,
+    authoringMode, additionalContext,
     externalLinks: [], images: []
   });
-  const content = await requestChatCompletion({ integration, prompt, images: safeImages, fallbackContent, contextState });
+  const content = await requestChatCompletion({ integration, prompt, authoringMode, images: safeImages, fallbackContent, contextState });
   const preview = normalizePreview(extractJsonPayload(content), currentCase, fallbackStepType, authoringMode);
 
   return {
@@ -556,7 +404,7 @@ exports.previewCaseAuthoring = async ({
       name: appType.name
     },
     context_reduced: contextState.reduced,
-    context_reduction_reason: contextState.reduced ? "The provider rejected the full context size. Optional instructions, images and URL pointers were omitted; the Story and existing authored content were preserved. Review against the original requirements before applying." : null,
+    context_reduction_reason: contextState.reduced ? "The provider rejected the full context size. Images and URL pointers were omitted; user instructions, the Story and existing authored content were preserved. Review against the original requirements before applying." : null,
     case: preview
   };
 };
@@ -565,11 +413,13 @@ exports.rephraseTestStep = async ({
   requirement,
   appType,
   integration_id,
+  ai_feature,
   user_id,
   test_case,
   step,
   additional_context
 }) => {
+  if (ai_feature != null && !["ai.case_authoring.step_rephrase", "ai.automation.step_rephrase"].includes(ai_feature)) throw Object.assign(new Error("Unsupported step-rephrase feature."), { statusCode: 400 });
   if (!appType) {
     throw new Error("An app type is required for AI step rephrase");
   }
@@ -600,16 +450,20 @@ exports.rephraseTestStep = async ({
   const integration = await resolveIntegration(integration_id, {
     userId: user_id,
     projectId: appType.project_id || requirement?.project_id,
-    usageKey: "ai.case_authoring.step_rephrase"
+    usageKey: ai_feature || "ai.case_authoring.step_rephrase"
   });
+  const additionalContext = normalizeRichText(additional_context) || '';
+  if (additionalContext.length > 18000) throw Object.assign(new Error('Shorten step guidance to 18,000 characters.'), { statusCode: 422, code: 'AI_INPUT_BUDGET_EXCEEDED' });
   const prompt = buildStepRephrasePrompt({
     requirement,
     appType,
     currentCase,
     step: currentStep,
-    additionalContext: normalizeRichText(additional_context)?.slice(0, 4000)
+    additionalContext
   });
-  const content = await requestChatCompletion({ integration, prompt, operation: "case-authoring.step-rephrase" });
+  const fallbackContent = buildStepRephrasePrompt({ requirement: requirement ? storyAiSnapshot(requirement, { textLimit: 600, itemLimit: 200, listLimit: 4 }) : null,
+    appType, currentCase: { ...currentCase, description: currentCase.description.slice(0, 500) }, step: currentStep, additionalContext });
+  const content = await requestChatCompletion({ integration, prompt, fallbackContent, featureKey: ai_feature || "ai.case_authoring.step_rephrase", operation: "case-authoring.step-rephrase" });
   const rephrasedStep = normalizeStepPreview(extractJsonPayload(content), currentStep, fallbackStepType);
 
   return {
@@ -622,3 +476,5 @@ exports.rephraseTestStep = async ({
     step: rephrasedStep
   };
 };
+
+exports._promptBuilders={buildPrompt,buildStepRephrasePrompt};

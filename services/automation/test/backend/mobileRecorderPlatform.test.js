@@ -35,7 +35,7 @@ function recorderFixture({ steps = [], kind = "unified", configuration = null, r
       getTransaction: async () => transactions[0], updateTransaction: async (id, patch) => Object.assign(transactions[0], patch),
       appendTransactionEvent: async () => undefined
     };
-    if (name.endsWith("/llmHttpClient")) return { fetchLlmWithRetry: async (url, init) => {
+    if (name.endsWith("/resilientHttpClient")) return { resilientHttpRequest: async (url, init) => {
       const body = init.body ? JSON.parse(init.body) : null;
       requests.push({ url, body });
       if (body) recorderSession = { id: "session", platform: body.platform_name, actions: recordingActions };

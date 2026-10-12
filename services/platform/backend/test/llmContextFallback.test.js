@@ -2,8 +2,11 @@ const { sourceFile } = require("./helpers/sourceFile");
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const { expandManagedInstructions } = require('./helpers/managedInstructions');
 const { fetchLlmWithRetry } = require('../src/utils/llmHttpClient');
 const { isContextSizeRejection, buildContextFallbackBody } = require('../src/utils/llmContextFallback');
+const { MCP_CONTEXT_PREFIX } = require('../src/utils/llmContextFallback');
+const { compactEvidenceText } = require('../src/utils/llmContextFallback');
 
 const fullBody = () => JSON.stringify({ model: 'selected-model', temperature: .2, response_format: { type: 'json_object' }, messages: [
   { role: 'system', content: 'Return the required JSON contract. Never invent evidence.' },
@@ -29,6 +32,21 @@ test('a smaller payload preserves model, system instructions and output schema w
   assert.doesNotMatch(compact.messages[1].content, /long description|data:image/);
   assert.equal(buildContextFallbackBody(JSON.stringify({ messages: [{ role: 'tool', content: 'result' }, { role: 'user', content: 'x'.repeat(9000) }] })), null);
   assert.equal(buildContextFallbackBody('{bad json'), null);
+});
+test('size correction retains bounded MCP citation provenance and the original task contract', () => {
+ const original=JSON.parse(fullBody());
+ original.messages.splice(1,0,{role:'user',content:MCP_CONTEXT_PREFIX+JSON.stringify({project_id:'p',evidence:[{evidence_id:'e1',content:'Verified behavior '.repeat(1000),citation:{source_id:'s1',version_hash:'revision-1'}}]})});
+ const fallback=JSON.parse(buildContextFallbackBody(JSON.stringify(original),'User request: cover refunds. Story criteria: reject duplicate refunds.'));
+ const packet=JSON.parse(fallback.messages[1].content.slice(MCP_CONTEXT_PREFIX.length));
+ assert.equal(packet.project_id,'p');assert.equal(packet.evidence[0].evidence_id,'e1');assert.equal(packet.evidence[0].citation.version_hash,'revision-1');
+ assert.equal(packet.evidence[0].excerpt_truncated,true);assert.ok(packet.evidence[0].content.length<=500);
+ assert.match(fallback.messages.at(-1).content,/cover refunds.*reject duplicate refunds/);
+ assert.deepEqual(fallback.response_format,original.response_format);
+});
+test('structured live evidence remains valid JSON when excerpts are compressed', () => {
+ const compact=compactEvidenceText(JSON.stringify({evidence_type:'authoritative_live_story_snapshot',records:Array.from({length:20},(_,i)=>({id:'story-'+i,title:'Refund',description:'Description '.repeat(200),acceptance_criteria:['Reject duplicate refunds']}))}),700);
+ assert.ok(compact.length<=700);const snapshot=JSON.parse(compact);assert.equal(snapshot.evidence_type,'authoritative_live_story_snapshot');assert.equal(snapshot.context_window.bounded,true);
+ assert.ok(compactEvidenceText('x'.repeat(900),500).length<=500);
 });
 
 test('provider 413 receives exactly one smaller retry; a second rejection is returned to the caller', async t => {
@@ -62,7 +80,7 @@ test('provider 413 receives exactly one smaller retry; a second rejection is ret
 });
 
 
-test('Story case generation builds a title-only fallback and retains exact Story mapping', async () => {
+test('Story case generation retains acceptance criteria, user guidance and exact Story mapping in fallback', async () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const vm = require('node:vm');
@@ -76,7 +94,7 @@ test('Story case generation builds a title-only fallback and retains exact Story
       if (id === '@hellotest/knowledge/backend/services/aiKnowledge.service') return { buildKnowledgeContextPackage: async () => ({ knowledge: [{ title: 'Private Context', content: 'KNOWLEDGE DETAIL' }] }) };
       if (id === '@hellotest/integration/backend/services/aiLlmSelection.service') return { resolveLlmIntegrationForUsage: async () => integration };
       if (id === '@hellotest/platform/backend/src/utils/llmHttpClient') return { fetchLlmWithRetry: async (_url, init, options) => {
-        observed = { body: JSON.parse(init.body), fallback: options.contextFallbackContent };
+        observed = { body: JSON.parse(init.body), fallback: expandManagedInstructions(options.contextFallbackContent) };
         options.onContextFallback();
         return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ testCases: [{ title: 'Valid sign in', requirement_refs: ['R1'], steps: [{ action: 'Submit credentials', expected_result: 'Dashboard opens' }] }] }) } }] }), { headers: { 'content-type': 'application/json' } });
       } };
@@ -87,9 +105,12 @@ test('Story case generation builds a title-only fallback and retains exact Story
   assert.match(JSON.stringify(observed.body), /LONG DESCRIPTION/);
   assert.match(JSON.stringify(observed.body), /User sees the account home/);
   assert.match(observed.fallback, /Secure sign in/);
-  assert.match(observed.fallback, /Return up to 3 test cases/);
+  assert.equal(JSON.parse(observed.fallback).application_contract.max_cases,3);
   assert.match(observed.fallback, /requirement_refs/);
-  assert.doesNotMatch(observed.fallback, /LONG DESCRIPTION|User sees the account home|EXTRA CONTEXT|KNOWLEDGE DETAIL|data:image/);
+  assert.match(observed.fallback, /LONG DESCRIPTION/);
+  assert.match(observed.fallback, /User sees the account home/);
+  assert.match(observed.fallback, /EXTRA CONTEXT/);
+  assert.doesNotMatch(observed.fallback, /KNOWLEDGE DETAIL|data:image/);
   assert.equal(result.cases[0].requirement_ids[0], 'story-internal-id');
   assert.equal(result.context_reduced, true);
   const legacy = await exported.previewRequirementsTestCases({ requirements: [{ id: 'legacy-story', title: 'Legacy Story without explicit criteria' }], appType: { id: 'app', name: 'Web', type: 'web' }, max_cases: 1 });

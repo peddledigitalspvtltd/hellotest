@@ -101,15 +101,16 @@ test("both automation queues persist the future due time at their scheduling bou
     getTransaction: async () => ({ id: "transaction", title: "Automation build" }),
     appendTransactionEvent: async () => {}, createTransactionNotification: async () => {}
   };
-  const overrides = { "@hellotest/platform/backend/src/db": database, "@hellotest/platform/backend/src/obsDb": database, "@hellotest/platform/backend/services/workspaceTransaction.service": workspace };
+  const overrides = { "./aiAutomationFeaturePolicy": require('../../../automation/backend/services/aiAutomationFeaturePolicy'), "@hellotest/platform/backend/src/db": database, "@hellotest/platform/backend/src/obsDb": database, "@hellotest/platform/backend/services/workspaceTransaction.service": workspace };
   const batch = loadService("../../../testing/backend/services/batchProcess.service.js", overrides);
   const generator = loadService("../../../automation/backend/services/automationGenerator.service.js", overrides);
   const batchResult = await batch.queueAutomationBuild({ app_type_id: "app", test_case_ids: ["manual"], scheduled_at: future, created_by: "author" });
-  const generatorResult = await generator.queueGeneratorJob({ test_case_id: "manual", scheduled_at: future, created_by: "author" });
+  const generatorResult = await generator.queueGeneratorJob({ test_case_id: "manual", scheduled_at: future, created_by: "author", ai_feature: 'ai.automation.review' });
   assert.equal(batchResult.scheduled_at, future);
   assert.equal(generatorResult.scheduled_at, future);
   assert.equal(writes.find((write) => write.sql.includes("INSERT INTO batch_process_jobs")).values[4], future);
   assert.equal(writes.find((write) => write.sql.includes("INSERT INTO automation_generator_jobs")).values[5].scheduled_at, future);
+  assert.equal(writes.find((write) => write.sql.includes("INSERT INTO automation_generator_jobs")).values[5].ai_feature, 'ai.automation.review');
   assert.equal(transactions.every((transaction) => transaction.metadata.scheduled_at === future), true);
 });
 

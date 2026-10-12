@@ -1,3 +1,4 @@
+import { AgentEvidenceScope } from "../components/AgentEvidenceScope";
 import { createPortal } from "react-dom";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -247,12 +248,12 @@ export function AgenticWorkflowsPage() {
   const llmIntegrationsQuery = useWorkspaceResource(
     ["integrations", "agentic-workflows", "llm", projectId, appTypeId],
     signal => api.integrations.list({ type: "llm" }, { signal }),
-    canViewIntegrations, activeSurface === "workbench" || activeSurface === "workflows" || Boolean(agentEditor)
+    canViewIntegrations, activeSurface === "workbench" || activeSurface === "workflows" || activeSurface === "quality" || activeSurface === "repository" || Boolean(agentEditor)
   );
 
   const projects = asArray(projectsQuery.data);
   const allAppTypes = asArray(appTypesQuery.data);
-  const llmIntegrations = asArray(llmIntegrationsQuery.data).filter((integration) => !isRovoIntegrationId(integration.id));
+  const llmIntegrations = asArray(llmIntegrationsQuery.data).filter((integration) => !isRovoIntegrationId(integration.id) && (!integration.config?.project_id || integration.config.project_id === projectId));
   const scopedAppTypes = allAppTypes.filter((appType) => appType.project_id === projectId);
   const selectedProject = projects.find((project) => project.id === projectId) || null;
   const selectedAppType = scopedAppTypes.find((appType) => appType.id === appTypeId) || null;
@@ -1074,7 +1075,7 @@ export function AgenticWorkflowsPage() {
       />}
 
       <div className="agentic-page-stage">
-      {!draft && !selectedRun && activeSurface === "quality" ? <QualityAgentLab key={`${session?.user.id}:${projectId}:${appTypeId}`} projectId={projectId} appTypeId={appTypeId} scopeLabel={[selectedProject?.name, selectedAppType?.name].filter(Boolean).join(" · ")} userId={session?.user.id || ""} canRun={canRunAgenticWorkflows} canManage={canManageAgenticWorkflows} canCreateDefect={can("feedback.create")} /> : null}
+      {!draft && !selectedRun && activeSurface === "quality" ? <QualityAgentLab key={`${session?.user.id}:${projectId}:${appTypeId}`} projectId={projectId} appTypeId={appTypeId} scopeLabel={[selectedProject?.name, selectedAppType?.name].filter(Boolean).join(" · ")} userId={session?.user.id || ""} canRun={canRunAgenticWorkflows} canManage={canManageAgenticWorkflows} canCreateDefect={can("feedback.create")} integrations={canViewIntegrations ? llmIntegrations : []} /> : null}
       {!draft && !selectedRun && activeSurface === "agents" ? <AgentDirectory key={`${session?.user.id}:${projectId}`} userId={session?.user.id || "anonymous"} onOpenRepository={openRepositoryAgent} onOpenSpecialist={openAgentWorkbench} onOpenQuality={kind => setSearchParams({ view: "workbench", agent: `browser-${kind}`, quality_agent: kind })}
         projectAgents={projectAgents} canManage={Boolean(projectId) && canManageAgenticWorkflows} loading={projectAgentsQuery.isLoading} error={projectAgentsQuery.error instanceof Error ? projectAgentsQuery.error.message : undefined} onRetry={() => void projectAgentsQuery.refetch()}
         onCreate={() => { setAgentEditorError(""); setAgentEditor({}); }} onEdit={agent => { setAgentEditorError(""); setAgentEditor({ agent }); }} onCustomize={agent => { setAgentEditorError(""); setAgentEditor({ initial: agentFromSpecialist(agent.id, agent.name) }); }} /> : null}
@@ -1084,6 +1085,7 @@ export function AgenticWorkflowsPage() {
           projectId={projectId}
           appTypeId={appTypeId}
           scopeLabel={[selectedProject?.name, selectedAppType?.name].filter(Boolean).join(" · ")}
+          integrations={canViewIntegrations ? llmIntegrations : []}
           agentType={repositoryAgentType}
           runId={searchParams.get("run") || ""}
           enabled={isAgenticWorkflowsEnabled}
@@ -1103,8 +1105,8 @@ export function AgenticWorkflowsPage() {
                   agents={agentCatalog} agentId={assistantAgentId} appTypeId={appTypeId} contextScopes={assistantContextScopes}
                   disabled={!projectId || !canRunAgenticWorkflows} integrationId={canViewIntegrations ? assistantIntegrationId : ""} integrations={llmIntegrations.filter(item => item.is_active)}
                   onAgentChange={agentId => { const agent = agentCatalog.find(item => item.id === agentId); if (agent) openAgentWorkbench(agent); }}
-                  evidenceScopeControl={<details className="agent-command-evidence-scope"><summary>Evidence scope</summary><div className="agent-command-evidence-scope__menu"><p>Set exact identifiers when narrowing the review. Missing scope remains unknown.</p>{[["release_id", "Release ID"], ["build", "Exact build"], ["environment_id", "Environment ID"], ["story_id", "Story ID"], ["test_case_id", "Test Case ID"], ["execution_id", "Failed Run ID (repair)"]].map(([key, name]) => <label key={key}><span>{name}</span><input disabled={assistantMutation.isPending} maxLength={255} value={String(agentInputs[key] ?? "")} onChange={event => setAgentInputs(current => ({ ...current, [key]: event.target.value }))} /></label>)}</div></details>}
-                  onContextScopesChange={setAssistantContextScopes} onIntegrationChange={canViewIntegrations ? setAssistantIntegrationId : undefined} onPromptChange={setAssistantPrompt}
+                  evidenceScopeControl={<AgentEvidenceScope scopes={assistantContextScopes} values={agentInputs} disabled={assistantMutation.isPending} onChange={(key, value) => setAgentInputs(current => ({ ...current, [key]: value }))} />}
+                  onContextScopesChange={values => { setAssistantContextScopes(values); setAssistantSmartContext(null); }} onIntegrationChange={canViewIntegrations ? setAssistantIntegrationId : undefined} onPromptChange={setAssistantPrompt}
                   onSmartContextChange={canUseKnowledge ? selection => { setAssistantSmartContext(selection); setAssistantContextScopes(current => current.includes("knowledge") ? current : [...current, "knowledge"]); } : undefined}
                   onSubmit={startAssistantReview} prompt={assistantPrompt} projectId={projectId} running={assistantMutation.isPending}
                   scopeLabel={selectedAppType?.name || selectedProject?.name || "Select a project"} smartContext={assistantSmartContext}

@@ -15,14 +15,28 @@ test('invalid sampling, recursive context, arbitrary config keys and unsafe sche
  const planning=configuration.catalog.find(item=>item.id==='ai.knowledge.intent');assert.throws(()=>configuration.validate({...planning.defaults,context:{...planning.defaults.context,mode:'mcp'}},planning.id),{statusCode:400});
  const key=Object.keys(base.instruction_blocks)[0];assert.throws(()=>configuration.validate({...base,instruction_blocks:{[key]:'incomplete'}},item.id),{statusCode:400});
 });
+test('reserved controls reject publication and optimization instead of advertising active model settings',async()=>{
+ const id='ai.execution.case_triage';
+ await assert.rejects(configuration.mutate(id,{expected_revision:0,config:configuration.catalog.find(item=>item.id===id).defaults},{actorId:'admin'},'publish'),{statusCode:422});
+ await assert.rejects(configuration.optimize(id,{}, {actorId:'admin'}),{statusCode:422});
+});
 test('published controls apply at shared model boundary while preserving task data and images',async()=>{
  const id='ai.requirement.creation',controls={prompt:'Published Story instructions',temperature:0.45,top_p:0.8,max_output_tokens:2048};
  const rt=runtime({[id]:controls});
  const input=request([{role:'system',content:'Required shape: {title:string}'},{role:'user',content:[{type:'text',text:'Checkout task data'},{type:'image_url',image_url:{url:'https://fixture.test/image.png'}}]}],{max_tokens:1000});
  const result=await rt.apply(input,{operation:'requirement.generate'}),body=JSON.parse(result.init.body);
- assert.match(body.messages[0].content,/Published Story instructions/);assert.match(body.messages[0].content,/Required shape/);assert.equal(body.messages[1].content[1].image_url.url,'https://fixture.test/image.png');
+  assert.match(body.messages[0].content,/Published Story instructions/);assert.match(body.messages[0].content,/Required shape/);assert.equal(body.messages[1].content[1].image_url.url,'https://fixture.test/image.png');
+  assert.match(body.messages[0].content,/Honor the user’s explicit instructions/);
  assert.equal(body.temperature,0.45);assert.equal(body.top_p,0.8);assert.equal(body.max_tokens,1000);assert.equal(result.options.traceContext.feature,id);assert.equal(result.options.traceContext.configuration_version,3);
  const negotiated=JSON.parse((await rt.apply(input,{operation:'requirement.generate',sampling:false})).init.body);assert.equal(negotiated.temperature,undefined);assert.equal(negotiated.top_p,undefined);
+});
+test('retrieval queries use artifact data before managed instructions consume the query budget',async()=>{
+ const id='ai.requirement.optimization',base=configuration.catalog.find(item=>item.id===id).defaults,key=Object.keys(base.instruction_blocks)[0];
+ const rt=runtime({[id]:{instruction_blocks:{...base.instruction_blocks,[key]:'Scaffold '.repeat(1500)}}});
+ const result=await rt.apply(request([{role:'user',content:aiInstructionBlock(id,key)+'\n'+JSON.stringify({id:'story-1',title:'Refund boundaries',acceptance_criteria:['Reject duplicate refunds']})+'\nUser guidance: Cover the partial refund.'}]),{operation:'requirement.optimize'});
+ assert.match(result.options.contextRetrievalQuery,/Refund boundaries.*Reject duplicate refunds/s);
+ assert.match(result.options.contextRetrievalQuery,/Cover the partial refund/);
+ assert.doesNotMatch(result.options.contextRetrievalQuery,/Scaffold|HELLOTEST_AI/);
 });
 test('instruction block edits and fallback prompts expand from published versions without unresolved markers',async()=>{
  const id='ai.requirement.optimization',base=configuration.catalog.find(item=>item.id===id).defaults,key=Object.keys(base.instruction_blocks)[0];
@@ -41,6 +55,13 @@ test('specialist profiles and embedding/planning stages resolve independently',(
  assert.equal(configuration.featureId('knowledge.embedding','ai.knowledge.assistant'),'ai.knowledge.embedding');
  assert.equal(configuration.featureId('knowledge.context.plan-intent','ai.knowledge.assistant'),'ai.knowledge.intent');
  assert.equal(configuration.featureId('ai.agentic.story-assurance'), 'ai.agentic.story-assurance');
+});
+test('shared automation transport applies each verified task profile independently',async()=>{
+ const ctx=require('../src/utils/llmTraceContext');
+ for(const id of ['ai.automation.review','ai.automation.gap_analysis','ai.automation.dom_extraction','ai.execution.network_to_api_steps','ai.automation.step_rephrase']){
+  const result=await ctx.run({actor_id:'author',project_id:'project',feature:id},()=>runtime({[id]:{temperature:0.25}}).apply(request([{role:'user',content:'Selected case task data'}]),{operation:id==='ai.automation.step_rephrase'?'case-authoring.step-rephrase':'automation.generate'}));
+  assert.equal(result.options.traceContext.feature,id);assert.equal(JSON.parse(result.init.body).temperature,0.25);
+ }
 });
 test('project-defined agents inherit the managed workflow profile without losing their native instructions',async()=>{
  const rt=runtime(),base=configuration.catalog.find(item=>item.id==='ai.agentic.workflow'),key=Object.keys(base.defaults.instruction_blocks)[0];
@@ -61,3 +82,12 @@ test('managed stage provider uses the verified actor/project and preserves expli
  await ctx.run({actor_id:'u',project_id:'p',integration_explicit:true},()=>rt.apply(input,{operation:'knowledge.context.plan-intent',integration:{id:'explicit-model'}}));assert.equal(selected.length,1);
 });
 test.after(()=>require('../src/db').close());
+
+test('explicit agent retrieval focus survives shared instruction expansion and required preassembled MCP evidence is enforced',async()=>{
+ const id='ai.agentic.browser_decision',base=configuration.catalog.find(item=>item.id===id).defaults,key=Object.keys(base.instruction_blocks)[0];
+ const rt=runtime({[id]:{context:{...base.context,required:true}}});
+ const input=request([{role:'system',content:aiInstructionBlock(id,key)},{role:'user',content:'Observe this browser page'}]);
+ const result=await rt.apply(input,{featureKey:id,contextRetrievalQuery:'User goal: inspect checkout acceptance',mcpContextHandled:{evidence_count:1}});
+ assert.equal(result.options.contextRetrievalQuery,'User goal: inspect checkout acceptance');
+ await assert.rejects(rt.apply(input,{featureKey:id,mcpContextHandled:{evidence_count:0}}),error=>error.code==='AI_MCP_CONTEXT_REQUIRED');
+});

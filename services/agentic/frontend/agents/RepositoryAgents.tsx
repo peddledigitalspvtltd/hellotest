@@ -1,3 +1,10 @@
+import agentContextPolicies from "@hellotest/platform/shared/agentContextPolicies.json";
+import { AgentContextSources } from "../components/AgentContextSources";
+import { AgentEvidenceScope } from '../components/AgentEvidenceScope';
+import { AiLlmSelect } from '@hellotest/ai/frontend/components/AiLlmSelect';
+import { SmartContextWorkbench, type SmartContextSelection } from '@hellotest/ai/frontend/components/SmartContextWorkbench';
+import { smartContextKindsForScopes } from '@hellotest/ai/frontend/lib/smartContext';
+import '../components/AgenticExperience.css';
 import { FormattedText } from "@hellotest/platform/frontend/src/shared/components/FormattedText";
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -136,6 +143,7 @@ function FindingPreview({ finding, group }: { finding: RepositoryAgentFinding; g
 }
 
 type RepositoryAgentsProps = {
+  integrations?: Array<{id:string;name:string;model?:string|null;is_active?:boolean}>;
   projectId: string;
   appTypeId: string;
   scopeLabel: string;
@@ -146,8 +154,15 @@ type RepositoryAgentsProps = {
   onBack: () => void;
 };
 
-export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, runId, enabled, onOpen, onBack }: RepositoryAgentsProps) {
+export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, runId, enabled, onOpen, onBack, integrations = [] }: RepositoryAgentsProps) {
   const { session } = useAuth();
+  const [llmId,setLlmId] = useState('');
+  const [reviewFocus,setReviewFocus] = useState('');
+  const [evidenceScope,setEvidenceScope] = useState<Record<string,unknown>>({});
+  const [smartContext,setSmartContext] = useState<SmartContextSelection | null>(null);
+  const [contextScopes,setContextScopes] = useState<string[]>(agentContextPolicies[agentType].scopes);
+  const contextInput = { llm_integration_id: llmId || undefined, goal: reviewFocus, context_scopes: contextScopes, evidence_scope: Object.fromEntries(Object.entries(evidenceScope).map(([key,value]) => [key,String(value)])), smart_context: smartContext ? { query: smartContext.query, source_ids: smartContext.sourceIds, source_kinds: smartContext.sourceKinds, reviewed_context: smartContext.contextText } : undefined };
+
   const client = useQueryClient();
   const visible = usePageVisibility();
   const agent = REPOSITORY_AGENTS.find((item) => item.id === agentType)!;
@@ -233,7 +248,7 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
     [agentType === "api_tests" ? "contracts_discovered" : agentType === "component_tests" ? "component_count" : agentType === "repository_knowledge" ? "knowledge_count" : "object_count", agentType === "api_tests" ? "API contracts" : agentType === "component_tests" ? "Components" : agentType === "repository_knowledge" ? "Knowledge documents" : "Screens & objects"],
     ["files_skipped", "Files excluded"]
   ] as const).filter(([key]) => typeof summary[key] === "number");
-  const maxBytes = catalog.data?.limits.max_archive_bytes || 20 * 1024 * 1024;
+  const maxBytes = catalog.data?.limits.max_archive_bytes || 1024 * 1024 * 1024;
   const requiresApplication = agentType !== "repository_knowledge";
   const canStart = canRun && Boolean(projectId) && (!requiresApplication || Boolean(appTypeId)) && catalog.data?.runtime.available === true;
 
@@ -249,8 +264,8 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
   };
   const start = useMutation({
     mutationFn: () => sourceType === "zip"
-      ? agenticApi.repositoryAgents.upload({ project_id: projectId, app_type_id: appTypeId || undefined, agent_type: agentType, file: file! }, { signal: mutationController.current.signal, idempotencyKey: launchKey.current.id })
-      : agenticApi.repositoryAgents.create({ project_id: projectId, app_type_id: appTypeId || undefined, agent_type: agentType, source: { type: "github", repository_url: repositoryUrl.trim(), ref: ref.trim() || undefined, integration_id: integrationId || undefined } }, { signal: mutationController.current.signal, idempotencyKey: launchKey.current.id }),
+      ? agenticApi.repositoryAgents.upload({ ...contextInput, project_id: projectId, app_type_id: appTypeId || undefined, agent_type: agentType, file: file! }, { signal: mutationController.current.signal, idempotencyKey: launchKey.current.id })
+      : agenticApi.repositoryAgents.create({ ...contextInput, project_id: projectId, app_type_id: appTypeId || undefined, agent_type: agentType, source: { type: "github", repository_url: repositoryUrl.trim(), ref: ref.trim() || undefined, integration_id: integrationId || undefined } }, { signal: mutationController.current.signal, idempotencyKey: launchKey.current.id }),
     onSuccess: (next) => { if (!mounted.current) return; setMessage(""); refreshRuns(); onOpen(next.agent_type, next.id); }, onError: (error) => reportError(error)
   });
   const cancel = useMutation({
@@ -290,7 +305,7 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
         if (url.protocol !== "https:" || url.hostname !== "github.com" || !/^\/[^/]+\/[^/]+\/?$/.test(url.pathname) || url.username || url.password || url.search || url.hash) throw new Error();
       } catch { reportError(new Error("Enter a GitHub repository URL such as https://github.com/owner/repository. Use a ZIP archive for other hosts.")); return; }
     }
-    const signature = JSON.stringify([projectId, appTypeId, agentType, sourceType, repositoryUrl.trim(), ref.trim(), integrationId, file?.name, file?.size, file?.lastModified]);
+    const signature = JSON.stringify([projectId, appTypeId, agentType, sourceType, repositoryUrl.trim(), ref.trim(), integrationId, file?.name, file?.size, file?.lastModified, contextInput]);
     if (launchKey.current.signature !== signature) launchKey.current = { signature, id: crypto.randomUUID() };
     start.mutate();
   };
@@ -331,6 +346,8 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
         <form className="repository-agent-source-card" onSubmit={submit}>
           <header><span className="repository-agent-symbol">{agent.icon}</span><div><span className="repository-agent-eyebrow">01 · Source</span><h2>Choose your repository</h2></div></header>
           <p>{agent.description}</p>
+          <label>Review focus<textarea maxLength={2000} rows={3} disabled={start.isPending} value={reviewFocus} onChange={event => setReviewFocus(event.target.value)} placeholder="Describe the outcome or boundaries to prioritize" /></label>
+          <div className="agent-command-composer__controls">{hasPermission(session,'integration.view',projectId) && <AiLlmSelect autoSelect={false} integrations={integrations} value={llmId} onChange={setLlmId} disabled={start.isPending} scopeKey={`${projectId}:${appTypeId}`} />}<AgentContextSources values={contextScopes} disabled={start.isPending} onChange={values=>{setContextScopes(values);setSmartContext(null);}}/><AgentEvidenceScope scopes={contextScopes} values={evidenceScope} onChange={(key,value) => setEvidenceScope(current => ({...current,[key]:value}))} disabled={start.isPending} />{hasPermission(session,'knowledge.view',projectId) && <SmartContextWorkbench key={contextScopes.join(",")} projectId={projectId} appTypeId={appTypeId} initialQuery={reviewFocus || agent.description} preferredSourceKinds={smartContextKindsForScopes(contextScopes)} onApply={setSmartContext} buttonClassName="agent-command-smart-context" />}</div>
           <p className="repository-agent-inline-note">Source extraction runs without an LLM. Findings remain proposals until you review and publish them.</p>
           <details className="repository-agent-source-support"><summary>Supported source & limits</summary><p>{SOURCE_GUIDANCE[agentType].supported}</p><small>{SOURCE_GUIDANCE[agentType].limit}</small></details>
           <div className="repository-agent-source-switch" role="group" aria-label="Repository source type">
@@ -396,7 +413,7 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
               <footer className="repository-agent-publish"><div><strong>{effectiveGroup === "objects" ? "Publish to Object Repository" : effectiveGroup === "knowledge" ? "Publish to Knowledge Repo" : effectiveGroup === "components" ? "Component discovery evidence" : "Create draft test cases"}</strong><p>{effectiveGroup === "components" ? "Use these discoveries to review the generated contracts and downloadable specs." : !canPublish ? "Your role can inspect these findings. Publishing requires permission to create the target assets." : !canPublishInScope ? "Select an application before generating an analysis to publish test cases into it." : "Select the findings you have reviewed. Publishing creates assets in the current project and application."}</p></div>{canPublishInScope ? <div className="repository-agent-publish-controls">{effectiveGroup === "test_cases" && hasPermission(session, "testcase.update", projectId) ? <label>Module<select aria-label="Module" value={moduleId} disabled={busy || modules.isLoading} onChange={(event) => setModuleId(event.target.value)}><option value="">No module</option>{asArray(modules.data).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}<button type="button" className="primary-button" disabled={!selectedIds.length || busy || active} onClick={() => publish.mutate()}><IconCheck size={16} aria-hidden="true" />{publish.isPending ? "Publishing…" : `Publish selected${selectedIds.length ? ` (${selectedIds.length})` : ""}`}</button></div> : null}</footer>
             </> : <div className="repository-agent-empty-filter"><h3>No publishable findings were produced</h3><p>Review the analysis workflow and warnings for unsupported frameworks, missing routes or insufficient source evidence. You can try a different repository revision.</p></div>}
           </section> : !active ? <div className="repository-agent-empty-filter">{run.status === "cancelled" ? "This analysis was cancelled. Retry when you are ready." : "No generated findings are available for this analysis."}</div> : null}
-          {run.result?.llm_review && <section className="repository-agent-artifacts"><h3>LLM source review</h3><div aria-label="Complete source review" className="repository-agent-model-output" role="region" tabIndex={0}><FormattedText text={run.result.llm_review.response} /></div>{run.result.llm_review.model_execution && <small>{run.result.llm_review.model_execution.effective_model} · {run.result.llm_review.model_execution.model_calls} model calls</small>}</section>}
+          {run.result?.llm_review && <section className="repository-agent-artifacts"><h3>LLM source review</h3>{(run.result.llm_reviews?.length ? run.result.llm_reviews : [{...run.result.llm_review,batch:1}]).map(review => <details key={review.session_id} open={review.batch === 1}><summary>Review batch {review.batch}</summary><div aria-label={`Source review batch ${review.batch}`} className="repository-agent-model-output" role="region" tabIndex={0}><FormattedText text={review.response} /></div>{review.model_execution && <small>{review.model_execution.effective_model} · {review.model_execution.model_calls} model calls</small>}</details>)}</section>}
           {asArray(run.result?.artifacts).length ? <section className="repository-agent-artifacts"><header><div><h3>Analysis artifacts</h3><p>Download generated contracts and source reports. Test scaffolds require application setup and review before execution.</p></div></header><div>{asArray(run.result?.artifacts).map((artifact) => <button type="button" className="repository-agent-artifact" key={artifact.name} disabled={Boolean(downloading)} onClick={() => void download(artifact.name)}><IconFileCode size={18} aria-hidden="true" /><span>{artifact.name}{typeof artifact.size_bytes === "number" ? <small>{artifact.size_bytes < 1024 ? `${artifact.size_bytes} B` : `${Math.ceil(artifact.size_bytes / 1024)} KB`}</small> : null}</span>{downloading === artifact.name ? <LoadingState label={`Downloading ${artifact.name}`} /> : <IconDownload size={16} aria-hidden="true" />}</button>)}</div></section> : null}
         </>}
       </section>

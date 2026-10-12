@@ -1795,7 +1795,7 @@ export function ExecutionsPage() {
   const attachNetworkAutomationToCase = useMutation({
     mutationFn: ({ testCaseId, network }: { testCaseId: string; network: NonNullable<ExecutionStepWebDetail["network"]> }) =>
       api.testCases.buildAutomation(testCaseId, {
-        additional_context: getPrompt("ai.execution.network_to_api_steps"),
+        ai_feature: "ai.execution.network_to_api_steps",
         captured_actions: [],
         captured_network: network
       })

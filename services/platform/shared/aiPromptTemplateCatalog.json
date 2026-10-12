@@ -1,0 +1,233 @@
+[
+  {
+    "id": "builtin-workflow-evidence-review",
+    "built_in": true,
+    "scope": "workflow_skill",
+    "name": "Evidence review",
+    "description": "Review connected input. Separate observed facts, assumptions and missing evidence. Cite available source identifiers and recommend a concrete next action.",
+    "applies_to": [
+      "agentic_workflows"
+    ],
+    "tags": [
+      "workflow",
+      "skill"
+    ],
+    "instruction_feature": "ai.agentic.workflow",
+    "instruction_key": "template.builtin-workflow-evidence-review"
+  },
+  {
+    "id": "builtin-workflow-acceptance-review",
+    "built_in": true,
+    "scope": "workflow_skill",
+    "name": "Acceptance criteria review",
+    "description": "Assess supplied stories for clear actors, observable acceptance criteria, boundaries and missing rules. Propose testable wording without inventing requirements.",
+    "applies_to": [
+      "agentic_workflows"
+    ],
+    "tags": [
+      "workflow",
+      "skill"
+    ],
+    "instruction_feature": "ai.agentic.workflow",
+    "instruction_key": "template.builtin-workflow-acceptance-review"
+  },
+  {
+    "id": "builtin-workflow-test-design",
+    "built_in": true,
+    "scope": "workflow_skill",
+    "name": "Risk-based test design",
+    "description": "Derive a small prioritized set of scenarios from connected requirements and evidence. Include preconditions, data, actions, expected outcomes and traceability. Identify unsupported details as gaps.",
+    "applies_to": [
+      "agentic_workflows"
+    ],
+    "tags": [
+      "workflow",
+      "skill"
+    ],
+    "instruction_feature": "ai.agentic.workflow",
+    "instruction_key": "template.builtin-workflow-test-design"
+  },
+  {
+    "id": "builtin-story-user-outcome",
+    "built_in": true,
+    "scope": "requirement_creation",
+    "name": "User outcome",
+    "description": "Focused Stories for a user goal and measurable result.",
+    "test_count": 3,
+    "test_format": "Actor, goal, business value and observable acceptance",
+    "applies_to": [
+      "requirements"
+    ],
+    "tags": [
+      "feature",
+      "persona",
+      "acceptance"
+    ],
+    "instruction_feature": "ai.requirement.creation",
+    "instruction_key": "template.builtin-story-user-outcome"
+  },
+  {
+    "id": "builtin-story-business-workflow",
+    "built_in": true,
+    "scope": "requirement_creation",
+    "name": "Business workflow",
+    "description": "Reviewable workflow slices with roles, decisions and outcomes.",
+    "test_count": 3,
+    "test_format": "Workflow slice with business rules and acceptance",
+    "applies_to": [
+      "requirements"
+    ],
+    "tags": [
+      "workflow",
+      "roles",
+      "business rules"
+    ],
+    "instruction_feature": "ai.requirement.creation",
+    "instruction_key": "template.builtin-story-business-workflow"
+  },
+  {
+    "id": "builtin-story-api-integration",
+    "built_in": true,
+    "scope": "requirement_creation",
+    "name": "API and integration",
+    "description": "Stories for evidenced service behavior and data exchange.",
+    "test_count": 2,
+    "test_format": "Service outcome, contract boundaries and acceptance",
+    "applies_to": [
+      "requirements"
+    ],
+    "tags": [
+      "api",
+      "integration",
+      "contract"
+    ],
+    "instruction_feature": "ai.requirement.creation",
+    "instruction_key": "template.builtin-story-api-integration"
+  },
+  {
+    "id": "builtin-story-quality-improvement",
+    "built_in": true,
+    "scope": "requirement_creation",
+    "name": "Quality improvement",
+    "description": "A bounded reliability, accessibility or usability improvement.",
+    "test_count": 1,
+    "test_format": "Observed problem, desired outcome and measurable acceptance",
+    "applies_to": [
+      "requirements"
+    ],
+    "tags": [
+      "reliability",
+      "accessibility",
+      "usability"
+    ],
+    "instruction_feature": "ai.requirement.creation",
+    "instruction_key": "template.builtin-story-quality-improvement"
+  },
+  {
+    "id": "builtin-story-completion-testability",
+    "built_in": true,
+    "scope": "requirement_completion",
+    "name": "Clarify acceptance",
+    "description": "Refine the current Story into clear, testable outcomes.",
+    "test_count": 1,
+    "test_format": "One refined Story with observable acceptance",
+    "applies_to": [
+      "requirements"
+    ],
+    "tags": [
+      "completion",
+      "acceptance",
+      "testability"
+    ],
+    "instruction_feature": "ai.requirement.optimization",
+    "instruction_key": "template.builtin-story-completion-testability"
+  },
+  {
+    "id": "builtin-story-completion-workflow",
+    "built_in": true,
+    "scope": "requirement_completion",
+    "name": "Clarify workflow and scope",
+    "description": "Make the current Story's flow and boundaries explicit.",
+    "test_count": 1,
+    "test_format": "One refined Story with clear flow and boundaries",
+    "applies_to": [
+      "requirements"
+    ],
+    "tags": [
+      "completion",
+      "workflow",
+      "scope"
+    ],
+    "instruction_feature": "ai.requirement.optimization",
+    "instruction_key": "template.builtin-story-completion-workflow"
+  },
+  {
+    "id": "builtin-risk-based-regression",
+    "built_in": true,
+    "scope": "test_case_generation",
+    "name": "Risk based regression pack",
+    "description": "Broad regression coverage for a mature business workflow.",
+    "domain": "Business application",
+    "role": "Senior QA architect",
+    "test_type": "Regression, negative, boundary, and data validation",
+    "test_format": "Manual test cases with clear preconditions, test data, steps, and expected results",
+    "test_count": 8,
+    "applies_to": [
+      "requirements",
+      "test_cases"
+    ],
+    "tags": [
+      "regression",
+      "risk",
+      "negative"
+    ],
+    "instruction_feature": "ai.test_case.design",
+    "instruction_key": "template.builtin-risk-based-regression"
+  },
+  {
+    "id": "builtin-auth-security",
+    "built_in": true,
+    "scope": "test_case_generation",
+    "name": "Auth and access control",
+    "description": "Authentication, authorization, account recovery, and session behavior.",
+    "domain": "Authentication and identity",
+    "role": "Security-minded QA lead",
+    "test_type": "Positive, negative, abuse, session, and permission tests",
+    "test_format": "Concise executable cases grouped by user role and risk",
+    "test_count": 10,
+    "applies_to": [
+      "requirements",
+      "test_cases"
+    ],
+    "tags": [
+      "auth",
+      "security",
+      "roles"
+    ],
+    "instruction_feature": "ai.test_case.design",
+    "instruction_key": "template.builtin-auth-security"
+  },
+  {
+    "id": "builtin-mobile-critical-path",
+    "built_in": true,
+    "scope": "test_case_generation",
+    "name": "Mobile critical path",
+    "description": "Android/iOS friendly cases with device, permission, and interruption thinking.",
+    "domain": "Mobile app",
+    "role": "Mobile QA architect",
+    "test_type": "Functional, interruption, permission, and device compatibility",
+    "test_format": "Mobile-ready manual cases using android/ios step types when helpful",
+    "test_count": 6,
+    "applies_to": [
+      "requirements",
+      "test_cases"
+    ],
+    "tags": [
+      "mobile",
+      "android",
+      "ios"
+    ],
+    "instruction_feature": "ai.test_case.design",
+    "instruction_key": "template.builtin-mobile-critical-path"
+  }
+]

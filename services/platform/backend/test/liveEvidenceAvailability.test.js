@@ -11,7 +11,7 @@ const agent = require("../../../agentic/backend/services/agenticAssistant.servic
 const actor = { id: "reviewer" };
 const projectId = "project-one";
 
-function fixture(t, { grants, flags = {} }) {
+function fixture(t, { grants, flags = {}, support = false }) {
   const queries = [];
   const access = new Set(["knowledge.view", ...grants]);
   const storedFlags = { ...flags };
@@ -33,8 +33,11 @@ function fixture(t, { grants, flags = {} }) {
       if (/FROM test_environments|FROM test_configurations/.test(sql)) return { total: 1 };
       assert.fail("Unexpected context lookup: " + sql);
     },
-    async all() {
+    async all(...params) {
       queries.push(sql);
+      if (/FROM requirement_relations/.test(sql)) { assert.equal(params.at(-1),projectId); return support ? [{ story_id:'story',id:'related-story',title:'Related acceptance',status:'ready',relation:'related' }] : []; }
+      if (/FROM entity_comments/.test(sql)) { assert.equal(params[0],projectId); return [{ story_id:'story',id:'comment',excerpt:'Reviewer confirms refund limits',updated_at:'2026-10-12' }]; }
+      if (/FROM attachments/.test(sql)) { assert.equal(params[0],projectId); return [{ story_id:'story',id:'attachment',file_name:'wireframe.png',mime_type:'image/png',size_bytes:50000 }]; }
       if (/FROM app_types/.test(sql)) return [{ id: "application", name: "Web" }];
       if (/FROM requirements/.test(sql)) return [{ id: "story", title: "Account approval", ...(/AS linked_test_case_count/.test(sql) ? { linked_test_case_count: 1 } : {}) }];
       if (/FROM test_cases/.test(sql)) return [{ id: "case", title: "Review approval", step_count: 0, linked_story_count: 1 }];
@@ -48,6 +51,20 @@ function fixture(t, { grants, flags = {} }) {
   const authorize = async hits => assistant._internals.authorizeFreshEvidence({ projectId, user: actor, hits });
   return { queries, access, flags: storedFlags, build, authorize };
 }
+test('Story supporting evidence uses project permissions, minimal metadata and revocable provenance',async t=>{
+ const state=fixture(t,{grants:['requirement.view','comment.view','attachment.view'],support:true});
+ const result=await state.build('stories');
+ const support=result.hits.find(hit=>JSON.parse(hit.content).evidence_type==='authoritative_live_story_support');
+ assert.ok(support);const snapshot=JSON.parse(support.content);
+ assert.equal(snapshot.related_items[0].id,'related-story');assert.equal(snapshot.comments[0].id,'comment');assert.equal(snapshot.attachments[0].id,'attachment');
+ assert.deepEqual(snapshot.evidence_permissions,['requirement.view','comment.view','attachment.view']);
+ assert.doesNotMatch(support.content,/object_key|author_email|base64/);
+ assert.equal((await state.authorize([support])).allowed.length,1);
+ state.access.delete('comment.view');
+ assert.equal((await state.authorize([support])).allowed.length,0);
+ const base=result.hits.find(hit=>JSON.parse(hit.content).evidence_type==='authoritative_live_story_snapshot');
+ assert.equal((await state.authorize([base])).allowed.length,1);
+});
 
 for (const reason of ["disabled", "denied"]) {
   test(`live Story context remains usable when Test Case evidence is ${reason}`, async t => {
@@ -208,4 +225,17 @@ test("bounding large snapshots preserves all authorization requirements", () => 
     records: Array.from({ length: 200 }, (_, index) => ({ title: `Case ${index}`, detail: "Large content ".repeat(500) }))
   }, 1_500));
   assert.deepEqual(result.evidence_permissions, required);
+});
+
+test('domain-authorized live Story evidence remains usable without Knowledge Repo access; indexed evidence stays denied', async t => {
+  const state = fixture(t, { grants: ['requirement.view'] });
+  state.access.delete('knowledge.view');
+  const packet = await state.build('stories');
+  const story = packet.hits.find(hit => hit.source_id.endsWith('-stories'));
+  assert.ok(story);
+  const indexed = { source_id: 'indexed-source', source_kind: 'text', chunk_id: 'private-fragment', citation: { id: 'private-evidence' }, content: 'Private knowledge' };
+  const authorized = await state.authorize([story, indexed]);
+  assert.equal(authorized.allowed.length, 1);
+  assert.equal(authorized.allowed[0].source_kind, 'live_project');
+  assert.deepEqual(authorized.denied_ids, ['private-evidence']);
 });

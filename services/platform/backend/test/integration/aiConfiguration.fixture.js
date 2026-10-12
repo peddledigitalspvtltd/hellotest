@@ -4,9 +4,21 @@ exports.verify=async({app,db,obsDb,createToken})=>{
  const headers={authorization:'Bearer '+createToken({id:'mcp-a'})};
  const root='/admin-portal/ai-configuration';
  assert.equal((await app.inject({url:root,headers:member})).statusCode,403);
+ assert.equal((await app.inject({method:'POST',url:`${root}/ai.test_case.design/preview`,headers:member,payload:{user_request:'NFR only'}})).statusCode,403);
  await db.prepare("UPDATE users SET is_workspace_admin = TRUE WHERE id = ?").run('mcp-a');
  try{
   const listed=await app.inject({url:root,headers});assert.equal(listed.statusCode,200,listed.body);
+  const caseId='ai.case_authoring.full_case',caseDefinition=require('../../../shared/aiFeatureCatalog.json').find(item=>item.id===caseId);
+  const historical={...caseDefinition.defaults,instruction_format_version:2,prompt:caseDefinition.prompt_default_migrations[0],guardrails:caseDefinition.guardrail_migration.default,instruction_blocks:{...caseDefinition.legacy_instruction_blocks,'platform.requestPolicy':caseDefinition.guardrail_migration.request_policy,'aiCaseAuthoring.buildPrompt.30':'Reviewed NFR measurement guidance.'}};
+  const oldVersion={config:historical,version:1,actor_id:'mcp-a',at:new Date().toISOString()};
+  await db.prepare('INSERT INTO app_settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value').run('ai_feature_configuration:'+caseId,{revision:1,published:oldVersion,history:[oldVersion]});
+  const migrated=await app.inject({url:`${root}/${caseId}`,headers});assert.equal(migrated.statusCode,200,migrated.body);assert.equal(migrated.json().config.instruction_format_version,3);assert.match(migrated.json().config.instruction_blocks['legacy.reviewed'],/Reviewed NFR measurement guidance/);
+  const inspect=await app.inject({method:'POST',url:`${root}/${caseId}/preview`,headers,payload:{config:migrated.json().config,user_request:'Only NFR performance cases using the supplied p95 threshold.'}});
+  assert.equal(inspect.statusCode,200,inspect.body);assert.equal(inspect.headers['cache-control'],'no-store');assert.match(inspect.json().messages[0].content,/Reviewed NFR measurement guidance/);
+  assert.match(JSON.parse(inspect.json().messages.at(-1).content).generation_request.user_request,/Only NFR/);
+  assert.equal((await db.prepare('SELECT value FROM app_settings WHERE key=?').get('ai_feature_configuration:'+caseId)).value.published.config.instruction_format_version,2,'Inspection does not publish or rewrite stored history');
+  const reviewed=await app.inject({method:'POST',url:`${root}/${caseId}/publish`,headers,payload:{expected_revision:1,config:migrated.json().config}});assert.equal(reviewed.statusCode,200,reviewed.body);
+  const restored=await app.inject({method:'POST',url:`${root}/${caseId}/rollback`,headers,payload:{expected_revision:2,version:1}});assert.equal(restored.statusCode,200,restored.body);assert.match(restored.json().config.instruction_blocks['legacy.reviewed'],/Reviewed NFR measurement guidance/);
   const feature=listed.json().features.find(item=>item.id==='ai.requirement.creation'),id=feature.id;
   const config={...feature.config,prompt:'A published Story instruction from administration.',temperature:0.35,max_output_tokens:1024,output_schema:{type:'object',required:['title'],properties:{title:{type:'string'}}}};
   const edit=(mode,body)=>app.inject({method:'POST',url:`${root}/${id}/${mode}`,headers,payload:body});

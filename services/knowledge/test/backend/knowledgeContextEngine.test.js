@@ -236,3 +236,29 @@ test("explicit file scope stays knowledge-only even when the LLM suggests live S
   }));
   assert.deepEqual(selectedScopes, ["knowledge"]); assert.deepEqual(result.route.live_scopes, []);
 });
+
+test('pinned Smart Context sources remain exact while an explicitly scoped Story supplies its native metadata', async () => {
+  let liveInput, searchedFilters;
+  const request = contracts.buildRetrievalRequest({ projectId: 'project-1', query: 'Review checkout acceptance', filters: {
+    requested_scopes: ['stories','knowledge'], agent_id: 'story-assurance', evidence_scope: {story_id:'story-1'}, source_ids:['chosen-source'], source_kinds:['text']
+  } });
+  await execution.run({}, () => engine.retrieve({ request,user:{id:'user-1'},dependencies:fixtures({
+    search:async input=>{searchedFilters=input.filters;return {results:[],errors:[]};},
+    liveEvidence:async input=>{liveInput=input;return {hits:[],counts:{}};}
+  }) }));
+  assert.deepEqual(searchedFilters.source_ids,['chosen-source']);assert.deepEqual(searchedFilters.source_kinds,['text']);
+  assert.deepEqual(liveInput.evidenceScope,{story_id:'story-1'});assert.deepEqual(liveInput.sourceKinds,['requirement']);
+  assert.deepEqual(liveInput.route.live_scopes,['stories']);
+});
+
+test('an explicitly empty agent context selection performs no indexed or live retrieval', async () => {
+  const request=contracts.buildRetrievalRequest({projectId:'project-1',query:'Review supplied input',filters:{requested_scopes:[]}});
+  const result=await execution.run({},()=>engine.retrieve({request,user:{id:'user-1'},dependencies:fixtures({search:async()=>assert.fail('No indexed retrieval'),liveEvidence:async()=>assert.fail('No live retrieval')})}));
+  assert.deepEqual(result.packet.evidence,[]);
+});
+
+test('Smart Context source kinds cannot widen an agent’s explicit domain scopes',async()=>{
+ const request=contracts.buildRetrievalRequest({projectId:'project-1',query:'Review supplied Story evidence',filters:{requested_scopes:['stories'],source_ids:['defect-source'],source_kinds:['bug']}});
+ const result=await execution.run({},()=>engine.retrieve({request,user:{id:'user-1'},dependencies:fixtures({search:async()=>assert.fail('Conflicting source kinds must not be searched'),liveEvidence:async()=>assert.fail('Pinned sources without native entity scope must not be widened')})}));
+ assert.deepEqual(result.packet.evidence,[]);
+});

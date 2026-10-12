@@ -237,11 +237,7 @@ const requestAiDashboard = async ({ integration, projectId, stakeholder, release
           {
             role: "system",
             content: [
-              aiInstructionBlock("ai.quality.dashboard_design", "qualityDashboard.response.1"),
-              aiInstructionBlock("ai.quality.dashboard_design", "qualityDashboard.response.2"),
-              aiInstructionBlock("ai.quality.dashboard_design", "qualityDashboard.response.3"),
-              aiInstructionBlock("ai.quality.dashboard_design", "qualityDashboard.response.4"),
-              aiInstructionBlock("ai.quality.dashboard_design", "qualityDashboard.response.5")
+              aiInstructionBlock("ai.quality.dashboard_design", "qualityDashboard.response.1")
             ].join(" ")
           },
           {

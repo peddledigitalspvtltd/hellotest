@@ -1,3 +1,8 @@
+async function configuredRepairBrief() {
+  const {config}=await require('@hellotest/platform/backend/services/aiConfiguration.service').resolve('ai.automation.locator_repair');
+  const blocks=config.instruction_blocks;
+  return {goal:blocks['engineRepair.goal'],screen_selection:blocks['engineRepair.screen_selection'],correction_policy:blocks['engineRepair.correction_policy'].split('\n').filter(Boolean)};
+}
 const { createInlineArtifactAttacher } = require("../domain/executionArtifacts");
 const db = require("@hellotest/platform/backend/src/db");
 const obsDb = require("@hellotest/platform/backend/src/obsDb");
@@ -1103,16 +1108,7 @@ const buildEngineEnvelope = async ({
         || null
     },
     manual_spec: buildManualSpec({ caseSnapshot, steps, execution }),
-    auto_repair_brief: {
-      goal: "When a web step fails, use the manual_spec intent, detailed_steps, current page screenshot, DOM diagnostics, and object_repository entries to identify the intended next action before retrying or proposing locator/script patches.",
-      screen_selection: "Choose relevant screens from object_repository by matching manual step action, expected result, URL/page identity, and surrounding flow order. Prefer fields on those screens before generic locators.",
-      correction_policy: [
-        "Do not skip manual steps.",
-        "Prefer repository fields with DOM or screenshot evidence.",
-        "If a locator is stale, propose a replacement locator tied to the same screen and object intent.",
-        "If the page state indicates a prerequisite step is incomplete, retry the intended prerequisite action before moving forward."
-      ]
-    },
+    auto_repair_brief: await configuredRepairBrief(),
     hooks: resolveExecutionHooks({
       execution,
       integrationHooks: integrationConfig.execution_hooks,

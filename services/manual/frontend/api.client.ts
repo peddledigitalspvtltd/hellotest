@@ -134,7 +134,7 @@ requirements: {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    previewGherkin: (input: { project_id: string; integration_id?: string; model?: string; requirements: Array<{ client_id?: string; title: string; description: string; acceptance_criteria?: string[] }> }) =>
+    previewGherkin: (input: { project_id: string; integration_id?: string; model?: string; additional_context?: string; requirements: Array<{ client_id?: string; title: string; description: string; acceptance_criteria?: string[] }> }) =>
       request<{ requirements: Array<{ client_id: string; gherkin_scenarios: string[] }>; fallback_used: boolean; fallback_reason?: string | null; validation?: { story_count: number; scenario_count: number; repaired_story_count: number; skipped_story_count?: number; exact_story_draft_used: boolean } }>("/requirements/ai-gherkin-preview", {
         method: "POST",
         body: JSON.stringify(input)

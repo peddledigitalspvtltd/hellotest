@@ -29,6 +29,11 @@ function setupAssistant(t, { model = { name: "Fixture model", model: "test-model
   const events = [];
   const records = [];
   resilience.resetServiceResilienceState();
+  const configuration=require('../services/aiConfiguration.service');
+  t.mock.method(configuration,'resolve',async id=>({config:configuration.catalog.find(item=>item.id===id).defaults}));
+  const retrieval=require('../../../knowledge/backend/services/knowledgeRetrieval.service');
+  t.mock.method(retrieval,'retrieveSearch',async()=>{const packet=await context.buildLiveProjectEvidence();return {results:packet.hits,retrieval:{context_transport:'mcp',live_context_counts:packet.counts}};});
+  t.mock.method(retrieval,'authorizeFreshEvidence',async({hits})=>({allowed:hits,denied_ids:[]}));
   t.mock.method(projects, "getProject", async id => ({ id }));
   t.mock.method(globalThis, "fetch", async (_url, request) => {
     const evidence = JSON.parse(JSON.parse(request.body).messages.at(-1).content).citation_contract;
@@ -78,7 +83,7 @@ test("invalid model output exhausts the bounded repair budget and never becomes 
   const { records } = setupAssistant(t);
   const calls = t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ response: "Unverified result [invented]", citation_ids: ["invented"] }) } }] }), { headers: { "content-type": "application/json" } }));
   await assert.rejects(assistant.respond(input), { code: "AGENT_OUTPUT_INVALID" });
-  assert.equal(calls.mock.callCount(), 2);
+  assert.equal(calls.mock.callCount(), 4);
   assert.equal(records.at(-1).status, "failed");
   assert.equal(records.some(record => record.status === "completed"), false);
 });
@@ -237,7 +242,8 @@ test("specialist repairs one malformed model response without losing the evidenc
     return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { headers: { "content-type": "application/json" } });
   });
   const result = await assistant.respond(input);
-  assert.equal(requests.length, 2);
+  assert.ok(requests.length >= 2 && requests.length <= 4);
+  assert.equal(requests.length, result.result.model_execution.model_calls);
   assert.equal(requests[0].messages.at(-1).content, requests[1].messages.at(-1).content);
   assert.match(requests[1].messages[0].content, /preceding attempt did not meet/);
   assert.equal(result.provenance.generation_mode, "llm");

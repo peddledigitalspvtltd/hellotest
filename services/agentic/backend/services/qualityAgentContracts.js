@@ -82,6 +82,16 @@ function normalizeSteps(steps, url) {
     return next;
   });
 }
+function contextSelection(input = {}) {
+  const ids = value => Array.isArray(value) ? [...new Set(value.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim().slice(0,255)))].slice(0,100) : [];
+  const smart = input.smart_context || {};
+  return { llm_integration_id: text(input.llm_integration_id,255) || null,
+    context_scopes: ids(input.context_scopes || require('@hellotest/platform/shared/agentContextPolicies.json')[`browser-${input.kind}`]?.scopes || []).filter(scope => ['stories','test-cases','automation','runs','bugs','knowledge'].includes(scope)),
+    evidence_scope: Object.fromEntries(['story_id','test_case_id','execution_id','release_id','build','environment_id'].filter(key => text(input.evidence_scope?.[key],255)).map(key => [key,text(input.evidence_scope[key],255)])),
+    smart_context: { query: text(smart.query,2000), source_ids: ids(smart.source_ids), source_kinds: ids(smart.source_kinds).slice(0,20),
+      reviewed_context: require('@hellotest/platform/backend/src/security/aiTextPolicy').sanitizeAiText(text(smart.reviewed_context,12000)).text },
+  };
+}
 function normalizeLaunch(input) {
   if (!KINDS.has(input?.kind)) throw fail('Choose a supported quality agent.');
   const project_id=text(input.project_id,255); if (!project_id || input.project_id.length>255) throw fail('Select a project.');
@@ -95,7 +105,7 @@ function normalizeLaunch(input) {
   }
   if(options.mission&&!goal)throw fail('Describe the browser mission goal.');
   if (input.kind==='web' && goal && !options.mission && !reviewed_plan?.steps.length) throw fail('Review a concrete journey plan for this goal, or run the URL preset without a goal.',422,'QUALITY_AGENT_PLAN_REQUIRED');
-  return {project_id,app_type_id:text(input.app_type_id,255)||null,integration_id:text(input.integration_id,255)||null,kind:input.kind,target_url,goal,options,baseline_id:text(input.baseline_id,255)||null,...(reviewed_plan?{reviewed_plan}:{})};
+  return {...contextSelection(input),project_id,app_type_id:text(input.app_type_id,255)||null,integration_id:text(input.integration_id,255)||null,kind:input.kind,target_url,goal,options,baseline_id:text(input.baseline_id,255)||null,...(reviewed_plan?{reviewed_plan}:{})};
 }
 function validateEngineRun(value, expected) {
   if (!value || value.contract_version!=='1.0' || !STATUS.has(value.state) || value.client_run_id!==expected.id || value.kind!==expected.kind || value.scope?.project_id!==expected.project_id || (value.scope?.app_type_id||null)!==(expected.app_type_id||null) || value.target_url!==expected.target_url || typeof value.id!=='string' || !/^[a-zA-Z0-9_-]{8,128}$/.test(value.id) || (expected.engine_run_id&&value.id!==expected.engine_run_id)) throw fail('The Test Engine returned an invalid or incorrectly scoped run.',502,'QUALITY_AGENT_ENGINE_CONTRACT');
@@ -110,4 +120,4 @@ function validateEngineRun(value, expected) {
   if(value.mission_report){const report=value.mission_report;if(!['running','completed','blocked','limit_reached','cancelled'].includes(report.status)||typeof report.summary!=='string'||report.summary.length>1200||!Array.isArray(report.actions)||report.actions.length>12||report.actions.some(a=>!Number.isSafeInteger(a.sequence)||typeof a.summary!=='string'||a.summary.length>1200||typeof a.url!=='string'||a.url.length>2000))throw fail('The engine returned an invalid mission report.',502,'QUALITY_AGENT_ENGINE_CONTRACT');}
   return value;
 }
-module.exports={AGENTS,LIMITS,KINDS,STATUS,fail,hash,text,hasSensitiveValue,targetUrl,normalizeOptions,normalizeSteps,normalizeLaunch,validateEngineRun};
+module.exports={contextSelection,AGENTS,LIMITS,KINDS,STATUS,fail,hash,text,hasSensitiveValue,targetUrl,normalizeOptions,normalizeSteps,normalizeLaunch,validateEngineRun};

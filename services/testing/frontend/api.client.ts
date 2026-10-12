@@ -307,6 +307,7 @@ testCases: {
       }),
     rephraseStep: (input: {
       app_type_id: string;
+      ai_feature?: "ai.case_authoring.step_rephrase" | "ai.automation.step_rephrase";
       requirement_id?: string;
       integration_id?: string;
       additional_context?: string;
@@ -534,14 +535,14 @@ testCases: {
         method: "PUT",
         body: JSON.stringify({ ...input, screen_name: input.new_name })
       }),
-    buildAutomation: (id: string, input?: { allow_browser_actions?: boolean; integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; captured_actions?: unknown[]; captured_network?: unknown[] }) =>
+    buildAutomation: (id: string, input?: { ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps"; allow_browser_actions?: boolean; integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; captured_actions?: unknown[]; captured_network?: unknown[] }) =>
       request<AutomationBuildResponse>(`/test-cases/${id}/automation/build`, {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
     automationBuildStatus: (transactionId: string) =>
       request<WorkspaceTransaction>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}`),
-    queueAutomationGenerator: (id: string, input?: { allow_browser_actions?: boolean; scheduled_at?: string; integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; ai_requested?: boolean }) =>
+    queueAutomationGenerator: (id: string, input?: { ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps"; allow_browser_actions?: boolean; scheduled_at?: string; integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; ai_requested?: boolean }) =>
       request<BatchQueueResponse>(`/test-cases/${id}/automation/generator-jobs`, {
         method: "POST",
         body: JSON.stringify(input || {})

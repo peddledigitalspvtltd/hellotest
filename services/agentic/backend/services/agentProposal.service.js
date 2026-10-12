@@ -8,7 +8,7 @@ const digest = value => createHash('sha256').update(JSON.stringify(canonical(val
 
 function proposalOperation(original, edited, review, appTypeId, userId) {
   if (!original || edited?.kind !== original.kind || edited?.target_id !== original.target_id) throw fail('The proposal kind and target must match the recorded review.');
-  const targets = original.target_id ? [{ id: original.target_id, revision: original.target_revision, citation_id: original.citation_ids[0] }] : [];
+  const targets = original.target_id ? [{ id: original.target_id, revision: original.target_revision, citation_id: original.citation_ids[0] }] : (original.requirement_ids || original.test_case_ids || []).flatMap(id => original.citation_ids.map(citation_id => ({ id, citation_id, ...(original.kind === 'run' ? { kind: 'test_case' } : {}) })));
   if (original.target_id && (!Number.isInteger(original.target_revision) || original.target_revision < 1)) throw fail('This Story proposal has no recorded revision. Generate a fresh review.', 409);
   let artifact;
   try { [artifact] = normalizeArtifacts([edited], review.citations, targets); } catch { throw fail("The proposal contains invalid fields or unverified citations."); }
@@ -17,8 +17,9 @@ function proposalOperation(original, edited, review, appTypeId, userId) {
   if (artifact.kind === 'story') return { artifact, permission: original.target_id ? 'requirement.update' : 'requirement.create', method: original.target_id ? 'PUT' : 'POST', url: original.target_id ? `/requirements/${encodeURIComponent(original.target_id)}` : '/requirements', payload: { ...common, project_id: projectId, acceptance_criteria: artifact.acceptance_criteria, ...(original.target_id ? { expected_revision: original.target_revision } : {}) } };
   if (artifact.kind === 'test_case') {
     if (!appTypeId) throw fail('Select an application before accepting a Test Case.');
-    return { artifact, permission: 'testcase.create', method: 'POST', url: '/test-cases', payload: { ...common, app_type_id: appTypeId, description: [artifact.description, artifact.prerequisites?.length ? `Prerequisites:\n${artifact.prerequisites.join('\n')}` : ''].filter(Boolean).join('\n\n'), ai_generation_source: 'interactive', steps: artifact.steps.map((step, index) => ({ ...step, step_order: index + 1, step_type: 'manual' })) } };
+    return { artifact, permission: 'testcase.create', method: 'POST', url: '/test-cases', payload: { ...common, app_type_id: appTypeId, description: [artifact.description, artifact.prerequisites?.length ? `Prerequisites:\n${artifact.prerequisites.join('\n')}` : '', artifact.test_data?.length ? `Test data:\n${artifact.test_data.join('\n')}` : '', artifact.cleanup?.length ? `Cleanup:\n${artifact.cleanup.join('\n')}` : ''].filter(Boolean).join('\n\n'), authoring_mode: artifact.authoring_mode, gherkin_document: artifact.gherkin_document, requirement_ids: artifact.requirement_ids, ai_generation_source: 'interactive', steps: artifact.steps.map((step, index) => ({ ...step, step_order: index + 1, step_type: step.step_type || 'manual' })) } };
   }
+  if (artifact.kind === 'run') return { artifact, permission: 'run.create', method: 'POST', url: '/executions', payload: { project_id: projectId, app_type_id: appTypeId || undefined, name: artifact.title, test_case_ids: artifact.test_case_ids, created_by: userId, execution_mode: 'manual' } };
   return { artifact, permission: 'feedback.create', method: 'POST', url: '/feedback', payload: { project_id: projectId, user_id: userId, title: artifact.title, message: artifact.description, priority: artifact.priority, severity: artifact.severity, steps_to_reproduce: artifact.reproduction_steps.join('\n'), expected_result: artifact.expected_result, actual_result: artifact.actual_result } };
 }
 

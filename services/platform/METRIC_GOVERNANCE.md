@@ -1,6 +1,6 @@
 # Metric governance
 
-Administration → **Metric governance** manages the existing 42 metric definitions in grouped families. Seven formulas expose numeric parameters. The workspace Settings editor and its legacy metric write path are retired.
+Administration → **Metric governance** manages the 44 metric definitions in grouped families. Seven formulas expose numeric parameters. The workspace Settings editor and its legacy metric write path are retired.
 
 The editor separates the deterministic definition and numeric formula values from organization review criteria and version history. Native formula structure, project authorization, evidence selection and denominators stay application-enforced. Administrators can change only registered weights, thresholds, limits and bounded review text. Values must satisfy the catalog's range/step constraints; portfolio weights must total exactly 100%. Existing legacy configuration remains effective until publication.
 
@@ -14,5 +14,7 @@ Validation:
 
 - `node --test --test-concurrency=1 services/platform/backend/test/metricGovernance.test.js services/platform/backend/test/portfolioAnalytics.test.js services/platform/backend/test/deliveryPermissionContract.test.js`
 - `npm run test:mcp:postgres` exercises real PostgreSQL/native routes: admin authorization, legacy value preservation, unchanged live values after draft save, invalid formulas/weights, concurrent publication, calculator consumption, rollback, audit and retired preference protection. The database is disposable.
-- `node --test --test-concurrency=1 services/platform/frontend/test/browser/metricGovernance.test.mjs` against the repository Vite server exercises all 42 entries, tab/keyboard navigation, validation, drafts/publication and desktop/mobile overflow. API responses are mocked in this browser test.
+- `node --test --test-concurrency=1 services/platform/frontend/test/browser/metricGovernance.test.mjs` against the repository Vite server exercises all 44 entries, tab/keyboard navigation, validation, drafts/publication and desktop/mobile overflow. API responses are mocked in this browser test.
 - `npm --prefix services/platform/frontend run build:all` and `node scripts/checks/check-service-boundaries.mjs`.
+
+Story backlog and release readiness checklists are included as fixed deterministic metrics. Their organization review criteria appear beside the checklist methodology and use the same published preference contract. Review text cannot change the five-check denominator, content-hash validation, evidence checks, or release approval authority.

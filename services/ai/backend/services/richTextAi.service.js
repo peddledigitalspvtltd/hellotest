@@ -126,14 +126,9 @@ const requestRephrase = async ({ integration, input }) => {
             role: "system",
             content: [
               aiInstructionBlock("ai.content.rephrase", "richTextAi.response.1"),
-              aiInstructionBlock("ai.content.rephrase", "richTextAi.response.2"),
-              aiInstructionBlock("ai.content.rephrase", "richTextAi.response.3"),
-              aiInstructionBlock("ai.content.rephrase", "richTextAi.response.4"),
-              aiInstructionBlock("ai.content.rephrase", "richTextAi.response.5"),
-              input.entityType.toLowerCase() === aiInstructionBlock("ai.content.rephrase", "richTextAi.response.6")
+              input.entityType.toLowerCase() === "project"
                 ? aiInstructionBlock("ai.content.rephrase", "richTextAi.response.7")
-                : aiInstructionBlock("ai.content.rephrase", "richTextAi.response.8"),
-              aiInstructionBlock("ai.content.rephrase", "richTextAi.response.9")
+                : aiInstructionBlock("ai.content.rephrase", "richTextAi.response.8")
             ].join(" ")
           },
           {
@@ -150,7 +145,7 @@ const requestRephrase = async ({ integration, input }) => {
           }
         ]
       })
-    }, { integration, timeoutMs: AI_TIMEOUT_MS, operation: "rich-text.rephrase" });
+    }, { integration, timeoutMs: AI_TIMEOUT_MS, operation: "rich-text.rephrase", featureKey: input.featureKey });
 
     if (!response.ok) {
       const detail = normalizeText(await response.text(), 240);
@@ -194,6 +189,8 @@ exports.rephrase = async ({ user, projectId, content, contentHtml, entityType, e
     ariaLabel: normalizeText(ariaLabel, 160),
     additionalContext: sanitizedContext.text
   };
+  input.featureKey = ['requirement', 'story'].includes(input.entityType.toLowerCase()) && /description/i.test(`${input.fieldLabel} ${input.ariaLabel}`)
+    ? 'ai.requirement.description_rephrase' : 'ai.content.rephrase';
   const safeOriginal = sanitizeAllowedHtml(input.contentHtml || plainTextHtml(input.content));
   let integration = null;
   let generated = safeOriginal;
@@ -202,7 +199,7 @@ exports.rephrase = async ({ user, projectId, content, contentHtml, entityType, e
   try {
     integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
       userId: user?.id,
-      usageKey: "ai.content.rephrase",
+      usageKey: input.featureKey,
       projectId,
       fallback: "project-then-global",
       allowMissing: true

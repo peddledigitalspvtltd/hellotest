@@ -599,16 +599,19 @@ module.exports = async function (fastify) {
       integration_id: { required: false, type: "string" }
     }, req.body || {});
 
+    let projectId = null;
     if (req.body?.app_type_id) {
       const appType = await appTypeService.getAppType(req.body.app_type_id);
       await projectService.getProject(appType.project_id, req.user.id);
+      projectId = appType.project_id;
     } else if (req.user?.role !== "admin") {
       throw new Error("App type scope is required");
     }
 
     return aiAutomationBuilderService.extractRepositoryFields({
       ...(req.body || {}),
-      user_id: req.user.id
+      user_id: req.user.id,
+      project_id: projectId
     });
   });
 
@@ -1009,6 +1012,7 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       integration_id: { required: false, type: "string" },
+      ai_feature: { required: false, type: "string", enum: ["ai.automation.keyword_generation", "ai.automation.review", "ai.automation.gap_analysis", "ai.execution.network_to_api_steps"] },
       allow_browser_actions: { required: false, type: "boolean" },
       start_url: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
@@ -1026,6 +1030,7 @@ module.exports = async function (fastify) {
     return aiAutomationBuilderService.buildAutomationForCase({
       test_case_id: req.params.id,
       integration_id: req.body?.integration_id,
+      ai_feature: req.body?.ai_feature,
       start_url: req.body?.start_url,
       allow_browser_actions: req.body?.allow_browser_actions === true,
       additional_context: req.body?.additional_context,
@@ -1043,6 +1048,7 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       integration_id: { required: false, type: "string" },
+      ai_feature: { required: false, type: "string", enum: ["ai.automation.keyword_generation", "ai.automation.review", "ai.automation.gap_analysis", "ai.execution.network_to_api_steps"] },
       allow_browser_actions: { required: false, type: "boolean" },
       start_url: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
@@ -1060,6 +1066,7 @@ module.exports = async function (fastify) {
       test_case_id: req.params.id,
       scheduled_at: req.body?.scheduled_at,
       integration_id: req.body?.integration_id,
+      ai_feature: req.body?.ai_feature,
       start_url: req.body?.start_url,
       allow_browser_actions: req.body?.allow_browser_actions === true,
       additional_context: req.body?.additional_context,
@@ -1228,6 +1235,7 @@ module.exports = async function (fastify) {
       app_type_id: { required: true, type: "string" },
       requirement_id: { required: false, type: "string" },
       integration_id: { required: false, type: "string" },
+      ai_feature: { required: false, type: "string", enum: ["ai.case_authoring.step_rephrase", "ai.automation.step_rephrase"] },
       additional_context: { required: false, type: "string" },
       test_case: { required: false, type: "object" },
       step: { required: true, type: "object" }
@@ -1247,6 +1255,7 @@ module.exports = async function (fastify) {
       requirement,
       appType,
       integration_id: req.body.integration_id,
+      ai_feature: req.body.ai_feature,
       user_id: req.user.id,
       additional_context: req.body.additional_context,
       test_case: req.body.test_case,
