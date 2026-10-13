@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "test_case_id": "sample-v8-ht-case-story-metadata",
+      "issue_id": "sample-v8-ht-defect-1"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-nfr-user-intent",
+      "issue_id": "sample-v8-ht-defect-2"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-sprint-overdue",
+      "issue_id": "sample-v8-ht-defect-3"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-shared-sections",
+      "issue_id": "sample-v8-ht-defect-4"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-chat-mcp-budget",
+      "issue_id": "sample-v8-ht-defect-5"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-android-offline",
+      "issue_id": "sample-v8-ht-defect-6"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-android-security",
+      "issue_id": "sample-v8-ht-defect-7"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-android-accessibility",
+      "issue_id": "sample-v8-ht-defect-8"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-android-smoke",
+      "issue_id": "sample-v8-ht-defect-9"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-ios-permissions",
+      "issue_id": "sample-v8-ht-defect-10"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-ios-state",
+      "issue_id": "sample-v8-ht-defect-11"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-ios-exploration",
+      "issue_id": "sample-v8-ht-defect-12"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-ios-accessibility",
+      "issue_id": "sample-v8-ht-defect-13"
+    }
+  ]
+}

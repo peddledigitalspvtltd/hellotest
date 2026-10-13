@@ -1,5 +1,8 @@
 # Administration and companion API architecture review
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 Reviewed on 2026-09-18. Scope: all 69 operations registered by the 11 assigned main API modules, plus 46 default companion operations (11 Test Engine server, 18 recorder, 6 OPS, 11 mobile), and configurable OPS aliases. Fastify-generated HEAD handling is implicit. The source-of-truth main route inventory was captured from route registration, not inferred solely from filenames. No production/application database was modified; PostgreSQL verification used a newly created `agent_verify_admin_arch_*` database, removed afterward.
 
 ## Results and measured evidence
@@ -265,7 +268,7 @@ Reviewed `local-run/mobile-engine/src/server.js`, `security.js`, `operational.js
 
 ### Archived execution package
 
-At the time of this review, `apps/hellotest-execution-engine/package.json` marked the package archived, non-deployable and replaced by `testengine/backend`. The prototype has since been removed; see [the consolidation review](../testengine-consolidation.md). Its `src/index.ts` starts a queue worker, not an HTTP server; there are no active registered HTTP API routes in this package. It was excluded from supported deployment changes.
+At the time of this review, `apps/hellotest-execution-engine/package.json` marked the package archived, non-deployable and replaced by `testengine/backend`. The prototype has since been removed; see [the consolidation review](../architecture/testengine.md). Its `src/index.ts` starts a queue worker, not an HTTP server; there are no active registered HTTP API routes in this package. It was excluded from supported deployment changes.
 
 ## Validation
 

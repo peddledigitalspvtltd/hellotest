@@ -1,4 +1,4 @@
-export type CatalogDescriptionProfile = "project" | "story" | "test-case";
+export type CatalogDescriptionProfile = "project" | "story" | "test-case" | "defect";
 
 export type CatalogDescriptionSummary = {
   text: string;
@@ -19,3 +19,5 @@ export function summarizeCatalogDescription(
   value: string | null | undefined,
   options: CatalogDescriptionSummaryOptions
 ): CatalogDescriptionSummary;
+
+export function truncateAtWordBoundary(value: string, maxCharacters: number): { text: string; wasCharacterTruncated: boolean };

@@ -1,0 +1,12 @@
+/* Administration and workspace navigation share the same visual palette. */
+:root {
+  --sidebar-background: linear-gradient(180deg, #102635, #0d202d);
+  --sidebar-foreground: #dbe5e8;
+  --sidebar-muted: #91a5ad;
+  --sidebar-hover: #ffffff08;
+  --sidebar-selected: #ffffff10;
+  --sidebar-accent: #c0dc62;
+  --sidebar-divider: #ffffff12;
+  --sidebar-menu-radius: 8px;
+  --sidebar-menu-font-size: 12px;
+}

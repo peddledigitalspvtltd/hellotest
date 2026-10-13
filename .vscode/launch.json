@@ -417,6 +417,40 @@
         "../../pages/*": "${workspaceFolder}/services/platform/frontend/pages/*",
         "../../../../*": "${workspaceFolder}/services/*"
       }
+    },
+    {
+      "name": "Local Docker: mcp",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9240,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:platform",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: testengine-quality-worker",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9245,
+      "localRoot": "${workspaceFolder}/testengine/backend",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:testengine-quality-worker",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/testengine/backend/dist/**/*.js"
+      ],
+      "sourceMapPathOverrides": {
+        "../src/*": "${workspaceFolder}/testengine/backend/src/*"
+      }
     }
   ],
   "compounds": [

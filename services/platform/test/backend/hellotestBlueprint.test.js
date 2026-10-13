@@ -102,14 +102,15 @@ test('feature acceptance stories keep planning state while linked walkthrough re
     assert.ok(['draft', 'ready'].includes(story.status));
     assert.equal(story.additional_fields.execution_evidence, false);
   }
-  assert.equal(rows('requirement_test_cases').filter(item => ids.has(item.requirement_id)).length, blueprint.features.length);
-  assert.equal(rows('test_cases').filter(item => ids.has(item.requirement_id)).length, blueprint.features.length);
+  assert.equal(rows('requirement_test_cases').filter(item => ids.has(item.requirement_id)).length, blueprint.features.length * 2);
+  for (const feature of blueprint.features) assert.equal(rows('requirement_test_cases').filter(item => item.requirement_id === featureId(feature.key)).length, 2, 'Acceptance and boundary cases both retain the feature Story');
+  assert.equal(rows('test_cases').filter(item => ids.has(item.requirement_id)).length, blueprint.features.length * 2);
   for (const result of rows('execution_results').filter(item => item.id.startsWith('sample-v7-ht-'))) {
     assert.equal(JSON.parse(result.logs).synthetic, true);
     assert.equal(JSON.parse(result.logs).sample, true);
   }
   assert.equal(rows('requirements').filter(item => item.id.startsWith('sample-v2-')).length, 6, 'Retain the independent legacy commerce story set');
-  assert.ok(rows('executions').every(item => item.id.startsWith('sample-v2-') || item.id.startsWith('sample-v4-metrics-') || item.id.startsWith('sample-v5-data-') || item.id.startsWith('sample-v6-ht-') || item.id.startsWith('sample-v7-ht-')), 'Only explicitly labeled synthetic examples create sample runs; source blueprint authoring remains unexecuted');
+  assert.ok(rows('executions').every(item => item.id.startsWith('sample-v2-') || item.id.startsWith('sample-v4-metrics-') || item.id.startsWith('sample-v5-data-') || item.id.startsWith('sample-v6-ht-') || item.id.startsWith('sample-v7-ht-') || item.id.startsWith('sample-v8-ht-')), 'Only explicitly labeled synthetic examples create sample runs; source blueprint authoring remains unexecuted');
 });
 
 test('portable artifacts match installed content and lexical knowledge keeps exact document offsets and ACL', () => {

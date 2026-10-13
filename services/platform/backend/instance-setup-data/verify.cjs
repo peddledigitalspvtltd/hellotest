@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const assert = require('node:assert/strict');
+const { validateRecordContract } = require('../services/sampleData/contracts');
 
 const root = __dirname;
 const ACTOR = '__SETUP_ACTOR_ID__';
@@ -57,6 +58,7 @@ for (const file of manifest.files) {
     if (!byTable.has(file.table)) byTable.set(file.table, []);
     for (const record of data.records) {
       assert(record && typeof record === 'object' && !Array.isArray(record));
+      validateRecordContract(file, record);
       for (const key of file.keys) assert(record[key] !== undefined && record[key] !== null, `Missing ${file.table}.${key}`);
       assert(!byTable.get(file.table).some(item => item.keys.join(',') === file.keys.join(',') && identity(item.record, file.keys) === identity(record, file.keys)), `Duplicate identity in ${file.table}`);
       const item = { record, table: file.table, keys: file.keys, file: file.key };
@@ -292,6 +294,7 @@ for (const feature of coverage.features) {
   assert(caseSteps.some(item => item.record.reusable_group_id), `${feature.key}: reusable precondition`);
   assert(all.some(item => item.table === 'requirement_test_cases' && item.record.requirement_id === feature.story_id && item.record.test_case_id === feature.case_id));
 }
+require('./verifyCoverage.cjs').verifyExpandedCoverage({ manifest, byTable, byId, coverage });
 const acceptanceResults = all.filter(item => item.table === 'execution_results' && item.record.id.startsWith('sample-v7-ht-')).map(item => item.record);
 const rowCoverage = new Map();
 for (const result of acceptanceResults) {

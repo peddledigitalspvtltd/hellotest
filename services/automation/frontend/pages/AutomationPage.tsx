@@ -1,3 +1,5 @@
+import { AutomationSectionGroupDialog, type SectionGroupReview } from "../components/AutomationSectionGroupDialog";
+import { collectRepositoryPages } from "../lib/repositoryEntries";
 import { useRecorderStatus } from "@hellotest/platform/frontend/src/shared/hooks/useRecorderStatus";
 import { parseApiRequestSource } from "../lib/apiRequestSource";
 import { ExecutionHookResults } from "@hellotest/testing/frontend/components/ExecutionHookResults";
@@ -1206,6 +1208,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [isAutomationCodePreviewOpen, setIsAutomationCodePreviewOpen] = useState(false);
   const [selectedAutomationStepIds, setSelectedAutomationStepIds] = useState<string[]>([]);
   const [automationGroupName, setAutomationGroupName] = useState("");
+  const [sectionGroupDialog, setSectionGroupDialog] = useState<SectionGroupReview | null>(null);
   const [saveAutomationGroupAsShared, setSaveAutomationGroupAsShared] = useState(false);
   const [isSharedGroupLibraryOpen, setIsSharedGroupLibraryOpen] = useState(false);
   const [automationStepView, setAutomationStepView] = useState<AutomationStepView>("keyword");
@@ -1464,23 +1467,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       const queryScope = appTypeId
         ? { app_type_id: appTypeId }
         : { project_id: projectId || undefined };
-      const rows: AutomationLearningCacheEntry[] = [];
-
-      for (let offset = 0; ; offset += REPOSITORY_PAGE_SIZE) {
-        signal.throwIfAborted();
-        const page = await api.testCases.learningCache({
-          ...queryScope,
-          limit: REPOSITORY_PAGE_SIZE,
-          offset
-        }, { signal });
-        rows.push(...page);
-
-        if (page.length < REPOSITORY_PAGE_SIZE) {
-          break;
-        }
-      }
-
-      return rows;
+      return collectRepositoryPages<AutomationLearningCacheEntry>(page => api.testCases.learningCache({ ...queryScope, ...page }, { signal }), { signal, pageSize: REPOSITORY_PAGE_SIZE });
     },
     enabled: Boolean((projectId || appTypeId) && session && needsAutomationRepository)
   });
@@ -3208,47 +3195,33 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onClose: closeCreateAutomation
   });
 
+  useEffect(() => {
+    setSectionGroupDialog(null);
+    setSelectedAutomationStepIds([]);
+    setAutomationGroupName("");
+    setSaveAutomationGroupAsShared(false);
+  }, [activeCase?.id, projectId]);
+
+  const openSectionGroupDialog = (mode: "group" | "shared" | "local" | "ungroup", stepIds: string[], name = "", groupId?: string) => {
+    groupAutomationSteps.reset(); ungroupAutomationSteps.reset();
+    setAutomationGroupName(name);
+    setSaveAutomationGroupAsShared(mode === "shared");
+    setSectionGroupDialog({ mode, stepIds, groupId });
+  };
   const groupAutomationSteps = useMutation({
     mutationFn: async () => {
-      if (!activeCase || selectedAutomationStepIds.length < 2) {
-        throw new Error("Select at least two automation steps to group.");
-      }
-      const name = automationGroupName.trim() || "Automation flow";
-      const selectedSteps = automatedSteps.filter((step) => selectedAutomationStepIds.includes(step.id));
-      let reusableGroupId: string | undefined;
-      if (saveAutomationGroupAsShared) {
-        if (!appTypeId) throw new Error("Select an application before creating a Shared Step Group.");
-        const created = await api.sharedStepGroups.create({
-          app_type_id: appTypeId,
-          name,
-          steps: selectedSteps.map((step, index) => ({
-            step_order: index + 1,
-            action: step.action || undefined,
-            expected_result: step.expected_result || undefined,
-            step_type: step.step_type || "web",
-            automation_code: step.automation_code || undefined,
-            api_request: step.api_request || undefined
-          }))
-        });
-        reusableGroupId = created.id;
-      }
-      return api.testSteps.group({
-        test_case_id: activeCase.id,
-        step_ids: selectedAutomationStepIds,
-        name,
-        kind: reusableGroupId ? "reusable" : "local",
-        reusable_group_id: reusableGroupId
-      });
+      if (!activeCase || !sectionGroupDialog?.stepIds.length) throw new Error("Select automation sections first.");
+      return api.testSteps.group({ test_case_id: activeCase.id, step_ids: sectionGroupDialog.stepIds,
+        name: automationGroupName.trim(), group_id: sectionGroupDialog.groupId,
+        kind: saveAutomationGroupAsShared ? "reusable" : "local", create_shared_group: saveAutomationGroupAsShared });
     },
     onSuccess: () => {
-      setSelectedAutomationStepIds([]);
-      setAutomationGroupName("");
-      setSaveAutomationGroupAsShared(false);
-      showSuccess("Automation steps grouped successfully.");
+      setSectionGroupDialog(null); setSelectedAutomationStepIds([]); setAutomationGroupName(""); setSaveAutomationGroupAsShared(false);
+      showSuccess("Automation sections grouped successfully.");
       void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
       void queryClient.invalidateQueries({ queryKey: ["shared-step-groups"] });
     },
-    onError: (error) => showError(error, "Unable to group automation steps.")
+    onError: error => showError(error, "Unable to group automation sections.")
   });
 
   const ungroupAutomationSteps = useMutation({
@@ -3257,7 +3230,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       return api.testSteps.ungroup({ test_case_id: activeCase.id, group_id: groupId });
     },
     onSuccess: () => {
-      showSuccess("Group removed; its automation steps remain in place.");
+      setSectionGroupDialog(null);
+      showSuccess("Group removed; its automation sections remain in place.");
       void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
     },
     onError: (error) => showError(error, "Unable to ungroup automation steps.")
@@ -3274,10 +3248,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     },
     onSuccess: () => {
       setIsSharedGroupLibraryOpen(false);
-      showSuccess("Shared Step Group inserted.");
+      showSuccess("Shared Section Group inserted.");
       void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
     },
-    onError: (error) => showError(error, "Unable to insert the Shared Step Group.")
+    onError: (error) => showError(error, "Unable to insert the Shared Section Group.")
   });
 
 	  const optimizeAutomationCase = useMutation({
@@ -5667,20 +5641,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   <section className="automation-plan-workspace automation-program-workspace" aria-label="Automation step plan">
                     <div className="automation-plan-heading"><div><h3>Saved plan</h3><span>{automatedSteps.length} {automatedSteps.length === 1 ? "section" : "sections"} · {automatedSteps.filter(isAutomationStepMapped).length} ready</span></div><div className="automation-plan-actions">
                       <div className="automation-build-methods"><button aria-pressed={automationStepView === "keyword"} onClick={() => setAutomationStepView("keyword")} type="button">Instructions</button>{canViewAutomationCode ? (<button aria-pressed={automationStepView === "code"} disabled={!canViewAutomationCode} onClick={() => setAutomationStepView("code")} type="button">Source</button>) : null}</div>
-                      {canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => setIsSharedGroupLibraryOpen(true)} aria-label="Shared Step Group" title="Shared Step Group" type="button"><LayersIcon size={16} /></button>) : null}
+                      {canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => setIsSharedGroupLibraryOpen(true)} aria-label="Shared Section Group" title="Shared Section Group" type="button"><LayersIcon size={16} /></button>) : null}
                       <AutomationIconButton label="Parameters" onClick={() => setIsParameterDialogOpen(true)}><IconBraces size={17} /></AutomationIconButton>{canViewAutomationCode ? (<button className="ghost-button compact" disabled={!canViewAutomationCode || !automatedSteps.length} onClick={() => setIsAutomationCodePreviewOpen(true)} aria-label="Full source" title="Full source" type="button"><IconCode size={17} /></button>) : null}
                     </div></div>
                     {linkedManualCases.length ? <div className="automation-program-origin"><span>Linked test cases</span>{linkedManualCases.map((item) => <span key={item.id}>{item.display_id || item.id} · {item.title}</span>)}</div> : null}
-                    {selectedAutomationStepIds.length ? <div className="automation-program-selection">
-                      <div className="automation-plan-heading"><strong>{selectedAutomationStepIds.length} selected</strong><button className="ghost-button compact" onClick={() => setSelectedAutomationStepIds([])} type="button">Clear selection</button></div>
-                      <label className="form-field"><span>Group name</span><input onChange={(event) => setAutomationGroupName(event.target.value)} value={automationGroupName} placeholder="e.g. Sign in" /></label>
-                      <label className="checkbox-field"><input checked={saveAutomationGroupAsShared} onChange={(event) => setSaveAutomationGroupAsShared(event.target.checked)} type="checkbox" />Save as reusable Shared Step Group</label>
-                      {canEditAutomationCode ? (<button className="primary-button compact" disabled={!canEditAutomationCode || selectedAutomationStepIds.length < 2 || groupAutomationSteps.isPending} onClick={() => groupAutomationSteps.mutate()} type="button">Group selected steps</button>) : null}
-                    </div> : null}
+                    {selectedAutomationStepIds.length ? <div className="automation-program-selection"><div className="automation-plan-heading"><strong>{selectedAutomationStepIds.length} selected sections</strong><div className="automation-plan-actions"><button className="ghost-button compact" onClick={() => setSelectedAutomationStepIds([])} type="button">Clear selection</button>{canEditAutomationCode ? <button className="primary-button compact" disabled={selectedAutomationStepIds.length < 2} onClick={() => openSectionGroupDialog("group", selectedAutomationStepIds)} type="button">Group Selected Sections</button> : null}</div></div></div> : null}
                     {automatedStepsQuery.isError ? <div className="empty-state compact" role="alert">Unable to load the plan.<button className="ghost-button" onClick={() => void automatedStepsQuery.refetch()} type="button">Retry</button></div> : null}
                     {automationStepView === "code" && canViewAutomationCode ? <details className="automation-agent-brief"><summary>Complete automation code</summary><pre className="automation-code-block automation-code-block--complete">{completeAutomationCode}</pre><button className="ghost-button compact" onClick={() => navigator.clipboard?.writeText(completeAutomationCode)} type="button">Copy code</button></details> : null}
                     {[true, false].map((precondition) => <AutomationAccordionSection key={String(precondition)} title={precondition ? "Preconditions" : "Steps"} summary={precondition ? "Setup assumptions and pre-run steps captured before the main flow." : "Actions and expected results for the automation flow."} countLabel={String(automatedSteps.filter(step => isAutomationPrecondition(step) === precondition).length)} isExpanded={flowExpanded[precondition ? "preconditions" : "steps"]} onToggle={() => setFlowExpanded(current => ({ ...current, [precondition ? "preconditions" : "steps"]: !current[precondition ? "preconditions" : "steps"] }))} actions={canEditAutomationCode ? <button className="ghost-button compact" onClick={() => { setNewStepIsPrecondition(precondition); setNewStepPlacement({ mode: "end", stepId: "" }); setIsNewSectionOpen(true); }} type="button"><AddIcon size={14} />{precondition ? "Add precondition" : "Add section"}</button> : undefined}>
-                      {!automatedSteps.some((step) => isAutomationPrecondition(step) === precondition) ? <p className="muted">{precondition ? "No preconditions." : "Add a named section, insert a Shared Step Group, or record a flow."}</p> : null}
+                      {!automatedSteps.some((step) => isAutomationPrecondition(step) === precondition) ? <p className="muted">{precondition ? "No preconditions." : "Add a named section, insert a Shared Section Group, or record a flow."}</p> : null}
                       {automationStepGroups.filter((group) => isAutomationPrecondition(group.steps[0]) === precondition).map((group) => {
                         const rows = group.steps.map((step) => {
                           const draft = stepDrafts[step.id] || parseAutomationStepDraft(step);
@@ -5724,6 +5693,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                               <AutomationIconButton label="Edit" onClick={() => toggleAutomationStep(step.id)}><PencilIcon size={15} /></AutomationIconButton>
                               <AutomationIconButton label="Add instruction" onClick={openInstructionEditor}><AddIcon size={15} /></AutomationIconButton>
                               <CatalogActionMenu label={`${sectionName} actions`} actions={[
+                                { label: "Group Selected Sections", icon: <LayersIcon size={15} />, disabled: selectedAutomationStepIds.length < 2, onClick: () => openSectionGroupDialog("group", selectedAutomationStepIds) },
+                                ...(step.group_id ? [{ label: "Ungroup sections", icon: <LayersIcon size={15} />, onClick: () => openSectionGroupDialog("ungroup", group.steps.map(item => item.id), group.title, step.group_id || undefined) }, { label: step.group_kind === "reusable" ? "Convert to local section group" : "Convert to Shared Section Group", icon: <LayersIcon size={15} />, disabled: step.group_kind !== "reusable" && !hasPermission(session, "shared_step.manage", projectId), onClick: () => openSectionGroupDialog(step.group_kind === "reusable" ? "local" : "shared", group.steps.map(item => item.id), group.title, step.group_id || undefined) }] : []),
                                 { label: "Insert after", icon: <AddIcon size={15} />, onClick: () => { setNewStepIsPrecondition(precondition); setNewStepPlacement({ mode: "after", stepId: step.id }); setIsNewSectionOpen(true); } },
                                 ...(canUseRecorder && step.step_type !== "api" && (!["android", "ios"].includes(step.step_type || "") || canUseMobileAppium) ? [{ label: "Replace with recording", icon: <MousePointerIcon size={15} />, disabled: Boolean(recorderSession) || startRecorder.isPending, onClick: () => { setRecordingTargetStepId(step.id); setBuildMethod("record"); selectAutomationWorkspaceTab("build"); } }] : []),
                                 ...(canUseAutomationAi ? [{ label: "Improve wording", icon: <SparkIcon size={15} />, disabled: rephraseAutomationStep.isPending, onClick: () => rephraseAutomationStep.mutate(step) }] : []),
@@ -5766,7 +5737,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                             </fieldset></AutomationOverlay> : null}
                           </article>;
                         });
-                        return group.isStandalone || precondition ? <div className="automation-program-sections" key={group.id}>{rows}</div> : <details className="automation-plan-group automation-program-group" open key={group.id}><summary><strong>{group.title}</strong><span>{group.steps.length} sections{group.steps[0]?.group_kind === "reusable" ? " · Shared Step Group" : ""}</span></summary><div className="automation-plan-actions">{group.steps[0]?.reusable_group_id ? <span className="muted">Edits also update the Shared Step Group.</span> : null}{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode || ungroupAutomationSteps.isPending} onClick={() => ungroupAutomationSteps.mutate(group.steps[0].group_id as string)} aria-label="Ungroup" title="Ungroup" type="button"><LayersIcon size={15} /></button>) : null}{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => { setNewStepIsPrecondition(false); setNewStepPlacement({ mode: "after", stepId: group.steps[group.steps.length - 1].id }); setIsNewSectionOpen(true); }} aria-label="Add section to group" title="Add section to group" type="button"><AddIcon size={15} /></button>) : null}</div>{rows}</details>;
+                        return group.isStandalone || precondition ? <div className="automation-program-sections" key={group.id}>{rows}</div> : <details className="automation-plan-group automation-program-group" open key={group.id}><summary><strong>{group.title}</strong><span>{group.steps.length} sections{group.steps[0]?.group_kind === "reusable" ? " · Shared Section Group" : ""}</span></summary><div className="automation-plan-actions">{group.steps[0]?.reusable_group_id ? <span className="muted">Edits also update the Shared Section Group.</span> : null}{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode || ungroupAutomationSteps.isPending} onClick={() => openSectionGroupDialog("ungroup", group.steps.map(step => step.id), group.title, group.steps[0].group_id || undefined)} aria-label="Ungroup" title="Ungroup" type="button"><LayersIcon size={15} /></button>) : null}{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => { setNewStepIsPrecondition(false); setNewStepPlacement({ mode: "after", stepId: group.steps[group.steps.length - 1].id }); setIsNewSectionOpen(true); }} aria-label="Add section to group" title="Add section to group" type="button"><AddIcon size={15} /></button>) : null}</div>{rows}</details>;
                       })}
                     </AutomationAccordionSection>)}
 
@@ -6682,7 +6653,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       </section>
                     </div>
                     <div className="automation-create-plan-panel">
-                      <div><strong>Behavior plan</strong><p className="muted">Linked cases include their preconditions, steps and Shared Step Groups.</p></div>
+                      <div><strong>Behavior plan</strong><p className="muted">Linked cases include their preconditions, steps and Shared Section Groups.</p></div>
                       {automationCreateManualCaseIds.length && createSourcesQuery.isPending ? <LoadingState label="Loading source Test Case plans" /> : null}
                       {automationCreateManualCaseIds.length && createSourcesQuery.isError ? <div className="empty-state compact" role="alert"><span>Source steps could not be loaded.</span><button className="ghost-button compact" onClick={() => void createSourcesQuery.refetch()} type="button">Retry source plans</button></div> : null}
                       {automationCreateManualCaseIds.map((sourceId) => {
@@ -6714,13 +6685,14 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         </div>
       ) : null}
 
+      {sectionGroupDialog ? <AutomationSectionGroupDialog review={sectionGroupDialog} sections={automatedSteps.filter(step => sectionGroupDialog.stepIds.includes(step.id))} name={automationGroupName} shared={saveAutomationGroupAsShared} busy={groupAutomationSteps.isPending || ungroupAutomationSteps.isPending} canCreateShared={hasPermission(session, "shared_step.manage", projectId)} error={(groupAutomationSteps.error || ungroupAutomationSteps.error) instanceof Error ? (groupAutomationSteps.error || ungroupAutomationSteps.error as Error)?.message : undefined} parameterValues={mergedParameterValues} onNameChange={setAutomationGroupName} onSharedChange={setSaveAutomationGroupAsShared} onClose={() => setSectionGroupDialog(null)} onSave={() => sectionGroupDialog.mode === "ungroup" ? ungroupAutomationSteps.mutate(sectionGroupDialog.groupId as string) : groupAutomationSteps.mutate()} /> : null}
       {isSharedGroupLibraryOpen ? (
         <div className="modal-backdrop modal-backdrop--scroll" onClick={() => setIsSharedGroupLibraryOpen(false)} role="presentation">
-          <div aria-modal="true" className="modal-card resource-modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-label="Shared Step Groups">
-            <div className="resource-modal-header"><div className="resource-modal-title"><h2 className="dialog-title">Insert Shared Step Group</h2><p>Shared Step Groups retain their keyword code and stay traceable to the Shared Step Group library.</p></div><button className="ghost-button compact" onClick={() => setIsSharedGroupLibraryOpen(false)} type="button">Close</button></div>
+          <div aria-modal="true" className="modal-card resource-modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-label="Shared Section Groups">
+            <div className="resource-modal-header"><div className="resource-modal-title"><h2 className="dialog-title">Insert Shared Section Group</h2><p>Shared Section Groups retain their keyword code and stay traceable to the Shared Section Group library.</p></div><button className="ghost-button compact" onClick={() => setIsSharedGroupLibraryOpen(false)} type="button">Close</button></div>
             <div className="resource-form"><div className="resource-form-body stack-list">
-              {sharedStepGroupsQuery.isLoading ? <LoadingState label="Loading Shared Step Groups" /> : null}
-              {!sharedStepGroupsQuery.isLoading && !sharedStepGroups.length ? <div className="empty-state compact">No Shared Step Groups exist for this application yet. Select steps and save the selection as a Shared Step Group to create one.</div> : null}
+              {sharedStepGroupsQuery.isLoading ? <LoadingState label="Loading Shared Section Groups" /> : null}
+              {!sharedStepGroupsQuery.isLoading && !sharedStepGroups.length ? <div className="empty-state compact">No Shared Section Groups exist for this application yet. Select steps and save the selection as a Shared Section Group to create one.</div> : null}
               {sharedStepGroups.map((group) => (
                 <button className="stack-item" disabled={insertAutomationSharedGroup.isPending} key={group.id} onClick={() => insertAutomationSharedGroup.mutate(group.id)} type="button">
                   <div><strong>{group.name}</strong><span>{group.steps?.length || 0} reusable step{group.steps?.length === 1 ? "" : "s"}</span></div><AddIcon />

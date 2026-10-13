@@ -1,0 +1,815 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "execution_id": "sample-v8-ht-run-manual",
+      "test_case_id": "sample-v8-ht-case-story-metadata",
+      "test_case_title": "Verify author Story metadata and acceptance",
+      "test_case_description": "As a QA engineer, I want to author Story metadata and acceptance so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Save title, priority, owner, labels, effort and a Gherkin or Spec Kit specification; reopen the Story.\nOutcome: Every authored value and acceptance criterion is retained without changing another project.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "suite_id": "sample-v8-ht-suite-web",
+      "suite_name": "Web acceptance suite",
+      "module_id": "sample-v8-ht-module-web",
+      "module_name": "Web acceptance matrix",
+      "priority": 1,
+      "status": "active",
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "parameter_template_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "suite_parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "suite_parameter_template_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 1,
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "test_data_set_name": "Web fictional data matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v8-ht-data-web",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Web fictional data matrix",
+        "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+        "mode": "table",
+        "columns": [
+          "t.user",
+          "t.quantity",
+          "r.region",
+          "s.tenant",
+          "t.empty",
+          "t.unicode"
+        ],
+        "rows": [
+          {
+            "t.user": "fixture-a@example.test",
+            "t.quantity": "1",
+            "r.region": "us-east",
+            "s.tenant": "fictional-a",
+            "t.empty": "",
+            "t.unicode": "Café 🧪"
+          },
+          {
+            "t.user": "fixture-b@example.test",
+            "t.quantity": "150",
+            "r.region": "eu-west",
+            "s.tenant": "fictional-b",
+            "t.empty": "",
+            "t.unicode": "測試"
+          }
+        ],
+        "created_at": "2026-09-01T09:00:00.000Z",
+        "data_scope_policy": {
+          "version": 2,
+          "default_scope": "r"
+        },
+        "expected_iterations": 2
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-manual",
+      "test_case_id": "sample-v8-ht-case-nfr-user-intent",
+      "test_case_title": "Verify preserve an explicit NFR-only AI objective",
+      "test_case_description": "As a QA engineer, I want to preserve an explicit NFR-only AI objective so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Request latency coverage below 250 ms for 150 concurrent users, without selecting a Story.\nOutcome: The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "suite_id": "sample-v8-ht-suite-web",
+      "suite_name": "Web acceptance suite",
+      "module_id": "sample-v8-ht-module-web",
+      "module_name": "Web acceptance matrix",
+      "priority": 2,
+      "status": "draft",
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "parameter_template_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "suite_parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "suite_parameter_template_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 2,
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "test_data_set_name": "Web fictional data matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v8-ht-data-web",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Web fictional data matrix",
+        "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+        "mode": "table",
+        "columns": [
+          "t.user",
+          "t.quantity",
+          "r.region",
+          "s.tenant",
+          "t.empty",
+          "t.unicode"
+        ],
+        "rows": [
+          {
+            "t.user": "fixture-a@example.test",
+            "t.quantity": "1",
+            "r.region": "us-east",
+            "s.tenant": "fictional-a",
+            "t.empty": "",
+            "t.unicode": "Café 🧪"
+          },
+          {
+            "t.user": "fixture-b@example.test",
+            "t.quantity": "150",
+            "r.region": "eu-west",
+            "s.tenant": "fictional-b",
+            "t.empty": "",
+            "t.unicode": "測試"
+          }
+        ],
+        "created_at": "2026-09-01T09:00:00.000Z",
+        "data_scope_policy": {
+          "version": 2,
+          "default_scope": "r"
+        },
+        "expected_iterations": 2
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-local",
+      "test_case_id": "sample-v8-ht-case-automation-web",
+      "test_case_title": "Read configured web readiness fixture",
+      "test_case_description": "Synthetic executable example: open the configured fixture and assert its Ready status. This is not recorded live execution. Review fictional endpoint/device values before running.",
+      "suite_id": "sample-v8-ht-suite-web",
+      "suite_name": "Web acceptance suite",
+      "module_id": "sample-v8-ht-module-web",
+      "module_name": "Web acceptance matrix",
+      "priority": 1,
+      "status": "ready",
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "parameter_template_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "suite_parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "suite_parameter_template_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 1,
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "test_data_set_name": "Web fictional data matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v8-ht-data-web",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Web fictional data matrix",
+        "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+        "mode": "table",
+        "columns": [
+          "t.user",
+          "t.quantity",
+          "r.region",
+          "s.tenant",
+          "t.empty",
+          "t.unicode"
+        ],
+        "rows": [
+          {
+            "t.user": "fixture-a@example.test",
+            "t.quantity": "1",
+            "r.region": "us-east",
+            "s.tenant": "fictional-a",
+            "t.empty": "",
+            "t.unicode": "Café 🧪"
+          },
+          {
+            "t.user": "fixture-b@example.test",
+            "t.quantity": "150",
+            "r.region": "eu-west",
+            "s.tenant": "fictional-b",
+            "t.empty": "",
+            "t.unicode": "測試"
+          }
+        ],
+        "created_at": "2026-09-01T09:00:00.000Z",
+        "data_scope_policy": {
+          "version": 2,
+          "default_scope": "r"
+        },
+        "expected_iterations": 2
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-remote",
+      "test_case_id": "sample-v8-ht-case-automation-api",
+      "test_case_title": "Read configured api readiness fixture",
+      "test_case_description": "Synthetic executable example: open the configured fixture and assert its Ready status. This is not recorded live execution. Review fictional endpoint/device values before running.",
+      "suite_id": "sample-v8-ht-suite-api",
+      "suite_name": "Api acceptance suite",
+      "module_id": "sample-v8-ht-module-api",
+      "module_name": "Api acceptance matrix",
+      "priority": 4,
+      "status": "ready",
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "parameter_template_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "suite_parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "suite_parameter_template_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 1,
+      "test_data_set_id": "sample-v8-ht-data-api",
+      "test_data_set_name": "Api fictional data matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v8-ht-data-api",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-api",
+        "name": "Api fictional data matrix",
+        "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+        "mode": "table",
+        "columns": [
+          "t.user",
+          "t.quantity",
+          "r.region",
+          "s.tenant",
+          "t.empty",
+          "t.unicode"
+        ],
+        "rows": [
+          {
+            "t.user": "fixture-a@example.test",
+            "t.quantity": "1",
+            "r.region": "us-east",
+            "s.tenant": "fictional-a",
+            "t.empty": "",
+            "t.unicode": "Café 🧪"
+          },
+          {
+            "t.user": "fixture-b@example.test",
+            "t.quantity": "150",
+            "r.region": "eu-west",
+            "s.tenant": "fictional-b",
+            "t.empty": "",
+            "t.unicode": "測試"
+          }
+        ],
+        "created_at": "2026-09-01T09:00:00.000Z",
+        "data_scope_policy": {
+          "version": 2,
+          "default_scope": "r"
+        },
+        "expected_iterations": 2
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-android",
+      "test_case_id": "sample-v8-ht-case-automation-android",
+      "test_case_title": "Read configured android readiness fixture",
+      "test_case_description": "Synthetic executable example: open the configured fixture and assert its Ready status. This is not recorded live execution. Review fictional endpoint/device values before running.",
+      "suite_id": "sample-v8-ht-suite-android",
+      "suite_name": "Android acceptance suite",
+      "module_id": "sample-v8-ht-module-android",
+      "module_name": "Android acceptance matrix",
+      "priority": 4,
+      "status": "ready",
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "parameter_template_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "suite_parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "suite_parameter_template_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 1,
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "test_data_set_name": "Android fictional data matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v8-ht-data-android",
+        "project_id": "sample-project",
+        "app_type_id": "sample-v8-ht-app-android",
+        "name": "Android fictional data matrix",
+        "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+        "mode": "table",
+        "columns": [
+          "t.user",
+          "t.quantity",
+          "r.region",
+          "s.tenant",
+          "t.empty",
+          "t.unicode"
+        ],
+        "rows": [
+          {
+            "t.user": "fixture-a@example.test",
+            "t.quantity": "1",
+            "r.region": "us-east",
+            "s.tenant": "fictional-a",
+            "t.empty": "",
+            "t.unicode": "Café 🧪"
+          },
+          {
+            "t.user": "fixture-b@example.test",
+            "t.quantity": "150",
+            "r.region": "eu-west",
+            "s.tenant": "fictional-b",
+            "t.empty": "",
+            "t.unicode": "測試"
+          }
+        ],
+        "created_at": "2026-09-01T09:00:00.000Z",
+        "data_scope_policy": {
+          "version": 2,
+          "default_scope": "r"
+        },
+        "expected_iterations": 2
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-android",
+      "test_case_id": "sample-v8-ht-case-automation-android-landscape",
+      "test_case_title": "Read Android readiness after landscape rotation",
+      "test_case_description": "Synthetic executable orientation fixture. Activate the configured app, rotate to landscape and inspect Ready; no real device has been executed.",
+      "suite_id": "sample-v8-ht-suite-android",
+      "suite_name": "Android acceptance suite",
+      "module_id": "sample-v8-ht-module-android",
+      "module_name": "Android acceptance matrix",
+      "priority": 4,
+      "status": "ready",
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "parameter_template_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "suite_parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "suite_parameter_template_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 2,
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "test_data_set_name": "Android fictional data matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v8-ht-data-android",
+        "project_id": "sample-project",
+        "app_type_id": "sample-v8-ht-app-android",
+        "name": "Android fictional data matrix",
+        "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+        "mode": "table",
+        "columns": [
+          "t.user",
+          "t.quantity",
+          "r.region",
+          "s.tenant",
+          "t.empty",
+          "t.unicode"
+        ],
+        "rows": [
+          {
+            "t.user": "fixture-a@example.test",
+            "t.quantity": "1",
+            "r.region": "us-east",
+            "s.tenant": "fictional-a",
+            "t.empty": "",
+            "t.unicode": "Café 🧪"
+          },
+          {
+            "t.user": "fixture-b@example.test",
+            "t.quantity": "150",
+            "r.region": "eu-west",
+            "s.tenant": "fictional-b",
+            "t.empty": "",
+            "t.unicode": "測試"
+          }
+        ],
+        "created_at": "2026-09-01T09:00:00.000Z",
+        "data_scope_policy": {
+          "version": 2,
+          "default_scope": "r"
+        },
+        "expected_iterations": 2
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-ios",
+      "test_case_id": "sample-v8-ht-case-automation-ios",
+      "test_case_title": "Read configured ios readiness fixture",
+      "test_case_description": "Synthetic executable example: open the configured fixture and assert its Ready status. This is not recorded live execution. Review fictional endpoint/device values before running.",
+      "suite_id": "sample-v8-ht-suite-ios",
+      "suite_name": "Ios acceptance suite",
+      "module_id": "sample-v8-ht-module-ios",
+      "module_name": "Ios acceptance matrix",
+      "priority": 5,
+      "status": "ready",
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "parameter_template_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "suite_parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "suite_parameter_template_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 1,
+      "test_data_set_id": "sample-v8-ht-data-ios",
+      "test_data_set_name": "Ios fictional data matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v8-ht-data-ios",
+        "project_id": "sample-project",
+        "app_type_id": "sample-v8-ht-app-ios",
+        "name": "Ios fictional data matrix",
+        "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+        "mode": "table",
+        "columns": [
+          "t.user",
+          "t.quantity",
+          "r.region",
+          "s.tenant",
+          "t.empty",
+          "t.unicode"
+        ],
+        "rows": [
+          {
+            "t.user": "fixture-a@example.test",
+            "t.quantity": "1",
+            "r.region": "us-east",
+            "s.tenant": "fictional-a",
+            "t.empty": "",
+            "t.unicode": "Café 🧪"
+          },
+          {
+            "t.user": "fixture-b@example.test",
+            "t.quantity": "150",
+            "r.region": "eu-west",
+            "s.tenant": "fictional-b",
+            "t.empty": "",
+            "t.unicode": "測試"
+          }
+        ],
+        "created_at": "2026-09-01T09:00:00.000Z",
+        "data_scope_policy": {
+          "version": 2,
+          "default_scope": "r"
+        },
+        "expected_iterations": 2
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-unified",
+      "test_case_id": "sample-v8-ht-case-automation-unified",
+      "test_case_title": "Read configured unified readiness fixture",
+      "test_case_description": "Synthetic executable example: open the configured fixture and assert its Ready status. This is not recorded live execution. Review fictional endpoint/device values before running.",
+      "suite_id": "sample-v8-ht-suite-unified",
+      "suite_name": "Unified acceptance suite",
+      "module_id": "sample-v8-ht-module-unified",
+      "module_name": "Unified acceptance matrix",
+      "priority": 5,
+      "status": "ready",
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "parameter_template_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "suite_parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "suite_parameter_template_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 1,
+      "test_data_set_id": "sample-v8-ht-data-unified",
+      "test_data_set_name": "Unified fictional data matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v8-ht-data-unified",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-mobile",
+        "name": "Unified fictional data matrix",
+        "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+        "mode": "table",
+        "columns": [
+          "t.user",
+          "t.quantity",
+          "r.region",
+          "s.tenant",
+          "t.empty",
+          "t.unicode"
+        ],
+        "rows": [
+          {
+            "t.user": "fixture-a@example.test",
+            "t.quantity": "1",
+            "r.region": "us-east",
+            "s.tenant": "fictional-a",
+            "t.empty": "",
+            "t.unicode": "Café 🧪"
+          },
+          {
+            "t.user": "fixture-b@example.test",
+            "t.quantity": "150",
+            "r.region": "eu-west",
+            "s.tenant": "fictional-b",
+            "t.empty": "",
+            "t.unicode": "測試"
+          }
+        ],
+        "created_at": "2026-09-01T09:00:00.000Z",
+        "data_scope_policy": {
+          "version": 2,
+          "default_scope": "r"
+        },
+        "expected_iterations": 2
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-queued",
+      "test_case_id": "sample-v8-ht-case-automation-web",
+      "test_case_title": "Read configured web readiness fixture",
+      "test_case_description": "Synthetic executable example: open the configured fixture and assert its Ready status. This is not recorded live execution. Review fictional endpoint/device values before running.",
+      "suite_id": "sample-v8-ht-suite-web",
+      "suite_name": "Web acceptance suite",
+      "module_id": "sample-v8-ht-module-web",
+      "module_name": "Web acceptance matrix",
+      "priority": 1,
+      "status": "ready",
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "parameter_template_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "suite_parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "suite_parameter_template_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 1,
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "test_data_set_name": "Web fictional data matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v8-ht-data-web",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Web fictional data matrix",
+        "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+        "mode": "table",
+        "columns": [
+          "t.user",
+          "t.quantity",
+          "r.region",
+          "s.tenant",
+          "t.empty",
+          "t.unicode"
+        ],
+        "rows": [
+          {
+            "t.user": "fixture-a@example.test",
+            "t.quantity": "1",
+            "r.region": "us-east",
+            "s.tenant": "fictional-a",
+            "t.empty": "",
+            "t.unicode": "Café 🧪"
+          },
+          {
+            "t.user": "fixture-b@example.test",
+            "t.quantity": "150",
+            "r.region": "eu-west",
+            "s.tenant": "fictional-b",
+            "t.empty": "",
+            "t.unicode": "測試"
+          }
+        ],
+        "created_at": "2026-09-01T09:00:00.000Z",
+        "data_scope_policy": {
+          "version": 2,
+          "default_scope": "r"
+        },
+        "expected_iterations": 2
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-running",
+      "test_case_id": "sample-v8-ht-case-automation-api",
+      "test_case_title": "Read configured api readiness fixture",
+      "test_case_description": "Synthetic executable example: open the configured fixture and assert its Ready status. This is not recorded live execution. Review fictional endpoint/device values before running.",
+      "suite_id": "sample-v8-ht-suite-api",
+      "suite_name": "Api acceptance suite",
+      "module_id": "sample-v8-ht-module-api",
+      "module_name": "Api acceptance matrix",
+      "priority": 4,
+      "status": "ready",
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "parameter_template_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "suite_parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "suite_parameter_template_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 1,
+      "test_data_set_id": "sample-v8-ht-data-api",
+      "test_data_set_name": "Api fictional data matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v8-ht-data-api",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-api",
+        "name": "Api fictional data matrix",
+        "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+        "mode": "table",
+        "columns": [
+          "t.user",
+          "t.quantity",
+          "r.region",
+          "s.tenant",
+          "t.empty",
+          "t.unicode"
+        ],
+        "rows": [
+          {
+            "t.user": "fixture-a@example.test",
+            "t.quantity": "1",
+            "r.region": "us-east",
+            "s.tenant": "fictional-a",
+            "t.empty": "",
+            "t.unicode": "Café 🧪"
+          },
+          {
+            "t.user": "fixture-b@example.test",
+            "t.quantity": "150",
+            "r.region": "eu-west",
+            "s.tenant": "fictional-b",
+            "t.empty": "",
+            "t.unicode": "測試"
+          }
+        ],
+        "created_at": "2026-09-01T09:00:00.000Z",
+        "data_scope_policy": {
+          "version": 2,
+          "default_scope": "r"
+        },
+        "expected_iterations": 2
+      },
+      "data_set_source": "run"
+    }
+  ]
+}

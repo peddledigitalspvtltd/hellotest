@@ -2,25 +2,19 @@
 // Attach to an existing local-stack process. No compose up/restart or host API.
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const capabilities = Object.keys(JSON.parse(readFileSync(resolve(root, 'services/capabilities.json'))).dependencies);
-const workers = ['testengine-api-worker', 'testengine-web-worker', 'testengine-android-worker', 'mobile-engine'];
-const owner = process.argv[2];
-if (!capabilities.includes(owner) && !workers.includes(owner)) {
-  console.error(`Usage: node scripts/debug/attach.mjs <${[...capabilities, ...workers].join('|')}> [replica-number]`);
-  process.exit(1);
-}
-const replica = Number(process.argv[3] || 1);
-if (!Number.isSafeInteger(replica) || replica < 1) {
-  console.error('Replica number must be a positive integer.');
-  process.exit(1);
-}
-const service = capabilities.includes(owner) ? 'api' : owner;
-const port = capabilities.includes(owner) ? 9240 : 9241 + workers.indexOf(owner);
+import { debugRoot as root, debugOwners, resolveDebugTarget } from './targets.mjs';
+const args = process.argv.slice(2);
+const checkOnly = args.includes('--check');
+const positionals = args.filter(arg => arg !== '--check');
+let target;
+try {
+  if (positionals.length > 2) throw new Error(`Usage: node scripts/debug/attach.mjs <${debugOwners.join('|')}> [replica-number] [--check]`);
+  target = resolveDebugTarget(positionals[0], positionals[1] || 1);
+} catch (error) { console.error(error.message); process.exit(1); }
+const { owner, service, replica, port } = target;
+let debugServer;
 function docker(args) {
   const result = spawnSync('docker', args, { encoding: 'utf8', timeout: 10_000 });
   if (result.error || result.status !== 0) throw new Error(result.error?.message || result.stderr.trim() || 'Docker command failed.');
@@ -56,7 +50,7 @@ process.stdin.on('error', () => socket.destroy());
 `;
 
 try {
-  console.log(`DEBUG STARTING ${owner}`);
+  if (!checkOnly) console.log(`DEBUG STARTING ${owner}`);
   const ids = docker(['ps', '--filter', `label=com.docker.compose.service=${service}`, '--format', '{{.ID}}']).split('\n').filter(Boolean);
   if (!ids.length) throw new Error(`No running ${service} container. Start your normal ./hellotest.sh up --stack local command first.`);
   const containers = JSON.parse(docker(['inspect', ...ids])).filter(c => {
@@ -66,23 +60,16 @@ try {
   const container = containers.find(c => Number(c.Config.Labels['com.docker.compose.container-number'] || 1) === replica);
   if (!container) throw new Error(`Local ${service} replica ${replica} is not running.`);
   const id = container.Id;
-  // Do not repeatedly signal a process which already has an active inspector.
-  const check = spawnSync('docker', ['exec', id, 'node', '-e', probeInspector], { encoding: 'utf8', timeout: 5000 });
-  if (check.error || check.status !== 0) {
-    docker(['exec', id, 'node', '-e', enableInspector, service.startsWith('testengine-') ? 'dist/server.js' : 'src/server.js']);
-    let ready = false;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      await new Promise(r => setTimeout(r, 200));
-      const result = spawnSync('docker', ['exec', id, 'node', '-e', probeInspector], { encoding: 'utf8', timeout: 5000 });
-      if (!result.error && result.status === 0) { ready = true; break; }
-    }
-    if (!ready) throw new Error('Node inspector did not become ready on container port 9229. Check docker logs.');
+  if (checkOnly) {
+    const inspector = spawnSync('docker', ['exec', id, 'node', '-e', probeInspector], { encoding: 'utf8', timeout: 5000 });
+    console.log(JSON.stringify({ owner, service, replica, container: container.Name.slice(1), inspector_enabled: !inspector.error && inspector.status === 0, host_inspector_port: port, entry: target.entry, status: 'running' }));
+    process.exit(0);
   }
   const children = new Set();
   const sockets = new Set();
   // Docker exec transports inspector HTTP/WebSocket bytes. No published debug
   // port, additional container, application restart, or Docker-specific IP.
-  const server = createServer(socket => {
+  const server = debugServer = createServer(socket => {
     sockets.add(socket);
     const child = spawn('docker', ['exec', '-i', id, 'node', '-e', bridge], { stdio: ['pipe', 'pipe', 'pipe'] });
     children.add(child);
@@ -96,11 +83,25 @@ try {
     socket.on('error', () => child.kill());
     socket.on('close', () => { sockets.delete(socket); child.kill(); });
   });
-  server.on('error', error => {
-    console.error(error.code === 'EADDRINUSE' ? `Port ${port} is already in use. Stop the previous debug tunnel task before attaching again.` : error.message);
-    process.exit(1);
-  });
-  server.listen(port, '127.0.0.1', () => console.log(`DEBUG READY ${owner}: 127.0.0.1:${port} -> ${container.Name.slice(1)}:9229 (existing process)`));
+  // Reserve the host port before enabling the application inspector.
+  await new Promise((ready, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', ready);
+  }).catch(error => { throw new Error(error.code === 'EADDRINUSE' ? `Port ${port} is already in use. Stop the previous debug tunnel task before attaching again.` : error.message); });
+  server.on('error', error => { console.error(error.message); server.close(); process.exitCode = 1; });
+  // Do not repeatedly signal a process which already has an active inspector.
+  const check = spawnSync('docker', ['exec', id, 'node', '-e', probeInspector], { encoding: 'utf8', timeout: 5000 });
+  if (check.error || check.status !== 0) {
+    docker(['exec', id, 'node', '-e', enableInspector, target.entry]);
+    let ready = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await new Promise(r => setTimeout(r, 200));
+      const result = spawnSync('docker', ['exec', id, 'node', '-e', probeInspector], { encoding: 'utf8', timeout: 5000 });
+      if (!result.error && result.status === 0) { ready = true; break; }
+    }
+    if (!ready) throw new Error('Node inspector did not become ready on container port 9229. Check docker logs.');
+  }
+  console.log(`DEBUG READY ${owner}: 127.0.0.1:${port} -> ${container.Name.slice(1)}:9229 (existing process)`);
   const stop = () => {
     for (const socket of sockets) socket.destroy();
     for (const child of children) child.kill();
@@ -109,6 +110,7 @@ try {
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
 } catch (error) {
+  debugServer?.close();
   console.error(error.message);
   process.exitCode = 1;
 }

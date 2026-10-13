@@ -1333,42 +1333,6 @@ function mergeExecutionStepCaptures(
   return merged;
 }
 
-function deriveTestEngineLiveViewUrl(integration?: Integration | null) {
-  if (!integration) {
-    return "";
-  }
-
-  const configured = String(integration.config?.live_view_url || integration.config?.vnc_url || "").trim();
-  const provider = String(integration.config?.active_web_engine || "playwright").trim().toLowerCase();
-
-  if (
-    configured
-    && !(provider === "playwright" && !configured.includes("/api/v1/live-session"))
-    && !(provider === "selenium" && configured.includes("/api/v1/live-session"))
-  ) {
-    return configured;
-  }
-
-  if (!integration.base_url) {
-    return "";
-  }
-
-  try {
-    const parsed = new URL(integration.base_url);
-    if (provider === "selenium") {
-      parsed.port = "7900";
-      parsed.pathname = "/";
-      parsed.search = "?autoconnect=1&resize=scale";
-    } else {
-      return buildBrowserUrl(integration, "/api/v1/live-session?provider=playwright", ["live_view_url", "public_base_url"]);
-    }
-
-    parsed.hash = "";
-    return parsed.toString();
-  } catch {
-    return "";
-  }
-}
 
 function isBatchProcessTransaction(transaction: WorkspaceTransaction) {
   return BATCH_PROCESS_CATEGORIES.has(transaction.category)
@@ -2762,18 +2726,7 @@ export function ExecutionsPage() {
   const selectedExecutionAppTypeKind = selectedExecution?.app_type_id
     ? appTypes.find((appType) => appType.id === selectedExecution.app_type_id)?.type || null
     : null;
-  const selectedTestEngineIntegration = useMemo(() => {
-    if (!selectedExecution) {
-      return null;
-    }
-
-    const projectScoped = testEngineIntegrations.find(
-      (integration) => String(integration.config?.project_id || "").trim() === selectedExecution.project_id
-    );
-
-    return projectScoped || testEngineIntegrations.find((integration) => !String(integration.config?.project_id || "").trim()) || null;
-  }, [selectedExecution, testEngineIntegrations]);
-  const testEngineLiveViewUrl = selectedTestEngineIntegration ? deriveTestEngineLiveViewUrl(selectedTestEngineIntegration) : "";
+  const testEngineLiveViewUrl = selectedExecution?.live_sessions?.[0]?.url || "";
   const isExecutionLiveViewEligible =
     currentExecutionStatus === "running"
     && Boolean(testEngineLiveViewUrl)
@@ -3909,7 +3862,6 @@ export function ExecutionsPage() {
         parallel_enabled: canConfigureParallelAutomation && executionParallelEnabled,
         parallel_count: canConfigureParallelAutomation && executionParallelEnabled ? executionParallelCount : 1,
         execution_mode: executionStartMode,
-        engine_base_url: executionStartMode === "local" ? "http://host.docker.internal:4301" : undefined,
         start_date: executionStartDate || undefined,
         end_date: executionEndDate || undefined,
         assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,

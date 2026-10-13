@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-sprint-closed",
+      "display_id": "HT8-SP1",
+      "project_id": "sample-project",
+      "name": "Acceptance baseline",
+      "goal": "Review completed acceptance examples",
+      "description": "Synthetic delivery plan; dates are fixed examples, not release commitments.",
+      "state": "closed",
+      "start_date": "2026-09-14T09:00:00.000Z",
+      "end_date": "2026-09-27T18:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "effort_points": 26,
+      "labels": [
+        "sample",
+        "v8",
+        "delivery-matrix"
+      ]
+    },
+    {
+      "id": "sample-v8-ht-sprint-overdue",
+      "display_id": "HT8-SP2",
+      "project_id": "sample-project",
+      "name": "Native recovery",
+      "goal": "Review unfinished native and retrieval recovery",
+      "description": "Synthetic delivery plan; dates are fixed examples, not release commitments.",
+      "state": "active",
+      "start_date": "2026-09-28T09:00:00.000Z",
+      "end_date": "2026-10-11T18:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "effort_points": 22,
+      "labels": [
+        "sample",
+        "v8",
+        "delivery-matrix"
+      ]
+    },
+    {
+      "id": "sample-v8-ht-sprint-active",
+      "display_id": "HT8-SP3",
+      "project_id": "sample-project",
+      "name": "Cross-platform verification",
+      "goal": "Review unified execution and data boundaries",
+      "description": "Synthetic delivery plan; dates are fixed examples, not release commitments.",
+      "state": "active",
+      "start_date": "2026-10-12T09:00:00.000Z",
+      "end_date": "2026-10-25T18:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "effort_points": 25,
+      "labels": [
+        "sample",
+        "v8",
+        "delivery-matrix"
+      ]
+    },
+    {
+      "id": "sample-v8-ht-sprint-future",
+      "display_id": "HT8-SP4",
+      "project_id": "sample-project",
+      "name": "Governance follow-up",
+      "goal": "Review metadata and exploratory follow-up",
+      "description": "Synthetic delivery plan; dates are fixed examples, not release commitments.",
+      "state": "future",
+      "start_date": "2026-10-26T09:00:00.000Z",
+      "end_date": "2026-11-08T18:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "effort_points": 2,
+      "labels": [
+        "sample",
+        "v8",
+        "delivery-matrix"
+      ]
+    }
+  ]
+}

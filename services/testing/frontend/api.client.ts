@@ -618,7 +618,7 @@ testSteps: {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    group: (input: { test_case_id: string; step_ids: string[]; name: string; kind?: "local" | "reusable"; group_id?: string; reusable_group_id?: string }) =>
+    group: (input: { test_case_id: string; step_ids: string[]; name: string; kind?: "local" | "reusable"; group_id?: string; reusable_group_id?: string; create_shared_group?: boolean }) =>
       request<{ grouped: boolean; group_id: string }>("/test-steps/group", {
         method: "POST",
         body: JSON.stringify(input)

@@ -4,7 +4,7 @@ const path = require("path");
 const { readBoundedResponseJson } = require("@hellotest/platform/backend/src/utils/boundedResponse");
 const { resilientHttpRequest } = require("@hellotest/platform/backend/src/utils/resilientHttpClient");
 
-const DEFAULT_WEB_URLS = ["http://localhost:4311", "http://127.0.0.1:4311", "http://host.docker.internal:4311"];
+const DEFAULT_WEB_URLS = ["http://localhost:4313", "http://127.0.0.1:4313", "http://host.docker.internal:4313", "http://localhost:4311", "http://127.0.0.1:4311", "http://host.docker.internal:4311"];
 const webCandidates = () => {
   const configured = process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL;
   if (!configured) return DEFAULT_WEB_URLS;
@@ -35,6 +35,12 @@ const normalizeBaseUrl = (value) => {
     throw new Error("Local provider URL must be an http(s) base URL without credentials, query, or fragment");
   }
   return parsed.toString().replace(/\/+$/, "");
+};
+
+const browserBaseUrl = (baseUrl) => {
+  const url = new URL(baseUrl);
+  if (url.hostname === "host.docker.internal") url.hostname = "localhost";
+  return url.toString().replace(/\/+$/, "");
 };
 
 const withTimeout = async (url, timeoutMs = 900) => {
@@ -131,7 +137,7 @@ const launchHostRecorder = () => {
     stdio: "ignore",
     env: {
       ...process.env,
-      HELLOTEST_HOST_RECORDER_PORT: process.env.HELLOTEST_HOST_RECORDER_PORT || "4311"
+      HELLOTEST_HOST_RECORDER_PORT: process.env.HELLOTEST_HOST_RECORDER_PORT || (process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL ? new URL(process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL).port : "") || "4313"
     }
   });
 
@@ -160,7 +166,7 @@ exports.getStatus = async () => {
     mobile,
     appium,
     recommended: {
-      web_public_base_url: web.ready ? web.base_url : "http://localhost:4311",
+      web_public_base_url: web.ready ? browserBaseUrl(web.base_url) : "http://localhost:4313",
       mobile_public_base_url: mobile.ready ? mobile.base_url : "http://localhost:4312",
       appium_server_url: appium.ready ? appium.base_url : "http://localhost:4723"
     }

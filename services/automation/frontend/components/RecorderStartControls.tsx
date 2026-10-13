@@ -17,8 +17,8 @@ export type RecorderStartOptions = {
 
 type LocalCheckState = "idle" | "checking" | "ready" | "failed";
 
-const DEFAULT_LOCAL_BROWSER_URL = "http://localhost:4311";
-const DEFAULT_LOCAL_ENGINE_URL = "http://host.docker.internal:4311";
+const DEFAULT_LOCAL_BROWSER_URL = "http://localhost:4313";
+const DEFAULT_LOCAL_ENGINE_URL = "http://host.docker.internal:4313";
 const DOCKER_LOCAL_BROWSER_URL = "http://localhost:4301";
 const DOCKER_LOCAL_ENGINE_URL = "http://testengine:4301";
 

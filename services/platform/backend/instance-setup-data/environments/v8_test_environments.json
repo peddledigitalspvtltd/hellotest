@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-env-web",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Web synthetic QA",
+      "description": "Non-routable example endpoint; no credentials or live device are included.",
+      "base_url": "https://web.example.test",
+      "browser": "Chrome",
+      "variables": [
+        {
+          "key": "base_url",
+          "value": "https://web.example.test"
+        },
+        {
+          "key": "tenant",
+          "value": "fictional-tenant"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-env-api",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-api",
+      "name": "Api synthetic QA",
+      "description": "Non-routable example endpoint; no credentials or live device are included.",
+      "base_url": "https://api.example.test",
+      "browser": null,
+      "variables": [
+        {
+          "key": "base_url",
+          "value": "https://api.example.test"
+        },
+        {
+          "key": "tenant",
+          "value": "fictional-tenant"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-env-android",
+      "project_id": "sample-project",
+      "app_type_id": "sample-v8-ht-app-android",
+      "name": "Android synthetic QA",
+      "description": "Non-routable example endpoint; no credentials or live device are included.",
+      "base_url": "https://android.example.test",
+      "browser": null,
+      "variables": [
+        {
+          "key": "base_url",
+          "value": "https://android.example.test"
+        },
+        {
+          "key": "tenant",
+          "value": "fictional-tenant"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-env-ios",
+      "project_id": "sample-project",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "name": "Ios synthetic QA",
+      "description": "Non-routable example endpoint; no credentials or live device are included.",
+      "base_url": "https://ios.example.test",
+      "browser": null,
+      "variables": [
+        {
+          "key": "base_url",
+          "value": "https://ios.example.test"
+        },
+        {
+          "key": "tenant",
+          "value": "fictional-tenant"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-env-unified",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "name": "Unified synthetic QA",
+      "description": "Non-routable example endpoint; no credentials or live device are included.",
+      "base_url": "https://unified.example.test",
+      "browser": "Chrome",
+      "variables": [
+        {
+          "key": "base_url",
+          "value": "https://unified.example.test"
+        },
+        {
+          "key": "tenant",
+          "value": "fictional-tenant"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    }
+  ]
+}

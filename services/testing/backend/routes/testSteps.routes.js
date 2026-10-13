@@ -166,12 +166,17 @@ module.exports = async function (fastify) {
       name: { required: true, type: "string", minLength: 2 },
       kind: { required: false, enum: TEST_STEP_GROUP_KIND_VALUES },
       group_id: { required: false, type: "string" },
-      reusable_group_id: { required: false, type: "string" }
+      reusable_group_id: { required: false, type: "string" },
+      create_shared_group: { required: false, type: "boolean" }
     }, req.body);
 
-    await requireCasePermission(fastify, req, "step.manage", req.body.test_case_id);
-
-    return service.groupTestSteps(req.body);
+    const scope = await requireCasePermission(fastify, req, "step.manage", req.body.test_case_id);
+    const selectedSteps = await Promise.all(req.body.step_ids.map(id => service.getTestStep(id)));
+    await requireMobileStepWrite(fastify, req, scope, selectedSteps);
+    if (req.body.create_shared_group || req.body.kind === "reusable" || req.body.reusable_group_id) {
+      await fastify.requirePermission("shared_step.manage", { projectId: scope.projectId })(req);
+    }
+    return service.groupTestSteps({ ...req.body, created_by: req.user.id });
   });
 
   fastify.post("/test-steps/ungroup", async (req) => {

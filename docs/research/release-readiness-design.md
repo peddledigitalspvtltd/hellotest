@@ -1,5 +1,8 @@
 # Release Readiness: evidence review redesign
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 Date: 10 September 2026. Scope: the Release Readiness screen and its evidence model. This is implementation research and an expert review, not a usability study or a validated release-risk model.
 
 ## What the current screen actually did

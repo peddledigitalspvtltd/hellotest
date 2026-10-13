@@ -12,6 +12,8 @@ const STORY_SECTION_LABELS = [
   "out of scope"
 ];
 
+const DEFECT_SECTION_LABELS = ["steps to reproduce", "reproduction steps", "expected results?", "actual results?", "environment", "root cause"];
+
 const TEST_CASE_SECTION_LABELS = [
   "preconditions?",
   "test data",
@@ -66,7 +68,7 @@ const normalizeDescriptionLines = (value) => {
 };
 
 const findStructuredSection = (line, profile) => {
-  const labels = profile === "story" ? STORY_SECTION_LABELS : profile === "test-case" ? TEST_CASE_SECTION_LABELS : [];
+  const labels = profile === "story" ? STORY_SECTION_LABELS : profile === "test-case" ? TEST_CASE_SECTION_LABELS : profile === "defect" ? DEFECT_SECTION_LABELS : [];
   let earliestIndex = -1;
   let earliestLabel = "";
 
@@ -112,7 +114,7 @@ const trimAtStructuredSection = (lines, profile) => {
   };
 };
 
-const truncateAtWordBoundary = (value, maxCharacters) => {
+export const truncateAtWordBoundary = (value, maxCharacters) => {
   if (value.length <= maxCharacters) {
     return { text: value, wasCharacterTruncated: false };
   }

@@ -47,8 +47,8 @@ Expected local endpoints:
 
 - Frontend: `http://localhost:8080`
 - API: `http://localhost:3000`
-- Host recorder health: `http://localhost:4311/health`
-- Host recorder capabilities: `http://localhost:4311/api/v1/capabilities`
+- Host recorder health: `http://localhost:4313/health`
+- Host recorder capabilities: `http://localhost:4313/api/v1/capabilities`
 - Docker Test Engine readiness: `http://localhost:4301/health/ready`
 - Docker Test Engine capabilities: `http://localhost:4301/api/v1/capabilities`
 - OPS board: `http://localhost:4301/ops-telemetry`
@@ -59,8 +59,8 @@ In HelloTest, open Integrations and create or update a Test Engine integration.
 
 Use these local values:
 
-- Engine base URL for visible host browser: `http://host.docker.internal:4311`
-- Recorder public base URL for visible host browser: `http://localhost:4311`
+- Engine base URL for visible host browser: `http://host.docker.internal:4313`
+- Recorder public base URL for visible host browser: `http://localhost:4313`
 - Docker embedded fallback engine URL: `http://testengine:4301`
 - Docker embedded fallback public URL: `http://localhost:4301`
 - Shared secret: `hellotest-testengine-dev-secret`
@@ -122,3 +122,5 @@ docker compose -f local-run/docker-compose.yml exec api wget -q -O - http://test
 If execution fails with `ECONNREFUSED 127.0.0.1:4444`, the local integration is
 still using Selenium. Run `bin/fix-recorder-integration.sh` so local execution
 uses the bundled Playwright engine instead of requiring a Selenium grid.
+
+The repository inspection agent uses port **4311**; the host execution/recorder uses **4313**. These are separate services. If a previous host recorder runs on 4311, the backend can still probe it, but a repository inspection agent does not satisfy execution health checks. Keep `HELLOTEST_HOST_RECORDER_PORT` and `HELLOTEST_LOCAL_RUN_ENGINE_URL` aligned when selecting another port. Native callbacks use `HELLOTEST_LOCAL_CALLBACK_BASE_URL`.

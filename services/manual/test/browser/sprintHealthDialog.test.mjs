@@ -14,7 +14,7 @@ const session={token:'isolated-sprint-health',user:{id:'planner',name:'Planner',
 function stub(value){for(const[key,entry]of Object.entries(value)){if(typeof entry==='function')value[key]=async()=>[];else if(entry&&typeof entry==='object')stub(entry)}}stub(api);
 api.auth.session=async()=>session;api.settings.getLocalization=async()=>({strings:{}});api.settings.getWorkspacePreferences=async()=>({preferences:{}});api.featureFlags.snapshot=async()=>({flags:new Proxy({},{get:()=>true})});
 api.metadata.domain=async()=>({requirements:{default_status:'open',statuses:[{value:'open',label:'Open'}]},jira:{sprints:[],versions:[]}});api.projects.list=async()=>[{id:'project',name:'Project'}];api.appTypes.list=async()=>[{id:'app',project_id:'project',name:'Web',type:'web'}];
-api.requirementIterations.list=async()=>[{id:'sprint-a',project_id:'project',name:'Checkout Delivery',state:'active',requirement_count:40,requirement_ids:[]}];api.requirementReleases.list=async()=>[];
+api.requirementIterations.list=async()=>[{id:'sprint-a',project_id:'project',name:'Checkout Delivery',state:'active',start_date:'2026-01-01T09:00:00Z',end_date:'2026-01-14T18:00:00Z',requirement_count:40,requirement_ids:[]}];api.requirementReleases.list=async()=>[];
 api.requirements.listPage=api.requirementIterations.listRequirements=async()=>({items:[],is_last:true,next_cursor:null});
 const aggregate={total:40,mapped:30,highPriority:3,open:24,completed:16,qaTotal:40,totalDefects:8,completionPercent:40,coveragePercent:75,defectDensity:.2,groomed:20,notGroomed:20,described:35,specified:30,teamAssigned:40,slipped:2,onCourse:38,sprintCommitted:40,releaseScoped:0,backlog:0};
 window.health={iteration_id:'sprint-a',jira_sprint_id:null,name:'Checkout Delivery',state:'active',total_stories:40,completed_stories:16,completed_percent:40,covered_stories:30,coverage_percent:75,linked_cases:80,executed_linked_cases:60,passed_cases:45,pass_percent:75,at_risk_stories:3,slippage_stories:2,open_p1_p2_bugs:1,total_bugs:8,observed:{stories_scanned:40,completed_stories:16,covered_stories:30,linked_cases:80,executed_linked_cases:60,passed_cases:45,at_risk_stories:3,slippage_stories:2,open_p1_p2_bugs:1,total_bugs:8},exact_fields:['total_stories','completed_stories','completed_percent','covered_stories','coverage_percent','linked_cases','executed_linked_cases','passed_cases','pass_percent','at_risk_stories','slippage_stories','open_p1_p2_bugs','total_bugs'],completeness:{complete:true,partial:false,reasons:[]}};
@@ -33,6 +33,13 @@ test('Sprint Health uses complete server evidence, refreshes in place and keeps 
     await page.route('**/api/**',route=>{errors.push(`Unexpected API call: ${route.request().url()}`);return route.abort();});
     await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5189'}/${name}.html`);
     const trigger=page.getByRole('button',{name:'Sprint Health: Checkout Delivery',exact:true});await trigger.waitFor();
+    const overdue = page.locator('.requirement-sprint-status.is-overdue').first();
+    await overdue.waitFor();
+    assert.equal(await overdue.evaluate(element => getComputedStyle(element).color), 'rgb(180, 35, 24)');
+    await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.requirement-sprint-status.is-overdue')).color === 'rgb(253, 162, 155)');
+    assert.equal(await overdue.evaluate(element => getComputedStyle(element).color), 'rgb(253, 162, 155)');
+    await page.evaluate(() => document.documentElement.dataset.theme = 'light');
     await assertHealthAtRibbonEnd(trigger);
     await page.getByRole('button',{name:'List view',exact:true}).click();
     await page.locator('.requirement-iteration-list-header').waitFor();

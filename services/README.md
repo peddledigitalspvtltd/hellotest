@@ -67,7 +67,7 @@ The gateway check uses disposable Docker containers and synthetic upstreams. It 
 
 ## Operational infrastructure
 
-`catalog.json` also inventories the eight monitoring/routing components in `operations`. Run `npm run ops:up` for the bounded standalone stack; see [the ops runbook](../docs/ops-operations.md) for budgets, integration, verification, and failure behavior.
+`catalog.json` also inventories the eight monitoring/routing components in `operations`. Run `npm run ops:up` for the bounded standalone stack; see [the ops runbook](../docs/operations/operations.md) for budgets, integration, verification, and failure behavior.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the complete source map, architecture diagrams and contribution workflow.
 

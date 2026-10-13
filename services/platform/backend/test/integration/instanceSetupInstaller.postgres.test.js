@@ -13,6 +13,7 @@ test('repository installer validates before writes, retries a file atomically an
   const jobs = require('../../services/instanceSetup.service').createInstanceSetupService({ logger: { error() {} } });
   const actorId = 'setup-validation-admin';
   const input = { modules: ['workspace'], actorId };
+  const workspaceRecordCount = repository.getInstallPlan(input.modules).files.reduce((sum, file) => sum + file.record_count, 0);
   const root = repository.loadManifest().root;
   let temporary;
   try {
@@ -32,6 +33,25 @@ test('repository installer validates before writes, retries a file atomically an
       delete process.env.HELLOTEST_INSTANCE_SETUP_DATA_DIR;
     });
     let saved;
+    await t.test('unsupported native choices fail during preflight before project writes', async () => {
+      temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'instance-native-contract-'));
+      fs.cpSync(root, temporary, { recursive: true });
+      const manifestPath = path.join(temporary, 'manifest.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      const file = manifest.files.find(file => file.key === 'planning.v8_requirement_iterations');
+      const filename = path.join(temporary, file.path);
+      const data = JSON.parse(fs.readFileSync(filename, 'utf8'));
+      data.records[0].state = 'planned';
+      const bytes = Buffer.from(JSON.stringify(data));
+      fs.writeFileSync(filename, bytes);
+      file.sha256 = require('node:crypto').createHash('sha256').update(bytes).digest('hex');
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+      process.env.HELLOTEST_INSTANCE_SETUP_DATA_DIR = temporary;
+      try {
+        await assert.rejects(service.seedSampleData({ ...input, modules:['planning'] }), error => error.code === 'SETUP_RECORD_CONTRACT');
+        assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM projects').get()).count, 0);
+      } finally { delete process.env.HELLOTEST_INSTANCE_SETUP_DATA_DIR; fs.rmSync(temporary, { recursive:true, force:true }); temporary = null; }
+    });
     await t.test('a transient write rolls back just its file and retries with a smaller batch', async () => {
       let failed = false;
       const transitions = [];
@@ -49,7 +69,7 @@ test('repository installer validates before writes, retries a file atomically an
       const retried = result.file_results.find(file => file.table === 'app_types');
       assert.equal(retried.attempts, 2);
       assert.equal(retried.fallback_batch_size, 10);
-      assert.equal(result.inserted_records, 4);
+      assert.equal(result.inserted_records, workspaceRecordCount);
       assert.equal(result.administrator_memberships, 1);
       assert.equal(saved.phase, 'verifying');
       assert.ok(saved.files.every(file => file.status === 'completed'));
@@ -57,7 +77,7 @@ test('repository installer validates before writes, retries a file atomically an
     await t.test('completed checkpoints retain receipts and user changes', async () => {
       await db.prepare("UPDATE projects SET name = 'Retained title' WHERE id = 'sample-project'").run();
       const result = await service.seedSampleData({ ...input, checkpoints: saved.files, expectedManifestHash: saved.manifest_hash });
-      assert.equal(result.inserted_records, 4, 'Receipt retains work committed earlier by this job');
+      assert.equal(result.inserted_records, workspaceRecordCount, 'Receipt retains work committed earlier by this job');
       assert.equal(result.administrator_memberships, 1);
       assert.equal((await db.prepare("SELECT name FROM projects WHERE id='sample-project'").get()).name, 'Retained title');
       assert.equal((await db.prepare("SELECT COUNT(*)::int AS count FROM project_members WHERE project_id='sample-project'").get()).count, 1);
@@ -142,6 +162,42 @@ test('repository installer validates before writes, retries a file atomically an
       await db.prepare('UPDATE users SET is_workspace_admin=FALSE WHERE id=?').run(actorId);
       await assert.rejects(jobs.startConfigured('all'), error => error.code === 'INSTANCE_SETUP_ACTOR_REQUIRED');
       await db.prepare('UPDATE users SET is_workspace_admin=TRUE WHERE id=?').run(actorId);
+    });
+
+
+    await t.test('section grouping is atomic, scoped and reversible without changing snapshots', async () => {
+      const steps = require('@hellotest/testing/backend/services/testStep.service');
+      const cases = ['section-review-case', 'section-other-case'];
+      for (const id of cases) await db.prepare("INSERT INTO test_cases(id,app_type_id,title) VALUES (?, 'sample-app-web', ?)").run(id, id);
+      for (let index = 1; index <= 3; index++) await db.prepare("INSERT INTO test_steps(id,test_case_id,step_order,action,expected_result,step_type,automation_code) VALUES (?, ?, ?, ?, 'Visible outcome', 'web', 'await page.reload();')").run(`section-review-${index}`, cases[0], index, `Action ${index}`);
+      await db.prepare("INSERT INTO test_steps(id,test_case_id,step_order,action) VALUES ('section-foreign', ?, 1, 'Foreign')").run(cases[1]);
+      const snapshotBefore = await db.prepare('SELECT COUNT(*)::int AS count FROM execution_step_snapshots').get();
+      const input = {test_case_id:cases[0], step_ids:['section-review-1','section-review-2'], name:'Reviewed flow', create_shared_group:true, created_by:actorId};
+      const before = await db.prepare('SELECT COUNT(*)::int AS count FROM shared_step_groups').get();
+      const sharedService = require(require.resolve('@hellotest/testing/backend/services/testStep.service').replace('testStep.service.js','sharedStepGroup.service.js'));
+      const originalCreate = sharedService.createSharedStepGroup;
+      sharedService.createSharedStepGroup = async body => { await originalCreate(body); throw new Error('Injected library failure'); };
+      try { await assert.rejects(steps.groupTestSteps(input), /Injected library failure/); }
+      finally { sharedService.createSharedStepGroup = originalCreate; }
+      assert.deepEqual(await db.prepare('SELECT COUNT(*)::int AS count FROM shared_step_groups').get(), before);
+      assert.equal((await steps.getTestStep('section-review-1')).group_id, null);
+      await assert.rejects(steps.groupTestSteps({...input,step_ids:['section-review-1','section-review-3']}), /continuous/);
+      await assert.rejects(steps.groupTestSteps({...input,step_ids:['section-review-1','section-foreign']}), /selected test case/);
+      const grouped = await steps.groupTestSteps(input);
+      const source = await sharedService.getSharedStepGroup(grouped.reusable_group_id);
+      assert.equal(source.steps.length, 2);
+      assert.equal(source.steps[0].automation_code, 'await page.reload();');
+      await assert.rejects(steps.groupTestSteps({...input,create_shared_group:false,kind:'local',step_ids:['section-review-1']}), /entire Shared Section Group/);
+      const apiGroup = await db.prepare("SELECT id FROM shared_step_groups WHERE app_type_id='sample-app-api' LIMIT 1").get();
+      await assert.rejects(steps.groupTestSteps({...input,create_shared_group:false,kind:'reusable',reusable_group_id:apiGroup.id}), /same application/);
+      const local = await steps.groupTestSteps({...input,create_shared_group:false,kind:'local',group_id:grouped.group_id});
+      assert.equal((await steps.getTestStep('section-review-1')).group_kind, 'local');
+      assert.equal((await steps.getTestStep('section-review-1')).reusable_group_id, null);
+      assert.equal((await sharedService.getSharedStepGroup(source.id)).steps.length, 2);
+      await steps.ungroupTestSteps({test_case_id:cases[0],group_id:local.group_id});
+      assert.equal((await steps.getTestStep('section-review-1')).group_id, null);
+      assert.equal((await steps.getTestStep('section-review-2')).automation_code, 'await page.reload();');
+      assert.deepEqual(await db.prepare('SELECT COUNT(*)::int AS count FROM execution_step_snapshots').get(), snapshotBefore);
     });
 
   } finally {

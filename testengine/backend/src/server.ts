@@ -160,9 +160,9 @@ app.get("/health", async () => ({
 app.get("/api/v1/capabilities", async () => buildCapabilities());
 
 app.get("/api/v1/live-session/screenshot", async (request, reply) => {
-  const query = request.query as { provider?: string };
+  const query = request.query as { provider?: string; run_id?: string };
   const provider = query.provider === "selenium" ? "selenium" : "playwright";
-  const screenshot = await captureLiveSessionScreenshot(provider);
+  const screenshot = await captureLiveSessionScreenshot(provider, query.run_id);
 
   if (!screenshot) {
     reply.code(204);
@@ -174,12 +174,12 @@ app.get("/api/v1/live-session/screenshot", async (request, reply) => {
 });
 
 app.get("/api/v1/live-session", async (request, reply) => {
-  const query = request.query as { provider?: string; format?: string };
+  const query = request.query as { provider?: string; format?: string; run_id?: string };
   const provider = query.provider === "selenium" ? "selenium" : "playwright";
 
   if (provider === "playwright" && query.format !== "json") {
-    const status = getLiveSessionStatus("playwright");
-    const screenshotPath = "/api/v1/live-session/screenshot?provider=playwright";
+    const status = getLiveSessionStatus("playwright", query.run_id);
+    const screenshotPath = "/api/v1/live-session/screenshot?provider=playwright" + (query.run_id ? "&run_id=" + encodeURIComponent(query.run_id) : "");
     reply.header("Content-Type", "text/html; charset=utf-8");
     return `<!doctype html>
 <html>
@@ -228,7 +228,7 @@ app.get("/api/v1/live-session", async (request, reply) => {
 
   const seleniumLiveViewUrl = buildSeleniumLiveViewUrl();
   const playwrightLiveViewUrl = buildPlaywrightLiveViewUrl();
-  const status = getLiveSessionStatus(provider);
+  const status = getLiveSessionStatus(provider, query.run_id);
 
   return {
     ok: true,

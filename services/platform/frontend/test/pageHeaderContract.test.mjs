@@ -92,7 +92,8 @@ test("Product Management, Test Authoring, Test Environment, and Defects expose m
 
   assert.match(product, /eyebrow="Product Management"/);
   assert.match(suites, /eyebrow="Test Plan"/);
-  for (const source of [cases, sharedSteps]) assert.match(source, /eyebrow="Test Authoring"/);
+  assert.match(cases, /eyebrow="Test Authoring"/);
+  assert.match(sharedSteps, /eyebrow=\{isAutomationLibrary \? "Automation assets" : "Test Authoring"\}/);
   assert.match(environments, /const currentViewEyebrow = "Test Environment"/);
   assert.match(bugs, /title="Defects"[\s\S]{0,180}description="Capture, reproduce, triage, and resolve Defects/);
 });

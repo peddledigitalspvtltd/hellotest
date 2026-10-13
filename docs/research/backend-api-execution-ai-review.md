@@ -1,5 +1,8 @@
 # Execution, analytics, knowledge and integration API architecture review
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 Reviewed 2026-09-18. Scope: **159 method/path operations in 17 route modules**. Inventory comes from actual route registration, including loop-created routes and GET/POST wildcard variants. Every operation is listed below. Review included route validation/authentication and the invoked service boundaries; this is not a claim that every route received an independent load test.
 
 ## Implemented findings

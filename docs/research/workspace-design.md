@@ -1,5 +1,8 @@
 # Shared workspace design
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 Date: 10 September 2026
 
 The administration portal is the visual reference for the main application: a dark navigation rail, a quiet top bar, a warm canvas, clear page titles and restrained white surfaces. This change applies that structure through the shared application shell and reusable components. It keeps the existing route hierarchy and task-specific editors.

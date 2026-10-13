@@ -588,7 +588,8 @@ function ReadyAppShell() {
                       ? navCounts[item.countKey as keyof typeof navCounts]
                       : undefined;
                   const isPlanning = location.pathname === "/executions" && new URLSearchParams(location.search).get("view") === "scheduled-runs";
-                  const isActive = item.id === "test-plan" ? location.pathname === "/design" || isPlanning : item.id === "runs" ? location.pathname === "/executions" && !isPlanning : isNavigationItemActive(item, location.pathname);
+                  const isSharedSectionLibrary = location.pathname === "/shared-steps" && new URLSearchParams(location.search).get("view") === "automation";
+                  const isActive = item.id === "automation" && isSharedSectionLibrary ? true : item.id === "authoring" && isSharedSectionLibrary ? false : item.id === "test-plan" ? location.pathname === "/design" || isPlanning : item.id === "runs" ? location.pathname === "/executions" && !isPlanning : isNavigationItemActive(item, location.pathname);
                   const subItems = resolveSidebarSubItems(item);
                   const primaryFeatureEnabled = areFeatureFlagsEnabled(
                     featureFlagsQuery.data,

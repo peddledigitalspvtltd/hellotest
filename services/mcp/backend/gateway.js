@@ -13,11 +13,19 @@ async function contextCall({userId,projectId,args,signal,privateInput,timeoutMs=
  },{signal,timeoutMs});
 }
 function verifyPacket(packet,projectId){
- if(!packet||!Array.isArray(packet.evidence)||(packet.project_id&&packet.project_id!==projectId))throw Object.assign(new Error('MCP returned an invalid or mismatched context packet.'),{code:'MCP_CONTEXT_SCOPE_MISMATCH'});
+ if(!packet||!Array.isArray(packet.evidence)||packet.project_id!==projectId)throw Object.assign(new Error('MCP returned an invalid or mismatched context packet.'),{code:'MCP_CONTEXT_SCOPE_MISMATCH'});
  return packet;
 }
+function retrievalTimeout(input) {
+ const configured=Number(input.request?.budgets?.deadline_ms);
+ const retrievalMs=Number.isFinite(configured)&&configured>0?Math.min(60000,configured):30000;
+ const callerMs=Number(input.timeoutMs);
+ // The principal/protocol exchange shares the turn budget, with a small
+ // assembly allowance; a normalized 60s retrieval must not hit a 30s bridge.
+ return Math.max(1,Math.min(retrievalMs+2000,Number.isFinite(callerMs)?callerMs:62000));
+}
 async function retrieveContext(input){
- const result=await contextCall({userId:input.user.id,projectId:input.request.project_id,args:{question:input.request.query},signal:input.signal,privateInput:{retrievalInput:input}});
+ const result=await contextCall({userId:input.user.id,projectId:input.request.project_id,args:{question:input.request.query},signal:input.signal,timeoutMs:retrievalTimeout(input),privateInput:{retrievalInput:input}});
  const context=result.result;verifyPacket(context?.packet,input.request.project_id);
  traces.update({mcp_context:'retrieved'});context.retrieval={...context.retrieval,context_transport:'mcp'};return context;
 }
@@ -77,4 +85,4 @@ async function enrichChatRequest(init,options={}){
   return {...init,body:JSON.stringify({...body,messages})};
  }
 }
-module.exports={installTransport,contextCall,retrieveContext,retrievePacket,enrichChatRequest};
+module.exports={retrievalTimeout,installTransport,contextCall,retrieveContext,retrievePacket,enrichChatRequest};

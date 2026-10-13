@@ -1,6 +1,8 @@
 # HelloTest
 
-HelloTest combines project planning, test authoring, automation, execution evidence, knowledge retrieval, and AI Agent Studio. The [agentic V2 release guide](docs/redesign-v2-2026-10/README.md) describes the imported feature baseline; current behavior and verification are recorded in the [architecture review](docs/architecture/refactor-review.md).
+The [documentation index](docs/README.md) groups current guides, operations and research references.
+
+HelloTest combines project planning, test authoring, automation, execution evidence, knowledge retrieval, and AI Agent Studio. The [agentic V2 release guide](docs/product/agentic-studio.md) describes the imported feature baseline; current behavior and verification are recorded in the [architecture review](docs/architecture/refactor-review.md).
 
 HelloTest is a QA workspace for stories, manual and automated cases, reusable steps, test data, suites, runs and evidence. Its React workspace and administration portal use a Fastify API. TestEngine executes structured API requests, Playwright browser automation and Android/iOS flows through a native provider.
 
@@ -9,7 +11,7 @@ HelloTest is a QA workspace for stories, manual and automated cases, reusable st
 | Run and administer a local application | Follow the Docker startup below |
 | Set up development, debug services or contribute code | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Diagnose a failing request, build or run | [Debugging runbook](docs/development/debugging.md) |
-| Plan a shared deployment or capability release | [Platform deployment](docs/PLATFORM_STACK.md), [service deployment](services/README.md), [release contracts](docs/architecture/capability-packaging.md) |
+| Plan a shared deployment or capability release | [Platform deployment](docs/operations/platform-stack.md), [service deployment](services/README.md), [release contracts](docs/architecture/capability-packaging.md) |
 
 ## Prerequisites and execution boundaries
 
@@ -142,13 +144,13 @@ Start with the affected service and preserve the request/trace/job IDs:
 ./hellotest.sh logs --stack local --tail 100 api
 ```
 
-The [debugging runbook](docs/development/debugging.md) covers inspector ports, request IDs, logs, queue failures and provider health. For monitoring, use the [operations runbook](docs/ops-operations.md). Share sanitized errors and reproduction steps; omit environment files, cookies, tokens and private test data.
+The [debugging runbook](docs/development/debugging.md) covers inspector ports, request IDs, logs, queue failures and provider health. For monitoring, use the [operations runbook](docs/operations/operations.md). Share sanitized errors and reproduction steps; omit environment files, cookies, tokens and private test data.
 
 After correcting the cause, `./hellotest.sh restart --stack local api` restarts the API. Changed container environment settings require recreation through the appropriate `up` command. `./hellotest.sh down --stack local` stops the application and its launcher-managed monitoring without deleting named volumes. Confirm the stack/service scope before an operation; never use volume deletion as routine repair.
 
 ## Configuration, data and release handoff
 
-Use the intended stack's configuration, not values copied from another environment. `hellotest.sh config` writes resolved settings under private `.hellotest/`; `--config <file>` supplies operator overrides. Keep these files, local environments and credentials out of commits and support reports. [CONTRIBUTING.md](CONTRIBUTING.md#configuration-ownership) identifies setting owners; the [platform guide](docs/PLATFORM_STACK.md) describes hosted bootstrap and secrets.
+Use the intended stack's configuration, not values copied from another environment. `hellotest.sh config` writes resolved settings under private `.hellotest/`; `--config <file>` supplies operator overrides. Keep these files, local environments and credentials out of commits and support reports. [CONTRIBUTING.md](CONTRIBUTING.md#configuration-ownership) identifies setting owners; the [platform guide](docs/operations/platform-stack.md) describes hosted bootstrap and secrets.
 
 Before a shared deployment, assign and record these responsibilities:
 

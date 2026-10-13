@@ -76,3 +76,9 @@ test("a slow reader is awaited before more answer data is written", async () => 
   assert.match(run.frames.at(-1), /^event: result/);
   assert.equal(run.raw.listenerCount("drain"), 0);
 });
+
+test('verified delivery preserves paragraph boundaries and Markdown across small chunks',()=>{
+ const content="First paragraph.\n\nSecond paragraph with **evidence**.\n\n- First outcome\n- Second outcome";
+ const events=[...answerDeliveryEvents({assistant_message:{...saved.assistant_message,content}},{chunkSize:7})];
+ assert.equal(events.map(event=>event.text).join(''),content);
+});

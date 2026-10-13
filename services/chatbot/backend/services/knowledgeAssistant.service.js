@@ -1168,7 +1168,7 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
       execution.emit("INTENT_ANALYSIS", "completed", { message: "Understood the intent using the bounded project evidence rules." });
     }
     if (mergedFilters.as_of) await assistantRead(() => knowledgeAuthorization.assertHistoricalAccess(user, sessionRow.project_id));
-    const context = await require("@hellotest/mcp/backend/gateway").retrieveContext({ request: retrievalRequest, user, history, smartContext, integration, intentPlan, signal: execution.current()?.signal });
+    const context = await require("@hellotest/mcp/backend/gateway").retrieveContext({ request: retrievalRequest, user, history, smartContext, integration, intentPlan, signal: execution.current()?.signal, timeoutMs: Math.max(1, execution.current().turn.deadlineAt - Date.now() - ANSWER_FINALIZATION_RESERVE_MS) });
     execution.current().modelBudget.max_tool_calls = execution.current().modelStats.calls + Math.max(0, retrievalRequest.budgets.max_tool_calls - context.budget.tool_calls_used);
     contextPacket = context.packet;
     if (retrieval.history_unavailable) contextPacket.retrieval.history_unavailable = true;

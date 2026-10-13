@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-data-web",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Web fictional data matrix",
+      "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+      "mode": "table",
+      "columns": [
+        "t.user",
+        "t.quantity",
+        "r.region",
+        "s.tenant",
+        "t.empty",
+        "t.unicode"
+      ],
+      "rows": [
+        {
+          "t.user": "fixture-a@example.test",
+          "t.quantity": "1",
+          "r.region": "us-east",
+          "s.tenant": "fictional-a",
+          "t.empty": "",
+          "t.unicode": "Café 🧪"
+        },
+        {
+          "t.user": "fixture-b@example.test",
+          "t.quantity": "150",
+          "r.region": "eu-west",
+          "s.tenant": "fictional-b",
+          "t.empty": "",
+          "t.unicode": "測試"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-data-api",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-api",
+      "name": "Api fictional data matrix",
+      "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+      "mode": "table",
+      "columns": [
+        "t.user",
+        "t.quantity",
+        "r.region",
+        "s.tenant",
+        "t.empty",
+        "t.unicode"
+      ],
+      "rows": [
+        {
+          "t.user": "fixture-a@example.test",
+          "t.quantity": "1",
+          "r.region": "us-east",
+          "s.tenant": "fictional-a",
+          "t.empty": "",
+          "t.unicode": "Café 🧪"
+        },
+        {
+          "t.user": "fixture-b@example.test",
+          "t.quantity": "150",
+          "r.region": "eu-west",
+          "s.tenant": "fictional-b",
+          "t.empty": "",
+          "t.unicode": "測試"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-data-android",
+      "project_id": "sample-project",
+      "app_type_id": "sample-v8-ht-app-android",
+      "name": "Android fictional data matrix",
+      "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+      "mode": "table",
+      "columns": [
+        "t.user",
+        "t.quantity",
+        "r.region",
+        "s.tenant",
+        "t.empty",
+        "t.unicode"
+      ],
+      "rows": [
+        {
+          "t.user": "fixture-a@example.test",
+          "t.quantity": "1",
+          "r.region": "us-east",
+          "s.tenant": "fictional-a",
+          "t.empty": "",
+          "t.unicode": "Café 🧪"
+        },
+        {
+          "t.user": "fixture-b@example.test",
+          "t.quantity": "150",
+          "r.region": "eu-west",
+          "s.tenant": "fictional-b",
+          "t.empty": "",
+          "t.unicode": "測試"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-data-ios",
+      "project_id": "sample-project",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "name": "Ios fictional data matrix",
+      "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+      "mode": "table",
+      "columns": [
+        "t.user",
+        "t.quantity",
+        "r.region",
+        "s.tenant",
+        "t.empty",
+        "t.unicode"
+      ],
+      "rows": [
+        {
+          "t.user": "fixture-a@example.test",
+          "t.quantity": "1",
+          "r.region": "us-east",
+          "s.tenant": "fictional-a",
+          "t.empty": "",
+          "t.unicode": "Café 🧪"
+        },
+        {
+          "t.user": "fixture-b@example.test",
+          "t.quantity": "150",
+          "r.region": "eu-west",
+          "s.tenant": "fictional-b",
+          "t.empty": "",
+          "t.unicode": "測試"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-data-unified",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "name": "Unified fictional data matrix",
+      "description": "Two deliberately distinct rows; no account, token or payment credential is real.",
+      "mode": "table",
+      "columns": [
+        "t.user",
+        "t.quantity",
+        "r.region",
+        "s.tenant",
+        "t.empty",
+        "t.unicode"
+      ],
+      "rows": [
+        {
+          "t.user": "fixture-a@example.test",
+          "t.quantity": "1",
+          "r.region": "us-east",
+          "s.tenant": "fictional-a",
+          "t.empty": "",
+          "t.unicode": "Café 🧪"
+        },
+        {
+          "t.user": "fixture-b@example.test",
+          "t.quantity": "150",
+          "r.region": "eu-west",
+          "s.tenant": "fictional-b",
+          "t.empty": "",
+          "t.unicode": "測試"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    }
+  ]
+}

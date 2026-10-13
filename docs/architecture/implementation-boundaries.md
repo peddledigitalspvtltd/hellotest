@@ -21,7 +21,7 @@ flowchart LR
   Adapter --> DB[(Shared database)]
 ```
 
-Testing's `domain/suiteContext.js` contains pure inheritance rules. `services/suiteExecutionContext.service.js` accepts repository operations for descendant, ancestor and dataset reads. Its PostgreSQL adapter preserves cycle termination and application scoping. This is a persistence seam; it does not establish a separate Testing database.
+Testing's `domain/suiteContext.js` contains pure inheritance rules. `services/testing/backend/services/suiteExecutionContext.service.js` accepts repository operations for descendant, ancestor and dataset reads. Its PostgreSQL adapter preserves cycle termination and application scoping. This is a persistence seam; it does not establish a separate Testing database.
 
 Keep validation and transport mapping in routes, business decisions in their capability, and persistence behind small repository operations when extracting a workflow. Do not create forwarding layers without an actual contract or move business logic into shared runtime merely to reduce dependency counts. Existing large orchestration screens and cross-owner SQL still need incremental extraction with behavioral tests.
 

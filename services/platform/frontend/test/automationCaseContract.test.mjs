@@ -17,7 +17,7 @@ test("automation authoring is a dedicated case workflow with complete build surf
     "AutomationOverlay",
     "Generate from your saved behavior",
     "Complete automation code",
-    "Insert Shared Step Group",
+    "Insert Shared Section Group",
     "Edit instructions"
   ]) {
     assert.match(page, new RegExp(capability));

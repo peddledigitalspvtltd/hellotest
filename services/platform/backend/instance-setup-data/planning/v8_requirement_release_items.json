@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "release_id": "sample-v8-ht-release-future",
+      "requirement_id": "sample-v8-ht-story-story-metadata",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-future",
+      "requirement_id": "sample-v8-ht-story-nfr-user-intent",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-sprint-overdue",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-shared-sections",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-chat-mcp-budget",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-android-offline",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-android-security",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-android-accessibility",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-baseline",
+      "requirement_id": "sample-v8-ht-story-android-smoke",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-baseline",
+      "requirement_id": "sample-v8-ht-story-ios-permissions",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-ios-state",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-ios-exploration",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-ios-accessibility",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-api-idempotency",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-api-validation",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-api-authorization",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-api-performance",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-native",
+      "requirement_id": "sample-v8-ht-story-unified-acceptance",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-baseline",
+      "requirement_id": "sample-v8-ht-story-unified-data",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v8-ht-release-baseline",
+      "requirement_id": "sample-v8-ht-story-unified-smoke",
+      "source": "manual",
+      "created_at": "2026-09-01T09:00:00.000Z"
+    }
+  ]
+}

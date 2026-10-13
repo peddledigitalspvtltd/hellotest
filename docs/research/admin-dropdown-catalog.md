@@ -1,5 +1,8 @@
 # Admin dropdown catalog
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 Implemented on 10 September 2026.
 
 ## Using the feature

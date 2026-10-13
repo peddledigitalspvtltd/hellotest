@@ -16,7 +16,8 @@ const tx={id:'tx',project_id:'p',metadata:{source:'hellotest.local-run',queue_mo
 function configureSecret(t){const previous=process.env.HELLOTEST_TESTENGINE_SECRET;process.env.HELLOTEST_TESTENGINE_SECRET=secret;t.after(()=>{if(previous===undefined)delete process.env.HELLOTEST_TESTENGINE_SECRET;else process.env.HELLOTEST_TESTENGINE_SECRET=previous;});}
 test('local dispatch immediately posts a fresh Playwright run with retained artifacts and no queue insertion',async t=>{
  configureSecret(t);const requests=[];
- t.mock.method(obs,'query',async statement=>{assert.ok(!/INSERT INTO testengine_job_queue/i.test(typeof statement==='string'?statement:statement.text));return {rows:[],rowCount:0};});
+ t.mock.method(require('@hellotest/platform/backend/services/aiConfiguration.service'),'resolve',async()=>({config:{instruction_blocks:{'engineRepair.goal':'Preserve the reviewed behavior','engineRepair.screen_selection':'Use the supplied screen','engineRepair.correction_policy':'Keep assertions unchanged'}}}));
+ t.mock.method(obs.pool,'query',async statement=>{assert.ok(!/INSERT INTO testengine_job_queue/i.test(typeof statement==='string'?statement:statement.text));return {rows:[],rowCount:0};});
  t.mock.method(workspace,'createTransaction',async()=>({...tx}));t.mock.method(workspace,'appendTransactionEvent',async()=>{});
  t.mock.method(globalThis,'fetch',async(url,init)=>{requests.push({url,body:JSON.parse(init.body),headers:init.headers});return Response.json({id:'engine-run',state:'accepted'});});
  const result=await dispatch.runExecutionDirectLocal({engineBaseUrl:'http://127.0.0.1:4311',integration:{base_url:'https://remote.test',config:{web_session_mode:'reuse',connect_over_cdp_endpoint:'http://remote.test/cdp',callback_secret:'other-secret'}},plan:{execution:run,project:{id:'p',name:'Project'},appType:{id:'a',name:'App',type:'web'},automated_case_count:1,manual_case_count:0,unsupported_automated_case_count:0,warnings:[],eligibleCases:[{engine_run_id:'engine-run',case_snapshot:run.case_snapshots[0],steps:[{id:'s',step_type:'web',action:'Open',expected_result:'Visible'}]}]}});
@@ -28,7 +29,7 @@ test('signed local callbacks do not require a remote integration and preserve pr
  t.mock.method(integration,'getActiveIntegrationByTypeForProject',async()=>{throw Error('Local callbacks must not depend on a remote engine.');});
  t.mock.method(workspace,'findTransactionByRelated',async()=>record);
  t.mock.method(workspace,'appendTransactionEvent',async(id,event)=>{record.metadata={...record.metadata,...event.metadata};});
- t.mock.method(db,'query',async()=>({rows:[{id:'c',app_type_id:'a'}],rowCount:1}));
+ t.mock.method(db.pool,'query',async()=>({rows:[{id:'c',app_type_id:'a'}],rowCount:1}));
  t.mock.method(results,'findLatestExecutionResult',async()=>null);
  t.mock.method(results,'upsertExecutionResult',async value=>{updates.push(value);return {id:'result',...value};});
  const payload={engine_run_id:'engine-run',hellotest_run_id:'run',hellotest_test_case_id:'c',event:'run.progress',state:'running',case_result:{status:'running'}},raw=JSON.stringify(payload),signature=createHmac('sha256',secret).update(raw).digest('hex');
@@ -41,4 +42,16 @@ test('configured remote runner status does not fall back to an unrelated local b
  const agent=require('../../backend/services/localAgent.service');const previous=process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL;process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL='https://approved-runner.example';t.after(()=>{if(previous===undefined)delete process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL;else process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL=previous;});const urls=[];
  t.mock.method(globalThis,'fetch',async url=>{urls.push(String(url));return Response.json({supported_web_engines:['playwright']},{status:String(url).startsWith('https://approved-runner.example')?503:200});});
  const status=await agent.getStatus();assert.equal(status.web.ready,false);assert.equal(status.web.base_url,'https://approved-runner.example');assert.ok(!urls.some(url=>/:4311/.test(url)));
+});
+
+test('live sessions use dispatched project scope and omit credentials or unrelated URLs', async t => {
+ const requests=[];
+ t.mock.method(obs.pool,'query',async statement=>{requests.push(statement);return {rows:[
+  {engine_run_id:'local-run',url:'http://host.docker.internal:4313/api/v1/live-session?provider=playwright',provider:'playwright'},
+  {engine_run_id:'bad',url:'https://user:private@example.test/session',provider:'playwright'},
+  {engine_run_id:'bad-scheme',url:'javascript:alert(1)',provider:'playwright'}],rowCount:3};});
+ const links=await dispatch.getExecutionLiveSessions(run);
+ assert.equal(links.length,1);assert.equal(links[0].url,'http://localhost:4313/api/v1/live-session?provider=playwright&run_id=local-run');
+ assert.deepEqual(requests[0].values,['p','run']);
+ assert.deepEqual(await dispatch.getExecutionLiveSessions({...run,status:'completed'}),[]);
 });

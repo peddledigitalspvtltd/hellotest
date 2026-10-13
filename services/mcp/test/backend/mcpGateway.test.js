@@ -3,7 +3,7 @@ const filename=path.resolve(__dirname,'../../backend/gateway.js'),original=creat
 function gateway(callLocal){const module={exports:{}};new Function('require','module','exports',fs.readFileSync(filename,'utf8'))(id=>id==='./auth'?{principal:async(userId,projectId)=>({user:{id:userId},projectId})}:id==='./server'?{callLocal}:original(id),module,module.exports);module.exports.installTransport(callLocal);return module.exports;}
 const request=question=>({body:JSON.stringify({messages:[{role:'system',content:'Trusted system policy'},{role:'user',content:question}]})});
 test('shared AI gateway keeps simultaneous actor/project contexts isolated and preserves provenance',async()=>{
- const instance=gateway(async(actor,name,args)=>{assert.equal(traces.current().mcp_context_depth,1);await new Promise(resolve=>setTimeout(resolve,5));return {packet:{evidence:[{evidence_id:actor.projectId,content:args.question,citation:{source_id:actor.projectId}}]},observed_at:'2026-10-06'};});
+ const instance=gateway(async(actor,name,args)=>{assert.equal(traces.current().mcp_context_depth,1);await new Promise(resolve=>setTimeout(resolve,5));return {packet:{project_id:actor.projectId,evidence:[{evidence_id:actor.projectId,content:args.question,citation:{source_id:actor.projectId}}]},observed_at:'2026-10-06'};});
  const results=await Promise.all(['a','b'].map(id=>traces.run({actor_id:'user-'+id,project_id:'project-'+id},()=>instance.enrichChatRequest(request('Question '+id)))));
  results.forEach((result,index)=>{const id=['a','b'][index],messages=JSON.parse(result.body).messages;assert.equal(messages[0].content,'Trusted system policy');assert.equal(messages[2].content,'Question '+id);assert.match(messages[1].content,new RegExp('project-'+id));assert.ok(!messages[1].content.includes('project-'+(['b','a'][index])));assert.match(messages[1].content,/untrusted evidence/);});
 });
@@ -15,7 +15,7 @@ test('gateway avoids recursive enrichment and identity guessing, and reports ret
  const result=await traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(init));assert.equal(calls,1);assert.match(JSON.parse(result.body).messages[1].content,/missing evidence as a gap/);assert.ok(!result.body.includes('private database details'));
 });
 test('chatbot and Smart Context retain their existing packet shapes through the MCP gateway',async()=>{
- const instance=gateway(async actor=>actor.retrievalInput?{result:{packet:{evidence:[]},hits:[],retrieval:{route:'hybrid'}}}:{packet:{evidence:[],context_id:'packet'}});
+ const instance=gateway(async actor=>actor.retrievalInput?{result:{packet:{project_id:actor.projectId,evidence:[]},hits:[],retrieval:{route:'hybrid'}}}:{packet:{project_id:actor.projectId,evidence:[],context_id:'packet'}});
  const result=await instance.retrieveContext({user:{id:'a'},request:{project_id:'p',query:'help'}});assert.deepEqual(result.hits,[]);assert.equal(result.retrieval.context_transport,'mcp');assert.equal(result.retrieval.route,'hybrid');assert.equal((await instance.retrievePacket({user:{id:'a'},projectId:'p',query:'help'})).context_id,'packet');
 });
 
@@ -85,4 +85,18 @@ test('background model integrations bind their verified identity without an ambi
  const instance=gateway(async actor=>{called=actor;return {packet:{project_id:actor.projectId,evidence:[{content:'Verified worker evidence'}]}};});
  const result=await instance.enrichChatRequest(request('Explain this execution'),{integration});
  assert.equal(called.user.id,'worker-user');assert.equal(called.projectId,'worker-project');assert.match(result.body,/Verified worker evidence/);
+});
+
+test('MCP retrieval uses the normalized retrieval budget and remaining assistant turn',()=>{
+ const instance=gateway(async()=>({}));
+ assert.equal(instance.retrievalTimeout({request:{budgets:{deadline_ms:60000}}}),62000);
+ assert.equal(instance.retrievalTimeout({request:{budgets:{deadline_ms:15000}}}),17000);
+ assert.equal(instance.retrievalTimeout({request:{budgets:{deadline_ms:60000}},timeoutMs:8500}),8500);
+ assert.equal(instance.retrievalTimeout({request:{budgets:{deadline_ms:Infinity}},timeoutMs:0}),1);
+});
+
+test('a context packet without its verified project cannot cross the MCP boundary',async()=>{
+ const instance=gateway(async()=>({packet:{evidence:[]},result:{packet:{evidence:[]},hits:[],retrieval:{}}}));
+ await assert.rejects(instance.retrievePacket({user:{id:'actor'},projectId:'project',query:'Review stories'}),{code:'MCP_CONTEXT_SCOPE_MISMATCH'});
+ await assert.rejects(instance.retrieveContext({user:{id:'actor'},request:{project_id:'project',query:'Review stories'}}),{code:'MCP_CONTEXT_SCOPE_MISMATCH'});
 });

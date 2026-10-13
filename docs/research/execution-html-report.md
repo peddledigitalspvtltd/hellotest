@@ -1,5 +1,8 @@
 # Portable execution report
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 The detailed HTML export uses the authenticated `GET /executions/:id/report.html` endpoint. It is a self-contained document with a run summary, conclusive pass-rate denominator, suite outcomes, failures and blockers, frozen run context, suite/module groups, searchable case instances, per-step evidence, browser/API diagnostics, and attempt/lifecycle history. Native disclosures work without JavaScript; filtering, expansion and print helpers use one fixed script protected by an exact CSP hash.
 
 The supplied `Generate-ConsolidatedReport.ps1` and sibling `generate_consolidated_report.py` were read as design references only. Neither attachment was executed. The implementation uses application snapshots and saved results rather than importing the reference framework or executing its scenario discovery logic.

@@ -9,7 +9,7 @@ This folder contains the source-build local stack, host recorder helpers and nat
 - `docker-compose.images.yml`: image-based duplicate of the local stack.
 - `RECORDER_LOCAL_SETUP.md`: local recorder setup and HelloTest integration checklist.
 - `bin/start.sh`: start the local stack.
-- `bin/start-host-recorder.sh`: start a visible host-side Playwright recorder on `localhost:4311` on macOS/Linux.
+- `bin/start-host-recorder.sh`: start a visible host-side Playwright recorder on `localhost:4313` on macOS/Linux.
 - `bin/start-host-recorder.cmd`: start the visible host recorder on Windows, preferring `bin/hellotest-host-recorder.exe` when present.
 - `bin/stop.sh`: stop the local stack.
 - `bin/status.sh`: show container status.
@@ -41,7 +41,7 @@ Open:
 - HelloTest API: `http://localhost:3000`
 - MinIO API: `http://localhost:9000`
 - MinIO console: `http://localhost:9001`
-- Host recorder: `http://localhost:4311`
+- Host recorder: `http://localhost:4313`
 - Test Engine: `http://localhost:4301`
 - Test Engine OPS board: `http://localhost:4301/ops-telemetry`
 
@@ -55,7 +55,7 @@ For a new local database with unchanged API runtime defaults, administration boo
 
 ## Optional monitoring
 
-The root command `./hellotest.sh up --build --stack local --no-cache` starts all eight monitoring services automatically, without requiring host Node.js or npm. Use `HELLOTEST_OPS_ENABLED=false` to opt out. When using `bin/start.sh` or Docker Compose directly, run `sh scripts/ops/stack.sh up` from the repository root after starting or recreating the application. This attaches the API and frontend to the independently managed monitoring network. With Node.js installed, the existing `npm run ops:up` command also works; `npm run ops:verify` checks data flow. See [the ops runbook](../docs/ops-operations.md) for resource limits and recovery. The source-build bundle's previous standalone Jaeger is opt-in through `--profile legacy-tracing`; use the consolidated stack for Test Ops monitoring.
+The root command `./hellotest.sh up --build --stack local --no-cache` starts all eight monitoring services automatically, without requiring host Node.js or npm. Use `HELLOTEST_OPS_ENABLED=false` to opt out. When using `bin/start.sh` or Docker Compose directly, run `sh scripts/ops/stack.sh up` from the repository root after starting or recreating the application. This attaches the API and frontend to the independently managed monitoring network. With Node.js installed, the existing `npm run ops:up` command also works; `npm run ops:verify` checks data flow. See [the ops runbook](../docs/operations/operations.md) for resource limits and recovery. The source-build bundle's previous standalone Jaeger is opt-in through `--profile legacy-tracing`; use the consolidated stack for Test Ops monitoring.
 
 ## Source Build vs Image Run
 
@@ -220,8 +220,8 @@ npm run package:host-recorder
 
 For visible host recording, the recommended local recorder values are:
 
-- Engine base URL: `http://host.docker.internal:4311`
-- Recorder public base URL: `http://localhost:4311`
+- Engine base URL: `http://host.docker.internal:4313`
+- Recorder public base URL: `http://localhost:4313`
 
 Local runs post directly to the configured Playwright runner and return signed step results through the HelloTest gateway. Passing and failing web steps capture screenshots; unexecuted steps after a failure are blocked. Test Runs refreshes once more when the run finishes so the final evidence is visible.
 
@@ -259,3 +259,5 @@ of Compose configuration and survives recreation. The standalone monitoring
 launcher also repairs connectivity for already-running or older deployments.
 If running Compose directly with monitoring, include this override after the
 base file and prepare the shared network first; using the launcher handles both.
+
+The repository inspection agent uses port **4311**; the host execution/recorder uses **4313**. These are separate services. If a previous host recorder runs on 4311, the backend can still probe it, but a repository inspection agent does not satisfy execution health checks. Keep `HELLOTEST_HOST_RECORDER_PORT` and `HELLOTEST_LOCAL_RUN_ENGINE_URL` aligned when selecting another port. Native callbacks use `HELLOTEST_LOCAL_CALLBACK_BASE_URL`.

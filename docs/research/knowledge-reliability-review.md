@@ -1,5 +1,8 @@
 # Knowledge ingestion and Ask AI reliability
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 Date: 2026-09-10. Scope: existing backend ingestion, retrieval and buffered model requests. No production records, integration settings, feature flags or external providers were changed during this review.
 
 ## Findings from the implementation

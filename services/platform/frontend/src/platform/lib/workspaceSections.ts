@@ -55,6 +55,7 @@ export const TEST_ENVIRONMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [
 
 export const AUTOMATION_SECTION_ITEMS: WorkspaceSectionItem[] = [
   { to: WORKSPACE_ROUTES.automation, label: "Test Automation", shortLabel: "Test Automation", icon: "automation", featureKeys: ["hellotest.automation.workspace"] },
+  { to: `${WORKSPACE_ROUTES.sharedSteps}?view=automation`, label: "Shared Section Groups", shortLabel: "Shared Sections", icon: "shared", featureKeys: ["hellotest.automation.workspace", "hellotest.manual.suites"] },
   { to: WORKSPACE_ROUTES.objectRepository, label: "Objects", shortLabel: "Objects", icon: "repository", featureKeys: ["hellotest.automation.workspace", "hellotest.automation.object_repository"] }
 ];
 
@@ -137,6 +138,7 @@ export const WORKSPACE_SECTION_LABEL_KEYS: Record<string, string> = {
   "/releases": "workspace.releases",
   "/test-cases": "workspace.testCases",
   "/shared-steps": "workspace.sharedSteps",
+  "/shared-steps?view=automation": "workspace.sharedSections",
   "/design": "workspace.testSuites",
   "/executions": "workspace.executions",
   "/automation": "workspace.automationCases",

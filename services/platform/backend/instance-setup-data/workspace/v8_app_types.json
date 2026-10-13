@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-app-android",
+      "project_id": "sample-project",
+      "name": "Native Android acceptance",
+      "type": "android",
+      "is_unified": false
+    },
+    {
+      "id": "sample-v8-ht-app-ios",
+      "project_id": "sample-project",
+      "name": "Native Ios acceptance",
+      "type": "ios",
+      "is_unified": false
+    }
+  ]
+}

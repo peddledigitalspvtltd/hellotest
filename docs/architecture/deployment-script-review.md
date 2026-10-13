@@ -104,20 +104,11 @@ Component-owned configuration remains beside its owner. A single folder of unrel
 
 This review does not certify every topology as production-ready. The provider-generated Kubernetes example still needs schema initialization, persistent database lifecycle and secret/connection hardening before customer deployment. Rendering its YAML is not an installation test. The different local source/image defaults remain deployment drift to resolve with a deliberate compatibility decision.
 
-Platform ownership improves discoverability; it does not eliminate the existing shared-database and cross-capability imports documented in [the structure review](current-structure-review.md). Keep future changes focused on explicit contracts and tested failure boundaries rather than moving files solely to reduce directory counts.
+Platform ownership improves discoverability; it does not eliminate the existing shared-database and cross-capability imports documented in [the structure review](refactor-review.md). Keep future changes focused on explicit contracts and tested failure boundaries rather than moving files solely to reduce directory counts.
 
-## Validation performed
+## Verification
 
-- All 24 maintained `.sh` files pass `sh -n`; all 21 maintained YAML files parse without YAML errors. No exact shell/YAML duplicates remain.
-- Deployment contract checks pass, including generated Compose rendering, startup sequencing, optional monitoring failure isolation and propagation of setup selection from `--config`.
-- Backend: 1,194 passed, two opt-in PostgreSQL suites skipped by the default runner. Frontend: 613 passed. TestEngine: 53 passed. Architecture helper tests: four passed.
-- The installer PostgreSQL suite was also explicitly run against a disposable fresh database: nine tests passed, including all 105 dataset files, concurrent admission, receipt reuse, failed-receipt preservation and retry. No running customer/local application database was used.
-- Two Admin browser tests passed for progress recovery, indexing and retry after the source move.
-- Workspace/Admin/TestEngine builds pass. The workspace build retains its existing large-chunk warning.
-- Source layout, module reachability and architecture checks pass with no unresolved imports or orphaned production sources. No `node_modules` files are tracked by Git.
-
-These are static, build, browser and isolated database checks. Existing application containers were not rebuilt or restarted, and cloud/Kubernetes deployments were not executed.
-
+Use the [current verification runbook](../development/verification.md). Historical test counts and rollout receipts have been removed. Disposable PostgreSQL checks verify installation and retries; browser fixtures verify progress recovery without writing to a customer database.
 
 ## Separate-profile migration job
 

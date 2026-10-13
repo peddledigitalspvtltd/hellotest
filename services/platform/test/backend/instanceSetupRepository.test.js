@@ -91,7 +91,7 @@ test('actor binding preserves encoded JSON and nested keys for arbitrary valid u
 
 test('every actual module selection includes the full file and module dependency closure', () => withRoot(staticRoot, () => {
   const dataset = repository.loadManifest();
-  assert.equal(dataset.manifest.authored_at, authoredAt);
+  assert.equal(dataset.manifest.authored_at, '2026-10-12T09:00:00.000Z');
   assert.equal(dataset.manifest.dataset_id, 'hellotest-instance-v1');
   const all = repository.getInstallPlan();
   assert.equal(all.total_files, dataset.manifest.files.length);

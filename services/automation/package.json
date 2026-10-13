@@ -31,7 +31,8 @@
     "./frontend/lib/testNgImport": "./frontend/lib/testNgImport.ts",
     "./frontend/pages/AutomationPage": "./frontend/pages/AutomationPage.tsx",
     "./package.json": "./package.json",
-    "./ui": "./frontend/entry.ts"
+    "./ui": "./frontend/entry.ts",
+    "./frontend/lib/repositoryEntries": "./frontend/lib/repositoryEntries.ts"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs automation",

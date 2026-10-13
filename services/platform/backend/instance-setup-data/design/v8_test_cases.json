@@ -1,0 +1,3735 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-case-story-metadata",
+      "display_id": "HT8-T1",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v8-ht-suite-web",
+      "requirement_id": "sample-v8-ht-story-story-metadata",
+      "title": "Verify author Story metadata and acceptance",
+      "description": "As a QA engineer, I want to author Story metadata and acceptance so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Save title, priority, owner, labels, effort and a Gherkin or Spec Kit specification; reopen the Story.\nOutcome: Every authored value and acceptance criterion is retained without changing another project.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "web",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "gherkin",
+      "test_case_type": "functional",
+      "gherkin_document": "Feature: Verify author Story metadata and acceptance\n\n  Background:\n    Given Confirm the selected web fixture and provider readiness\n\n  Scenario: Reviewed acceptance\n    When Save title, priority, owner, labels, effort and a Gherkin or Spec Kit specification; reopen the Story.\n    Then Every authored value and acceptance criterion is retained without changing another project.\n    When Inspect the observable outcome and capture permitted evidence\n    Then Observed evidence contains the exact record, platform and data-row identity.\n    When Reopen the saved record or repeat the documented operation\n    Then Every authored value and acceptance criterion is retained without changing another project.",
+      "priority": 1,
+      "status": "active",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic review metadata; this is not a model or production approval."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-nfr-user-intent",
+      "display_id": "HT8-T2",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v8-ht-suite-web",
+      "requirement_id": "sample-v8-ht-story-nfr-user-intent",
+      "title": "Verify preserve an explicit NFR-only AI objective",
+      "description": "As a QA engineer, I want to preserve an explicit NFR-only AI objective so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Request latency coverage below 250 ms for 150 concurrent users, without selecting a Story.\nOutcome: The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "web",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "performance",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-sprint-overdue",
+      "display_id": "HT8-T3",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v8-ht-suite-web",
+      "requirement_id": "sample-v8-ht-story-sprint-overdue",
+      "title": "Verify identify unfinished overdue Sprint scope",
+      "description": "As a QA engineer, I want to identify unfinished overdue Sprint scope so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Open an active Sprint whose end date is 11 October 2026 and contains an unfinished Story.\nOutcome: The Sprint is labelled Overdue in red; its Story and dates remain editable according to permissions.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "web",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": null,
+      "priority": 3,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "changes_requested",
+      "review_history": [
+        {
+          "status": "changes_requested",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic review metadata; this is not a model or production approval."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-shared-sections",
+      "display_id": "HT8-T4",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v8-ht-suite-web",
+      "requirement_id": "sample-v8-ht-story-shared-sections",
+      "title": "Verify group and convert reusable automation sections",
+      "description": "As a QA engineer, I want to group and convert reusable automation sections so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Select two adjacent sections, group them, convert to shared, then convert the case copy back to local.\nOutcome: The reviewed names, ordered actions, expected results and platform types survive; library records and frozen run snapshots are retained.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "web",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "yes",
+      "automation_status": "incomplete",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 4,
+      "status": "retired",
+      "reviewer_id": null,
+      "review_status": "not_requested",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-chat-mcp-budget",
+      "display_id": "HT8-T5",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v8-ht-suite-web",
+      "requirement_id": "sample-v8-ht-story-chat-mcp-budget",
+      "title": "Verify ground a multi-paragraph answer through MCP",
+      "description": "As a QA engineer, I want to ground a multi-paragraph answer through MCP so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Ask for Story coverage using a 40-second retrieval budget and permitted Story and test evidence.\nOutcome: MCP honors the normalized budget and verified project; the answer preserves paragraphs and citations, and gaps are explicit.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "web",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "gherkin",
+      "test_case_type": "integration",
+      "gherkin_document": "Feature: Verify ground a multi-paragraph answer through MCP\n\n  Background:\n    Given Confirm the selected web fixture and provider readiness\n\n  Scenario: Reviewed acceptance\n    When Ask for Story coverage using a 40-second retrieval budget and permitted Story and test evidence.\n    Then MCP honors the normalized budget and verified project; the answer preserves paragraphs and citations, and gaps are explicit.\n    When Inspect the observable outcome and capture permitted evidence\n    Then Observed evidence contains the exact record, platform and data-row identity.\n    When Reopen the saved record or repeat the documented operation\n    Then MCP honors the normalized budget and verified project; the answer preserves paragraphs and citations, and gaps are explicit.",
+      "priority": 5,
+      "status": "active",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic review metadata; this is not a model or production approval."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-android-offline",
+      "display_id": "HT8-T6",
+      "app_type_id": "sample-v8-ht-app-android",
+      "suite_id": "sample-v8-ht-suite-android",
+      "requirement_id": "sample-v8-ht-story-android-offline",
+      "title": "Verify recover an Android form after network loss",
+      "description": "As a QA engineer, I want to recover an Android form after network loss so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Enter a synthetic draft, switch the configured Android device offline, resume network and reopen the draft.\nOutcome: The saved draft is restored once without duplicate submission; missing native-provider readiness blocks execution explicitly.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "android",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "yes",
+      "automation_status": "incomplete",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-android-security",
+      "display_id": "HT8-T7",
+      "app_type_id": "sample-v8-ht-app-android",
+      "suite_id": "sample-v8-ht-suite-android",
+      "requirement_id": "sample-v8-ht-story-android-security",
+      "title": "Verify prevent Android cross-account cached data",
+      "description": "As a QA engineer, I want to prevent Android cross-account cached data so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Sign out of fictional account A and sign in as account B on the configured Android test device.\nOutcome: No account A record appears in account B scope, including during pending refresh.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "android",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "security",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "changes_requested",
+      "review_history": [
+        {
+          "status": "changes_requested",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic review metadata; this is not a model or production approval."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-android-accessibility",
+      "display_id": "HT8-T8",
+      "app_type_id": "sample-v8-ht-app-android",
+      "suite_id": "sample-v8-ht-suite-android",
+      "requirement_id": "sample-v8-ht-story-android-accessibility",
+      "title": "Verify navigate native controls with accessibility labels",
+      "description": "As a QA engineer, I want to navigate native controls with accessibility labels so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Open the configured Android app with TalkBack and focus the labelled checkout controls in order.\nOutcome: Every required control has an accessible name, logical focus order and a measurable announced outcome.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "android",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "accessibility",
+      "gherkin_document": null,
+      "priority": 3,
+      "status": "retired",
+      "reviewer_id": null,
+      "review_status": "not_requested",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-android-smoke",
+      "display_id": "HT8-T9",
+      "app_type_id": "sample-v8-ht-app-android",
+      "suite_id": "sample-v8-ht-suite-android",
+      "requirement_id": "sample-v8-ht-story-android-smoke",
+      "title": "Verify verify an Android application launches",
+      "description": "As a QA engineer, I want to verify an Android application launches so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Launch the configured Android sample package and open its configured home screen.\nOutcome: The home screen is displayed on Android; a mismatched iOS capability is rejected.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "android",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "gherkin",
+      "test_case_type": "smoke",
+      "gherkin_document": "Feature: Verify verify an Android application launches\n\n  Background:\n    Given Confirm the selected android fixture and provider readiness\n\n  Scenario: Reviewed acceptance\n    When Launch the configured Android sample package and open its configured home screen.\n    Then The home screen is displayed on Android; a mismatched iOS capability is rejected.\n    When Inspect the observable outcome and capture permitted evidence\n    Then Observed evidence contains the exact record, platform and data-row identity.\n    When Reopen the saved record or repeat the documented operation\n    Then The home screen is displayed on Android; a mismatched iOS capability is rejected.",
+      "priority": 4,
+      "status": "active",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic review metadata; this is not a model or production approval."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-ios-permissions",
+      "display_id": "HT8-T10",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "suite_id": "sample-v8-ht-suite-ios",
+      "requirement_id": "sample-v8-ht-story-ios-permissions",
+      "title": "Verify handle iOS permission denial accurately",
+      "description": "As a QA engineer, I want to handle iOS permission denial accurately so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Deny notification permission on the configured iOS test device and continue the checkout flow.\nOutcome: The configured permission-denied notice appears and checkout remains available without reporting permission as granted.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "ios",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "yes",
+      "automation_status": "incomplete",
+      "authoring_mode": "structured",
+      "test_case_type": "ios",
+      "gherkin_document": null,
+      "priority": 5,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-ios-state",
+      "display_id": "HT8-T11",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "suite_id": "sample-v8-ht-suite-ios",
+      "requirement_id": "sample-v8-ht-story-ios-state",
+      "title": "Verify retain iOS state through app backgrounding",
+      "description": "As a QA engineer, I want to retain iOS state through app backgrounding so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Enter a synthetic shipping draft, background and restore the configured iOS application.\nOutcome: The same draft values and screen are restored without a second order being created.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "ios",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "changes_requested",
+      "review_history": [
+        {
+          "status": "changes_requested",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic review metadata; this is not a model or production approval."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-ios-exploration",
+      "display_id": "HT8-T12",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "suite_id": "sample-v8-ht-suite-ios",
+      "requirement_id": "sample-v8-ht-story-ios-exploration",
+      "title": "Verify review iOS device and orientation evidence",
+      "description": "As a QA engineer, I want to review iOS device and orientation evidence so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Explore portrait and landscape on the selected iOS device and record observed clipping and focus behavior.\nOutcome: The notes identify the device, orientation and observed controls; unvisited screens are not claimed as tested.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "ios",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "exploratory",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "retired",
+      "reviewer_id": null,
+      "review_status": "not_requested",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-ios-accessibility",
+      "display_id": "HT8-T13",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "suite_id": "sample-v8-ht-suite-ios",
+      "requirement_id": "sample-v8-ht-story-ios-accessibility",
+      "title": "Verify validate iOS VoiceOver checkout navigation",
+      "description": "As a QA engineer, I want to validate iOS VoiceOver checkout navigation so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Use VoiceOver to activate every required checkout control on the configured iOS application.\nOutcome: Accessible labels and ordered focus are observable; controls without accessible names produce a cited finding.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "ios",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "gherkin",
+      "test_case_type": "accessibility",
+      "gherkin_document": "Feature: Verify validate iOS VoiceOver checkout navigation\n\n  Background:\n    Given Confirm the selected ios fixture and provider readiness\n\n  Scenario: Reviewed acceptance\n    When Use VoiceOver to activate every required checkout control on the configured iOS application.\n    Then Accessible labels and ordered focus are observable; controls without accessible names produce a cited finding.\n    When Inspect the observable outcome and capture permitted evidence\n    Then Observed evidence contains the exact record, platform and data-row identity.\n    When Reopen the saved record or repeat the documented operation\n    Then Accessible labels and ordered focus are observable; controls without accessible names produce a cited finding.",
+      "priority": 3,
+      "status": "active",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic review metadata; this is not a model or production approval."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-api-idempotency",
+      "display_id": "HT8-T14",
+      "app_type_id": "sample-app-api",
+      "suite_id": "sample-v8-ht-suite-api",
+      "requirement_id": "sample-v8-ht-story-api-idempotency",
+      "title": "Verify create an API order exactly once",
+      "description": "As a QA engineer, I want to create an API order exactly once so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: POST a fictional order twice with the same idempotency key and retrieve the order by its captured identifier.\nOutcome: Both responses reference one order and the second request does not create a second order.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "api",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "yes",
+      "automation_status": "incomplete",
+      "authoring_mode": "gherkin",
+      "test_case_type": "integration",
+      "gherkin_document": "Feature: Verify create an API order exactly once\n\n  Background:\n    Given Confirm the selected api fixture and provider readiness\n\n  Scenario Outline: Reviewed acceptance\n    When POST a fictional order twice with the same idempotency key and retrieve the order by its captured identifier. for <t.user> with <t.quantity> items\n    Then Both responses reference one order and the second request does not create a second order.\n    When Inspect the observable outcome and capture permitted evidence\n    Then Observed evidence contains the exact record, platform and data-row identity.\n    When Reopen the saved record or repeat the documented operation\n    Then Both responses reference one order and the second request does not create a second order.\n\n    Examples:\n      | t.user | t.quantity |\n      | fixture-a@example.test | 1 |\n      | fixture-b@example.test | 150 |",
+      "priority": 4,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-api-validation",
+      "display_id": "HT8-T15",
+      "app_type_id": "sample-app-api",
+      "suite_id": "sample-v8-ht-suite-api",
+      "requirement_id": "sample-v8-ht-story-api-validation",
+      "title": "Verify reject API payloads that violate the contract",
+      "description": "As a QA engineer, I want to reject API payloads that violate the contract so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Send a documented invalid order payload to the configured example API endpoint.\nOutcome: The documented 422 response identifies the invalid field and no order is created.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "api",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": null,
+      "priority": 5,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "changes_requested",
+      "review_history": [
+        {
+          "status": "changes_requested",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic review metadata; this is not a model or production approval."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-api-authorization",
+      "display_id": "HT8-T16",
+      "app_type_id": "sample-app-api",
+      "suite_id": "sample-v8-ht-suite-api",
+      "requirement_id": "sample-v8-ht-story-api-authorization",
+      "title": "Verify deny an unauthorized API order read",
+      "description": "As a QA engineer, I want to deny an unauthorized API order read so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Read a synthetic account A order using the fictional account B fixture.\nOutcome: The contract returns 403 without exposing the order body or account A values.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "api",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "security",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "retired",
+      "reviewer_id": null,
+      "review_status": "not_requested",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-api-performance",
+      "display_id": "HT8-T17",
+      "app_type_id": "sample-app-api",
+      "suite_id": "sample-v8-ht-suite-api",
+      "requirement_id": "sample-v8-ht-story-api-performance",
+      "title": "Verify measure API latency against a stated target",
+      "description": "As a QA engineer, I want to measure API latency against a stated target so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Send the synthetic workload of 150 concurrent order reads for 60 seconds and measure the 95th percentile.\nOutcome: The recorded p95 is compared with the supplied 250 ms budget; missing instrumentation is an evidence gap.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "api",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "gherkin",
+      "test_case_type": "performance",
+      "gherkin_document": "Feature: Verify measure API latency against a stated target\n\n  Background:\n    Given Confirm the selected api fixture and provider readiness\n\n  Scenario: Reviewed acceptance\n    When Send the synthetic workload of 150 concurrent order reads for 60 seconds and measure the 95th percentile.\n    Then The recorded p95 is compared with the supplied 250 ms budget; missing instrumentation is an evidence gap.\n    When Inspect the observable outcome and capture permitted evidence\n    Then Observed evidence contains the exact record, platform and data-row identity.\n    When Reopen the saved record or repeat the documented operation\n    Then The recorded p95 is compared with the supplied 250 ms budget; missing instrumentation is an evidence gap.",
+      "priority": 2,
+      "status": "active",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic review metadata; this is not a model or production approval."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-unified-acceptance",
+      "display_id": "HT8-T18",
+      "app_type_id": "sample-app-mobile",
+      "suite_id": "sample-v8-ht-suite-unified",
+      "requirement_id": "sample-v8-ht-story-unified-acceptance",
+      "title": "Verify retain cross-platform order traceability",
+      "description": "As a QA engineer, I want to retain cross-platform order traceability so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Create one fictional order through Web, verify it through API and inspect the configured Android and iOS order screens.\nOutcome: All four platforms display the same captured order identity and status; a provider gap is explicit.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "unified",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "yes",
+      "automation_status": "incomplete",
+      "authoring_mode": "structured",
+      "test_case_type": "acceptance",
+      "gherkin_document": null,
+      "priority": 3,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-unified-data",
+      "display_id": "HT8-T19",
+      "app_type_id": "sample-app-mobile",
+      "suite_id": "sample-v8-ht-suite-unified",
+      "requirement_id": "sample-v8-ht-story-unified-data",
+      "title": "Verify execute a cross-platform data matrix",
+      "description": "As a QA engineer, I want to execute a cross-platform data matrix so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Select Web, API, Android and iOS sections with two fictional data rows and frozen parameter scope.\nOutcome: Each planned row/platform retains its own result; one passed row does not complete an unexecuted matrix.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "unified",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 4,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "changes_requested",
+      "review_history": [
+        {
+          "status": "changes_requested",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic review metadata; this is not a model or production approval."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-unified-smoke",
+      "display_id": "HT8-T20",
+      "app_type_id": "sample-app-mobile",
+      "suite_id": "sample-v8-ht-suite-unified",
+      "requirement_id": "sample-v8-ht-story-unified-smoke",
+      "title": "Verify review unified runtime selection",
+      "description": "As a QA engineer, I want to review unified runtime selection so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Review a unified plan containing one Web, API, Android and iOS section before dispatch.\nOutcome: Each section retains its native platform and the run selects compatible configured runtimes; incompatible capabilities are rejected.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "unified",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "smoke",
+      "gherkin_document": null,
+      "priority": 5,
+      "status": "retired",
+      "reviewer_id": null,
+      "review_status": "not_requested",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-automation-web",
+      "display_id": "HT8-A1",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v8-ht-suite-web",
+      "requirement_id": "sample-v8-ht-story-story-metadata",
+      "title": "Read configured web readiness fixture",
+      "description": "Synthetic executable example: open the configured fixture and assert its Ready status. This is not recorded live execution. Review fictional endpoint/device values before running.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "web",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "yes",
+      "automation_status": "ready",
+      "authoring_mode": "structured",
+      "test_case_type": "smoke",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic executable-fixture review; no live execution is claimed."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "manual_test_case_id": "sample-v8-ht-case-story-metadata"
+    },
+    {
+      "id": "sample-v8-ht-case-automation-api",
+      "display_id": "HT8-A2",
+      "app_type_id": "sample-app-api",
+      "suite_id": "sample-v8-ht-suite-api",
+      "requirement_id": "sample-v8-ht-story-api-idempotency",
+      "title": "Read configured api readiness fixture",
+      "description": "Synthetic executable example: open the configured fixture and assert its Ready status. This is not recorded live execution. Review fictional endpoint/device values before running.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "api",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "yes",
+      "automation_status": "ready",
+      "authoring_mode": "structured",
+      "test_case_type": "smoke",
+      "gherkin_document": null,
+      "priority": 4,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic executable-fixture review; no live execution is claimed."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "manual_test_case_id": "sample-v8-ht-case-api-idempotency"
+    },
+    {
+      "id": "sample-v8-ht-case-automation-android",
+      "display_id": "HT8-A3",
+      "app_type_id": "sample-v8-ht-app-android",
+      "suite_id": "sample-v8-ht-suite-android",
+      "requirement_id": "sample-v8-ht-story-android-smoke",
+      "title": "Read configured android readiness fixture",
+      "description": "Synthetic executable example: open the configured fixture and assert its Ready status. This is not recorded live execution. Review fictional endpoint/device values before running.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "android",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "yes",
+      "automation_status": "ready",
+      "authoring_mode": "structured",
+      "test_case_type": "smoke",
+      "gherkin_document": null,
+      "priority": 4,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic executable-fixture review; no live execution is claimed."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "manual_test_case_id": "sample-v8-ht-case-android-smoke"
+    },
+    {
+      "id": "sample-v8-ht-case-automation-ios",
+      "display_id": "HT8-A4",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "suite_id": "sample-v8-ht-suite-ios",
+      "requirement_id": "sample-v8-ht-story-ios-permissions",
+      "title": "Read configured ios readiness fixture",
+      "description": "Synthetic executable example: open the configured fixture and assert its Ready status. This is not recorded live execution. Review fictional endpoint/device values before running.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "ios",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "yes",
+      "automation_status": "ready",
+      "authoring_mode": "structured",
+      "test_case_type": "smoke",
+      "gherkin_document": null,
+      "priority": 5,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic executable-fixture review; no live execution is claimed."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "manual_test_case_id": "sample-v8-ht-case-ios-permissions"
+    },
+    {
+      "id": "sample-v8-ht-case-automation-unified",
+      "display_id": "HT8-A5",
+      "app_type_id": "sample-app-mobile",
+      "suite_id": "sample-v8-ht-suite-unified",
+      "requirement_id": "sample-v8-ht-story-unified-smoke",
+      "title": "Read configured unified readiness fixture",
+      "description": "Synthetic executable example: open the configured fixture and assert its Ready status. This is not recorded live execution. Review fictional endpoint/device values before running.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "unified",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": true
+      },
+      "automated": "yes",
+      "automation_status": "ready",
+      "authoring_mode": "structured",
+      "test_case_type": "smoke",
+      "gherkin_document": null,
+      "priority": 5,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic executable-fixture review; no live execution is claimed."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "manual_test_case_id": "sample-v8-ht-case-unified-smoke"
+    },
+    {
+      "id": "sample-v8-ht-case-automation-android-landscape",
+      "display_id": "HT8-A6",
+      "app_type_id": "sample-v8-ht-app-android",
+      "suite_id": "sample-v8-ht-suite-android",
+      "requirement_id": "sample-v8-ht-story-android-smoke",
+      "title": "Read Android readiness after landscape rotation",
+      "description": "Synthetic executable orientation fixture. Activate the configured app, rotate to landscape and inspect Ready; no real device has been executed.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "v8",
+        "android",
+        "synthetic-evidence"
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test",
+        "quantity": "1",
+        "region": "us-east",
+        "p95_ms": "250",
+        "concurrent_users": "150"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "yes",
+      "automation_status": "ready",
+      "authoring_mode": "structured",
+      "test_case_type": "smoke",
+      "gherkin_document": null,
+      "priority": 4,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "at": "2026-10-10T09:00:00.000Z",
+          "note": "Synthetic executable-fixture review; no live execution is claimed."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "manual_test_case_id": "sample-v8-ht-case-android-smoke"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-project-applications",
+      "display_id": "HT8-B1",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-project-applications",
+      "title": "Validate create a project with explicit application scopes failure boundary",
+      "description": "Project visibility, description and application platform define the workspace context. Application selection must remain within the chosen project.\n\nBoundary under review: Reject missing names and cross-project application references; do not change another project.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "project-applications"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/projects",
+        "feature_key": "hellotest.ops.projects"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "security",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-membership-roles",
+      "display_id": "HT8-B2",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-membership-roles",
+      "title": "Validate apply project membership and workspace role grants accurately failure boundary",
+      "description": "Membership determines project access; workspace role presets provide Product Owner, QA, Automation, AI, Reporter and Viewer responsibilities. Sample setup must preserve customized grants.\n\nBoundary under review: An authenticated non-administrator cannot modify workspace roles or add privileged membership.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "membership-roles"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/people",
+        "feature_key": "hellotest.ops.admin"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "security",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-navigation-scope",
+      "display_id": "HT8-B3",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-navigation-scope",
+      "title": "Validate navigate available capabilities without leaking project scope failure boundary",
+      "description": "The workspace navigator combines capabilities, feature availability and project permissions. Restricted, disabled and missing-project states must remain distinguishable.\n\nBoundary under review: A direct URL must enforce the same permissions as the navigation control.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "navigation-scope"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/projects",
+        "feature_key": ""
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "security",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-authentication",
+      "display_id": "HT8-B4",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-authentication",
+      "title": "Validate maintain authenticated sessions and recover expired access failure boundary",
+      "description": "Authentication controls protected workspace APIs and pages. Session expiry must result in a clear sign-in path without treating a failed request as a successful save.\n\nBoundary under review: Invalid or expired credentials must not expose project records or admin content.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "authentication"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/auth",
+        "feature_key": ""
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "security",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-project-deletion",
+      "display_id": "HT8-B5",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-project-deletion",
+      "title": "Validate delete large projects with recoverable background progress failure boundary",
+      "description": "Deletion uses a durable job receipt, bounded SQL batches and post-commit storage cleanup. The requester can continue monitoring after project membership disappears.\n\nBoundary under review: Conflicting cross-project references stop the job safely; never show completion while stored-file cleanup remains.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "project-deletion"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/projects",
+        "feature_key": "hellotest.ops.projects"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "security",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-regional-settings",
+      "display_id": "HT8-B6",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-regional-settings",
+      "title": "Validate persist workspace preferences and regional presentation failure boundary",
+      "description": "Settings and regional controls influence labels and formatting without rewriting stored delivery dates or identifiers. Governed defaults remain separate from personal choices.\n\nBoundary under review: Unsupported localization values fall back safely instead of breaking page rendering.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "regional-settings"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/settings",
+        "feature_key": "hellotest.ops.settings"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-story-authoring",
+      "display_id": "HT8-B7",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-story-authoring",
+      "title": "Validate author stories with actionable specifications and ownership failure boundary",
+      "description": "Stories support Gherkin or Spec Kit specifications alongside title, description, priority, status, effort, assignee, original Dev/QA and delivery dates.\n\nBoundary under review: Reject an empty title and invalid project references without discarding the user draft.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "story-authoring"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/stories",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-backlog-planning",
+      "display_id": "HT8-B8",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-backlog-planning",
+      "title": "Validate prioritize unscheduled stories and move them into a sprint failure boundary",
+      "description": "Backlog is the unscheduled view of the same story records. Moving work changes canonical iteration membership rather than copying stories.\n\nBoundary under review: A filtered or paginated view must not silently move stories that were not selected.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "backlog-planning"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/backlog",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-sprint-lifecycle",
+      "display_id": "HT8-B9",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-sprint-lifecycle",
+      "title": "Validate plan sprint goals, dates, ownership and lifecycle failure boundary",
+      "description": "Sprints have description, goal, labels, owner, effort and start/end dates with future, active and closed lifecycle states. Stories and sprint metrics derive from canonical membership.\n\nBoundary under review: A sprint from another project cannot be assigned to the story; invalid date order must be rejected.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "sprint-lifecycle"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/sprints",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-release-scope",
+      "display_id": "HT8-B10",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-release-scope",
+      "title": "Validate create release milestones with explicit and sprint-inherited scope failure boundary",
+      "description": "Releases contain a unique project milestone, fix version, description, target information and linked sprints. Scope can include manually selected stories and stories inherited through sprints.\n\nBoundary under review: Do not include another project’s story or count the same story twice through manual and inherited scope.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "release-scope"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/releases",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-delivery-selectors",
+      "display_id": "HT8-B11",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-delivery-selectors",
+      "title": "Validate use available sprints and releases consistently across story dialogs failure boundary",
+      "description": "Local project sprints and releases are the canonical options. Imported metadata may supplement choices but must not replace a native iteration ID with a legacy label.\n\nBoundary under review: Loading errors must not appear as an empty catalog, and project switches must discard stale options.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "delivery-selectors"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/stories",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-story-traceability",
+      "display_id": "HT8-B12",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-story-traceability",
+      "title": "Validate relate stories to test cases, defects and dependencies failure boundary",
+      "description": "Story links connect acceptance intent to test cases, Defects and related stories. Traceability counts represent unique linked records, not execution completion.\n\nBoundary under review: Duplicate links must not inflate coverage and unrelated-project evidence must not be attachable.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "story-traceability"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/stories",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-story-import-sync",
+      "display_id": "HT8-B13",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-story-import-sync",
+      "title": "Validate import and synchronize stories while retaining delivery metadata failure boundary",
+      "description": "Story import and configured tracker synchronization retain source references and map supported fields. Imported labels must not be mistaken for canonical local sprint or release IDs.\n\nBoundary under review: Do not create duplicate stories on a supported repeat import or overwrite unrelated local edits without the chosen sync behavior.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "story-import-sync"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/stories",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-story-ai-design",
+      "display_id": "HT8-B14",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-ai",
+      "requirement_id": "sample-v3-feature-story-ai-design",
+      "title": "Validate review AI-assisted story refinement and proposed test coverage failure boundary",
+      "description": "The story AI workspace helps refine requirements and generate reviewable design artifacts using a configured provider and permitted context. Suggestions are drafts until accepted.\n\nBoundary under review: Provider failure or missing configuration leaves the original story intact and exposes a retryable explanation.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "ai",
+        "story-ai-design"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/stories",
+        "feature_key": "hellotest.ai.requirement_design"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-structured-cases",
+      "display_id": "HT8-B15",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-structured-cases",
+      "title": "Validate author structured test cases with ordered steps and expected results failure boundary",
+      "description": "A case records title, description, type, priority, lifecycle, author and ordered actions with expected results. Case links and module/suite context must survive editing.\n\nBoundary under review: Editing one case must not mutate another case’s independent steps or application scope.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "structured-cases"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-cases",
+        "feature_key": "hellotest.manual.test_cases"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-gherkin-authoring",
+      "display_id": "HT8-B16",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-gherkin-authoring",
+      "title": "Validate preserve Gherkin Features, Backgrounds and Scenario Outlines failure boundary",
+      "description": "Gherkin authoring preserves feature-level context and behavior steps. Dataset examples and parameter placeholders must remain aligned with the saved structured representation.\n\nBoundary under review: Do not expose resolved sensitive parameter values inside visible Gherkin text.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "gherkin-authoring"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-cases",
+        "feature_key": "hellotest.manual.test_cases"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-shared-steps",
+      "display_id": "HT8-B17",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-shared-steps",
+      "title": "Validate reuse shared step groups without losing parameter boundaries failure boundary",
+      "description": "Shared groups support structured and Gherkin content plus parameters. References must preserve local case behavior and the source group identity.\n\nBoundary under review: Deleting or changing a reference must not delete independent steps belonging to another case.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "shared-steps"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/shared-steps",
+        "feature_key": "hellotest.manual.suites"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-suite-modules",
+      "display_id": "HT8-B18",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-suite-modules",
+      "title": "Validate organize cases into modules and reusable ordered suites failure boundary",
+      "description": "Modules organize test design; suites select execution membership. Stored membership and order must agree with the run scope produced from the suite.\n\nBoundary under review: A hidden case outside the active selection must not be added merely because it matches a broad filter.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "suite-modules"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/design",
+        "feature_key": "hellotest.manual.suites"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-case-review-versioning",
+      "display_id": "HT8-B19",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-case-review-versioning",
+      "title": "Validate retain case revision history and review ownership failure boundary",
+      "description": "Case history preserves prior snapshots and change summaries. Review and author metadata provide accountability without inventing execution evidence.\n\nBoundary under review: History views must not silently overwrite the current version or attribute changes to a different actor.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "case-review-versioning"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-cases",
+        "feature_key": "hellotest.manual.test_cases"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-case-import-export",
+      "display_id": "HT8-B20",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-case-import-export",
+      "title": "Validate round-trip supported test case imports and exports failure boundary",
+      "description": "Import/export covers supported case fields and step structures. Users must be able to review mapping and row-level errors before trusting the imported scope.\n\nBoundary under review: Reject unsupported or malformed input without reporting uncreated cases as successfully imported.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "case-import-export"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-cases",
+        "feature_key": "hellotest.manual.test_cases"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-environment-targets",
+      "display_id": "HT8-B21",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-environment-targets",
+      "title": "Validate configure environment targets and scoped variables failure boundary",
+      "description": "Environment configuration stores a base URL and variables within project/application scope. Run creation selects permitted environments and freezes the chosen context.\n\nBoundary under review: Variables from an unrelated application must not leak into the selected run.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "environment-targets"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-environments",
+        "feature_key": "hellotest.manual.environments"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-configuration-profiles",
+      "display_id": "HT8-B22",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-configuration-profiles",
+      "title": "Validate select browser and mobile configuration profiles failure boundary",
+      "description": "Profiles describe supported browser, platform, mobile OS/version and configuration variables. Selection must remain compatible with application scope and configured engine support.\n\nBoundary under review: An unavailable device or unsupported target must produce an actionable state rather than a fabricated successful execution.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "configuration-profiles"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-configurations",
+        "feature_key": "hellotest.manual.environments"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-datasets-parameters",
+      "display_id": "HT8-B23",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-datasets-parameters",
+      "title": "Validate link datasets and apply parameter precedence consistently failure boundary",
+      "description": "Datasets contain named columns and rows and can be linked to cases or runs. Execution preserves the selected input row and the parameter scopes used to resolve it.\n\nBoundary under review: Missing required input must be visible and one row’s values must not overwrite another row’s results.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "datasets-parameters"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-data",
+        "feature_key": "hellotest.manual.test_data"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-ai-authoring-data",
+      "display_id": "HT8-B24",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-ai",
+      "requirement_id": "sample-v3-feature-ai-authoring-data",
+      "title": "Validate review AI case mapping, step rephrase and synthetic data drafts failure boundary",
+      "description": "Configured AI can help map cases, rephrase steps or rich text and propose synthetic dataset rows. Accepted content still uses ordinary validation and saving paths.\n\nBoundary under review: A provider error must retain the original draft and must not insert fabricated completion evidence.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "ai",
+        "ai-authoring-data"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-cases",
+        "feature_key": "hellotest.ai.test_authoring"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-run-planning",
+      "display_id": "HT8-B25",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-run-planning",
+      "title": "Validate create a run from authorized suites and explicit delivery context failure boundary",
+      "description": "Run setup combines suite/case selection, assignments, environment, configuration, data and optional Release, Sprint and Build fields.\n\nBoundary under review: An empty or unauthorized execution scope must not be reported as a successful run.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "run-planning"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/executions?view=suite-runs",
+        "feature_key": "hellotest.manual.runs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "security",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-frozen-evidence",
+      "display_id": "HT8-B26",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-frozen-evidence",
+      "title": "Validate record manual case and step outcomes against frozen run snapshots failure boundary",
+      "description": "Runs snapshot selected cases, steps and input context. Manual outcomes, notes, attachments and defects belong to the saved run evidence, not a moving case definition.\n\nBoundary under review: An unfinished case must remain unfinished; unsaved or failed outcome writes must not appear finalized.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "frozen-evidence"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/executions",
+        "feature_key": "hellotest.manual.runs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-dataset-outcomes",
+      "display_id": "HT8-B27",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-dataset-outcomes",
+      "title": "Validate calculate final case outcomes across dataset iterations failure boundary",
+      "description": "A case may have multiple data-row attempts. Case and run metrics must use the supported finalized-outcome policy and preserve individual iteration evidence.\n\nBoundary under review: A later retry or multiple passed rows must not inflate unique case totals or mask a relevant failed outcome.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "dataset-outcomes"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/executions",
+        "feature_key": "hellotest.manual.runs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-scheduled-runs",
+      "display_id": "HT8-B28",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-scheduled-runs",
+      "title": "Validate manage disabled, future and recurring run schedules failure boundary",
+      "description": "Schedules retain project/application, suite selection, execution context, assignees and cadence. Installation examples remain disabled until explicitly configured.\n\nBoundary under review: Disabled schedules and projects being deleted must not be claimed for new work.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "scheduled-runs"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/executions?view=scheduled-runs",
+        "feature_key": "hellotest.manual.runs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-execution-analysis-reports",
+      "display_id": "HT8-B29",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-execution-analysis-reports",
+      "title": "Validate inspect execution reports and AI-assisted failure analysis failure boundary",
+      "description": "Reports and analysis use the permitted run scope, saved result evidence and configured AI capability. Exported outcomes must agree with visible finalized metrics.\n\nBoundary under review: Provider failure or missing evidence must not be presented as a confirmed root cause.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "execution-analysis-reports"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/executions",
+        "feature_key": "hellotest.manual.runs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-bug-lifecycle",
+      "display_id": "HT8-B30",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-bug-lifecycle",
+      "title": "Validate capture and triage Defects with severity, ownership and history failure boundary",
+      "description": "Defects capture description, type, severity, priority, status, root cause, regression information and delivery/environment context. History preserves the investigation trail.\n\nBoundary under review: Reporter access allows permitted creation but must not implicitly grant edit or delete access to existing Defects.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "bug-lifecycle"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/issues",
+        "feature_key": "hellotest.manual.bugs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-bug-collaboration",
+      "display_id": "HT8-B31",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-bug-collaboration",
+      "title": "Validate review duplicate Defects and linked evidence before creating another failure boundary",
+      "description": "Duplicate review uses selected case/module context. Story, case, suite and run relationships let investigators reach supporting evidence without losing source scope.\n\nBoundary under review: A similar title is a candidate, not proof of duplication; unauthorized evidence must remain inaccessible.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "bug-collaboration"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/issues",
+        "feature_key": "hellotest.manual.bugs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "security",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-bug-regression-ai",
+      "display_id": "HT8-B32",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-bug-regression-ai",
+      "title": "Validate turn Defect findings into reviewed regression coverage failure boundary",
+      "description": "Defect-to-case conversion maps supported defect details into an editable test draft. Configured AI assistance can help draft or triage without replacing human review.\n\nBoundary under review: Conversion must not close the Defect or claim the resulting test passed.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "bug-regression-ai"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/issues",
+        "feature_key": "hellotest.manual.bugs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-automation-coverage",
+      "display_id": "HT8-B33",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-automation-coverage",
+      "title": "Validate link executable automation to its manual coverage failure boundary",
+      "description": "Automation status and manual-to-automation links describe coverage readiness. An executable counterpart must retain its application scope and source case relationship.\n\nBoundary under review: An automation link alone must not be interpreted as a passed run or complete acceptance coverage.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "automation-coverage"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/automation",
+        "feature_key": "hellotest.automation.workspace"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-builder-step-code",
+      "display_id": "HT8-B34",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-builder-step-code",
+      "title": "Validate review executable assets and step-level code before running failure boundary",
+      "description": "The automation workspace exposes supported assets, builder operations and step-level code. Feature controls independently govern previews and saved code views.\n\nBoundary under review: Do not show unexecuted generated code as a verified passing automation result.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "builder-step-code"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/automation",
+        "feature_key": "hellotest.automation.assets"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-api-requests",
+      "display_id": "HT8-B35",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-api-requests",
+      "title": "Validate configure API requests, validations and captured parameters failure boundary",
+      "description": "API steps store method, URL, headers, body mode, validations and captures. Preview validates configured requests and returns observed response information.\n\nBoundary under review: Missing credentials, invalid targets and request timeouts must not be reported as successful assertions.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "api-requests"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-cases",
+        "feature_key": "hellotest.automation.preview"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "security",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-object-repository",
+      "display_id": "HT8-B36",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-object-repository",
+      "title": "Validate curate stable object bindings with locator provenance failure boundary",
+      "description": "Objects retain screen/page intent, names, locators, platform metadata, source and confidence. Reuse should preserve why a binding was chosen.\n\nBoundary under review: Low-confidence or duplicate candidates must not silently replace a reviewed stable binding.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "object-repository"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/object-repository",
+        "feature_key": "hellotest.automation.object_repository"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-step-recorder",
+      "display_id": "HT8-B37",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-step-recorder",
+      "title": "Validate capture browser actions and review saved automation steps failure boundary",
+      "description": "Step-level recording connects a configured recording environment to case authoring and object bindings. Finishing recording saves supported captured steps; the updated plan can then be reviewed and edited.\n\nBoundary under review: A disconnected recorder must expose recovery state and must not claim missing interactions were captured.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "step-recorder"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/automation",
+        "feature_key": "hellotest.automation.step_recording"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-local-execution",
+      "display_id": "HT8-B38",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-local-execution",
+      "title": "Validate run supported automation locally and retain its evidence failure boundary",
+      "description": "Local execution connects the selected case and context to the configured desktop/Playwright runner. Local Runs exposes recorded attempts and their outcomes.\n\nBoundary under review: An offline agent must fail clearly rather than leaving the UI waiting indefinitely or fabricating a run result.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "local-execution"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/executions?view=local-runs",
+        "feature_key": "hellotest.automation.local_execution"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-remote-parallel",
+      "display_id": "HT8-B39",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-remote-parallel",
+      "title": "Validate dispatch remote automation with bounded parallel execution failure boundary",
+      "description": "Remote dispatch and parallel execution use configured engine capabilities. Worker ownership, progress and callbacks must remain associated with the correct project and run.\n\nBoundary under review: Retries must not double-count attempts; unavailable workers must produce an observable recoverable state.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "remote-parallel"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/automation",
+        "feature_key": "hellotest.automation.remote_execution"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-android-appium",
+      "display_id": "HT8-B40",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-android-appium",
+      "title": "Validate use configured Android and Appium execution targets failure boundary",
+      "description": "Mobile execution depends on the configured mobile engine, Appium and device availability. Configuration and locator strategy must remain compatible with the chosen mobile target.\n\nBoundary under review: No connected device or an unsupported platform must yield an actionable error, not simulated evidence.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "android-appium"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/automation",
+        "feature_key": "hellotest.mobile.appium"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-repository-specialists",
+      "display_id": "HT8-B41",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-ai",
+      "requirement_id": "sample-v3-feature-repository-specialists",
+      "title": "Validate generate reviewable automation artifacts from selected source failure boundary",
+      "description": "Repository agents accept supported source inputs and generate bounded review artifacts. Source provenance and configured AI/runtime requirements remain visible.\n\nBoundary under review: A source scan or generated candidate must not be presented as an executed, passing test.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "ai",
+        "repository-specialists"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/agentic-workflows?view=agents",
+        "feature_key": "hellotest.ai.automation"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-knowledge-ingestion",
+      "display_id": "HT8-B42",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-knowledge",
+      "requirement_id": "sample-v3-feature-knowledge-ingestion",
+      "title": "Validate ingest supported project evidence and supplied content into knowledge failure boundary",
+      "description": "Knowledge supports selected project records, supplied text, supported files and URLs. Extraction, revision and indexing state show when a source is actually searchable.\n\nBoundary under review: Images require supplied captions and audio/video require transcripts; do not invent extracted content.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "knowledge",
+        "knowledge-ingestion"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/knowledge-repo",
+        "feature_key": "hellotest.ai.knowledge"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-knowledge-search",
+      "display_id": "HT8-B43",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-knowledge",
+      "requirement_id": "sample-v3-feature-knowledge-search",
+      "title": "Validate search versioned knowledge within authorized project scope failure boundary",
+      "description": "Retrieval uses available lexical and semantic indexing, source versions and access bindings. Collection filters must retain project-level security.\n\nBoundary under review: Cross-project or unauthorized source passages must never appear in search results.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "knowledge",
+        "knowledge-search"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/knowledge-repo",
+        "feature_key": "hellotest.ai.knowledge"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "security",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-ask-hellotest",
+      "display_id": "HT8-B44",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-knowledge",
+      "requirement_id": "sample-v3-feature-ask-hellotest",
+      "title": "Validate answer project questions with current evidence and explicit gaps failure boundary",
+      "description": "The assistant combines permitted live project facts with relevant knowledge and product guidance. Provider outages retain deterministic evidence-backed fallback behavior.\n\nBoundary under review: Missing or conflicting evidence must not become an invented project fact or unsupported completion claim.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "knowledge",
+        "ask-hellotest"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/knowledge-repo",
+        "feature_key": "hellotest.ai.knowledge"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-workflow-canvas",
+      "display_id": "HT8-B45",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-agentic",
+      "requirement_id": "sample-v3-feature-workflow-canvas",
+      "title": "Validate compose specialist workflows with validated steps and outputs failure boundary",
+      "description": "Workflow definitions contain triggers, agent steps, context scopes, edges and outputs. Drafts are not executed by sample installation.\n\nBoundary under review: Invalid graphs or unsupported specialist IDs must be rejected before dispatch.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "agentic",
+        "workflow-canvas"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/agentic-workflows?view=workflows",
+        "feature_key": "hellotest.ai.agentic_workflows"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-workflow-history",
+      "display_id": "HT8-B46",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-agentic",
+      "requirement_id": "sample-v3-feature-workflow-history",
+      "title": "Validate inspect workflow attempts and per-step recovery states failure boundary",
+      "description": "Workflow history retains attempts, step outcomes and generated review artifacts. Observed execution state remains distinct from the editable workflow definition.\n\nBoundary under review: An interrupted step must not appear completed merely because the workflow definition contains an output node.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "agentic",
+        "workflow-history"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/agentic-workflows?view=runs",
+        "feature_key": "hellotest.ai.agentic_workflows"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-prompt-governance",
+      "display_id": "HT8-B47",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-integration",
+      "requirement_id": "sample-v3-feature-prompt-governance",
+      "title": "Validate reuse prompt templates and governed AI provider mappings failure boundary",
+      "description": "Prompt templates retain scope, tags and applicable entities. Provider mappings select a configured project-compatible integration; credentials remain governed configuration.\n\nBoundary under review: Do not embed real provider credentials in reusable sample prompts or claim a live model response when none ran.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "integration",
+        "prompt-governance"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/admin-space",
+        "feature_key": "hellotest.ai.prompt_mapping"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "security",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-quality-analytics",
+      "display_id": "HT8-B48",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-dashboard",
+      "requirement_id": "sample-v3-feature-quality-analytics",
+      "title": "Validate explain quality metrics with consistent scope and denominators failure boundary",
+      "description": "Quality analytics aggregates authorized project records. Unique traceability, finalized execution outcomes and readiness signals answer different questions and must be labeled clearly.\n\nBoundary under review: Zero evidence must not imply a 100% pass rate, and duplicate joins must not inflate coverage.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "dashboard",
+        "quality-analytics"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/?view=analytics",
+        "feature_key": "hellotest.analytics.dashboards"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-custom-dashboards",
+      "display_id": "HT8-B49",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-dashboard",
+      "requirement_id": "sample-v3-feature-custom-dashboards",
+      "title": "Validate build reusable Executive, Product and QA dashboards failure boundary",
+      "description": "Custom dashboards preserve layouts, widget configuration and supported data sources. Templates provide starting points while evidence remains project-scoped.\n\nBoundary under review: A saved template or empty widget must not invent project outcomes.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "dashboard",
+        "custom-dashboards"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/?view=custom",
+        "feature_key": "hellotest.analytics.dashboards"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-release-readiness",
+      "display_id": "HT8-B50",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-dashboard",
+      "requirement_id": "sample-v3-feature-release-readiness",
+      "title": "Validate review release readiness from traceability, execution and Defect risk failure boundary",
+      "description": "Readiness relates release scope to linked cases, execution results and unresolved defects. The page presents the evidence and its limitations rather than replacing human approval.\n\nBoundary under review: Missing tests or stale results must remain visible; a count alone cannot certify a release as safe.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "dashboard",
+        "release-readiness"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/?view=readiness",
+        "feature_key": "hellotest.analytics.dashboards"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-product-metrics",
+      "display_id": "HT8-B51",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-product-metrics",
+      "title": "Validate keep Stories, Backlog, Sprint and Release cards mathematically consistent failure boundary",
+      "description": "Product metrics use the same status normalization, unique story scope and traceability rules across lists and tiles. Full-scope totals must remain independent of loaded pagination.\n\nBoundary under review: Filtered and global totals must be labeled correctly; textual status aliases must not produce conflicting completion counts.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "product-metrics"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/stories",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-background-jobs",
+      "display_id": "HT8-B52",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-background-jobs",
+      "title": "Validate monitor background work and download reusable artifacts failure boundary",
+      "description": "TestOps exposes permitted background transactions, progress, events and artifacts from imports, AI and automation. Management controls are governed separately from read access.\n\nBoundary under review: A polling failure must remain retryable and must not trigger duplicate destructive work.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "background-jobs"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/testops",
+        "feature_key": "hellotest.ops.background_jobs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-telemetry-traces",
+      "display_id": "HT8-B53",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-trace",
+      "requirement_id": "sample-v3-feature-telemetry-traces",
+      "title": "Validate investigate operational health and distributed request traces failure boundary",
+      "description": "OPS telemetry groups dashboards, TestGrid worker and project execution telemetry, infrastructure logs, distributed traces, alerts, and service health in tabs. Missing collectors or unavailable evidence must be presented accurately.\n\nBoundary under review: Never fabricate trace spans or healthy metrics when the collector is unavailable.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "trace",
+        "telemetry-traces"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/ops-telemetry",
+        "feature_key": "hellotest.ops.telemetry"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-notifications",
+      "display_id": "HT8-B54",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-notifications",
+      "title": "Validate review relevant notifications and retain read state failure boundary",
+      "description": "Notifications provide user-scoped activity with read state and destination links. Counts and unread indicators must reflect the actual permitted records.\n\nBoundary under review: A user must not read or modify another user’s notifications.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "notifications"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/notifications",
+        "feature_key": "hellotest.ops.notifications"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-instance-setup",
+      "display_id": "HT8-B55",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-instance-setup",
+      "title": "Validate install selected sample modules in dependency order without resetting edits failure boundary",
+      "description": "Instance setup offers module previews and explicit dependency selection. Project/apps and missing active-administrator memberships precede sprint/release/story records; installation is transactional and repeatable.\n\nBoundary under review: Audit or ownership conflicts roll back installation; setup must not enable external services or execute sample workflows.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "instance-setup"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/admin/?section=setup",
+        "feature_key": "hellotest.ops.admin"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-feature-dropdown-governance",
+      "display_id": "HT8-B56",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-feature-dropdown-governance",
+      "title": "Validate govern feature availability and domain dropdown values failure boundary",
+      "description": "Feature flags and domain metadata shape available actions and permitted choices. Existing values require safe display even when the selectable catalog changes.\n\nBoundary under review: A disabled feature must remain disabled after sample installation or direct API access.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "feature-dropdown-governance"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/admin/?section=features",
+        "feature_key": "hellotest.ops.admin"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-integrations-api-keys",
+      "display_id": "HT8-B57",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-integration",
+      "requirement_id": "sample-v3-feature-integrations-api-keys",
+      "title": "Validate configure provider integrations and scoped API keys failure boundary",
+      "description": "Integration setup supports configured providers and connection checks. API keys retain their permitted routes/scopes and must not bypass ordinary project authorization.\n\nBoundary under review: Sample examples remain inactive and credential-free; never expose stored secrets in catalogs or artifacts.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "integration",
+        "integrations-api-keys"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/integrations",
+        "feature_key": "hellotest.api.integrations"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-admin-audit-security",
+      "display_id": "HT8-B58",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-admin-audit-security",
+      "title": "Validate separate administrator access and retain setup audit activity failure boundary",
+      "description": "The admin portal governs administrator access, setup, feature availability and audit/security views. Product project roles alone do not grant workspace administration.\n\nBoundary under review: An audit failure during transactional setup must not leave a partially installed workspace.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "admin-audit-security"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/admin/?section=audit",
+        "feature_key": "hellotest.ops.admin"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-support-guidance",
+      "display_id": "HT8-B59",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-support-guidance",
+      "title": "Validate find support guidance without changing workspace data failure boundary",
+      "description": "The Support page provides the available help surface. Guidance should identify the current product area and preserve the user’s project context.\n\nBoundary under review: Reading help must not initiate an external support request or transmit project data.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "support-guidance"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/support",
+        "feature_key": ""
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-case-boundary-browser-quality-agents",
+      "display_id": "HT8-B60",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-agentic",
+      "requirement_id": "sample-v3-feature-browser-quality-agents",
+      "title": "Validate execute reviewed browser quality checks with traceable evidence failure boundary",
+      "description": "A typed browser plan is reviewed before execution. Durable scoped jobs return recorded stages, measured metrics, findings and authenticated screenshot artifacts. Findings can become reviewed Defects and visual captures can become explicitly approved baselines.\n\nBoundary under review: Missing browser infrastructure or incomplete steps block execution. Passive security, single-navigation performance and automated accessibility checks disclose their limits; an unapproved visual capture cannot claim a passed regression.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "agentic",
+        "browser-quality-agents"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/agentic-workflows?view=quality",
+        "feature_key": "hellotest.ai.agentic_workflows"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "regression",
+      "gherkin_document": null,
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    }
+  ]
+}

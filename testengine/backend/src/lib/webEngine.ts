@@ -393,9 +393,9 @@ type LiveViewEntry = {
 
 const liveViewSessions = new Map<string, LiveViewEntry>();
 
-export const getLiveSessionStatus = (provider: EngineWebEngineProvider = "playwright") => {
+export const getLiveSessionStatus = (provider: EngineWebEngineProvider = "playwright", engineRunId?: string) => {
   const sessions = [...liveViewSessions.values()].filter((entry) => entry.provider === provider);
-  const latest = sessions[sessions.length - 1] || null;
+  const latest = engineRunId ? sessions.find(entry => entry.id === `${engineRunId}:${provider}`) || null : sessions[sessions.length - 1] || null;
 
   return {
     provider,
@@ -405,9 +405,9 @@ export const getLiveSessionStatus = (provider: EngineWebEngineProvider = "playwr
   };
 };
 
-export const captureLiveSessionScreenshot = async (provider: EngineWebEngineProvider = "playwright") => {
+export const captureLiveSessionScreenshot = async (provider: EngineWebEngineProvider = "playwright", engineRunId?: string) => {
   const sessions = [...liveViewSessions.values()].filter((entry) => entry.provider === provider);
-  const latest = sessions[sessions.length - 1] || null;
+  const latest = engineRunId ? sessions.find(entry => entry.id === `${engineRunId}:${provider}`) || null : sessions[sessions.length - 1] || null;
 
   if (!latest) {
     return null;

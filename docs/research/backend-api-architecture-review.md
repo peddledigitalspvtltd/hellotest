@@ -1,5 +1,8 @@
 # Backend API architecture review — 2026-09-18
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 ## Scope and implementation
 
 Reviewed all **429 explicit method/path operations in 50 registered main-API modules**, the four health/metrics routes, shared request/database/provider boundaries, and the active web and mobile execution services. Route coverage means route and downstream service inspection; it does not mean every operation was exercised against a live external provider. Fastify-generated HEAD routes are not counted separately.

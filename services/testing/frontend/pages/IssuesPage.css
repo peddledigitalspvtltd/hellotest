@@ -1448,3 +1448,21 @@
 }
 html:root[data-theme="dark"] .defect-ai-workbench-dialog .defect-studio-inspector .ai-bug-review-card { background: transparent; box-shadow: none; border: 0; color: #051a3e; }
 .defect-ai-workbench-dialog .defect-studio-inspector .warning-message { color: #6b4b00; background: #fff7d6; border-color: #f5cd47; }
+
+/* Match Story cards' bounded title and three-line description rhythm. */
+.issue-catalog-card .tile-card-title-group strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  min-height: 42px;
+  max-height: 42px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  line-height: 21px;
+}
+.issue-catalog-card .catalog-card-description-summary {
+  font-size: 12px;
+  line-height: 18px;
+}

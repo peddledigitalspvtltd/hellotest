@@ -4,6 +4,7 @@ import type { FeatureFlagSnapshot, SessionPayload } from "../../types";
 export type CapabilityGroup = "plan" | "design" | "automate" | "execute" | "investigate" | "manage";
 export type WorkspaceCapability = { id: string; to: string; name: string; group: CapabilityGroup; description: string; keywords?: string; requiresProject?: boolean; flags?: string[] };
 export const WORKSPACE_CAPABILITIES: WorkspaceCapability[] = [
+  { id: "shared-section-groups", to: "/shared-steps?view=automation", name: "Shared Section Groups", group: "automate", description: "Create reusable automation sections with native platform instructions and reviewed group conversions.", requiresProject: true, flags: ["hellotest.automation.workspace", "hellotest.manual.suites"] },
   { id: "analytics", to: "/?view=analytics", name: "Quality Analytics", group: "investigate", description: "Track coverage, execution trends and quality signals." },
   { id: "readiness", to: "/?view=readiness", name: "Release readiness", group: "investigate", description: "Assess release evidence and unresolved risk." },
   { id: "dashboards", to: "/?view=custom", name: "Custom dashboards", group: "investigate", description: "Build executive, product and QA views with reusable widgets.", keywords: "metrics leadership", requiresProject: true },

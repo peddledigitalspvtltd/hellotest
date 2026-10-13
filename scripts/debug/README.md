@@ -1,6 +1,6 @@
 # Attach to the running local stack
 
-1. Run `TESTENGINE_WEB_REPLICAS=1 ./hellotest.sh up --build --stack local --no-cache` once.
+1. Use the already running local stack. If it is stopped, start it with `./hellotest.sh up --stack local`. Attaching to backend processes requires no rebuild.
 2. In VS Code, select **Local Docker: Chatbot UI + Backend**, then F5.
 3. Sign in at the launched `http://localhost:8080`, open Ask HelloTest and send a message.
 
@@ -13,11 +13,14 @@ For terminal use, run `./scripts/debug/chatbot.sh` (leave the terminal open), th
 
 | Script | Existing process | Host inspector port |
 | --- | --- | --- |
-| `platform.sh`, `testing.sh`, `knowledge.sh`, `manual.sh`, `dashboard.sh`, `automation.sh`, `agentic.sh`, `chatbot.sh`, `ai.sh`, `trace.sh`, `integration.sh` | Combined local API | 9240 |
+| `platform.sh`, `testing.sh`, `knowledge.sh`, `manual.sh`, `dashboard.sh`, `automation.sh`, `agentic.sh`, `chatbot.sh`, `ai.sh`, `trace.sh`, `integration.sh`, `mcp.sh` | Combined local API | 9240 |
 | `testengine-api-worker.sh` | API execution worker | 9241 |
 | `testengine-web-worker.sh` | Web execution worker | 9242 |
 | `testengine-android-worker.sh` | Android execution worker | 9243 |
 | `mobile-engine.sh` | Mobile provider | 9244 |
+| `testengine-quality-worker.sh` | Quality agent worker | 9245 |
+
+Run `./scripts/debug/mcp.sh --check` (or another service script) for a read-only JSON report of the selected container, process and inspector state. This does not enable the inspector or reserve a tunnel port. A busy host port prevents normal attachment before inspector activation.
 
 All capability scripts target the same API. Use one API tunnel at a time.
 For a worker replica other than 1, use e.g. `./scripts/debug/testengine-web-worker.sh 2` and attach manually on 9242; the F5 profiles select replica 1. The tunnel verifies Compose labels and selects only this repository's local stack.

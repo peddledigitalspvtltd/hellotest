@@ -4,11 +4,13 @@ For development setup, VS Code configuration, engineering standards and terminal
 
 ## Debug the existing Docker local stack
 
-Run your normal startup command once:
+Use the existing running local stack. If it is stopped, start it normally:
 
 ```sh
-TESTENGINE_WEB_REPLICAS=1 ./hellotest.sh up --build --stack local --no-cache
+./hellotest.sh up --stack local
 ```
+
+Check the selected process without mutation with `./scripts/debug/chatbot.sh --check`. MCP attaches to the same combined API using `mcp.sh`; the quality worker uses `testengine-quality-worker.sh` on 9245. Inspector attachment requires no container rebuild.
 
 Select **Local Docker: Chatbot UI + Backend** in VS Code's Run and Debug dropdown and press F5. This opens the existing Docker UI on `http://localhost:8080` and attaches to the API already running in Docker. It does not restart containers, launch another API or start Vite. Sign in in the debugger's browser, select a project, open Ask HelloTest, and send a message.
 
@@ -29,7 +31,7 @@ Record the commit, browser URL, selected project/application, capability profile
 | Combined API | 3000 | [server.js](../../services/platform/backend/src/server.js) |
 | TestEngine | 4301 | [server.ts](../../testengine/backend/src/server.ts) |
 | Mobile provider | 4312 | [server.js](../../local-run/mobile-engine/src/server.js) |
-| Host recorder launcher | 4311 | [local recorder setup](../../local-run/RECORDER_LOCAL_SETUP.md) |
+| Host recorder launcher | 4313 | [local recorder setup](../../local-run/RECORDER_LOCAL_SETUP.md) |
 | Appium, when separately installed | 4723 | Native provider configuration |
 
 Docker frontend ports are 8080/8081. Separate profile API ports differ; consult [backend architecture](../architecture/backend.md). The checked-in VS Code tasks use fixed Vite ports and `--strictPort`; manually started Vite can choose another port unless you supply that flag. API and mobile HTTP servers currently bind all interfaces; a loopback inspector does not change their HTTP listener.
@@ -228,3 +230,9 @@ For Smart Context, inspect `/knowledge/search`: the UI must send `intent_aware: 
 For ingestion, break after canonical index activation in `knowledgeRag.service.js`, then in `knowledgeEnrichment.service.js`. The document must remain searchable if the model is unavailable. `metadata.llm_context_profile` records `llm` or `standard`, a safe failure code and source-anchored excerpts. Generated hints never replace the source text. Current source revision/activation checks reject late enrichment for a superseded source. No bulk reindex is performed by this code change.
 
 For agent output, compare the specialist's `outputInstructions` in `services/agentic/shared/workflowSpecialists.json` with the response. Test Design should contain a rationale and actual cases, not only a scenario suggestion list. Provider output-limit termination is an error; oversized review fields are rejected rather than silently clipped. The shared `FormattedText` renderer handles Markdown tables/lists/code as escaped React text. Scroll the complete brief to its final paragraph and verify both light and dark themes.
+
+## Local execution versus inspection
+
+The repository inspection agent occupies 4311. Start the host Playwright execution/recorder on 4313 with `local-run/bin/start-host-recorder.sh`. Its `/health` and `/api/v1/capabilities` must identify Playwright support; an inspection-agent listener on 4311 is not an execution engine. The API default is `HELLOTEST_LOCAL_RUN_ENGINE_URL=http://host.docker.internal:4313`, while browser-facing connections use `http://localhost:4313`. Override both runner and API ports together. Test Runs leaves local resolution to the server; it must not point local execution at remote port 4301. Live sessions come from dispatched, project-bound run metadata and include a run ID; they do not fall back to another active browser.
+
+For an isolated live-link database check, use `EXECUTION_LIVE_POSTGRES=1 node --test services/automation/test/backend/executionLiveSessions.postgres.test.js` with matching `DATABASE_URL` and `OBS_DATABASE_URL` pointing to an empty disposable database named `agent_verify_live_sessions_*`. The test uses the native schema and verifies project/run isolation, URL sanitization and completed-session removal. Real provider smoke checks must use controlled targets; they do not establish that a customer's saved steps, selectors or target credentials are valid.

@@ -1,5 +1,8 @@
 # Quality Analytics and Release Readiness: backend evidence audit
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 Reviewed and implemented on 10 September 2026. This document concerns the current dashboard data contracts, not an evaluation of release success prediction. The new Quality Analytics endpoint calculates observable inventory and execution outcomes; it does not calculate approval or model-confidence scores.
 
 ## Findings and implemented corrections

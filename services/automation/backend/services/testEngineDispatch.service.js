@@ -2859,3 +2859,21 @@ exports.queueExecutionDispatch = queueExecutionDispatch;
 exports.runExecutionDirectLocal = runExecutionDirectLocal;
 exports.queueSingleStepDispatch = queueSingleStepDispatch;
 exports.settleExecutionIfComplete = settleExecutionIfComplete;
+
+// Read only public connection metadata from the dispatched, project-bound run.
+exports.getExecutionLiveSessions = async (execution) => {
+  if (execution?.status !== "running") return [];
+  const rows = await obsDb.prepare(`SELECT related_id AS engine_run_id, metadata->>'live_view_url' AS url, metadata->>'active_web_engine' AS provider
+    FROM workspace_transactions WHERE project_id = ? AND action = 'testengine_run'
+      AND metadata->>'execution_id' = ? AND status IN ('queued', 'running')
+    ORDER BY created_at DESC LIMIT 20`).all(execution.project_id, execution.id);
+  return rows.flatMap(row => {
+    try {
+      const url = new URL(row.url);
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return [];
+      if (["host.docker.internal", "testengine", "testengine-gateway"].includes(url.hostname)) url.hostname = "localhost";
+      if (row.provider !== "selenium") url.searchParams.set("run_id", row.engine_run_id);
+      return [{ engine_run_id: row.engine_run_id, provider: row.provider || "playwright", url: url.toString() }];
+    } catch { return []; }
+  });
+};

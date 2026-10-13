@@ -561,51 +561,40 @@ exports.duplicateTestSteps = async ({ test_case_id, step_ids = [], insert_after_
   return { duplicated: true };
 };
 
-exports.groupTestSteps = async ({ test_case_id, step_ids = [], name, kind = "local", reusable_group_id, group_id }) => {
-  if (!test_case_id || !Array.isArray(step_ids) || !step_ids.length) {
-    throw new Error("test_case_id and step_ids are required");
-  }
-
+exports.groupTestSteps = async ({ test_case_id, step_ids = [], name, kind = "local", reusable_group_id, group_id, create_shared_group = false, created_by }) => db.transaction(async () => {
+  if (!test_case_id || !Array.isArray(step_ids) || !step_ids.length) throw new Error("test_case_id and step_ids are required");
   const resolvedName = normalizeText(name);
-
-  if (!resolvedName) {
-    throw new Error("Group name is required");
-  }
-
-  await ensureTestCase(test_case_id);
+  if (!resolvedName) throw new Error("Group name is required");
+  const testCase = await ensureTestCase(test_case_id);
+  await db.prepare("SELECT id FROM test_steps WHERE test_case_id = ? ORDER BY step_order, id FOR UPDATE").all(test_case_id);
   const existingSteps = await listStepsForCase(test_case_id);
   const uniqueStepIds = [...new Set(step_ids)];
-  const selectedSteps = existingSteps.filter((step) => uniqueStepIds.includes(step.id));
-
-  if (selectedSteps.length !== uniqueStepIds.length) {
-    throw new Error("All grouped steps must belong to the selected test case");
+  const selectedSteps = existingSteps.filter(step => uniqueStepIds.includes(step.id));
+  if (selectedSteps.length !== uniqueStepIds.length) throw new Error("All grouped steps must belong to the selected test case");
+  if (!selectedSteps.every((step, index) => index === 0 || step.step_order === selectedSteps[index - 1].step_order + 1)) throw new Error("Select a continuous section range before grouping");
+  for (const step of selectedSteps.filter(step => step.group_kind === "reusable" && step.group_id)) {
+    if (existingSteps.some(other => other.group_id === step.group_id && !uniqueStepIds.includes(other.id))) throw new Error("Select the entire Shared Section Group before regrouping or converting it");
   }
-
-  const isContiguous = selectedSteps.every((step, index) => index === 0 || step.step_order === selectedSteps[index - 1].step_order + 1);
-
-  if (!isContiguous) {
-    throw new Error("Select a continuous step range before grouping");
-  }
-
   const groupId = normalizeText(group_id) || uuid();
-  const resolvedKind = normalizeGroupKind(kind) || "local";
-
-  const transaction = db.transaction(async () => {
-    for (const step of selectedSteps) {
-      await setStepGroup.run(groupId, resolvedName, resolvedKind, normalizeText(reusable_group_id), step.id);
-    }
-  });
-
-  await transaction();
-  if (resolvedKind === "reusable" && normalizeText(reusable_group_id)) {
-    await sharedStepSyncService.syncSharedGroupFromReference(
-      normalizeText(reusable_group_id),
-      test_case_id,
-      groupId
-    );
+  const resolvedKind = create_shared_group ? "reusable" : normalizeGroupKind(kind) || "local";
+  let sharedId = resolvedKind === "reusable" ? normalizeText(reusable_group_id) : null;
+  if (create_shared_group && sharedId) throw new Error("Choose a new shared group or an existing shared group, not both");
+  if (sharedId) {
+    const shared = await selectSharedStepGroup.get(sharedId);
+    if (!shared || shared.app_type_id !== testCase.app_type_id) throw new Error("Shared Section Group must belong to the same application");
   }
-  return { grouped: true, group_id: groupId };
-};
+  if (create_shared_group) {
+    const shared = await require('./sharedStepGroup.service').createSharedStepGroup({ app_type_id: testCase.app_type_id, name: resolvedName,
+      description: "Reusable automation sections created from a reviewed case selection.", created_by,
+      steps: selectedSteps.map((step, index) => ({ step_order: index + 1, action: step.action, expected_result: step.expected_result,
+        step_type: step.step_type, automation_code: step.automation_code, api_request: step.api_request })) });
+    sharedId = shared.id;
+  }
+  if (resolvedKind === "reusable" && !sharedId) throw new Error("A reusable group reference is required");
+  for (const step of selectedSteps) await setStepGroup.run(groupId, resolvedName, resolvedKind, sharedId, step.id);
+  if (sharedId) await sharedStepSyncService.syncSharedGroupFromReference(sharedId, test_case_id, groupId);
+  return { grouped: true, group_id: groupId, reusable_group_id: sharedId };
+})();
 
 exports.ungroupTestSteps = async ({ test_case_id, group_id }) => {
   if (!test_case_id || !group_id) {

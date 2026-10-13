@@ -201,7 +201,8 @@
     "./shared/agentEvidenceScopeFields.json": "./shared/agentEvidenceScopeFields.json",
     "./shared/aiPromptTemplateCatalog.json": "./shared/aiPromptTemplateCatalog.json",
     "./backend/src/utils/aiGenerationContext": "./backend/src/utils/aiGenerationContext.js",
-    "./backend/src/utils/aiGenerationContracts": "./backend/src/utils/aiGenerationContracts.js"
+    "./backend/src/utils/aiGenerationContracts": "./backend/src/utils/aiGenerationContracts.js",
+    "./frontend/src/shared/lib/catalogDescriptionSummary": "./frontend/src/shared/lib/catalogDescriptionSummary.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs platform",

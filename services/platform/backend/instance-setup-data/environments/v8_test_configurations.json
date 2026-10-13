@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-config-web",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Web reviewed runtime",
+      "description": "Synthetic runtime selection. Select a real compatible provider before dispatch.",
+      "browser": "Chrome",
+      "mobile_os": null,
+      "platform_version": "Linux",
+      "variables": [
+        {
+          "key": "locale",
+          "value": "en-US"
+        },
+        {
+          "key": "timeout_ms",
+          "value": "20000"
+        }
+      ],
+      "targets": [
+        {
+          "id": "sample-v8-ht-target-web",
+          "os": "Linux",
+          "browser": "Chrome",
+          "mobile_os": "",
+          "version": "Example"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-config-api",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-api",
+      "name": "Api reviewed runtime",
+      "description": "Synthetic runtime selection. Select a real compatible provider before dispatch.",
+      "browser": null,
+      "mobile_os": null,
+      "platform_version": "Linux",
+      "variables": [
+        {
+          "key": "locale",
+          "value": "en-US"
+        },
+        {
+          "key": "timeout_ms",
+          "value": "20000"
+        }
+      ],
+      "targets": [
+        {
+          "id": "sample-v8-ht-target-api",
+          "os": "Linux",
+          "browser": "",
+          "mobile_os": "",
+          "version": "Example"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-config-android",
+      "project_id": "sample-project",
+      "app_type_id": "sample-v8-ht-app-android",
+      "name": "Android reviewed runtime",
+      "description": "Synthetic runtime selection. Select a real compatible provider before dispatch.",
+      "browser": null,
+      "mobile_os": "android",
+      "platform_version": "Example test-device version",
+      "variables": [
+        {
+          "key": "locale",
+          "value": "en-US"
+        },
+        {
+          "key": "timeout_ms",
+          "value": "20000"
+        }
+      ],
+      "targets": [
+        {
+          "id": "sample-v8-ht-target-android",
+          "os": "Android",
+          "browser": "",
+          "mobile_os": "android",
+          "version": "Example"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-config-ios",
+      "project_id": "sample-project",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "name": "Ios reviewed runtime",
+      "description": "Synthetic runtime selection. Select a real compatible provider before dispatch.",
+      "browser": null,
+      "mobile_os": "ios",
+      "platform_version": "Example test-device version",
+      "variables": [
+        {
+          "key": "locale",
+          "value": "en-US"
+        },
+        {
+          "key": "timeout_ms",
+          "value": "20000"
+        }
+      ],
+      "targets": [
+        {
+          "id": "sample-v8-ht-target-ios",
+          "os": "iOS",
+          "browser": "",
+          "mobile_os": "ios",
+          "version": "Example"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-config-unified",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "name": "Unified reviewed runtime",
+      "description": "Synthetic runtime selection. Select a real compatible provider before dispatch.",
+      "browser": "Chrome",
+      "mobile_os": null,
+      "platform_version": "Linux",
+      "variables": [
+        {
+          "key": "locale",
+          "value": "en-US"
+        },
+        {
+          "key": "timeout_ms",
+          "value": "20000"
+        }
+      ],
+      "targets": [
+        {
+          "id": "sample-v8-ht-target-unified",
+          "os": "Linux",
+          "browser": "Chrome",
+          "mobile_os": "",
+          "version": "Example"
+        }
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z"
+    }
+  ]
+}

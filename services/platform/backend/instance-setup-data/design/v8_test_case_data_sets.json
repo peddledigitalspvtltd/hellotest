@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "test_case_id": "sample-v8-ht-case-story-metadata",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-nfr-user-intent",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-sprint-overdue",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-shared-sections",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-chat-mcp-budget",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-android-offline",
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-android-security",
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-android-accessibility",
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-android-smoke",
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-ios-permissions",
+      "test_data_set_id": "sample-v8-ht-data-ios",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-ios-state",
+      "test_data_set_id": "sample-v8-ht-data-ios",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-ios-exploration",
+      "test_data_set_id": "sample-v8-ht-data-ios",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-ios-accessibility",
+      "test_data_set_id": "sample-v8-ht-data-ios",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-api-idempotency",
+      "test_data_set_id": "sample-v8-ht-data-api",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-api-validation",
+      "test_data_set_id": "sample-v8-ht-data-api",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-api-authorization",
+      "test_data_set_id": "sample-v8-ht-data-api",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-api-performance",
+      "test_data_set_id": "sample-v8-ht-data-api",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-unified-acceptance",
+      "test_data_set_id": "sample-v8-ht-data-unified",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-unified-data",
+      "test_data_set_id": "sample-v8-ht-data-unified",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-unified-smoke",
+      "test_data_set_id": "sample-v8-ht-data-unified",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-automation-web",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-automation-api",
+      "test_data_set_id": "sample-v8-ht-data-api",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-automation-android",
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-automation-ios",
+      "test_data_set_id": "sample-v8-ht-data-ios",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-automation-unified",
+      "test_data_set_id": "sample-v8-ht-data-unified",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "test_case_id": "sample-v8-ht-case-automation-android-landscape",
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "sort_order": 1,
+      "created_at": "2026-09-01T09:00:00.000Z"
+    }
+  ]
+}

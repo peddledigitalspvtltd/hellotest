@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-comment-defect-1",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-1",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-comment-defect-2",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-2",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-comment-defect-3",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-3",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-comment-defect-4",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-4",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-comment-defect-5",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-5",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-comment-defect-6",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-6",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-comment-defect-7",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-7",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-comment-defect-8",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-8",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-comment-defect-9",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-9",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-comment-defect-10",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-10",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-comment-defect-11",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-11",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-comment-defect-12",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-12",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-comment-defect-13",
+      "project_id": "sample-project",
+      "entity_type": "feedback",
+      "entity_id": "sample-v8-ht-defect-13",
+      "body": "Synthetic investigation note. Compare the saved case and data row; do not present this example as a real defect report.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    }
+  ]
+}

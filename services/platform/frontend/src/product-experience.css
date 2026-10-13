@@ -129,24 +129,13 @@
   --workspace-border: var(--app-border);
 }
 :root:not(:has(.auth-page)) body #root .app-shell.workspace-experience-v2 > .sidebar {
-  background: var(--app-surface) !important;
-  color: var(--app-text) !important;
-  border-inline-end: 1px solid var(--app-border) !important;
-  padding-top: 20px !important;
+  background: var(--sidebar-background) !important;
+  color: var(--sidebar-foreground) !important;
+  border-inline-end: 1px solid var(--sidebar-divider) !important;
+  padding-top: 24px !important;
 }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .hellotest-brand-q { background: var(--app-accent-soft) !important; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .hellotest-brand-icon :is(circle,path) { stroke: var(--app-accent) !important; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .hellotest-brand-copy strong span { color: var(--app-text) !important; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar :is(.nav-link,.nav-submenu-link,.sidebar-signout,.sidebar-collapse-button,.sidebar-mobile-close) { color: var(--app-text-muted) !important; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar :is(.nav-link,.nav-submenu-link,.sidebar-signout):hover { background: var(--app-surface-muted) !important; color: var(--app-text) !important; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link.is-active { background: var(--app-accent-soft) !important; color: var(--app-accent) !important; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link.is-active::before { background: var(--app-accent) !important; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-submenu-link.is-active { background: var(--app-surface-muted) !important; color: var(--app-accent) !important; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-group-label { color: var(--app-text-muted) !important; font-size: 10px !important; letter-spacing: .08em; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list { scrollbar-width: thin; scrollbar-color: #d1d5db transparent; overscroll-behavior-y: contain; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-submenu::before { background: var(--app-border) !important; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar-footer { border-color: var(--app-border) !important; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-badge { background: var(--app-surface-muted) !important; color: var(--app-text-muted) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-group-label { color: var(--sidebar-muted) !important; font-size: 10px !important; letter-spacing: .08em; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list { scrollbar-width: thin; scrollbar-color: #3b5260 transparent; overscroll-behavior-y: contain; }
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-label { font-size: 12px; }
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-context-bar { min-height: 64px !important; height: 64px !important; }
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-header-icon { color: var(--app-text-muted) !important; }
@@ -249,15 +238,16 @@
 
 /* Readable navigation without changing the compact or mobile modes. */
 @media (min-width: 1101px) {
-  :root:not(:has(.auth-page)):not([data-sidebar="collapsed"]) body #root .app-shell.workspace-experience-v2 { --workspace-sidebar-width: 280px; }
+  :root:not(:has(.auth-page)):not([data-sidebar="collapsed"]) body #root .app-shell.workspace-experience-v2 { --workspace-sidebar-width: 256px; }
 }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar:not(.is-collapsed) .nav-link { min-height: 44px; padding: 11px 13px !important; font-size: 14px; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-label { font-size: 14px; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-group-label { font-size: 11px !important; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-submenu-link { min-height: 38px; padding: 9px 11px !important; font-size: 13px; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar:not(.is-collapsed) .nav-link { min-height: 40px; padding: 10px 11px !important; font-size: var(--sidebar-menu-font-size); }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-label { font-size: var(--sidebar-menu-font-size); }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-group-label { font-size: 10px !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-submenu-link { min-height: 36px; padding: 8px 10px !important; font-size: var(--sidebar-menu-font-size); }
 
 /* Scope icons keep a readable foreground in both themes. */
-:root:not(:has(.auth-page)) body .workspace-scope-trigger__icon { color:var(--app-accent) !important; background:var(--app-accent-soft) !important; opacity:1; }
+:root:not(:has(.auth-page)) body .sidebar .workspace-scope-trigger--project .workspace-scope-trigger__icon { color:#f9a487 !important; background:rgb(249 164 135 / 11%) !important; opacity:1; }
+:root:not(:has(.auth-page)) body .sidebar .workspace-scope-trigger--application .workspace-scope-trigger__icon { color:#a9d9c3 !important; background:rgb(109 191 154 / 11%) !important; opacity:1; }
 :root:not(:has(.auth-page)) body .workspace-scope-trigger__icon svg { opacity:1; stroke-width:2; }
 :root:not(:has(.auth-page)) body .projects-page-header { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
 :root:not(:has(.auth-page)) body .projects-page-header .page-actions { margin-left:auto; justify-content:flex-end; }
@@ -288,7 +278,7 @@
 :root:not(:has(.auth-page)) body #root .test-case-module-header > .checkbox-field { grid-column:1; }
 :root:not(:has(.auth-page)) body #root .test-case-module-header:has(> .checkbox-field) > .module-toggle-button { grid-column:2; }
 :root:not(:has(.auth-page)) body #root .test-case-module-header > .checkbox-field input { margin:0 !important; width:16px; height:16px; min-height:16px; }
-:root:not(:has(.auth-page)) body #root .sidebar.is-collapsed .nav-link-icon { display:grid !important; visibility:visible !important; opacity:1 !important; flex:0 0 20px !important; width:20px !important; overflow:visible !important; }
+:root:not(:has(.auth-page)) body #root .sidebar.is-collapsed .nav-link-icon { display:grid !important; visibility:visible !important; opacity:1 !important; flex:0 0 19px !important; width:19px !important; overflow:visible !important; }
 :root:not(:has(.auth-page)) body #root .sidebar.is-collapsed .nav-link-badge { display:none !important; }
 :root:not(:has(.auth-page)) body #root .sidebar.is-collapsed .nav-link-icon svg { display:block !important; visibility:visible !important; opacity:1 !important; flex-shrink:0; }
 :root:not(:has(.auth-page)) body #root :is(.mcp-server-page .agent-directory-toolbar,.agentic-workflows-toolbar) { display:flex; justify-content:flex-start !important; align-items:center; flex-wrap:wrap; gap:10px; }
@@ -413,9 +403,9 @@ body #root .mcp-server-catalog .agent-library-icon {
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list { gap: 4px; justify-content: flex-start !important; }
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-group { gap: 0; padding: 0 !important; margin: 0; border: 0 !important; }
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-group-items { gap: 4px; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link { min-height: 44px; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-icon { width: 24px !important; height: 24px !important; flex: 0 0 24px !important; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-icon svg { width: 24px !important; height: 24px !important; max-width: none; color: inherit !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link { min-height: 40px; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-icon { width: 19px !important; height: 19px !important; flex: 0 0 19px !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-icon svg { width: 19px !important; height: 19px !important; max-width: none; color: inherit !important; }
 
 /* Quiet, compact sidebar scrollbar in both expanded and collapsed navigation. */
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -441,7 +431,7 @@ body #root .mcp-server-catalog .agent-library-icon {
     font-size: 74.375%;
   }
   :root:not(:has(.auth-page)):not([data-sidebar="collapsed"]) body #root .app-shell.workspace-experience-v2 {
-    --workspace-sidebar-width: 20rem;
+    --workspace-sidebar-width: 256px;
   }
   :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-context-bar {
     min-height: 4.571429rem !important;
@@ -456,9 +446,9 @@ body #root .mcp-server-catalog .agent-library-icon {
     font-size: clamp(1.571429rem, 1.7vw, 2rem) !important;
   }
   :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar:not(.is-collapsed) .nav-link {
-    min-height: 3.142857rem;
-    padding:  .785714rem .928571rem !important;
-    font-size: max(12px, 1rem);
+    min-height: 40px;
+    padding: 10px 11px !important;
+    font-size: var(--sidebar-menu-font-size);
   }
   :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-label {
     font-size: max(12px, 1rem);
@@ -471,4 +461,39 @@ body #root .mcp-server-catalog .agent-library-icon {
   :root:not(:has(.auth-page)) body :is(.primary-button,.ghost-button,.run-button) {
     min-height: 2.714286rem;
   }
+}
+
+/* Keep scope selection in the same quiet surface as the admin instance chip. */
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .workspace-project-switcher {
+  background: var(--sidebar-hover);
+  border-color: var(--sidebar-divider);
+}
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .workspace-scope-trigger,
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .workspace-scope-trigger__copy strong {
+  color: var(--sidebar-foreground);
+}
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .workspace-scope-trigger__copy > span,
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .workspace-scope-trigger__chevron {
+  color: var(--sidebar-muted);
+}
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .workspace-scope-trigger:hover {
+  background: var(--sidebar-selected);
+}
+
+/* Previous asset-mask icons share the current SVG navigation canvas. */
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-icon > span:not(.nav-link-icon-badge),
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-submenu-icon > span {
+  width: 19px !important;
+  height: 19px !important;
+  inline-size: 19px !important;
+  block-size: 19px !important;
+  flex: 0 0 19px !important;
+}
+
+/* Collapsing navigation preserves the expanded control's icon canvas. */
+:root body #root .workspace-experience-v2 .sidebar .sidebar-collapse-button svg {
+  width: 18px !important;
+  height: 18px !important;
+  flex: 0 0 18px !important;
+  transform: none !important;
 }

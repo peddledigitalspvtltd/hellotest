@@ -1,5 +1,8 @@
 # Run data and end-to-end product review
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 Reviewed 10 September 2026 against the existing application. This is an implementation review with targeted browser, API, and isolated PostgreSQL verification, not a certification that every product workflow is defect-free. Related findings are in [access and traceability](access-traceability-audit.md), [knowledge reliability](knowledge-reliability-review.md), and [HTML execution reports](execution-html-report.md).
 
 ## Parameter contract

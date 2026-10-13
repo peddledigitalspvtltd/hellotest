@@ -1,5 +1,8 @@
 # Main workspace surfaces aligned with the admin portal
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 Reviewed and implemented on 10 September 2026.
 
 ## Evidence and design decision

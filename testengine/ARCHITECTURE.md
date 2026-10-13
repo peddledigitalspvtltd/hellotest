@@ -1,7 +1,7 @@
 # HelloTest Test Engine Architecture
 
-See also: [HelloTest product operating model](../docs/HELLOTEST_PRODUCT_OPERATING_MODEL.md)
-See also: [HelloTest background operations strategy](../docs/HELLOTEST_BACKGROUND_OPERATIONS_STRATEGY.md)
+See also: [HelloTest product operating model](../docs/architecture/automation-workflow.md)
+See also: [HelloTest background operations strategy](../docs/architecture/background-operations.md)
 
 ## Control Plane
 

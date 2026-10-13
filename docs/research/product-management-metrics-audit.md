@@ -1,5 +1,8 @@
 # Product Management metrics review
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 The Product Management navigation contains Stories, Backlog, Sprints and Releases. This review covers every page's header and metric cards, Sprint header metrics, Story tiles and detail metrics, and Release header and Story tile metrics.
 
 | Surface | Population and denominator | Result |

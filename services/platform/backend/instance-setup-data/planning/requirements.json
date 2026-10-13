@@ -1042,6 +1042,7 @@
         "Scenario: 1. Create a shared group and insert its reference into more than one case\n  Given I am an authorized QA Lead in the intended HelloTest scope\n  And the required feature and services are available\n  When I use the reuse shared step groups without losing parameter boundaries workflow\n  Then create a shared group and insert its reference into more than one case.",
         "Scenario: 2. Keep group parameters available for case or run overrides\n  Given I am an authorized QA Lead in the intended HelloTest scope\n  And the required feature and services are available\n  When I use the reuse shared step groups without losing parameter boundaries workflow\n  Then keep group parameters available for case or run overrides.",
         "Scenario: 3. Show the reusable group name and behavior consistently when reopening linked cases\n  Given I am an authorized QA Lead in the intended HelloTest scope\n  And the required feature and services are available\n  When I use the reuse shared step groups without losing parameter boundaries workflow\n  Then show the reusable group name and behavior consistently when reopening linked cases.",
+        "Scenario: 4. Automation Shared Section Groups can be created, edited, grouped, ungrouped and converted between local and shared copies through reviewed dialogs without changing frozen run evidence\n  Given I am an authorized QA Lead in the intended HelloTest scope\n  And the required feature and services are available\n  When I use the reuse shared step groups without losing parameter boundaries workflow\n  Then automation Shared Section Groups can be created, edited, grouped, ungrouped and converted between local and shared copies through reviewed dialogs without changing frozen run evidence.",
         "Scenario: Preserve scope and failure boundaries\n  Given I am using the reuse shared step groups without losing parameter boundaries workflow\n  When the documented failure or scope boundary is reached\n  Then deleting or changing a reference must not delete independent steps belonging to another case."
       ],
       "external_references": [],
@@ -1050,13 +1051,14 @@
         "original_dev_id": null,
         "original_qa_id": null,
         "effort_story_points": 5,
-        "sample_blueprint_version": 3,
+        "sample_blueprint_version": 4,
         "feature_key": "shared-steps",
         "feature_area": "design",
         "acceptance_criteria": [
           "Create a shared group and insert its reference into more than one case.",
           "Keep group parameters available for case or run overrides.",
-          "Show the reusable group name and behavior consistently when reopening linked cases."
+          "Show the reusable group name and behavior consistently when reopening linked cases.",
+          "Automation Shared Section Groups can be created, edited, grouped, ungrouped and converted between local and shared copies through reviewed dialogs without changing frozen run evidence."
         ],
         "boundary": "Deleting or changing a reference must not delete independent steps belonging to another case.",
         "source_files": [
@@ -1434,6 +1436,7 @@
         "Scenario: 1. Show generated case or step suggestions before replacing authored content\n  Given I am an authorized QA Member in the intended HelloTest scope\n  And the required feature and services are available\n  When I use the review ai case mapping, step rephrase and synthetic data drafts workflow\n  Then show generated case or step suggestions before replacing authored content.",
         "Scenario: 2. Generate synthetic data matching requested columns without claiming it is production data\n  Given I am an authorized QA Member in the intended HelloTest scope\n  And the required feature and services are available\n  When I use the review ai case mapping, step rephrase and synthetic data drafts workflow\n  Then generate synthetic data matching requested columns without claiming it is production data.",
         "Scenario: 3. Allow selected suggestions to be accepted while retaining other authored fields\n  Given I am an authorized QA Member in the intended HelloTest scope\n  And the required feature and services are available\n  When I use the review ai case mapping, step rephrase and synthetic data drafts workflow\n  Then allow selected suggestions to be accepted while retaining other authored fields.",
+        "Scenario: 4. Story selection is optional; explicit NFR objectives are preserved through generation and improvement rather than replaced by default positive-flow coverage\n  Given I am an authorized QA Member in the intended HelloTest scope\n  And the required feature and services are available\n  When I use the review ai case mapping, step rephrase and synthetic data drafts workflow\n  Then story selection is optional; explicit NFR objectives are preserved through generation and improvement rather than replaced by default positive-flow coverage.",
         "Scenario: Preserve scope and failure boundaries\n  Given I am using the review ai case mapping, step rephrase and synthetic data drafts workflow\n  When the documented failure or scope boundary is reached\n  Then a provider error must retain the original draft and must not insert fabricated completion evidence."
       ],
       "external_references": [],
@@ -1442,13 +1445,14 @@
         "original_dev_id": null,
         "original_qa_id": null,
         "effort_story_points": 5,
-        "sample_blueprint_version": 3,
+        "sample_blueprint_version": 4,
         "feature_key": "ai-authoring-data",
         "feature_area": "design",
         "acceptance_criteria": [
           "Show generated case or step suggestions before replacing authored content.",
           "Generate synthetic data matching requested columns without claiming it is production data.",
-          "Allow selected suggestions to be accepted while retaining other authored fields."
+          "Allow selected suggestions to be accepted while retaining other authored fields.",
+          "Story selection is optional; explicit NFR objectives are preserved through generation and improvement rather than replaced by default positive-flow coverage."
         ],
         "boundary": "A provider error must retain the original draft and must not insert fabricated completion evidence.",
         "source_files": [

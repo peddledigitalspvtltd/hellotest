@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-shared-web",
+      "display_id": "HT8-SG1",
+      "app_type_id": "sample-app-web",
+      "name": "Web reviewed session",
+      "description": "Reusable fixture precondition. Code is a reviewable synthetic example, not executed evidence.",
+      "authoring_mode": "structured",
+      "steps": [
+        {
+          "step_order": 1,
+          "step_type": "web",
+          "action": "Confirm the authorized web fixture and configured provider",
+          "expected_result": "The fixture belongs to this application; unavailable provider readiness is explicit."
+        }
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-shared-api",
+      "display_id": "HT8-SG2",
+      "app_type_id": "sample-app-api",
+      "name": "Api reviewed session",
+      "description": "Reusable fixture precondition. Code is a reviewable synthetic example, not executed evidence.",
+      "authoring_mode": "structured",
+      "steps": [
+        {
+          "step_order": 1,
+          "step_type": "api",
+          "action": "Confirm the authorized api fixture and configured provider",
+          "expected_result": "The fixture belongs to this application; unavailable provider readiness is explicit."
+        }
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-shared-android",
+      "display_id": "HT8-SG3",
+      "app_type_id": "sample-v8-ht-app-android",
+      "name": "Android reviewed session",
+      "description": "Reusable fixture precondition. Code is a reviewable synthetic example, not executed evidence.",
+      "authoring_mode": "structured",
+      "steps": [
+        {
+          "step_order": 1,
+          "step_type": "android",
+          "action": "Confirm the authorized android fixture and configured provider",
+          "expected_result": "The fixture belongs to this application; unavailable provider readiness is explicit."
+        }
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-shared-ios",
+      "display_id": "HT8-SG4",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "name": "Ios reviewed session",
+      "description": "Reusable fixture precondition. Code is a reviewable synthetic example, not executed evidence.",
+      "authoring_mode": "structured",
+      "steps": [
+        {
+          "step_order": 1,
+          "step_type": "ios",
+          "action": "Confirm the authorized ios fixture and configured provider",
+          "expected_result": "The fixture belongs to this application; unavailable provider readiness is explicit."
+        }
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-shared-unified",
+      "display_id": "HT8-SG5",
+      "app_type_id": "sample-app-mobile",
+      "name": "Unified reviewed session",
+      "description": "Reusable fixture precondition. Code is a reviewable synthetic example, not executed evidence.",
+      "authoring_mode": "structured",
+      "steps": [
+        {
+          "step_order": 1,
+          "step_type": "web",
+          "action": "Confirm the authorized unified fixture and configured provider",
+          "expected_result": "The fixture belongs to this application; unavailable provider readiness is explicit."
+        }
+      ],
+      "parameter_values": {
+        "user": "fixture-a@example.test"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    }
+  ]
+}

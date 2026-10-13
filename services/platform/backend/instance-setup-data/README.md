@@ -4,9 +4,9 @@ This directory is the reviewed, repository-owned source for the Admin **Instance
 setup → Module sample data** installer. Installation reads these files; it does
 not generate Stories, shift dates, call an LLM, or invent replacement content.
 
-`manifest.json` identifies dataset `hellotest-instance-v1`, version 7. It lists
+`manifest.json` identifies dataset `hellotest-instance-v1`, version 8. It lists
 the selectable modules and each object file in dependency order. The dataset
-contains 2,240 relational records and 7 workspace role presets across 135 files.
+contains 3,242 content records and 7 workspace role presets across 166 files.
 The authored calendar spans August–October 2026, including completed and overdue work. Fixed dates are
 intentional: time-window metrics reflect the saved dates as these examples age.
 
@@ -17,7 +17,7 @@ intentional: time-window metrics reflect the saved dates as these examples age.
 | Folder | Objects and relationships |
 | --- | --- |
 | `workspace_roles` | Seven role presets, stable role IDs and explicit permission codes |
-| `workspace` | HelloTest Launchpad project and Web, API and Mobile applications |
+| `workspace` | HelloTest Launchpad project and Web, API, Android, iOS and Unified applications |
 | `planning` | Stories, acceptance criteria, Gherkin, priorities, tags, teams, estimates, Sprint and Release metadata, Story relations and Release membership |
 | `design` | Modules, suites, cases, shared steps, case versions and Story/module/suite links |
 | `environments` | Environments, configurations, dataset columns/rows and case dataset links |
@@ -64,6 +64,10 @@ Execution results, readiness reviews and activity records are clearly marked
 as **synthetic examples**. Installation does not claim real code reviews,
 Product Owner approval, CI outcomes, AI output or production execution.
 Integrations remain inactive, schedules disabled and workflow definitions remain drafts. Saved agent/chat history is authored sample evidence, not a claim that a provider ran.
+
+## Native metadata and boundaries (v8)
+
+The v8 files add 20 detailed Stories, 86 cases (including a boundary case for each of the 60 feature Stories), 335 ordered steps, five platform-specific modules/suites and disabled test plans, eight synthetic runs and 13 linked Defects. Native Story, case, review, result and Defect states are validated before writes. Manual result entry, local and remote transport examples use the runtime's actual trigger and transport contracts. The PostgreSQL installer test verifies atomic grouping and cross-application isolation as well as repeatable setup.
 
 ## Capability coverage (v7)
 

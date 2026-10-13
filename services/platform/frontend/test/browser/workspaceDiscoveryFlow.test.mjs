@@ -34,30 +34,39 @@ test("workspace discovery supports keyboard navigation, private recents, non-des
     await page.screenshot({ path: artifacts + "/dashboard-desktop.png", fullPage: true });
 
     for(const icon of await page.locator('.workspace-scope-trigger__icon').all()) {
-      const style=await icon.evaluate(node=>({foreground:getComputedStyle(node).color,opacity:getComputedStyle(node).opacity}));assert.equal(style.opacity,'1');assert.equal(style.foreground,'rgb(8, 126, 131)','Scope icons use the readable light-theme accent');
+      const style=await icon.evaluate(node=>({foreground:getComputedStyle(node).color,opacity:getComputedStyle(node).opacity,project:Boolean(node.closest('.workspace-scope-trigger--project'))}));assert.equal(style.opacity,'1');assert.equal(style.foreground,style.project?'rgb(249, 164, 135)':'rgb(169, 217, 195)','Scope icons retain their dark-sidebar colors in light theme');
     }
+    const scopeColors=await page.locator('.workspace-scope-trigger__icon').evaluateAll(nodes=>nodes.map(node=>getComputedStyle(node).color));
+    await page.evaluate(()=>document.documentElement.dataset.theme='dark');
+    assert.deepEqual(await page.locator('.workspace-scope-trigger__icon').evaluateAll(nodes=>nodes.map(node=>getComputedStyle(node).color)),scopeColors);
+    await page.evaluate(()=>document.documentElement.dataset.theme='light');
     for (const name of ['Project Overview', 'Test Runs & Results', 'Test Plan', 'Agentic AI Studio', 'AI Knowledge Base', 'Test Automation', 'Test Data & Configuration']) {
       const link = page.locator('#app-sidebar').getByRole('link', {name,exact:true});
       await link.waitFor();
-      assert.equal(await link.locator('svg').count(),1, `${name} has its icon`);
+      assert.equal(await link.locator('.nav-link-icon > :not(.nav-link-icon-badge)').count(),1, `${name} has its previous icon`);
     }
     const automationLink = page.locator('#app-sidebar [data-nav-identity="automation"]');
     const planningLink = page.locator('#app-sidebar [data-nav-identity="test-plan"]');
     assert.ok((await automationLink.boundingBox()).y < (await planningLink.boundingBox()).y, 'Automation appears before Test Plan');
     const dataLink = page.locator('#app-sidebar [data-nav-identity="environment"]');
     assert.ok((await dataLink.boundingBox()).y < (await planningLink.boundingBox()).y, 'Test Data & Configuration appears before Test Plan');
-    const planningIcon = await page.locator('[data-nav-identity="test-plan"] .nav-link-icon svg').boundingBox();
-    const standardIcon = await page.locator('[data-nav-identity="projects"] .nav-link-icon svg').boundingBox();
-    assert.equal(planningIcon.width, 24, 'Detailed planning icon uses the larger reference canvas');
+    const planningIcon = await page.locator('[data-nav-identity="test-plan"] .nav-link-icon > :not(.nav-link-icon-badge)').boundingBox();
+    const standardIcon = await page.locator('[data-nav-identity="projects"] .nav-link-icon > :not(.nav-link-icon-badge)').boundingBox();
+    assert.equal(planningIcon.width, 19, 'Navigation uses the administration icon canvas');
     assert.equal(planningIcon.width, standardIcon.width, 'Sidebar icons share the same canvas');
     assert.equal(await page.locator('#app-sidebar .nav-group-label').count(), 0, 'Sidebar has no section labels');
     const order = await page.locator('#app-sidebar .nav-link').evaluateAll(nodes => nodes.map(node => node.dataset.navIdentity));
     assert.deepEqual(order.slice(0, 5), ['overview', 'projects', 'agentic-workflows', 'knowledge', 'product-management']);
-    const sidebarBox = await page.locator('#app-sidebar').boundingBox();assert.ok(Math.abs(sidebarBox.width-280)<2,'expanded desktop sidebar is readable at 280px');
-    assert.equal(await page.locator('#app-sidebar .nav-link-label').first().evaluate(node=>getComputedStyle(node).fontSize),'14px');
+    const sidebarBox = await page.locator('#app-sidebar').boundingBox();assert.ok(Math.abs(sidebarBox.width-256)<2,'expanded desktop sidebar matches administration at 256px: '+sidebarBox.width);
+    assert.equal(await page.locator('#app-sidebar .nav-link-label').first().evaluate(node=>getComputedStyle(node).fontSize),'12px');
+    assert.match(await page.locator('#app-sidebar').evaluate(node=>getComputedStyle(node).backgroundImage), /rgb\(16, 38, 53\)/, 'Sidebar uses the administration navy background');
+    assert.equal(await page.locator('#app-sidebar .nav-link.is-active').first().evaluate(node=>getComputedStyle(node).color), 'rgb(255, 255, 255)', 'Selected navigation stays readable on navy');
     await page.locator('.nav-list').evaluate(node=>node.scrollTop=node.scrollHeight);
+    const collapseIcon=await page.getByRole('button',{name:'Collapse sidebar',exact:true}).locator('svg').boundingBox();
     await page.getByRole('button',{name:'Collapse sidebar',exact:true}).click();
     await page.locator('.sidebar.is-collapsed').waitFor();
+    const expandIcon=await page.getByRole('button',{name:'Expand sidebar',exact:true}).locator('svg').boundingBox();
+    assert.equal(expandIcon.width,collapseIcon.width);assert.equal(expandIcon.height,collapseIcon.height);
     const dashboardIcon=page.locator('[data-nav-identity="overview"] .nav-link-icon svg');assert.equal(await dashboardIcon.isVisible(),true);
     const iconBounds=await dashboardIcon.boundingBox();const collapsedBounds=await page.locator('#app-sidebar').boundingBox();assert.ok(iconBounds.width>0&&iconBounds.x>=collapsedBounds.x&&iconBounds.x+iconBounds.width<=collapsedBounds.x+collapsedBounds.width,'Dashboard icon fits the collapsed rail');
     const navigationBounds=await page.locator('.nav-list').boundingBox();assert.ok(iconBounds.y>=navigationBounds.y&&iconBounds.y+iconBounds.height<=navigationBounds.y+navigationBounds.height,'Dashboard remains visible after collapsing a scrolled sidebar');

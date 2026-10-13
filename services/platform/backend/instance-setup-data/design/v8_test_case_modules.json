@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-module-web",
+      "display_id": "HT8-M1",
+      "app_type_id": "sample-app-web",
+      "name": "Web acceptance matrix",
+      "description": "Reviewed web behavior, metadata and failure boundaries.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-module-api",
+      "display_id": "HT8-M2",
+      "app_type_id": "sample-app-api",
+      "name": "Api acceptance matrix",
+      "description": "Reviewed api behavior, metadata and failure boundaries.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-module-android",
+      "display_id": "HT8-M3",
+      "app_type_id": "sample-v8-ht-app-android",
+      "name": "Android acceptance matrix",
+      "description": "Reviewed android behavior, metadata and failure boundaries.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-module-ios",
+      "display_id": "HT8-M4",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "name": "Ios acceptance matrix",
+      "description": "Reviewed ios behavior, metadata and failure boundaries.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-module-unified",
+      "display_id": "HT8-M5",
+      "app_type_id": "sample-app-mobile",
+      "name": "Unified acceptance matrix",
+      "description": "Reviewed unified behavior, metadata and failure boundaries.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    }
+  ]
+}

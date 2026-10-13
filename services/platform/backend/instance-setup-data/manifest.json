@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "dataset_id": "hellotest-instance-v1",
-  "version": 7,
+  "version": 8,
   "project_id": "sample-project",
-  "authored_at": "2026-09-21T09:00:00.000Z",
-  "description": "Repository-owned HelloTest feature backlog and connected synthetic acceptance data. Version 7 covers every implemented feature Story with a case, capability suites, chronological delivery and mixed run evidence, plus independent prompt templates and synthetic agent/chat history. Existing records, dates, custom grants and assignments are retained.",
+  "authored_at": "2026-10-12T09:00:00.000Z",
+  "description": "Repository-reviewed feature coverage with Web, API, Android, iOS and Unified metadata, boundary cases, disabled test plans and explicitly synthetic run/defect evidence. Stable earlier records and administrator customization are retained.",
   "blueprint": {
     "title": "HelloTest core feature and acceptance-story blueprint",
     "story_count": 60,
@@ -575,7 +575,7 @@
         "workspace.projects"
       ],
       "record_count": 72,
-      "sha256": "ee85765f9678fe527de874cd5bda98bbd3d17a262fd50041e4165765fb99577c"
+      "sha256": "99ced1ffba53583e6c1e6c528e2cb87f5b9bdbd3c96329c33122f65a1f5b21a6"
     },
     {
       "key": "planning.requirements_v5",
@@ -764,7 +764,7 @@
         "testops.workspace_transactions"
       ],
       "record_count": 3,
-      "sha256": "d0e87fae7eb6d067c5cd3d8051dcd4b33091c06949ca00ca937ed39e007f9981"
+      "sha256": "f66ba5719ddc386188b10ce414dd1a52c8851042753f821d9b9490563d28ed29"
     },
     {
       "key": "planning.v6_releases",
@@ -1489,7 +1489,7 @@
         "workspace.projects"
       ],
       "record_count": 4,
-      "sha256": "56ad86d8868159e1be516b6d8fcb3bd38bdf51c24cea6992316be08e2f548802"
+      "sha256": "453e887150df6234207659c170dd05c27eee6dbf03708987b2a0ad0ec80826b3"
     },
     {
       "key": "automation.test_cases",
@@ -1805,7 +1805,7 @@
         "workspace.projects"
       ],
       "record_count": 4,
-      "sha256": "b85fa9700672e3a5291d3832f4fb77c82d7ca897a9c1d037e9a4b2317cc89a72"
+      "sha256": "385f163f27b9508bbd1e24ee37e6a48682f91c77809cb4c87c5927eb71f52a3f"
     },
     {
       "key": "automation.automation_case_links",
@@ -2197,7 +2197,7 @@
         "workspace.projects"
       ],
       "record_count": 4,
-      "sha256": "3ac5208e195760c1d2bdc096e6990ccbfc05f270177c8a6b5a5818ff8bb7e5dd"
+      "sha256": "c1173ada23791eadb82267b4140ff80ecbcfddcd520fdb79ea76d37e6b5fe85e"
     },
     {
       "key": "knowledge.ai_knowledge_collection_sources",
@@ -2395,7 +2395,7 @@
         "workspace.projects"
       ],
       "record_count": 10,
-      "sha256": "36a8f8c8406d73c373ccee15cd52f1a707c9045e329777fcdf4112f7bad391ab"
+      "sha256": "baba6741246a1a0c29803c60c97f2738a79f710ea2cb7f34e64dd3ac3f5518a7"
     },
     {
       "key": "knowledge.ai_knowledge_index_states",
@@ -2516,6 +2516,528 @@
       ],
       "record_count": 243,
       "sha256": "b116a06425819ae17e41d40e553b78f399c37bae6e7c1498a95b32560ea4f37d"
+    },
+    {
+      "key": "workspace.v8_app_types",
+      "path": "workspace/v8_app_types.json",
+      "module": "workspace",
+      "table": "app_types",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "workspace.app_types",
+        "workspace.projects"
+      ],
+      "record_count": 2,
+      "sha256": "d1fb6ad5cd083a88f7762ecaeafa916683e2a22439967e141876ed21f52ed3a2"
+    },
+    {
+      "key": "planning.v8_requirement_iterations",
+      "path": "planning/v8_requirement_iterations.json",
+      "module": "planning",
+      "table": "requirement_iterations",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "workspace.projects",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 4,
+      "sha256": "a17e4c2301da5dc177864db1d507348abc739f079f5ea9707d709c4576cf092b"
+    },
+    {
+      "key": "design.v8_test_case_modules",
+      "path": "design/v8_test_case_modules.json",
+      "module": "design",
+      "table": "test_case_modules",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "workspace.app_types",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 5,
+      "sha256": "3c6d3ea9eb07783b13bf178a933ac1650110489be819d608be6fb9aa0ab26837"
+    },
+    {
+      "key": "design.v8_test_suites",
+      "path": "design/v8_test_suites.json",
+      "module": "design",
+      "table": "test_suites",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "workspace.app_types",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 5,
+      "sha256": "d72e1b820726b3a0ed20aa5405773f99c1e7a0d576ab55df824e7628220e7338"
+    },
+    {
+      "key": "environments.v8_test_environments",
+      "path": "environments/v8_test_environments.json",
+      "module": "environments",
+      "table": "test_environments",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "workspace.app_types",
+        "workspace.projects",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 5,
+      "sha256": "5722e19bc3d3bae0f40e24dae53624f66178d43eab0c1c8c5410d92b9cbe2941"
+    },
+    {
+      "key": "environments.v8_test_configurations",
+      "path": "environments/v8_test_configurations.json",
+      "module": "environments",
+      "table": "test_configurations",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "workspace.app_types",
+        "workspace.projects",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 5,
+      "sha256": "b929bd1434bbac6ee8d56d738df0c2870e5a0d87832f84c7b06ac92a48c492f7"
+    },
+    {
+      "key": "design.v8_test_data_sets",
+      "path": "design/v8_test_data_sets.json",
+      "module": "design",
+      "table": "test_data_sets",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "workspace.app_types",
+        "workspace.projects",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 5,
+      "sha256": "4d0b623bf6c7badc894c8bc9b6d7a02b6050fafefaae66cc312b866b7c6a2594"
+    },
+    {
+      "key": "design.v8_shared_step_groups",
+      "path": "design/v8_shared_step_groups.json",
+      "module": "design",
+      "table": "shared_step_groups",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "workspace.app_types",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 5,
+      "sha256": "b46119947a7b8f2c162c97630b7a6446c27a3efbfd33a319d2132153f4032a72"
+    },
+    {
+      "key": "automation.v8_automation_learning_cache",
+      "path": "automation/v8_automation_learning_cache.json",
+      "module": "automation",
+      "table": "automation_learning_cache",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "workspace.app_types",
+        "workspace.projects",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 7,
+      "sha256": "06d00559d33208ab12a45d1179dfb20e379f9679fb81b85801ef88aa9885339a"
+    },
+    {
+      "key": "planning.v8_requirement_releases",
+      "path": "planning/v8_requirement_releases.json",
+      "module": "planning",
+      "table": "requirement_releases",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "planning.v8_requirement_iterations",
+        "workspace.projects"
+      ],
+      "record_count": 3,
+      "sha256": "a0edac90217899de7ccd11cc216e18bcb1ca9227ce801e6518c715f683ca47aa"
+    },
+    {
+      "key": "planning.v8_requirements",
+      "path": "planning/v8_requirements.json",
+      "module": "planning",
+      "table": "requirements",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "planning.v8_requirement_iterations",
+        "planning.v8_requirement_releases",
+        "workspace.projects"
+      ],
+      "record_count": 20,
+      "sha256": "801d87002a883f67fd7ed21012ffcf22a0d2eaec669c8d83c54789a72f7b37fa"
+    },
+    {
+      "key": "planning.v8_requirement_release_items",
+      "path": "planning/v8_requirement_release_items.json",
+      "module": "planning",
+      "table": "requirement_release_items",
+      "keys": [
+        "release_id",
+        "requirement_id"
+      ],
+      "depends_on": [
+        "planning.v8_requirement_releases",
+        "planning.v8_requirements"
+      ],
+      "record_count": 20,
+      "sha256": "0bc1cbf70251e113f1dcd621467c4081beb38c7d16c5f11394dc49450a4973d2"
+    },
+    {
+      "key": "design.v8_test_cases",
+      "path": "design/v8_test_cases.json",
+      "module": "design",
+      "table": "test_cases",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "design.capability_cases",
+        "design.capability_suites",
+        "design.v8_test_case_modules",
+        "design.v8_test_suites",
+        "planning.requirements",
+        "planning.v8_requirements",
+        "workspace.app_types",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 86,
+      "sha256": "8c049a5159905561e67ae08dcc10b73e23e0b1ddf5bf37293623449ce5dfd333"
+    },
+    {
+      "key": "design.v8_test_case_module_requirements",
+      "path": "design/v8_test_case_module_requirements.json",
+      "module": "design",
+      "table": "test_case_module_requirements",
+      "keys": [
+        "module_id",
+        "requirement_id"
+      ],
+      "depends_on": [
+        "design.v8_test_case_modules",
+        "planning.v8_requirements"
+      ],
+      "record_count": 20,
+      "sha256": "bc219ea9b2a1e7528c786b77d7b81dd6122bbd10782b63b747dfb375dc16a413"
+    },
+    {
+      "key": "planning.v8_entity_comments",
+      "path": "planning/v8_entity_comments.json",
+      "module": "planning",
+      "table": "entity_comments",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "planning.v8_requirements",
+        "workspace.projects"
+      ],
+      "record_count": 20,
+      "sha256": "9fa3f9ab5b59fff4b2aa6d0b8fa00a3d48cae2667df530b36c30c0162e046146"
+    },
+    {
+      "key": "design.v8_test_steps",
+      "path": "design/v8_test_steps.json",
+      "module": "design",
+      "table": "test_steps",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "design.v8_shared_step_groups",
+        "design.v8_test_cases"
+      ],
+      "record_count": 335,
+      "sha256": "d3b9833ddd8691f4a0d2f0c61a571c702981c38bbe930d73f7eeac604afe696a"
+    },
+    {
+      "key": "design.v8_test_case_module_cases",
+      "path": "design/v8_test_case_module_cases.json",
+      "module": "design",
+      "table": "test_case_module_cases",
+      "keys": [
+        "module_id",
+        "test_case_id"
+      ],
+      "depends_on": [
+        "design.capability_modules",
+        "design.v8_test_case_modules",
+        "design.v8_test_cases"
+      ],
+      "record_count": 86,
+      "sha256": "bf01099fb7a40b755650955282debe5690dd07c24d2adacdb22e11902ef39f85"
+    },
+    {
+      "key": "design.v8_suite_test_cases",
+      "path": "design/v8_suite_test_cases.json",
+      "module": "design",
+      "table": "suite_test_cases",
+      "keys": [
+        "suite_id",
+        "test_case_id"
+      ],
+      "depends_on": [
+        "design.capability_suites",
+        "design.v8_test_cases",
+        "design.v8_test_suites"
+      ],
+      "record_count": 86,
+      "sha256": "f72441fdbf74291d0afe8a8a393eacbb844b94cff03bf429f330fba2d703ca90"
+    },
+    {
+      "key": "design.v8_requirement_test_cases",
+      "path": "design/v8_requirement_test_cases.json",
+      "module": "design",
+      "table": "requirement_test_cases",
+      "keys": [
+        "requirement_id",
+        "test_case_id"
+      ],
+      "depends_on": [
+        "design.v8_test_cases",
+        "planning.requirements",
+        "planning.v8_requirements"
+      ],
+      "record_count": 86,
+      "sha256": "2beda6bf37d81dc0af9651f06aa39fc887d4b542ceb476279f8edceba3d0a051"
+    },
+    {
+      "key": "design.v8_test_case_data_sets",
+      "path": "design/v8_test_case_data_sets.json",
+      "module": "design",
+      "table": "test_case_data_sets",
+      "keys": [
+        "test_case_id",
+        "test_data_set_id"
+      ],
+      "depends_on": [
+        "design.v8_test_cases",
+        "design.v8_test_data_sets"
+      ],
+      "record_count": 26,
+      "sha256": "d3479a7501d94e97ef3cb7307e4a79632a0e28abd1948673440063afdef1c7e0"
+    },
+    {
+      "key": "design.v8_entity_comments",
+      "path": "design/v8_entity_comments.json",
+      "module": "design",
+      "table": "entity_comments",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "design.v8_test_cases",
+        "workspace.projects"
+      ],
+      "record_count": 26,
+      "sha256": "8862165ce6387ecc169360c615e901b01a4c4d9ae9e1bac6bb903dc67e32e980"
+    },
+    {
+      "key": "execution.v8_executions",
+      "path": "execution/v8_executions.json",
+      "module": "execution",
+      "table": "executions",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "design.v8_test_cases",
+        "design.v8_test_data_sets",
+        "environments.v8_test_configurations",
+        "environments.v8_test_environments",
+        "planning.v8_requirement_iterations",
+        "planning.v8_requirement_releases",
+        "workspace.app_types",
+        "workspace.projects",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 8,
+      "sha256": "43554ffa9c6149382c908e9fbf7422a1fbdc170e02d39d2072ff9de84e817967"
+    },
+    {
+      "key": "execution.v8_execution_suites",
+      "path": "execution/v8_execution_suites.json",
+      "module": "execution",
+      "table": "execution_suites",
+      "keys": [
+        "execution_id",
+        "suite_id"
+      ],
+      "depends_on": [
+        "design.v8_test_suites",
+        "execution.v8_executions"
+      ],
+      "record_count": 8,
+      "sha256": "9218277ffdfd8ab9c4d568721510535f2d848b58b8e49e2bd9226aa7807a9a81"
+    },
+    {
+      "key": "execution.v8_execution_case_snapshots",
+      "path": "execution/v8_execution_case_snapshots.json",
+      "module": "execution",
+      "table": "execution_case_snapshots",
+      "keys": [
+        "execution_id",
+        "test_case_id"
+      ],
+      "depends_on": [
+        "design.v8_test_case_modules",
+        "design.v8_test_cases",
+        "design.v8_test_data_sets",
+        "design.v8_test_suites",
+        "execution.v8_executions",
+        "workspace.app_types",
+        "workspace.projects",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 10,
+      "sha256": "ead0a7c73f6689d43e20076e4a0e182f911cd5eeb1576a9729e4eaed94e1ba54"
+    },
+    {
+      "key": "execution.v8_feedback",
+      "path": "execution/v8_feedback.json",
+      "module": "execution",
+      "table": "feedback",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "design.v8_test_case_modules",
+        "design.v8_test_cases",
+        "design.v8_test_suites",
+        "execution.v8_executions",
+        "planning.v8_requirements",
+        "workspace.projects"
+      ],
+      "record_count": 13,
+      "sha256": "bb431e5963a54cdd5613201a3c6677cc481a6ae5b13a853f9a7f4aa7594425bd"
+    },
+    {
+      "key": "testops.v8_execution_schedules",
+      "path": "testops/v8_execution_schedules.json",
+      "module": "testops",
+      "table": "execution_schedules",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "design.v8_test_data_sets",
+        "design.v8_test_suites",
+        "environments.v8_test_configurations",
+        "environments.v8_test_environments",
+        "execution.v8_executions",
+        "workspace.app_types",
+        "workspace.projects",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 5,
+      "sha256": "0ac27d2c4a35deec3c6794902cbd56313df6d744d2362b124156721a93700511"
+    },
+    {
+      "key": "execution.v8_execution_step_snapshots",
+      "path": "execution/v8_execution_step_snapshots.json",
+      "module": "execution",
+      "table": "execution_step_snapshots",
+      "keys": [
+        "execution_id",
+        "snapshot_step_id"
+      ],
+      "depends_on": [
+        "design.v8_shared_step_groups",
+        "design.v8_test_cases",
+        "design.v8_test_steps",
+        "execution.v8_execution_case_snapshots",
+        "execution.v8_executions"
+      ],
+      "record_count": 27,
+      "sha256": "c4ec0dfa43bc17a9d0af52aa0f7d71a5ee3f3e2657822ad22f6dd1b9234cbf2b"
+    },
+    {
+      "key": "execution.v8_test_case_defects",
+      "path": "execution/v8_test_case_defects.json",
+      "module": "execution",
+      "table": "test_case_defects",
+      "keys": [
+        "test_case_id",
+        "issue_id"
+      ],
+      "depends_on": [
+        "design.v8_test_cases",
+        "execution.v8_feedback"
+      ],
+      "record_count": 13,
+      "sha256": "827d825d08cae21c78cf1e870534d7486c53c2a71554be0c61499e3053dff804"
+    },
+    {
+      "key": "execution.v8_requirement_defects",
+      "path": "execution/v8_requirement_defects.json",
+      "module": "execution",
+      "table": "requirement_defects",
+      "keys": [
+        "requirement_id",
+        "issue_id"
+      ],
+      "depends_on": [
+        "execution.v8_feedback",
+        "planning.v8_requirements"
+      ],
+      "record_count": 13,
+      "sha256": "87722dcdf1caf04a104cb3ad6a4b478f153adfe511f825a302e54b0fc6181bc6"
+    },
+    {
+      "key": "execution.v8_entity_comments",
+      "path": "execution/v8_entity_comments.json",
+      "module": "execution",
+      "table": "entity_comments",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "execution.v8_feedback",
+        "workspace.projects"
+      ],
+      "record_count": 13,
+      "sha256": "332b976e6e2d6132d748bbd3fc8313e70dfdcbac7508b07f875034cacf820de6"
+    },
+    {
+      "key": "execution.v8_execution_results",
+      "path": "execution/v8_execution_results.json",
+      "module": "execution",
+      "table": "execution_results",
+      "keys": [
+        "id"
+      ],
+      "depends_on": [
+        "design.v8_test_cases",
+        "design.v8_test_data_sets",
+        "design.v8_test_steps",
+        "design.v8_test_suites",
+        "execution.v8_execution_step_snapshots",
+        "execution.v8_executions",
+        "workspace.app_types",
+        "workspace.v8_app_types"
+      ],
+      "record_count": 20,
+      "sha256": "2e9b12b07a7bdf6cb3523031fed21569fd5d37ef0cb2fb5fa9587b4be89c5633"
     }
   ]
 }

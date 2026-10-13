@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-object-web-status",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "page_url": "https://web.example.test/health",
+      "page_key": "checkout",
+      "locator_intent": "Status",
+      "locator": "[data-testid=\"status\"]",
+      "locator_kind": "css",
+      "confidence": 0,
+      "source": "sample",
+      "metadata": {
+        "sample": true,
+        "record_type": "field",
+        "screen_name": "Checkout",
+        "object_name": "Status",
+        "description": "Fictional Ready fixture; verify its locator on the configured runtime.",
+        "step_type": "web",
+        "fallback_locators": []
+      }
+    },
+    {
+      "id": "sample-v8-ht-object-android-status",
+      "project_id": "sample-project",
+      "app_type_id": "sample-v8-ht-app-android",
+      "page_url": "https://android.example.test/health",
+      "page_key": "checkout",
+      "locator_intent": "Status",
+      "locator": "~status",
+      "locator_kind": "accessibility_id",
+      "confidence": 0,
+      "source": "sample",
+      "metadata": {
+        "sample": true,
+        "record_type": "field",
+        "screen_name": "Checkout",
+        "object_name": "Status",
+        "description": "Fictional Ready fixture; verify its locator on the configured runtime.",
+        "step_type": "android",
+        "fallback_locators": []
+      }
+    },
+    {
+      "id": "sample-v8-ht-object-ios-status",
+      "project_id": "sample-project",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "page_url": "https://ios.example.test/health",
+      "page_key": "checkout",
+      "locator_intent": "Status",
+      "locator": "~status",
+      "locator_kind": "accessibility_id",
+      "confidence": 0,
+      "source": "sample",
+      "metadata": {
+        "sample": true,
+        "record_type": "field",
+        "screen_name": "Checkout",
+        "object_name": "Status",
+        "description": "Fictional Ready fixture; verify its locator on the configured runtime.",
+        "step_type": "ios",
+        "fallback_locators": []
+      }
+    },
+    {
+      "id": "sample-v8-ht-object-unified-status",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "page_url": "https://unified.example.test/health",
+      "page_key": "checkout",
+      "locator_intent": "Status",
+      "locator": "[data-testid=\"status\"]",
+      "locator_kind": "css",
+      "confidence": 0,
+      "source": "sample",
+      "metadata": {
+        "sample": true,
+        "record_type": "field",
+        "screen_name": "Checkout",
+        "object_name": "Status",
+        "description": "Fictional Ready fixture; verify its locator on the configured runtime.",
+        "step_type": "web",
+        "fallback_locators": []
+      }
+    },
+    {
+      "id": "sample-v8-ht-object-unified-web-status",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "page_url": "https://unified.example.test/health",
+      "page_key": "checkout",
+      "locator_intent": "WebStatus",
+      "locator": "[data-testid=\"status\"]",
+      "locator_kind": "css",
+      "confidence": 0,
+      "source": "sample",
+      "metadata": {
+        "sample": true,
+        "record_type": "field",
+        "screen_name": "Checkout",
+        "object_name": "WebStatus",
+        "step_type": "web",
+        "description": "Platform-specific fictional fixture locator.",
+        "fallback_locators": []
+      }
+    },
+    {
+      "id": "sample-v8-ht-object-unified-android-status",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "page_url": "https://unified.example.test/health",
+      "page_key": "checkout",
+      "locator_intent": "AndroidStatus",
+      "locator": "~status",
+      "locator_kind": "accessibility_id",
+      "confidence": 0,
+      "source": "sample",
+      "metadata": {
+        "sample": true,
+        "record_type": "field",
+        "screen_name": "Checkout",
+        "object_name": "AndroidStatus",
+        "step_type": "android",
+        "description": "Platform-specific fictional fixture locator.",
+        "fallback_locators": []
+      }
+    },
+    {
+      "id": "sample-v8-ht-object-unified-ios-status",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "page_url": "https://unified.example.test/health",
+      "page_key": "checkout",
+      "locator_intent": "IosStatus",
+      "locator": "~status",
+      "locator_kind": "accessibility_id",
+      "confidence": 0,
+      "source": "sample",
+      "metadata": {
+        "sample": true,
+        "record_type": "field",
+        "screen_name": "Checkout",
+        "object_name": "IosStatus",
+        "step_type": "ios",
+        "description": "Platform-specific fictional fixture locator.",
+        "fallback_locators": []
+      }
+    }
+  ]
+}

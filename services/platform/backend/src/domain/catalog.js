@@ -164,6 +164,13 @@ const TEST_CASE_STATUS_OPTIONS = freezeOptions([
   { value: "retired", label: "Retired", description: "Preserved for history but not intended for active reuse." }
 ]);
 
+const TEST_CASE_REVIEW_STATUS_OPTIONS = freezeOptions([
+  { value: "not_requested", label: "Not requested" },
+  { value: "pending", label: "Pending" },
+  { value: "accepted", label: "Accepted" },
+  { value: "changes_requested", label: "Changes requested" }
+]);
+
 const TEST_CASE_AUTOMATED_OPTIONS = freezeOptions([
   { value: "no", label: "No", description: "Case is not marked for automation coverage yet." },
   { value: "yes", label: "Yes", description: "Case is marked as automated and counts toward automation coverage." }
@@ -334,6 +341,8 @@ module.exports = {
   INTEGRATION_TYPE_VALUES: optionValues(INTEGRATION_TYPE_OPTIONS),
   REQUIREMENT_STATUS_OPTIONS,
   REQUIREMENT_STATUS_VALUES: optionValues(REQUIREMENT_STATUS_OPTIONS),
+  TEST_CASE_REVIEW_STATUS_OPTIONS,
+  TEST_CASE_REVIEW_STATUS_VALUES: optionValues(TEST_CASE_REVIEW_STATUS_OPTIONS),
   TEST_CASE_STATUS_OPTIONS,
   TEST_CASE_STATUS_VALUES: optionValues(TEST_CASE_STATUS_OPTIONS),
   TEST_CASE_AUTOMATED_OPTIONS,

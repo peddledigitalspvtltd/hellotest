@@ -1,0 +1,590 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-defect-1",
+      "display_id": "HT8-D1",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic Functional finding: Verify author Story metadata and acceptance",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to author Story metadata and acceptance so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Save title, priority, owner, labels, effort and a Gherkin or Spec Kit specification; reopen the Story.\nOutcome: Every authored value and acceptance criterion is retained without changing another project.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected web fixture and provider readiness\n2. Save title, priority, owner, labels, effort and a Gherkin or Spec Kit specification; reopen the Story.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "Every authored value and acceptance criterion is retained without changing another project.",
+      "actual_result": "Synthetic review fixture demonstrates the missing functional acceptance evidence. No live result is claimed.",
+      "bug_type": "Functional",
+      "status": "open",
+      "severity": "critical",
+      "priority": "Highest",
+      "regression": false,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Web synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-manual",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-story-metadata"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-web"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-web"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-story-metadata"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-defect-2",
+      "display_id": "HT8-D2",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic UI / UX finding: Verify preserve an explicit NFR-only AI objective",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to preserve an explicit NFR-only AI objective so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Request latency coverage below 250 ms for 150 concurrent users, without selecting a Story.\nOutcome: The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected web fixture and provider readiness\n2. Request latency coverage below 250 ms for 150 concurrent users, without selecting a Story.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.",
+      "actual_result": "Synthetic review fixture demonstrates the missing ui / ux acceptance evidence. No live result is claimed.",
+      "bug_type": "UI / UX",
+      "status": "triaged",
+      "severity": "high",
+      "priority": "High",
+      "regression": true,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Web synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-manual",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-nfr-user-intent"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-web"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-web"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-nfr-user-intent"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-defect-3",
+      "display_id": "HT8-D3",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic Performance finding: Verify identify unfinished overdue Sprint scope",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to identify unfinished overdue Sprint scope so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Open an active Sprint whose end date is 11 October 2026 and contains an unfinished Story.\nOutcome: The Sprint is labelled Overdue in red; its Story and dates remain editable according to permissions.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected web fixture and provider readiness\n2. Open an active Sprint whose end date is 11 October 2026 and contains an unfinished Story.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "The Sprint is labelled Overdue in red; its Story and dates remain editable according to permissions.",
+      "actual_result": "Synthetic review fixture demonstrates the missing performance acceptance evidence. No live result is claimed.",
+      "bug_type": "Performance",
+      "status": "in_progress",
+      "severity": "medium",
+      "priority": "Medium",
+      "regression": false,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Web synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-manual",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-sprint-overdue"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-web"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-web"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-sprint-overdue"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-defect-4",
+      "display_id": "HT8-D4",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic Security finding: Verify group and convert reusable automation sections",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to group and convert reusable automation sections so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Select two adjacent sections, group them, convert to shared, then convert the case copy back to local.\nOutcome: The reviewed names, ordered actions, expected results and platform types survive; library records and frozen run snapshots are retained.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected web fixture and provider readiness\n2. Select two adjacent sections, group them, convert to shared, then convert the case copy back to local.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "The reviewed names, ordered actions, expected results and platform types survive; library records and frozen run snapshots are retained.",
+      "actual_result": "Synthetic review fixture demonstrates the missing security acceptance evidence. No live result is claimed.",
+      "bug_type": "Security",
+      "status": "resolved",
+      "severity": "low",
+      "priority": "Low",
+      "regression": true,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Web synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-manual",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-shared-sections"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-web"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-web"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-shared-sections"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-defect-5",
+      "display_id": "HT8-D5",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic Accessibility finding: Verify ground a multi-paragraph answer through MCP",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to ground a multi-paragraph answer through MCP so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Ask for Story coverage using a 40-second retrieval budget and permitted Story and test evidence.\nOutcome: MCP honors the normalized budget and verified project; the answer preserves paragraphs and citations, and gaps are explicit.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected web fixture and provider readiness\n2. Ask for Story coverage using a 40-second retrieval budget and permitted Story and test evidence.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "MCP honors the normalized budget and verified project; the answer preserves paragraphs and citations, and gaps are explicit.",
+      "actual_result": "Synthetic review fixture demonstrates the missing accessibility acceptance evidence. No live result is claimed.",
+      "bug_type": "Accessibility",
+      "status": "reopened",
+      "severity": "critical",
+      "priority": "Lowest",
+      "regression": false,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Web synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-manual",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-chat-mcp-budget"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-web"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-web"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-chat-mcp-budget"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-defect-6",
+      "display_id": "HT8-D6",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic Compatibility finding: Verify recover an Android form after network loss",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to recover an Android form after network loss so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Enter a synthetic draft, switch the configured Android device offline, resume network and reopen the draft.\nOutcome: The saved draft is restored once without duplicate submission; missing native-provider readiness blocks execution explicitly.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected android fixture and provider readiness\n2. Enter a synthetic draft, switch the configured Android device offline, resume network and reopen the draft.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "The saved draft is restored once without duplicate submission; missing native-provider readiness blocks execution explicitly.",
+      "actual_result": "Synthetic review fixture demonstrates the missing compatibility acceptance evidence. No live result is claimed.",
+      "bug_type": "Compatibility",
+      "status": "verified",
+      "severity": "high",
+      "priority": "Highest",
+      "regression": true,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Android synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-android",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-android-offline"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-android"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-android"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-android-offline"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-defect-7",
+      "display_id": "HT8-D7",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic Integration finding: Verify prevent Android cross-account cached data",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to prevent Android cross-account cached data so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Sign out of fictional account A and sign in as account B on the configured Android test device.\nOutcome: No account A record appears in account B scope, including during pending refresh.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected android fixture and provider readiness\n2. Sign out of fictional account A and sign in as account B on the configured Android test device.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "No account A record appears in account B scope, including during pending refresh.",
+      "actual_result": "Synthetic review fixture demonstrates the missing integration acceptance evidence. No live result is claimed.",
+      "bug_type": "Integration",
+      "status": "closed",
+      "severity": "medium",
+      "priority": "High",
+      "regression": false,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Android synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-android",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-android-security"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-android"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-android"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-android-security"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-defect-8",
+      "display_id": "HT8-D8",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic Data finding: Verify navigate native controls with accessibility labels",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to navigate native controls with accessibility labels so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Open the configured Android app with TalkBack and focus the labelled checkout controls in order.\nOutcome: Every required control has an accessible name, logical focus order and a measurable announced outcome.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected android fixture and provider readiness\n2. Open the configured Android app with TalkBack and focus the labelled checkout controls in order.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "Every required control has an accessible name, logical focus order and a measurable announced outcome.",
+      "actual_result": "Synthetic review fixture demonstrates the missing data acceptance evidence. No live result is claimed.",
+      "bug_type": "Data",
+      "status": "deferred",
+      "severity": "low",
+      "priority": "Medium",
+      "regression": true,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Android synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-android",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-android-accessibility"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-android"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-android"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-android-accessibility"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-defect-9",
+      "display_id": "HT8-D9",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic API finding: Verify verify an Android application launches",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to verify an Android application launches so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Launch the configured Android sample package and open its configured home screen.\nOutcome: The home screen is displayed on Android; a mismatched iOS capability is rejected.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected android fixture and provider readiness\n2. Launch the configured Android sample package and open its configured home screen.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "The home screen is displayed on Android; a mismatched iOS capability is rejected.",
+      "actual_result": "Synthetic review fixture demonstrates the missing api acceptance evidence. No live result is claimed.",
+      "bug_type": "API",
+      "status": "duplicate",
+      "severity": "critical",
+      "priority": "Low",
+      "regression": false,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Android synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-android",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-android-smoke"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-android"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-android"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-android-smoke"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-defect-10",
+      "display_id": "HT8-D10",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic Reliability finding: Verify handle iOS permission denial accurately",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to handle iOS permission denial accurately so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Deny notification permission on the configured iOS test device and continue the checkout flow.\nOutcome: The configured permission-denied notice appears and checkout remains available without reporting permission as granted.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected ios fixture and provider readiness\n2. Deny notification permission on the configured iOS test device and continue the checkout flow.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "The configured permission-denied notice appears and checkout remains available without reporting permission as granted.",
+      "actual_result": "Synthetic review fixture demonstrates the missing reliability acceptance evidence. No live result is claimed.",
+      "bug_type": "Reliability",
+      "status": "wont_fix",
+      "severity": "high",
+      "priority": "Lowest",
+      "regression": true,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Ios synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-ios",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-ios-permissions"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-ios"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-ios"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-ios-permissions"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-defect-11",
+      "display_id": "HT8-D11",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic Localization finding: Verify retain iOS state through app backgrounding",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to retain iOS state through app backgrounding so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Enter a synthetic shipping draft, background and restore the configured iOS application.\nOutcome: The same draft values and screen are restored without a second order being created.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected ios fixture and provider readiness\n2. Enter a synthetic shipping draft, background and restore the configured iOS application.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "The same draft values and screen are restored without a second order being created.",
+      "actual_result": "Synthetic review fixture demonstrates the missing localization acceptance evidence. No live result is claimed.",
+      "bug_type": "Localization",
+      "status": "open",
+      "severity": "medium",
+      "priority": "Highest",
+      "regression": false,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Ios synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-ios",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-ios-state"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-ios"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-ios"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-ios-state"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-defect-12",
+      "display_id": "HT8-D12",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic Installation / Deployment finding: Verify review iOS device and orientation evidence",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to review iOS device and orientation evidence so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Explore portrait and landscape on the selected iOS device and record observed clipping and focus behavior.\nOutcome: The notes identify the device, orientation and observed controls; unvisited screens are not claimed as tested.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected ios fixture and provider readiness\n2. Explore portrait and landscape on the selected iOS device and record observed clipping and focus behavior.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "The notes identify the device, orientation and observed controls; unvisited screens are not claimed as tested.",
+      "actual_result": "Synthetic review fixture demonstrates the missing installation / deployment acceptance evidence. No live result is claimed.",
+      "bug_type": "Installation / Deployment",
+      "status": "triaged",
+      "severity": "low",
+      "priority": "High",
+      "regression": true,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Ios synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-ios",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-ios-exploration"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-ios"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-ios"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-ios-exploration"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-defect-13",
+      "display_id": "HT8-D13",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Synthetic Documentation finding: Verify validate iOS VoiceOver checkout navigation",
+      "message": "Synthetic sample, not a production incident. As a QA engineer, I want to validate iOS VoiceOver checkout navigation so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Use VoiceOver to activate every required checkout control on the configured iOS application.\nOutcome: Accessible labels and ordered focus are observable; controls without accessible names produce a cited finding.\n\nSynthetic acceptance data; configure real dependencies before live execution.\n\nPreconditions: an authorized synthetic session, selected application and reviewed provider readiness.",
+      "steps_to_reproduce": "1. Confirm the selected ios fixture and provider readiness\n2. Use VoiceOver to activate every required checkout control on the configured iOS application.\n3. Inspect the observable outcome and capture permitted evidence\n4. Reopen the saved record or repeat the documented operation",
+      "expected_result": "Accessible labels and ordered focus are observable; controls without accessible names produce a cited finding.",
+      "actual_result": "Synthetic review fixture demonstrates the missing documentation acceptance evidence. No live result is claimed.",
+      "bug_type": "Documentation",
+      "status": "in_progress",
+      "severity": "critical",
+      "priority": "Medium",
+      "regression": false,
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "retest_result": "Synthetic review required",
+      "environment": "Ios synthetic QA",
+      "build": "8.1-synthetic",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "sprint": "Native recovery",
+      "labels": [
+        "sample",
+        "v8",
+        "synthetic-evidence"
+      ],
+      "linked_test_run_id": "sample-v8-ht-run-ios",
+      "linked_test_case_ids": [
+        "sample-v8-ht-case-ios-accessibility"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v8-ht-suite-ios"
+      ],
+      "linked_module_ids": [
+        "sample-v8-ht-module-ios"
+      ],
+      "linked_requirement_ids": [
+        "sample-v8-ht-story-ios-accessibility"
+      ],
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    }
+  ]
+}

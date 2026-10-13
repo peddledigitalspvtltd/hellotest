@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-release-baseline",
+      "display_id": "HT8-RL1",
+      "project_id": "sample-project",
+      "name": "Acceptance baseline",
+      "fix_version": "8.0",
+      "description": "Illustrative release scope; synthetic evidence is not a production approval.",
+      "state": "released",
+      "sprint_ids": [
+        "sample-v8-ht-sprint-closed"
+      ],
+      "plan_date": "2026-09-14T09:00:00.000Z",
+      "target_date": "2026-09-27T18:00:00.000Z",
+      "target_date_label": "2026-09-27",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-release-native",
+      "display_id": "HT8-RL2",
+      "project_id": "sample-project",
+      "name": "Native and unified review",
+      "fix_version": "8.1",
+      "description": "Illustrative release scope; synthetic evidence is not a production approval.",
+      "state": "in_progress",
+      "sprint_ids": [
+        "sample-v8-ht-sprint-overdue",
+        "sample-v8-ht-sprint-active"
+      ],
+      "plan_date": "2026-09-14T09:00:00.000Z",
+      "target_date": "2026-10-25T18:00:00.000Z",
+      "target_date_label": "2026-10-25",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-release-future",
+      "display_id": "HT8-RL3",
+      "project_id": "sample-project",
+      "name": "Governance follow-up",
+      "fix_version": "8.2",
+      "description": "Illustrative release scope; synthetic evidence is not a production approval.",
+      "state": "planned",
+      "sprint_ids": [
+        "sample-v8-ht-sprint-future"
+      ],
+      "plan_date": "2026-09-14T09:00:00.000Z",
+      "target_date": "2026-11-08T18:00:00.000Z",
+      "target_date_label": "2026-11-08",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    }
+  ]
+}

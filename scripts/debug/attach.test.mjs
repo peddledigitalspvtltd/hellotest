@@ -71,3 +71,29 @@ test('invalid replica fails before contacting Docker', async () => {
   assert.equal(code, 1);
   assert.match(error, /positive integer/);
 });
+
+test('MCP has an explicit target in the combined API and invalid targets fail early', async () => {
+  const { resolveDebugTarget } = await import('./targets.mjs');
+  assert.deepEqual(resolveDebugTarget('mcp'), { owner:'mcp', service:'api', replica:1, port:9240, entry:'src/server.js' });
+  assert.equal(resolveDebugTarget('mobile-engine').port,9244);
+  assert.equal(resolveDebugTarget('testengine-quality-worker').port,9245);
+  assert.throws(()=>resolveDebugTarget('unknown'),/Unknown debug service/);
+});
+
+test('check mode is read-only and an occupied tunnel port never enables a debugger', async t => {
+  const { createServer } = await import('node:net');
+  const { readFile } = await import('node:fs/promises');
+  const directory=await mkdtemp(join(tmpdir(),'hellotest-debug-check-'));
+  const calls=join(directory,'calls');
+  const blocker=createServer();await new Promise(resolve=>blocker.listen(9240,'127.0.0.1',resolve));
+  t.after(async()=>{await new Promise(resolve=>blocker.close(resolve));await rm(directory,{recursive:true,force:true});});
+  const fake=`#!/usr/bin/env node
+const fs=require('node:fs'),args=process.argv.slice(2);fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify(args)+'\\n');
+if(args[0]==='ps')console.log('fixture');else if(args[0]==='inspect')console.log(JSON.stringify([{Id:'fixture',Name:'/fixture-api',Config:{Labels:{'com.docker.compose.project.config_files':${JSON.stringify(join(root,'local-run/docker-compose.yml'))},'com.docker.compose.container-number':'1'}}}]));else if(args[0]==='exec'){if(args.some(arg=>arg.includes('process.kill')))process.exit(42);process.exit(0);}else process.exit(43);
+`;
+  await writeFile(join(directory,'docker'),fake,{mode:0o755});
+  const run=async flags=>{const child=spawn(process.execPath,[join(root,'scripts/debug/attach.mjs'),'mcp',...flags],{env:{...process.env,PATH:`${directory}:${process.env.PATH}`}});let stdout='',stderr='';child.stdout.on('data',data=>stdout+=data);child.stderr.on('data',data=>stderr+=data);const[code]=await once(child,'exit');return{code,stdout,stderr};};
+  const check=await run(['--check']);assert.equal(check.code,0);assert.match(check.stdout,/"inspector_enabled":true/);
+  const conflict=await run([]);assert.equal(conflict.code,1);assert.match(conflict.stderr,/Port 9240 is already in use/);
+  const recorded=await readFile(calls,'utf8');assert.doesNotMatch(recorded,/process\.kill/,'No inspector activation on read-only checks or failed admission');
+});

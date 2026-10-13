@@ -61,8 +61,8 @@
       "source_kind": "knowledge_item",
       "source_ref_id": "sample-v3-knowledge-hellotest",
       "title": "HelloTest core feature and acceptance-story blueprint",
-      "revision_token": "03daaa42b61c70e26bbbe68c068f4160ad05f768897b38e7ee6617f6662c9b0b",
-      "checksum_sha256": "03daaa42b61c70e26bbbe68c068f4160ad05f768897b38e7ee6617f6662c9b0b",
+      "revision_token": "3b48f085c09e4c22536bae6b418c2248149a42b8cd57c39552fe3b89981ec11b",
+      "checksum_sha256": "3b48f085c09e4c22536bae6b418c2248149a42b8cd57c39552fe3b89981ec11b",
       "extraction_status": "ready",
       "extraction_strategy": "authored_text",
       "metadata": {

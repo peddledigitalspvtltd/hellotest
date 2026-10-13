@@ -1,3 +1,4 @@
+const { validateRecordContract } = require('./contracts');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
@@ -83,6 +84,7 @@ function loadFile(dataset, file, actorId = null) {
     if (file.kind === 'role_presets') {
       if (!isText(record.id) || !isText(record.key) || !isText(record.name) || !isTextList(record.permission_codes) || !record.permission_codes.length) throw error('SETUP_ROLE_INVALID', 'A setup role is missing its identity or permission codes.', file.path);
     } else if (Object.keys(record).some(key => !sqlName.test(key)) || file.keys.some(key => record[key] === null || record[key] === undefined || typeof record[key] === 'object')) throw error('SETUP_RECORD_INVALID', 'A setup object has invalid columns or missing identity values.', file.path);
+    if (file.kind !== "role_presets") validateRecordContract(file, record);
     const identity = JSON.stringify(file.kind === 'role_presets' ? record.name.trim().toLowerCase() : file.keys.map(key => record[key]));
     if (identities.has(identity)) throw error('SETUP_DUPLICATE_IDENTITY', 'Duplicate object identity in setup file.', file.path);
     identities.add(identity);

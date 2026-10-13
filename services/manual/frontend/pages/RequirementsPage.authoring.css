@@ -147,3 +147,7 @@
   background: transparent !important;
   color: var(--app-text-muted) !important;
 }
+
+/* An unfinished Sprint past its end date is an overdue state. */
+.requirement-sprint-status.is-overdue { color: #b42318; border-color: color-mix(in srgb, #d92d20 38%, transparent); background: color-mix(in srgb, #d92d20 10%, transparent); }
+:root[data-theme="dark"] .requirement-sprint-status.is-overdue { color: #fda29b; border-color: #f97066; background: #3b1b1b; }

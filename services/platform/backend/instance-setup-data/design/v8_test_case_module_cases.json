@@ -1,0 +1,435 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "module_id": "sample-v8-ht-module-web",
+      "test_case_id": "sample-v8-ht-case-story-metadata",
+      "sort_order": 1
+    },
+    {
+      "module_id": "sample-v8-ht-module-web",
+      "test_case_id": "sample-v8-ht-case-nfr-user-intent",
+      "sort_order": 2
+    },
+    {
+      "module_id": "sample-v8-ht-module-web",
+      "test_case_id": "sample-v8-ht-case-sprint-overdue",
+      "sort_order": 3
+    },
+    {
+      "module_id": "sample-v8-ht-module-web",
+      "test_case_id": "sample-v8-ht-case-shared-sections",
+      "sort_order": 4
+    },
+    {
+      "module_id": "sample-v8-ht-module-web",
+      "test_case_id": "sample-v8-ht-case-chat-mcp-budget",
+      "sort_order": 5
+    },
+    {
+      "module_id": "sample-v8-ht-module-android",
+      "test_case_id": "sample-v8-ht-case-android-offline",
+      "sort_order": 6
+    },
+    {
+      "module_id": "sample-v8-ht-module-android",
+      "test_case_id": "sample-v8-ht-case-android-security",
+      "sort_order": 7
+    },
+    {
+      "module_id": "sample-v8-ht-module-android",
+      "test_case_id": "sample-v8-ht-case-android-accessibility",
+      "sort_order": 8
+    },
+    {
+      "module_id": "sample-v8-ht-module-android",
+      "test_case_id": "sample-v8-ht-case-android-smoke",
+      "sort_order": 9
+    },
+    {
+      "module_id": "sample-v8-ht-module-ios",
+      "test_case_id": "sample-v8-ht-case-ios-permissions",
+      "sort_order": 10
+    },
+    {
+      "module_id": "sample-v8-ht-module-ios",
+      "test_case_id": "sample-v8-ht-case-ios-state",
+      "sort_order": 11
+    },
+    {
+      "module_id": "sample-v8-ht-module-ios",
+      "test_case_id": "sample-v8-ht-case-ios-exploration",
+      "sort_order": 12
+    },
+    {
+      "module_id": "sample-v8-ht-module-ios",
+      "test_case_id": "sample-v8-ht-case-ios-accessibility",
+      "sort_order": 13
+    },
+    {
+      "module_id": "sample-v8-ht-module-api",
+      "test_case_id": "sample-v8-ht-case-api-idempotency",
+      "sort_order": 14
+    },
+    {
+      "module_id": "sample-v8-ht-module-api",
+      "test_case_id": "sample-v8-ht-case-api-validation",
+      "sort_order": 15
+    },
+    {
+      "module_id": "sample-v8-ht-module-api",
+      "test_case_id": "sample-v8-ht-case-api-authorization",
+      "sort_order": 16
+    },
+    {
+      "module_id": "sample-v8-ht-module-api",
+      "test_case_id": "sample-v8-ht-case-api-performance",
+      "sort_order": 17
+    },
+    {
+      "module_id": "sample-v8-ht-module-unified",
+      "test_case_id": "sample-v8-ht-case-unified-acceptance",
+      "sort_order": 18
+    },
+    {
+      "module_id": "sample-v8-ht-module-unified",
+      "test_case_id": "sample-v8-ht-case-unified-data",
+      "sort_order": 19
+    },
+    {
+      "module_id": "sample-v8-ht-module-unified",
+      "test_case_id": "sample-v8-ht-case-unified-smoke",
+      "sort_order": 20
+    },
+    {
+      "module_id": "sample-v8-ht-module-web",
+      "test_case_id": "sample-v8-ht-case-automation-web",
+      "sort_order": 500
+    },
+    {
+      "module_id": "sample-v8-ht-module-api",
+      "test_case_id": "sample-v8-ht-case-automation-api",
+      "sort_order": 501
+    },
+    {
+      "module_id": "sample-v8-ht-module-android",
+      "test_case_id": "sample-v8-ht-case-automation-android",
+      "sort_order": 502
+    },
+    {
+      "module_id": "sample-v8-ht-module-ios",
+      "test_case_id": "sample-v8-ht-case-automation-ios",
+      "sort_order": 503
+    },
+    {
+      "module_id": "sample-v8-ht-module-unified",
+      "test_case_id": "sample-v8-ht-case-automation-unified",
+      "sort_order": 504
+    },
+    {
+      "module_id": "sample-v8-ht-module-android",
+      "test_case_id": "sample-v8-ht-case-automation-android-landscape",
+      "sort_order": 506
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v8-ht-case-boundary-project-applications",
+      "sort_order": 1000
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v8-ht-case-boundary-membership-roles",
+      "sort_order": 1001
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v8-ht-case-boundary-navigation-scope",
+      "sort_order": 1002
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v8-ht-case-boundary-authentication",
+      "sort_order": 1003
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v8-ht-case-boundary-project-deletion",
+      "sort_order": 1004
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v8-ht-case-boundary-regional-settings",
+      "sort_order": 1005
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v8-ht-case-boundary-story-authoring",
+      "sort_order": 1006
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v8-ht-case-boundary-backlog-planning",
+      "sort_order": 1007
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v8-ht-case-boundary-sprint-lifecycle",
+      "sort_order": 1008
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v8-ht-case-boundary-release-scope",
+      "sort_order": 1009
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v8-ht-case-boundary-delivery-selectors",
+      "sort_order": 1010
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v8-ht-case-boundary-story-traceability",
+      "sort_order": 1011
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v8-ht-case-boundary-story-import-sync",
+      "sort_order": 1012
+    },
+    {
+      "module_id": "sample-v7-ht-module-ai",
+      "test_case_id": "sample-v8-ht-case-boundary-story-ai-design",
+      "sort_order": 1013
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-structured-cases",
+      "sort_order": 1014
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-gherkin-authoring",
+      "sort_order": 1015
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-shared-steps",
+      "sort_order": 1016
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-suite-modules",
+      "sort_order": 1017
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-case-review-versioning",
+      "sort_order": 1018
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-case-import-export",
+      "sort_order": 1019
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-environment-targets",
+      "sort_order": 1020
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-configuration-profiles",
+      "sort_order": 1021
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-datasets-parameters",
+      "sort_order": 1022
+    },
+    {
+      "module_id": "sample-v7-ht-module-ai",
+      "test_case_id": "sample-v8-ht-case-boundary-ai-authoring-data",
+      "sort_order": 1023
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-run-planning",
+      "sort_order": 1024
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-frozen-evidence",
+      "sort_order": 1025
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-dataset-outcomes",
+      "sort_order": 1026
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-scheduled-runs",
+      "sort_order": 1027
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-execution-analysis-reports",
+      "sort_order": 1028
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-bug-lifecycle",
+      "sort_order": 1029
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-bug-collaboration",
+      "sort_order": 1030
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v8-ht-case-boundary-bug-regression-ai",
+      "sort_order": 1031
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v8-ht-case-boundary-automation-coverage",
+      "sort_order": 1032
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v8-ht-case-boundary-builder-step-code",
+      "sort_order": 1033
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v8-ht-case-boundary-api-requests",
+      "sort_order": 1034
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v8-ht-case-boundary-object-repository",
+      "sort_order": 1035
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v8-ht-case-boundary-step-recorder",
+      "sort_order": 1036
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v8-ht-case-boundary-local-execution",
+      "sort_order": 1037
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v8-ht-case-boundary-remote-parallel",
+      "sort_order": 1038
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v8-ht-case-boundary-android-appium",
+      "sort_order": 1039
+    },
+    {
+      "module_id": "sample-v7-ht-module-ai",
+      "test_case_id": "sample-v8-ht-case-boundary-repository-specialists",
+      "sort_order": 1040
+    },
+    {
+      "module_id": "sample-v7-ht-module-knowledge",
+      "test_case_id": "sample-v8-ht-case-boundary-knowledge-ingestion",
+      "sort_order": 1041
+    },
+    {
+      "module_id": "sample-v7-ht-module-knowledge",
+      "test_case_id": "sample-v8-ht-case-boundary-knowledge-search",
+      "sort_order": 1042
+    },
+    {
+      "module_id": "sample-v7-ht-module-knowledge",
+      "test_case_id": "sample-v8-ht-case-boundary-ask-hellotest",
+      "sort_order": 1043
+    },
+    {
+      "module_id": "sample-v7-ht-module-agentic",
+      "test_case_id": "sample-v8-ht-case-boundary-workflow-canvas",
+      "sort_order": 1044
+    },
+    {
+      "module_id": "sample-v7-ht-module-agentic",
+      "test_case_id": "sample-v8-ht-case-boundary-workflow-history",
+      "sort_order": 1045
+    },
+    {
+      "module_id": "sample-v7-ht-module-integration",
+      "test_case_id": "sample-v8-ht-case-boundary-prompt-governance",
+      "sort_order": 1046
+    },
+    {
+      "module_id": "sample-v7-ht-module-dashboard",
+      "test_case_id": "sample-v8-ht-case-boundary-quality-analytics",
+      "sort_order": 1047
+    },
+    {
+      "module_id": "sample-v7-ht-module-dashboard",
+      "test_case_id": "sample-v8-ht-case-boundary-custom-dashboards",
+      "sort_order": 1048
+    },
+    {
+      "module_id": "sample-v7-ht-module-dashboard",
+      "test_case_id": "sample-v8-ht-case-boundary-release-readiness",
+      "sort_order": 1049
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v8-ht-case-boundary-product-metrics",
+      "sort_order": 1050
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v8-ht-case-boundary-background-jobs",
+      "sort_order": 1051
+    },
+    {
+      "module_id": "sample-v7-ht-module-trace",
+      "test_case_id": "sample-v8-ht-case-boundary-telemetry-traces",
+      "sort_order": 1052
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v8-ht-case-boundary-notifications",
+      "sort_order": 1053
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v8-ht-case-boundary-instance-setup",
+      "sort_order": 1054
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v8-ht-case-boundary-feature-dropdown-governance",
+      "sort_order": 1055
+    },
+    {
+      "module_id": "sample-v7-ht-module-integration",
+      "test_case_id": "sample-v8-ht-case-boundary-integrations-api-keys",
+      "sort_order": 1056
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v8-ht-case-boundary-admin-audit-security",
+      "sort_order": 1057
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v8-ht-case-boundary-support-guidance",
+      "sort_order": 1058
+    },
+    {
+      "module_id": "sample-v7-ht-module-agentic",
+      "test_case_id": "sample-v8-ht-case-boundary-browser-quality-agents",
+      "sort_order": 1059
+    }
+  ]
+}

@@ -368,6 +368,8 @@ Acceptance criteria:
 - Keep group parameters available for case or run overrides.
 - Show the reusable group name and behavior consistently when reopening linked cases.
 
+- Automation Shared Section Groups can be created, edited, grouped, ungrouped and converted between local and shared copies through reviewed dialogs without changing frozen run evidence.
+
 Boundary: Deleting or changing a reference must not delete independent steps belonging to another case.
 
 #### suite-modules: Organize cases into modules and reusable ordered suites
@@ -500,6 +502,8 @@ Acceptance criteria:
 - Show generated case or step suggestions before replacing authored content.
 - Generate synthetic data matching requested columns without claiming it is production data.
 - Allow selected suggestions to be accepted while retaining other authored fields.
+
+- Story selection is optional; explicit NFR objectives are preserved through generation and improvement rather than replaced by default positive-flow coverage.
 
 Boundary: A provider error must retain the original draft and must not insert fabricated completion evidence.
 

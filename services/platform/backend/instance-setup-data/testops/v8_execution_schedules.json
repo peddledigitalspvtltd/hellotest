@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-plan-web",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Web reviewed test plan · disabled synthetic",
+      "cadence": "once",
+      "is_active": false,
+      "suite_ids": [
+        "sample-v8-ht-suite-web"
+      ],
+      "test_case_ids": [],
+      "test_environment_id": "sample-v8-ht-env-web",
+      "test_configuration_id": "sample-v8-ht-config-web",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "release": "Native and unified review",
+      "sprint": "Native recovery",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-plan-api",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-api",
+      "name": "Api reviewed test plan · disabled synthetic",
+      "cadence": "daily",
+      "is_active": false,
+      "suite_ids": [
+        "sample-v8-ht-suite-api"
+      ],
+      "test_case_ids": [],
+      "test_environment_id": "sample-v8-ht-env-api",
+      "test_configuration_id": "sample-v8-ht-config-api",
+      "test_data_set_id": "sample-v8-ht-data-api",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "release": "Native and unified review",
+      "sprint": "Native recovery",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-plan-android",
+      "project_id": "sample-project",
+      "app_type_id": "sample-v8-ht-app-android",
+      "name": "Android reviewed test plan · disabled synthetic",
+      "cadence": "weekly",
+      "is_active": false,
+      "suite_ids": [
+        "sample-v8-ht-suite-android"
+      ],
+      "test_case_ids": [],
+      "test_environment_id": "sample-v8-ht-env-android",
+      "test_configuration_id": "sample-v8-ht-config-android",
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "release": "Native and unified review",
+      "sprint": "Native recovery",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-plan-ios",
+      "project_id": "sample-project",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "name": "Ios reviewed test plan · disabled synthetic",
+      "cadence": "monthly",
+      "is_active": false,
+      "suite_ids": [
+        "sample-v8-ht-suite-ios"
+      ],
+      "test_case_ids": [],
+      "test_environment_id": "sample-v8-ht-env-ios",
+      "test_configuration_id": "sample-v8-ht-config-ios",
+      "test_data_set_id": "sample-v8-ht-data-ios",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "release": "Native and unified review",
+      "sprint": "Native recovery",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v8-ht-plan-unified",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "name": "Unified reviewed test plan · disabled synthetic",
+      "cadence": "once",
+      "is_active": false,
+      "suite_ids": [
+        "sample-v8-ht-suite-unified"
+      ],
+      "test_case_ids": [],
+      "test_environment_id": "sample-v8-ht-env-unified",
+      "test_configuration_id": "sample-v8-ht-config-unified",
+      "test_data_set_id": "sample-v8-ht-data-unified",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "release": "Native and unified review",
+      "sprint": "Native recovery",
+      "created_by": "__SETUP_ACTOR_ID__"
+    }
+  ]
+}

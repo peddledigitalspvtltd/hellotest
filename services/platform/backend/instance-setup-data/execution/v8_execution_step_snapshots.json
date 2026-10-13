@@ -1,0 +1,354 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "execution_id": "sample-v8-ht-run-manual",
+      "snapshot_step_id": "sample-v8-ht-step-story-metadata-1",
+      "test_case_id": "sample-v8-ht-case-story-metadata",
+      "step_order": 1,
+      "step_type": "web",
+      "action": "Confirm the selected web fixture and provider readiness",
+      "expected_result": "The fixture is in this project/application and its provider is compatible.",
+      "group_id": "sample-v8-ht-precondition-story-metadata",
+      "group_name": "Preconditions",
+      "group_kind": "reusable",
+      "reusable_group_id": "sample-v8-ht-shared-web"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-manual",
+      "snapshot_step_id": "sample-v8-ht-step-story-metadata-2",
+      "test_case_id": "sample-v8-ht-case-story-metadata",
+      "step_order": 2,
+      "step_type": "web",
+      "action": "Save title, priority, owner, labels, effort and a Gherkin or Spec Kit specification; reopen the Story.",
+      "expected_result": "Every authored value and acceptance criterion is retained without changing another project.",
+      "group_id": null,
+      "group_name": null,
+      "group_kind": null,
+      "reusable_group_id": null
+    },
+    {
+      "execution_id": "sample-v8-ht-run-manual",
+      "snapshot_step_id": "sample-v8-ht-step-story-metadata-3",
+      "test_case_id": "sample-v8-ht-case-story-metadata",
+      "step_order": 3,
+      "step_type": "web",
+      "action": "Inspect the observable outcome and capture permitted evidence",
+      "expected_result": "Observed evidence contains the exact record, platform and data-row identity.",
+      "group_id": null,
+      "group_name": null,
+      "group_kind": null,
+      "reusable_group_id": null
+    },
+    {
+      "execution_id": "sample-v8-ht-run-manual",
+      "snapshot_step_id": "sample-v8-ht-step-story-metadata-4",
+      "test_case_id": "sample-v8-ht-case-story-metadata",
+      "step_order": 4,
+      "step_type": "web",
+      "action": "Reopen the saved record or repeat the documented operation",
+      "expected_result": "Every authored value and acceptance criterion is retained without changing another project.",
+      "group_id": null,
+      "group_name": null,
+      "group_kind": null,
+      "reusable_group_id": null
+    },
+    {
+      "execution_id": "sample-v8-ht-run-manual",
+      "snapshot_step_id": "sample-v8-ht-step-nfr-user-intent-1",
+      "test_case_id": "sample-v8-ht-case-nfr-user-intent",
+      "step_order": 1,
+      "step_type": "web",
+      "action": "Confirm the selected web fixture and provider readiness",
+      "expected_result": "The fixture is in this project/application and its provider is compatible.",
+      "group_id": "sample-v8-ht-precondition-nfr-user-intent",
+      "group_name": "Preconditions",
+      "group_kind": "reusable",
+      "reusable_group_id": "sample-v8-ht-shared-web"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-manual",
+      "snapshot_step_id": "sample-v8-ht-step-nfr-user-intent-2",
+      "test_case_id": "sample-v8-ht-case-nfr-user-intent",
+      "step_order": 2,
+      "step_type": "web",
+      "action": "Request latency coverage below 250 ms for 150 concurrent users, without selecting a Story.",
+      "expected_result": "The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.",
+      "group_id": null,
+      "group_name": null,
+      "group_kind": null,
+      "reusable_group_id": null
+    },
+    {
+      "execution_id": "sample-v8-ht-run-manual",
+      "snapshot_step_id": "sample-v8-ht-step-nfr-user-intent-3",
+      "test_case_id": "sample-v8-ht-case-nfr-user-intent",
+      "step_order": 3,
+      "step_type": "web",
+      "action": "Inspect the observable outcome and capture permitted evidence",
+      "expected_result": "Observed evidence contains the exact record, platform and data-row identity.",
+      "group_id": null,
+      "group_name": null,
+      "group_kind": null,
+      "reusable_group_id": null
+    },
+    {
+      "execution_id": "sample-v8-ht-run-manual",
+      "snapshot_step_id": "sample-v8-ht-step-nfr-user-intent-4",
+      "test_case_id": "sample-v8-ht-case-nfr-user-intent",
+      "step_order": 4,
+      "step_type": "web",
+      "action": "Reopen the saved record or repeat the documented operation",
+      "expected_result": "The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.",
+      "group_id": null,
+      "group_name": null,
+      "group_kind": null,
+      "reusable_group_id": null
+    },
+    {
+      "execution_id": "sample-v8-ht-run-local",
+      "snapshot_step_id": "sample-v8-ht-step-automation-web-1",
+      "test_case_id": "sample-v8-ht-case-automation-web",
+      "step_order": 1,
+      "step_type": "web",
+      "action": "Open the configured web readiness fixture",
+      "expected_result": "The configured fixture opens on the selected web runtime.",
+      "automation_code": "await web.goto(\"https://web.example.test/health\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-local",
+      "snapshot_step_id": "sample-v8-ht-step-automation-web-2",
+      "test_case_id": "sample-v8-ht-case-automation-web",
+      "step_order": 2,
+      "step_type": "web",
+      "action": "Read the Ready status from the web fixture",
+      "expected_result": "The web fixture reports Ready.",
+      "automation_code": "await web.expectText(\"Checkout.Status\", \"Ready\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-remote",
+      "snapshot_step_id": "sample-v8-ht-step-automation-api-1",
+      "test_case_id": "sample-v8-ht-case-automation-api",
+      "step_order": 1,
+      "step_type": "api",
+      "action": "Open the configured api readiness fixture",
+      "expected_result": "The configured fixture opens on the selected api runtime.",
+      "api_request": {
+        "method": "GET",
+        "url": "https://api.example.test/health",
+        "headers": [],
+        "query_params": [],
+        "validations": [
+          {
+            "kind": "status",
+            "expected": "200"
+          }
+        ]
+      }
+    },
+    {
+      "execution_id": "sample-v8-ht-run-remote",
+      "snapshot_step_id": "sample-v8-ht-step-automation-api-2",
+      "test_case_id": "sample-v8-ht-case-automation-api",
+      "step_order": 2,
+      "step_type": "api",
+      "action": "Read the Ready status from the api fixture",
+      "expected_result": "The api fixture reports Ready.",
+      "api_request": {
+        "method": "GET",
+        "url": "https://api.example.test/health",
+        "headers": [],
+        "query_params": [],
+        "validations": [
+          {
+            "kind": "status",
+            "expected": "200"
+          }
+        ]
+      }
+    },
+    {
+      "execution_id": "sample-v8-ht-run-android",
+      "snapshot_step_id": "sample-v8-ht-step-automation-android-1",
+      "test_case_id": "sample-v8-ht-case-automation-android",
+      "step_order": 1,
+      "step_type": "android",
+      "action": "Open the configured android readiness fixture",
+      "expected_result": "The configured fixture opens on the selected android runtime.",
+      "automation_code": "await android.activateApp(\"com.example.fixture\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-android",
+      "snapshot_step_id": "sample-v8-ht-step-automation-android-2",
+      "test_case_id": "sample-v8-ht-case-automation-android",
+      "step_order": 2,
+      "step_type": "android",
+      "action": "Read the Ready status from the android fixture",
+      "expected_result": "The android fixture reports Ready.",
+      "automation_code": "await android.expectText(\"Checkout.Status\", \"Ready\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-android",
+      "snapshot_step_id": "sample-v8-ht-step-automation-android-landscape-1",
+      "test_case_id": "sample-v8-ht-case-automation-android-landscape",
+      "step_order": 1,
+      "step_type": "android",
+      "action": "Activate the configured Android fixture",
+      "expected_result": "The configured Android app is active.",
+      "automation_code": "await android.activateApp(\"com.example.fixture\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-android",
+      "snapshot_step_id": "sample-v8-ht-step-automation-android-landscape-2",
+      "test_case_id": "sample-v8-ht-case-automation-android-landscape",
+      "step_order": 2,
+      "step_type": "android",
+      "action": "Rotate the Android fixture to landscape",
+      "expected_result": "The device is in landscape orientation.",
+      "automation_code": "await android.setOrientation(\"LANDSCAPE\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-android",
+      "snapshot_step_id": "sample-v8-ht-step-automation-android-landscape-3",
+      "test_case_id": "sample-v8-ht-case-automation-android-landscape",
+      "step_order": 3,
+      "step_type": "android",
+      "action": "Read the Ready status after rotation",
+      "expected_result": "The Ready label remains visible and reads Ready.",
+      "automation_code": "await android.expectText(\"Checkout.Status\", \"Ready\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-ios",
+      "snapshot_step_id": "sample-v8-ht-step-automation-ios-1",
+      "test_case_id": "sample-v8-ht-case-automation-ios",
+      "step_order": 1,
+      "step_type": "ios",
+      "action": "Open the configured ios readiness fixture",
+      "expected_result": "The configured fixture opens on the selected ios runtime.",
+      "automation_code": "await ios.activateApp(\"com.example.fixture\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-ios",
+      "snapshot_step_id": "sample-v8-ht-step-automation-ios-2",
+      "test_case_id": "sample-v8-ht-case-automation-ios",
+      "step_order": 2,
+      "step_type": "ios",
+      "action": "Read the Ready status from the ios fixture",
+      "expected_result": "The ios fixture reports Ready.",
+      "automation_code": "await ios.expectText(\"Checkout.Status\", \"Ready\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-unified",
+      "snapshot_step_id": "sample-v8-ht-step-automation-unified-1",
+      "test_case_id": "sample-v8-ht-case-automation-unified",
+      "step_order": 1,
+      "step_type": "web",
+      "action": "Read the Ready status from the web fixture",
+      "expected_result": "The web fixture reports Ready.",
+      "automation_code": "await web.expectText(\"Checkout.WebStatus\", \"Ready\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-unified",
+      "snapshot_step_id": "sample-v8-ht-step-automation-unified-2",
+      "test_case_id": "sample-v8-ht-case-automation-unified",
+      "step_order": 2,
+      "step_type": "api",
+      "action": "Read the Ready status from the api fixture",
+      "expected_result": "The api fixture reports Ready.",
+      "api_request": {
+        "method": "GET",
+        "url": "https://api.example.test/health",
+        "headers": [],
+        "query_params": [],
+        "validations": [
+          {
+            "kind": "status",
+            "expected": "200"
+          }
+        ]
+      }
+    },
+    {
+      "execution_id": "sample-v8-ht-run-unified",
+      "snapshot_step_id": "sample-v8-ht-step-automation-unified-3",
+      "test_case_id": "sample-v8-ht-case-automation-unified",
+      "step_order": 3,
+      "step_type": "android",
+      "action": "Read the Ready status from the android fixture",
+      "expected_result": "The android fixture reports Ready.",
+      "automation_code": "await android.expectText(\"Checkout.AndroidStatus\", \"Ready\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-unified",
+      "snapshot_step_id": "sample-v8-ht-step-automation-unified-4",
+      "test_case_id": "sample-v8-ht-case-automation-unified",
+      "step_order": 4,
+      "step_type": "ios",
+      "action": "Read the Ready status from the ios fixture",
+      "expected_result": "The ios fixture reports Ready.",
+      "automation_code": "await ios.expectText(\"Checkout.IosStatus\", \"Ready\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-queued",
+      "snapshot_step_id": "sample-v8-ht-step-automation-web-1",
+      "test_case_id": "sample-v8-ht-case-automation-web",
+      "step_order": 1,
+      "step_type": "web",
+      "action": "Open the configured web readiness fixture",
+      "expected_result": "The configured fixture opens on the selected web runtime.",
+      "automation_code": "await web.goto(\"https://web.example.test/health\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-queued",
+      "snapshot_step_id": "sample-v8-ht-step-automation-web-2",
+      "test_case_id": "sample-v8-ht-case-automation-web",
+      "step_order": 2,
+      "step_type": "web",
+      "action": "Read the Ready status from the web fixture",
+      "expected_result": "The web fixture reports Ready.",
+      "automation_code": "await web.expectText(\"Checkout.Status\", \"Ready\");"
+    },
+    {
+      "execution_id": "sample-v8-ht-run-running",
+      "snapshot_step_id": "sample-v8-ht-step-automation-api-1",
+      "test_case_id": "sample-v8-ht-case-automation-api",
+      "step_order": 1,
+      "step_type": "api",
+      "action": "Open the configured api readiness fixture",
+      "expected_result": "The configured fixture opens on the selected api runtime.",
+      "api_request": {
+        "method": "GET",
+        "url": "https://api.example.test/health",
+        "headers": [],
+        "query_params": [],
+        "validations": [
+          {
+            "kind": "status",
+            "expected": "200"
+          }
+        ]
+      }
+    },
+    {
+      "execution_id": "sample-v8-ht-run-running",
+      "snapshot_step_id": "sample-v8-ht-step-automation-api-2",
+      "test_case_id": "sample-v8-ht-case-automation-api",
+      "step_order": 2,
+      "step_type": "api",
+      "action": "Read the Ready status from the api fixture",
+      "expected_result": "The api fixture reports Ready.",
+      "api_request": {
+        "method": "GET",
+        "url": "https://api.example.test/health",
+        "headers": [],
+        "query_params": [],
+        "validations": [
+          {
+            "kind": "status",
+            "expected": "200"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,5 +1,8 @@
 # Catalog API architecture review — 2026-09-18
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 Reviewed 201 explicit method/path operations in 22 assigned route modules and their catalog/mapping services. The inventory below is taken from runtime route registration, including both Bug aliases; every listed operation is covered by its module conclusion. This is part of the full backend review (429 operations across 50 registered main-API modules). Synthetic HEAD routes are not counted twice.
 
 ## Implemented changes and evidence

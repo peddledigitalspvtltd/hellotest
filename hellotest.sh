@@ -304,7 +304,7 @@ resolve_defaults() {
   MOBILE_ENGINE_URL="${MOBILE_ENGINE_URL:-http://mobile-engine:4312}"
   APPIUM_SERVER_URL="${APPIUM_SERVER_URL:-http://host.docker.internal:4723}"
   CORS_ORIGIN="${CORS_ORIGIN:-$HELLOTEST_PUBLIC_URL,http://localhost:5173,http://localhost:5174,http://localhost:8080,http://localhost:8081}"
-  HELLOTEST_LOCAL_RUN_ENGINE_URL="${HELLOTEST_LOCAL_RUN_ENGINE_URL:-http://host.docker.internal:4311}"
+  HELLOTEST_LOCAL_RUN_ENGINE_URL="${HELLOTEST_LOCAL_RUN_ENGINE_URL:-http://host.docker.internal:4313}"
   if [ -z "$HELLOTEST_LOCAL_CALLBACK_BASE_URL" ]; then
     case "$HELLOTEST_PUBLIC_URL" in
       https://*) HELLOTEST_LOCAL_CALLBACK_BASE_URL="${HELLOTEST_API_PUBLIC_URL%/}" ;;

@@ -2650,6 +2650,7 @@ export type ExecutionScopeSnapshot = {
 };
 
 export type Execution = {
+  live_sessions?: { engine_run_id: string; provider: string; url: string }[];
   test_data_options?: TestDataOptions;
   release_id?: string | null;
   iteration_id?: string | null;

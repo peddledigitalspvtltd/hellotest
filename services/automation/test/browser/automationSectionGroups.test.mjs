@@ -1,0 +1,44 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile, writeFile, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { runInNewContext } from 'node:vm';
+import { createRequire } from 'node:module';
+const require = createRequire(new URL('../../../../testengine/backend/package.json', import.meta.url));
+const { chromium } = require('playwright');
+const { expect } = require('playwright/test');
+const root = new URL('../../../platform/frontend/', import.meta.url);
+test('automation section groups review selection, shared/local conversion and ungrouping before one write', {timeout:90000}, async () => {
+  const template = await readFile(new URL('../../../testing/test/browser/testCaseDataSets.test.mjs', import.meta.url), 'utf8');
+  let fixture = runInNewContext(template.match(/const fixture\s*=\s*(`[\s\S]*?`);/)[1]);
+  fixture = fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';", "import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';import '/src/product-experience.css';").replace('element:<TestCasesPage/>','element:<AutomationPage/>');
+  fixture = fixture.replace('const client=new QueryClient', `item.automated='yes';item.automation_status='ready';window.groups=[];window.ungroups=[];
+    steps.splice(0,steps.length,...[1,2,3].map(index=>({id:'s'+index,test_case_id:'case1',step_order:index,action:'Section '+index,expected_result:'Outcome '+index,step_type:'web',automation_code:'await page.reload();'})));
+    api.testSteps.list=async()=>structuredClone(steps);
+    api.testSteps.group=async input=>{window.groups.push(input);steps.filter(step=>input.step_ids.includes(step.id)).forEach(step=>Object.assign(step,{group_id:input.group_id||'reviewed-group',group_name:input.name,group_kind:input.kind,reusable_group_id:input.create_shared_group?'shared-source':null}));return{grouped:true};};
+    api.testSteps.ungroup=async input=>{window.ungroups.push(input);steps.filter(step=>step.group_id===input.group_id).forEach(step=>Object.assign(step,{group_id:null,group_name:null,group_kind:null,reusable_group_id:null}));return{updated:true};};
+    const client=new QueryClient`);
+  const name='section-groups-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);let browser;
+  try {
+    await writeFile(tsx,fixture);await writeFile(html,`<!doctype html><html><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
+    const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',error=>errors.push(error.message));
+    await page.route('**/api/**',route=>{errors.push('Unexpected API');return route.abort();});page.setDefaultTimeout(10000);
+    await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html`);await page.getByRole('tab',{name:/^Plan/}).click();
+    await page.getByRole('checkbox',{name:'Select step 1',exact:true}).check();await page.getByRole('checkbox',{name:'Select step 3',exact:true}).check();
+    await page.getByRole('button',{name:'Group Selected Sections',exact:true}).click();let dialog=page.getByRole('dialog',{name:'Group Selected Sections',exact:true});
+    await dialog.getByLabel('Group name').fill('Reviewed selection');await expect(dialog.getByRole('button',{name:'Save Section Group',exact:true})).toBeDisabled();
+    assert.equal(await page.evaluate(()=>window.groups.length),0);await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.getByRole('checkbox',{name:'Select step 3',exact:true}).uncheck();await page.getByRole('checkbox',{name:'Select step 2',exact:true}).check();
+    await page.getByRole('button',{name:'Group Selected Sections',exact:true}).click();dialog=page.getByRole('dialog',{name:'Group Selected Sections',exact:true});
+    await dialog.getByLabel('Group name').fill('Reviewed selection');await dialog.getByRole('checkbox',{name:'Create a reusable Shared Section Group'}).check();await dialog.getByRole('button',{name:'Save Section Group',exact:true}).click();
+    await page.waitForFunction(()=>window.groups.length===1);await expect(dialog).toHaveCount(0);
+    assert.deepEqual(await page.evaluate(()=>window.groups[0].step_ids),['s1','s2']);assert.equal(await page.evaluate(()=>window.groups[0].create_shared_group),true);
+    const menu=()=>page.getByRole('button',{name:'Section 1 actions',exact:true});await menu().click();await page.getByRole('menuitem',{name:'Convert to local section group',exact:true}).click();
+    dialog=page.getByRole('dialog',{name:'Convert to Local Section Group',exact:true});await dialog.getByRole('button',{name:'Save Section Group',exact:true}).click();await page.waitForFunction(()=>window.groups.length===2);await expect(dialog).toHaveCount(0);
+    assert.equal(await page.evaluate(()=>window.groups[1].kind),'local');await menu().click();await page.getByRole('menuitem',{name:'Convert to Shared Section Group',exact:true}).click();
+    dialog=page.getByRole('dialog',{name:'Convert to Shared Section Group',exact:true});await dialog.getByRole('button',{name:'Save Section Group',exact:true}).click();await page.waitForFunction(()=>window.groups.length===3);await expect(dialog).toHaveCount(0);
+    await menu().click();await page.getByRole('menuitem',{name:'Ungroup sections',exact:true}).click();dialog=page.getByRole('dialog',{name:'Ungroup Sections',exact:true});assert.equal(await page.evaluate(()=>window.ungroups.length),0);await dialog.getByRole('button',{name:'Ungroup Sections',exact:true}).click();await page.waitForFunction(()=>window.ungroups.length===1);await expect(dialog).toHaveCount(0);
+    await page.setViewportSize({width:390,height:844});assert.deepEqual(errors,[]);
+  } finally {await browser?.close();await Promise.all([rm(html,{force:true}),rm(tsx,{force:true})]);}
+});

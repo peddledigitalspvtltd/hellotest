@@ -1,0 +1,805 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-result-manual-0-0",
+      "execution_id": "sample-v8-ht-run-manual",
+      "test_case_id": "sample-v8-ht-case-story-metadata",
+      "test_case_title": "Verify author Story metadata and acceptance",
+      "suite_id": "sample-v8-ht-suite-web",
+      "suite_name": "Web acceptance suite",
+      "app_type_id": "sample-app-web",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:00:00.000Z",
+      "ended_at": "2026-10-11T10:00:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "test_data_set_name": "Web fictional data matrix",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v8-ht-data-web:1",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-a@example.test",
+        "t.quantity": "1",
+        "r.region": "us-east",
+        "s.tenant": "fictional-a",
+        "t.empty": "",
+        "t.unicode": "Café 🧪"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-story-metadata-1\": \"passed\", \"sample-v8-ht-step-story-metadata-2\": \"passed\", \"sample-v8-ht-step-story-metadata-3\": \"passed\", \"sample-v8-ht-step-story-metadata-4\": \"passed\"}, \"stepNotes\": {\"sample-v8-ht-step-story-metadata-1\": \"Synthetic observation for illustration only: The fixture is in this project/application and its provider is compatible.\", \"sample-v8-ht-step-story-metadata-2\": \"Synthetic observation for illustration only: Every authored value and acceptance criterion is retained without changing another project.\", \"sample-v8-ht-step-story-metadata-3\": \"Synthetic observation for illustration only: Observed evidence contains the exact record, platform and data-row identity.\", \"sample-v8-ht-step-story-metadata-4\": \"Synthetic observation for illustration only: Every authored value and acceptance criterion is retained without changing another project.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "passed",
+          "at": "2026-10-11T10:00:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-manual-0-1",
+      "execution_id": "sample-v8-ht-run-manual",
+      "test_case_id": "sample-v8-ht-case-story-metadata",
+      "test_case_title": "Verify author Story metadata and acceptance",
+      "suite_id": "sample-v8-ht-suite-web",
+      "suite_name": "Web acceptance suite",
+      "app_type_id": "sample-app-web",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:00:00.000Z",
+      "ended_at": "2026-10-11T10:00:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "test_data_set_name": "Web fictional data matrix",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v8-ht-data-web:2",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-b@example.test",
+        "t.quantity": "150",
+        "r.region": "eu-west",
+        "s.tenant": "fictional-b",
+        "t.empty": "",
+        "t.unicode": "測試"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-story-metadata-1\": \"passed\", \"sample-v8-ht-step-story-metadata-2\": \"passed\", \"sample-v8-ht-step-story-metadata-3\": \"passed\", \"sample-v8-ht-step-story-metadata-4\": \"passed\"}, \"stepNotes\": {\"sample-v8-ht-step-story-metadata-1\": \"Synthetic observation for illustration only: The fixture is in this project/application and its provider is compatible.\", \"sample-v8-ht-step-story-metadata-2\": \"Synthetic observation for illustration only: Every authored value and acceptance criterion is retained without changing another project.\", \"sample-v8-ht-step-story-metadata-3\": \"Synthetic observation for illustration only: Observed evidence contains the exact record, platform and data-row identity.\", \"sample-v8-ht-step-story-metadata-4\": \"Synthetic observation for illustration only: Every authored value and acceptance criterion is retained without changing another project.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "passed",
+          "at": "2026-10-11T10:00:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-manual-1-0",
+      "execution_id": "sample-v8-ht-run-manual",
+      "test_case_id": "sample-v8-ht-case-nfr-user-intent",
+      "test_case_title": "Verify preserve an explicit NFR-only AI objective",
+      "suite_id": "sample-v8-ht-suite-web",
+      "suite_name": "Web acceptance suite",
+      "app_type_id": "sample-app-web",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:00:00.000Z",
+      "ended_at": "2026-10-11T10:00:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "test_data_set_name": "Web fictional data matrix",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v8-ht-data-web:1",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-a@example.test",
+        "t.quantity": "1",
+        "r.region": "us-east",
+        "s.tenant": "fictional-a",
+        "t.empty": "",
+        "t.unicode": "Café 🧪"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-nfr-user-intent-1\": \"passed\", \"sample-v8-ht-step-nfr-user-intent-2\": \"passed\", \"sample-v8-ht-step-nfr-user-intent-3\": \"passed\", \"sample-v8-ht-step-nfr-user-intent-4\": \"passed\"}, \"stepNotes\": {\"sample-v8-ht-step-nfr-user-intent-1\": \"Synthetic observation for illustration only: The fixture is in this project/application and its provider is compatible.\", \"sample-v8-ht-step-nfr-user-intent-2\": \"Synthetic observation for illustration only: The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.\", \"sample-v8-ht-step-nfr-user-intent-3\": \"Synthetic observation for illustration only: Observed evidence contains the exact record, platform and data-row identity.\", \"sample-v8-ht-step-nfr-user-intent-4\": \"Synthetic observation for illustration only: The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "passed",
+          "at": "2026-10-11T10:00:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-manual-1-1",
+      "execution_id": "sample-v8-ht-run-manual",
+      "test_case_id": "sample-v8-ht-case-nfr-user-intent",
+      "test_case_title": "Verify preserve an explicit NFR-only AI objective",
+      "suite_id": "sample-v8-ht-suite-web",
+      "suite_name": "Web acceptance suite",
+      "app_type_id": "sample-app-web",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:00:00.000Z",
+      "ended_at": "2026-10-11T10:00:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "test_data_set_name": "Web fictional data matrix",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v8-ht-data-web:2",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-b@example.test",
+        "t.quantity": "150",
+        "r.region": "eu-west",
+        "s.tenant": "fictional-b",
+        "t.empty": "",
+        "t.unicode": "測試"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-nfr-user-intent-1\": \"passed\", \"sample-v8-ht-step-nfr-user-intent-2\": \"passed\", \"sample-v8-ht-step-nfr-user-intent-3\": \"passed\", \"sample-v8-ht-step-nfr-user-intent-4\": \"passed\"}, \"stepNotes\": {\"sample-v8-ht-step-nfr-user-intent-1\": \"Synthetic observation for illustration only: The fixture is in this project/application and its provider is compatible.\", \"sample-v8-ht-step-nfr-user-intent-2\": \"Synthetic observation for illustration only: The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.\", \"sample-v8-ht-step-nfr-user-intent-3\": \"Synthetic observation for illustration only: Observed evidence contains the exact record, platform and data-row identity.\", \"sample-v8-ht-step-nfr-user-intent-4\": \"Synthetic observation for illustration only: The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "passed",
+          "at": "2026-10-11T10:00:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-local-0-0",
+      "execution_id": "sample-v8-ht-run-local",
+      "test_case_id": "sample-v8-ht-case-automation-web",
+      "test_case_title": "Read configured web readiness fixture",
+      "suite_id": "sample-v8-ht-suite-web",
+      "suite_name": "Web acceptance suite",
+      "app_type_id": "sample-app-web",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:01:00.000Z",
+      "ended_at": "2026-10-11T10:01:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "test_data_set_name": "Web fictional data matrix",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v8-ht-data-web:1",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-a@example.test",
+        "t.quantity": "1",
+        "r.region": "us-east",
+        "s.tenant": "fictional-a",
+        "t.empty": "",
+        "t.unicode": "Café 🧪"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-web-1\": \"passed\", \"sample-v8-ht-step-automation-web-2\": \"passed\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-web-1\": \"Synthetic observation for illustration only: The configured fixture opens on the selected web runtime.\", \"sample-v8-ht-step-automation-web-2\": \"Synthetic observation for illustration only: The web fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "passed",
+          "at": "2026-10-11T10:01:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:01:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-local-0-1",
+      "execution_id": "sample-v8-ht-run-local",
+      "test_case_id": "sample-v8-ht-case-automation-web",
+      "test_case_title": "Read configured web readiness fixture",
+      "suite_id": "sample-v8-ht-suite-web",
+      "suite_name": "Web acceptance suite",
+      "app_type_id": "sample-app-web",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:01:00.000Z",
+      "ended_at": "2026-10-11T10:01:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "test_data_set_name": "Web fictional data matrix",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v8-ht-data-web:2",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-b@example.test",
+        "t.quantity": "150",
+        "r.region": "eu-west",
+        "s.tenant": "fictional-b",
+        "t.empty": "",
+        "t.unicode": "測試"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-web-1\": \"passed\", \"sample-v8-ht-step-automation-web-2\": \"passed\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-web-1\": \"Synthetic observation for illustration only: The configured fixture opens on the selected web runtime.\", \"sample-v8-ht-step-automation-web-2\": \"Synthetic observation for illustration only: The web fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "passed",
+          "at": "2026-10-11T10:01:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:01:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-remote-0-0",
+      "execution_id": "sample-v8-ht-run-remote",
+      "test_case_id": "sample-v8-ht-case-automation-api",
+      "test_case_title": "Read configured api readiness fixture",
+      "suite_id": "sample-v8-ht-suite-api",
+      "suite_name": "Api acceptance suite",
+      "app_type_id": "sample-app-api",
+      "status": "failed",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:02:00.000Z",
+      "ended_at": "2026-10-11T10:02:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-api",
+      "test_data_set_name": "Api fictional data matrix",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v8-ht-data-api:1",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-a@example.test",
+        "t.quantity": "1",
+        "r.region": "us-east",
+        "s.tenant": "fictional-a",
+        "t.empty": "",
+        "t.unicode": "Café 🧪"
+      },
+      "error": "Synthetic failure; no live request was performed.",
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-api-1\": \"failed\", \"sample-v8-ht-step-automation-api-2\": \"failed\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-api-1\": \"Synthetic observation for illustration only: The configured fixture opens on the selected api runtime.\", \"sample-v8-ht-step-automation-api-2\": \"Synthetic observation for illustration only: The api fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "failed",
+          "at": "2026-10-11T10:02:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:02:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-remote-0-1",
+      "execution_id": "sample-v8-ht-run-remote",
+      "test_case_id": "sample-v8-ht-case-automation-api",
+      "test_case_title": "Read configured api readiness fixture",
+      "suite_id": "sample-v8-ht-suite-api",
+      "suite_name": "Api acceptance suite",
+      "app_type_id": "sample-app-api",
+      "status": "failed",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:02:00.000Z",
+      "ended_at": "2026-10-11T10:02:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-api",
+      "test_data_set_name": "Api fictional data matrix",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v8-ht-data-api:2",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-b@example.test",
+        "t.quantity": "150",
+        "r.region": "eu-west",
+        "s.tenant": "fictional-b",
+        "t.empty": "",
+        "t.unicode": "測試"
+      },
+      "error": "Synthetic failure; no live request was performed.",
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-api-1\": \"failed\", \"sample-v8-ht-step-automation-api-2\": \"failed\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-api-1\": \"Synthetic observation for illustration only: The configured fixture opens on the selected api runtime.\", \"sample-v8-ht-step-automation-api-2\": \"Synthetic observation for illustration only: The api fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "failed",
+          "at": "2026-10-11T10:02:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:02:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-android-0-0",
+      "execution_id": "sample-v8-ht-run-android",
+      "test_case_id": "sample-v8-ht-case-automation-android",
+      "test_case_title": "Read configured android readiness fixture",
+      "suite_id": "sample-v8-ht-suite-android",
+      "suite_name": "Android acceptance suite",
+      "app_type_id": "sample-v8-ht-app-android",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:03:00.000Z",
+      "ended_at": "2026-10-11T10:03:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "test_data_set_name": "Android fictional data matrix",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v8-ht-data-android:1",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-a@example.test",
+        "t.quantity": "1",
+        "r.region": "us-east",
+        "s.tenant": "fictional-a",
+        "t.empty": "",
+        "t.unicode": "Café 🧪"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-android-1\": \"passed\", \"sample-v8-ht-step-automation-android-2\": \"passed\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-android-1\": \"Synthetic observation for illustration only: The configured fixture opens on the selected android runtime.\", \"sample-v8-ht-step-automation-android-2\": \"Synthetic observation for illustration only: The android fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "passed",
+          "at": "2026-10-11T10:03:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:03:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-android-0-1",
+      "execution_id": "sample-v8-ht-run-android",
+      "test_case_id": "sample-v8-ht-case-automation-android",
+      "test_case_title": "Read configured android readiness fixture",
+      "suite_id": "sample-v8-ht-suite-android",
+      "suite_name": "Android acceptance suite",
+      "app_type_id": "sample-v8-ht-app-android",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:03:00.000Z",
+      "ended_at": "2026-10-11T10:03:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "test_data_set_name": "Android fictional data matrix",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v8-ht-data-android:2",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-b@example.test",
+        "t.quantity": "150",
+        "r.region": "eu-west",
+        "s.tenant": "fictional-b",
+        "t.empty": "",
+        "t.unicode": "測試"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-android-1\": \"passed\", \"sample-v8-ht-step-automation-android-2\": \"passed\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-android-1\": \"Synthetic observation for illustration only: The configured fixture opens on the selected android runtime.\", \"sample-v8-ht-step-automation-android-2\": \"Synthetic observation for illustration only: The android fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "passed",
+          "at": "2026-10-11T10:03:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:03:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-android-1-0",
+      "execution_id": "sample-v8-ht-run-android",
+      "test_case_id": "sample-v8-ht-case-automation-android-landscape",
+      "test_case_title": "Read Android readiness after landscape rotation",
+      "suite_id": "sample-v8-ht-suite-android",
+      "suite_name": "Android acceptance suite",
+      "app_type_id": "sample-v8-ht-app-android",
+      "status": "blocked",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:03:00.000Z",
+      "ended_at": "2026-10-11T10:03:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "test_data_set_name": "Android fictional data matrix",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v8-ht-data-android:1",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-a@example.test",
+        "t.quantity": "1",
+        "r.region": "us-east",
+        "s.tenant": "fictional-a",
+        "t.empty": "",
+        "t.unicode": "Café 🧪"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-android-landscape-1\": \"blocked\", \"sample-v8-ht-step-automation-android-landscape-2\": \"blocked\", \"sample-v8-ht-step-automation-android-landscape-3\": \"blocked\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-android-landscape-1\": \"Synthetic observation for illustration only: The configured Android app is active.\", \"sample-v8-ht-step-automation-android-landscape-2\": \"Synthetic observation for illustration only: The device is in landscape orientation.\", \"sample-v8-ht-step-automation-android-landscape-3\": \"Synthetic observation for illustration only: The Ready label remains visible and reads Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "blocked",
+          "at": "2026-10-11T10:03:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:03:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-android-1-1",
+      "execution_id": "sample-v8-ht-run-android",
+      "test_case_id": "sample-v8-ht-case-automation-android-landscape",
+      "test_case_title": "Read Android readiness after landscape rotation",
+      "suite_id": "sample-v8-ht-suite-android",
+      "suite_name": "Android acceptance suite",
+      "app_type_id": "sample-v8-ht-app-android",
+      "status": "blocked",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:03:00.000Z",
+      "ended_at": "2026-10-11T10:03:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-android",
+      "test_data_set_name": "Android fictional data matrix",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v8-ht-data-android:2",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-b@example.test",
+        "t.quantity": "150",
+        "r.region": "eu-west",
+        "s.tenant": "fictional-b",
+        "t.empty": "",
+        "t.unicode": "測試"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-android-landscape-1\": \"blocked\", \"sample-v8-ht-step-automation-android-landscape-2\": \"blocked\", \"sample-v8-ht-step-automation-android-landscape-3\": \"blocked\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-android-landscape-1\": \"Synthetic observation for illustration only: The configured Android app is active.\", \"sample-v8-ht-step-automation-android-landscape-2\": \"Synthetic observation for illustration only: The device is in landscape orientation.\", \"sample-v8-ht-step-automation-android-landscape-3\": \"Synthetic observation for illustration only: The Ready label remains visible and reads Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "blocked",
+          "at": "2026-10-11T10:03:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:03:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-ios-0-0",
+      "execution_id": "sample-v8-ht-run-ios",
+      "test_case_id": "sample-v8-ht-case-automation-ios",
+      "test_case_title": "Read configured ios readiness fixture",
+      "suite_id": "sample-v8-ht-suite-ios",
+      "suite_name": "Ios acceptance suite",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "status": "aborted",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:04:00.000Z",
+      "ended_at": "2026-10-11T10:04:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-ios",
+      "test_data_set_name": "Ios fictional data matrix",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v8-ht-data-ios:1",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-a@example.test",
+        "t.quantity": "1",
+        "r.region": "us-east",
+        "s.tenant": "fictional-a",
+        "t.empty": "",
+        "t.unicode": "Café 🧪"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-ios-1\": \"aborted\", \"sample-v8-ht-step-automation-ios-2\": \"aborted\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-ios-1\": \"Synthetic observation for illustration only: The configured fixture opens on the selected ios runtime.\", \"sample-v8-ht-step-automation-ios-2\": \"Synthetic observation for illustration only: The ios fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "aborted",
+          "at": "2026-10-11T10:04:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:04:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-ios-0-1",
+      "execution_id": "sample-v8-ht-run-ios",
+      "test_case_id": "sample-v8-ht-case-automation-ios",
+      "test_case_title": "Read configured ios readiness fixture",
+      "suite_id": "sample-v8-ht-suite-ios",
+      "suite_name": "Ios acceptance suite",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "status": "skipped",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:04:00.000Z",
+      "ended_at": "2026-10-11T10:04:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-ios",
+      "test_data_set_name": "Ios fictional data matrix",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v8-ht-data-ios:2",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-b@example.test",
+        "t.quantity": "150",
+        "r.region": "eu-west",
+        "s.tenant": "fictional-b",
+        "t.empty": "",
+        "t.unicode": "測試"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-ios-1\": \"skipped\", \"sample-v8-ht-step-automation-ios-2\": \"skipped\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-ios-1\": \"Synthetic observation for illustration only: The configured fixture opens on the selected ios runtime.\", \"sample-v8-ht-step-automation-ios-2\": \"Synthetic observation for illustration only: The ios fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "skipped",
+          "at": "2026-10-11T10:04:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:04:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-unified-0-0",
+      "execution_id": "sample-v8-ht-run-unified",
+      "test_case_id": "sample-v8-ht-case-automation-unified",
+      "test_case_title": "Read configured unified readiness fixture",
+      "suite_id": "sample-v8-ht-suite-unified",
+      "suite_name": "Unified acceptance suite",
+      "app_type_id": "sample-app-mobile",
+      "status": "blocked",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:05:00.000Z",
+      "ended_at": "2026-10-11T10:05:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-unified",
+      "test_data_set_name": "Unified fictional data matrix",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v8-ht-data-unified:1",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-a@example.test",
+        "t.quantity": "1",
+        "r.region": "us-east",
+        "s.tenant": "fictional-a",
+        "t.empty": "",
+        "t.unicode": "Café 🧪"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-unified-1\": \"blocked\", \"sample-v8-ht-step-automation-unified-2\": \"blocked\", \"sample-v8-ht-step-automation-unified-3\": \"blocked\", \"sample-v8-ht-step-automation-unified-4\": \"blocked\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-unified-1\": \"Synthetic observation for illustration only: The web fixture reports Ready.\", \"sample-v8-ht-step-automation-unified-2\": \"Synthetic observation for illustration only: The api fixture reports Ready.\", \"sample-v8-ht-step-automation-unified-3\": \"Synthetic observation for illustration only: The android fixture reports Ready.\", \"sample-v8-ht-step-automation-unified-4\": \"Synthetic observation for illustration only: The ios fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "blocked",
+          "at": "2026-10-11T10:05:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:05:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-unified-0-1",
+      "execution_id": "sample-v8-ht-run-unified",
+      "test_case_id": "sample-v8-ht-case-automation-unified",
+      "test_case_title": "Read configured unified readiness fixture",
+      "suite_id": "sample-v8-ht-suite-unified",
+      "suite_name": "Unified acceptance suite",
+      "app_type_id": "sample-app-mobile",
+      "status": "blocked",
+      "duration_ms": 60000,
+      "started_at": "2026-10-11T09:05:00.000Z",
+      "ended_at": "2026-10-11T10:05:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-unified",
+      "test_data_set_name": "Unified fictional data matrix",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v8-ht-data-unified:2",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-b@example.test",
+        "t.quantity": "150",
+        "r.region": "eu-west",
+        "s.tenant": "fictional-b",
+        "t.empty": "",
+        "t.unicode": "測試"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-unified-1\": \"blocked\", \"sample-v8-ht-step-automation-unified-2\": \"blocked\", \"sample-v8-ht-step-automation-unified-3\": \"blocked\", \"sample-v8-ht-step-automation-unified-4\": \"blocked\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-unified-1\": \"Synthetic observation for illustration only: The web fixture reports Ready.\", \"sample-v8-ht-step-automation-unified-2\": \"Synthetic observation for illustration only: The api fixture reports Ready.\", \"sample-v8-ht-step-automation-unified-3\": \"Synthetic observation for illustration only: The android fixture reports Ready.\", \"sample-v8-ht-step-automation-unified-4\": \"Synthetic observation for illustration only: The ios fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "blocked",
+          "at": "2026-10-11T10:05:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:05:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-queued-0-0",
+      "execution_id": "sample-v8-ht-run-queued",
+      "test_case_id": "sample-v8-ht-case-automation-web",
+      "test_case_title": "Read configured web readiness fixture",
+      "suite_id": "sample-v8-ht-suite-web",
+      "suite_name": "Web acceptance suite",
+      "app_type_id": "sample-app-web",
+      "status": "pending",
+      "duration_ms": null,
+      "started_at": null,
+      "ended_at": null,
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "test_data_set_name": "Web fictional data matrix",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v8-ht-data-web:1",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-a@example.test",
+        "t.quantity": "1",
+        "r.region": "us-east",
+        "s.tenant": "fictional-a",
+        "t.empty": "",
+        "t.unicode": "Café 🧪"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-web-1\": \"pending\", \"sample-v8-ht-step-automation-web-2\": \"pending\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-web-1\": \"Synthetic observation for illustration only: The configured fixture opens on the selected web runtime.\", \"sample-v8-ht-step-automation-web-2\": \"Synthetic observation for illustration only: The web fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "pending",
+          "at": "2026-10-11T09:06:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:06:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-queued-0-1",
+      "execution_id": "sample-v8-ht-run-queued",
+      "test_case_id": "sample-v8-ht-case-automation-web",
+      "test_case_title": "Read configured web readiness fixture",
+      "suite_id": "sample-v8-ht-suite-web",
+      "suite_name": "Web acceptance suite",
+      "app_type_id": "sample-app-web",
+      "status": "pending",
+      "duration_ms": null,
+      "started_at": null,
+      "ended_at": null,
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-web",
+      "test_data_set_name": "Web fictional data matrix",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v8-ht-data-web:2",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-b@example.test",
+        "t.quantity": "150",
+        "r.region": "eu-west",
+        "s.tenant": "fictional-b",
+        "t.empty": "",
+        "t.unicode": "測試"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-web-1\": \"pending\", \"sample-v8-ht-step-automation-web-2\": \"pending\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-web-1\": \"Synthetic observation for illustration only: The configured fixture opens on the selected web runtime.\", \"sample-v8-ht-step-automation-web-2\": \"Synthetic observation for illustration only: The web fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "pending",
+          "at": "2026-10-11T09:06:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:06:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-running-0-0",
+      "execution_id": "sample-v8-ht-run-running",
+      "test_case_id": "sample-v8-ht-case-automation-api",
+      "test_case_title": "Read configured api readiness fixture",
+      "suite_id": "sample-v8-ht-suite-api",
+      "suite_name": "Api acceptance suite",
+      "app_type_id": "sample-app-api",
+      "status": "running",
+      "duration_ms": null,
+      "started_at": "2026-10-11T09:07:00.000Z",
+      "ended_at": null,
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-api",
+      "test_data_set_name": "Api fictional data matrix",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v8-ht-data-api:1",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-a@example.test",
+        "t.quantity": "1",
+        "r.region": "us-east",
+        "s.tenant": "fictional-a",
+        "t.empty": "",
+        "t.unicode": "Café 🧪"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-api-1\": \"running\", \"sample-v8-ht-step-automation-api-2\": \"running\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-api-1\": \"Synthetic observation for illustration only: The configured fixture opens on the selected api runtime.\", \"sample-v8-ht-step-automation-api-2\": \"Synthetic observation for illustration only: The api fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-10-11T09:07:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:07:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-result-running-0-1",
+      "execution_id": "sample-v8-ht-run-running",
+      "test_case_id": "sample-v8-ht-case-automation-api",
+      "test_case_title": "Read configured api readiness fixture",
+      "suite_id": "sample-v8-ht-suite-api",
+      "suite_name": "Api acceptance suite",
+      "app_type_id": "sample-app-api",
+      "status": "paused",
+      "duration_ms": null,
+      "started_at": "2026-10-11T09:07:00.000Z",
+      "ended_at": null,
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v8-ht-data-api",
+      "test_data_set_name": "Api fictional data matrix",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v8-ht-data-api:2",
+      "data_set_row_snapshot": {
+        "t.user": "fixture-b@example.test",
+        "t.quantity": "150",
+        "r.region": "eu-west",
+        "s.tenant": "fictional-b",
+        "t.empty": "",
+        "t.unicode": "測試"
+      },
+      "error": null,
+      "logs": "{\"sample\": true, \"synthetic_evidence\": true, \"provenance\": \"admin_sample_data_v8\", \"stepStatuses\": {\"sample-v8-ht-step-automation-api-1\": \"paused\", \"sample-v8-ht-step-automation-api-2\": \"paused\"}, \"stepNotes\": {\"sample-v8-ht-step-automation-api-1\": \"Synthetic observation for illustration only: The configured fixture opens on the selected api runtime.\", \"sample-v8-ht-step-automation-api-2\": \"Synthetic observation for illustration only: The api fixture reports Ready.\"}, \"stepEvidence\": {}, \"stepDefects\": {}}",
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "lifecycle_history": [
+        {
+          "status": "paused",
+          "at": "2026-10-11T09:07:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic illustrative history; no engine/model activity."
+        }
+      ],
+      "created_at": "2026-10-11T09:07:00.000Z"
+    }
+  ]
+}

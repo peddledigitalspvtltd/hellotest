@@ -1,0 +1,1165 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-story-story-metadata",
+      "display_id": "HT8-ST1",
+      "project_id": "sample-project",
+      "title": "Author Story metadata and acceptance",
+      "description": "As a QA engineer, I want to author Story metadata and acceptance so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Save title, priority, owner, labels, effort and a Gherkin or Spec Kit specification; reopen the Story.\nOutcome: Every authored value and acceptance criterion is retained without changing another project.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "open",
+      "priority": 1,
+      "iteration_id": null,
+      "sprint": null,
+      "release": "Governance follow-up",
+      "fix_version": "8.2",
+      "dev_completion_target_date": null,
+      "qa_completion_target_date": null,
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "v8",
+        "web",
+        "functional"
+      ],
+      "external_references": [],
+      "specification_format": "speckit",
+      "specification_content": "# Intent\nAuthor Story metadata and acceptance\n# Requirements\nSave title, priority, owner, labels, effort and a Gherkin or Spec Kit specification; reopen the Story.\n# Acceptance\nEvery authored value and acceptance criterion is retained without changing another project.\nCross-project records and credentials are not used as sample inputs.\nUnavailable dependencies produce a recoverable gap instead of invented evidence.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "Every authored value and acceptance criterion is retained without changing another project.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 1,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "web"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-nfr-user-intent",
+      "display_id": "HT8-ST2",
+      "project_id": "sample-project",
+      "title": "Preserve an explicit NFR-only AI objective",
+      "description": "As a QA engineer, I want to preserve an explicit NFR-only AI objective so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Request latency coverage below 250 ms for 150 concurrent users, without selecting a Story.\nOutcome: The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "dev_ready",
+      "priority": 2,
+      "iteration_id": "sample-v8-ht-sprint-future",
+      "sprint": "Governance follow-up",
+      "release": "Governance follow-up",
+      "fix_version": "8.2",
+      "dev_completion_target_date": "2026-10-26T09:00:00.000Z",
+      "qa_completion_target_date": "2026-11-08T18:00:00.000Z",
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "v8",
+        "web",
+        "performance"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Preserve an explicit NFR-only AI objective\n\nScenario: Reviewed acceptance\n  Given an authorized web fixture\n  When Request latency coverage below 250 ms for 150 concurrent users, without selecting a Story.\n  Then The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 2,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "web"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-sprint-overdue",
+      "display_id": "HT8-ST3",
+      "project_id": "sample-project",
+      "title": "Identify unfinished overdue Sprint scope",
+      "description": "As a QA engineer, I want to identify unfinished overdue Sprint scope so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Open an active Sprint whose end date is 11 October 2026 and contains an unfinished Story.\nOutcome: The Sprint is labelled Overdue in red; its Story and dates remain editable according to permissions.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "dev_in_progress",
+      "priority": 3,
+      "iteration_id": "sample-v8-ht-sprint-overdue",
+      "sprint": "Native recovery",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-09-28T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-11T18:00:00.000Z",
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "v8",
+        "web",
+        "functional"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Identify unfinished overdue Sprint scope\n\nScenario: Reviewed acceptance\n  Given an authorized web fixture\n  When Open an active Sprint whose end date is 11 October 2026 and contains an unfinished Story.\n  Then The Sprint is labelled Overdue in red; its Story and dates remain editable according to permissions.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "The Sprint is labelled Overdue in red; its Story and dates remain editable according to permissions.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 3,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "web"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-shared-sections",
+      "display_id": "HT8-ST4",
+      "project_id": "sample-project",
+      "title": "Group and convert reusable automation sections",
+      "description": "As a QA engineer, I want to group and convert reusable automation sections so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Select two adjacent sections, group them, convert to shared, then convert the case copy back to local.\nOutcome: The reviewed names, ordered actions, expected results and platform types survive; library records and frozen run snapshots are retained.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "dev_blocked",
+      "priority": 4,
+      "iteration_id": "sample-v8-ht-sprint-overdue",
+      "sprint": "Native recovery",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-09-28T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-11T18:00:00.000Z",
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "v8",
+        "web",
+        "regression"
+      ],
+      "external_references": [],
+      "specification_format": "speckit",
+      "specification_content": "# Intent\nGroup and convert reusable automation sections\n# Requirements\nSelect two adjacent sections, group them, convert to shared, then convert the case copy back to local.\n# Acceptance\nThe reviewed names, ordered actions, expected results and platform types survive; library records and frozen run snapshots are retained.\nCross-project records and credentials are not used as sample inputs.\nUnavailable dependencies produce a recoverable gap instead of invented evidence.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "The reviewed names, ordered actions, expected results and platform types survive; library records and frozen run snapshots are retained.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 5,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "web"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-chat-mcp-budget",
+      "display_id": "HT8-ST5",
+      "project_id": "sample-project",
+      "title": "Ground a multi-paragraph answer through MCP",
+      "description": "As a QA engineer, I want to ground a multi-paragraph answer through MCP so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Ask for Story coverage using a 40-second retrieval budget and permitted Story and test evidence.\nOutcome: MCP honors the normalized budget and verified project; the answer preserves paragraphs and citations, and gaps are explicit.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "dev_done",
+      "priority": 5,
+      "iteration_id": "sample-v8-ht-sprint-overdue",
+      "sprint": "Native recovery",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-09-28T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-11T18:00:00.000Z",
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "v8",
+        "web",
+        "integration"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Ground a multi-paragraph answer through MCP\n\nScenario: Reviewed acceptance\n  Given an authorized web fixture\n  When Ask for Story coverage using a 40-second retrieval budget and permitted Story and test evidence.\n  Then MCP honors the normalized budget and verified project; the answer preserves paragraphs and citations, and gaps are explicit.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "MCP honors the normalized budget and verified project; the answer preserves paragraphs and citations, and gaps are explicit.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 8,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "web"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-android-offline",
+      "display_id": "HT8-ST6",
+      "project_id": "sample-project",
+      "title": "Recover an Android form after network loss",
+      "description": "As a QA engineer, I want to recover an Android form after network loss so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Enter a synthetic draft, switch the configured Android device offline, resume network and reopen the draft.\nOutcome: The saved draft is restored once without duplicate submission; missing native-provider readiness blocks execution explicitly.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "qa_ready",
+      "priority": 1,
+      "iteration_id": "sample-v8-ht-sprint-overdue",
+      "sprint": "Native recovery",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-09-28T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-11T18:00:00.000Z",
+      "scrum_team": "HelloTest Native Quality",
+      "labels": [
+        "sample",
+        "v8",
+        "android",
+        "functional"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Recover an Android form after network loss\n\nScenario: Reviewed acceptance\n  Given an authorized android fixture\n  When Enter a synthetic draft, switch the configured Android device offline, resume network and reopen the draft.\n  Then The saved draft is restored once without duplicate submission; missing native-provider readiness blocks execution explicitly.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "The saved draft is restored once without duplicate submission; missing native-provider readiness blocks execution explicitly.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 1,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "android"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-android-security",
+      "display_id": "HT8-ST7",
+      "project_id": "sample-project",
+      "title": "Prevent Android cross-account cached data",
+      "description": "As a QA engineer, I want to prevent Android cross-account cached data so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Sign out of fictional account A and sign in as account B on the configured Android test device.\nOutcome: No account A record appears in account B scope, including during pending refresh.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "qa_in_progress",
+      "priority": 2,
+      "iteration_id": "sample-v8-ht-sprint-overdue",
+      "sprint": "Native recovery",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-09-28T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-11T18:00:00.000Z",
+      "scrum_team": "HelloTest Native Quality",
+      "labels": [
+        "sample",
+        "v8",
+        "android",
+        "security"
+      ],
+      "external_references": [],
+      "specification_format": "speckit",
+      "specification_content": "# Intent\nPrevent Android cross-account cached data\n# Requirements\nSign out of fictional account A and sign in as account B on the configured Android test device.\n# Acceptance\nNo account A record appears in account B scope, including during pending refresh.\nCross-project records and credentials are not used as sample inputs.\nUnavailable dependencies produce a recoverable gap instead of invented evidence.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "No account A record appears in account B scope, including during pending refresh.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 2,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "android"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-android-accessibility",
+      "display_id": "HT8-ST8",
+      "project_id": "sample-project",
+      "title": "Navigate native controls with accessibility labels",
+      "description": "As a QA engineer, I want to navigate native controls with accessibility labels so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Open the configured Android app with TalkBack and focus the labelled checkout controls in order.\nOutcome: Every required control has an accessible name, logical focus order and a measurable announced outcome.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "qa_blocked",
+      "priority": 3,
+      "iteration_id": "sample-v8-ht-sprint-overdue",
+      "sprint": "Native recovery",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-09-28T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-11T18:00:00.000Z",
+      "scrum_team": "HelloTest Native Quality",
+      "labels": [
+        "sample",
+        "v8",
+        "android",
+        "accessibility"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Navigate native controls with accessibility labels\n\nScenario: Reviewed acceptance\n  Given an authorized android fixture\n  When Open the configured Android app with TalkBack and focus the labelled checkout controls in order.\n  Then Every required control has an accessible name, logical focus order and a measurable announced outcome.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "Every required control has an accessible name, logical focus order and a measurable announced outcome.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 3,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "android"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-android-smoke",
+      "display_id": "HT8-ST9",
+      "project_id": "sample-project",
+      "title": "Verify an Android application launches",
+      "description": "As a QA engineer, I want to verify an Android application launches so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Launch the configured Android sample package and open its configured home screen.\nOutcome: The home screen is displayed on Android; a mismatched iOS capability is rejected.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "qa_done",
+      "priority": 4,
+      "iteration_id": "sample-v8-ht-sprint-closed",
+      "sprint": "Acceptance baseline",
+      "release": "Acceptance baseline",
+      "fix_version": "8.0",
+      "dev_completion_target_date": "2026-09-14T09:00:00.000Z",
+      "qa_completion_target_date": "2026-09-27T18:00:00.000Z",
+      "scrum_team": "HelloTest Native Quality",
+      "labels": [
+        "sample",
+        "v8",
+        "android",
+        "smoke"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Verify an Android application launches\n\nScenario: Reviewed acceptance\n  Given an authorized android fixture\n  When Launch the configured Android sample package and open its configured home screen.\n  Then The home screen is displayed on Android; a mismatched iOS capability is rejected.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "The home screen is displayed on Android; a mismatched iOS capability is rejected.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 5,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "android"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-ios-permissions",
+      "display_id": "HT8-ST10",
+      "project_id": "sample-project",
+      "title": "Handle iOS permission denial accurately",
+      "description": "As a QA engineer, I want to handle iOS permission denial accurately so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Deny notification permission on the configured iOS test device and continue the checkout flow.\nOutcome: The configured permission-denied notice appears and checkout remains available without reporting permission as granted.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "done",
+      "priority": 5,
+      "iteration_id": "sample-v8-ht-sprint-closed",
+      "sprint": "Acceptance baseline",
+      "release": "Acceptance baseline",
+      "fix_version": "8.0",
+      "dev_completion_target_date": "2026-09-14T09:00:00.000Z",
+      "qa_completion_target_date": "2026-09-27T18:00:00.000Z",
+      "scrum_team": "HelloTest Native Quality",
+      "labels": [
+        "sample",
+        "v8",
+        "ios",
+        "ios"
+      ],
+      "external_references": [],
+      "specification_format": "speckit",
+      "specification_content": "# Intent\nHandle iOS permission denial accurately\n# Requirements\nDeny notification permission on the configured iOS test device and continue the checkout flow.\n# Acceptance\nThe configured permission-denied notice appears and checkout remains available without reporting permission as granted.\nCross-project records and credentials are not used as sample inputs.\nUnavailable dependencies produce a recoverable gap instead of invented evidence.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "The configured permission-denied notice appears and checkout remains available without reporting permission as granted.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 8,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "ios"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-ios-state",
+      "display_id": "HT8-ST11",
+      "project_id": "sample-project",
+      "title": "Retain iOS state through app backgrounding",
+      "description": "As a QA engineer, I want to retain iOS state through app backgrounding so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Enter a synthetic shipping draft, background and restore the configured iOS application.\nOutcome: The same draft values and screen are restored without a second order being created.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "open",
+      "priority": 1,
+      "iteration_id": "sample-v8-ht-sprint-active",
+      "sprint": "Cross-platform verification",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-10-12T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-25T18:00:00.000Z",
+      "scrum_team": "HelloTest Native Quality",
+      "labels": [
+        "sample",
+        "v8",
+        "ios",
+        "regression"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Retain iOS state through app backgrounding\n\nScenario: Reviewed acceptance\n  Given an authorized ios fixture\n  When Enter a synthetic shipping draft, background and restore the configured iOS application.\n  Then The same draft values and screen are restored without a second order being created.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "The same draft values and screen are restored without a second order being created.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 1,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "ios"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-ios-exploration",
+      "display_id": "HT8-ST12",
+      "project_id": "sample-project",
+      "title": "Review iOS device and orientation evidence",
+      "description": "As a QA engineer, I want to review iOS device and orientation evidence so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Explore portrait and landscape on the selected iOS device and record observed clipping and focus behavior.\nOutcome: The notes identify the device, orientation and observed controls; unvisited screens are not claimed as tested.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "dev_ready",
+      "priority": 2,
+      "iteration_id": "sample-v8-ht-sprint-active",
+      "sprint": "Cross-platform verification",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-10-12T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-25T18:00:00.000Z",
+      "scrum_team": "HelloTest Native Quality",
+      "labels": [
+        "sample",
+        "v8",
+        "ios",
+        "exploratory"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Review iOS device and orientation evidence\n\nScenario: Reviewed acceptance\n  Given an authorized ios fixture\n  When Explore portrait and landscape on the selected iOS device and record observed clipping and focus behavior.\n  Then The notes identify the device, orientation and observed controls; unvisited screens are not claimed as tested.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "The notes identify the device, orientation and observed controls; unvisited screens are not claimed as tested.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 2,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "ios"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-ios-accessibility",
+      "display_id": "HT8-ST13",
+      "project_id": "sample-project",
+      "title": "Validate iOS VoiceOver checkout navigation",
+      "description": "As a QA engineer, I want to validate iOS VoiceOver checkout navigation so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Use VoiceOver to activate every required checkout control on the configured iOS application.\nOutcome: Accessible labels and ordered focus are observable; controls without accessible names produce a cited finding.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "dev_in_progress",
+      "priority": 3,
+      "iteration_id": "sample-v8-ht-sprint-active",
+      "sprint": "Cross-platform verification",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-10-12T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-25T18:00:00.000Z",
+      "scrum_team": "HelloTest Native Quality",
+      "labels": [
+        "sample",
+        "v8",
+        "ios",
+        "accessibility"
+      ],
+      "external_references": [],
+      "specification_format": "speckit",
+      "specification_content": "# Intent\nValidate iOS VoiceOver checkout navigation\n# Requirements\nUse VoiceOver to activate every required checkout control on the configured iOS application.\n# Acceptance\nAccessible labels and ordered focus are observable; controls without accessible names produce a cited finding.\nCross-project records and credentials are not used as sample inputs.\nUnavailable dependencies produce a recoverable gap instead of invented evidence.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "Accessible labels and ordered focus are observable; controls without accessible names produce a cited finding.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 3,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "ios"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-api-idempotency",
+      "display_id": "HT8-ST14",
+      "project_id": "sample-project",
+      "title": "Create an API order exactly once",
+      "description": "As a QA engineer, I want to create an API order exactly once so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: POST a fictional order twice with the same idempotency key and retrieve the order by its captured identifier.\nOutcome: Both responses reference one order and the second request does not create a second order.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "dev_blocked",
+      "priority": 4,
+      "iteration_id": "sample-v8-ht-sprint-active",
+      "sprint": "Cross-platform verification",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-10-12T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-25T18:00:00.000Z",
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "v8",
+        "api",
+        "integration"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Create an API order exactly once\n\nScenario: Reviewed acceptance\n  Given an authorized api fixture\n  When POST a fictional order twice with the same idempotency key and retrieve the order by its captured identifier.\n  Then Both responses reference one order and the second request does not create a second order.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "Both responses reference one order and the second request does not create a second order.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 5,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "api"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-api-validation",
+      "display_id": "HT8-ST15",
+      "project_id": "sample-project",
+      "title": "Reject API payloads that violate the contract",
+      "description": "As a QA engineer, I want to reject API payloads that violate the contract so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Send a documented invalid order payload to the configured example API endpoint.\nOutcome: The documented 422 response identifies the invalid field and no order is created.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "dev_done",
+      "priority": 5,
+      "iteration_id": "sample-v8-ht-sprint-active",
+      "sprint": "Cross-platform verification",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-10-12T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-25T18:00:00.000Z",
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "v8",
+        "api",
+        "functional"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Reject API payloads that violate the contract\n\nScenario: Reviewed acceptance\n  Given an authorized api fixture\n  When Send a documented invalid order payload to the configured example API endpoint.\n  Then The documented 422 response identifies the invalid field and no order is created.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "The documented 422 response identifies the invalid field and no order is created.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 8,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "api"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-api-authorization",
+      "display_id": "HT8-ST16",
+      "project_id": "sample-project",
+      "title": "Deny an unauthorized API order read",
+      "description": "As a QA engineer, I want to deny an unauthorized API order read so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Read a synthetic account A order using the fictional account B fixture.\nOutcome: The contract returns 403 without exposing the order body or account A values.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "qa_ready",
+      "priority": 1,
+      "iteration_id": "sample-v8-ht-sprint-active",
+      "sprint": "Cross-platform verification",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-10-12T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-25T18:00:00.000Z",
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "v8",
+        "api",
+        "security"
+      ],
+      "external_references": [],
+      "specification_format": "speckit",
+      "specification_content": "# Intent\nDeny an unauthorized API order read\n# Requirements\nRead a synthetic account A order using the fictional account B fixture.\n# Acceptance\nThe contract returns 403 without exposing the order body or account A values.\nCross-project records and credentials are not used as sample inputs.\nUnavailable dependencies produce a recoverable gap instead of invented evidence.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "The contract returns 403 without exposing the order body or account A values.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 1,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "api"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-api-performance",
+      "display_id": "HT8-ST17",
+      "project_id": "sample-project",
+      "title": "Measure API latency against a stated target",
+      "description": "As a QA engineer, I want to measure API latency against a stated target so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Send the synthetic workload of 150 concurrent order reads for 60 seconds and measure the 95th percentile.\nOutcome: The recorded p95 is compared with the supplied 250 ms budget; missing instrumentation is an evidence gap.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "qa_in_progress",
+      "priority": 2,
+      "iteration_id": "sample-v8-ht-sprint-active",
+      "sprint": "Cross-platform verification",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-10-12T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-25T18:00:00.000Z",
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "v8",
+        "api",
+        "performance"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Measure API latency against a stated target\n\nScenario: Reviewed acceptance\n  Given an authorized api fixture\n  When Send the synthetic workload of 150 concurrent order reads for 60 seconds and measure the 95th percentile.\n  Then The recorded p95 is compared with the supplied 250 ms budget; missing instrumentation is an evidence gap.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "The recorded p95 is compared with the supplied 250 ms budget; missing instrumentation is an evidence gap.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 2,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "api"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-unified-acceptance",
+      "display_id": "HT8-ST18",
+      "project_id": "sample-project",
+      "title": "Retain cross-platform order traceability",
+      "description": "As a QA engineer, I want to retain cross-platform order traceability so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Create one fictional order through Web, verify it through API and inspect the configured Android and iOS order screens.\nOutcome: All four platforms display the same captured order identity and status; a provider gap is explicit.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "qa_blocked",
+      "priority": 3,
+      "iteration_id": "sample-v8-ht-sprint-active",
+      "sprint": "Cross-platform verification",
+      "release": "Native and unified review",
+      "fix_version": "8.1",
+      "dev_completion_target_date": "2026-10-12T09:00:00.000Z",
+      "qa_completion_target_date": "2026-10-25T18:00:00.000Z",
+      "scrum_team": "HelloTest Native Quality",
+      "labels": [
+        "sample",
+        "v8",
+        "unified",
+        "acceptance"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Retain cross-platform order traceability\n\nScenario: Reviewed acceptance\n  Given an authorized unified fixture\n  When Create one fictional order through Web, verify it through API and inspect the configured Android and iOS order screens.\n  Then All four platforms display the same captured order identity and status; a provider gap is explicit.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "All four platforms display the same captured order identity and status; a provider gap is explicit.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 3,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "unified"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-unified-data",
+      "display_id": "HT8-ST19",
+      "project_id": "sample-project",
+      "title": "Execute a cross-platform data matrix",
+      "description": "As a QA engineer, I want to execute a cross-platform data matrix so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Select Web, API, Android and iOS sections with two fictional data rows and frozen parameter scope.\nOutcome: Each planned row/platform retains its own result; one passed row does not complete an unexecuted matrix.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "qa_done",
+      "priority": 4,
+      "iteration_id": "sample-v8-ht-sprint-closed",
+      "sprint": "Acceptance baseline",
+      "release": "Acceptance baseline",
+      "fix_version": "8.0",
+      "dev_completion_target_date": "2026-09-14T09:00:00.000Z",
+      "qa_completion_target_date": "2026-09-27T18:00:00.000Z",
+      "scrum_team": "HelloTest Native Quality",
+      "labels": [
+        "sample",
+        "v8",
+        "unified",
+        "regression"
+      ],
+      "external_references": [],
+      "specification_format": "speckit",
+      "specification_content": "# Intent\nExecute a cross-platform data matrix\n# Requirements\nSelect Web, API, Android and iOS sections with two fictional data rows and frozen parameter scope.\n# Acceptance\nEach planned row/platform retains its own result; one passed row does not complete an unexecuted matrix.\nCross-project records and credentials are not used as sample inputs.\nUnavailable dependencies produce a recoverable gap instead of invented evidence.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "Each planned row/platform retains its own result; one passed row does not complete an unexecuted matrix.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 5,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "unified"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-story-unified-smoke",
+      "display_id": "HT8-ST20",
+      "project_id": "sample-project",
+      "title": "Review unified runtime selection",
+      "description": "As a QA engineer, I want to review unified runtime selection so that the reviewed behavior and its failure boundaries are traceable.\n\nBehavior: Review a unified plan containing one Web, API, Android and iOS section before dispatch.\nOutcome: Each section retains its native platform and the run selects compatible configured runtimes; incompatible capabilities are rejected.\n\nSynthetic acceptance data; configure real dependencies before live execution.",
+      "status": "done",
+      "priority": 5,
+      "iteration_id": "sample-v8-ht-sprint-closed",
+      "sprint": "Acceptance baseline",
+      "release": "Acceptance baseline",
+      "fix_version": "8.0",
+      "dev_completion_target_date": "2026-09-14T09:00:00.000Z",
+      "qa_completion_target_date": "2026-09-27T18:00:00.000Z",
+      "scrum_team": "HelloTest Native Quality",
+      "labels": [
+        "sample",
+        "v8",
+        "unified",
+        "smoke"
+      ],
+      "external_references": [],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Review unified runtime selection\n\nScenario: Reviewed acceptance\n  Given an authorized unified fixture\n  When Review a unified plan containing one Web, API, Android and iOS section before dispatch.\n  Then Each section retains its native platform and the run selects compatible configured runtimes; incompatible capabilities are rejected.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "Each section retains its native platform and the run selects compatible configured runtimes; incompatible capabilities are rejected.",
+          "Cross-project records and credentials are not used as sample inputs.",
+          "Unavailable dependencies produce a recoverable gap instead of invented evidence."
+        ],
+        "effort_story_points": 8,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "source_review": {
+          "method": "reviewed local implementation",
+          "as_of": "2026-10-12",
+          "platform": "unified"
+        },
+        "sample_metadata_types": {
+          "text": "Fictional acceptance input",
+          "number": 150,
+          "boolean": true,
+          "date": "2026-10-12",
+          "list": [
+            "reviewed",
+            "synthetic"
+          ]
+        }
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    }
+  ]
+}

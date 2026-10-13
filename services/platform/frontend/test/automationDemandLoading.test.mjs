@@ -5,6 +5,9 @@ import vm from "node:vm";
 import test from "node:test";
 import ts from "typescript";
 
+const repositoryExports = {};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../../../automation/frontend/lib/repositoryEntries.ts', import.meta.url), 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText, {exports:repositoryExports});
+
 function queryOptions(page, name, values = {}) {
   const source = ts.createSourceFile(page, readFileSync(sourceFile(`${page}.tsx`, "pages"), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let expression;
@@ -15,7 +18,7 @@ function queryOptions(page, name, values = {}) {
   visit(source);
   assert.ok(expression, `Missing production query ${name}`);
   const code = ts.transpileModule(`globalThis.options = (${expression});`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const context = vm.createContext({ session: {}, projectId: "project", appTypeId: "app", view: "cases", selectedCaseId: "case", selectedTransactionId: "transaction", selectedTransactionStatus: "running", selectedTransactionIsRunning: true, needsAutomationEditorData: false, needsAutomationRepository: false, isSharedGroupLibraryOpen: false, isInspectOpen: false, api: {}, ...values });
+  const context = vm.createContext({ session: {}, projectId: "project", appTypeId: "app", view: "cases", selectedCaseId: "case", selectedTransactionId: "transaction", selectedTransactionStatus: "running", selectedTransactionIsRunning: true, needsAutomationEditorData: false, needsAutomationRepository: false, isSharedGroupLibraryOpen: false, isInspectOpen: false, api: {}, collectRepositoryPages: repositoryExports.collectRepositoryPages, ...values });
   vm.runInContext(code, context);
   return context.options;
 }

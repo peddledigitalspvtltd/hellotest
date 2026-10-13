@@ -305,6 +305,35 @@
       "options": {
         "cwd": "${workspaceFolder}"
       }
+    },
+    {
+      "label": "debug:local:testengine-quality-worker",
+      "type": "process",
+      "command": "sh",
+      "args": [
+        "${workspaceFolder}/scripts/debug/testengine-quality-worker.sh"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "local-debug",
+        "pattern": {
+          "regexp": "^(never-match-debug-error)$",
+          "file": 1,
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^DEBUG STARTING",
+          "endsPattern": "^DEBUG READY"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
     }
   ]
 }

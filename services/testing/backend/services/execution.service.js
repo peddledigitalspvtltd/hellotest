@@ -383,7 +383,7 @@ function normalizeLocalEngineBaseUrl(value) {
   }
 
   if(parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== "/")throw new Error("Use the configured local runner base URL without credentials, a path, query or fragment.");
-  const approved=new Set(["http://localhost:4311","http://127.0.0.1:4311","http://host.docker.internal:4311","http://[::1]:4311"]);
+  const approved=new Set(["http://localhost:4313","http://127.0.0.1:4313","http://host.docker.internal:4313","http://[::1]:4313","http://localhost:4311","http://127.0.0.1:4311","http://host.docker.internal:4311","http://[::1]:4311"]);
   if(process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL){try{approved.add(new URL(process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL).origin);}catch{}}
   if(!approved.has(parsed.origin))throw Object.assign(new Error("Use the configured host Playwright runner. Additional local endpoints must be configured by an administrator."),{statusCode:400,code:"LOCAL_AGENT_TARGET_INVALID"});
 
@@ -412,13 +412,16 @@ async function canReachLocalEngine(baseUrl) {
 }
 
 async function resolveLocalEngineBaseUrl(preferredUrl) {
-  const localOrigins = new Set(["http://localhost:4311", "http://127.0.0.1:4311", "http://host.docker.internal:4311", "http://[::1]:4311"]);
+  const localOrigins = new Set(["http://localhost:4313", "http://127.0.0.1:4313", "http://host.docker.internal:4313", "http://[::1]:4313", "http://localhost:4311", "http://127.0.0.1:4311", "http://host.docker.internal:4311", "http://[::1]:4311"]);
   const selected = preferredUrl || process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL;
   const selectedUrl = selected ? normalizeLocalEngineBaseUrl(selected) : null;
   // A configured remote runner must never silently fall back to a different host.
   const candidates = (selectedUrl && !localOrigins.has(new URL(selectedUrl).origin) ? [selectedUrl] : [
     preferredUrl,
     process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL,
+    "http://host.docker.internal:4313",
+    "http://127.0.0.1:4313",
+    "http://localhost:4313",
     "http://host.docker.internal:4311",
     "http://127.0.0.1:4311",
     "http://localhost:4311"
@@ -1743,6 +1746,7 @@ exports.getExecution = async (id, forceRefresh = false) => {
       const execution = await selectExecutionRecord.get(id);
       if (!execution) throw new Error("Execution not found");
       const detailedExecution = preserveFrozenRunParameters(await attachDetailedScope(execution));
+      detailedExecution.live_sessions = await testEngineDispatchService.getExecutionLiveSessions(execution).catch(() => []);
       executionCache.set(id, { timestamp: Date.now(), data: detailedExecution });
       return detailedExecution;
     } catch (err) {

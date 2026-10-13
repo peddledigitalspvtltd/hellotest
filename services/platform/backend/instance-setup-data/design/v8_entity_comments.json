@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-comment-case-1",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-story-metadata",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-2",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-nfr-user-intent",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-3",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-sprint-overdue",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-4",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-shared-sections",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-5",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-chat-mcp-budget",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-6",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-android-offline",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-7",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-android-security",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-8",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-android-accessibility",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-9",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-android-smoke",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-10",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-ios-permissions",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-11",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-ios-state",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-12",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-ios-exploration",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-13",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-ios-accessibility",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-14",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-api-idempotency",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-15",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-api-validation",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-16",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-api-authorization",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-17",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-api-performance",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-18",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-unified-acceptance",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-19",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-unified-data",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-20",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-unified-smoke",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-21",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-automation-web",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-22",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-automation-api",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-23",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-automation-android",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-24",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-automation-ios",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-25",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-automation-unified",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-case-26",
+      "project_id": "sample-project",
+      "entity_type": "test_case",
+      "entity_id": "sample-v8-ht-case-automation-android-landscape",
+      "body": "Synthetic review note: verify the ordered actions, expected outcomes, platform type and fictional data row before approval.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    }
+  ]
+}

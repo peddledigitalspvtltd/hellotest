@@ -3,7 +3,7 @@
 `testengine/` is the API, browser and native execution service for HelloTest. The product workspace remains the system of record for authoring, runs, evidence history and review. The engine also exposes a diagnostic telemetry board. For host development and breakpoints, use [CONTRIBUTING.md](../CONTRIBUTING.md) and the [debugging runbook](../docs/development/debugging.md).
 
 This is the sole HelloTest execution runtime. The redundant prototype has been
-removed after a [capability comparison](../docs/testengine-consolidation.md).
+removed after a [capability comparison](../docs/architecture/testengine.md).
 Develop, build, test, and deploy execution features from this directory.
 
 The product boundary is:
@@ -299,8 +299,8 @@ debugging behind restrictive network rules.
 
 ## See Also
 
-- [HelloTest background operations strategy](../docs/HELLOTEST_BACKGROUND_OPERATIONS_STRATEGY.md)
-- [HelloTest product operating model](../docs/HELLOTEST_PRODUCT_OPERATING_MODEL.md)
+- [HelloTest background operations strategy](../docs/architecture/background-operations.md)
+- [HelloTest product operating model](../docs/architecture/automation-workflow.md)
 - [Architecture](ARCHITECTURE.md)
 - [HelloTest handoff contract](backend/src/contracts/hellotest.ts)
 

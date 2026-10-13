@@ -1,3 +1,5 @@
+import { CatalogCardDescription } from "@hellotest/platform/frontend/src/shared/components/CatalogCardDescription";
+import { truncateAtWordBoundary } from "@hellotest/platform/frontend/src/shared/lib/catalogDescriptionSummary";
 import { takeAgentProposal } from "@hellotest/platform/frontend/src/lib/agentProposalDraft";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
 const DefectTriageDialog = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/DefectTriageDialog")["DefectTriageDialog"]> & {}>("ai", "DefectTriageDialog", () => import("@hellotest/ai/frontend/components/DefectTriageDialog"), "ai");
@@ -2570,13 +2572,13 @@ export function IssuesPage() {
                           onClick={() => openIssueWorkspace(item.id)}
                           type="button"
                         >
-                          <strong>{item.title}</strong>
+                          <strong title={item.title}>{truncateAtWordBoundary(item.title, 96).text}</strong>
                           <span className="tile-card-kicker">
                             {item.jira_bug_key || item.user_name || item.user_email || item.user_id}
                           </span>
                         </button>
                       </div>
-                      <RichTextContent className="tile-card-description" value={item.message} />
+                      <CatalogCardDescription fallback="No Defect description captured yet." profile="defect" value={item.message} />
                       <div className="tile-card-progress-stack issue-tile-progress-stack">
                         <TileCardProgress
                           breakdown={{ total: evidenceFields.length, segments: [

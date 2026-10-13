@@ -88,7 +88,7 @@ test("Shared Step Group tiles show definition, recorded step health and compact 
   assert.match(service, /o\.status IN \('passed','failed'\)/);
   assert.doesNotMatch(page, /selectLatestExecutionResultInstances\(executionResults\)/);
   assert.match(card, /steps include both an action and expected result/);
-  assert.match(card, /aria-label=\{`Select Shared Step Group \$\{group\.name\}`\}/);
+  assert.match(card, /aria-label=\{`Select \$\{groupLabel\} \$\{group\.name\}`\}/);
   assert.match(card, /aria-current=\{isActive \? "page" : undefined\}/);
   assert.doesNotMatch(card, /aria-pressed/);
 });

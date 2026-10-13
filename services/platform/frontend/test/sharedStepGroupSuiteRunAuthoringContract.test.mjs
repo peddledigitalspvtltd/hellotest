@@ -38,8 +38,8 @@ test("Shared Step Groups preserve Structured and step-group Gherkin authoring wi
   assert.match(page, /authoring_mode: groupDraft\.authoring_mode/);
   assert.match(page, /composeSharedStepGherkin\(parseSharedStepGherkin\(groupDraft\.gherkin_document\)\)/);
   assert.match(page, /gherkin_document: gherkinDocument/);
-  assert.match(page, /scopeLabels=\{\{ t: "Shared Step Group" \}\}/);
-  assert.match(page, /title="Shared Step Group Params"/);
+  assert.match(page, /scopeLabels=\{\{ t: groupCopy\("Shared Step Group"\) \}\}/);
+  assert.match(page, /title=\{groupCopy\("Shared Step Group Params"\)\}/);
   assert.match(api, /authoring_mode\?: "structured" \| "gherkin"/);
   assert.match(types, /authoring_mode\?: "structured" \| "gherkin";[\s\S]*gherkin_document\?: string \| null/);
   assert.match(styles, /\.step-editor--shared \.step-card-menu--floating \{[\s\S]*position: relative/);

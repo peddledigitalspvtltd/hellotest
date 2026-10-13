@@ -1,5 +1,8 @@
 # Quality Analytics and Release Readiness: product review and implementation
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 Reviewed 10 September 2026. This research supports an implemented change to QAIra's two built-in dashboards. It combines inspection of the current application, screenshots of the real components with representative fixtures, code and database analysis, and primary-source guidance. It is an expert product review, not a claim that customer interviews or usability studies occurred.
 
 ## Product decision
@@ -72,4 +75,4 @@ Dialogs use the existing focus-management hook for initial focus, containment, E
 
 Targeted helper tests cover unavailable denominators, invalid window selection, corrupt/duplicated layouts, count-preserving trend grouping and CSV formula handling. Browser checks exercise period changes, a metric explanation and focus return, attention expansion, table access, export, persisted layout, failed-refresh recovery, empty/restricted/disabled/no-project states and Spanish mobile layouts. Database integration uses a disposable PostgreSQL instance, including more than 100 inventory records, retries, independent data rows, missing planned results, future/out-of-window runs and restricted sources.
 
-Final build, suite counts and local deployment checks are recorded in [validation](quality-analytics-readiness-validation.md). No production-scale performance benchmark or live-provider prediction evaluation was conducted. Release decisions remain human owned; these dashboards expose evidence and review work rather than asserting that passing tests guarantee a safe release.
+Final build, suite counts and local deployment checks are recorded in [validation](../development/verification.md). No production-scale performance benchmark or live-provider prediction evaluation was conducted. Release decisions remain human owned; these dashboards expose evidence and review work rather than asserting that passing tests guarantee a safe release.

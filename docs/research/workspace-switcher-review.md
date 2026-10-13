@@ -1,5 +1,8 @@
 # Workspace scope selector: implementation audit
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 The supplied design target was the existing administration portal, captured at
 `/tmp/qaira-workspace-design/before-admin.png`. The replacement follows its navy
 navigation, quiet labels, compact spacing and restrained corners. The project

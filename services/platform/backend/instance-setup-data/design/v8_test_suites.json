@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-suite-web",
+      "display_id": "HT8-SU1",
+      "app_type_id": "sample-app-web",
+      "name": "Web acceptance suite",
+      "description": "Synthetic cases; reviewed provider setup is required before execution.",
+      "parallel_enabled": true,
+      "parallel_count": 2,
+      "parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-suite-api",
+      "display_id": "HT8-SU2",
+      "app_type_id": "sample-app-api",
+      "name": "Api acceptance suite",
+      "description": "Synthetic cases; reviewed provider setup is required before execution.",
+      "parallel_enabled": true,
+      "parallel_count": 2,
+      "parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-suite-android",
+      "display_id": "HT8-SU3",
+      "app_type_id": "sample-v8-ht-app-android",
+      "name": "Android acceptance suite",
+      "description": "Synthetic cases; reviewed provider setup is required before execution.",
+      "parallel_enabled": false,
+      "parallel_count": 2,
+      "parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-suite-ios",
+      "display_id": "HT8-SU4",
+      "app_type_id": "sample-v8-ht-app-ios",
+      "name": "Ios acceptance suite",
+      "description": "Synthetic cases; reviewed provider setup is required before execution.",
+      "parallel_enabled": false,
+      "parallel_count": 2,
+      "parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-suite-unified",
+      "display_id": "HT8-SU5",
+      "app_type_id": "sample-app-mobile",
+      "name": "Unified acceptance suite",
+      "description": "Synthetic cases; reviewed provider setup is required before execution.",
+      "parallel_enabled": false,
+      "parallel_count": 2,
+      "parameter_values": {
+        "s.tenant": "fictional-tenant"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v8-ht-comment-story-1",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-story-metadata",
+      "body": "Synthetic refinement note: Every authored value and acceptance criterion is retained without changing another project. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-2",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-nfr-user-intent",
+      "body": "Synthetic refinement note: The proposal measures latency against the supplied workload and threshold; it does not substitute a functional happy-path objective. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-3",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-sprint-overdue",
+      "body": "Synthetic refinement note: The Sprint is labelled Overdue in red; its Story and dates remain editable according to permissions. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-4",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-shared-sections",
+      "body": "Synthetic refinement note: The reviewed names, ordered actions, expected results and platform types survive; library records and frozen run snapshots are retained. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-5",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-chat-mcp-budget",
+      "body": "Synthetic refinement note: MCP honors the normalized budget and verified project; the answer preserves paragraphs and citations, and gaps are explicit. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-6",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-android-offline",
+      "body": "Synthetic refinement note: The saved draft is restored once without duplicate submission; missing native-provider readiness blocks execution explicitly. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-7",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-android-security",
+      "body": "Synthetic refinement note: No account A record appears in account B scope, including during pending refresh. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-8",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-android-accessibility",
+      "body": "Synthetic refinement note: Every required control has an accessible name, logical focus order and a measurable announced outcome. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-9",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-android-smoke",
+      "body": "Synthetic refinement note: The home screen is displayed on Android; a mismatched iOS capability is rejected. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-10",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-ios-permissions",
+      "body": "Synthetic refinement note: The configured permission-denied notice appears and checkout remains available without reporting permission as granted. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-11",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-ios-state",
+      "body": "Synthetic refinement note: The same draft values and screen are restored without a second order being created. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-12",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-ios-exploration",
+      "body": "Synthetic refinement note: The notes identify the device, orientation and observed controls; unvisited screens are not claimed as tested. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-13",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-ios-accessibility",
+      "body": "Synthetic refinement note: Accessible labels and ordered focus are observable; controls without accessible names produce a cited finding. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-14",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-api-idempotency",
+      "body": "Synthetic refinement note: Both responses reference one order and the second request does not create a second order. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-15",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-api-validation",
+      "body": "Synthetic refinement note: The documented 422 response identifies the invalid field and no order is created. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-16",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-api-authorization",
+      "body": "Synthetic refinement note: The contract returns 403 without exposing the order body or account A values. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-17",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-api-performance",
+      "body": "Synthetic refinement note: The recorded p95 is compared with the supplied 250 ms budget; missing instrumentation is an evidence gap. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-18",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-unified-acceptance",
+      "body": "Synthetic refinement note: All four platforms display the same captured order identity and status; a provider gap is explicit. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-19",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-unified-data",
+      "body": "Synthetic refinement note: Each planned row/platform retains its own result; one passed row does not complete an unexecuted matrix. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v8-ht-comment-story-20",
+      "project_id": "sample-project",
+      "entity_type": "requirement",
+      "entity_id": "sample-v8-ht-story-unified-smoke",
+      "body": "Synthetic refinement note: Each section retains its native platform and the run selects compatible configured runtimes; incompatible capabilities are rejected. Review provider and source availability before claiming acceptance.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-01T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z"
+    }
+  ]
+}

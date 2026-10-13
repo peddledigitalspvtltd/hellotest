@@ -1,5 +1,8 @@
 # Instance setup and Product Management corrections
 
+Reference research: dated observations and verification counts describe the recorded review, not current acceptance. Use the current [verification runbook](../development/verification.md) for reproducible checks.
+
+
 Implemented on 2026-09-20.
 
 ## Setup and reusable content
