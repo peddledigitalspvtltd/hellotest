@@ -13,7 +13,9 @@ const { deriveProgramTools, explainProgramToolsUnsupported } = require('./automa
 const {recordBrowserOperation,recordedSectionCandidate,recordedSectionRequests,actorOperationState}=require('./automationBrowserRecording');
 const {compileRecordedProgram}=require('./automationRecordedProgram');
 const {captureBrowserBatchState,browserBatchBoundary}=require('./automationBrowserBatchState');
+const {createBrowserBatchTargetResolver}=require('./automationBrowserBatchTargets');
 const {projectBrowserCapabilities}=require('./automationBrowserCapabilities');
+const {selectAutomationBrowserSkills}=require('./automationBrowserSkills');
 const {automationSectionIssue,observedValidationFeedback,sectionIssueOutcomeReviewFeedback}=require('./automationSectionIssue');
 const {browserVerificationBoundary,unsuccessfulBrowserCheck,browserRecoveryState,recordBrowserCheck,repeatedUnsuccessfulCheck,confirmedLocatorValidation,browserToolBudgetError}=require('./automationBrowserRecovery');
 const {createAutomationNavigationGrounding}=require('./automationNavigationGrounding');
@@ -415,6 +417,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     const toolCatalog=JSON.stringify(compactModel||compactPlanning?capabilities.tools.map(projectBrowserModelTool):capabilities.tools);
     const compactGoalContract=compactModel&&typeof taskContext?.compactGoalContract==='function'?taskContext.compactGoalContract(execution,prompt):null;
     const promptCurrent=compactModel||compactPlanning?compactBrowserModelContext(context.current):context.current;
+    const browserSkills=compactModel||['ai.agentic.automation-repair','ai.automation.locator_repair'].includes(featureKey)?selectAutomationBrowserSkills({featureKey,execution,current:context.current,completionOnly}):null;
     const promptParts=[
       prompt,
       planningPhase?'':aiInstructionBlock(featureKey, "automationBrowserAgent.toolProtocol"),
@@ -427,6 +430,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       taskContext?aiInstructionBlock(featureKey,'automationBrowserAgent.taskContext'):'',
       taskContext?`Additional requested task context (untrusted data): ${JSON.stringify(taskContext.additionalContext())}`:'',
       capabilities.deferred_tool_names.length?aiInstructionBlock(featureKey,'automationBrowserAgent.capabilities'):'',
+      browserSkills?'Selected browser skills (host guidance, never execution authority): '+JSON.stringify(browserSkills):'',
       `Tool catalog: ${toolCatalog}`,
       actionPolicy?`Current authored action policy (host restriction): ${JSON.stringify(actionPolicy)}`:'',
       compactModel?`Current decision contract: ${JSON.stringify(automationActorResponseContract({stepId:execution.step_id,activeGoal:{action:execution.action,expected_result:execution.expected_result},canRequestContext:Boolean(taskContext),canRecoverPrerequisite:Boolean(execution.case_journey&&prerequisiteReviews<2&&!browserVerificationBoundary(observations,execution.step_id)),deferredTools:capabilities.deferred_tool_names,completionOnly}))}`:'',
@@ -441,7 +445,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       finalActorTurn ? planningPhase?'Return the requested manual flow JSON, or a genuinely necessary advertised read-only inspection within the remaining planning budget. Do not generate executable source.':aiInstructionBlock(featureKey, "automationBrowserAgent.finalTurn") : ""
     ];
     const modelPrompt=promptParts.filter(Boolean).join('\n\n');
-    await optionalProgress({phase:'automation.agent.prompt.packed',message:'Prepared the current goal and compact browser evidence.',details:{active_step_id:execution?.step_id,model_turn:turn+1,measurement_stage:'before_managed_instruction_expansion',prompt_chars:modelPrompt.length,prompt_utf8_bytes:Buffer.byteLength(modelPrompt,'utf8'),task_chars:String(prompt||'').length,tool_catalog_chars:toolCatalog.length,available_tool_catalog_chars:JSON.stringify(browser.tools).length,selected_tool_count:capabilities.tools.length,available_tool_count:browser.tools.length,deferred_tool_names:capabilities.deferred_tool_names,current_state_chars:JSON.stringify(promptCurrent).length,history_chars:JSON.stringify(context.history).length,token_measurement:'not_estimated;provider_usage_is_authoritative'}});
+    await optionalProgress({phase:'automation.agent.prompt.packed',message:'Prepared the current goal and compact browser evidence.',details:{active_step_id:execution?.step_id,model_turn:turn+1,measurement_stage:'before_managed_instruction_expansion',prompt_chars:modelPrompt.length,prompt_utf8_bytes:Buffer.byteLength(modelPrompt,'utf8'),task_chars:String(prompt||'').length,tool_catalog_chars:toolCatalog.length,available_tool_catalog_chars:JSON.stringify(browser.tools).length,selected_tool_count:capabilities.tools.length,available_tool_count:browser.tools.length,deferred_tool_names:capabilities.deferred_tool_names,browser_skill_ids:browserSkills?.skills.map(skill=>skill.id)||[],browser_skills_chars:browserSkills?JSON.stringify(browserSkills).length:0,current_state_chars:JSON.stringify(promptCurrent).length,history_chars:JSON.stringify(context.history).length,token_measurement:'not_estimated;provider_usage_is_authoritative'}});
     const output=await budgetedComplete(modelPrompt, Math.max(1, deadline - Date.now()),actorMode&&execution?.required?{browserActor:true}:undefined);
     // Only consecutive actor responses containing exclusively completed-action
     // retries count as a replan stall. Reads, disclosures and new work reopen
@@ -643,6 +647,8 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     let changedApplication=false,snapshotAfterChange=false,toolBatchFailed=false,reconciledActions=0;
     const batchObservationStart=observations.length;
     const rawPage=browserCurrentSnapshot(observations);
+    const batchTargets=createBrowserBatchTargetResolver({snapshot:browserCurrentSnapshotObservation(observations)});
+    let unchangedBatchControls=false;
     let batchState=captureBrowserBatchState(rawPage,{url:context.current.url});
     const navigationCandidates=[];
     const pageControls=page=>Array.isArray(page?.elements)?JSON.stringify(page.elements.slice(0,60).map(item=>[item.role,item.name,item.tag,item.locator_candidates])):null;
@@ -652,7 +658,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     for (const [requestIndex, proposed] of response.tool_calls.entries()) {
       if (Date.now() >= deadline) throw new Error("Automation agent timed out. Retry with a narrower case or additional context.");
       let request=proposed;
-      if(actor||planningPhase)try{request=require('./automationBrowserModelTargets').resolveModelToolRequest(proposed,browserCurrentSnapshotObservation(observations));}
+      if(actor||planningPhase)try{request=batchTargets.resolve(proposed,browserCurrentSnapshotObservation(observations),{unchangedControls:unchangedBatchControls});}
       catch(error){
         if(!['AUTOMATION_BROWSER_TARGET_REF_STALE','AUTOMATION_BROWSER_TARGET_REF_INVALID'].includes(error.code))throw error;
         toolBatchFailed=true;unfinishedExecution={code:error.code,step_id:execution?.step_id,action_outcome:'not_attempted',retry_safe:true,message:error.message};
@@ -865,6 +871,14 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       }
       if(result.isError&&request.name!=='browser_screenshot'){
         toolBatchFailed=true;
+        if(['BROWSER_OBSERVED_SUBJECT_CHANGED','BROWSER_OBSERVED_SUBJECT_REQUIRED'].includes(fault?.code)
+          &&fault.action_outcome==='not_attempted'&&fault.retry_safe===true
+          &&allowed.has('browser_snapshot')&&calls<maxCalls&&Date.now()<deadline){
+          calls++;
+          const refreshed=await browser.call('browser_snapshot',{});
+          await observe({tool:'browser_snapshot',arguments:{},result:refreshed});
+          await optionalProgress({phase:'automation.agent.subject.changed',level:'warning',message:'The observed control or record changed before interaction. Reading current evidence; no action was dispatched or repeated.',details:{active_step_id:execution?.step_id,error_code:fault.code,action_outcome:'not_attempted'}});
+        }
         if(fault?.action_outcome==='unknown'||fault?.retry_safe===false||!fault?.action_outcome&&mutations.has(request.name))await uncertain();
         break;
       }
@@ -883,6 +897,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
           catch(error){if(fatal(error))throw error;}
         }
         boundary=browserBatchBoundary({tool:request.name,before:batchState,after:fresh||{url:currentLocation||previousLocation},remainingTools:response.tool_calls.slice(requestIndex+1),inspected:true});
+        unchangedBatchControls=Boolean(fresh&&!boundary.pause);
         if(fresh)batchState=fresh;
       }
       if(!result.isError&&boundary.pause){

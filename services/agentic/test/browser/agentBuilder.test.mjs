@@ -53,6 +53,10 @@ test('project agent drafts activate into the library and workflow picker with sk
     await page.screenshot({path:output+'/01-skills-dark.png',fullPage:true});
     await page.evaluate(()=>document.documentElement.removeAttribute('data-theme'));
     await editor.getByRole('button',{name:'3. Completion & limits',exact:true}).click();
+    await editor.getByLabel('Required result',{exact:false}).selectOption('test_case');
+    await editor.getByLabel('Minimum reviewed drafts',{exact:false}).fill('0');
+    assert.equal(await editor.getByRole('button',{name:'Save draft',exact:true}).isDisabled(),true,'authoring cannot declare completion without any draft');
+    await editor.getByLabel('Minimum reviewed drafts',{exact:false}).fill('1');
     await editor.getByLabel('Time limit (seconds)',{exact:true}).fill('0');
     assert.equal(await editor.getByRole('button',{name:'Save and activate',exact:true}).isDisabled(),true,'out-of-range limits cannot activate an agent');
     await editor.getByLabel('Time limit (seconds)',{exact:true}).fill('70');
@@ -61,6 +65,7 @@ test('project agent drafts activate into the library and workflow picker with sk
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
     await page.screenshot({path:output+'/02-completion-mobile.png',fullPage:true});
     await editor.getByRole('button',{name:'Save draft',exact:true}).click();
+    assert.deepEqual(saves[0].definition.output_contract,{kind:'test_case',minimum_artifacts:1});
     await page.getByRole('button',{name:'Open Release evidence reviewer',exact:true}).waitFor();
     assert.equal(await page.getByRole('button',{name:'Open Release evidence reviewer',exact:true}).isDisabled(),true);
     assert.deepEqual(saves[0].definition.required_inputs,['release_id','environment']);
@@ -76,7 +81,7 @@ test('project agent drafts activate into the library and workflow picker with sk
     await page.getByRole('button',{name:/Start review/}).click();
     await page.getByText('An active LLM connection is required. Configure it in Integrations.',{exact:true}).waitFor();
     assert.equal(await page.locator('.agent-outcome-panel').count(),0,'Model failure must not invent a completed brief');
-    await page.getByRole('button',{name:'Workflows',exact:true}).click();
+    await page.evaluate(()=>window.navigateWorkspace('/agentic-workflows?view=workflows'));
     await page.getByRole('button',{name:'Start from scratch',exact:true}).click(); await page.getByRole('button',{name:'Add manual trigger',exact:true}).click();
     await page.getByRole('button',{name:/Add node after Manual trigger/}).click();
     await page.getByRole('textbox',{name:'Search nodes'}).fill('Release evidence');
@@ -85,7 +90,7 @@ test('project agent drafts activate into the library and workflow picker with sk
     const saved=await page.evaluate(()=>window.previewWorkflow.nodes.find(node=>String(node.data.agentId || '').startsWith('agent-')));
     assert.equal(saved.data.agentVersion,2); assert.equal(saved.data.skills[0].id,'reusable-skill'); assert.equal(saved.data.llmIntegrationId,'model');
     await page.screenshot({path:output+'/03-agent-in-workflow.png',fullPage:true});
-    await page.getByRole('button',{name:'Back to workflows',exact:true}).click(); await page.getByRole('button',{name:'Agent library',exact:true}).click();
+    await page.getByRole('button',{name:'Back to workflows',exact:true}).click(); await page.evaluate(()=>window.navigateWorkspace('/agentic-workflows?view=agents'));
     await card.getByRole('button',{name:'Edit',exact:true}).click();
     await page.getByLabel('Objective',{exact:false}).fill('Review the revised acceptance contract.'); await page.getByRole('button',{name:'Save draft',exact:true}).click();
     await card.getByText('Active v2 · Draft v3',{exact:true}).waitFor();

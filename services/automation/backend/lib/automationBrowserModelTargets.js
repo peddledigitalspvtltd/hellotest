@@ -55,12 +55,16 @@ function currentLocatorCandidates(element) {
     const contract = explicitTestId(candidate);
     return !contract || typeof observedTestId !== 'string' || attributeComplete && contract.value === observedTestId;
   });
-  // An explicit test ID is an application-owned automation contract. Dynamic
+  // An observed record scope preserves the enclosing subject during playback;
+  // it must itself be an exact validated candidate. Otherwise an explicit test
+  // ID is an application-owned automation contract. Dynamic
   // accessible names remain useful to the actor and reviewer, but must not
   // displace an already grounded stable contract in the executable source.
   // Preserve exact bytes and all safe aliases; never invent a selector from an
   // attribute, or try a different target after an operation fails.
-  const preferred = candidates.find(candidate => explicitTestId(candidate)) || candidates[0];
+  const scoped = typeof element.record_scoped_locator === 'string' && candidates.includes(element.record_scoped_locator)
+    ? element.record_scoped_locator : null;
+  const preferred = scoped || candidates.find(candidate => explicitTestId(candidate)) || candidates[0];
   return { candidates, preferred };
 }
 function selectOptions(element) {
@@ -153,13 +157,14 @@ function registry(observation) {
   const previous = snapshots.get(observation);
   if (previous?.fingerprint === fingerprint) return previous;
   const epoch = randomBytes(6).toString('hex');
-  const bindings = new Map(), aliases = new Map(), semanticAliases = new Map(), targets = [], byElement = new Map();
+  const bindings = new Map(), aliases = new Map(), semanticAliases = new Map(), recordScopes = new Map(), targets = [], byElement = new Map();
   for (const element of page.elements.slice(0, MAX_TARGETS)) {
     if (!element || typeof element !== 'object' || element.locators_validated !== true || !Array.isArray(element.locator_candidates)) continue;
     const { candidates, preferred } = currentLocatorCandidates(element);
     if (!candidates.length) continue;
     const ref = `ref:${epoch}:${targets.length + 1}`;
     bindings.set(ref, preferred);
+    if (element.record_scoped_locator === preferred) recordScopes.set(ref, preferred);
     for (const locator of candidates) if (!aliases.has(locator)) aliases.set(locator, ref);
     for(const locator of candidates){
       const key=semanticLocatorKey(locator);
@@ -184,6 +189,7 @@ function registry(observation) {
       ...(input && typeof element.attributes?.['aria-invalid'] === 'string' ? textField('aria_invalid', element.attributes['aria-invalid'], 30, element.truncated_attributes?.includes('aria-invalid')) : {}),
       ...(!input && element.text ? textField('text', element.text, 180, element.text_truncated) : {}),
       ...(element.evidence_kind === 'page_content' ? { evidence_kind: 'page_content' } : {}),
+      ...(typeof element.context_text === 'string' && element.context_text ? textField('context_text', element.context_text, 180, element.context_text_truncated) : {}),
       ...((role === 'alert' || element.evidence_kind === 'page_content') && typeof element.visible_text === 'string' ? textField('visible_text', element.visible_text, 180, element.visible_text_truncated) : {}),
       ...(typeof element.displayed === 'boolean' ? { visible: element.displayed } : {}),
       ...(typeof element.in_viewport === 'boolean' ? { in_viewport: element.in_viewport } : {}),
@@ -194,7 +200,7 @@ function registry(observation) {
     byElement.set(element, targets[targets.length - 1]);
   }
   projectFieldRelationships(page, byElement);
-  const entry = { fingerprint, bindings, aliases, semanticAliases, model: {
+  const entry = { fingerprint, bindings, aliases, semanticAliases, recordScopes, model: {
     ...textField('observation_id', page.observation_id, 160),
     ...textField('url', typeof page.url === 'string' ? page.url : '', 2_000, page.url_truncated),
     ...textField('title', typeof page.title === 'string' ? page.title : '', 200, page.title_truncated),
@@ -220,9 +226,15 @@ function resolveModelToolRequest(request, observation) {
     // A formatting-only proposal cannot register its own copied page. Resolve
     // only against validated aliases of the already projected host snapshot.
     const entry=currentRegistry(observation);
-    if(!entry||entry.aliases.has(locator))return request;
+    if(!entry)return request;
+    const alias=entry.aliases.get(locator);
+    // Preserve explicit absence/count scope. Positive observed-subject work
+    // keeps its narrower record identity through source and reconciliation.
+    const preserveScope=request.name==='browser_assert'&&['hidden','count'].includes(request.arguments?.assertion);
+    const scoped=alias&&!preserveScope?entry.recordScopes.get(alias):null;
+    if(alias)return scoped&&scoped!==locator?{...request,arguments:{...request.arguments,locator:scoped}}:request;
     const captured=entry.semanticAliases.get(semanticLocatorKey(locator));
-    return captured?{...request,arguments:{...request.arguments,locator:captured.locator}}:request;
+    return captured?{...request,arguments:{...request.arguments,locator:!preserveScope&&entry.recordScopes.get(captured.ref)||captured.locator}}:request;
   }
   if (!/^ref:[a-f0-9]{12}:[1-9]\d{0,2}$/.test(locator)) throw targetError('AUTOMATION_BROWSER_TARGET_REF_INVALID');
   const entry = registry(observation);
@@ -236,6 +248,40 @@ function resolveModelToolRequest(request, observation) {
 function modelTargetForLocator(locator, observation) {
   if (typeof locator !== 'string') return null;
   return registry(observation)?.aliases.get(locator) || null;
+}
+
+/** Host-only inspection of an already registered immutable observation. This
+ * never registers a copied page and must not be included in model context. */
+function browserBatchTargetEvidence(observation) {
+  const entry = currentRegistry(observation);
+  if (!entry) return null;
+  const page = browserReceipt(observation), targets = [];
+  for (const element of page.elements.slice(0, MAX_TARGETS)) {
+    if (!element || typeof element !== 'object' || element.locators_validated !== true || !Array.isArray(element.locator_candidates)) continue;
+    const { candidates } = currentLocatorCandidates(element);
+    if (!candidates.length) continue;
+    const target = entry.model.targets[targets.length];
+    if (!target) return null;
+    const stable = [];
+    for (const locator of candidates) {
+      const testId = explicitTestId(locator);
+      if (testId && testId.value.trim() && testId.value.length <= 256 && !/[\x00-\x1f]/.test(testId.value)
+        && !element.truncated_attributes?.includes('data-testid')
+        && (element.attributes?.['data-testid'] === undefined || element.attributes['data-testid'] === testId.value)) {
+        stable.push({ key: JSON.stringify(['testId', testId.value]), locator });
+      } else if (/^#[A-Za-z_][A-Za-z0-9_-]{0,255}$/.test(locator)
+        && !element.truncated_attributes?.includes('id')
+        && (element.attributes?.id === undefined || element.attributes.id === locator.slice(1))) {
+        stable.push({ key: JSON.stringify(['id', locator.slice(1)]), locator });
+      }
+    }
+    const identityAttributes = { id: element.attributes?.id ?? null, test_id: element.attributes?.['data-testid'] ?? null };
+    targets.push({ ...structuredClone(target), stable_aliases: stable, identity_key: JSON.stringify(identityAttributes),
+      identity_complete: !['accessible_role_truncated', 'role_truncated', 'accessible_name_truncated', 'name_truncated', 'label_truncated', 'tag_truncated', 'context_text_truncated'].some(key => element[key] === true)
+        && !element.truncated_attributes?.some(key => ['id', 'data-testid', 'type', 'placeholder'].includes(key))
+        && Object.values(identityAttributes).every(value => value === null || typeof value === 'string' && value.length <= 256) });
+  }
+  return { fingerprint: entry.fingerprint, targets };
 }
 
 /** Private host capture for repository learning. This never registers a copied
@@ -390,4 +436,4 @@ function browserExcerptAssertionFeedback({ request, snapshot, execution } = {}) 
     message: 'The selected observation field is a shortened excerpt, not an exact observed value. Do not turn that excerpt into a new exact expected value. Preserve the authored expected result; inspect supported fuller evidence or use its configured parameter reference. No assertion was attempted. Do not weaken or replace the predicate.' };
 }
 
-module.exports = { projectModelSnapshot, resolveModelToolRequest, modelTargetForLocator, repositoryTargetEvidence, browserObservedTargetFeedback, browserExcerptAssertionFeedback, browserDescriptiveTextAssertionFeedback, browserContainerTextAssertionFeedback };
+module.exports = { projectModelSnapshot, resolveModelToolRequest, modelTargetForLocator, browserBatchTargetEvidence, repositoryTargetEvidence, browserObservedTargetFeedback, browserExcerptAssertionFeedback, browserDescriptiveTextAssertionFeedback, browserContainerTextAssertionFeedback };

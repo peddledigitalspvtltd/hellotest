@@ -233,8 +233,9 @@ test("Knowledge retrieval reuses the governed LLM configuration without separate
   assert.match(integrations, /llm_project_id: typeof config\.project_id === "string" \? config\.project_id : ""/);
   assert.match(integrations, /draft\.llm_project_id\.trim\(\) \? \{ project_id: draft\.llm_project_id\.trim\(\) \} : \{\}/);
   assert.match(integrations, /Knowledge retrieval reuses this LLM model, Base URL, and API key/);
-  assert.match(registry, /key: "ai\.knowledge\.assistant"/);
-  assert.match(registry, /Project-grounded Ask HelloTest assistant/);
+  assert.match(registry, /AI_PROMPT_REGISTRY: AiPromptRegistryItem\[\] = promptDefaults/);
+  const promptDefaults = JSON.parse(await readSource("../../shared/aiPromptDefaults.json"));
+  assert.equal(promptDefaults.find(item => item.key === "ai.knowledge.assistant")?.surface, "Project-grounded Ask HelloTest assistant");
   assert.match(styles, /:root\[data-theme="dark"\]/);
   assert.match(styles, /@media \(max-width: 620px\)/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);

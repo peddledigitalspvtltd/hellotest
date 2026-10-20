@@ -30,7 +30,7 @@ test('actual dispatcher keeps negative fixture data outside invariant execution 
  for(const phase of ['original','patched','negative']){
   manifest[phase]={hash:phase,case_ids:['case']};
   const statuses={'snapshot-1':phase==='original'?'failed':'passed','snapshot-2':phase==='negative'?'failed':'passed','test:pre:case-before:setup':'passed'};
-  receipts[phase]={hash:phase,steps:common.steps.map((step,index)=>({...step,test_case_id:'case',snapshot_step_id:step.id,step_order:index+1,expected_result:index===1?'Accepted':''})),jobs:[{id:phase,test_case_id:'case',completed_at:'2026-10-19',status:phase==='patched'?'completed':'failed',payload:payloads[phase],runtime_state:{logs:{stepStatuses:statuses}}}]};
+  receipts[phase]={hash:phase,steps:common.steps.map((step,index)=>({...step,test_case_id:'case',snapshot_step_id:step.id,step_order:index+1,expected_result:index===1?'Accepted':''})),jobs:[{id:phase,test_case_id:'case',completed_at:'2026-10-19',status:phase==='patched'?'completed':'failed',payload:payloads[phase],runtime_state:{logs:{stepStatuses:statuses,...(phase==='negative'?{stepAutomationDetails:{'snapshot-2':{line_results:[{line:1,status:'failed',attempt:1,error:'Expected protected text "Accepted"; received "Rejected".'}]}}}:{})}}}]};
  }
  assert.equal(rules.evaluate(manifest,receipts,1,2).status,'verified');
  payloads.negative.hooks=[];assert.notEqual(rules.evaluate(manifest,receipts,1,2).status,'verified','negative data may differ, setup hooks may not');

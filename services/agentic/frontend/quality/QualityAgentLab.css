@@ -29,3 +29,4 @@
 .quality-mission-outcome-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .quality-mission-outcome-table th, .quality-mission-outcome-table td { text-align: start; vertical-align: top; padding: 12px; border-bottom: 1px solid var(--border); min-width: 120px; }
 .quality-mission-outcome-table blockquote { margin: 8px 0; color: var(--text-muted); white-space: pre-wrap; }
+.quality-mission-progress{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 14px;padding:12px 18px;border-bottom:1px solid var(--app-border);font-size:13px}.quality-mission-progress strong{text-transform:capitalize}.quality-mission-progress small{color:var(--app-text-muted)}

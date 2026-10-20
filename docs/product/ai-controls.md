@@ -74,3 +74,5 @@ Recovery has two purposes: bounded schema/citation repair after invalid output, 
 ## Verification scope
 
 Use the focused configuration, MCP/PostgreSQL and browser commands above against the current revision. Mocked provider responses validate prompt composition, scopes, publication and schema handling; they do not establish production-model quality. See [verification](../development/verification.md).
+
+For Agent Studio specialists, **Model & limits → Agent execution** controls the total model calls, maximum corrections, specialist handoffs and whole-task timeout. Corrections and handoffs share the total budget. Prompts, skills, proposal guidance and narrative guardrails are managed in the feature instructions; native artifact fields, source permissions and approval remain enforced by the host. Create-agent definitions additionally declare an analysis or native authoring output contract and may impose lower execution limits. A completed request with missing required outcomes is shown as needing input rather than ready for approval.

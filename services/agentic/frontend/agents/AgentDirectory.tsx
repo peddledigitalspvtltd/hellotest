@@ -6,7 +6,7 @@ import type { RepositoryAgentType } from "./agentTypes";
 import { AGENT_CATEGORIES, AGENT_EXPERIENCES } from "./agentExperience";
 import "./AgentWorkspace.css";
 import { QUALITY_AGENT_EXPERIENCES, QUALITY_AGENT_KINDS, type QualityExperienceKind } from "../lib/qualityAgentExperience";
-import type { ProjectAgent } from "./agentDefinitions";
+import { agentResultLabel, type ProjectAgent } from "./agentDefinitions";
 
 const qualityIcons = { web: IconRoute, security: IconShieldCheck, performance: IconBolt, accessibility: IconAccessible, visual: IconPhoto };
 const builtInEntries = [
@@ -35,7 +35,8 @@ export function AgentDirectory({ userId, onOpenRepository, onOpenSpecialist, onO
   const experienceFor = (id: string) => {
     if (id.startsWith("browser-")) { const profile = QUALITY_AGENT_EXPERIENCES[id.slice(8) as QualityExperienceKind]; return { category: "quality", outcome: profile.description, inputs: "Browser task, target URL & scoped credential reference", output: profile.outcome }; }
     const agent = projectAgents.find(item => item.id === id);
-    return AGENT_EXPERIENCES[id] || { category: "custom", outcome: agent?.definition.description || agent?.definition.objective || "", inputs: "Configured project evidence & task input", output: "Structured AI review" };
+    const definition = agent?.active_definition || agent?.definition;
+    return AGENT_EXPERIENCES[id] || { category: "custom", outcome: definition?.description || definition?.objective || "", inputs: "Configured project evidence & task input", output: agentResultLabel(definition) };
   };
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");

@@ -47,7 +47,7 @@ A lower caller-supplied limit is retained. Knowledge assistant calls retain thei
 
 Direct Test Case previews accept at most ten Stories and ten requested cases per call. Background generation remains bounded per Story. Defect drafting includes at most ten selected cases, ten Stories and ten failure results, with omissions disclosed in its evidence boundaries.
 
-Explicit provider parameter or context-size rejections may receive bounded corrections under one deadline. Truncated, refused, empty or invalid structured responses are rejected with actionable errors. The shared transport does not replay successful or uncertain billable generations. The specialist workflow retains its existing single JSON/citation repair attempt; the knowledge gateway retains its independently bounded retry and cost policy.
+Explicit provider parameter or context-size rejections may receive bounded corrections under one deadline. Truncated, refused, empty or invalid structured responses are rejected with actionable errors. The shared transport does not replay successful or uncertain billable generations. The specialist workflow uses configured bounded JSON, citation and outcome corrections with concrete host feedback; the knowledge gateway retains its independently bounded retry and cost policy.
 
 JSON-object mode is used for compatibility with configured providers, with schema instructions and feature-level validation. JSON mode alone does not guarantee schema adherence; this distinction follows the [OpenAI structured output documentation](https://developers.openai.com/api/docs/guides/structured-outputs).
 
@@ -56,3 +56,54 @@ JSON-object mode is used for compatibility with configured providers, with schem
 Automated checks cover request contents, scope and citation boundaries, current structured/Gherkin drafts, provider-default precedence, input/output budgets, explicit compatibility handling, and failure behavior. UI regressions cover the shared Story/Defect studio and Smart Context/provider selection.
 
 Live checks used only synthetic data against the configured `openai/gpt-oss-20b` integration: a small Story JSON contract completed with 165 input and 655 completion tokens under a 1,024-token output ceiling; actual Story and Test Case Assurance calls both returned cited reviews without fallback. These checks establish compatibility for that configuration, not every model or every real project scenario.
+
+## Agent Studio outcomes (20 October 2026)
+
+This review covers the 22 workspace specialists, five browser quality agents and project-defined agents. The four **Build from source** agents and their compiler runtime are excluded. This is an implementation and regression review, not certification against an industry standard or a claim that every model produces correct business content.
+
+The shared [outcome catalog](../../services/agentic/shared/agentOutcomeContracts.json) declares authoring versus analysis. A successful transport response is not sufficient for a reviewable outcome. The host validates native fields, exact source references, permitted Test Case types, finding IDs and proposal coverage. It feeds specific issues back within the same configured budget. An unchanged rejected draft stops further correction. Missing product behavior stays an explicit blocker.
+
+| Agent | Reviewable outcome |
+| --- | --- |
+| Quality Orchestrator | Cited decision brief and scoped specialist drafts for actionable library gaps |
+| Story Architect | Complete Story draft: title, description, priority and acceptance criteria |
+| Story Completion | Complete revision-pinned Story proposal, or cited no-change conclusion |
+| Story Grooming | Ambiguities, dependencies and questions, with supported Story/Test Case proposals |
+| Story Assurance | Acceptance/coverage matrix and supported corrective proposals |
+| Test Design Agent | Complete structured/Gherkin cases, type, priority, data parameters, setup, actions and expected results |
+| Test Improvement | Improved case drafts preserving intent and parameters, or cited no-change conclusion |
+| Automation Engineer | Complete manual automation Plan draft with metadata and linked manual cases; existing durable browser generation remains separate |
+| Smart Run Planner | Exact existing case selection, rationale and exit criteria for a manual Run draft |
+| Failure Analyst | Observed-versus-expected evidence, hypotheses and diagnostics; Defect drafts only when observed evidence supports them |
+| Defect Reporter | Complete draft with reproduction, expected/actual, severity and priority |
+| Defect Triage | Cited per-Defect recommendation table; no inferred authorization to overwrite Defects |
+| Quality Evaluator | Evidence review and concrete library proposals for applicable cited gaps |
+| Object Repository Curator | Locator/duplicate review and validation requirements; no unsupported locator replacement |
+| Release Readiness | Gate evidence, blockers, residual risks and supported follow-up drafts; no automatic release approval |
+| Impact Analysis | Relationship/impact matrix and supported regression drafts |
+| Coverage Assurance | Criterion-to-case matrix and supported missing case drafts |
+| Risk Prediction | Evidence-backed signals, uncertainty and mitigation; no invented probabilities |
+| Flaky Test Intelligence | Attempt/environment patterns, hypotheses and repeatability experiments |
+| Release Risk Simulation | Explicit assumptions and scenario/sensitivity tables; simulated results stay labelled |
+| Quality Graph | Witnessed relationships, missing links and proposed follow-up |
+| Automation Repair | Existing typed, pinned and separately verified repair proposal; no generic script replacement |
+| Browser Web/Security/Performance/Accessibility/Visual | Specialist task brief, observed findings, metrics where measured, limitations and appropriate report/Defect review |
+| Create agent | Version-pinned objective, skills, evidence/tool scopes, completion rules, limits and explicit review or native authoring output kind |
+
+Test Improvement with a selected saved case reads a versioned full manual intent snapshot. Up to 30 exact steps or complete supported Gherkin remain intact in primary and reduced packets; oversized or unsupported sources stop with a specific reason. Private values stay out of model context. Story links require the selected Story scope and current permission; omitted links are explicitly disclosed. Read-only link evidence cannot authorize an unversioned Story update.
+
+Findings have stable IDs. New artifacts identify the original findings they address and cite overlapping supporting evidence. Handoffs receive the original review, authorized evidence and earlier proposals labelled as proposals. Each successor must validate its own output and coverage before being marked complete. Typed finding routing supports known artifact kinds and selected scopes; legacy wording heuristics remain a compatibility fallback, not authorization.
+
+**Review & approve** presents the resulting editable content. Acceptance reuses native domain services, permissions, revision checks where available, source-access rechecks and a per-proposal idempotent receipt. Story completion can update an evidenced saved Story revision. Cases, Defects, Runs and automation Plans create new drafts; there is no invented revision-safe overwrite path. Automation Plan approval does not save model-written scripts or claim execution. The native Run stores its name and case selection; approved rationale/exit criteria are retained in the acceptance receipt because the Run domain has no corresponding editable fields.
+
+Analysis outputs support cited text sections, rectangular text tables and labelled finite numerical bar charts. Charts require evidence and units; the schema cannot establish semantic accuracy of model-authored numbers. Findings, full brief and historical output rendering reject object coercions and null-placeholder responses. Human review remains necessary for business correctness.
+
+### Configuration, streaming and cost
+
+Prompts, skills, output guidance and narrative guardrails resolve from versioned AI Controls. Recognized stock proposal guidance upgrades through an explicit default migration; reviewed custom text remains intact. The Model & limits tab exposes total calls, corrections, specialist handoffs and whole-task timeout. Project-agent limits can reduce those values. Domain schemas, ACLs and approval requirements remain code-enforced and cannot be disabled by prompt configuration.
+
+The host streams actual intake, retrieval, correction, handoff and browser-decision progress. It also streams schema-validated read-only draft previews, with fresh source permissions, while final checks continue. Raw provider JSON and private reasoning are not streamed; draft previews cannot be accepted before a persisted final result. Disconnects and deadlines propagate cancellation, and publication rechecks active execution and source ACLs for both streaming and ordinary JSON requests.
+
+Generation, compatibility correction and handoffs share the total budget. Per-agent corrections are bounded, provider transport/refusal/truncation failures are not blindly replayed, and old browser observations are explicitly excerpted. Provider-reported usage is aggregated only when every call supplies it; missing usage remains unknown. No token multiplier or small-model accuracy guarantee has been established by these controlled regressions.
+
+The approach adapts programmatic gates and scoped specialist handoffs from [Anthropic's agent patterns](https://www.anthropic.com/engineering/building-effective-agents), typed tool results from the [MCP tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools), and authorization/output validation principles from [OWASP's AI Agent Security guidance](https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html). These references inform the design; they are not claims of certification.

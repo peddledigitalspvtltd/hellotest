@@ -26,6 +26,8 @@ export type QualityAgentFinding = { id: string; title: string; severity: "critic
 export type QualityAgentArtifact = { id: string; name: string; type: "screenshot" | "visual_diff" | "report"; content_type: string; bytes: number; sha256: string; download_path: string };
 export type QualityAgentStage = { id: string; label: string; status: "pending" | "running" | "completed" | "failed"; started_at?: string; completed_at?: string };
 export type QualityAgentRun = {
+  task_brief?: {agent_id:string;name:string;intent:string;goal:string;checks:string[];limitations:string[];target_url:string;execution_scope:{max_pages:number;max_duration_ms:number;max_actions?:number;allow_form_submission?:boolean}};
+  mission_progress?: {phase:string;message:string;sequence?:number;revision?:number;updated_at:string};
   mission_outcome?: { title:string;summary:string;columns:string[];rows:Array<{cells:string[];evidence:{sequence:number;quote:string;url:string}}> };
   id: string; transaction_id: string; project_id: string; app_type_id: string | null; kind: QualityAgentKind;
   target_url: string; goal: string; options: QualityAgentOptions; reviewed_plan?: QualityAgentLaunch["reviewed_plan"];

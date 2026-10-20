@@ -1,6 +1,6 @@
 const db = require("@hellotest/platform/backend/src/db");
 const knowledgeRagService = require("./knowledgeRag.service");
-const knowledgeVectorStore = require("./knowledgeVectorStore.service");
+const knowledgeVectorProjection = require("./knowledgeVectorProjection.service");
 const authorization = require("./knowledgeAuthorization.service");
 const permissionService = require("@hellotest/platform/backend/services/permission.service");
 const contracts = require("./knowledgeContracts.service");
@@ -178,7 +178,7 @@ const getDetail = async (id, { user, revisionId, asOf } = {}) => {
   return result;
 };
 
-const archiveSourceAndCancelWork = (source) => db.transaction(async () => {
+const archiveSourceAndCancelWork = (source, { skipBusyJobs = false } = {}) => db.transaction(async () => {
   const sourceStableKey = knowledgeRagService._internals.stableSourceKey(source);
   const canceledJobs = await db.prepare(`
     SELECT jobs.id
@@ -196,7 +196,7 @@ const archiveSourceAndCancelWork = (source) => db.transaction(async () => {
       jobs.project_id = ? AND jobs.status IN ('queued', 'running')
         AND ?::TEXT IS NOT NULL AND jobs.config->>'stable_source_key' = ?
     )
-    FOR UPDATE
+    ORDER BY jobs.id FOR UPDATE ${skipBusyJobs ? "SKIP LOCKED" : ""}
   `).all(
     source.project_id, source.id, sourceStableKey, sourceStableKey,
     source.project_id, sourceStableKey, sourceStableKey
@@ -233,26 +233,14 @@ const archiveSourceAndCancelWork = (source) => db.transaction(async () => {
     SET is_current = FALSE, updated_at = CURRENT_TIMESTAMP
     WHERE source_id = ? AND is_current = TRUE
   `).run(source.id);
+  await knowledgeVectorProjection.queueSource({ projectId: source.project_id, sourceId: source.id });
+  await require("./knowledgeGraph.service").archiveSource({ projectId: source.project_id, sourceId: source.id });
 })();
 
 const remove = async ({ source, user }) => {
   // permissionCode: "knowledge.manage" governs tombstoning and historical audit.
   await authorization.assertHistoricalAccess(user, source.project_id);
-  const vectorDimensions = knowledgeVectorStore.isConfigured()
-    ? await db.prepare(`
-        SELECT DISTINCT embedding_dimensions
-        FROM ai_knowledge_index_states
-        WHERE source_id = ? AND embedding_dimensions IS NOT NULL
-      `).all(source.id).catch(() => [])
-    : [];
   await archiveSourceAndCancelWork(source);
-  if (knowledgeVectorStore.isConfigured()) {
-    await Promise.allSettled(vectorDimensions.map((row) => knowledgeVectorStore.deleteSource({
-      projectId: source.project_id,
-      sourceId: source.id,
-      dimensions: Number(row.embedding_dimensions)
-    })));
-  }
   return {
     deleted: true,
     archived: true,
@@ -262,9 +250,37 @@ const remove = async ({ source, user }) => {
     attachment_deleted: false,
     attachments_deleted: 0,
     dependent_documents_deleted: false,
-    collection_links_deleted: false
+    collection_links_deleted: false,
+    vector_cleanup_pending: true
   };
 };
+
+// Refresh scans extant records, so it cannot discover records removed since
+// their last ingestion. Native existence is rechecked while locking the source;
+// no model or optional vector provider participates in the visibility decision.
+const archiveMissingApplicationSources = ({ limit = 20 } = {}) => db.transaction(async () => {
+  const missing = await db.prepare(`SELECT sources.* FROM ai_knowledge_sources sources
+    WHERE sources.extraction_status <> 'archived' AND sources.source_ref_id IS NOT NULL AND (
+      (sources.source_kind = 'requirement' AND NOT EXISTS (
+        SELECT 1 FROM requirements records WHERE records.id = sources.source_ref_id AND records.project_id = sources.project_id))
+      OR (sources.source_kind = 'test_case' AND NOT EXISTS (
+        SELECT 1 FROM test_cases records JOIN app_types apps ON apps.id = records.app_type_id
+        WHERE records.id = sources.source_ref_id AND apps.project_id = sources.project_id))
+      OR (sources.source_kind = 'bug' AND NOT EXISTS (
+        SELECT 1 FROM feedback records WHERE records.id = sources.source_ref_id AND records.project_id = sources.project_id))
+      OR (sources.source_kind = 'execution' AND NOT EXISTS (
+        SELECT 1 FROM executions records WHERE records.id = sources.source_ref_id AND records.project_id = sources.project_id))
+      OR (sources.source_kind = 'knowledge_item' AND NOT EXISTS (
+        SELECT 1 FROM ai_knowledge_repo records WHERE records.id = sources.source_ref_id
+          AND records.project_id = sources.project_id AND records.is_active = TRUE))
+    ) ORDER BY sources.updated_at, sources.id LIMIT ? FOR UPDATE OF sources SKIP LOCKED`).all(
+    Math.max(1, Math.min(100, Number(limit) || 20)));
+  // This reconciler already holds source rows. Ingestion acquires its job
+  // before the source, so never wait for a busy job in the opposite order.
+  // Its stale revision guard still prevents publication after this tombstone.
+  for (const source of missing) await archiveSourceAndCancelWork(source, { skipBusyJobs: true });
+  return { archived: missing.length };
+})();
 
 module.exports = {
   get,
@@ -272,5 +288,6 @@ module.exports = {
   getDetail,
   listRevisions,
   list,
-  remove
+  remove,
+  archiveMissingApplicationSources
 };

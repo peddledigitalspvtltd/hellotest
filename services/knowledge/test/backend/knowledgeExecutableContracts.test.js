@@ -384,3 +384,28 @@ test("incomplete evidence remains partial independently of budget or authorizati
   assert.equal(k.classifyQuery("Status of UX-227"), "LOOKUP");
   assert.equal(k.classifyQuery("Show platform-91"), "LOOKUP");
 });
+
+test('relationship facts require trusted provenance and the exact retained excerpt witness after packet truncation',()=>{
+  const {compactGraphEvidence}=require('../../backend/services/knowledgeGraphEvidence');
+  const source='😀 '+ 'long background context '.repeat(180)+'The case tests the checkout requirement.';
+  const start=Array.from(source.slice(0,source.indexOf('The case'))).length;
+  const span={evidence_id:'K-proof',start,end:Array.from(source).length,offset_unit:'unicode_codepoint',offset_basis:'source_chunk'};
+  const proof=compactGraphEvidence({source_id:'proof-source',chunk_id:'proof',content:source,is_current:true,citation:{id:'K-proof',chunk_hash:'a'.repeat(64)}},[span],5000);
+  const edge={source:'case-source',target:'requirement-source',type:'TESTS',evidence_ids:['K-proof'],provenance_type:'DETERMINISTIC',witness_span:span};
+  const sufficient=packet({evidence:[proof],relationships:[edge]});
+  assert.equal(sufficient.relationships.length,1);assert.deepEqual(sufficient.relationships[0].witness_span,span);assert.equal(sufficient.evidence[0].integrity.chunk_hash,'a'.repeat(64));
+  const truncated=packet({retrievalRequest:request({max_context_tokens:1700}),evidence:[proof],relationships:[edge]});
+  assert.equal(truncated.evidence.length,1);assert.equal(truncated.evidence[0].content.includes('The case tests'),false);assert.equal(truncated.relationships.length,0,'a retained citation alone cannot preserve a truncated-away assertion witness');
+  const unverified=packet({evidence:[proof],relationships:[{...edge,provenance_type:'LLM_CANDIDATE'},{...edge,provenance_type:undefined}]});
+  assert.equal(unverified.relationships.length,0);
+});
+
+test('a deduplicated full-chunk search hit can ground a graph span only with exact immutable content identity',()=>{
+  const {createHash}=require('node:crypto');
+  const content='This case tests the checkout requirement.',hash=createHash('sha256').update(content).digest('hex');
+  const span={evidence_id:'K-same',start:0,end:Array.from(content).length,offset_unit:'unicode_codepoint',offset_basis:'source_chunk'};
+  const edge={source:'case',target:'requirement',type:'TESTS',evidence_ids:['K-same'],provenance_type:'HUMAN_VERIFIED',witness_span:span};
+  const hit={source_id:'case',chunk_id:'same',content,is_current:true,citation:{id:'K-same',chunk_hash:hash}};
+  assert.equal(packet({evidence:[hit],relationships:[edge]}).relationships.length,1);
+  assert.equal(packet({evidence:[{...hit,content:content.replace('checkout','redacted')}],relationships:[edge]}).relationships.length,0);
+});

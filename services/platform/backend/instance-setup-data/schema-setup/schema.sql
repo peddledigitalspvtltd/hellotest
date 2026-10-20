@@ -2440,3 +2440,131 @@ CREATE OR REPLACE VIEW test_case_effective_results AS
     SELECT candidate.id,candidate.execution_id,candidate.test_case_id,candidate.test_case_title,candidate.suite_id,candidate.suite_name,candidate.app_type_id,candidate.status,candidate.duration_ms,candidate.started_at,candidate.timer_started_at,candidate.ended_at,candidate.lifecycle_history,candidate.error,candidate.logs,candidate.test_data_set_id,candidate.test_data_set_name,candidate.data_set_iteration_index,candidate.data_set_iteration_key,candidate.data_set_row_snapshot,candidate.external_references,candidate.defects,candidate.step_defects,candidate.case_defects,candidate.revision,candidate.executed_by,candidate.case_effective_at AS created_at,candidate.case_effective_at AS updated_at,candidate.result_origin,candidate.derived,
       candidate.source_result_id,candidate.source_test_case_id,candidate.source_display_id,candidate.case_effective_at AS effective_at,candidate.covers_entire_case,candidate.source_results,candidate.source_duration_ms
     FROM linked_candidates candidate WHERE candidate.candidate_rank=1;
+
+-- Knowledge context graph and vector projection recovery (schema 11)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_knowledge_sources_graph_identity ON ai_knowledge_sources (id, project_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_knowledge_documents_graph_identity ON ai_knowledge_documents (id, project_id, source_id, version, checksum_sha256);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_knowledge_chunks_graph_identity ON ai_knowledge_chunks (id, project_id, document_id, source_id);
+
+CREATE TABLE IF NOT EXISTS ai_knowledge_graph_nodes (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL UNIQUE,
+    entity_type TEXT NOT NULL,
+    entity_key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    aliases JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(aliases) = 'array'),
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    tombstoned_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (id = source_id),
+    CHECK (entity_type IN ('requirement','test_case','execution','bug','knowledge_item','text','chat','file','url')),
+    UNIQUE (project_id, entity_type, entity_key), UNIQUE (id, project_id),
+    FOREIGN KEY (source_id, project_id) REFERENCES ai_knowledge_sources(id, project_id) ON DELETE CASCADE
+  );
+
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_graph_nodes_project ON ai_knowledge_graph_nodes (project_id, entity_type, entity_key) WHERE tombstoned_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_graph_nodes_aliases ON ai_knowledge_graph_nodes USING GIN (aliases);
+
+CREATE TABLE IF NOT EXISTS ai_knowledge_graph_edges (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_node_id TEXT NOT NULL,
+    target_node_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'CANDIDATE' CHECK (status IN ('ACTIVE','CANDIDATE','REJECTED','TOMBSTONED')),
+    provenance_type TEXT NOT NULL CHECK (provenance_type IN ('DETERMINISTIC','SOURCE_EXPLICIT','HUMAN_VERIFIED','LLM_CANDIDATE')),
+    valid_from TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    valid_to TIMESTAMPTZ,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (source_node_id <> target_node_id), CHECK (valid_to IS NULL OR valid_to >= valid_from),
+    CHECK (relation_type IN ('TESTS','EXECUTED_IN','HAS_DEFECT','RELATED_TO','DEPENDS_ON','DERIVED_FROM','USES','PART_OF')),
+    CHECK (status <> 'ACTIVE' OR provenance_type <> 'LLM_CANDIDATE'),
+    UNIQUE (project_id, source_node_id, relation_type, target_node_id), UNIQUE (id, project_id),
+    FOREIGN KEY (source_node_id, project_id) REFERENCES ai_knowledge_graph_nodes(id, project_id) ON DELETE CASCADE,
+    FOREIGN KEY (target_node_id, project_id) REFERENCES ai_knowledge_graph_nodes(id, project_id) ON DELETE CASCADE
+  );
+
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_graph_edges_out ON ai_knowledge_graph_edges (project_id, source_node_id, relation_type, id) WHERE status = 'ACTIVE' AND valid_to IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_graph_edges_in ON ai_knowledge_graph_edges (project_id, target_node_id, relation_type, id) WHERE status = 'ACTIVE' AND valid_to IS NULL;
+
+CREATE TABLE IF NOT EXISTS ai_knowledge_graph_edge_evidence (
+    edge_id TEXT NOT NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    chunk_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    document_version INTEGER NOT NULL CHECK (document_version > 0),
+    version_hash TEXT NOT NULL,
+    span_start INTEGER NOT NULL DEFAULT 0 CHECK (span_start >= 0),
+    span_end INTEGER NOT NULL CHECK (span_end > span_start),
+    provenance_type TEXT NOT NULL CHECK (provenance_type IN ('DETERMINISTIC','SOURCE_EXPLICIT','HUMAN_VERIFIED','LLM_CANDIDATE')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (edge_id, chunk_id),
+    FOREIGN KEY (edge_id, project_id) REFERENCES ai_knowledge_graph_edges(id, project_id) ON DELETE CASCADE,
+    FOREIGN KEY (chunk_id, project_id, document_id, source_id) REFERENCES ai_knowledge_chunks(id, project_id, document_id, source_id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id, project_id, source_id, document_version, version_hash) REFERENCES ai_knowledge_documents(id, project_id, source_id, version, checksum_sha256) ON DELETE CASCADE
+  );
+
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_graph_evidence_document ON ai_knowledge_graph_edge_evidence (project_id, document_id, edge_id);
+
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_graph_evidence_source ON ai_knowledge_graph_edge_evidence (project_id, source_id, edge_id);
+
+CREATE TABLE IF NOT EXISTS ai_knowledge_graph_chunk_entities (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    chunk_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    PRIMARY KEY (chunk_id, node_id),
+    CHECK (node_id = source_id),
+    FOREIGN KEY (node_id, project_id) REFERENCES ai_knowledge_graph_nodes(id, project_id) ON DELETE CASCADE,
+    FOREIGN KEY (chunk_id, project_id, document_id, source_id) REFERENCES ai_knowledge_chunks(id, project_id, document_id, source_id) ON DELETE CASCADE
+  );
+
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_graph_chunk_entities_node ON ai_knowledge_graph_chunk_entities (project_id, node_id, document_id);
+
+CREATE TABLE IF NOT EXISTS ai_knowledge_graph_projection_states (
+    document_id TEXT PRIMARY KEY REFERENCES ai_knowledge_documents(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    unresolved_count INTEGER NOT NULL DEFAULT 0 CHECK (unresolved_count >= 0),
+    projected_edge_count INTEGER NOT NULL DEFAULT 0 CHECK (projected_edge_count >= 0),
+    reconciled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    processing_version TEXT NOT NULL
+  );
+
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_graph_projection_pending ON ai_knowledge_graph_projection_states (next_attempt_at, document_id) WHERE unresolved_count > 0;
+
+CREATE TABLE IF NOT EXISTS ai_knowledge_vector_jobs (
+    source_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    document_id TEXT,
+    revision_token TEXT,
+    generation TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'ready', 'deleted')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    configuration_key TEXT,
+    error_fingerprint TEXT,
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reconciled_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+ALTER TABLE ai_knowledge_vector_jobs DROP CONSTRAINT IF EXISTS ai_knowledge_vector_jobs_project_id_fkey;
+
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_vector_jobs_due ON ai_knowledge_vector_jobs(next_attempt_at, source_id);
+
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_vector_jobs_project ON ai_knowledge_vector_jobs(project_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_chunks_embedding_reuse ON ai_knowledge_chunks
+    (project_id, source_id, embedding_model, (metadata->>'embedding_configuration_hash'), (metadata->>'embedding_input_hash'))
+    WHERE jsonb_exists(metadata, 'embedding_input_hash');

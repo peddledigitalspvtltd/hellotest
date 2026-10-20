@@ -26,9 +26,15 @@ function decodeURIComponentSafe(value){try{return decodeURIComponent(value);}cat
 function number(value, fallback, minimum, maximum, label) {
   if (value == null) return fallback;
   if (!Number.isFinite(value) || value < minimum || value > maximum) throw fail(`${label} must be between ${minimum} and ${maximum}.`);
-  if(value.decision_request)require('./browserMissionPlanner').observation(value.decision_request,expected.target_url);
-  if(value.mission_report){const report=value.mission_report;if(!['running','completed','blocked','limit_reached','cancelled'].includes(report.status)||typeof report.summary!=='string'||report.summary.length>1200||!Array.isArray(report.actions)||report.actions.length>12||report.actions.some(a=>!Number.isSafeInteger(a.sequence)||typeof a.summary!=='string'||a.summary.length>1200||typeof a.url!=='string'||a.url.length>2000))throw fail('The engine returned an invalid mission report.',502,'QUALITY_AGENT_ENGINE_CONTRACT');}
   return value;
+}
+function taskBrief(request) {
+  const agent = AGENTS.find(item => item.id === request.kind);
+  if (!agent) throw fail('Choose a supported quality agent.');
+  return {agent_id:`browser-${agent.id}`,name:agent.name,intent:agent.description,goal:request.goal || '',
+    checks:[...agent.checks],limitations:[...agent.limitations],target_url:request.target_url,
+    execution_scope:{max_pages:request.options?.max_pages,max_duration_ms:request.options?.timeout_ms,
+      ...(request.options?.mission || {})}};
 }
 function normalizeOptions(input = {}, kind) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw fail('Choose valid agent settings.');
@@ -113,11 +119,11 @@ function validateEngineRun(value, expected) {
   for (const artifact of value.artifacts) if (!artifact || !/^[a-zA-Z0-9_-]{1,128}$/.test(artifact.id) || !['screenshot','visual_diff','report'].includes(artifact.type) || !['image/png','application/json','text/plain'].includes(artifact.content_type) || !Number.isSafeInteger(artifact.bytes) || artifact.bytes<0 || artifact.bytes>LIMITS.max_artifact_bytes || !/^[a-f0-9]{64}$/.test(artifact.sha256)) throw fail('The Test Engine returned an invalid artifact manifest.',502,'QUALITY_AGENT_ENGINE_CONTRACT');
   for (const finding of value.findings) if (!finding || !['info','low','medium','high','critical'].includes(finding.severity) || !text(finding.id,128) || typeof finding.evidence!=='string' || typeof finding.title!=='string' || typeof finding.description!=='string') throw fail('The Test Engine returned invalid findings.',502,'QUALITY_AGENT_ENGINE_CONTRACT');
   if(value.findings.some(f=>f.id.length>128||f.title.length>300||f.description.length>4000||f.evidence.length>12000||typeof f.category!=='string'||f.category.length>150||f.selector?.length>500||f.recommendation?.length>4000)||value.limitations.some(x=>typeof x!=='string'||x.length>2000)||value.artifacts.some(a=>typeof a.name!=='string'||a.name.length>160)) throw fail('The Test Engine returned evidence exceeding its contract limits.',502,'QUALITY_AGENT_ENGINE_CONTRACT');
-  for (const stage of value.stages) if (!stage || !['pending','running','completed','failed'].includes(stage.status) || typeof stage.id!=='string' || typeof stage.label!=='string') throw fail('The Test Engine returned invalid execution stages.',502,'QUALITY_AGENT_ENGINE_CONTRACT');
+  for (const stage of value.stages) if (!stage || !['pending','running','completed','failed'].includes(stage.status) || typeof stage.id!=='string' || !stage.id.trim() || stage.id.length>128 || typeof stage.label!=='string' || stage.label.length>1200) throw fail('The Test Engine returned invalid execution stages.',502,'QUALITY_AGENT_ENGINE_CONTRACT');
   if (Object.keys(value.metrics).length>80 || Object.values(value.metrics).some(metric=>!['string','number','boolean'].includes(typeof metric)&&metric!==null) || Object.values(value.metrics).some(metric=>typeof metric==='number'&&!Number.isFinite(metric))) throw fail('The Test Engine returned invalid metrics.',502,'QUALITY_AGENT_ENGINE_CONTRACT');
   if (value.outcome!=null && !['passed','findings','needs_review','error'].includes(value.outcome)) throw fail('The Test Engine returned an invalid outcome.',502,'QUALITY_AGENT_ENGINE_CONTRACT');
   if(value.decision_request)require('./browserMissionPlanner').observation(value.decision_request,expected.target_url);
   if(value.mission_report){const report=value.mission_report;if(!['running','completed','blocked','limit_reached','cancelled'].includes(report.status)||typeof report.summary!=='string'||report.summary.length>1200||!Array.isArray(report.actions)||report.actions.length>12||report.actions.some(a=>!Number.isSafeInteger(a.sequence)||typeof a.summary!=='string'||a.summary.length>1200||typeof a.url!=='string'||a.url.length>2000))throw fail('The engine returned an invalid mission report.',502,'QUALITY_AGENT_ENGINE_CONTRACT');}
   return value;
 }
-module.exports={contextSelection,AGENTS,LIMITS,KINDS,STATUS,fail,hash,text,hasSensitiveValue,targetUrl,normalizeOptions,normalizeSteps,normalizeLaunch,validateEngineRun};
+module.exports={taskBrief,contextSelection,AGENTS,LIMITS,KINDS,STATUS,fail,hash,text,hasSensitiveValue,targetUrl,normalizeOptions,normalizeSteps,normalizeLaunch,validateEngineRun};

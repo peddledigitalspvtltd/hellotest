@@ -1798,6 +1798,10 @@
             "type": "string",
             "maxLength": 4000
           },
+          "images": {
+            "type": "array",
+            "maxItems": 6
+          },
           "impacted_requirement_ids": {
             "type": "array",
             "items": {
@@ -2907,6 +2911,10 @@
           "automation_status": {
             "type": "string"
           },
+          "automation_start_url": {
+            "type": "string",
+            "maxLength": 2000
+          },
           "manual_test_case_id": {
             "type": "string"
           },
@@ -2974,6 +2982,10 @@
           "test_data_options": {
             "type": "object"
           },
+          "execution_hooks": {
+            "type": "array",
+            "maxItems": 20
+          },
           "author_id": {
             "type": "string"
           },
@@ -3031,6 +3043,27 @@
           "allow_browser_actions": {
             "type": "boolean"
           },
+          "verification_mode": {
+            "type": "string",
+            "enum": [
+              "generate_only",
+              "verify",
+              "verify_repair"
+            ]
+          },
+          "browser_driver": {
+            "type": "string",
+            "enum": [
+              "mcp"
+            ]
+          },
+          "verification_driver": {
+            "type": "string",
+            "enum": [
+              "native",
+              "playwright_test_cli"
+            ]
+          },
           "start_url": {
             "type": "string"
           },
@@ -3046,6 +3079,9 @@
           "test_configuration_id": {
             "type": "string"
           },
+          "test_suite_id": {
+            "type": "string"
+          },
           "test_data_set_id": {
             "type": "string"
           },
@@ -3054,6 +3090,12 @@
           },
           "captured_network": {
             "type": "array"
+          },
+          "parameter_values": {
+            "type": "object"
+          },
+          "parameter_plan_key": {
+            "type": "string"
           }
         },
         "additionalProperties": true
@@ -3079,6 +3121,27 @@
           "allow_browser_actions": {
             "type": "boolean"
           },
+          "verification_mode": {
+            "type": "string",
+            "enum": [
+              "generate_only",
+              "verify",
+              "verify_repair"
+            ]
+          },
+          "browser_driver": {
+            "type": "string",
+            "enum": [
+              "mcp"
+            ]
+          },
+          "verification_driver": {
+            "type": "string",
+            "enum": [
+              "native",
+              "playwright_test_cli"
+            ]
+          },
           "start_url": {
             "type": "string"
           },
@@ -3094,11 +3157,43 @@
           "test_configuration_id": {
             "type": "string"
           },
+          "test_suite_id": {
+            "type": "string"
+          },
           "test_data_set_id": {
+            "type": "string"
+          },
+          "parameter_values": {
+            "type": "object"
+          },
+          "parameter_plan_key": {
             "type": "string"
           },
           "scheduled_at": {
             "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/:id/automation/parameter-plan": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_suite_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "parameter_values": {
+            "type": "object"
           }
         },
         "additionalProperties": true
@@ -3380,6 +3475,27 @@
           "allow_browser_actions": {
             "type": "boolean"
           },
+          "verification_mode": {
+            "type": "string",
+            "enum": [
+              "generate_only",
+              "verify",
+              "verify_repair"
+            ]
+          },
+          "browser_driver": {
+            "type": "string",
+            "enum": [
+              "mcp"
+            ]
+          },
+          "verification_driver": {
+            "type": "string",
+            "enum": [
+              "native",
+              "playwright_test_cli"
+            ]
+          },
           "start_url": {
             "type": "string"
           },
@@ -3395,11 +3511,23 @@
           "test_configuration_id": {
             "type": "string"
           },
+          "test_suite_id": {
+            "type": "string"
+          },
           "test_data_set_id": {
             "type": "string"
           },
           "failure_threshold": {
             "type": "number"
+          },
+          "test_suite_ids_by_case": {
+            "type": "object"
+          },
+          "parameter_values_by_case": {
+            "type": "object"
+          },
+          "parameter_plan_keys_by_case": {
+            "type": "object"
           },
           "scheduled_at": {
             "type": "string"
@@ -5344,6 +5472,10 @@
           "automation_status": {
             "type": "string"
           },
+          "automation_start_url": {
+            "type": "string",
+            "maxLength": 2000
+          },
           "manual_test_case_id": {
             "type": "string"
           },
@@ -5407,6 +5539,10 @@
           },
           "test_data_options": {
             "type": "object"
+          },
+          "execution_hooks": {
+            "type": "array",
+            "maxItems": 20
           },
           "author_id": {
             "type": "string"

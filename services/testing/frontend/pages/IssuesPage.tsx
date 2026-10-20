@@ -1316,7 +1316,7 @@ export function IssuesPage() {
     const resolvedDeliveryPrefill = resolveDeliveryScopePrefill(deliveryPrefill, deliveryScopeCatalog);
     const nextDraft = createIssueDraftFromQuery(searchParams, defaultIssueStatus, session?.user.id);
     const agentProposal = takeAgentProposal(searchParams.get("agent_proposal"), projectId, appTypeId, "defect");
-    if (agentProposal) Object.assign(nextDraft, { title: agentProposal.title, message: agentProposal.description, steps_to_reproduce: (agentProposal.reproduction_steps || []).join("\n"), expected_result: agentProposal.expected_result || "", actual_result: agentProposal.actual_result || "", severity: agentProposal.severity || "medium", priority: ({ P1: "Highest", P2: "High", P3: "Medium", P4: "Low" } as Record<string, string>)[agentProposal.priority] || "Medium" });
+    if (agentProposal) Object.assign(nextDraft, { title: agentProposal.title, message: agentProposal.description, steps_to_reproduce: (agentProposal.reproduction_steps || []).join("\n"), expected_result: agentProposal.expected_result || "", actual_result: agentProposal.actual_result || "", severity: agentProposal.severity || "medium", priority: ({ P1: "Highest", P2: "High", P3: "Medium", P4: "Low", P5: "Lowest" } as Record<string, string>)[agentProposal.priority] || "Medium" });
     nextDraft.release = resolvedDeliveryPrefill.release || nextDraft.release;
     nextDraft.sprint = resolvedDeliveryPrefill.sprint || nextDraft.sprint;
 

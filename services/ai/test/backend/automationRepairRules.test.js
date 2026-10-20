@@ -18,7 +18,7 @@ function fixture(){
   const receipts={};
   for(const phase of Object.keys(manifest)){
     const steps=manifest[phase].case_ids.flatMap(id=>[1,2].map(order=>({test_case_id:id,step_order:order,snapshot_step_id:`${id}-${order}`,expected_result:order===2?'Saved state':'',automation_code:order===1?'await web.click("#submit");':'await web.expectText("#status", "Saved");'})));
-    const jobs=manifest[phase].case_ids.map(id=>({id:`job-${phase}-${id}`,test_case_id:id,status:phase==='patched'?'completed':'failed',completed_at:'2026-10-04',payload:{max_repair_attempts:0,session_policy:{web:{mode:'new'}},steps:steps.filter(step=>step.test_case_id===id).map(step=>({id:step.snapshot_step_id,automation_code:step.automation_code}))},runtime_state:{logs:{stepStatuses:{[`${id}-1`]:phase==='original'?'failed':'passed',[`${id}-2`]:phase==='negative'?'failed':'passed'}}}}));
+    const jobs=manifest[phase].case_ids.map(id=>({id:`job-${phase}-${id}`,test_case_id:id,status:phase==='patched'?'completed':'failed',completed_at:'2026-10-04',payload:{max_repair_attempts:0,session_policy:{web:{mode:'new'}},steps:steps.filter(step=>step.test_case_id===id).map(step=>({id:step.snapshot_step_id,automation_code:step.automation_code}))},runtime_state:{logs:{stepStatuses:{[`${id}-1`]:phase==='original'?'failed':'passed',[`${id}-2`]:phase==='negative'?'failed':'passed'},...(phase==='negative'?{stepAutomationDetails:{[`${id}-2`]:{line_results:[{line:1,status:'failed',attempt:1,error:'Expected the protected text assertion to match.'}]}}}:{})}}}));
     receipts[phase]={hash:phase,steps,jobs};
   }
   return {manifest,receipts};
@@ -110,5 +110,64 @@ test('continued, skipped or missing Before / After hook receipts never establish
   if(scenario==='missing-post')delete statuses['test:post:case:case:cleanup:after'];
   if(scenario==='unexecuted-successor')delete statuses['test:pre:global-setup:before-2'];
   assert.equal(rules.evaluate(f.manifest,f.receipts,1,2).status==='verified',scenario==='passed',scenario);
+ }
+});
+
+test('legacy helper repairs keep each action and oracle on one distinct observed subject',()=>{
+ const code='await web.fill("#old", params["t.user"]);\nawait web.expectText("#old", "Saved");\nawait web.click("#submit");';
+ const current={...base,steps:[{id:'action',step_order:1,automation_code:code}]};
+ const candidate={kind:'replace_instructions',step_id:'action',automation_code:code.replaceAll('"#old"','"#new"'),rationale:'The live snapshot identifies the replacement field and unchanged submit control.'};
+ assert.equal(rules.validateStoredPatch(current,rules.patch(current,candidate)),true);
+ for(const changed of [code.replace('web.fill("#old"','web.fill("#new"'),candidate.automation_code.replace('"#submit"','"#new"'),candidate.automation_code.replace('"Saved"','"Accepted"'),candidate.automation_code.replace('params["t.user"]','params["r.user"]'),candidate.automation_code.replace('"#new"','"@r.locator"')])assert.throws(()=>rules.patch(current,{...candidate,automation_code:changed}));
+ const dynamic={...current,steps:[{...current.steps[0],automation_code:code.replaceAll('"#old"','params["t.locator"]')}]};
+ assert.throws(()=>rules.patch(dynamic,candidate),/dynamic locator parameter/);
+});
+
+test('trusted payloads must retain ordered sections and frozen shared/data-policy bindings',()=>{
+ for(const change of ['reordered','duplicate','shared-values','source-context','source-values','data-policy','parameter-scope','unfrozen']){
+  const f=fixture(),target=f.receipts.patched.jobs[0];
+  if(change==='reordered')target.payload.steps.reverse();
+  if(change==='duplicate')target.payload.steps[1]=target.payload.steps[0];
+  if(change==='shared-values')target.payload.steps[0].shared_parameter_values={'r.value':'changed'};
+  if(change==='source-context')target.payload.steps[0].source_case_context={case_parameters:{'t.password':'changed'}};
+  if(change==='source-values')target.payload.steps[0].source_case_parameters={'t.password':'changed'};
+  if(change==='data-policy')target.payload.data_policy={override_shared_sections:false};
+  if(change==='parameter-scope')target.payload.parameter_scope_default='t';
+  if(change==='unfrozen')target.payload.parameters_frozen=false;
+  assert.notEqual(rules.evaluate(f.manifest,f.receipts,1,2).status,'verified',change);
+ }
+});
+
+test('negative oracle proof requires one contiguous first-attempt operation prefix in order',()=>{
+ const code='await web.fill("#one", "one");\nawait web.click("#two");\nawait web.expectText("#state", "Saved");';
+ const passed=line=>({line,status:'passed',attempt:1}),failed={line:3,status:'failed',attempt:1};
+ for(const [scenario,trace] of Object.entries({valid:[passed(1),passed(2),failed],reordered:[passed(2),passed(1),failed],duplicate:[passed(1),passed(1),passed(2),failed],afterFailure:[passed(1),passed(2),failed,passed(2)],missing:[passed(1),failed]})){
+  const f=fixture(),step=f.receipts.negative.steps.find(item=>item.step_order===2),job=f.receipts.negative.jobs[0];
+  step.automation_code=code;job.payload.steps[1].automation_code=code;
+  job.runtime_state.logs.stepAutomationDetails={[step.snapshot_step_id]:{line_results:trace}};
+  assert.equal(rules.evaluate(f.manifest,f.receipts,1,2).status==='verified',scenario==='valid',scenario);
+ }
+});
+
+test('pure oracle failures need trusted first-attempt assertion lines and exclude unavailable browser reads',()=>{
+ for(const scenario of ['missing-lines','read-unavailable','lost-context','line-infrastructure-error','wrong-line','assertion-failed']){
+  const f=fixture(),detail=f.receipts.negative.jobs[0].runtime_state.logs.stepAutomationDetails['case-2'];
+  if(scenario==='missing-lines')delete detail.line_results;
+  if(scenario==='read-unavailable'){delete detail.line_results;detail.error_code='BROWSER_READ_UNAVAILABLE';}
+  if(scenario==='lost-context')detail.error_code='BROWSER_CONTEXT_LOST';
+  if(scenario==='line-infrastructure-error')detail.line_results[0].error='Target page, context or browser has been closed';
+  if(scenario==='wrong-line')detail.line_results[0].line=2;
+  assert.equal(rules.evaluate(f.manifest,f.receipts,1,2).status==='verified',scenario==='assertion-failed',scenario);
+ }
+});
+
+test('all validation phases retain original per-section shared values, templates and private flags',()=>{
+ for(const phase of ['patched','negative'])for(const key of ['shared_parameter_values','shared_parameter_template_values','shared_parameter_sensitive_names']){
+  const f=fixture(),step=f.receipts[phase].steps.find(step=>step.test_case_id==='case'&&step.step_order===1);
+  step[key]=key==='shared_parameter_sensitive_names'?['t.shared_probe']:{'t.shared_probe':'changed'};
+  if(key==='shared_parameter_values')f.receipts[phase].jobs[0].payload.steps[0].shared_parameter_values=step[key];
+  const result=rules.evaluate(f.manifest,f.receipts,1,2);
+  assert.notEqual(result.status,'verified',phase+' '+key);
+  assert.match(result.checks.find(check=>check.phase===phase).detail,/Frozen per-section shared/);
  }
 });

@@ -104,3 +104,10 @@ test('agent registry HTTP operations enforce project manage permission before mu
   }
   assert.equal(save.mock.callCount(), 0);
 });
+
+test('legacy feature-backed custom authors retain their declared purpose when output contracts are introduced',()=>{
+ const definitions=require('../../backend/agents/agentDefinition');
+ const input={name:'Existing case designer',objective:'Generate complete cases from approved evidence.',feature_id:'F05'};
+ assert.deepEqual(definitions.normalize(input).output_contract,{kind:'test_case',minimum_artifacts:1});
+ assert.deepEqual(definitions.normalize({...input,output_contract:{kind:'review',minimum_artifacts:0}}).output_contract,{kind:'review',minimum_artifacts:0});
+});

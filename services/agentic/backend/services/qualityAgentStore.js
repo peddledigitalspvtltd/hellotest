@@ -45,7 +45,7 @@ function createQualityAgentStore({ db, workspace }) {
     },
     async cancel(row) {
       return db.prepare(`UPDATE workspace_transactions SET status = 'failed',metadata = metadata || ?::jsonb,completed_at = CURRENT_TIMESTAMP,updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status IN ('queued','running') RETURNING *`).get({run_status:'cancelled',cancellation_requested:true,lease_token:null,lease_until:null,error:null,outcome:null,stages:(row.metadata?.stages||[]).map(stage=>stage.status==='running'?{...stage,status:'failed'}:stage),...(row.metadata?.mission_report?{mission_report:{...row.metadata.mission_report,status:'cancelled',summary:'Stopped. Partial browser observations are preserved.'}}:{})},row.id);
+        WHERE id = ? AND status IN ('queued','running') RETURNING *`).get({run_status:'cancelled',cancellation_requested:true,lease_token:null,lease_until:null,error:null,outcome:null,mission_progress:{phase:'cancelled',message:'Stopped. Partial browser observations are preserved.',updated_at:new Date().toISOString()},stages:(row.metadata?.stages||[]).map(stage=>stage.status==='running'?{...stage,status:'failed'}:stage),...(row.metadata?.mission_report?{mission_report:{...row.metadata.mission_report,status:'cancelled',summary:'Stopped. Partial browser observations are preserved.'}}:{})},row.id);
     },
     event:(row,entry)=>workspace.appendTransactionEvent(row.id,entry),
     async saveBaseline(row, metadata, bytes) {

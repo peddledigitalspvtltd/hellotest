@@ -12,7 +12,7 @@ import { useLocalization } from "@hellotest/platform/frontend/src/context/Locali
 import { RepositoryAgents, REPOSITORY_AGENTS, isRepositoryAgentType } from "../agents/RepositoryAgents";
 import { AgentDirectory } from "../agents/AgentDirectory";
 import { AgentDefinitionEditor } from "../agents/AgentDefinitionEditor";
-import { agentFromSpecialist, projectAgentNode, type AgentDefinition, type ProjectAgent } from "../agents/agentDefinitions";
+import { agentFromSpecialist, agentResultLabel, projectAgentNode, type AgentDefinition, type ProjectAgent } from "../agents/agentDefinitions";
 import { specialistDefaults } from "../workflows/specialistProfiles";
 import { AGENT_EXPERIENCES } from "../agents/agentExperience";
 import type { RepositoryAgentType } from "../agents/agentTypes";
@@ -52,6 +52,8 @@ import { WorkflowExecutionView } from "../workflows/WorkflowExecutionView";
 import { WORKFLOW_TEMPLATES, draftFromTemplate } from "../workflows/workflowTemplates";
 import { isQualityAgentKind } from "../lib/qualityAgentExperience";
 import { QualityAgentLab } from "../quality/QualityAgentLab";
+import { AgentOutcomePreview } from '../components/AgentOutcomePreview';
+import type { AgentOutcomePreview as OutcomePreview } from '../lib/assistantProgressStream';
 
 type WorkflowViewMode = "tile" | "list";
 type WorkflowTab = "workflows" | "runs";
@@ -145,6 +147,7 @@ export function AgenticWorkflowsPage() {
   const [assistantTaskExpanded, setAssistantTaskExpanded] = useState(false);
   const assistantLiveSession = useRef("");
   const [assistantProgress, setAssistantProgress] = useState<Array<{phase:string;message:string;sessionId?:string}>>([]);
+  const [assistantPreview, setAssistantPreview] = useState<OutcomePreview | null>(null);
   const [assistantStartedAt, setAssistantStartedAt] = useState<number | null>(null);
   const [assistantElapsed, setAssistantElapsed] = useState(0);
   const assistantController = useRef<AbortController | null>(null);
@@ -201,6 +204,7 @@ export function AgenticWorkflowsPage() {
 
   useEffect(() => {
     setAssistantReply(null);
+    setAssistantPreview(null);
     setAssistantTaskExpanded(false);
     setAssistantNotice("");
     setAssistantStartedAt(null);
@@ -338,7 +342,7 @@ export function AgenticWorkflowsPage() {
   const selectedRun = selectedRunQuery.data?.id === selectedRunId ? selectedRunQuery.data : runs.find((run) => run.id === selectedRunId) || null;
   const selectedAssistantAgent = agentCatalog.find((agent) => agent.id === assistantAgentId) || HELLOTEST_AGENT_CATALOG[0];
   const selectedProjectAgent = projectAgents.find(item => item.id === assistantAgentId);
-  const specialistExperience = AGENT_EXPERIENCES[selectedAssistantAgent.id] || { category: "planning", outcome: selectedAssistantAgent.description || selectedAssistantAgent.prompt, inputs: "Configured project evidence and supplied inputs", output: "Structured AI review", destination: "/agentic-workflows?view=agents", destinationLabel: "Agent library", destinationPermission: "agentic_workflow.view", starters: [selectedAssistantAgent.prompt] };
+  const specialistExperience = AGENT_EXPERIENCES[selectedAssistantAgent.id] || { category: "planning", outcome: selectedAssistantAgent.description || selectedAssistantAgent.prompt, inputs: "Configured project evidence and supplied inputs", output: agentResultLabel(selectedProjectAgent?.active_definition || selectedProjectAgent?.definition), destination: "/agentic-workflows?view=agents", destinationLabel: "Agent library", destinationPermission: "agentic_workflow.view", starters: [selectedAssistantAgent.prompt] };
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) || null;
   const workflowCredentials = useMemo(() => {
     const credentials = draft?.settings?.agenticCredentials;
@@ -380,6 +384,7 @@ export function AgenticWorkflowsPage() {
       if (submission.signal.aborted || submission.scope !== activeAssistantScope.current || submission.requestId !== assistantRequestId.current) return;
       const message=typeof event.message === "string" ? event.message.slice(0,2000) : "";
       if(event.session_id) assistantLiveSession.current=event.session_id;
+      if(event.outcome_preview) setAssistantPreview(event.outcome_preview);
       if(!message)return;
       setAssistantProgress(items=>[...items,{phase:event.phase || event.stage || "working",message,sessionId:event.session_id}].slice(-12));
     } }),
@@ -408,6 +413,7 @@ export function AgenticWorkflowsPage() {
     const controller = new AbortController(); assistantController.current = controller;
     const requestId = ++assistantRequestId.current;
     assistantLiveSession.current=""; setAssistantNotice(""); setAssistantProgress([]); setAssistantReply(null); setSelectedAssistantSessionId(""); setAssistantResultTab("brief"); setAssistantStartedAt(Date.now());
+    setAssistantPreview(null);
     setSearchParams(current => { const next = new URLSearchParams(current); next.delete("session"); return next; }, { replace: true });
     assistantMutation.mutate({ scope: assistantScopeKey, requestId, signal: controller.signal, input: {
       project_id: projectId, app_type_id: appTypeId || undefined, mode: "agent",
@@ -1131,6 +1137,7 @@ export function AgenticWorkflowsPage() {
               {selectedProjectAgent && (selectedProjectAgent.active_definition || selectedProjectAgent.definition).required_inputs.length > 0 && <section className="agent-definition-editor agent-task-inputs" aria-label="Agent task inputs"><h3>Task inputs</h3>{(selectedProjectAgent.active_definition || selectedProjectAgent.definition).required_inputs.map(key => <label key={key}><span>{key}</span><input disabled={assistantMutation.isPending} value={String(agentInputs[key] ?? "")} onChange={event => setAgentInputs(current => ({ ...current, [key]: event.target.value }))} /></label>)}</section>}
               {!canRunAgenticWorkflows && <p className="agent-specialist-error">{!projectId ? "Select a project to start a review." : "Starting reviews requires agent run permission and the Agents feature to be enabled. Saved reviews remain available within your access."}</p>}
               {assistantMutation.isPending && <div className="agent-specialist-progress" role="status"><LoadingState label="Review in progress" /><div><strong>Review in progress · {assistantElapsed}s</strong><p>{assistantProgress.at(-1)?.message || "Gathering the evidence available for this task and preparing its review."}</p>{assistantProgress.length > 1 ? <details><summary>Live activity · {assistantProgress.length} recent updates</summary><ol>{assistantProgress.map((event,index)=><li key={`${event.phase}-${index}`}>{event.message}</li>)}</ol></details> : null}</div><button type="button" className="ghost-button" onClick={() => assistantController.current?.abort()}>Stop review</button></div>}
+              {assistantMutation.isPending && assistantPreview && <AgentOutcomePreview value={assistantPreview} />}
               {assistantNotice && <div role="alert" className="agent-specialist-error">{assistantNotice}</div>}
               <div className="agent-specialist-result-tabs" role="group" aria-label="Specialist review views">{[{ id: "brief", label: "Review brief" }, { id: "activity", label: "Activity" }, { id: "history", label: "Saved reviews" }].map(tab => <button type="button" key={tab.id} aria-pressed={assistantResultTab === tab.id} onClick={() => setAssistantResultTab(tab.id as typeof assistantResultTab)}>{tab.label}{tab.id === "history" ? ` (${specialistSessions.length})` : ""}</button>)}</div>
               {assistantResultTab === "brief" ? activeAssistantResult ? <>

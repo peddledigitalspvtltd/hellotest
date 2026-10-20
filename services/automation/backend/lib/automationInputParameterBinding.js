@@ -28,28 +28,32 @@ function createAutomationInputParameterBinding({ stepId, obligations, bindings, 
   function canonicalize(request, { snapshot, observations = [] } = {}) {
     const args = request?.arguments;
     if (!record(args) || typeof args.value !== 'string' || args.value.length > 2000 || referenceKey(args.value)
-      || typeof args.locator !== 'string' || request.name !== 'browser_fill' && !(request.name === 'browser_assert' && args.assertion === 'value')
+      || typeof args.locator !== 'string' || (!['browser_fill', 'browser_select_option'].includes(request.name) && !(request.name === 'browser_assert' && args.assertion === 'value'))
       || snapshot?.tool !== 'browser_snapshot' || snapshot.result?.isError) return request;
     const page = browserReceipt(snapshot);
     const matches = Array.isArray(page?.elements) ? page.elements.filter(element => element?.locators_validated === true
       && Array.isArray(element.locator_candidates) && element.locator_candidates.includes(args.locator)) : [];
-    if (matches.length !== 1 || !isNativeTextEntryControl(matches[0])) return request;
+    if (matches.length !== 1) return request;
+    const select = String(matches[0].tag || '').toLowerCase() === 'select';
+    const inputTool = select ? 'browser_select_option' : 'browser_fill';
+    if ((!select && !isNativeTextEntryControl(matches[0])) || (request.name !== 'browser_assert' && request.name !== inputTool)) return request;
 
-    if (request.name === 'browser_fill') {
+    if (request.name === inputTool) {
       const names = [...publicValues].filter(([, value]) => value === args.value).map(([name]) => name);
       return names.length === 1 ? bind(request, names[0]) : request;
     }
 
     // A content oracle can vary only with an explicitly authored expected-result
-    // binding and that same field's latest actual fill. Generic outcome prose,
-    // proposed fills, copied receipts and another field supply no such grant.
+    // binding and that same field's latest actual fill/selection. Generic
+    // outcome prose, proposed inputs, copied receipts and another field supply
+    // no such grant. An old textbox fill cannot bind a newly rendered select.
     if (!Array.isArray(observations)) return request;
     const transition = observations.findLastIndex(isNavigationPrerequisite);
     const recorded = recordedSectionRequests(observations.slice(transition + 1), stepId);
     const navigation = recorded.findLastIndex(operation => operation.name === 'browser_navigate');
     const aliases = new Set(matches[0].locator_candidates);
-    const fill = recorded.slice(navigation + 1).findLast(operation => operation.name === 'browser_fill' && aliases.has(operation.arguments.locator));
-    const name = fill ? referenceKey(fill.arguments.value) : null;
+    const input = recorded.slice(navigation + 1).findLast(operation => operation.name === inputTool && aliases.has(operation.arguments.locator));
+    const name = input ? referenceKey(input.arguments.value) : null;
     return name && expectedNames.has(name) && publicValues.has(name) && publicValues.get(name) === args.value ? bind(request, name) : request;
   }
   return Object.freeze({ canonicalize });

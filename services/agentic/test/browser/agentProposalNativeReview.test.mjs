@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
-import { writeFile, rm, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, rm, mkdir } from 'node:fs/promises';
 const require = createRequire(new URL('../../../../testengine/backend/package.json', import.meta.url));
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = new URL('../../../platform/frontend/', import.meta.url);
@@ -39,4 +39,23 @@ test('accepted existing Story drafts open native completion and apply only revie
    assert.deepEqual(errors,[]);await page.close();
   }
  } finally {await browser?.close();await Promise.all([rm(new URL(`${name}.tsx`,root),{force:true}),rm(new URL(`${name}.html`,root),{force:true})]);}
+});
+
+test('native Test Case handoff retains type, parameters, test data and structured or Gherkin actions until human save', {timeout:120000}, async()=>{
+ const source=await readFile(new URL('../../../testing/test/browser/aiTestCaseReviewOrder.test.mjs',import.meta.url),'utf8');
+ const base=source.match(/const fixture = `([\s\S]*?)`;\n\nasync function/)[1];
+ const common={kind:'test_case',title:'Reviewed account parameter intent',description:'Verify the reviewed account.',priority:'P2',test_case_type:'regression',parameter_values:{'t.account':'account-reviewed','t.optional':''},prerequisites:['An account exists.'],test_data:['Use the case account parameter.'],cleanup:['Keep the account.'],citation_ids:['source-1']};
+ const cases=[{...common,authoring_mode:'structured',steps:[{action:'Request account @t.account.',expected_result:'The account exists.',step_type:'api'}]},{...common,authoring_mode:'gherkin',gherkin_document:'Feature: Reviewed account parameter intent\nScenario: Existing account\n Given the account @t.account\n When I inspect the account\n Then the account exists',steps:[]}];
+ const name='agent-native-case-'+randomUUID();let browser;
+ try {
+  let native=base.replace("import {TestCasesPage}","import {stageAgentProposal} from '/src/lib/agentProposalDraft';import {TestCasesPage}");
+  native=native.replace("const initial=new URLSearchParams(location.search).get('flow')==='improve'?'/test-cases?case=case1':'/test-cases';",`window.created=[];const proposal=${JSON.stringify(cases)}[Number(new URLSearchParams(location.search).get('mode')||0)];const initial=stageAgentProposal(proposal,'p','a');api.testCases.create=async input=>{window.created.push(structuredClone(input));return{id:'new-case',display_id:'TC-NEW'}};`);
+  await writeFile(new URL(name+'.tsx',root),native);await writeFile(new URL(name+'.html',root),`<html><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+  browser=await chromium.launch({headless:true});
+  for(let index=0;index<cases.length;index++){
+   const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('**/api/**',route=>{errors.push('Unexpected live API');return route.abort()});
+   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html?mode=${index}`);await page.getByRole('textbox',{name:'Title',exact:true}).waitFor();await page.waitForFunction(title=>document.querySelector('#test-case-authoring-form input[data-autofocus]')?.value===title,common.title);assert.equal(await page.getByRole('textbox',{name:'Title',exact:true}).inputValue(),common.title);assert.equal(await page.evaluate(()=>window.created.length),0);
+   await page.getByRole('button',{name:'Create test case',exact:true}).click();await page.waitForFunction(()=>window.created.length===1);const saved=await page.evaluate(()=>window.created[0]);assert.equal(saved.test_case_type,'regression');assert.equal(saved.authoring_mode,cases[index].authoring_mode);assert.deepEqual(saved.parameter_values,common.parameter_values);assert.match(saved.description,/Test data:\nUse the case account parameter/);assert.match(saved.description,/Cleanup:\nKeep the account/);if(index===0)assert.equal(saved.steps[0].step_type,'api');else assert.match(saved.gherkin_document,/When I inspect the account/);assert.deepEqual(errors,[]);await page.close();
+  }
+ }finally{await browser?.close();await Promise.all(['tsx','html'].map(ext=>rm(new URL(name+'.'+ext,root),{force:true})));}
 });

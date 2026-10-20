@@ -21,7 +21,8 @@ export function qualityMetricLabel(key: string): string { return key.replace(/_/
 export function qualityMetricValue(key: string, value: unknown): string {
   if (value == null) return 'Not measured';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (typeof value !== 'number') return String(value);
+  if (typeof value !== 'number') return typeof value === 'string' ? value : 'Structured value · see run data';
+  if (!Number.isFinite(value)) return 'Not measured';
   if (/bytes$/.test(key)) return value >= 1048576 ? `${(value / 1048576).toFixed(1)} MB` : `${Math.round(value / 1024)} KB`;
   if (/_ms$/.test(key)) return value >= 1000 ? `${(value / 1000).toFixed(2)} s` : `${Math.round(value)} ms`;
   if (/ratio$/.test(key)) return `${(value * 100).toFixed(2)}%`;

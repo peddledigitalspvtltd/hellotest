@@ -1,6 +1,7 @@
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
 import { IconArrowRight, IconCheck, IconClock, IconPlayerStop, IconShieldCheck } from "@tabler/icons-react";
 import type { AgenticWorkflowRun } from "@hellotest/platform/frontend/src/types";
+import { agentOutputText } from '../lib/agentOutputValue';
 
 const stateLabels: Record<string, string> = {
   running: "In progress", queued: "Waiting", completed: "Completed", needs_review: "Review required",
@@ -13,7 +14,7 @@ export function WorkflowReviewSummary({ run, canStop, stopping, onStop, onOpenRe
 }) {
   const completed = run.node_results.filter(step => step.status === "completed").length;
   const total = run.node_results.length;
-  const summary = String(run.output_payload?.summary || "The review is preparing its first step.");
+  const summary = agentOutputText(run.output_payload?.summary || "The review is preparing its first step.");
   const reviews = run.node_results.filter(step => (step.output as Record<string, unknown> | undefined)?.session_id);
   return <section className="workflow-review-summary" aria-label="Review workflow progress">
     <div className="workflow-review-summary__header">
@@ -35,7 +36,7 @@ export function WorkflowReviewSummary({ run, canStop, stopping, onStop, onOpenRe
         const provenance = result.provenance as { generation_mode?: string } | undefined;
         return <article key={String(step.node_id)}>
           <div><strong>{String(step.node_name)}</strong><span className={`workflow-review-evidence ${readiness?.status === "ready_for_review" ? "is-ready" : "has-gaps"}`}>{readiness?.status === "ready_for_review" ? "Evidence reviewed" : "Evidence gaps"}</span></div>
-          <p>{String(result.executive_summary || result.response || "Review saved.").slice(0, 280)}</p>
+          <p>{agentOutputText(result.executive_summary || result.response || "Review saved.").slice(0, 280)}</p>
           <footer><small>{provenance?.generation_mode === "llm" ? "Model-assisted" : "Evidence summary"} · {readiness?.evidence_count || 0} evidence sources</small>
             <button className="ghost-button compact" type="button" onClick={() => onOpenReview(String(step.specialist_id || result.specialist_id), String(result.session_id))}>Open review<IconArrowRight size={15} /></button></footer>
         </article>;

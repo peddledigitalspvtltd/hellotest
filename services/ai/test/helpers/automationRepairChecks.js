@@ -20,6 +20,8 @@ exports.run=async({db,obsDb,user,projectId,appTypeId,modelReview=false,instructi
     await db.prepare("INSERT INTO integrations(id,type,name,base_url,config) VALUES(?,'testengine','Repair fixture engine','http://127.0.0.1:4301',?)").run(integrationId,{project_id:projectId,headless:true,action_timeout_ms:250,assertion_timeout_ms:250,healing_enabled:true,max_repair_attempts:2,web_session_mode:'reuse',web_session_reuse_key:'should-not-reuse',video_mode:'off'});
     const original=await executions.createExecution({project_id:projectId,app_type_id:appTypeId,test_case_ids:[caseId],test_environment_id:environmentId,test_data_set_id:good,build:'repair-fixture-build',created_by:user.id});
     const snapshot=await db.prepare('SELECT * FROM execution_step_snapshots WHERE execution_id=? ORDER BY step_order').all(original.id);
+    const sharedProbe={values:{'t.shared_probe':'original-frozen-value'},templates:{'t.shared_probe':'original-template-not-for-regeneration'},privateNames:['t.shared_probe']};
+    await db.prepare('UPDATE execution_step_snapshots SET shared_parameter_values=?,shared_parameter_template_values=?,shared_parameter_sensitive_names=? WHERE execution_id=? AND snapshot_step_id=?').run(sharedProbe.values,sharedProbe.templates,sharedProbe.privateNames,original.id,snapshot[0].snapshot_step_id);
     await db.prepare("INSERT INTO execution_results(id,execution_id,test_case_id,app_type_id,status,logs) VALUES(?,?,?,?,'failed',?)").run(randomUUID(),original.id,caseId,appTypeId,JSON.stringify({stepStatuses:{[snapshot[0].snapshot_step_id]:'passed',[snapshot[1].snapshot_step_id]:'failed'}}));
     const prepared=await service.prepare({projectId,appTypeId,user,input:{test_case_id:caseId,execution_id:original.id}});
     assert.equal(prepared.status,'eligible',prepared.detail);
@@ -28,6 +30,13 @@ exports.run=async({db,obsDb,user,projectId,appTypeId,modelReview=false,instructi
     assert.equal(saved.status,'proposal',JSON.stringify(saved));
     await assert.rejects(service.apply(projectId,saved.id,user),{statusCode:409});
     const plan=await service.plan(projectId,saved.id,user,{neighbor_ids:[neighborId],negative_data_set_id:negative,oracle_step_id:ids[2],fixture_contract:'Dedicated local fixture with a fresh page per run; bad input must be rejected by the protected acceptance assertion.'});
+    for(const phase of ['original','patched','negative']){
+      const frozen=await db.prepare('SELECT snapshot_step_id,shared_parameter_values,shared_parameter_template_values,shared_parameter_sensitive_names FROM execution_step_snapshots WHERE execution_id=? AND test_case_id=? AND step_order=1').get(plan.validation[phase].id,caseId);
+      assert.notEqual(frozen.snapshot_step_id,snapshot[0].snapshot_step_id,'Validation retains its own snapshot IDs');
+      assert.deepEqual(frozen.shared_parameter_values,sharedProbe.values,phase+' frozen shared values');
+      assert.deepEqual(frozen.shared_parameter_template_values,sharedProbe.templates,phase+' frozen shared templates');
+      assert.deepEqual(frozen.shared_parameter_sensitive_names,sharedProbe.privateNames,phase+' shared private flags');
+    }
     assert.equal((await service.plan(projectId,saved.id,user,{})).validation.original.id,plan.validation.original.id,'Repeated planning reuses the same pinned Runs');
     await assert.rejects(service.start(projectId,saved.id,user,{phase:'patched'}),{statusCode:409});
     const {createWebRunSession}=await import(pathToFileURL(path.resolve(__dirname,'../../../../testengine/backend/dist/lib/webEngine.js')).href);
@@ -37,9 +46,27 @@ exports.run=async({db,obsDb,user,projectId,appTypeId,modelReview=false,instructi
       assert.equal(jobs.length,phase==='patched'?2:1);
       for(const job of jobs){
         assert.equal(job.payload.max_repair_attempts,0);assert.equal(job.payload.session_policy.web.mode,'new');
+        if(job.test_case_id===caseId)assert.deepEqual(job.payload.steps.find(step=>step.order===1).shared_parameter_values,sharedProbe.values,'The real runner receives the original frozen shared input');
         await dispatch.startQueuedJob({job_id:job.id,worker_id:'repair-browser-fixture'});
         const session=createWebRunSession(job.payload);let status='passed';
-        try{await session.start();for(const step of job.payload.steps){const outcome=await session.runStep(step);await dispatch.reportQueuedStep({job_id:job.id,step_id:step.id,...outcome});if(outcome.status!=='passed'){status='failed';break;}}}finally{await session.stop(status);}
+        try{await session.start();for(const step of job.payload.steps){
+          const outcome=await session.runStep(step);
+          // The real queue worker forwards the web engine's untouched trace
+          // inside automation_detail; top-level line_results are not a report
+          // contract and would silently discard the assertion provenance.
+          await dispatch.reportQueuedStep({job_id:job.id,step_id:step.id,...outcome,automation_detail:{
+            engine:step.step_type,provider:outcome.web_detail?.provider||session.provider,status:outcome.status,
+            code:step.automation_code,line_results:outcome.line_results
+          }});
+          if(phase==='negative'&&job.test_case_id===caseId&&outcome.status==='failed'){
+            assert.ok(outcome.line_results?.some(line=>line.status==='failed'&&line.attempt===1),'The real negative assertion supplies a first-attempt failed line');
+            const persisted=await obsDb.prepare('SELECT runtime_state FROM test_engine_jobs WHERE id=?').get(job.id);
+            const lines=persisted.runtime_state.logs.stepAutomationDetails[step.id].line_results;
+            const proof=rows=>rows.map(({line,status,attempt})=>({line,status,attempt}));
+            assert.deepEqual(proof(lines),proof(outcome.line_results),'Persisted assertion provenance comes from the actual browser run');
+          }
+          if(outcome.status!=='passed'){status='failed';break;}
+        }}finally{await session.stop(status);}
         await dispatch.completeQueuedJob({job_id:job.id,status});
       }
       const state=await service.load(projectId,saved.id);

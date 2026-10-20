@@ -1,0 +1,10 @@
+const KINDS = Object.freeze(['requirement','test_case','execution','bug','knowledge_item','text','chat','file','url']);
+const RELATIONS = Object.freeze(['TESTS','EXECUTED_IN','HAS_DEFECT','RELATED_TO','DEPENDS_ON','DERIVED_FROM','USES','PART_OF']);
+const PERMISSIONS = Object.freeze({requirement:'requirement.view',test_case:'testcase.view',execution:'run.view',bug:'feedback.view'});
+const LIMITS = Object.freeze({max_hops:3,max_fanout:12,max_nodes:120,max_edges:160,max_evidence:30,max_seeds:6,max_paths:5,max_tokens:8000,max_timeout_ms:20000});
+const fail = (message, code = 'KNOWLEDGE_GRAPH_INPUT_INVALID', statusCode = 400) => Object.assign(new Error(message), {code,statusCode,publicMessage:message});
+const text = (value, max=255) => typeof value === 'string' ? value.trim().slice(0,max) : '';
+const list = (value,max=100) => Array.isArray(value) ? value.slice(0,max) : [];
+const number = (value,fallback,min,max) => value == null ? fallback : Number.isSafeInteger(Number(value)) && Number(value)>=min && Number(value)<=max ? Number(value) : (()=>{throw fail(`Use an integer from ${min} to ${max}.`);})();
+const describe = () => ({schema_version:'knowledge-graph/1',node_kinds:[...KINDS],relation_types:[...RELATIONS],limits:{...LIMITS},identity:'Canonical Knowledge source IDs; exact native keys and curated aliases. No fuzzy entity merges.',evidence:'Active relationships require current immutable chunk/version witnesses and fetch-time source, document, fragment and domain authorization.',limitations:['Source-level graph; repository symbols are not inferred from filenames.','LLM candidates and unreviewed relations never establish graph facts.','A bounded no-path result does not prove that no relationship exists.']});
+module.exports = {KINDS,RELATIONS,PERMISSIONS,LIMITS,fail,text,list,number,describe};

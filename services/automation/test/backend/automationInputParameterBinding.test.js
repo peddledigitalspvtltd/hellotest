@@ -123,3 +123,62 @@ test('invalid or differently scoped provenance fails without including supplied 
       && error.nonRetryable && !error.message.includes(value));
   }
 });
+
+const selection = (input = 'south', locator = '#region') => ({ name: 'browser_select_option', arguments: { locator, value: input } });
+const selectSnapshot = (extra = {}) => ({ tool: 'browser_snapshot', result: receipt({ observation_id: 'address-page', elements: [
+  { tag: 'select', locators_validated: true, locator_candidates: ['#region', 'getByLabel("Region")'],
+    options: [{ label: 'South', value: 'south', disabled: false }] },
+  { tag: 'select', locators_validated: true, locator_candidates: ['#other-region'], options: [] }
+], ...extra }) });
+
+test('native selected inputs retain their original unique active public parameter instead of compiling a literal', () => {
+  const state = fixture({ action: 'Select @r.region in Region.', expected: 'Region retains @r.region.', values: { 'r.region': 'south', 'r.unrelated': 'south' } });
+  const request = selection(), original = structuredClone(request);
+  const bound = state.policy.canonicalize(request, { snapshot: selectSnapshot() });
+  assert.equal(bound.arguments.value, '@r.region');
+  assert.deepEqual(request, original);
+  const source = compileRecordedProgram([bound]).source;
+  assert.match(source, /selectOption\("@r\.region"\)/);
+  assert.doesNotMatch(source, /south/);
+  const unreferenced = fixture({ action: 'Select the fixed South region.', expected: 'South remains selected.', values: { 'r.region': 'south' } });
+  assert.equal(unreferenced.policy.canonicalize(request, { snapshot: selectSnapshot() }), request);
+});
+
+test('select content oracles bind only to the same native field latest confirmed selection and explicit authored expectation', () => {
+  const state = fixture({ action: 'Select @r.region.', expected: 'Region retains @r.region.', values: { 'r.region': 'south' } });
+  const page = selectSnapshot(), selected = state.policy.canonicalize(selection(), { snapshot: page });
+  const actual = confirmed(selected);
+  const request = check('south', 'getByLabel("Region")');
+  assert.equal(state.policy.canonicalize(request, { snapshot: page, observations: [actual] }).arguments.value, '@r.region');
+  for (const observations of [[], [structuredClone(actual)], [confirmed(selection('@r.region'), { execution_step_id: 'other' })],
+    [confirmed(selection('@r.region', '#other-region'))], [confirmed(fill('@r.region', '#region'))],
+    [actual, confirmed(selection('later-literal'))]]) {
+    assert.equal(state.policy.canonicalize(request, { snapshot: page, observations }), request);
+  }
+  for (const expected of ['Region is selected.', 'Region retains "south".']) {
+    const literal = fixture({ action: 'Select @r.region.', expected, values: { 'r.region': 'south' } });
+    assert.equal(literal.policy.canonicalize(request, { snapshot: page, observations: [actual] }), request);
+  }
+  const source = compileRecordedProgram([selected, state.policy.canonicalize(request, { snapshot: page, observations: [actual] })]).source;
+  assert.match(source, /toHaveValue\("@r\.region"\)/);
+  assert.doesNotMatch(source, /south/);
+});
+
+test('select binding does not infer private, ambiguous or custom-combobox values and respects rendered transitions', () => {
+  const privateValue = fixture({ action: 'Select @r.region.', values: { 'r.region': 'south' }, privateNames: ['r.region'] });
+  const ambiguous = fixture({ action: 'Select @r.region and @r.confirmation.', values: { 'r.region': 'south', 'r.confirmation': 'south' } });
+  for (const policy of [privateValue.policy, ambiguous.policy]) {
+    const request = selection(); assert.equal(policy.canonicalize(request, { snapshot: selectSnapshot() }), request);
+  }
+  const state = fixture({ action: 'Select @r.region.', expected: 'Region retains @r.region.', values: { 'r.region': 'south' } });
+  for (const tag of ['div', 'input']) {
+    const page = selectSnapshot({ elements: [{ tag, accessible_role: 'combobox', attributes: { type: 'text' }, locators_validated: true, locator_candidates: ['#region'] }] });
+    const request = selection(); assert.equal(state.policy.canonicalize(request, { snapshot: page }), request);
+  }
+  const selected = confirmed(selection('@r.region'));
+  const navigation = confirmed({ name: 'browser_navigate', arguments: { url: 'https://app.test/other' } });
+  const transition = confirmed({ name: 'browser_click', arguments: { locator: '#next' } }); markPageTransition(transition);
+  for (const observations of [[selected, navigation], [selected, transition]]) {
+    const request = check('south', '#region'); assert.equal(state.policy.canonicalize(request, { snapshot: selectSnapshot(), observations }), request);
+  }
+});

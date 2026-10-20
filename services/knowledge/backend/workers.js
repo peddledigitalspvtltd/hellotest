@@ -1,6 +1,7 @@
 // Loaded only by the process that owns these background jobs.
 module.exports = () => {
     const knowledgeRagService = require("./services/knowledgeRag.service");
+    const shutdown = new AbortController();
     return {
         tasks: [
             {
@@ -17,8 +18,26 @@ module.exports = () => {
                     await knowledgeRagService.processLegacyKnowledgeSyncOutbox({ limit: 4, leaseMinutes: 10 });
                 },
                 runImmediately: false
+            },
+            {
+                intervalMs: 5000,
+                label: "Unable to reconcile deleted Knowledge source records",
+                run: () => require("./services/knowledgeSourceLifecycle.service").archiveMissingApplicationSources({ limit: 20 }),
+                runImmediately: false
+            },
+            {
+                intervalMs: 5000,
+                label: "Unable to reconcile Knowledge graph evidence",
+                run: () => require("./services/knowledgeGraph.service").processBackfill({ limit: 4 }),
+                runImmediately: false
+            },
+            {
+                intervalMs: 5000,
+                label: "Unable to reconcile Knowledge vector projections",
+                run: () => require("./services/knowledgeVectorProjection.service").processDue({ limit: 4, signal: shutdown.signal }),
+                runImmediately: false
             }
         ],
-        close: async () => { await Promise.allSettled([]); }
+        close: async () => { shutdown.abort(new Error("Knowledge workers are stopping")); }
     };
 };

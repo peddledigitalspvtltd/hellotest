@@ -2946,8 +2946,22 @@ export type QualityEvidenceReport = {
 };
 
 export type AutomationRepairSummary = {id?:string;project_id?:string;status:string;detail:string;patch?:{before:string;after:string;rationale:string;hash:string}};
-export type AgentStructuredArtifact = {target_id?:string;target_revision?:number;kind:"story"|"test_case"|"defect"|"run";title:string;description:string;priority:string;citation_ids:string[];acceptance_criteria?:string[];authoring_mode?:"structured"|"gherkin";gherkin_document?:string;test_case_ids?:string[];exit_criteria?:string[];prerequisites?:string[];requirement_ids?:string[];test_data?:string[];cleanup?:string[];steps?:Array<{action:string;expected_result:string;step_type?:"web"|"api"|"android"|"ios"}>;reproduction_steps?:string[];expected_result?:string;actual_result?:string;severity?:string};
+export type AgentStructuredArtifact = {
+  target_id?: string; target_revision?: number; kind: "story" | "test_case" | "defect" | "run" | "automation";
+  title: string; description: string; priority: string; citation_ids: string[]; addressed_finding_ids?: string[];
+  acceptance_criteria?: string[]; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string;
+  test_case_type?: string; parameter_values?: Record<string, string>; test_case_ids?: string[]; exit_criteria?: string[];
+  manual_test_case_ids?: string[]; start_url?: string;
+  prerequisites?: string[]; requirement_ids?: string[]; test_data?: string[]; cleanup?: string[];
+  steps?: Array<{ action: string; expected_result: string; step_type?: "web" | "api" | "android" | "ios" }>;
+  reproduction_steps?: string[]; expected_result?: string; actual_result?: string; severity?: string;
+};
 export type AgenticAssistantResult = {
+  sections?: Array<{title:string;body:string;citation_ids:string[]}>;
+  tables?: Array<{title:string;columns:string[];rows:string[][];citation_ids:string[]}>;
+  charts?: Array<{title:string;type:"bar";unit:string;series:Array<{label:string;value:number}>;citation_ids:string[]}>;
+  outcome_contract?: {mode:string;artifact_kinds:string[];minimum_artifacts:number;findings_require_proposals?:boolean};
+  outcome_issues?: Array<string | {code:string;message:string;kind?:string;finding_ids?:string[];blocked?:boolean}>;
   artifacts?: AgentStructuredArtifact[];
   model_call_records?: Array<{name:string;trace_id:string|null;status:string;attempt:number}>;
   agent_chain?: Array<{agent_id:string;name:string;status:string;trace_id?:string|null;kind?:AgentStructuredArtifact["kind"];reason?:string;detail?:string;artifact_count?:number}>;
@@ -2956,7 +2970,7 @@ export type AgenticAssistantResult = {
   execution_status?: string;
   publication_status?: string;
   verification?: { verifier_version: string; status: "passed" | "needs_input"; checks: Array<{ id: string; passed: boolean; label: string }>; semantic_review: string; limitations: string[] };
-  model_execution?: { trace_id?: string | null; trace_capture?: string | null; effective_model: string; prompt_hash: string; model_calls: number; max_model_calls: number; agent_version: number; agent_definition_hash?: string; usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } };
+  model_execution?: { trace_id?: string | null; trace_capture?: string | null; effective_model: string; prompt_hash: string; model_calls: number; max_model_calls: number; agent_version: number; agent_definition_hash?: string; usage_unknown_calls?: number; revision_rounds?: number; usage?: { input_tokens?: number | null; output_tokens?: number | null; total_tokens?: number | null } | null };
 
   readiness?: {
     status: "ready_for_review" | "limited_evidence" | "insufficient_evidence";
@@ -2970,6 +2984,8 @@ export type AgenticAssistantResult = {
   response: string;
   activity_summary: string;
   findings?: Array<{
+    id?: string;
+    artifact_kind?: "story" | "test_case" | "defect" | "run" | "automation"; requires_proposal?: boolean;
     observation?: string; gap?: string; impact?: string; proposed_action?: string; acceptance_check?: string;
     title: string;
     detail: string;

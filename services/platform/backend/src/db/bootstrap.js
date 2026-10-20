@@ -2589,6 +2589,8 @@ const statements = [
   ...require('./sharedStepMetricsSchema'),
   ...require('./sharedStepDataSchema'),
   ...require('@hellotest/knowledge/backend/refreshSchema'),
+  ...require('@hellotest/knowledge/backend/graphSchema').statements,
+  ...require('@hellotest/knowledge/backend/vectorProjectionSchema'),
   ...require('./automationCaseIdentitySchema'),
   ...require('./automationCaseDeletionSchema'),
   ...require('./automationStartUrlSchema')

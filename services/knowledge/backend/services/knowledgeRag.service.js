@@ -7,6 +7,7 @@ const aiLlmSelectionService = require("@hellotest/integration/backend/services/a
 const permissionService = require("@hellotest/platform/backend/services/permission.service");
 const featureFlagService = require("@hellotest/platform/backend/services/featureFlag.service");
 const knowledgeVectorStore = require("./knowledgeVectorStore.service");
+const knowledgeVectorProjection = require("./knowledgeVectorProjection.service");
 const knowledgeContracts = require("./knowledgeContracts.service");
 const knowledgeAuthorization = require("./knowledgeAuthorization.service");
 const {
@@ -1240,6 +1241,55 @@ const buildDocumentContextProfile = ({ title, chunks } = {}) => ({
   hierarchy_strategy: "document-title+section-lineage+content-type+content"
 });
 
+const embeddingConfigurationHash = runtime => runtime?.configured ? fingerprint(JSON.stringify({
+  integration_id: runtime.integration?.id || null,
+  endpoint: String(runtime.baseUrl || "").replace(/\/+$/, ""),
+  model: runtime.model
+})) : null;
+
+// A changed source receives a new immutable revision/citations, while unchanged
+// embedding inputs can reuse canonical vectors from this source only. Hash the
+// complete title/section/content input, not just the visible paragraph.
+const embedDocumentTexts = async ({ projectId, sourceId, runtime, texts, signal }) => {
+  if (!runtime?.configured) return embedTexts({ configured: false, ...runtime }, texts, { signal });
+  const hashes = texts.map(fingerprint);
+  const configurationHash = embeddingConfigurationHash(runtime);
+  const rows = await db.prepare(`SELECT chunks.embedding, chunks.metadata->>'embedding_input_hash' AS input_hash
+    FROM ai_knowledge_chunks chunks JOIN ai_knowledge_documents documents ON documents.id = chunks.document_id
+    WHERE chunks.project_id = ? AND chunks.source_id = ? AND chunks.embedding_model = ?
+      AND jsonb_exists(chunks.metadata, 'embedding_input_hash')
+      AND chunks.metadata->>'embedding_configuration_hash' = ?
+      AND chunks.metadata->>'embedding_input_hash' IN (SELECT jsonb_array_elements_text(?::jsonb))
+    ORDER BY documents.version DESC, chunks.chunk_index LIMIT 10000`).all(projectId, sourceId, runtime.model, configurationHash, [...new Set(hashes)]);
+  if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+  const reused = new Map();
+  for (const row of rows) {
+    if (reused.has(row.input_hash)) continue;
+    try {
+      const vector = validateEmbeddingVector(row.embedding);
+      if (vector.length >= 8) reused.set(row.input_hash, vector);
+    } catch { /* Recompute invalid canonical vectors. */ }
+  }
+  if (new Set([...reused.values()].map(vector => vector.length)).size > 1) reused.clear();
+  const reusedCount = hashes.filter(hash => reused.has(hash)).length;
+  const inputByHash = new Map(hashes.map((hash, index) => [hash, texts[index]]));
+  const missing = [...inputByHash.keys()].filter(hash => !reused.has(hash));
+  const missingTexts = missing.map(hash => inputByHash.get(hash));
+  const fallback = texts.map(localEmbedding);
+  const generated = missing.length ? await embedTexts(runtime, missingTexts, { signal }) : null;
+  if (generated && (generated.model !== runtime.model
+      || (reused.size && generated.vectors[0]?.length !== reused.values().next().value.length))) {
+    // Never mix provider/local dimensions or silently combine an old model
+    // deployment with a new dimension under the same provider model name.
+    return { ...(generated || {}), vectors: fallback, fallback, model: LOCAL_EMBEDDING_MODEL,
+      warning_code: "embedding_fallback", warning: generated.warning || "The embedding model changed dimensions; complete local indexes were retained.",
+      reused_chunk_count: 0 };
+  }
+  missing.forEach((hash, index) => reused.set(hash, generated.vectors[index]));
+  return { vectors: hashes.map(hash => reused.get(hash)), fallback, model: runtime.model,
+    provider: runtime.provider, warning: null, reused_chunk_count: reusedCount };
+};
+
 const persistDocument = async ({ projectId, source, content, chunking, embeddingRuntime, metadata = {}, activationGuard, signal }) => {
   const sanitized = sanitizeAiText(content);
   if (!sanitized.text) return { document: null, chunks: [], warning: "No extractable text was available; the source was retained for a caption, transcript, or extraction step." };
@@ -1301,7 +1351,7 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
         id, projectId, documentId, source.id, chunk.index, chunk.heading, chunk.content,
         chunk.token_count, chunk.char_start, chunk.char_end, retrievalTexts[index],
         embeddingResult.vectors[index], embeddingResult.fallback[index], embeddingResult.model,
-        { fragment_key: `${(chunk.heading_path || []).join("/") || "body"}:${chunk.index}`,
+        { fragment_key: `${(chunk.heading_path || []).join("/") || "body"}:${chunk.index}`, embedding_input_hash: fingerprint(retrievalTexts[index]),
           document_title: documentContext.title, section_heading: chunk.heading || null, section_path: chunk.heading_path || [], section_type: chunk.section_type || "body", section_level: chunk.section_level || null, hierarchy_strategy: documentContext.hierarchy_strategy, context_quality_grade: contextQuality.grade, context_quality_score: contextQuality.score, risk_flags: sanitized.risk_flags, redaction_count: sanitized.redaction_count }
       );
       persistedChunks.push({ id, ...chunk, document_id: documentId, source_id: source.id });
@@ -1347,6 +1397,8 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
     const ready = await db.prepare(`SELECT document_id FROM ai_knowledge_index_states
       WHERE document_id = ? AND lexical_state = 'ready' AND dense_state = 'ready'`).get(documentId);
     if (!ready) throw createError("Required knowledge indexes are not ready.", 409, "ERR_INDEX_NOT_READY");
+    await require("./knowledgeGraph.service").syncDocument({ projectId, source,
+      document: { id: documentId, version, checksum_sha256: checksum }, chunks: persistedChunks });
     await db.prepare(`
       UPDATE ai_knowledge_documents SET is_active = FALSE, effective_to = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
       WHERE source_id = ? AND id <> ? AND is_active = TRUE
@@ -1370,6 +1422,7 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
       asObject(source.metadata), source.required_permission || null,
       source._pending_checksum || null, sanitized.risk_flags, source.id
     );
+    await knowledgeVectorProjection.queueSource({ projectId, sourceId: source.id, documentId, revisionToken: source.revision_token });
   });
   // Publish a complete canonical revision before contacting optional providers.
   // PostgreSQL already contains FTS and deterministic local vectors, so readers
@@ -1377,7 +1430,7 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
   await activateDocumentVersion();
   const semanticProfile = await require("./knowledgeEnrichment.service").enrichDocument({ projectId, source, chunks, signal });
   const runtime = typeof embeddingRuntime === "function" ? await embeddingRuntime() : embeddingRuntime;
-  embeddingResult = await embedTexts(runtime || { configured: false }, retrievalTexts, { signal });
+  embeddingResult = await embedDocumentTexts({ projectId, sourceId: source.id, runtime: runtime || { configured: false }, texts: retrievalTexts, signal });
   if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
 
   const assertCurrentEnrichment = async () => {
@@ -1404,13 +1457,15 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
     }
     if (embeddingResult.model !== LOCAL_EMBEDDING_MODEL) {
       for (let index = 0; index < persistedChunks.length; index += 1) {
-        await db.prepare(`UPDATE ai_knowledge_chunks SET embedding = ?, embedding_model = ?
-          WHERE id = ? AND document_id = ?`).run(embeddingResult.vectors[index], embeddingResult.model, persistedChunks[index].id, documentId);
+        await db.prepare(`UPDATE ai_knowledge_chunks SET embedding = ?, embedding_model = ?, metadata = metadata || ?::jsonb
+          WHERE id = ? AND document_id = ?`).run(embeddingResult.vectors[index], embeddingResult.model,
+          { embedding_configuration_hash: embeddingConfigurationHash(runtime) }, persistedChunks[index].id, documentId);
       }
       await db.prepare(`UPDATE ai_knowledge_index_states SET embedding_model = ?, embedding_dimensions = ?,
         updated_at = CURRENT_TIMESTAMP WHERE document_id = ? AND is_current = TRUE
       `).run(embeddingResult.model, embeddingResult.vectors[0]?.length || null, documentId);
     }
+    await knowledgeVectorProjection.queueSource({ projectId, sourceId: source.id, documentId, revisionToken: source.revision_token });
   })();
   // Optional pgvector casts stay outside the document transaction; a provider
   // dimension/extension error cannot roll back the canonical JSONB/FTS indexes.
@@ -1424,20 +1479,24 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
       // PostgreSQL remains canonical. Qdrant stores only stable canonical IDs
       // and ACL-filterable projection metadata; content is hydrated from the
       // active PostgreSQL revision after vector retrieval.
-      const active = await db.prepare(`SELECT id, revision_token FROM ai_knowledge_sources
-        WHERE id = ? AND project_id = ? AND extraction_status <> 'archived'`).get(source.id, projectId);
-      if (active?.revision_token !== source.revision_token) throw createError("A newer Knowledge document superseded the vector projection.", 409, "KNOWLEDGE_VERSION_SUPERSEDED");
-      const projection = await boundedRetrievalStage((projectionSignal) => knowledgeVectorStore.replaceDocument({
-        projectId,
-        source,
-        documentId,
-        chunks: persistedChunks,
-        vectors: embeddingResult.vectors,
-        embeddingModel: embeddingResult.model,
-        signal: projectionSignal
-      }), { timeoutMs: 8_000, signal, code: "VECTOR_PROJECTION_TIMEOUT" });
       await db.transaction(async () => {
+        // Hold the canonical source lock through the bounded projection. An
+        // archive cannot acknowledge cleanup and then race a late stale upsert.
         await assertCurrentEnrichment();
+        const projectionConfiguration = knowledgeVectorStore.configurationKey();
+        const projection = await boundedRetrievalStage((projectionSignal) => knowledgeVectorStore.replaceDocument({
+          projectId,
+          source,
+          documentId,
+          chunks: persistedChunks,
+          vectors: embeddingResult.vectors,
+          embeddingModel: embeddingResult.model,
+          signal: projectionSignal
+        }), { timeoutMs: 8_000, signal, code: "VECTOR_PROJECTION_TIMEOUT" });
+        if (projection.configured === false || projection.indexed !== persistedChunks.length) {
+          throw new Error("Vector projection did not acknowledge every canonical chunk");
+        }
+        if (knowledgeVectorStore.configurationKey() !== projectionConfiguration) throw new Error("Vector configuration changed during indexing");
         await db.prepare(`
           UPDATE ai_knowledge_index_states
           SET dense_state = 'ready', vector_provider = 'qdrant',
@@ -1445,6 +1504,7 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
             indexed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
           WHERE document_id = ? AND is_current = TRUE
         `).run(projection.dimensions, projection.indexed, documentId);
+        await knowledgeVectorProjection.completeSource({ projectId, sourceId: source.id, documentId, revisionToken: source.revision_token, configurationKey: projectionConfiguration });
       })();
     } catch (error) {
       if (signal?.aborted || error?.code === "KNOWLEDGE_VERSION_SUPERSEDED") throw error;
@@ -1454,7 +1514,7 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
         SET vector_provider = 'postgresql', error_fingerprint = ?, updated_at = CURRENT_TIMESTAMP
         WHERE document_id = ? AND is_current = TRUE
       `).run(errorReference, documentId).catch(() => undefined);
-      projectionWarning = `The current revision is searchable using PostgreSQL lexical and local indexes. The optional vector projection is unavailable (ref ${errorReference.slice(0, 12)}).`;
+      projectionWarning = `The current revision is searchable using PostgreSQL lexical and local indexes. The optional vector projection is unavailable and queued for recovery (ref ${errorReference.slice(0, 12)}).`;
     }
   }
 
@@ -2001,21 +2061,15 @@ const retryIngestion = async ({ id, user }) => {
   };
 };
 
-const archiveLegacyKnowledgeSource = async (projectId, sourceRefId) => {
-  const vectorTargets = knowledgeVectorStore.isConfigured() ? await db.prepare(`
-    SELECT sources.id AS source_id, states.embedding_dimensions
-    FROM ai_knowledge_sources sources
-    LEFT JOIN ai_knowledge_index_states states ON states.source_id = sources.id
-    WHERE sources.project_id = ? AND sources.source_kind = 'knowledge_item'
-      AND sources.source_ref_id = ? AND states.embedding_dimensions IS NOT NULL
-  `).all(projectId, sourceRefId).catch(() => []) : [];
-  await db.prepare(`
+const archiveLegacyKnowledgeSource = (projectId, sourceRefId) => db.transaction(async () => {
+  const archivedSources = await db.prepare(`
     UPDATE ai_knowledge_sources
     SET extraction_status = 'archived',
       revision_token = id || ':archived:' || EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::TEXT || ':' || RANDOM()::TEXT,
       updated_at = CURRENT_TIMESTAMP
     WHERE project_id = ? AND source_kind = 'knowledge_item' AND source_ref_id = ?
-  `).run(projectId, sourceRefId);
+    RETURNING id
+  `).all(projectId, sourceRefId);
   await db.prepare(`
     UPDATE ai_knowledge_documents SET is_active = FALSE, effective_to = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
     WHERE source_id IN (
@@ -2030,12 +2084,11 @@ const archiveLegacyKnowledgeSource = async (projectId, sourceRefId) => {
       WHERE project_id = ? AND source_kind = 'knowledge_item' AND source_ref_id = ?
     ) AND is_current = TRUE
   `).run(projectId, sourceRefId);
-  await Promise.allSettled(vectorTargets.map((target) => knowledgeVectorStore.deleteSource({
-    projectId,
-    sourceId: target.source_id,
-    dimensions: Number(target.embedding_dimensions)
-  })));
-};
+  for (const source of archivedSources) {
+    await knowledgeVectorProjection.queueSource({ projectId, sourceId: source.id });
+    await require("./knowledgeGraph.service").archiveSource({ projectId, sourceId: source.id });
+  }
+})();
 
 const queueLegacyKnowledgeSync = async ({ projectId, sourceRefId, userId, action = "upsert" }) => {
   const normalizedProjectId = normalizeId(projectId);
@@ -2985,35 +3038,26 @@ const expandEvidence = async ({ projectId, user, hits = [], window = 1, limit = 
   return { results, retrieval: { degraded: errors.length > 0, error_codes: errors }, expansion: { kind: "adjacent_fragments", window: radius, bounded: true, seed_count: seeds.length, result_count: results.length } };
 };
 
-const expandRelationships = async ({ projectId, user, hits = [], query, mode = "hybrid", limit = 6, signal, maxCandidates, timeoutMs } = {}) => {
+const expandRelationships = async ({ projectId, user, hits = [], query, mode = "hybrid", limit = 6, signal, maxCandidates, timeoutMs, appTypeId, app_type_id, sourceKinds } = {}) => {
   if (signal?.aborted) throw signal.reason || createError("Knowledge expansion cancelled.", 408);
   const deadlineAt = Date.now() + retrievalTimeout(timeoutMs, 1_500);
   const remainingMs = () => Math.max(0, deadlineAt - Date.now());
   const access = await knowledgeAuthorization.getEvidenceAccess({ projectId, user, evidence: hits, signal, timeoutMs: remainingMs() });
-  const seeds = normalizeFilterIds(access.allowed.map((hit) => hit.source_id), 6).filter((id) => id !== "hellotest-product-help");
+  const seeds = normalizeFilterIds(access.allowed.filter(hit => SOURCE_KINDS.has(hit.source_kind)).map((hit) => hit.source_id), 6).filter((id) => id !== "hellotest-product-help");
   if (!seeds.length) return { results: [], relationships: [] };
-  const acl = knowledgeAuthorization.predicate({ user, projectId, source: "targets" });
-  const rows = await boundedRetrievalStage(() => db.prepare(`SELECT relations.id, origin.id AS source_canonical_id,
-    targets.id AS target_canonical_id, relations.relation_type,
-    COALESCE(relations.metadata->>'provenance_type', 'SOURCE_EXPLICIT') AS provenance_type
-    FROM ai_knowledge_relations relations
-    JOIN ai_knowledge_sources origin ON origin.source_ref_id = relations.source_id AND origin.source_kind = relations.source_type
-    JOIN ai_knowledge_sources targets ON targets.source_ref_id = relations.target_id AND targets.source_kind = relations.target_type
-    WHERE relations.project_id = ? AND origin.project_id = ? AND targets.project_id = ?
-      AND origin.id IN (${seeds.map(() => "?").join(",")}) AND targets.extraction_status = 'ready'
-      AND COALESCE(relations.metadata->>'provenance_type', 'SOURCE_EXPLICIT') IN ('SOURCE_EXPLICIT', 'DETERMINISTIC', 'HUMAN_VERIFIED')
-      AND COALESCE(relations.metadata->>'status', 'ACTIVE') IN ('ACTIVE', 'APPROVED') AND ${acl.sql}
-    ORDER BY relations.created_at DESC LIMIT 24`).all(projectId, projectId, projectId, ...seeds, ...acl.params), { signal, timeoutMs: remainingMs(), code: "RELATIONSHIP_SEARCH_TIMEOUT" });
+  const maximum = Math.floor(Math.min(12, Math.max(0, maxCandidates == null ? 12 : Number(maxCandidates) || 0), Math.max(0, Number(limit) || 0)));
+  if (!maximum) return { results: [], relationships: [] };
+  // Graph traversal returns the relationship's exact immutable witnesses. A
+  // target's semantically similar passage does not establish an edge.
+  const graph = await boundedRetrievalStage(boundedSignal => require('./knowledgeGraph.service').expand({ projectId, user, seeds, query, signal:boundedSignal,
+    app_type_id:app_type_id || appTypeId, sourceKinds, timeoutMs: Math.max(1, remainingMs()), hops: 2, fanout: 3, maxNodes: 18, maxEdges: 12, maxEvidence: maximum, maxTokens: 8000 }),
+    {signal, timeoutMs:remainingMs(), code:'RELATIONSHIP_SEARCH_TIMEOUT'});
   assertRetrievalActive(signal);
-  const targets = normalizeFilterIds(rows.map((row) => row.target_canonical_id), 12);
-  if (!targets.length) return { results: [], relationships: [] };
-  const response = await search({ projectId, user, query, mode, signal, maxCandidates, timeoutMs: remainingMs(), limit: Math.min(12, Math.max(1, Number(limit) || 6)), filters: { source_ids: targets } });
-  const visible = new Set(response.results.map((hit) => hit.source_id));
-  return { results: response.results, relationships: rows.filter((row) => visible.has(row.target_canonical_id)).map((row) => ({
-    ...row, relationship_type: row.relation_type,
-    evidence_ids: [...access.allowed.filter((hit) => hit.source_id === row.source_canonical_id), ...response.results.filter((hit) => hit.source_id === row.target_canonical_id)]
-      .map((hit) => hit.citation?.id || `K-${hit.chunk_id}`)
-  })), retrieval: response.retrieval };
+  return { results: graph.evidence, relationships: graph.edges.map(edge => ({
+    id: edge.id, source_canonical_id: edge.source, target_canonical_id: edge.target, relationship_type: edge.type,
+    provenance_type: edge.provenance_type, evidence_ids: edge.evidence_ids, witness_span:edge.witness_span, endpoints_authorized: true
+  })), retrieval: { embedding_model: null, vector_mode: 'graph_witnesses', degraded: graph.limitations.partial,
+    error_codes: [], graph: { stats: graph.stats, limitations: graph.limitations, budget: graph.budget } } };
 };
 
 // Resolve ACL and the configured LLM embedding runtime once, then embed all
@@ -3397,6 +3441,8 @@ module.exports = {
     KNOWLEDGE_PROCESSING_VERSION,
     buildChunkRetrievalText,
     buildDocumentContextProfile,
+    embedDocumentTexts,
+    embeddingConfigurationHash,
     classifyIngestionError,
     embedTexts,
     extractWithTika,

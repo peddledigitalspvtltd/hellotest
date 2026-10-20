@@ -1,5 +1,6 @@
 const { createHash } = require('node:crypto');
 const { policy } = require('../workflows/specialistPolicy');
+const { normalizeOutputContract, outcomeContract } = require('../services/agentOutcomeContracts');
 const fail = (message, code = 'AGENT_DEFINITION_INVALID', statusCode = 422) => Object.assign(new Error(message), { publicMessage: message, code, statusCode });
 const text = (value, name, max, required = false) => {
   if (value != null && typeof value !== 'string') throw fail(`${name} must be text.`);
@@ -19,11 +20,12 @@ const list = (value, name, max = 100) => {
 };
 function normalize(input = {}) {
   if (!input || Array.isArray(input) || typeof input !== 'object') throw fail('Provide an agent definition.');
-  const allowed = new Set(['name', 'feature_id', 'description', 'objective', 'instructions', 'skills', 'allowed_tools', 'context_scopes', 'context', 'guardrails', 'integration_id', 'source_ids', 'source_kinds', 'required_inputs', 'acceptance', 'limits']);
+  const allowed = new Set(['name', 'feature_id', 'description', 'objective', 'instructions', 'skills', 'allowed_tools', 'context_scopes', 'context', 'guardrails', 'integration_id', 'source_ids', 'source_kinds', 'required_inputs', 'acceptance', 'limits', 'output_contract']);
   if (Object.keys(input).some(key => !allowed.has(key))) throw fail('Agent definition contains unsupported settings.');
   for (const key of ['acceptance', 'limits']) {
     if (input[key] != null && (typeof input[key] !== 'object' || Array.isArray(input[key]))) throw fail(`${key} must be an object.`);
   }
+  const inheritedOutput = input.feature_id ? outcomeContract('', { feature_id: input.feature_id }) : null;
   const result = {
     ...(input.feature_id ? { feature_id: text(input.feature_id, 'Capability', 10) } : {}),
     name: text(input.name, 'Agent name', 120, true), description: text(input.description, 'Description', 600),
@@ -34,6 +36,8 @@ function normalize(input = {}) {
     integration_id: text(input.integration_id, 'Model connection', 255),
     source_ids: list(input.source_ids, 'Knowledge sources'), source_kinds: list(input.source_kinds, 'Source kinds', 20),
     required_inputs: list(input.required_inputs, 'Required inputs', 20),
+    output_contract: normalizeOutputContract(input.output_contract ?? (inheritedOutput?.mode === 'author'
+      ? { kind: inheritedOutput.artifact_kinds[0], minimum_artifacts: inheritedOutput.minimum_artifacts } : undefined)),
     acceptance: { require_evidence: input.acceptance?.require_evidence ?? true, no_evidence_gaps: input.acceptance?.no_evidence_gaps ?? false, minimum_findings: integer(input.acceptance?.minimum_findings, 0, 0, 8, 'Minimum findings') },
     limits: { timeout_ms: integer(input.limits?.timeout_ms, 150000, 10000, 150000, 'Time limit'), max_model_calls: integer(input.limits?.max_model_calls, 2, 1, 4, 'Model calls'), max_output_tokens: integer(input.limits?.max_output_tokens, 4000, 256, 8000, 'Output tokens') }
   };

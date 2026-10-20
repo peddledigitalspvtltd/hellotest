@@ -20,5 +20,6 @@ test('native draft transfer keeps content out of URLs, isolates scope, expires a
  const key=[...values.keys()][0];const envelope=JSON.parse(values.get(key));envelope.createdAt=Date.now()-31*60*1000;values.set(key,JSON.stringify(envelope));assert.equal(takeAgentProposal(expired,'p','app','story'),null);
  const update = new URL(stageAgentProposal({...artifact,target_id:'existing-story',target_revision:4},'p','app'),'http://fixture');assert.equal(update.searchParams.get('requirement'),'existing-story');assert.equal(update.searchParams.get('create'),null);
  for(const [kind,destination] of [['test_case','/test-cases'],['defect','/issues']]) {const route=new URL(stageAgentProposal({...artifact,kind},'p','app'),'http://fixture');assert.equal(route.pathname,destination);}
+ for(const kind of ['run','automation']) assert.throws(()=>stageAgentProposal({...artifact,kind},'p','app'),/Accept the reviewed/);
  delete globalThis.window;
 });

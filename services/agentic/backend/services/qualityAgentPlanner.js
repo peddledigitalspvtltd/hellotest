@@ -19,20 +19,31 @@ async function proposePlan(input,user) {
   }
   const preferences=await require('@hellotest/platform/backend/services/settings.service').getWorkspacePreferences(user.id);
   const guidance=C.text(preferences?.ai_prompt_registry_overrides?.['ai.agentic.quality_plan'],4000);
-  const response=await require('@hellotest/platform/backend/src/utils/llmHttpClient').fetchLlmWithRetry(`${(integration.base_url||'https://api.openai.com/v1').replace(/\/$/,'')}/chat/completions`,{
-    method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${integration.api_key}`},body:JSON.stringify({model:integration.model,max_tokens:2200,response_format:{type:'json_object'},messages:[
+  const selectionContext=C.contextSelection(input),deadline=Date.now()+20000;
+  let feedback;
+  for(let revision=0;revision<2;revision++) {
+  if(deadline-Date.now()<1000)throw C.fail('The bounded journey planning deadline elapsed.',504,'QUALITY_AGENT_PLAN_DEADLINE');
+  const response=await require('@hellotest/platform/backend/src/utils/llmTraceContext').run({project_id:input.project_id,actor_id:user.id},()=>require('@hellotest/platform/backend/src/utils/llmHttpClient').fetchLlmWithRetry(`${(integration.base_url||'https://api.openai.com/v1').replace(/\/$/,'')}/chat/completions`,{
+    method:'POST',headers:{'Content-Type':'application/json',...(require('@hellotest/integration/backend/services/integration.service').isUsableApiCredential(integration.api_key)?{Authorization:`Bearer ${integration.api_key}`}:{})},body:JSON.stringify({model:integration.model,max_tokens:2200,response_format:{type:'json_object'},messages:[
       {role:'system',content:aiInstructionBlock("ai.agentic.quality_plan", "qualityAgentPlanner.response.1")},
       ...(guidance?[{role:'system',content:[aiInstructionBlock("ai.agentic.quality_plan", "qualityAgentPlanner.response.segment.1"),String(guidance),""].join('')}]:[]),
-      {role:'user',content:JSON.stringify({target_url:input.target_url,goal:input.goal,authorized_locator_context:locatorContext})}
+      ...(feedback?[{role:'system',content:aiInstructionBlock('ai.agentic.quality_plan','qualityAgentPlanner.revision')}]:[]),
+      {role:'user',content:JSON.stringify({target_url:input.target_url,goal:input.goal,task_brief:C.taskBrief({...input,kind:'web'}),reviewed_context:selectionContext.smart_context.reviewed_context||null,authorized_locator_context:locatorContext,...(feedback?{validation_feedback:feedback}:{})})}
     ]})
-  },{integration,operation:'agentic-quality.plan',maxOutputTokens:2200,timeoutMs:20000,maxAttempts:1,contextFallback:false});
+  },{integration,featureKey:'ai.agentic.quality_plan',operation:'agentic-quality.plan',maxOutputTokens:2200,timeoutMs:Math.max(1000,deadline-Date.now()),maxAttempts:1,contextFallback:false,contextRetrievalQuery:input.goal,mcpContextFilters:{agent_id:'browser-web',app_type_id:input.app_type_id,requested_scopes:selectionContext.context_scopes,evidence_scope:selectionContext.evidence_scope,source_ids:selectionContext.smart_context.source_ids,source_kinds:selectionContext.smart_context.source_kinds}}));
   if(!response.ok)throw C.fail('Model planning is currently unavailable.',503);
   const payload=await response.json(),choice=payload?.choices?.[0];
   if(!choice||choice.finish_reason==='length'||choice.finish_reason==='content_filter'||choice.message?.refusal||choice.message?.tool_calls?.length||typeof choice.message?.content!=='string')throw C.fail('The model returned an incomplete or unsupported plan.',502);
-  const parsed=JSON.parse(choice.message.content);
+  try {
+  let parsed;try{parsed=JSON.parse(choice.message.content);}catch{throw C.fail('Return a complete JSON object with the typed steps array.',502,'QUALITY_AGENT_PLAN_INVALID');}
   if(!parsed||!Array.isArray(parsed.steps))throw C.fail('The model returned an invalid journey plan.',502);
   const steps=C.normalizeSteps(parsed.steps,input.target_url);
   if(steps.some(step=>step.selector&&!locatorContext.some(row=>row.selector===step.selector)&&!input.goal.includes(step.selector)))throw C.fail('The model proposed a selector outside its authorized planning context.',502);
   return {steps,grounding:locatorContext.filter(row=>steps.some(step=>step.selector===row.selector)).map(({id,name,screen,selector})=>({source:'object_repository',id,name,screen,selector}))};
+  } catch(error) {
+    if(revision||Date.now()>=deadline-1000||!['QUALITY_AGENT_INVALID','QUALITY_AGENT_PLAN_INVALID'].includes(error.code))throw error;
+    feedback={code:error.code,message:error.publicMessage,steps_executed:0};
+  }
+  }
 }
 module.exports={proposePlan};

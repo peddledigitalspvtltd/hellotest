@@ -37,6 +37,7 @@
     "check:mcp": "node scripts/build/mcp-contracts.mjs --check",
     "test:mcp": "npm test --workspace @hellotest/mcp",
     "test:mcp:postgres": "node scripts/checks/test-mcp-postgres.mjs",
+    "test:knowledge:postgres": "node scripts/checks/test-knowledge-postgres.mjs",
     "test:product-ux": "node scripts/checks/test-product-experience.mjs",
     "check:docs": "node scripts/checks/check-docs.mjs"
   },

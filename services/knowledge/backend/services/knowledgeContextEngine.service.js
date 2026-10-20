@@ -190,10 +190,11 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
           execution.emit("PARENT_EXPANSION", "started");
           expansionJobs.push({ stage: "PARENT_EXPANSION", job: stage((signal) => expandParents({ signal, timeoutMs: expansionTimeoutMs, maxCandidates: Math.max(0, budget.limits.max_candidates - candidateCount), projectId: request.project_id, user, hits, window: 1, limit: Math.min(8, budget.remaining().candidates), asOf: filters.as_of }), "PARENT_EXPANSION_TIMEOUT", expansionTimeoutMs) });
         }
-        if (expandRelationships && !pinned && !filters.app_type_id && !array(filters.source_kinds).length && !filters.as_of
+        if (expandRelationships && !pinned && !array(filters.source_kinds).length && !filters.as_of
           && candidateCount < budget.limits.max_candidates && ["LOOKUP", "ANALYTICAL", "INVESTIGATIVE"].includes(request.query_class) && budget.reserve({ toolCalls: 1 })) {
           execution.emit("RELATIONSHIP_SEARCH", "started");
-          expansionJobs.push({ stage: "RELATIONSHIP_SEARCH", job: stage((signal) => expandRelationships({ signal, timeoutMs: expansionTimeoutMs, mode: searchMode, maxCandidates: Math.max(0, budget.limits.max_candidates - candidateCount), projectId: request.project_id, user, hits, query: request.query, limit: 6 }), "RELATIONSHIP_SEARCH_TIMEOUT", expansionTimeoutMs) });
+          expansionJobs.push({ stage: "RELATIONSHIP_SEARCH", job: stage((signal) => expandRelationships({ signal, timeoutMs: expansionTimeoutMs, mode: searchMode, maxCandidates: Math.max(0, budget.limits.max_candidates - candidateCount), projectId: request.project_id, app_type_id:filters.app_type_id,
+            ...(Array.isArray(filters.requested_scopes)?{sourceKinds:route.indexed_source_kinds}:{}), user, hits, query: request.query, limit: 6 }), "RELATIONSHIP_SEARCH_TIMEOUT", expansionTimeoutMs) });
         }
         const expansions = await Promise.allSettled(expansionJobs.map((item) => item.job));
         execution.assertActive();
@@ -290,9 +291,9 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
     vector_modes: [...new Set(results.map((entry) => entry.result.retrieval?.vector_mode).filter(Boolean))]
   };
   execution.emit("CONTEXT_ASSEMBLY", "started");
-  const evidenceRelationships = relationships.map((edge) => ({ ...edge,
-    evidence_ids: hits.filter((hit) => [edge.source_canonical_id, edge.target_canonical_id].includes(hit.source_id)).map((hit) => hit.citation?.id).filter(Boolean)
-  })).filter((edge) => hits.some((hit) => hit.source_id === edge.source_canonical_id) && hits.some((hit) => hit.source_id === edge.target_canonical_id));
+  const selectedProofs = new Set(hits.map(hit => hit.citation?.id || `K-${hit.chunk_id}`).filter(Boolean));
+  const evidenceRelationships = relationships.filter(edge => array(edge.evidence_ids).length && edge.evidence_ids.every(id => selectedProofs.has(id))
+    && (edge.endpoints_authorized === true || hits.some(hit => hit.source_id === edge.source_canonical_id) && hits.some(hit => hit.source_id === edge.target_canonical_id)));
   // Stage failures do not identify unavailable sources: local evidence can stay
   // accessible after an embedding or optional enrichment provider times out.
   const packet = contracts.buildContextPacket({ retrievalRequest: request, interpretedRequest: route, evidence: hits, relationships: evidenceRelationships, authorization: { project_scope_enforced: true, source_acl_enforced: true, authorization_partial: partialAuthorization }, retrieval, budget });

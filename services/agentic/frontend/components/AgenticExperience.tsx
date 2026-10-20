@@ -1,6 +1,8 @@
 import { AgentModelCalls, ModelCallDetails } from '../agents/AgentModelCalls';
 import { FormattedText } from "@hellotest/platform/frontend/src/shared/components/FormattedText";
 import { AgentArtifactReview } from "../agents/AgentArtifactReview";
+import { AgentReportVisuals, AgentStructuredValue } from './AgentStructuredValue';
+import { agentOutputText } from '../lib/agentOutputValue';
 import { AutomationRepairReview } from "@hellotest/ai/frontend/components/AutomationRepairReview";
 import { QualityEvidencePanel } from "@hellotest/ai/frontend/components/QualityEvidencePanel";
 import specialistProfiles from "../../shared/workflowSpecialists.json";
@@ -987,7 +989,7 @@ const formatActivityTime = (value: string) => {
 const toDetailsList = (details: Record<string, unknown>) => Object.entries(details || {})
   .filter(([key]) => !["citations", "evaluation"].includes(key))
   .slice(0, 6)
-  .map(([key, value]) => [key, typeof value === "string" ? value : Array.isArray(value) ? value.join(", ") : JSON.stringify(value)] as [string, string]);
+  .map(([key, value]) => [key, agentOutputText(value)] as [string, string]);
 
 export function AgenticOutcomePanel({ result, citations = [], guardrails = [], provenance, sessionId }: {
   sessionId?: string;
@@ -1012,7 +1014,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   };
 }) {
   const [projectId] = useCurrentProject();
-  const draftResponse = result.response;
+  const draftResponse = agentOutputText(result.response);
   const draftRecommendations = result.recommendations;
   const [selectedRecommendationIndexes, setSelectedRecommendationIndexes] = useState(result.recommendations.map((_, index) => index));
   const [exportNotice, setExportNotice] = useState("");
@@ -1025,6 +1027,8 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   const findings = result.findings || [];
   const deliverables = result.deliverables || [];
   const evidenceGaps = result.evidence_gaps || [];
+  const reviewOnly = result.outcome_contract?.mode === 'review' && !result.artifacts?.length;
+  const hasReviewActions = Boolean(result.artifacts?.length || draftRecommendations.length || result.outcome_contract?.mode === 'author');
   const contextRouteLabel = provenance?.context_route?.input_type?.replace(/_/g, " ") || "specialist task";
 
   useEffect(() => {
@@ -1034,11 +1038,14 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   }, [result]);
 
   const briefText = () => [
-    `# ${result.headline || "Specialist review"}`,
-    result.executive_summary,
+    `# ${agentOutputText(result.headline || "Specialist review")}`,
+    result.executive_summary ? agentOutputText(result.executive_summary) : '',
     draftResponse,
-    findings.length ? `## Findings\n${findings.map(item => `### ${item.title}\n${item.detail}${item.citation_ids?.length ? `\nSources: ${item.citation_ids.join(", ")}` : "\nEvidence requires verification."}`).join("\n\n")}` : "",
-    deliverables.length ? `## Deliverables\n${deliverables.map(item => `### ${item.title}\n${item.detail}${item.citation_ids?.length ? `\nSources: ${item.citation_ids.join(", ")}` : ""}`).join("\n\n")}` : "",
+    findings.length ? `## Findings\n${findings.map(item => `### ${agentOutputText(item.title)}\n${agentOutputText(item.detail)}${item.citation_ids?.length ? `\nSources: ${item.citation_ids.join(", ")}` : "\nEvidence requires verification."}`).join("\n\n")}` : "",
+    deliverables.length ? `## Deliverables\n${deliverables.map(item => `### ${agentOutputText(item.title)}\n${agentOutputText(item.detail)}${item.citation_ids?.length ? `\nSources: ${item.citation_ids.join(", ")}` : ""}`).join("\n\n")}` : "",
+    result.sections?.length ? `## Report sections\n${agentOutputText(result.sections)}` : '',
+    result.tables?.length ? `## Report tables\n${agentOutputText(result.tables)}` : '',
+    result.charts?.length ? `## Report measures\n${agentOutputText(result.charts)}` : '',
     result.readiness?.limitations?.length ? `## Review limitations\n${result.readiness.limitations.map(item => `- ${item}`).join("\n")}` : "",
     selectedRecommendationIndexes.length ? `## Review considerations\n${selectedRecommendationIndexes.map(index => `- ${draftRecommendations[index]}`).join("\n")}` : "",
     result.artifacts?.length ? `## Structured proposals\n${JSON.stringify(result.artifacts, null, 2)}` : "",
@@ -1052,15 +1059,15 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   return (
     <section className="agent-outcome-panel">
       <header>
-        <div><span>Agent outcome</span><strong>{result.headline || "Ready for human review"}</strong></div>
+        <div><span>Agent outcome</span><strong>{agentOutputText(result.headline || "Ready for human review")}</strong></div>
         <span className="agent-brief-readiness" data-readiness={readiness || "unverified"}>{readiness === "ready_for_review" ? "Ready for review" : readiness === "limited_evidence" ? "Limited evidence" : readiness === "insufficient_evidence" ? "More evidence needed" : "Review required"}</span>
       </header>
       <nav className="agent-artifact-navigation" aria-label="Output sections" role="tablist">{[
         { id: "summary", label: "Overview", count: undefined },
         ...(findings.length ? [{ id: "findings", label: "Findings", count: findings.length }] : []),
-        ...(deliverables.length ? [{ id: "deliverables", label: "Artifacts", count: deliverables.length }] : []),
+        ...((deliverables.length || result.sections?.length || result.tables?.length || result.charts?.length) ? [{ id: "deliverables", label: "Artifacts", count: deliverables.length + (result.sections?.length || 0) + (result.tables?.length || 0) + (result.charts?.length || 0) }] : []),
         { id: "details", label: "Full brief", count: undefined },
-        { id: "actions", label: "Review & approve", count: result.artifacts?.length || draftRecommendations.length || undefined }, { id: "calls", label: "Model calls", count: result.model_call_records?.length || result.agent_chain?.filter(call => call.trace_id).length || undefined }
+        ...(hasReviewActions ? [{ id: "actions", label: reviewOnly ? 'Review considerations' : "Review & approve", count: result.artifacts?.length || draftRecommendations.length || undefined }] : []), { id: "calls", label: "Model calls", count: result.model_call_records?.length || result.agent_chain?.filter(call => call.trace_id).length || undefined }
       ].map((section, index, sections) => <button aria-controls={`${surfaceId}-${section.id}`} aria-selected={activeSection === section.id} id={`${surfaceId}-tab-${section.id}`} key={section.id} onClick={() => setActiveSection(section.id)} onKeyDown={event => {
         const next = event.key === "ArrowRight" ? (index + 1) % sections.length : event.key === "ArrowLeft" ? (index + sections.length - 1) % sections.length : event.key === "Home" ? 0 : event.key === "End" ? sections.length - 1 : -1;
         if (next >= 0) { event.preventDefault(); setActiveSection(sections[next].id); event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus(); }
@@ -1073,44 +1080,46 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
       {exportNotice && <p className="agent-brief-export-notice" role="status">{exportNotice}</p>}
       {result.readiness?.limitations?.length ? <div className="agent-brief-limitations"><strong>Review limitations</strong><ul>{result.readiness.limitations.map(item => <li key={item}>{item}</li>)}</ul></div> : null}
       <section aria-labelledby={`${surfaceId}-tab-summary`} className="agent-outcome-executive-summary" hidden={activeSection !== "summary"} id={`${surfaceId}-summary`} role="tabpanel">
-        <span>Decision summary</span><FormattedText text={result.executive_summary || draftResponse} />
+        <span>Decision summary</span><AgentStructuredValue value={result.executive_summary || result.response} />
       </section>
       {findings.length ? (
         <section aria-labelledby={`${surfaceId}-tab-findings`} className="agent-outcome-findings" aria-label="Agent findings" hidden={activeSection !== "findings"} id={`${surfaceId}-findings`} role="tabpanel">
           <header><span>Evidence-backed findings</span><strong>{findings.length} item{findings.length === 1 ? "" : "s"}</strong></header>
           <div>{findings.map((finding, index) => (
             <article data-priority={finding.priority || "info"} key={`${finding.title}:${index}`}>
-              <header><strong>{finding.title}</strong><span>{finding.priority || "info"}</span></header>
-              <FormattedText text={finding.detail} />
+              <header><strong>{agentOutputText(finding.title)}</strong><span>{finding.priority || "info"}</span></header>
+              <AgentStructuredValue value={finding.detail} />
               {(finding.observation || finding.gap || finding.proposed_action) && <dl className="agent-finding-facts">{[
                 ['Observed evidence', finding.observation], ['Coverage / quality gap', finding.gap], ['Impact', finding.impact],
                 ['Proposed change', finding.proposed_action], ['Acceptance check', finding.acceptance_check],
-              ].filter(([,value]) => value).map(([label,value]) => <div key={label}><dt>{label}</dt><dd><FormattedText text={value!} /></dd></div>)}</dl>}
+              ].filter(([,value]) => value).map(([label,value]) => <div key={label}><dt>{label}</dt><dd><AgentStructuredValue value={value} /></dd></div>)}</dl>}
               {finding.citation_ids?.length ? <small>{finding.citation_ids.length} supporting reference{finding.citation_ids.length === 1 ? "" : "s"}</small> : <small>Evidence gap · verify before use</small>}
             </article>
           ))}</div>
         </section>
       ) : null}
-      {deliverables.length ? (
+      {(deliverables.length || result.sections?.length || result.tables?.length || result.charts?.length) ? (
         <section aria-labelledby={`${surfaceId}-tab-deliverables`} className="agent-outcome-deliverables" aria-label="Specialist deliverables" hidden={activeSection !== "deliverables"} id={`${surfaceId}-deliverables`} role="tabpanel">
           <header><span>Specialist deliverables</span><strong>Use as a reviewable starting point</strong></header>
           <div>{deliverables.map((deliverable, index) => (
             <article key={`${deliverable.title}:${index}`}>
               <span>{deliverable.type?.replace(/_/g, " ") || "deliverable"}</span>
-              <strong>{deliverable.title}</strong>
-              <FormattedText text={deliverable.detail} />
+              <strong>{agentOutputText(deliverable.title)}</strong>
+              <AgentStructuredValue value={deliverable.detail} />
             </article>
           ))}</div>
+          <AgentReportVisuals sections={result.sections} tables={result.tables} charts={result.charts} />
         </section>
       ) : null}
       <div aria-labelledby={`${surfaceId}-tab-details`} className="agent-outcome-response-editor" hidden={activeSection !== "details"} id={`${surfaceId}-details`} role="tabpanel">
         <div><span>Detailed specialist output</span><em>Review brief</em></div>
-        <div aria-label="Complete specialist output" className="agent-brief-body" role="region" tabIndex={0}><FormattedText text={draftResponse} /></div>
+        <div aria-label="Complete specialist output" className="agent-brief-body" role="region" tabIndex={0}><AgentStructuredValue value={result.response} /><AgentReportVisuals sections={result.sections} tables={result.tables} charts={result.charts} /></div>
       </div>
         <div aria-labelledby={`${surfaceId}-tab-actions`} className="agent-outcome-section agent-outcome-recommendation-review" hidden={activeSection !== "actions"} id={`${surfaceId}-actions`} role="tabpanel">
-          <header className="agent-next-actions-heading"><div><h3>Improved outcomes · human approval</h3><p>{result.artifacts?.length ? 'These drafts build on the evidence-backed assessment. Review the specialist handoffs and proposed fields, then accept a draft to save it in its destination module.' : 'No saveable draft was prepared. Review the assessment, unresolved handoffs and recommendations below. Recommendations do not save records.'}</p></div><div className="agent-brief-icon-actions"><AiEvidenceButton label="Sources" onClick={() => setIsEvidenceOpen(true)} /><button className="ghost-button compact" type="button" aria-label="Copy brief" title="Copy brief" onClick={async () => { try { await navigator.clipboard.writeText(briefText()); setExportNotice("Brief copied."); } catch { setExportNotice("Copy is unavailable. Download the brief instead."); } }}><IconCopy size={17} /></button><button className="ghost-button compact" type="button" aria-label="Download brief" title="Download brief" onClick={() => { const url = URL.createObjectURL(new Blob([briefText()], { type: "text/markdown;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "specialist-review.md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setExportNotice("Review brief downloaded."); }}><IconDownload size={17} /></button></div></header>
+          <header className="agent-next-actions-heading"><div><h3>{reviewOnly ? 'Review conclusions' : 'Improved outcomes · human approval'}</h3><p>{result.artifacts?.length ? 'These drafts build on the evidence-backed assessment. Review the specialist handoffs and proposed fields, then accept a draft to save it in its destination module.' : reviewOnly ? 'Review the cited conclusions and considerations before making a decision.' : 'No saveable draft was prepared. Review the assessment, unresolved handoffs and recommendations below. Recommendations do not save records.'}</p></div><div className="agent-brief-icon-actions"><AiEvidenceButton label="Sources" onClick={() => setIsEvidenceOpen(true)} /><button className="ghost-button compact" type="button" aria-label="Copy brief" title="Copy brief" onClick={async () => { try { await navigator.clipboard.writeText(briefText()); setExportNotice("Brief copied."); } catch { setExportNotice("Copy is unavailable. Download the brief instead."); } }}><IconCopy size={17} /></button><button className="ghost-button compact" type="button" aria-label="Download brief" title="Download brief" onClick={() => { const url = URL.createObjectURL(new Blob([briefText()], { type: "text/markdown;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "specialist-review.md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setExportNotice("Review brief downloaded."); }}><IconDownload size={17} /></button></div></header>
+          {result.outcome_issues?.length ? <div className="agent-brief-limitations" role="alert"><strong>Completion requirements remain open</strong><ul>{result.outcome_issues.map((issue,index) => <li key={index}>{typeof issue === 'string' ? issue : agentOutputText(issue.message)}</li>)}</ul></div> : null}
           {(result.agent_chain?.length || 0) > 1 && <ol className="agent-handoff-list" aria-label="Agent handoffs">{result.agent_chain!.slice(1).map((step, index) => <li key={`${step.agent_id}-${index}`} data-status={step.status}><div><strong>{step.name}</strong><span>{step.status === 'completed' ? `${step.artifact_count || 'Structured'} proposal${step.artifact_count === 1 ? '' : 's'} ready` : 'Needs follow-up'}</span></div><p>{step.reason || 'Prepared proposals from the review findings.'}</p>{step.detail && <p>{step.detail}</p>}</li>)}</ol>}
-          {result.artifacts?.length ? <AgentArtifactReview artifacts={result.artifacts} chain={result.agent_chain || []} sessionId={sessionId} /> : null}
+          {result.artifacts?.length ? <AgentArtifactReview artifacts={result.artifacts} chain={result.agent_chain || []} sessionId={sessionId} findings={findings} approvalBlocked={result.verification && result.verification.status !== 'passed' || result.readiness?.status === 'insufficient_evidence' || result.outcome_issues?.length ? 'This review has unresolved completion or evidence requirements. Complete a fresh review before accepting proposals.' : undefined} /> : null}
           {draftRecommendations.length > 0 && <h4>Remaining review considerations</h4>}
           <div className="agent-brief-action-selection">{draftRecommendations.map((item, index) => <label key={index}><input checked={selectedRecommendationIndexes.includes(index)} onChange={event => { setSelectedRecommendationIndexes(current => event.target.checked ? [...new Set([...current, index])] : current.filter(itemIndex => itemIndex !== index)); }} type="checkbox" /><div className="agent-next-action-copy"><FormattedText text={item} /></div></label>)}</div>
         </div>

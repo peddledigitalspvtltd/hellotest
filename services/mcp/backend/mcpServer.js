@@ -5,6 +5,7 @@ const projections=require('./projections');
 const {permit,fail}=require('./auth');
 const db=require('@hellotest/platform/backend/src/db');
 const {contextSchema}=require('./contextRequest');
+const graphContext=require('./graphContext');
 const id=z.string().min(1).max(255);
 const outputSchema=z.object({schema_version:z.literal('1'),scope:z.object({project_id:id,subject:id}),data:z.unknown()});
 const argumentsSchema=z.object({path:z.record(z.string(),id).optional(),query:z.record(z.string(),z.union([z.string().max(2000),z.number(),z.boolean()])).optional(),body:z.record(z.string(),z.unknown()).optional()}).strict();
@@ -26,6 +27,9 @@ const tools={
   return {fragment:backplane.bounded(fragment),observed_at:new Date().toISOString(),as_of:args.as_of||null};
  }},
  hellotest_graph_expand:{description:'Read permission-checked relationship witnesses for an entity. A missing edge is a context gap, not proof of no dependency.',schema:z.object({entity_id:id,limit:z.number().int().min(1).max(50).default(30)}).strict(),run:backplane.graph},
+ hellotest_graph_context:{description:'Expand exact typed project entities into bounded, permission-checked graph context and source passages. Canonical source IDs, explicit paths, provenance and evidence versions distinguish observed domain links from extracted relationships. No fuzzy entity merging, model inference, arbitrary Cypher/SQL or mutation. Missing paths are retrieval gaps, not proof of independence.',schema:graphContext.graphSchema,run:graphContext.expand},
+ hellotest_graph_trace:{description:'Trace bounded witnessed paths between two exact requirements, Test Cases, executions, defects or indexed sources. Returns only authorized relationship paths, provenance and supporting evidence. No path within the selected bounds does not establish independence, root cause, complete coverage or a passing test. Use graph_schema for supported entity kinds and budgets.',schema:graphContext.traceSchema,run:graphContext.trace},
+ hellotest_graph_schema:{description:'Inspect the native graph vocabulary, supported provenance and MCP traversal limits. Node visibility and source/version authorization are still checked on every graph read.',schema:z.object({}).strict(),run:graphContext.ontology},
  hellotest_operation_prepare:{description:'Prepare an immutable, expiring action preview. No business effect occurs. This tool cannot grant approval; review the exact plan through Agent Studio.',schema:z.object({operation_id:id,arguments:argumentsSchema}).strict(),run:backplane.prepare,write:true},
  hellotest_operation_execute:{description:'Execute the original approved plan once. Approval, identity, catalog and permissions are rechecked server-side. If outcome is unknown, reconcile the same plan; never prepare a replacement blindly.',schema:z.object({plan_id:id}).strict(),run:backplane.execute,write:true},
  hellotest_operation_status:{description:'Read the durable receipt of the original plan. Submitted execution is not a passing test run.',schema:z.object({plan_id:id}).strict(),run:backplane.status}
@@ -53,6 +57,11 @@ const handler=createMcpHandler(({authInfo})=>{
  server.registerResource('ontology',new ResourceTemplate('hellotest://projects/{project_id}/ontology',{list:undefined}),{description:'Project domain vocabulary and permitted operations'},async(uri,variables)=>{
   if(variables.project_id!==actor.projectId)throw fail('Project outside this credential.');
   return {contents:[{uri:uri.href,mimeType:'application/json',text:JSON.stringify(envelope(actor,await backplane.catalog(actor,{limit:50})))}]};
+ });
+ server.registerResource('graph-ontology',new ResourceTemplate('hellotest://projects/{project_id}/graph/ontology',{list:undefined}),{description:'Authorized graph vocabulary, provenance and bounded traversal contract',mimeType:'application/json'},async(uri,variables,ctx)=>{
+  if(variables.project_id!==actor.projectId)throw fail('Project outside this credential.');
+  const value=await invoke(actor,'hellotest_graph_schema',{},ctx.mcpReq.signal);
+  return {contents:[{uri:uri.href,mimeType:'application/json',text:JSON.stringify(value)}]};
  });
  server.registerPrompt('investigate_failure',{description:'Investigate a failure using actual run evidence, expected behavior and authorized knowledge.',argsSchema:{question:z.string().max(4000)}},args=>({messages:[{role:'user',content:{type:'text',text:`Investigate ${args.question}. First retrieve the current run, then use hellotest_context_build for expected behavior and knowledge. Cite sources, distinguish observations from hypotheses, and report missing evidence. Propose actions only when requested.`}}]}));
  return server;

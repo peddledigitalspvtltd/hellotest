@@ -6,6 +6,7 @@ import { createInspectionProxy } from "./inspectionProxy.js";
 import { assertRemoteInspectionUrl } from "./inspectionSecurity.js";
 import { resolveRepositoryLocator } from "./repositoryLocator.js";
 import { groundSnapshotLocators } from "./automationSnapshotLocators.js";
+import { AutomationObservedSubjects } from "./automationObservedSubjects.js";
 
 const PROTOCOL = "2025-03-26";
 const TTL = 5 * 60_000;
@@ -44,7 +45,7 @@ export const automationBrowserTools = [
 
 ];
 type PageReadiness = { pendingRequests: Set<Request>; navigationFailure?: string; navigationStatus?: number };
-type Session = { browser?: Browser; page?: Page; proxy?: Awaited<ReturnType<typeof createInspectionProxy>>; origin: string; actions: boolean; expires: number; busy: boolean; contextLost?: boolean; navigationReady?: boolean; readiness?: PageReadiness };
+type Session = { browser?: Browser; page?: Page; subjects?: AutomationObservedSubjects; proxy?: Awaited<ReturnType<typeof createInspectionProxy>>; origin: string; actions: boolean; expires: number; busy: boolean; contextLost?: boolean; navigationReady?: boolean; readiness?: PageReadiness };
 
 const excerpt = (value: unknown, limit: number) => String(value ?? "").slice(0, limit);
 const startupDiagnostic = (value: string, limit = 2_000) => {
@@ -53,10 +54,13 @@ const startupDiagnostic = (value: string, limit = 2_000) => {
   return value.slice(0, head) + marker + value.slice(-(limit - marker.length - head));
 };
 const provenance = () => ({ observation_id: randomUUID(), captured_at: new Date().toISOString(), source: "playwright", verification_status: "unverified" });
+const browserPageIds = new WeakMap<Page, string>();
 const browserLocation = async (page: Page) => {
+  let targetId = browserPageIds.get(page);
+  if (!targetId) { targetId = randomUUID(); browserPageIds.set(page, targetId); }
   const rawUrl = page.url(), rawTitle = await page.title().catch(() => "");
   const url = excerpt(rawUrl, 2_000), title = excerpt(rawTitle, 200);
-  return { url, title, ...(rawUrl.length > url.length ? { url_truncated: true } : {}),
+  return { url, title, target_id: targetId, ...(rawUrl.length > url.length ? { url_truncated: true } : {}),
     ...(rawTitle.length > title.length ? { title_truncated: true } : {}) };
 };
 
@@ -266,7 +270,7 @@ export async function waitForAutomationPageReadiness(page: Page, options: { dead
 
 /** Keep partial DOM evidence useful when accessibility capture is unavailable.
  * Bounded fields and a final byte limit protect the model/client response budget. */
-export async function captureAutomationBrowserSnapshot(page: Page, scopeLocator?: string, deadline = Date.now() + 10_000) {
+export async function captureAutomationBrowserSnapshot(page: Page, scopeLocator?: string, deadline = Date.now() + 10_000, subjects?: AutomationObservedSubjects) {
   const captureTimeout = () => Math.min(5_000, Math.max(1, deadline - Date.now()));
   const scope = scopeLocator ? resolveRepositoryLocator(page, scopeLocator) : page.locator("body");
   if (scopeLocator) {
@@ -323,6 +327,41 @@ export async function captureAutomationBrowserSnapshot(page: Page, scopeLocator?
         if (!candidate) return null;
         if (!landmarkUniqueness.has(candidate)) landmarkUniqueness.set(candidate, document.querySelectorAll(candidate).length === 1);
         return landmarkUniqueness.get(candidate) ? candidate : null;
+      };
+      const recordAnchors = new WeakMap<Element, string | null>();
+      const recordScopedSelector = (element: Element): string | null => {
+        const record = element.closest('tr,[role="row"],li,[role="listitem"],[role="option"]');
+        if (!record) return null;
+        if (!recordAnchors.has(record)) {
+          let anchor: string | null = null;
+          for (const name of ['data-row-id', 'data-id', 'data-key', 'id', 'data-testid']) {
+            const value: string | null = record.getAttribute(name);
+            if (!value || value.length > limits.attribute_chars) continue;
+            // Quoted attribute values retain ordinary/JSON-escaped parameter
+            // bytes for the host's privacy projection. Identifier escaping can
+            // turn a private leading digit into an unrecognizable CSS escape.
+            const candidate: string = `[${name}=${JSON.stringify(value)}]`;
+            const matches: NodeListOf<Element> = document.querySelectorAll(candidate);
+            if (matches.length === 1 && matches[0] === record) { anchor = candidate; break; }
+          }
+          recordAnchors.set(record, anchor);
+        }
+        const anchor = recordAnchors.get(record);
+        if (!anchor) return null;
+        const parts: string[] = [];
+        let node: Element | null = element;
+        while (node && node !== record && parts.length < 40) {
+          const tag = node.tagName.toLowerCase();
+          let index = 1, sibling = node.previousElementSibling;
+          while (sibling) { if (sibling.tagName === node.tagName) index++; sibling = sibling.previousElementSibling; }
+          parts.unshift(`${tag}:nth-of-type(${index})`);
+          node = node.parentElement;
+        }
+        if (node !== record) return null;
+        // The record key remains in the locator even when a control has a
+        // globally unique ID. Recycled controls cannot move it to another row.
+        const selector = [anchor, ...parts].join(' > ');
+        return selector.length <= 2_000 ? selector : null;
       };
       const identitySelector = (element: Element) => {
         const parts: string[] = [];
@@ -407,6 +446,8 @@ export async function captureAutomationBrowserSnapshot(page: Page, scopeLocator?
           const visibleText = rawVisibleText === undefined ? undefined : rawVisibleText.slice(0, limits.text_chars);
           const name = label || text;
           const locator_candidates: string[] = [];
+          const recordLocator = recordScopedSelector(element);
+          if (recordLocator) locator_candidates.push(recordLocator);
           // Plain outcome prose often has no role, label or ID. Advertise text
           // only when complete; grounding below proves a unique identical node.
           // Structural CSS remains available when text contains private data.
@@ -425,8 +466,8 @@ export async function captureAutomationBrowserSnapshot(page: Page, scopeLocator?
           if (attributes.title && !truncated_attributes.includes("title")) locator_candidates.push(`getByTitle(${JSON.stringify(attributes.title)}, { exact: true })`);
           if (attributes.alt && !truncated_attributes.includes("alt")) locator_candidates.push(`getByAltText(${JSON.stringify(attributes.alt)}, { exact: true })`);
           if (attributes.id && !truncated_attributes.includes("id")) locator_candidates.push(`#${CSS.escape(attributes.id)}`);
-          const options = element.tagName === "SELECT" ? Array.from((element as HTMLSelectElement).options).slice(0, 12).map(option => ({ label: normalize(option.label, 80), ...(option.value.length <= 120 ? { value: option.value } : { value_excerpt: option.value.slice(0, 120), value_truncated: true }), selected: option.selected, disabled: option.disabled })) : undefined;
-          target.push({ tag, attributes, truncated_attributes, label, label_truncated: rawLabel.length > label.length, text, text_truncated: rawText.length > text.length, ...(target === content ? { evidence_kind: "page_content" } : {}), ...(rawVisibleText !== undefined ? { visible_text: visibleText, visible_text_truncated: rawVisibleText.length > visibleText!.length } : {}), displayed, in_viewport: displayed && bounds.bottom > 0 && bounds.right > 0 && bounds.top < innerHeight && bounds.left < innerWidth, disabled: element.matches(":disabled") || element.getAttribute("aria-disabled") === "true", ...(element.tagName === "INPUT" && ["checkbox", "radio"].includes(inputType) ? { checked: (element as HTMLInputElement).checked } : {}), ...(options ? { options, options_truncated: (element as HTMLSelectElement).options.length > options.length } : {}), snapshot_selector: identitySelector(element), snapshot_role: role, snapshot_candidates: locator_candidates, locator_candidates: [], locators_validated: false });
+          const options = element.tagName === "SELECT" ? Array.from((element as HTMLSelectElement).options).slice(0, 12).map(option => ({ label: normalize(option.label, 80), ...(option.label.replace(/\s+/g, " ").trim().length > 80 ? { label_truncated: true } : {}), ...(option.value.length <= 120 ? { value: option.value } : { value_excerpt: option.value.slice(0, 120), value_truncated: true }), selected: option.selected, disabled: option.disabled })) : undefined;
+          target.push({ tag, attributes, truncated_attributes, label, label_truncated: rawLabel.length > label.length, text, text_truncated: rawText.length > text.length, ...(target === content ? { evidence_kind: "page_content" } : {}), ...(rawVisibleText !== undefined ? { visible_text: visibleText, visible_text_truncated: rawVisibleText.length > visibleText!.length } : {}), displayed, in_viewport: displayed && bounds.bottom > 0 && bounds.right > 0 && bounds.top < innerHeight && bounds.left < innerWidth, disabled: element.matches(":disabled") || element.getAttribute("aria-disabled") === "true", ...(element.tagName === "INPUT" && ["checkbox", "radio"].includes(inputType) ? { checked: (element as HTMLInputElement).checked } : {}), ...(options ? { options, options_truncated: (element as HTMLSelectElement).options.length > options.length } : {}), ...(recordLocator ? { snapshot_record_locator: recordLocator } : {}), snapshot_selector: identitySelector(element), snapshot_role: role, snapshot_candidates: locator_candidates, locator_candidates: [], locators_validated: false });
         }
         current = walker.nextNode() as Element | null;
       }
@@ -436,7 +477,8 @@ export async function captureAutomationBrowserSnapshot(page: Page, scopeLocator?
   } catch {
     warnings.push("DOM attribute capture is unavailable; retry a scoped snapshot after the page settles.");
   }
-  const grounded = await groundSnapshotLocators(page, dom.elements, deadline);
+  const grounded = await groundSnapshotLocators(page, dom.elements, deadline,
+    subjects ? (target, element) => subjects.observe(target, element, page, deadline) : undefined);
   if (grounded.incomplete) warnings.push('Some elements changed or locator grounding reached its deadline. Their unverified candidates were omitted; take a scoped snapshot before interaction.');
   // A secret can be escaped inside a portable locator string. Redact both its
   // rendered and serialized forms, while retaining only the exact candidates
@@ -460,6 +502,7 @@ export async function captureAutomationBrowserSnapshot(page: Page, scopeLocator?
       const candidates = Array.isArray(element.locator_candidates) ? element.locator_candidates : [];
       const safeCandidates = candidates.filter((candidate: unknown) => typeof candidate === "string" && redactText(candidate) === candidate);
       const redacted = { ...redact(element), locator_candidates: safeCandidates };
+      if (!safeCandidates.includes(element.record_scoped_locator)) delete redacted.record_scoped_locator;
       // An unusable href excerpt can end halfway through a known secret and
       // escape exact-value redaction. Retain its loss marker and clickable
       // target, without copying the clipped URL when private values exist.
@@ -488,6 +531,8 @@ export async function registerAutomationMcp(app: FastifyInstance, guard: preHand
   const sessions = new Map<string, Session>();
   let initializing = 0;
   const resetBrowser = async (session: Session) => {
+    await session.subjects?.clear();
+    session.subjects = undefined;
     await session.browser?.close().catch(() => undefined);
     await session.proxy?.close().catch(() => undefined);
     session.browser = undefined;
@@ -601,6 +646,7 @@ export async function registerAutomationMcp(app: FastifyInstance, guard: preHand
         await assertRemoteInspectionUrl(args.url);
         if (new URL(args.url).origin !== session.origin) throw new Error("Navigation must stay within the configured application origin");
         session.navigationReady = false;
+        await session.subjects?.clear();
         if (session.readiness) { session.readiness.navigationFailure = undefined; session.readiness.navigationStatus = undefined; }
         const response = await page.goto(args.url, { waitUntil: "load", timeout: remaining() });
         if (response && response.status() >= 400) throw Object.assign(new Error(`The application returned HTTP ${response.status()}. Check Start URL before generating automation.`), { code: "BROWSER_NAVIGATION_FAILED", http_status: response.status() });
@@ -617,7 +663,9 @@ export async function registerAutomationMcp(app: FastifyInstance, guard: preHand
       } else if (name === "browser_snapshot") {
         if (!session.navigationReady) throw Object.assign(new Error("A successful Start URL navigation is required before capturing browser evidence."), { code: "BROWSER_PAGE_NOT_READY" });
         await waitForAutomationPageReadiness(page, { deadline, origin: session.origin, state: session.readiness, cancelled: () => !sessions.has(id) });
-        output = await captureAutomationBrowserSnapshot(page, args.locator, deadline);
+        session.subjects ||= new AutomationObservedSubjects();
+        await session.subjects.beginSnapshot();
+        output = await captureAutomationBrowserSnapshot(page, args.locator, deadline, session.subjects);
       } else if (name === "browser_assert") {
         if (!session.navigationReady) throw Object.assign(new Error("Navigate to the supplied Start URL before checking expected browser conditions."), { code: "BROWSER_PAGE_NOT_READY" });
         await waitForAutomationPageReadiness(page, { deadline, origin: session.origin, state: session.readiness, cancelled: () => !sessions.has(id) });
@@ -627,7 +675,8 @@ export async function registerAutomationMcp(app: FastifyInstance, guard: preHand
         await waitForAutomationPageReadiness(page, { deadline, origin: session.origin, state: session.readiness, cancelled: () => !sessions.has(id) });
         const locator = resolveRepositoryLocator(page, args.locator);
         if (name === "browser_wait_for") await locator.waitFor({state:"visible",timeout:remaining()});
-        let count = await locator.count();
+        const subject = INTERACTION_TOOLS.includes(name) ? await session.subjects?.resolve(page, args.locator, deadline) : null;
+        let count = subject ? 1 : await locator.count();
         // A usable SPA can still render the requested field after its shell.
         // Preserve Playwright auto-waiting instead of rejecting count zero
         // before its actionability checks can run. Ambiguous matches stay strict.
@@ -637,14 +686,15 @@ export async function registerAutomationMcp(app: FastifyInstance, guard: preHand
         }
         if (name !== "browser_validate_locator") {
           if (count !== 1) throw new Error(`Locator matches ${count} elements; use a unique locator or explicit index`);
+          const actionTarget = subject || locator;
           interactionStarted = INTERACTION_TOOLS.includes(name);
-          if (name === "browser_hover") await locator.hover({timeout:remaining()});
-          if (name === "browser_check") await locator.check({timeout:remaining()});
-          if (name === "browser_uncheck") await locator.uncheck({timeout:remaining()});
-          if (name === "browser_click") await locator.click({timeout:remaining()});
-          if (name === "browser_fill") await locator.fill(args.value,{timeout:remaining()});
-          if (name === "browser_press_key") await locator.press(args.key,{timeout:remaining()});
-          if (name === "browser_select_option") await locator.selectOption(args.value,{timeout:remaining()});
+          if (name === "browser_hover") await actionTarget.hover({timeout:remaining()});
+          if (name === "browser_check") await actionTarget.check({timeout:remaining()});
+          if (name === "browser_uncheck") await actionTarget.uncheck({timeout:remaining()});
+          if (name === "browser_click") await actionTarget.click({timeout:remaining()});
+          if (name === "browser_fill") await actionTarget.fill(args.value,{timeout:remaining()});
+          if (name === "browser_press_key") await actionTarget.press(args.key,{timeout:remaining()});
+          if (name === "browser_select_option") await actionTarget.selectOption(args.value,{timeout:remaining()});
           if (interactionStarted) await waitForAutomationPageReadiness(page, { deadline, origin: session.origin, state: session.readiness, cancelled: () => !sessions.has(id) });
         }
         output = { ...provenance(), locator: args.locator, match_count: count, unique: count === 1, ...await browserLocation(page), ...(interactionStarted ? { action_outcome: "completed" } : {}) };

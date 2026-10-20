@@ -60,3 +60,11 @@ axe execution is bounded to 20,000 DOM elements and ten seconds. If axe is unava
 ## Verification
 
 `test/qualityAgents.test.mjs` uses a real local HTTP fixture with an explicit private-host allowlist and the installed Chromium binary. It verifies all five agents, reviewed actions, secret-field rejection, safe query identity, denied redirects/resources, cancellation, persisted state, reviewed baseline idempotency and exact PNG evidence. Set `CHROME_EXECUTABLE` only when using a compatible custom browser in this test. Production runs use the engine browser configuration above.
+
+## Bounded task-guided missions
+
+A quality mission retains its complete reviewed goal, specialist intent/checks, chosen evidence scope and approved action/form-submission limits. Each model decision includes the current grounded observation and verified action history. Older page text is explicitly excerpted into a 12,000-character prior-observation budget; the complete task and current evidence must fit a 64,000-character envelope or the host stops with a specific context-budget error.
+
+Published per-specialist skill guidance comes from AI Controls. A rejected typed decision may receive one correction with concrete host validation feedback under the original decision deadline. The host never dispatches invalid targets or arbitrary code, and completion/extraction require a structured outcome tied to observed evidence. Deterministic scanner results remain the source of security/performance/accessibility/visual findings; a model summary does not establish additional scans or verified business coverage.
+
+The platform persists `mission_progress` through observing, deciding, revising, dispatching and terminal phases, which existing SSE polling exposes alongside `task_brief`. Cancelling or shutting down the handling worker also aborts its local in-flight model work. Persisted cancellation/lease checks remain authoritative across workers and prevent a late decision from dispatching after cancellation.

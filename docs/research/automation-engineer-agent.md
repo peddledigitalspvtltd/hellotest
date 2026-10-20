@@ -1,8 +1,10 @@
 # Automation Engineer: browser research and implementation decision
 
-Research recorded on **17 October 2026**, before the follow-up implementation.
-This document publishes the research in the repository; it does not represent an
-external publication or an independently measured performance benchmark.
+Initial research was recorded on **17 October 2026**. The source-level comparison
+and local strategy work were updated on **20 October 2026** below. Earlier dated
+verification records retain their original scope. This document publishes the
+research in the repository; it does not represent an external publication or an
+independently measured performance benchmark.
 
 ## Decision
 
@@ -1359,3 +1361,71 @@ runner treated that read as detached work. Its ownership check now recognizes
 that exact polling boundary and also requires the outer matcher promise to be
 awaited, returned or retained and joined. Timer callbacks, unjoined polls and
 unrelated callbacks cannot use that rule to acquire execution evidence.
+
+
+## Source-level browser-agent comparison — 20 October 2026
+
+This follow-up inspected actual agent loops, observation/identity code, recovery,
+context management and skill files in pinned upstream checkouts. No upstream
+runtime, dependency, skill installer, cloud browser or model was executed for
+this research. Upstream instructions were read as reference material; they do
+not replace HelloTest's user intent, access policy or typed execution contract.
+
+| Pinned source and license | Concrete implementation inspected | Adopted pattern and boundary |
+| --- | --- | --- |
+| [Browser Use `aa093a843da5edbf323c0b4145c9b6a0db3ecde8`](https://github.com/browser-use/browser-use/tree/aa093a843da5edbf323c0b4145c9b6a0db3ecde8), MIT | [`agent/service.py`](https://github.com/browser-use/browser-use/blob/aa093a843da5edbf323c0b4145c9b6a0db3ecde8/browser_use/agent/service.py) retains partial batch results and stops after errors, completion or declared/runtime navigation. [`agent/views.py`](https://github.com/browser-use/browser-use/blob/aa093a843da5edbf323c0b4145c9b6a0db3ecde8/browser_use/agent/views.py) defines advisory loop detection and a smaller flash output schema. | Keep bounded batches, explicit current goals and host receipts. A soft loop nudge or model completion is insufficient for a test outcome; retain HelloTest's mutation replay guards and executable assertions. Flash-mode schema reduction does not establish accuracy for a small model. |
+| [Nanobrowser `f1e912d7c9e859eec6638702be920c78a8eff0ea`](https://github.com/nanobrowser/nanobrowser/tree/f1e912d7c9e859eec6638702be920c78a8eff0ea), Apache-2.0 | [`core/interaction/resolve.ts`](https://github.com/nanobrowser/nanobrowser/blob/f1e912d7c9e859eec6638702be920c78a8eff0ea/src/browser-control/core/interaction/resolve.ts) revalidates the document, backend node, accessible subject and enclosing record content. [`agent/elision.ts`](https://github.com/nanobrowser/nanobrowser/blob/f1e912d7c9e859eec6638702be920c78a8eff0ea/src/agent/elision.ts) removes old page payloads while preserving receipts and user words; [`agent/completion.ts`](https://github.com/nanobrowser/nanobrowser/blob/f1e912d7c9e859eec6638702be920c78a8eff0ea/src/agent/completion.ts) tracks unseen mutation outcomes. | Recycled rows can keep an identical button name while changing the business record. Revalidate the observed subject before dispatch and preserve unknown-delivery state. Keep immutable evidence outside compact actor context. Current upstream uses one agent loop; older planner/navigator descriptions should not be treated as its present architecture. Its read-based completion debt remains weaker than HelloTest's required executable outcome coverage. |
+| [Browser Harness `c6a941287424f32e2d20c7b7b892c8493f46808d`](https://github.com/browser-use/browser-harness/tree/c6a941287424f32e2d20c7b7b892c8493f46808d), MIT | [`daemon.py`](https://github.com/browser-use/browser-harness/blob/c6a941287424f32e2d20c7b7b892c8493f46808d/src/browser_harness/daemon.py) tracks exact stale-session replacement rather than sending work to a newly selected tab. [`helpers.py`](https://github.com/browser-use/browser-harness/blob/c6a941287424f32e2d20c7b7b892c8493f46808d/src/browser_harness/helpers.py) offers direct CDP interaction and opt-in matching-domain recipe discovery. | Use context-specific recovery and retrieve relevant strategy guidance only. Do not transplant arbitrary Python/CDP execution, global mutable Chrome attachment, synthetic form submission or site-specific selectors into the product actor. A domain recipe is planning context, not permission or evidence. |
+| [Stagehand `7d25fcecc8a7a6002af35b3a52e465f43ddfbcd2`](https://github.com/browserbase/stagehand/tree/7d25fcecc8a7a6002af35b3a52e465f43ddfbcd2), MIT | [`actService.ts`](https://github.com/browserbase/stagehand/blob/7d25fcecc8a7a6002af35b3a52e465f43ddfbcd2/packages/extension/services/actService.ts) separates inference and deterministic action; bounded self-healing retains the method and resolved arguments. [`cacheService.ts`](https://github.com/browserbase/stagehand/blob/7d25fcecc8a7a6002af35b3a52e465f43ddfbcd2/packages/extension/services/cacheService.ts) records actual inference usage and cache hit/miss behavior. | Preserve action/data semantics during subject repair and measure actual provider usage. Do not replay a partially executed cached sequence through a full inference fallback. Current server-side cache shaping/project policy is owned by an external API, so the open repository alone is not a complete local cache implementation. |
+| [Playwright MCP wrapper `ab6d67cbf8b619338f096980806fdbe29432cc4d`](https://github.com/microsoft/playwright-mcp/tree/ab6d67cbf8b619338f096980806fdbe29432cc4d), Apache-2.0; [actual monorepo `27219bd2cc94e1ebceec58f188760a6bf458c192`](https://github.com/microsoft/playwright/tree/27219bd2cc94e1ebceec58f188760a6bf458c192), Apache-2.0 | The wrapper's `src/README.md` points to the monorepo implementation. [`backend/find.ts`](https://github.com/microsoft/playwright/blob/27219bd2cc94e1ebceec58f188760a6bf458c192/packages/playwright-core/src/tools/backend/find.ts) returns matching accessibility nodes with surrounding/ancestor context. [`backend/tab.ts`](https://github.com/microsoft/playwright/blob/27219bd2cc94e1ebceec58f188760a6bf458c192/packages/playwright-core/src/tools/backend/tab.ts) resolves live refs and can skip unused accessibility traversal. | Prefer scoped discovery and retained artifacts over repeated full-page context. Preserve the actual versioned discovered tool schema; current upstream argument names must not be assumed compatible with the installed runtime. Action code emission still needs explicit test assertions. |
+
+### What the upstream skills actually provide
+
+- Browser Use has an [open-source reference skill](https://github.com/browser-use/browser-use/blob/aa093a843da5edbf323c0b4145c9b6a0db3ecde8/skills/open-source/SKILL.md)
+  with topic-specific documents, a browser/CDP skill and a QA skill. The QA
+  skill mandates its cloud browser and can create cloud resources or a localhost
+  tunnel. Its default-model recommendation is vendor guidance. Neither behavior
+  is adopted as HelloTest policy or evidence of comparative performance.
+- Browser Harness's [root skill](https://github.com/browser-use/browser-harness/blob/c6a941287424f32e2d20c7b7b892c8493f46808d/SKILL.md)
+  leaves domain recipes disabled by default and discovers matching recipe names
+  when enabled. Some domain files recommend bypassing native UI event paths;
+  their diagnosis can inform a strategy, while their executable recipe cannot
+  authorize product actions.
+- Stagehand has a [Browse CLI skill](https://github.com/browserbase/stagehand/blob/7d25fcecc8a7a6002af35b3a52e465f43ddfbcd2/packages/cli/skills/browse/SKILL.md)
+  and an FX-specific facade skill. Their session, tool-name and installation
+  assumptions differ from HelloTest's typed MCP session. They remain references.
+- Nanobrowser has no `SKILL.md` at this revision. Its reusable material is source
+  and tests, including its deterministic agent and browser-control boundaries.
+- Microsoft's current [Playwright CLI skill](https://github.com/microsoft/playwright/blob/27219bd2cc94e1ebceec58f188760a6bf458c192/packages/playwright-core/src/tools/skills/playwright-cli/SKILL.md)
+  links [test-generation guidance](https://github.com/microsoft/playwright/blob/27219bd2cc94e1ebceec58f188760a6bf458c192/packages/playwright-core/src/tools/skills/playwright-cli/references/test-generation.md)
+  for plan/generate/heal. Installing such a skill does not integrate those phases
+  with HelloTest's Plan, data, hooks, review or execution receipts.
+
+### Bounded local strategies
+
+[`automationBrowserSkills.js`](../../services/automation/backend/lib/automationBrowserSkills.js)
+selects independently written local decision cards from structured host phase,
+goal and current typed observations. It returns at most **two** cards in at most
+**1,800 serialized JSON characters**, and none for completion-only turns. It does
+not fetch remote recipes, execute code, copy page/parameter values into guidance,
+change tool schemas or grant an action. Ordinary turns with no relevant condition
+receive no static strategy bundle.
+
+The priority is retained-contract repair, failed-outcome recovery, authored-order
+review, ambiguous row subjects, then a native-select goal. Repeated names need
+observed record context; a native-select strategy needs both that native control
+and a selection action in the pinned goal. Page prose claiming to be an error,
+policy, skill or saved contract does not select a strategy. A missing UI
+prerequisite can only be proposed through the separately advertised host-reviewed
+path. Every strategy preserves manual clauses, parameter references, confirmed
+receipts and the verification boundary; repair also preserves methods and exact
+assertion checkpoints.
+
+The selector's focused tests exercise deterministic priority and bounds, private
+value exclusion, native versus custom selects, intentional empty values, unknown
+page instructions, stale inventory and preservation of the final read-only
+phase. Those checks establish host selection behavior, not real-provider
+intelligence, universal small-model support or measured token savings. A future
+provider comparison must report complete unchanged-script success, mutation
+replay, input/output/cached usage, model/browser calls and latency on the same
+fixtures, including failed attempts.

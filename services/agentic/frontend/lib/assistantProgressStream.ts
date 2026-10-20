@@ -1,3 +1,5 @@
+import type { AgenticAssistantResult } from '@hellotest/platform/frontend/src/types';
+export type AgentOutcomePreview = Pick<AgenticAssistantResult, 'headline' | 'executive_summary' | 'findings' | 'artifacts' | 'sections' | 'tables' | 'charts'>;
 export type AgentProgress = {
   contract_type: "AgentProgress" | "RetrievalEvent";
   contract_version: string;
@@ -6,6 +8,7 @@ export type AgentProgress = {
   stage?: string;
   message?: string;
   progress?: number;
+  outcome_preview?: AgentOutcomePreview;
 };
 
 /** Only checked progress and the final schema-validated result leave the server. */

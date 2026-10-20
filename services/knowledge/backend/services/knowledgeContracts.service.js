@@ -2,6 +2,7 @@ const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/ai
 const { createHash, randomUUID: uuid } = require("crypto");
 const { VERSION, PRESENTATIONS, STAGES, JSON_SCHEMAS, MODEL_ANSWER_SCHEMA, validateContract, validateNode, contractError } = require("./knowledgeContractSchemas.service");
 const { validateGroundedClaims, validatePresentation, normalizeClaimText } = require("./knowledgeGrounding.service");
+const {validContentScope,witnessVisible} = require('./knowledgeGraphEvidence');
 const CONTRACTS = Object.freeze({
   knowledge_object: "KnowledgeObject.v1",
   retrieval_request: "RetrievalRequest.v1",
@@ -282,7 +283,8 @@ const buildContextPacket = ({ retrievalRequest, interpretedRequest, evidence, re
     }
     if (current === false && !request.filters?.as_of)
       continue;
-    const content = compactText(hit.content || hit.excerpt, 128000);
+    const excerptScope=validContentScope(hit.content,hit.content_scope)?hit.content_scope:null;
+    const content = excerptScope?hit.content.slice(0,128000):compactText(hit.content || hit.excerpt, 128000);
     if (!content)
       continue;
     const evidenceId = compactText(citation.id || hit.evidence_id || `K-${hit.chunk_id || uuid()}`, 255);
@@ -306,6 +308,7 @@ const buildContextPacket = ({ retrievalRequest, interpretedRequest, evidence, re
       chunk_id: compactText(hit.chunk_id || citation.chunk_id, 500) || null,
       title: compactText(hit.title || citation.label, 500),
       content,
+      ...(excerptScope?{content_scope:excerptScope}:{}),
       location,
       locator: location,
       scores: {
@@ -338,20 +341,30 @@ const buildContextPacket = ({ retrievalRequest, interpretedRequest, evidence, re
     if (tokenCount + itemTokens > maxTokens) {
       truncated = true;
       tokenTruncated = true;
-      let low = 0, high = item.content.length;
+      const contentPoints=excerptScope?Array.from(content):null;
+      const cut=length=>contentPoints?contentPoints.slice(0,length).join(''):content.slice(0,length);
+      const scopeFor=value=>{
+        const length=Array.from(value).length;
+        const segments=excerptScope.segments.filter(part=>part.content_start<length).map(part=>({...part,content_end:Math.min(length,part.content_end),source_end:part.source_start+Math.min(length,part.content_end)-part.content_start}));
+        return {...excerptScope,segments,omitted_codepoints:excerptScope.source_length-segments.reduce((sum,part)=>sum+part.source_end-part.source_start,0)};
+      };
+      let low = 0, high = contentPoints?contentPoints.length:item.content.length;
       while (low < high) {
         const mid = Math.ceil((low + high) / 2);
+        const candidateContent=cut(mid);
         if (tokenCount + estimateTokens(JSON.stringify({
           ...item,
-          content: content.slice(0, mid)
+          content: candidateContent,
+          ...(excerptScope?{content_scope:scopeFor(candidateContent)}:{})
         })) <= maxTokens)
           low = mid;
         else
           high = mid - 1;
       }
-      item.content = content.slice(0, low).trim();
+      item.content = excerptScope?cut(low):cut(low).trim();
       if (!item.content)
         continue;
+      if(excerptScope)item.content_scope=scopeFor(item.content);
       item.integrity.evidence_hash = hash(item.content);
       itemTokens = estimateTokens(JSON.stringify(item));
       if (tokenCount + itemTokens > maxTokens)
@@ -374,12 +387,16 @@ const buildContextPacket = ({ retrievalRequest, interpretedRequest, evidence, re
   const safeRelationships = asArray(relationships).slice(0, 100).flatMap(raw => {
     const edge = asObject(raw), refs = uniqueStrings(edge.evidence_ids);
     const source = compactText(edge.source || edge.source_canonical_id, 500), target = compactText(edge.target || edge.target_canonical_id, 500);
-    return source && target && refs.length && refs.every(id => allowed.has(id)) ? [{
+    const provenance = compactText(edge.provenance_type, 80);
+    const span=edge.witness_span,proof=span&&selected.find(item=>item.evidence_id===span.evidence_id);
+    const groundedSpan=!span||refs.includes(span.evidence_id)&&proof&&witnessVisible(proof,span);
+    return source && target && source !== target && ['SOURCE_EXPLICIT','DETERMINISTIC','HUMAN_VERIFIED'].includes(provenance) && groundedSpan && refs.length && refs.every(id => allowed.has(id)) ? [{
         source,
         target,
         type: compactText(edge.type || edge.relationship_type, 80),
         evidence_ids: refs,
-        provenance_type: compactText(edge.provenance_type || "SOURCE_EXPLICIT", 80)
+        provenance_type: provenance,
+        ...(span?{witness_span:{evidence_id:span.evidence_id,start:span.start,end:span.end,offset_unit:'unicode_codepoint',offset_basis:'source_chunk'}}:{})
       }] : [];
   });
   const authorizationPartial = Boolean(auth.authorization_partial || auth.partially_visible_objects || denied || selected.some(item => item.visibility.state === "PARTIAL"));

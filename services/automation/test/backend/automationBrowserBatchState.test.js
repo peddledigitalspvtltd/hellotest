@@ -60,6 +60,52 @@ test('control changes after the first sixty entries remain detectable', () => {
   assert.equal(decide(before, after, { inspected: true }).reason, 'controls_changed');
 });
 
+test('native accessible-role and accessible-name changes invalidate same-URL custom controls', () => {
+  const button = { tag: 'div', accessible_role: 'button', accessible_name: 'Choose account', attributes: {},
+    locator_candidates: ['#account'], displayed: true, disabled: false };
+  const before = state([button]);
+  assert.equal(decide(before, state([{ ...button, accessible_name: 'Delete account' }]), { inspected: true }).reason, 'controls_changed');
+  assert.equal(decide(before, state([{ ...button, accessible_role: 'link' }]), { inspected: true }).reason, 'controls_changed');
+  assert.equal(decide(before, state([{ ...button, accessible_name_truncated: true }]), { inspected: true }).reason, 'page_state_unavailable');
+});
+
+test('dependent select choice values, labels and availability invalidate queued work while input selection alone does not', () => {
+  const select = { tag: 'select', accessible_role: 'combobox', accessible_name: 'Region', attributes: { id: 'region' },
+    locator_candidates: ['#region'], displayed: true, disabled: false, options_truncated: false,
+    options: [{ label: 'Select region', value: '', selected: true, disabled: false }, { label: 'North', value: 'north', selected: false, disabled: false }] };
+  const before = state([select]);
+  const options = [...select.options];
+  for (const replacement of [{ ...options[1], value: 'south' }, { ...options[1], label: 'South' }, { ...options[1], disabled: true }]) {
+    assert.equal(decide(before, state([{ ...select, options: [options[0], replacement] }]), { tool: 'browser_select_option', inspected: true }).reason, 'controls_changed');
+  }
+  assert.deepEqual(decide(before, state([{ ...select, options: options.map(option => ({ ...option, selected: !option.selected })) }]),
+    { tool: 'browser_select_option', inspected: true }), { pause: false, needs_snapshot: false });
+  assert.doesNotMatch(JSON.stringify(before), /North|north|Region|#region/);
+});
+
+test('incomplete select options cannot establish that dependent choices remained unchanged', () => {
+  const select = control('region', 'Region', { tag: 'select', role: 'combobox',
+    options: [{ label: 'North', value: 'north', disabled: false }] });
+  const before = state([select]);
+  for (const extra of [{ options: undefined }, { options_truncated: true },
+    { options: [{ label: 'North', value_excerpt: 'north', value_truncated: true }] },
+    { options: [{ label: 'North', value: 'north', label_truncated: true }] }]) {
+    assert.equal(decide(before, state([{ ...select, ...extra }]), { inspected: true }).reason, 'page_state_unavailable');
+  }
+});
+
+test('changed link destinations and disclosure associations pause queued interactions on the same controls', () => {
+  const link = control('next', 'Continue', { tag: 'a', role: 'link', attributes: { id: 'next', href: 'https://app.test/preview' } });
+  const before = state([link]);
+  assert.equal(decide(before, state([{ ...link, attributes: { ...link.attributes, href: 'https://app.test/confirm' } }]), { inspected: true }).reason, 'controls_changed');
+  const prefix = 'https://app.test/preview?context=' + 'x'.repeat(220);
+  const longLink = { ...link, attributes: { ...link.attributes, href: prefix + '&operation=preview' } };
+  assert.equal(decide(state([longLink]), state([{ ...longLink, attributes: { ...longLink.attributes, href: prefix + '&operation=confirm' } }]), { inspected: true }).reason, 'controls_changed',
+    'a fully observed destination suffix must not be silently omitted from its fingerprint');
+  const disclosure = control('menu', 'Options', { tag: 'button', role: 'button', attributes: { id: 'menu', 'aria-controls': 'account-menu', 'aria-expanded': 'false' } });
+  assert.equal(decide(state([disclosure]), state([{ ...disclosure, attributes: { ...disclosure.attributes, 'aria-controls': 'danger-menu' } }]), { inspected: true }).reason, 'controls_changed');
+});
+
 test('unknown, partial, scoped or truncated inspection cannot prove that stale controls stayed unchanged', () => {
   const before = state([control('email')]);
   for (const extra of [{ partial: true }, { truncated: true }, { elements_truncated: true }, { fields_truncated: true }, { scope: '#form' }]) {

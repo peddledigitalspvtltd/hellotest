@@ -24,12 +24,13 @@ function missionOutcome(value, observed, previous = []) {
 function decision(value,observed,target,previous=[]) {
   if(!value||!['click','fill','select','press','navigate','extract','complete','blocked','scroll','hover','wait','back','assert_text'].includes(value.action)||typeof value.summary!=='string'||!value.summary.trim()||value.summary.length>1200)throw C.fail('The model returned an invalid browser decision.',502);
   const next={action:value.action,summary:sanitize(value.summary)};
-  if(['click','fill','select','press','hover'].includes(value.action)){const e=observed.elements.find(e=>e.id===value.element_id);if(!e||e.sensitive)throw C.fail('The browser decision selected an unavailable or sensitive element.',502);next.element_id=e.id;}
+  if(['click','fill','select','press','hover'].includes(value.action)){const e=observed.elements.find(e=>e.id===value.element_id);if(!e||e.sensitive)throw C.fail('The browser decision selected an unavailable or sensitive element.',502);if(value.action==='select'&&e.tag!=='select')throw C.fail('Select requires an observed native select control.',502);if(value.action==='fill'&&!['input','textarea'].includes(e.tag))throw C.fail('Fill requires an observed text input or textarea.',502);next.element_id=e.id;}
   if(['fill','select'].includes(value.action)){if(typeof value.value!=='string'||value.value.length>500||C.hasSensitiveValue(value.value)||sanitize(value.value)!==value.value)throw C.fail('The browser decision must use non-secret input.',502);next.value=value.value;}
   if(value.action==='press'){if(!['Enter','Tab','Escape','ArrowDown','ArrowUp'].includes(value.key))throw C.fail('The browser decision used an unsupported key.',502);next.key=value.key;}
   if(value.action==='scroll'){if(!['up','down'].includes(value.direction))throw C.fail('Choose a supported scroll direction.',502);next.direction=value.direction;}
   if(value.action==='assert_text'){if(typeof value.text!=='string'||!value.text.trim()||value.text.length>500||C.hasSensitiveValue(value.text)||sanitize(value.text)!==value.text)throw C.fail('Choose non-secret text to verify.',502);next.text=value.text.trim();}
   if(value.action==='navigate'){next.url=C.targetUrl(value.url);if(new URL(next.url).origin!==new URL(target).origin)throw C.fail('The browser decision must stay on the approved origin.',502);}
+  if(['extract','complete'].includes(value.action)&&value.outcome==null)throw C.fail('Extraction and completion require a structured observed outcome, including a useful summary and evidence rows for requested facts.',502,'QUALITY_AGENT_OUTCOME_INVALID');
   if(value.outcome != null) { if(!['extract','complete'].includes(value.action))throw C.fail('Outcome rows can accompany extraction or completion only.',502); next.outcome=missionOutcome(value.outcome,observed,previous); }
   return next;
 }
@@ -43,16 +44,34 @@ async function resolveMissionModel(request,user) {
 async function decideMission(request,user,raw,history=[],traceContext={}) {
   const observed=observation(raw,request.target_url);
   const previous = (traceContext.observations || []).filter(item => item.sequence !== observed.sequence).slice(-11).map(item => observation(item,request.target_url));
+  const packet=require('./qualityMissionContext').missionContext(request,observed,previous,history);
   const integration=await resolveMissionModel(request,user);
   const base=(integration.base_url||'https://api.openai.com/v1').replace(/\/+$/,'');
-  const response=await require('@hellotest/platform/backend/src/utils/llmTraceContext').run({project_id:request.project_id,actor_id:user.id,session_id:traceContext.session_id},()=>require('@hellotest/platform/backend/src/utils/llmHttpClient').fetchLlmWithRetry(/\/chat\/completions$/.test(base)?base:`${base}/chat/completions`,{method:'POST',headers:{'Content-Type':'application/json',...(require('@hellotest/integration/backend/services/integration.service').isUsableApiCredential(integration.api_key)?{Authorization:`Bearer ${integration.api_key}`}:{})},body:JSON.stringify({model:integration.model,max_tokens:4096,response_format:{type:'json_object'},messages:[
-    {role:'system',content:aiInstructionBlock(`ai.agentic.browser.${request.kind}`, "browserMissionPlanner.response.1")},
-    {role:'user',content:JSON.stringify({goal:request.goal,kind:request.kind,origin:new URL(request.target_url).origin,allow_form_submission:request.options.mission.allow_form_submission,remaining_actions:request.options.mission.max_actions-observed.sequence+1,observation:observed,prior_observations:previous.map(({sequence,url,title,text})=>({sequence,url,title,text})),history:history.slice(-12),reviewed_context:request.smart_context?.reviewed_context||null,evidence_scope:request.evidence_scope||{},context_provenance:{reviewed_context:'user-reviewed task data',page_text:'observed browser evidence',action_receipts:'verified by browser observations'}})}
-  ]})},{integration,featureKey:`ai.agentic.browser.${request.kind}`,operation:`agentic-browser.decide.${request.kind}`,timeoutMs:20000,maxOutputTokens:4096,maxAttempts:1,contextFallback:false,contextRetrievalQuery:`${request.goal}\nAgent intent: ${C.AGENTS.find(agent=>agent.id===request.kind)?.description || request.kind}\n${request.smart_context?.query || ''}`,mcpContextFilters:{agent_id:`browser-${request.kind}`,app_type_id:request.app_type_id,requested_scopes:request.context_scopes||require('@hellotest/platform/shared/agentContextPolicies.json')[`browser-${request.kind}`].scopes,evidence_scope:request.evidence_scope||{},source_ids:request.smart_context?.source_ids,source_kinds:request.smart_context?.source_kinds}}));
-  if(!response.ok)throw C.fail('The browser model is unavailable.',503);
-  const payload=await response.json(),choice=payload?.choices?.[0];
-  if(!choice||choice.finish_reason==='length'||choice.finish_reason==='content_filter'||choice.message?.refusal||choice.message?.tool_calls?.length)throw C.fail('The model returned an incomplete browser decision.',502);
-  let parsed;try{parsed=JSON.parse(choice.message.content);}catch{throw C.fail('The model returned an invalid browser action. No further action was performed; review the partial observations and retry with a clearer task.',502,'QUALITY_AGENT_DECISION_INVALID');}
-  return decision(parsed,observed,request.target_url,previous);
+  const featureKey=`ai.agentic.browser.${request.kind}`,deadline=Date.now()+20000;
+  const active=()=>{if(traceContext.signal?.aborted)throw C.fail('The browser mission was stopped before its next action.',409,'QUALITY_AGENT_CANCELLED');};
+  let feedback;
+  for(let revision=0;revision<2;revision++) {
+    active();
+    await traceContext.onProgress?.({phase:revision?'revising':'deciding',sequence:observed.sequence,revision,message:revision?'Correcting the browser decision against observed controls and outcome evidence.':'Choosing the next action from the current browser observation.'});
+    active();
+    const remaining=deadline-Date.now();if(remaining<1000)throw C.fail('The bounded browser decision deadline elapsed.',504,'QUALITY_AGENT_DECISION_DEADLINE');
+    const response=await require('@hellotest/platform/backend/src/utils/llmTraceContext').run({project_id:request.project_id,actor_id:user.id,session_id:traceContext.session_id},()=>require('@hellotest/platform/backend/src/utils/llmHttpClient').fetchLlmWithRetry(/\/chat\/completions$/.test(base)?base:`${base}/chat/completions`,{method:'POST',signal:traceContext.signal,headers:{'Content-Type':'application/json',...(require('@hellotest/integration/backend/services/integration.service').isUsableApiCredential(integration.api_key)?{Authorization:`Bearer ${integration.api_key}`}:{})},body:JSON.stringify({model:integration.model,max_tokens:4096,response_format:{type:'json_object'},messages:[
+      {role:'system',content:aiInstructionBlock(featureKey,'browserMissionPlanner.response.1')},
+      {role:'system',content:aiInstructionBlock(featureKey,'browserMissionPlanner.skill')},
+      ...(feedback?[{role:'system',content:aiInstructionBlock(featureKey,'browserMissionPlanner.revision')}]:[]),
+      {role:'user',content:JSON.stringify({...packet,...(feedback?{validation_feedback:feedback}:{})})}
+    ]})},{integration,featureKey,operation:`agentic-browser.decide.${request.kind}`,timeoutMs:Math.min(20000,remaining),maxOutputTokens:4096,maxAttempts:1,contextFallback:false,contextRetrievalQuery:`${request.goal}\nAgent intent: ${packet.task_brief.intent}\n${request.smart_context?.query || ''}`,mcpContextFilters:{agent_id:`browser-${request.kind}`,app_type_id:request.app_type_id,requested_scopes:request.context_scopes||require('@hellotest/platform/shared/agentContextPolicies.json')[`browser-${request.kind}`].scopes,evidence_scope:request.evidence_scope||{},source_ids:request.smart_context?.source_ids,source_kinds:request.smart_context?.source_kinds}}));
+    active();
+    if(!response.ok)throw C.fail('The browser model is unavailable.',503);
+    const payload=await response.json(),choice=payload?.choices?.[0];
+    if(!choice||choice.finish_reason==='length'||choice.finish_reason==='content_filter'||choice.message?.refusal||choice.message?.tool_calls?.length)throw C.fail('The model returned an incomplete browser decision.',502,'QUALITY_AGENT_DECISION_INCOMPLETE');
+    try {
+      let parsed;try{parsed=JSON.parse(choice.message.content);}catch{throw C.fail('Return a complete JSON browser decision using the supplied action and outcome contract.',502,'QUALITY_AGENT_DECISION_INVALID');}
+      return decision(parsed,observed,request.target_url,previous);
+    } catch(error) {
+      if(revision||!['QUALITY_AGENT_INVALID','QUALITY_AGENT_DECISION_INVALID','QUALITY_AGENT_OUTCOME_INVALID'].includes(error.code))throw error;
+      feedback={code:error.code,message:error.publicMessage,sequence:observed.sequence,actions_dispatched:0};
+    }
+  }
 }
 module.exports={missionOutcome,resolveMissionModel,decideMission,observation,decision};

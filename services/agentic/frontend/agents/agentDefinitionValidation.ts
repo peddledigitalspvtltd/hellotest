@@ -3,6 +3,10 @@ import type { AgentDefinition } from './agentDefinitions';
 export type AgentDefinitionIssue = { tab: 'purpose' | 'skills' | 'completion'; message: string };
 export function validateAgentDefinition(definition: AgentDefinition): AgentDefinitionIssue[] {
   const issues: AgentDefinitionIssue[] = [];
+  const output = definition.output_contract || { kind: 'review', minimum_artifacts: 0 };
+  if (!['review', 'story', 'test_case', 'defect', 'run', 'automation'].includes(output.kind) || !Number.isInteger(output.minimum_artifacts) || (output.kind === 'review' ? output.minimum_artifacts !== 0 : output.minimum_artifacts < 1 || output.minimum_artifacts > 8)) {
+    issues.push({ tab: 'completion', message: 'Choose a result type and require 1–8 drafts, or zero drafts for an evidence review.' });
+  }
   if (!definition.name.trim()) issues.push({ tab: 'purpose', message: 'Add an agent name.' });
   if (!definition.objective.trim()) issues.push({ tab: 'purpose', message: 'Describe the result in Objective.' });
   if (definition.required_inputs.length > 20 || definition.required_inputs.some(key => !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(key) || ['constructor', 'prototype', '__proto__'].includes(key))) {

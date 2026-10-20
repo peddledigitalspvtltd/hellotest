@@ -27,6 +27,25 @@ const advanceClock = async (context, milliseconds) => {
   context.mock.timers.tick(milliseconds);
 };
 
+test('app-scoped graph expansion retains the edge exact proof instead of substituting an endpoint search hit',async()=>{
+  let expansionArgs;const proof=hit('proof','This case tests the requirement.');
+  const edge={source_canonical_id:'case-node',target_canonical_id:'requirement-node',relationship_type:'TESTS',evidence_ids:['K-proof'],provenance_type:'HUMAN_VERIFIED',endpoints_authorized:true};
+  const dependencies=fixtures({assess:()=>({requires_more_context:true}),expandRelationships:async args=>{expansionArgs=args;return{results:[proof],relationships:[edge]};}});
+  const result=await execution.run({},()=>engine.retrieve({request:contracts.buildRetrievalRequest({projectId:'project-1',query:'Investigate release coverage',queryClass:'INVESTIGATIVE',filters:{app_type_id:'app-selected',requested_scopes:['knowledge']},budgets:{max_rounds:1}}),user:{id:'user-1'},dependencies}));
+  assert.equal(expansionArgs.app_type_id,'app-selected');assert.deepEqual(expansionArgs.sourceKinds,['knowledge_item','file','text','chat','url']);
+  assert.equal(result.packet.relationships.length,1);assert.deepEqual(result.packet.relationships[0].evidence_ids,['K-proof']);
+  assert.equal(result.packet.relationships[0].source,'case-node');assert.equal(result.packet.relationships[0].target,'requirement-node');
+});
+
+test('graph edges disappear when their exact proof is revoked even if an endpoint search passage is retained',async()=>{
+  const proof=hit('proof','The relation witness.');
+  const result=await retrieve(fixtures({assess:()=>({requires_more_context:true}),
+    expandRelationships:async()=>({results:[proof],relationships:[{source_canonical_id:'source-1',target_canonical_id:'source-proof',relationship_type:'RELATED_TO',evidence_ids:['K-proof'],provenance_type:'HUMAN_VERIFIED',endpoints_authorized:true}]}),
+    authorize:async hits=>({allowed:hits.filter(item=>item.chunk_id!=='proof'),partial:hits.some(item=>item.chunk_id==='proof')})
+  }),{max_rounds:1});
+  assert.ok(result.packet.evidence.some(item=>item.evidence_id==='K-1'));assert.equal(result.packet.relationships.length,0);
+});
+
 test("context engine returns the same bounded evidence used by consumers and actual safe events", async () => {
   const events = [];
   const result = await retrieve(fixtures(), { max_context_tokens: 1500 }, { onProgress: (event) => events.push(event) });

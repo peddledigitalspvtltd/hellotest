@@ -40,6 +40,9 @@ const canonicalStore = (context) => {
     }
   }));
   context.mock.method(vector, "isConfigured", () => false);
+  // The actual same-transaction graph/ledger behavior is exercised against PG
+  // in knowledgeRepositoryLifecycle; this fixture observes provider timing.
+  context.mock.method(require("../../../knowledge/backend/services/knowledgeGraph.service"), "syncDocument", async () => ({}));
   return state;
 };
 const persistInput = (extra = {}) => ({ projectId: "project-1",

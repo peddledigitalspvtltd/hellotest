@@ -276,6 +276,8 @@
 @media(max-width:700px) { .agent-structured-layout footer > div { width: 100%; } .agent-structured-layout footer button { flex: 1 1 auto; } }
 
 .agent-proposal-tools { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.agent-outcome-preview>p,.agent-outcome-preview>details,.agent-outcome-preview>.agent-report-visuals{margin:16px 20px}.agent-outcome-preview article{padding:10px 0;border-bottom:1px solid var(--app-border)}.agent-outcome-preview h4{margin:0 0 6px}
+.agent-proposal-field :is(input,select){width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--app-border);border-radius:8px;background:var(--app-surface);color:inherit;font:inherit}.agent-proposal-addressed{padding:12px 16px;border:1px solid var(--app-border);border-radius:8px;background:var(--app-surface-muted)}.agent-proposal-addressed h4{margin:0}.agent-proposal-addressed ul{padding-left:18px}.agent-proposal-addressed p{margin:4px 0}
 
 .agent-structured-output .ai-artifact-workspace { padding: 16px; }
 .agent-structured-output .ai-artifact-detail { overflow-wrap: anywhere; }

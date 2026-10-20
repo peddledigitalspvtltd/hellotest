@@ -5,29 +5,59 @@ const transitionTools = new Set(['browser_click', 'browser_press_key', 'browser_
 const targetReadTools = new Set(['browser_assert', 'browser_validate_locator', 'browser_wait_for', 'browser_snapshot']);
 const controlTags = new Set(['input', 'button', 'a', 'select', 'textarea']);
 const controlRoles = new Set(['button', 'link', 'textbox', 'searchbox', 'checkbox', 'radio', 'combobox', 'listbox', 'option', 'switch', 'slider', 'spinbutton', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio']);
-const identityAttributes = ['id', 'name', 'role', 'aria-label', 'aria-labelledby', 'placeholder', 'data-testid', 'type', 'title', 'alt', 'autocomplete'];
+const identityAttributes = ['id', 'name', 'role', 'aria-label', 'aria-labelledby', 'placeholder', 'data-testid', 'type', 'title', 'alt', 'autocomplete',
+  'href', 'multiple', 'size', 'aria-controls', 'aria-expanded', 'aria-haspopup', 'aria-disabled'];
 const text = (value, limit = 2_000) => typeof value === 'string' ? value.slice(0, limit) : '';
+const role = element => text(element.accessible_role || element.role || element.attributes?.role).toLowerCase().split(/\s+/)[0];
+const controlName = element => element.accessible_name || element.name || element.label || element.text;
+
+function selectChoices(element) {
+  if (text(element.tag).toLowerCase() !== 'select') return null;
+  // Selection is the control's input value, rather than its available choices.
+  // Observe changed labels/values/disabled choices without making an ordinary
+  // selection itself invalidate every remaining action in a stable form.
+  return Array.isArray(element.options) ? element.options.slice(0, 12).map(option => [
+    text(option?.label, 80), text(option?.value, 120), option?.disabled === true
+  ]) : null;
+}
+
+function completeControl(element) {
+  const name = controlName(element);
+  if (element.accessible_role_truncated || element.role_truncated || element.accessible_name_truncated
+    || element.name_truncated || element.label_truncated || element.text_truncated
+    || typeof name === 'string' && name.length > 2_000
+    || identityAttributes.some(name => typeof element.attributes?.[name] === 'string' && element.attributes[name].length > 2_000)
+    || element.truncated_attributes?.some(name => identityAttributes.includes(name))) return false;
+  if (text(element.tag).toLowerCase() !== 'select') return true;
+  return Array.isArray(element.options) && element.options.length <= 12 && element.options_truncated !== true
+    && element.options.every(option => option && typeof option === 'object' && !Array.isArray(option)
+      && typeof option.label === 'string' && option.label.length <= 80 && option.label_truncated !== true
+      && typeof option.value === 'string' && option.value.length <= 120 && option.value_truncated !== true);
+}
 
 /** Snapshot identity only: input values and page/result prose do not become
  * batch-state data. This is a host decision aid, never model execution proof. */
 function captureBrowserBatchState(snapshot, fallback = {}) {
   const value = snapshot && typeof snapshot === 'object' ? snapshot : {};
   const elements = Array.isArray(value.elements) ? value.elements : null;
-  const controls = (elements || []).slice(0, 120).filter(element => element && typeof element === 'object').filter(element => {
+  const observedControls = (elements || []).slice(0, 120).filter(element => element && typeof element === 'object').filter(element => {
     const attributes = element.attributes || {};
-    return controlTags.has(text(element.tag).toLowerCase()) || controlRoles.has(text(element.role || attributes.role).split(/\s+/)[0]) || attributes.contenteditable === 'true';
-  }).map(element => {
+    return controlTags.has(text(element.tag).toLowerCase()) || controlRoles.has(role(element)) || attributes.contenteditable === 'true';
+  });
+  const controls = observedControls.map(element => {
     const attributes = element.attributes || {};
-    return [text(element.tag), text(element.role), text(element.name || element.label || element.text, 200),
-      identityAttributes.map(name => text(attributes[name], 200)),
+    return [text(element.tag), role(element), text(controlName(element)),
+      identityAttributes.map(name => text(attributes[name])),
       Array.isArray(element.locator_candidates) ? element.locator_candidates.slice(0, 4).map(locator => text(locator)) : [],
-      element.displayed !== false, element.disabled === true, typeof element.checked === 'boolean' ? element.checked : null];
+      element.displayed !== false, element.disabled === true, typeof element.checked === 'boolean' ? element.checked : null,
+      selectChoices(element)];
   });
   return {
     url: text(value.url || fallback.url),
     target_id: text(value.target_id || value.page_id || fallback.target_id || fallback.page_id, 200),
     controls_fingerprint: elements ? createHash('sha256').update(JSON.stringify(controls)).digest('hex') : null,
-    controls_complete: Boolean(elements && elements.length <= 120 && !value.partial && !value.truncated && !value.elements_truncated && !value.fields_truncated && (!value.scope || value.scope === 'body'))
+    controls_complete: Boolean(elements && elements.length <= 120 && observedControls.every(completeControl)
+      && !value.partial && !value.truncated && !value.elements_truncated && !value.fields_truncated && (!value.scope || value.scope === 'body'))
   };
 }
 

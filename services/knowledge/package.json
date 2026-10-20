@@ -32,7 +32,10 @@
     "./frontend/pages/KnowledgeRepoPage": "./frontend/pages/KnowledgeRepoPage.tsx",
     "./package.json": "./package.json",
     "./ui": "./frontend/entry.ts",
-    "./backend/refreshSchema": "./backend/refreshSchema.js"
+    "./backend/refreshSchema": "./backend/refreshSchema.js",
+    "./backend/vectorProjectionSchema": "./backend/vectorProjectionSchema.js",
+    "./backend/graphSchema": "./backend/graphSchema.js",
+    "./backend/services/knowledgeGraph.service": "./backend/services/knowledgeGraph.service.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs knowledge",

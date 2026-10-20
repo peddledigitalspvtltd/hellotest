@@ -33,11 +33,32 @@ const isConfigured = () => {
 };
 
 const collectionName = (dimensions) => `${settings().collectionPrefix}_d${Number(dimensions)}`;
+// Endpoint/prefix changes select a different projection; credentials are never
+// persisted in the reconciliation journal.
+const configurationKey = () => fingerprint(`${settings().baseUrl}\n${settings().collectionPrefix}`);
 
 const readJsonBounded = async (response) => {
   const declared = Number(response.headers?.get?.("content-length") || 0);
   if (declared > MAX_RESPONSE_BYTES) throw new Error("Qdrant response exceeded the configured limit");
-  const body = await response.text();
+  let body;
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const parts = [];
+    let bytes = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > MAX_RESPONSE_BYTES) {
+          await reader.cancel().catch(() => undefined);
+          throw new Error("Qdrant response exceeded the configured limit");
+        }
+        parts.push(Buffer.from(value));
+      }
+      body = Buffer.concat(parts).toString("utf8");
+    } finally { reader.releaseLock(); }
+  } else body = await response.text();
   if (Buffer.byteLength(body) > MAX_RESPONSE_BYTES) throw new Error("Qdrant response exceeded the configured limit");
   if (!body) return {};
   try {
@@ -47,7 +68,7 @@ const readJsonBounded = async (response) => {
   }
 };
 
-const request = async (path, { method = "GET", body, signal, allow = [] } = {}) => {
+const request = async (path, { method = "GET", body, signal, allow = [], trackHealth = true } = {}) => {
   if (signal?.aborted) throw signal.reason || new Error("Vector retrieval cancelled");
   const runtime = settings();
   if (!isConfigured()) throw new Error("Qdrant knowledge projection is not configured");
@@ -74,11 +95,12 @@ const request = async (path, { method = "GET", body, signal, allow = [] } = {}) 
     if (!response.ok && !allow.includes(response.status)) {
       throw new Error(`Qdrant returned HTTP ${response.status}`);
     }
-    consecutiveFailures = 0;
-    return { status: response.status, payload: await readJsonBounded(response) };
+    const payload = await readJsonBounded(response);
+    if (trackHealth) consecutiveFailures = 0;
+    return { status: response.status, payload };
   } catch (error) {
     // A caller cancelling its request is not evidence that Qdrant is unhealthy.
-    if (!signal?.aborted) {
+    if (trackHealth && !signal?.aborted) {
       consecutiveFailures += 1;
       if (consecutiveFailures >= CIRCUIT_FAILURE_THRESHOLD) circuitOpenedAt = Date.now();
     }
@@ -94,7 +116,7 @@ const createPayloadIndex = async (name, fieldName, fieldSchema, signal) => {
     await request(`/collections/${encodeURIComponent(name)}/index?wait=true`, {
       method: "PUT",
       body: { field_name: fieldName, field_schema: fieldSchema },
-      allow: [409], signal
+      allow: [409], signal, trackHealth: false
     });
   } catch (error) {
     if (signal?.aborted) throw error;
@@ -109,8 +131,9 @@ const ensureCollection = async (dimensions, { signal } = {}) => {
   const size = Number(dimensions);
   if (!Number.isInteger(size) || size < 8 || size > 8_192) throw new Error("Embedding dimensions are outside the supported Qdrant range");
   const name = collectionName(size);
-  if (Date.now() - Number(ensuredCollections.get(name) || 0) < COLLECTION_CACHE_TTL_MS) return name;
-  if (collectionPromises.has(name)) return collectionPromises.get(name);
+  const cacheKey = `${configurationKey()}:${name}`;
+  if (Date.now() - Number(ensuredCollections.get(cacheKey) || 0) < COLLECTION_CACHE_TTL_MS) return name;
+  if (collectionPromises.has(cacheKey)) return collectionPromises.get(cacheKey);
   const operation = (async () => {
     const current = await request(`/collections/${encodeURIComponent(name)}`, { allow: [404], signal });
     if (current.status === 404) {
@@ -133,21 +156,16 @@ const ensureCollection = async (dimensions, { signal } = {}) => {
       createPayloadIndex(name, "app_type_id", "keyword", signal),
       createPayloadIndex(name, "is_current", "bool", signal)
     ]);
-    ensuredCollections.set(name, Date.now());
+    ensuredCollections.set(cacheKey, Date.now());
     return name;
   })();
-  collectionPromises.set(name, operation);
+  collectionPromises.set(cacheKey, operation);
   try {
     return await operation;
   } finally {
-    collectionPromises.delete(name);
+    collectionPromises.delete(cacheKey);
   }
 };
-
-const deleteByFilter = async (name, filter, { signal } = {}) => request(
-  `/collections/${encodeURIComponent(name)}/points/delete?wait=true`,
-  { method: "POST", body: { filter }, signal }
-);
 
 const replaceDocument = async ({ projectId, source, documentId, chunks, vectors, embeddingModel, signal } = {}) => {
   if (!isConfigured()) return { configured: false, indexed: 0, provider: "postgresql" };
@@ -158,16 +176,17 @@ const replaceDocument = async ({ projectId, source, documentId, chunks, vectors,
   if (!normalizedVectors.every((vector) => Array.isArray(vector) && vector.length === dimensions && vector.every(Number.isFinite))) {
     throw new Error("Qdrant projection received inconsistent embedding vectors");
   }
-  const name = await ensureCollection(dimensions, { signal });
   const normalizedProjectId = text(projectId, 255);
   const normalizedSourceId = text(source?.id, 255);
-  await deleteByFilter(name, {
-    must: [
-      { key: "project_id", match: { value: normalizedProjectId } },
-      { key: "source_id", match: { value: normalizedSourceId } },
-      { key: "document_id", match: { value: text(documentId, 255) } }
-    ]
-  }, { signal });
+  if (!normalizedProjectId || !normalizedSourceId || !text(documentId, 255)
+      || normalizedChunks.some(chunk => !text(chunk?.id, 255))
+      || new Set(normalizedChunks.map(chunk => text(chunk.id, 255))).size !== normalizedChunks.length) {
+    throw new Error("Qdrant projection requires exact project, source, document and unique chunk identities");
+  }
+  const name = await ensureCollection(dimensions, { signal });
+  // Document/chunk IDs identify immutable canonical revisions. Upserting the
+  // same IDs is idempotent; deleting first destroys usable evidence on a failed
+  // batch and is unnecessary during recovery from an uncertain acknowledgement.
   let indexed = 0;
   for (let start = 0; start < normalizedChunks.length; start += UPSERT_BATCH_SIZE) {
     const batch = normalizedChunks.slice(start, start + UPSERT_BATCH_SIZE).map((chunk, offset) => ({
@@ -184,8 +203,9 @@ const replaceDocument = async ({ projectId, source, documentId, chunks, vectors,
         allowed_scope: source?.required_permission ? [text(source.required_permission, 100)] : [PUBLIC_SCOPE],
         embedding_model: text(embeddingModel, 255),
         is_current: true,
-        chunk_index: Number(chunk.index || 0),
-        content_hash: fingerprint(chunk.content)
+        chunk_index: Number(chunk.index ?? chunk.chunk_index ?? 0),
+        content_hash: fingerprint(chunk.content),
+        embedding_hash: fingerprint(JSON.stringify(normalizedVectors[start + offset]))
       }
     }));
     await request(`/collections/${encodeURIComponent(name)}/points?wait=true`, {
@@ -196,6 +216,63 @@ const replaceDocument = async ({ projectId, source, documentId, chunks, vectors,
     indexed += batch.length;
   }
   return { configured: true, indexed, provider: "qdrant", collection: name, dimensions };
+};
+
+const verifyDocument = async ({ projectId, source, documentId, chunks, embeddingModel, dimensions, signal } = {}) => {
+  if (!isConfigured()) return { configured: false, consistent: false };
+  if (!text(projectId, 255) || !text(source?.id, 255) || !text(documentId, 255)
+      || !Array.isArray(chunks) || !chunks.length || !Number.isInteger(dimensions) || dimensions < 8 || dimensions > 8192) {
+    throw new Error("Exact canonical document identities and dimensions are required for vector reconciliation");
+  }
+  const name = collectionName(dimensions);
+  for (let start = 0; start < chunks.length; start += UPSERT_BATCH_SIZE) {
+    const batch = chunks.slice(start, start + UPSERT_BATCH_SIZE);
+    const response = await request(`/collections/${encodeURIComponent(name)}/points`, {
+      method: "POST", signal, allow: [404],
+      body: { ids: batch.map(chunk => chunk.id), with_payload: true, with_vector: false }
+    });
+    if (response.status === 404) {
+      ensuredCollections.delete(`${configurationKey()}:${name}`);
+      return { configured: true, consistent: false };
+    }
+    const points = new Map(asArray(response.payload?.result).map(point => [String(point.id), point.payload]));
+    for (const chunk of batch) {
+      const payload = points.get(String(chunk.id));
+      if (!payload || payload.project_id !== projectId || payload.source_id !== source.id
+          || payload.document_id !== documentId || payload.chunk_id !== chunk.id
+          || payload.embedding_model !== embeddingModel || payload.content_hash !== fingerprint(chunk.content)
+          || !Array.isArray(payload.allowed_scope) || payload.allowed_scope.length !== 1
+          || payload.allowed_scope[0] !== (text(source.required_permission, 100) || PUBLIC_SCOPE)
+          || payload.source_kind !== text(source.source_kind, 80)
+          || payload.app_type_id !== (text(source.app_type_id, 255) || "__all__")
+          || payload.source_ref_id !== (text(source.source_ref_id, 500) || null)
+          || payload.chunk_index !== Number(chunk.index ?? chunk.chunk_index ?? 0)
+          || (Array.isArray(chunk.embedding) && payload.embedding_hash !== fingerprint(JSON.stringify(chunk.embedding)))
+          || payload.is_current !== true) return { configured: true, consistent: false };
+    }
+  }
+  return { configured: true, consistent: true };
+};
+
+const reconcileDocument = async (args = {}) => {
+  const chunks = asArray(args.chunks), vectors = asArray(args.vectors);
+  if (!chunks.length || chunks.length !== vectors.length) throw new Error("Vector reconciliation requires one vector per canonical chunk");
+  let repaired = 0;
+  // Accepted batches remain useful if the next batch or its acknowledgement
+  // fails. A retry checks the same immutable IDs and sends only missing/drifted
+  // batches; it never erases or regenerates the already confirmed prefix.
+  for (let start = 0; start < chunks.length; start += UPSERT_BATCH_SIZE) {
+    const batch = { ...args, chunks: chunks.slice(start, start + UPSERT_BATCH_SIZE), vectors: vectors.slice(start, start + UPSERT_BATCH_SIZE) };
+    const checked = await verifyDocument(batch);
+    if (!checked.configured) return { configured: false, indexed: 0, repaired: 0 };
+    if (checked.consistent) continue;
+    const written = await replaceDocument(batch);
+    if (!written.configured || written.indexed !== batch.chunks.length || !(await verifyDocument(batch)).consistent) {
+      throw new Error("Vector projection could not be confirmed against canonical chunks");
+    }
+    repaired += written.indexed;
+  }
+  return { configured: true, indexed: chunks.length, repaired, dimensions: args.dimensions };
 };
 
 const search = async ({ projectId, queryVector, embeddingModel, allowedPermissions, authorizedChunkIds, sourceKinds, sourceIds, appTypeId, historical = false, limit = 250, signal } = {}) => {
@@ -253,14 +330,20 @@ const search = async ({ projectId, queryVector, embeddingModel, allowedPermissio
 
 const deleteSource = async ({ projectId, sourceId, dimensions, signal } = {}) => {
   if (!isConfigured()) return { configured: false, deleted: false };
-  const names = dimensions ? [collectionName(dimensions)] : [...ensuredCollections.keys()];
-  const settled = await Promise.allSettled(names.map((name) => deleteByFilter(name, {
+  const project = text(projectId, 255), source = text(sourceId, 255);
+  if (!project || !source) throw new Error("Project and source ids are required for vector cleanup");
+  if (dimensions !== undefined && (!Number.isInteger(dimensions) || dimensions < 8 || dimensions > 8192)) {
+    throw new Error("Embedding dimensions are outside the supported Qdrant range");
+  }
+  const names = dimensions ? [collectionName(dimensions)] : await discoverCollections({ signal });
+  for (const name of names) await request(`/collections/${encodeURIComponent(name)}/points/delete?wait=true`, {
+    method: "POST", signal, allow: [404], body: { filter: {
     must: [
-      { key: "project_id", match: { value: text(projectId, 255) } },
-      { key: "source_id", match: { value: text(sourceId, 255) } }
+      { key: "project_id", match: { value: project } },
+      { key: "source_id", match: { value: source } }
     ]
-  }, { signal })));
-  return { configured: true, deleted: settled.some((item) => item.status === "fulfilled") };
+  } } });
+  return { configured: true, deleted: true, collections: names.length };
 };
 
 const getStatus = () => ({
@@ -274,14 +357,18 @@ const getStatus = () => ({
 
 // Discover persisted collections instead of relying on a process-local cache:
 // deletion must cover vectors written before an API restart or by another replica.
+const discoverCollections = async ({ signal } = {}) => {
+  const { payload } = await request("/collections", { signal });
+  const prefix = `${settings().collectionPrefix}_d`;
+  return asArray(payload?.result?.collections).map(row => row.name)
+    .filter(name => typeof name === "string" && name.startsWith(prefix) && /^\d+$/.test(name.slice(prefix.length)));
+};
+
 const deleteProject = async ({ projectId, signal } = {}) => {
   if (!isConfigured()) throw new Error("Qdrant project cleanup is not configured");
   const id = text(projectId, 255);
   if (!id) throw new Error("Project id is required for vector cleanup");
-  const { payload } = await request("/collections", { signal });
-  const prefix = `${settings().collectionPrefix}_d`;
-  const collections = asArray(payload?.result?.collections).map(row => row.name)
-    .filter(name => typeof name === "string" && name.startsWith(prefix) && /^\d+$/.test(name.slice(prefix.length)));
+  const collections = await discoverCollections({ signal });
   for (const name of collections) {
     await request(`/collections/${encodeURIComponent(name)}/points/delete?wait=true`, {
       method: "POST", signal, allow: [404],
@@ -296,8 +383,11 @@ module.exports = {
   deleteSource,
   deleteProject,
   getStatus,
+  configurationKey,
   isConfigured,
   replaceDocument,
+  reconcileDocument,
+  verifyDocument,
   search,
   _internals: { collectionName, ensureCollection, settings }
 };

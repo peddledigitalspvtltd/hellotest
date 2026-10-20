@@ -62,7 +62,7 @@ test('knowledge browse, guided ingestion, revision evidence and collection membe
     const context=await browser.newContext({viewport:{width:1440,height:1000}});const errors=[];context.on('page',page=>page.on('pageerror',cause=>errors.push(cause.message)));
     await context.route('**/api/**',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({message:'Unexpected fixture API request'})}));
     const page=await context.newPage();page.setDefaultTimeout(15000);const url=`${process.env.VITE_TEST_URL||'http://127.0.0.1:5294'}/${name}.html`;
-    await page.goto(url);await page.getByRole('heading',{name:'Knowledge Repo',exact:true}).waitFor();await page.getByRole('button',{name:'Checkout acceptance criteria',exact:true}).waitFor();
+    await page.goto(url);await page.getByRole('heading',{name:'AI Knowledge Base',exact:true}).waitFor();await page.getByRole('button',{name:'Checkout acceptance criteria',exact:true}).waitFor();
     assert.equal(await page.getByRole('button',{name:'Previous checkout notes',exact:true}).count(),0,'archived evidence stays outside current inventory');
     assert.deepEqual(await page.evaluate(()=>window.knowledgeCalls.records),[],'record pickers load only when opened');assert.equal(await page.evaluate(()=>window.knowledgeCalls.notes),0,'hidden notes do not fetch full document bodies');
     await mkdir('/tmp/qaira-knowledge-experience',{recursive:true});await page.screenshot({path:'/tmp/qaira-knowledge-experience/01-sources-desktop.png',fullPage:true,animations:'disabled'});

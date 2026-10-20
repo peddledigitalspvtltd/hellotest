@@ -132,6 +132,11 @@ const evidence = object({
   chunk_id: nullable(id),
   title: string(500),
   content: string(128000),
+  content_scope: object({
+    kind: {const:'source_chunk_excerpt'}, offset_unit:{const:'unicode_codepoint'}, source_length:integer(),
+    segments:array(object({source_start:integer(),source_end:integer(),content_start:integer(),content_end:integer()},['source_start','source_end','content_start','content_end']),160),
+    omitted_codepoints:integer()
+  },['kind','offset_unit','source_length','segments','omitted_codepoints']),
   location,
   locator: location,
   scores: object({
@@ -168,7 +173,8 @@ const relationship = object({
   target: id,
   type: string(80),
   evidence_ids: array(id),
-  provenance_type: string(80)
+  provenance_type: string(80),
+  witness_span:object({evidence_id:id,start:integer(),end:integer(),offset_unit:{const:'unicode_codepoint'},offset_basis:{const:'source_chunk'}},['evidence_id','start','end','offset_unit','offset_basis'])
 }, ["source", "target", "type", "evidence_ids"]);
 const claim = object({
   claim_id: id,

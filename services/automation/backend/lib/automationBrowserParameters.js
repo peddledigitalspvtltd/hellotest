@@ -205,7 +205,15 @@ function createBrowserParameterResolver({caseValues={},suiteValues={},suiteDataS
    if(value)resolvedValues.set(value,resolvedValues.get(value)||sensitiveNames.has(key));
    return {...args,[field]:value};
   },
-  redactResult(result){return {...result,content:(result.content||[]).map(item=>{if(item.type!=='text'||typeof item.text!=='string')return item;try{return {...item,text:JSON.stringify(redact(JSON.parse(item.text)))};}catch{return {...item,text:redactString(item.text)};}})};},
+  redactResult(result){return {...result,content:(result.content||[]).map(item=>{if(item.type!=='text'||typeof item.text!=='string')return item;try{
+   const original=JSON.parse(item.text),projected=redact(original);
+   if(Array.isArray(original?.elements)&&Array.isArray(projected?.elements))for(let index=0;index<original.elements.length;index++){
+    const before=original.elements[index],after=projected.elements[index];
+    if(after&&typeof before?.record_scoped_locator==='string'&&(after.record_scoped_locator!==before.record_scoped_locator
+      ||!Array.isArray(after.locator_candidates)||!after.locator_candidates.includes(after.record_scoped_locator)))delete after.record_scoped_locator;
+   }
+   return {...item,text:JSON.stringify(projected)};
+  }catch{return {...item,text:redactString(item.text)};}})};},
   redactError(error){const seen=new Set();let current=error;while(current&&typeof current==='object'&&!seen.has(current)){seen.add(current);current.message=redactString(String(current.message||'Browser tool failed'));if(typeof current.stack==='string')current.stack=redactString(current.stack);current=current.cause;}return error;}
  };
 }

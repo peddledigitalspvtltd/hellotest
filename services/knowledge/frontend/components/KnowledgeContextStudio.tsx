@@ -2,7 +2,7 @@ import { useKnowledgeCatalog } from "../hooks/useKnowledgeCatalog";
 import { KnowledgeRefreshControl } from "./KnowledgeRefreshControl";
 import { formatRecordKindLabel } from "@hellotest/testing/frontend/lib/defectTerminology";
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
-import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { DragEvent, FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconPlus,
@@ -57,7 +57,8 @@ import type {
 } from "@hellotest/platform/frontend/src/types";
 import "./KnowledgeContextStudio.css";
 
-type StudioTab = "build" | "search" | "sources" | "collections" | "activity";
+const KnowledgeGraphPanel = lazy(() => import("./KnowledgeGraphPanel"));
+type StudioTab = "build" | "search" | "sources" | "collections" | "activity" | "graph";
 type RecordKind = keyof KnowledgeSelectedRecords;
 type PasteKind = "text" | "chat" | "url";
 type BuildKind = "records" | "files" | "notes";
@@ -604,6 +605,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
         {([
           ["sources", "Sources", IconFileText],
           ["search", "Search", IconSearch],
+          ["graph", "Graph", IconStack2],
           ["collections", "Collections", IconFolders],
           ["activity", "Activity", IconClock]
         ] as Array<[StudioTab, string, typeof IconStack2]>).filter(([tab]) => tab !== "build" || canManage).map(([tab, label, Icon]) => (
@@ -637,6 +639,8 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
           </button>
         ))}
       </div>
+
+      {activeTab === "graph" ? <Suspense fallback={<LoadingState label="Loading context graph" />}><KnowledgeGraphPanel key={projectId} projectId={projectId} canManage={canManage} sources={allSources} onOpenSource={(sourceId, revisionId) => { setSelectedDetailSourceId(sourceId); setSelectedDetailRevisionId(revisionId || ""); }} /></Suspense> : null}
 
       {activeTab === "build" && canManage ? (
         <div aria-labelledby="knowledge-add-sources-title" className="knowledge-builder" id="knowledge-panel-build" role="tabpanel">

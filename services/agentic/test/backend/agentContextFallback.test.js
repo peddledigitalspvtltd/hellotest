@@ -45,3 +45,15 @@ test('large structured evidence stays valid JSON and pinned automation context p
  assert.equal(JSON.parse(packed.bounded_workspace_context.automation_case[0].content).sections.length,10);
  const large=packed.bounded_workspace_context.knowledge[0];assert.doesNotThrow(()=>JSON.parse(large.content));assert.equal(large.excerpt_truncated,true);
 });
+
+test('selected whole-case intent stays exact before broad excerpts and survives provider context reduction',()=>{
+ const f=fixture();const source={evidence_type:'authoritative_full_test_case_intent',source_revision:4,records:[{id:'case-selected',steps:Array.from({length:12},(_,index)=>({action:`Exact action ${index} ${'a'.repeat(200)}`,expected_result:`Exact outcome ${index} ${'b'.repeat(200)}`}))}]};
+ const item={id:'K-case-intent-selected',source_kind:'live_project',content:JSON.stringify(source),citation:{id:'K-case-intent-selected'}};
+ const context={live_project:[{id:'broad',content:'Broad search excerpt'}],case_intent:[item]};
+ const packed=JSON.parse(f.buildBoundedAgentPromptPayload({mode:'agent',prompt:'Improve every saved manual clause.',context,citations:[item.citation],contextRoute:{}}));
+ assert.equal(Object.keys(packed.bounded_workspace_context)[0],'case_intent');
+ assert.equal(packed.bounded_workspace_context.case_intent[0].content,item.content);
+ const reduced=require('../../backend/services/agentMinimalContext').minimalContext(packed);
+ assert.equal(reduced.payload.bounded_workspace_context.case_intent[0].content,item.content);
+ assert.throws(()=>f.buildBoundedAgentPromptPayload({mode:'agent',prompt:'Improve whole case',context,citations:[],contextRoute:{},maxChars:1000}),error=>error.code==='AGENT_CONTEXT_BUDGET');
+});

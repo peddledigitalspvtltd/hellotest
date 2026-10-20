@@ -1,0 +1,29 @@
+{
+  "schema": "agent-outcome/1",
+  "artifact_kinds": ["story", "test_case", "defect", "run", "automation"],
+  "custom_kinds": ["review", "story", "test_case", "defect", "run", "automation"],
+  "agents": {
+    "quality-orchestrator": {"mode":"review","findings_require_proposals":true},
+    "story-architect": {"mode":"author","artifact_kinds":["story"],"minimum_artifacts":1},
+    "story-completion": {"mode":"author","artifact_kinds":["story"],"minimum_artifacts":1,"allow_clean_review":true},
+    "story-grooming": {"mode":"review","findings_require_proposals":true},
+    "story-assurance": {"mode":"review","findings_require_proposals":true},
+    "test-designer": {"mode":"author","artifact_kinds":["test_case"],"minimum_artifacts":1},
+    "test-improvement": {"mode":"author","artifact_kinds":["test_case"],"minimum_artifacts":1,"allow_clean_review":true},
+    "automation-engineer": {"mode":"author","artifact_kinds":["automation"],"minimum_artifacts":1},
+    "run-planner": {"mode":"author","artifact_kinds":["run"],"minimum_artifacts":1},
+    "failure-analyst": {"mode":"review","findings_require_proposals":true},
+    "bug-reporter": {"mode":"author","artifact_kinds":["defect"],"minimum_artifacts":1},
+    "bug-triage": {"mode":"review"},
+    "quality-evaluator": {"mode":"review","findings_require_proposals":true},
+    "repository-curator": {"mode":"review"},
+    "release-readiness": {"mode":"review","findings_require_proposals":true},
+    "impact-analysis": {"mode":"review","findings_require_proposals":true},
+    "coverage-assurance": {"mode":"review","findings_require_proposals":true},
+    "risk-prediction": {"mode":"review"},
+    "flaky-test-intelligence": {"mode":"review"},
+    "release-risk-simulation": {"mode":"review"},
+    "quality-graph": {"mode":"review"},
+    "automation-repair": {"mode":"review","typed_repair":true}
+  }
+}

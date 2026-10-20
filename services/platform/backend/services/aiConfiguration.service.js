@@ -31,6 +31,13 @@ function validate(input, id) {
     if (typeof value[field] !== 'number' || !Number.isFinite(value[field]) || value[field] < min || value[field] > max || (integer && !Number.isSafeInteger(value[field]))) throw fail(`Invalid ${field}.`);
   }
   if (value.integration_id != null && (typeof value.integration_id !== 'string' || !value.integration_id.trim() || value.integration_id.length > 128)) throw fail('Invalid model integration.');
+  if (item.defaults.agent_execution) {
+    const policy = value.agent_execution;
+    const ranges = { max_model_calls: [1, 8], max_revision_rounds: [0, 3], max_followups: [0, 3], timeout_ms: [10000, 150000] };
+    if (!policy || typeof policy !== 'object' || Array.isArray(policy) || Object.keys(policy).length !== Object.keys(ranges).length
+      || Object.entries(ranges).some(([key, [min, max]]) => !Number.isSafeInteger(policy[key]) || policy[key] < min || policy[key] > max)
+      || policy.max_revision_rounds >= policy.max_model_calls) throw fail('Invalid agent execution policy. Revisions must fit within the total model-call budget.');
+  }
   if (item.defaults.reference_images) {
     const images = value.reference_images;
     if (!images || typeof images !== 'object' || Array.isArray(images) || Object.keys(images).some(key => !['max_images','max_total_chars','detail'].includes(key))
@@ -109,7 +116,7 @@ function effective(item, record, legacy={}, parent=null, instructionSources=[]) 
   }
   const inherited = !record?.published && parent && (parent.published_version || parent.fingerprint !== hash(parent.defaults));
   if (inherited) {
-    for (const key of ['temperature','top_p','max_output_tokens','context','integration_id','guardrails','output_schema']) base[key] = copy(parent.config[key]);
+    for (const key of ['temperature','top_p','max_output_tokens','context','integration_id','guardrails','output_schema',...(base.agent_execution && parent.config.agent_execution ? ['agent_execution'] : [])]) base[key] = copy(parent.config[key]);
     base.prompt = `${parent.config.prompt}\nSpecific agent intent: ${item.defaults.prompt}`.slice(0,item.maxLength);
     base.instruction_blocks = Object.fromEntries(Object.entries(item.defaults.instruction_blocks).map(([key,value])=>[key,parent.config.instruction_blocks?.[key] || value]));
   }

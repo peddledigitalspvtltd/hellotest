@@ -10,6 +10,8 @@ import './AgentDefinitionEditor.css';
 import { validateAgentDefinition } from './agentDefinitionValidation';
 
 const scopes = [['stories', 'Stories'], ['test-cases', 'Test cases'], ['runs', 'Runs'], ['bugs', 'Defects'], ['automation', 'Automation'], ['knowledge', 'Knowledge']];
+const resultTypes = [['review', 'Evidence review'], ['story', 'Story drafts'], ['test_case', 'Test case drafts'], ['defect', 'Defect drafts'], ['run', 'Run drafts'], ['automation', 'Automation Plan drafts']] as const;
+const resultHelp = { review: 'Findings, recommendations and cited sections or tables. No library record is required.', story: 'Title, description, acceptance criteria and priority.', test_case: 'Title, description, actions with expected results, priority, test case type and relevant test parameters.', defect: 'Title, description, reproduction steps, expected and actual behavior, severity and priority.', run: 'Title, description, selected existing test cases and exit criteria.', automation: 'A reviewable Plan with ordered actions and expected outcomes. Generating or executing a script requires Automation Engineer.' };
 export function AgentDefinitionEditor({ agent, initial, projectId, appTypeId, providers, busy, error, onClose, onSave }: {
   agent?: ProjectAgent; initial?: AgentDefinition; projectId: string; appTypeId: string;
   providers: Array<{ value: string; label: string }>; busy: boolean; error: string;
@@ -25,6 +27,7 @@ export function AgentDefinitionEditor({ agent, initial, projectId, appTypeId, pr
     ...(patch.guardrails !== undefined ? { guardrails: String(patch.guardrails) } : {}),
   });
   const issues = validateAgentDefinition(draft);
+  const output = draft.output_contract || { kind: 'review' as const, minimum_artifacts: 0 };
   const valid = issues.length === 0;
   return <AiEvidenceFlyout open onClose={() => { if (!busy) onClose(); }} eyebrow="Agentic Studio / Agent builder"
     title={agent ? `Edit ${agent.definition.name}` : 'Create an AI agent'}
@@ -52,6 +55,8 @@ export function AgentDefinitionEditor({ agent, initial, projectId, appTypeId, pr
         </>}
         {tab === 'completion' && <>
           <section className="agent-completion-contract"><h3><IconShieldCheck size={19} />Completion rules</h3><p>These checks run in application code. A model's claim of success cannot override them.</p>
+            <label><span>Required result</span><select value={output.kind} onChange={event => { const kind = event.target.value as typeof output.kind; change({ output_contract: { kind, minimum_artifacts: kind === 'review' ? 0 : Math.max(1, output.minimum_artifacts) } }); }}>{resultTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><small>{resultHelp[output.kind]}</small></label>
+            {output.kind !== 'review' && <label><span>Minimum reviewed drafts</span><input type="number" min={1} max={8} value={output.minimum_artifacts} onChange={event => change({ output_contract: { ...output, minimum_artifacts: Number(event.target.value) } })} /><small>The agent needs complete drafts of this type before its completion checks can pass. Saving remains a separate approval.</small></label>}
             <label><input type="checkbox" checked={draft.acceptance.require_evidence} onChange={event => change({ acceptance: { ...draft.acceptance, require_evidence: event.target.checked } })} /><span>Require evidence references</span></label>
             <label><input type="checkbox" checked={draft.acceptance.no_evidence_gaps} onChange={event => change({ acceptance: { ...draft.acceptance, no_evidence_gaps: event.target.checked } })} /><span>Stop for missing evidence</span></label>
             <label><span>Minimum findings</span><input type="number" min={0} max={8} value={draft.acceptance.minimum_findings} onChange={event => change({ acceptance: { ...draft.acceptance, minimum_findings: Number(event.target.value) } })} /></label>

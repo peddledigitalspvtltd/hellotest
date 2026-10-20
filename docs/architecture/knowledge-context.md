@@ -128,3 +128,151 @@ uncalibrated. Live visual verification requires an available in-app browser.
 The chatbot uses a 120-second turn deadline. Planning has a 12-second budget; synthesis is capped at 65 seconds and the remaining turn budget. Retrieval receives the remaining turn time with 12 seconds reserved for finalization. MCP normalizes retrieval deadlines (default 15 seconds, maximum 60 seconds); its transport adds two seconds for packet assembly and remains capped by the caller's remaining deadline. The frontend transport timeout is 210 seconds. A transport timeout does not authorize work beyond the server deadline.
 
 The gateway verifies the packet project against the authenticated request project. Missing project identity is rejected. Source selection, evidence limits and fresh permission decisions apply before sources enter the model context. SSE progress and `answer_delta` events preserve paragraph and Markdown boundaries; the final result replaces the accumulated answer. Disconnect cancels request-scoped work.
+
+## Context graph beside vector retrieval
+
+The graph uses PostgreSQL beside the existing vector store. Canonical source IDs
+identify nodes; immutable document/version/hash and chunk IDs identify every
+relationship witness. The graph does not replace vector search or introduce a
+second MCP server. See [MCP setup and tools](mcp.md) for the authenticated endpoint.
+
+The initial ontology follows existing application records: Story (`requirement`),
+Test Case, Test Run (`execution`), Defect (`bug`), Knowledge item, text, chat, file,
+and URL. Supported links are `TESTS`, `EXECUTED_IN`, `HAS_DEFECT`, `RELATED_TO`,
+`DEPENDS_ON`, `DERIVED_FROM`, `USES`, and `PART_OF`. This is a source-level graph;
+filenames and arbitrary name similarity do not establish services, releases,
+repository symbols, or ownership. New semantic entity types need explicit source
+adapters and permission contracts before expanding this ontology.
+
+Native serializers provide deterministic links, such as Test Case → Story and
+linked Story/Test Case/Test Run → Defect. A reference must occur in the immutable source passage.
+The projection is written in the canonical document activation transaction.
+Bounded worker backfill handles existing documents and retries references whose
+target source has not yet been indexed. Versions without current proof cannot
+participate in retrieval. Source archival hides its node immediately; background
+cleanup reconciles native records that were deleted outside Knowledge Repo.
+Native graph endpoints and proofs also check the current application record at
+read time, so a deleted native record is hidden before that cleanup tick runs.
+
+Entity resolution uses exact canonical IDs, typed native keys, names and curated
+aliases. It returns ambiguity instead of selecting a similar record. Knowledge
+managers can edit aliases with optimistic revision checks. Conflicting aliases
+cannot silently merge different native records. The native record IDs remain
+unchanged.
+
+`Knowledge Repo → Graph` shows verified links, their source excerpts and revisions,
+plus a separate suggestion queue. Optional **Suggest links** reads at most eight
+bounded excerpts from 2–12 explicitly selected, permitted records, makes at most
+one model call, and validates exact entity IDs, chunk IDs and verbatim evidence.
+It neither invents nodes nor promotes suggestions. Prompts, provider selection,
+sampling and the additional output contract are managed under **AI Controls →
+Knowledge relationship extraction** (`ai.knowledge.graph_extract`); ordinary
+graph ingestion and traversal need no model call.
+
+Approvals require `knowledge.manage` and current access to both endpoints and the
+exact proof. A review revision binds the relationship, proof document/hash/span,
+and both endpoint document revisions and curated aliases. Each resubmission has
+a unique proposal revision, including when its text is unchanged. A changed revision, denied fragment or
+replayed approval is rejected. Reviewed suggestions become `HUMAN_VERIFIED`;
+unreviewed/rejected model output never becomes factual retrieval context. Curation
+can renew a human-reviewed link after its last current proof expires, with a new
+review and retained historical witnesses. Existing current facts remain protected,
+including when their supporting source is private to another reader. Curation
+events record actor, project, IDs and hashes in the existing audit log, without
+copying source text into it. MCP graph tools are read-only and cannot approve a
+candidate through a generic mutation.
+
+Traversal authorizes every intermediate node and witness **before** the per-node
+fan-out limit. Depth is at most three hops, with explicit bounds on seeds, fan-out,
+nodes, edges, evidence, deadline and context size. It rechecks permissions and
+current versions, then reconstructs reachable paths so revoked intermediate
+records cannot survive in path IDs or disconnected descendants. Result packing
+preserves endpoints and supporting evidence together and reports omissions.
+The token estimate uses a conservative UTF-8 byte bound over the whole returned
+graph envelope; it is not measured provider billing. Too small a budget produces
+an explicit budget error. A bounded missing path is an evidence gap, not proof of
+independence, root cause, complete coverage or a passing test.
+
+Authenticated REST endpoints live under
+`/projects/:project_id/knowledge/graph`: schema, `resolve`, `expand`, bounded
+`reconcile`, node `aliases`, `candidates`, candidate `review`, and opt-in `extract`.
+MCP exposes the same domain through `hellotest_graph_schema`,
+`hellotest_graph_context`, `hellotest_graph_trace`, and the project ontology
+resource. Both paths use existing project, feature, native permission and
+source/document/fragment checks. They expose neither arbitrary SQL/Cypher nor
+client-selected actor credentials.
+
+## PostgreSQL and Qdrant consistency
+
+`ai_knowledge_vector_jobs` is a durable projection journal, separate from the
+legacy Knowledge-note synchronization outbox. Canonical publication and source
+tombstoning enqueue a target in the same PostgreSQL transaction. The existing
+worker reconciles Qdrant with current canonical chunks and stored embeddings,
+verifies exact IDs and payloads, and retries failures with backoff. Retrying does
+not require another embedding/model call. Already acknowledged batches are
+verified before any missing or drifted batch is upserted. The code no longer
+deletes a usable projection before publishing the replacement.
+
+The journal survives source and project hard deletion. Cleanup discovers owned
+collections from Qdrant after process restart, rather than relying on a warm
+in-memory collection cache, and scopes deletion to the exact project/source.
+Reconciliation periodically checks acknowledged projections too, so lost points
+can be restored. A deadline callback performs external I/O only; readiness writes
+occur after acknowledged completion and cancellation/configuration checks.
+
+There is no distributed PostgreSQL/Qdrant transaction. PostgreSQL remains the
+source of truth; Qdrant is an eventually consistent projection. Mandatory
+authorized PostgreSQL chunk IDs constrain vector queries and hydrated results.
+The journal prevents new untracked failures and backfills existing live or
+tombstoned sources. It cannot identify a legacy source that was hard-deleted
+before the journal existed and left no canonical record; inventory cleanup for
+such unknown points is not claimed. Changing the configured Qdrant endpoint or
+collection prefix also requires an operator-owned retention decision for the old
+store.
+
+Unchanged document fingerprints skip reprocessing. Changed revisions reuse
+compatible unchanged chunk embeddings only within the same project/source and
+embedding configuration; changed or incompatible chunks are embedded again.
+Graph extraction is deterministic by default, so paragraph edits do not trigger
+an automatic full-document relationship LLM pass. Existing refresh controls scan
+native records incrementally. External Jira/Git webhooks and source-deletion
+notifications still require source-specific connectors; an absent record in a
+partial import is not treated as a deletion.
+
+## Attachment review and operational validation
+
+The supplied `files.zip` / `qaira-contextgraph.zip` was inspected as reference
+source only. Its plain-PostgreSQL graph, chunk bridge and rule-first adapters
+inform this implementation. Its unauthenticated Python MCP server, fuzzy
+automatic merges, ungrounded-span confidence discount, unbounded intermediate
+walk and external vector writes inside an open SQL transaction were not copied.
+Its sample impact questions are illustrative, not QAira relevance benchmarks.
+
+Schema 11 adds the graph tables, projection state and vector journal. Run the
+normal deployment migration before starting a `HELLOTEST_SCHEMA_MODE=verify`
+API; both upgrade statements and fresh-instance SQL include these tables. No
+Neo4j/AGE service, Python daemon, new secret, or new browser driver is required.
+
+Focused checks:
+
+```sh
+node --test services/knowledge/test/backend/knowledgeGraph*.test.js
+npm run test:mcp
+npm run test:mcp:postgres
+npm run test:knowledge:postgres
+VITE_TEST_URL=http://127.0.0.1:5197 node --test services/knowledge/test/browser/knowledgeGraph.test.mjs
+```
+
+The MCP integration creates and drops a local disposable database. It verifies
+real SDK calls, reviewed graph facts, immutable witnesses, Unicode offsets,
+cross-project/application scope, denial, alias conflicts and stale/replayed
+approvals. Vector integration additionally uses a uniquely named local Qdrant
+collection and temporary SQL ledger tables, then removes that collection. Its
+opt-in environment/connection requirements are documented in
+`services/knowledge/test/backend/knowledgeVectorConsistency.postgres.test.js`.
+Provider boundaries in extraction tests are mocked; live model quality, semantic
+recall and cost improvements require a labeled project-specific evaluation set.
+
+Primary references: [PostgreSQL recursive query behavior](https://www.postgresql.org/docs/current/queries-with.html),
+[Qdrant point idempotence](https://qdrant.tech/documentation/concepts/points/),
+and [MCP tool contracts and access controls](https://modelcontextprotocol.io/specification/2026-07-28/server/tools).

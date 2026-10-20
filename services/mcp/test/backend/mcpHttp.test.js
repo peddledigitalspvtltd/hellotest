@@ -6,7 +6,7 @@ const {createRequire}=require('node:module');
 const Fastify=require('fastify');
 const filename=path.resolve(__dirname,'../../backend/plugin.js');
 const original=createRequire(filename);
-function plugin(authenticate){
+function plugin(authenticate,options={}){
  const module={exports:{}};
  const mocks={
   '@hellotest/platform/backend/src/db':{},
@@ -16,6 +16,7 @@ function plugin(authenticate){
   './mcpServer':{tools:{},handler:{fetch:async()=>new Response('{}',{headers:{'Content-Type':'application/json'}}),close:async()=>{}}},
   './readDatabase':{close:async()=>{}}
  };
+ if(options.timeoutMs)mocks['./contextRequest']={requestTimeoutMs:()=>options.timeoutMs};
  new Function('require','module','exports',fs.readFileSync(filename,'utf8'))(id=>Object.hasOwn(mocks,id)?mocks[id]:original(id),module,module.exports);
  return module.exports;
 }
@@ -29,6 +30,23 @@ test('MCP Host and Origin checks reject requests before credential validation',a
  }
  assert.equal(checks,0);
  assert.equal((await app.inject({method:'GET',url:'/mcp',headers:{host:'localhost'}})).statusCode,405);
+});
+
+test('the complete MCP request deadline includes stuck authentication and releases capacity',async t=>{
+ let checks=0;const app=Fastify();app.register(plugin(async()=>{checks++;return new Promise(()=>{});},{timeoutMs:15}));await app.ready();t.after(()=>app.close());
+ for(let index=0;index<2;index++) {
+  const result=await app.inject({method:'POST',url:'/mcp',headers:{host:'localhost'},payload});assert.equal(result.statusCode,504);assert.equal(result.json().error.data.code,'MCP_REQUEST_TIMEOUT');assert.ok(!result.body.includes('credential'));
+ }
+ assert.equal(checks,2);
+});
+
+test('late authentication rejection cannot write a second response after the request deadline',async t=>{
+ let rejectAuth;const pending=new Promise((_,reject)=>{rejectAuth=reject;}),statuses=[];
+ const app=Fastify();app.addHook('onRequest',async(_req,reply)=>{const original=reply.code;reply.code=function(status){statuses.push(status);return original.call(this,status);};});
+ app.register(plugin(()=>pending,{timeoutMs:15}));await app.ready();t.after(()=>app.close());
+ const result=await app.inject({method:'POST',url:'/mcp',headers:{host:'localhost'},payload});assert.equal(result.statusCode,504);
+ rejectAuth(Object.assign(new Error('late private authentication detail'),{statusCode:401}));
+ await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(statuses,[504]);
 });
 
 test('MCP request capacity includes authentication in flight and releases after success',async t=>{

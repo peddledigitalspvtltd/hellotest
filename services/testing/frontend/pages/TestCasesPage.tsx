@@ -2261,6 +2261,7 @@ export function TestCasesPage() {
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const lastCaseDraftSeedRef = useRef("");
+  const initializingCreateLinkScopeRef = useRef("");
   const lastCaseSaveNoticeRef = useRef("");
   const lastTestCaseParameterSeedRef = useRef("");
   const lastExpandedStepSeedRef = useRef("");
@@ -3362,6 +3363,7 @@ export function TestCasesPage() {
 
   useEffect(() => {
     if (searchParams.get("create") !== "1") {
+      initializingCreateLinkScopeRef.current = "";
       return;
     }
 
@@ -3383,6 +3385,12 @@ export function TestCasesPage() {
     ) {
       return;
     }
+
+    // Query results can rerender the page before both the draft state and
+    // navigation cleanup commit. Initialize this incoming link only once.
+    const createScope = `${projectId}:${appTypeId}:${reviewUserId}`;
+    if (initializingCreateLinkScopeRef.current === createScope) return;
+    initializingCreateLinkScopeRef.current = createScope;
 
     const requestedSuiteId = searchParams.get("suite") || "";
     let bugDraft: BugToTestCaseDraft | null = null;
@@ -3440,8 +3448,14 @@ export function TestCasesPage() {
 
     const agentProposal = canCreateTestCases ? takeAgentProposal(searchParams.get("agent_proposal"), projectId, appTypeId, "test_case") : null;
     if (agentProposal) {
-      setCaseDraft(current => ({ ...current, title: agentProposal.title, description: [agentProposal.description, agentProposal.prerequisites?.length ? `Prerequisites:\n${agentProposal.prerequisites.join("\n")}` : ""].filter(Boolean).join("\n\n"), priority: Number(agentProposal.priority.slice(1)) || 3, authoring_mode: "structured" }));
-      setDraftSteps((agentProposal.steps || []).map(step => ({ id: createDraftStepId(), action: step.action, expected_result: step.expected_result, step_type: "web", automation_code: "", api_request: null, group_id: null, group_name: null, group_kind: null, reusable_group_id: null })));
+      setCaseDraft(current => ({ ...current, title: agentProposal.title,
+        description: [agentProposal.description, agentProposal.prerequisites?.length ? `Prerequisites:\n${agentProposal.prerequisites.join("\n")}` : "", agentProposal.test_data?.length ? `Test data:\n${agentProposal.test_data.join("\n")}` : "", agentProposal.cleanup?.length ? `Cleanup:\n${agentProposal.cleanup.join("\n")}` : ""].filter(Boolean).join("\n\n"),
+        priority: Number(agentProposal.priority.slice(1)) || 3, test_case_type: agentProposal.test_case_type || current.test_case_type,
+        authoring_mode: agentProposal.authoring_mode || "structured", gherkin_document: agentProposal.authoring_mode === "gherkin" ? agentProposal.gherkin_document || "" : "",
+        requirement_id: agentProposal.requirement_ids?.[0] || current.requirement_id }));
+      setDraftSteps(agentProposal.authoring_mode === "gherkin" ? [] : (agentProposal.steps || []).map(step => ({ id: createDraftStepId(), action: step.action, expected_result: step.expected_result, step_type: step.step_type || "web", automation_code: "", api_request: null, group_id: null, group_name: null, group_kind: null, reusable_group_id: null })));
+      setTestCaseParameterValues(normalizeTestCaseParameterValues(agentProposal.parameter_values || {}));
+      lastTestCaseParameterSeedRef.current = `draft:${appTypeId || "global"}`;
     }
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
@@ -3451,7 +3465,10 @@ export function TestCasesPage() {
     }, { replace: true });
   }, [
     appTypeId,
+    projectId,
+    reviewUserId,
     isCapabilityLoading,
+    canCreateTestCases,
     canViewDeliveryScopes,
     canViewRequirements,
     deliveryIterationsQuery.isPending,
@@ -4316,6 +4333,9 @@ export function TestCasesPage() {
     }
 
     if (!selectedTestCaseId) {
+      // The create-link effect above is applying the incoming draft in this
+      // same render. Its isCreating update has not reached this closure yet.
+      if (searchParams.get("create") === "1") return;
       if (lastCaseDraftSeedRef.current !== "__none__") {
         setCaseDraft(emptyCaseDraft);
         setLinkedDataSetDraftIds([]);
@@ -4424,6 +4444,7 @@ export function TestCasesPage() {
     }
 
     if (!selectedTestCaseId) {
+      if (searchParams.get("create") === "1") return;
       if (lastTestCaseParameterSeedRef.current !== "__none__") {
         setTestCaseParameterValues({});
         setIsCaseParameterDialogOpen(false);
@@ -4457,6 +4478,7 @@ export function TestCasesPage() {
     isCreating,
     selectedCaseParameterDraftScopeKey,
     linkedDataSetSensitiveParameterNames,
+    searchParams,
     selectedTestCase,
     selectedTestCaseId
   ]);

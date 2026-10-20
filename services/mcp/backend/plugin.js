@@ -6,7 +6,7 @@ const backplane=require('./backplane');
 module.exports=fp(async function mcpPlugin(app){
  backplane.configure(app);
  app.addHook('onRoute',registry.register);
- const {handler,tools}=require('./mcpServer');
+ const {handler,toolDefinitions}=require('./mcpServer');
  const publicUrl=process.env.HELLOTEST_MCP_PUBLIC_URL || (/^https:\/\//.test(process.env.HELLOTEST_API_PUBLIC_URL || '') ? `${process.env.HELLOTEST_API_PUBLIC_URL.replace(/\/$/,'')}/mcp` : /^https:\/\//.test(process.env.HELLOTEST_PUBLIC_URL || '') ? `${process.env.HELLOTEST_PUBLIC_URL.replace(/\/$/,'')}/api/mcp` : undefined);
  if(process.env.HELLOTEST_MCP_SIGNING_KEY&&Buffer.byteLength(process.env.HELLOTEST_MCP_SIGNING_KEY)<32)throw new Error('HELLOTEST_MCP_SIGNING_KEY must contain at least 32 bytes.');
  if(publicUrl){
@@ -28,18 +28,27 @@ module.exports=fp(async function mcpPlugin(app){
   if(req.method!=='POST')return reply.code(405).header('Allow','POST').send({error:'This stateless MCP endpoint accepts POST only.'});
   if(inFlight>=capacity)return reply.code(429).header('Retry-After','2').send({error:'MCP capacity reached.'});
   inFlight++;const controller=new AbortController();const disconnected=()=>{if(!reply.raw.writableEnded)controller.abort();};req.raw.once('aborted',disconnected);reply.raw.once('close',disconnected);
-  try{
-  let actor;try{actor=await auth.authenticate(/^Bearer\s+([^\s]+)\s*$/i.exec(req.headers.authorization||'')?.[1]);}catch(error){return reply.code(error.statusCode||401).header('WWW-Authenticate','Bearer realm="HelloTest MCP"').send({code:error.code||'MCP_UNAUTHORIZED',error:error.publicMessage||'MCP authentication required.'});}
+  try{return await require('./mcpDeadline').withDeadline(async signal=>{
+  let actor;try{actor=await auth.authenticate(/^Bearer\s+([^\s]+)\s*$/i.exec(req.headers.authorization||'')?.[1]);}catch(error){signal.throwIfAborted();return reply.code(error.statusCode||401).header('WWW-Authenticate','Bearer realm="HelloTest MCP"').send({code:error.code||'MCP_UNAUTHORIZED',error:error.publicMessage||'MCP authentication required.'});}
+   signal.throwIfAborted();
    const headers=new Headers();for(const [name,value] of Object.entries(req.headers))if(typeof value==='string'&&!['content-length','host'].includes(name))headers.set(name,value);
-   const response=await handler.fetch(new Request(publicUrl||'http://localhost/mcp',{method:'POST',headers,body:JSON.stringify(req.body),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(require('./contextRequest').requestTimeoutMs(req.body))])}),{authInfo:{token:'verified-resource-credential',clientId:actor.clientId,scopes:[],extra:{actor}}});
+   const response=await handler.fetch(new Request(publicUrl||'http://localhost/mcp',{method:'POST',headers,body:JSON.stringify(req.body),signal}),{authInfo:{token:'verified-resource-credential',clientId:actor.clientId,scopes:[],extra:{actor}}});
+   const body=await response.text();signal.throwIfAborted();
    reply.code(response.status);for(const [name,value] of response.headers)if(!['content-length','transfer-encoding'].includes(name))reply.header(name,value);
-   return reply.send(await response.text());
+   return reply.send(body);
+  },{signal:controller.signal,timeoutMs:require('./contextRequest').requestTimeoutMs(req.body),timeoutMessage:'The MCP request exceeded its bounded request time.'});
+  }catch(error){
+   if(error.code!=='MCP_CONTEXT_TIMEOUT')throw error;
+   return reply.code(504).send({jsonrpc:'2.0',id:['string','number'].includes(typeof req.body?.id)?req.body.id:null,error:{code:-32603,message:'The MCP request exceeded its bounded request time.',data:{code:'MCP_REQUEST_TIMEOUT'}}});
   }finally{inFlight--;req.raw.removeListener('aborted',disconnected);reply.raw.removeListener('close',disconnected);}
  }});
  const access=async(req,projectId)=>{await app.authenticate(req);if(req.apiKey)throw auth.fail('Use your signed-in session to manage delegated MCP access.');return auth.principal(req.user.id,projectId);};
  app.get('/agentic-workflows/mcp/server',async(req)=>{
   const actor=await access(req,req.query.project_id);await auth.permit(actor,'project.view');
-  return {id:'hellotest',name:'HelloTest',builtin:true,transport:'streamable-http',protocol_versions:['2026-07-28','2025-11-25','2025-06-18','2025-03-26'],endpoint:publicUrl||'/api/mcp',tools:Object.entries(tools).map(([name,item])=>({name,description:item.description,read_only:!item.write})),catalog_revision:registry.revision(),operation_count:registry.all().length,authentication:'Project-bound, revocable MCP credentials. OAuth federation requires deployment identity configuration.'};
+  const definitions=toolDefinitions();
+  return {id:'hellotest',name:'HelloTest',builtin:true,transport:'streamable-http',protocol_versions:['2026-07-28','2025-11-25','2025-06-18','2025-03-26'],endpoint:publicUrl||'/api/mcp',tools:definitions.map(item=>({name:item.name,description:item.description,read_only:item.annotations.readOnlyHint,input_schema:item.inputSchema,output_schema:item.outputSchema,annotations:item.annotations})),catalog_revision:registry.revision(),operation_count:registry.all().length,authentication:'Project-bound, revocable MCP credentials. OAuth federation requires deployment identity configuration.',
+   client_contract:{authentication:'manual_bearer',credential_ttl_seconds:3600,project_id:actor.projectId,accept:'application/json, text/event-stream',stateless:true,standalone_get_supported:false,oauth_supported:false},
+   discovery:{tools:definitions.length,resources:['hellotest://schema'],resource_templates:['hellotest://projects/{project_id}/ontology','hellotest://projects/{project_id}/graph/ontology'],prompts:['investigate_failure']}};
  });
  app.get('/agentic-workflows/mcp/status',async(req,reply)=>{
   reply.header('Cache-Control','no-store');

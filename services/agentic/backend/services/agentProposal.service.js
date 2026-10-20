@@ -8,22 +8,29 @@ const digest = value => createHash('sha256').update(JSON.stringify(canonical(val
 
 function proposalOperation(original, edited, review, appTypeId, userId) {
   if (!original || edited?.kind !== original.kind || edited?.target_id !== original.target_id) throw fail('The proposal kind and target must match the recorded review.');
-  const targets = original.target_id ? [{ id: original.target_id, revision: original.target_revision, citation_id: original.citation_ids[0] }] : (original.requirement_ids || original.test_case_ids || []).flatMap(id => original.citation_ids.map(citation_id => ({ id, citation_id, ...(original.kind === 'run' ? { kind: 'test_case' } : {}) })));
+  if(original.priority!=null&&edited.priority==null||original.severity!=null&&edited.severity==null)throw fail('Keep the reviewed priority and severity fields when editing this proposal.');
+  if((original.addressed_finding_ids||[]).some(id=>!edited.addressed_finding_ids?.includes(id)))throw fail('Keep the recorded finding links when editing this proposal.');
+  const targets = original.target_id ? [{ id: original.target_id, revision: original.target_revision, citation_id: original.citation_ids[0] }] : [
+    ...(original.requirement_ids || []).map(id=>({id})),
+    ...[...(original.test_case_ids || []),...(original.manual_test_case_ids || [])].map(id=>({id,kind:'test_case'}))
+  ].flatMap(target => original.citation_ids.map(citation_id => ({ ...target, citation_id })));
   if (original.target_id && (!Number.isInteger(original.target_revision) || original.target_revision < 1)) throw fail('This Story proposal has no recorded revision. Generate a fresh review.', 409);
   let artifact;
-  try { [artifact] = normalizeArtifacts([edited], review.citations, targets); } catch { throw fail("The proposal contains invalid fields or unverified citations."); }
+  try { [artifact] = normalizeArtifacts([edited], review.citations, targets,{requireMetadata:['test_case','automation'].includes(original.kind)&&original.test_case_type!=null}); } catch { throw fail("The proposal contains invalid fields or unverified citations."); }
+  if(artifact.addressed_finding_ids?.some(id=>!(review.result?.findings||[]).some(finding=>finding.id===id&&(finding.citation_ids||[]).some(source=>artifact.citation_ids.includes(source)))))throw fail('Proposal finding references must match the recorded review and its evidence.');
   const projectId = review.transaction.project_id;
   const common = { title: artifact.title, description: artifact.description, priority: Number(artifact.priority.slice(1)) };
   if (artifact.kind === 'story') return { artifact, permission: original.target_id ? 'requirement.update' : 'requirement.create', method: original.target_id ? 'PUT' : 'POST', url: original.target_id ? `/requirements/${encodeURIComponent(original.target_id)}` : '/requirements', payload: { ...common, project_id: projectId, acceptance_criteria: artifact.acceptance_criteria, ...(original.target_id ? { expected_revision: original.target_revision } : {}) } };
-  if (artifact.kind === 'test_case') {
+  if (artifact.kind === 'test_case' || artifact.kind === 'automation') {
     if (!appTypeId) throw fail('Select an application before accepting a Test Case.');
-    return { artifact, permission: 'testcase.create', method: 'POST', url: '/test-cases', payload: { ...common, app_type_id: appTypeId, description: [artifact.description, artifact.prerequisites?.length ? `Prerequisites:\n${artifact.prerequisites.join('\n')}` : '', artifact.test_data?.length ? `Test data:\n${artifact.test_data.join('\n')}` : '', artifact.cleanup?.length ? `Cleanup:\n${artifact.cleanup.join('\n')}` : ''].filter(Boolean).join('\n\n'), authoring_mode: artifact.authoring_mode, gherkin_document: artifact.gherkin_document, requirement_ids: artifact.requirement_ids, ai_generation_source: 'interactive', steps: artifact.steps.map((step, index) => ({ ...step, step_order: index + 1, step_type: step.step_type || 'manual' })) } };
+    return { artifact, permission: 'testcase.create', ...(artifact.kind==='automation'?{additional_permissions:['automation.view','automation.code.view','automation.build']}:{ }), method: 'POST', url: '/test-cases', payload: { ...common, app_type_id: appTypeId, description: [artifact.description, artifact.prerequisites?.length ? `Prerequisites:\n${artifact.prerequisites.join('\n')}` : '', artifact.test_data?.length ? `Test data:\n${artifact.test_data.join('\n')}` : '', artifact.cleanup?.length ? `Cleanup:\n${artifact.cleanup.join('\n')}` : ''].filter(Boolean).join('\n\n'), authoring_mode: artifact.authoring_mode, gherkin_document: artifact.gherkin_document, requirement_ids: artifact.requirement_ids, ...(artifact.test_case_type?{test_case_type:artifact.test_case_type}:{}), parameter_values:artifact.parameter_values||{}, ...(artifact.kind==='automation'?{automated:'yes',automation_status:'incomplete',automation_start_url:artifact.start_url,manual_test_case_ids:artifact.manual_test_case_ids}:{}), ai_generation_source: 'interactive', steps: artifact.steps.map((step, index) => ({ ...step, step_order: index + 1, step_type: step.step_type || (artifact.kind==='automation'?'web':'manual') })) } };
   }
   if (artifact.kind === 'run') return { artifact, permission: 'run.create', method: 'POST', url: '/executions', payload: { project_id: projectId, app_type_id: appTypeId || undefined, name: artifact.title, test_case_ids: artifact.test_case_ids, created_by: userId, execution_mode: 'manual' } };
-  return { artifact, permission: 'feedback.create', method: 'POST', url: '/feedback', payload: { project_id: projectId, user_id: userId, title: artifact.title, message: artifact.description, priority: artifact.priority, severity: artifact.severity, steps_to_reproduce: artifact.reproduction_steps.join('\n'), expected_result: artifact.expected_result, actual_result: artifact.actual_result } };
+  return { artifact, permission: 'feedback.create', method: 'POST', url: '/feedback', payload: { project_id: projectId, user_id: userId, title: artifact.title, message: artifact.description, priority: {P1:'Highest',P2:'High',P3:'Medium',P4:'Low',P5:'Lowest'}[artifact.priority], severity: artifact.severity, steps_to_reproduce: artifact.reproduction_steps.join('\n'), expected_result: artifact.expected_result, actual_result: artifact.actual_result } };
 }
 
 async function accept(app, req, review) {
+  if(review.result?.verification?.status&&review.result.verification.status!=='passed'||review.result?.readiness?.status==='insufficient_evidence'||review.result?.outcome_issues?.length)throw fail('This review has unresolved output or evidence requirements. Complete a fresh review before accepting its proposals.',409);
   const index = req.body?.index;
   if (!Number.isInteger(index) || index < 0 || index >= (review.result?.artifacts?.length || 0)) throw fail('Select a recorded proposal.');
   const original = review.result.artifacts[index];
@@ -34,6 +41,7 @@ async function accept(app, req, review) {
   }
   const operation = proposalOperation(original, req.body.artifact, review, appTypeId, req.user.id);
   await app.requirePermission(operation.permission, { projectId: review.transaction.project_id })(req);
+  for(const permission of operation.additional_permissions||[])await app.requirePermission(permission,{projectId:review.transaction.project_id})(req);
   const hash = digest({ artifact: operation.artifact, appTypeId });
   return db.transaction(async () => {
     // Serialize each proposal before checking its receipt. Domain writes and the
@@ -53,7 +61,9 @@ async function accept(app, req, review) {
     if (response.statusCode >= 400) throw fail(body.publicMessage || body.error || body.message || 'Unable to save this proposal.', response.statusCode);
     const id = original.target_id || body.id;
     if (typeof id !== 'string' || !id) throw fail('The destination did not return the saved record identity.', 502);
-    const receipt = { id, kind: original.kind, updated: Boolean(original.target_id), proposal_index: index, saved: true };
+    const receipt = { id, kind: original.kind, updated: Boolean(original.target_id), proposal_index: index, saved: true,
+      ...(operation.artifact.kind==='automation'?{plan_only:true,build_required:true}:{}),
+      ...(operation.artifact.kind==='run'?{review_context:{description:operation.artifact.description,exit_criteria:operation.artifact.exit_criteria}}:{}) };
     await db.prepare('INSERT INTO agent_proposal_acceptances(session_id,proposal_index,project_id,actor_id,request_hash,receipt) VALUES(?,?,?,?,?,?)').run(review.transaction.id, index, review.transaction.project_id, req.user.id, hash, receipt);
     return receipt;
   })();

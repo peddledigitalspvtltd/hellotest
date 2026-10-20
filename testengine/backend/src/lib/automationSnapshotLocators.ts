@@ -1,10 +1,11 @@
-import type { Page } from 'playwright';
+import type { Locator, Page } from 'playwright';
 import { resolveRepositoryLocator } from './repositoryLocator.js';
 
 /** DOM label text is not an accessible name (for example aria-hidden required
  * markers). Obtain names from Playwright and retain only candidates that resolve
  * uniquely to the actual captured node. No page attributes are changed. */
-export async function groundSnapshotLocators(page: Page, elements: any[], deadline: number) {
+export async function groundSnapshotLocators(page: Page, elements: any[], deadline: number,
+  observeSubject?: (target: Locator, element: any) => Promise<boolean>) {
   let cursor = 0, incomplete = false;
   const counts = new Map<string, Promise<number>>();
   const count = (candidate: string) => {
@@ -16,6 +17,7 @@ export async function groundSnapshotLocators(page: Page, elements: any[], deadli
     while (cursor < elements.length) {
       const element = elements[cursor++], selector = element.snapshot_selector;
       delete element.snapshot_selector;
+      delete element.record_scoped_locator;
       if (!selector) continue; // Older/fallback DOM providers make no validation claim.
       element.locator_candidates = [];
       element.locators_validated = true;
@@ -51,13 +53,26 @@ export async function groundSnapshotLocators(page: Page, elements: any[], deadli
             if (sameNode) valid.push(candidate);
           } catch { /* A stale, ambiguous or unsupported candidate is not advertised. */ }
         }
-        // Keep a grounded CSS alternative when semantic/name matching changes.
-        element.locator_candidates = valid.includes(selector) ? [...valid.filter(value => value !== selector).slice(0, 3), selector] : valid.slice(0, 4);
+        // Preserve a proven record scope and the original structural fallback
+        // within the existing four-candidate budget. Semantic names can remain
+        // global while the record's app-owned key must survive into playback.
+        const scoped = typeof element.snapshot_record_locator === 'string' && element.snapshot_record_locator.length <= 2_000
+          && valid.includes(element.snapshot_record_locator) ? element.snapshot_record_locator : null;
+        const fallback = valid.includes(selector) ? selector : null;
+        const reserved = [...new Set([scoped, fallback].filter((value): value is string => Boolean(value)))];
+        element.locator_candidates = [...(scoped ? [scoped] : []), ...valid.filter(value => !reserved.includes(value)).slice(0, 4 - reserved.length),
+          ...(fallback && fallback !== scoped ? [fallback] : [])];
+        if (scoped) element.record_scoped_locator = scoped;
+        if (element.locator_candidates.length && observeSubject && !await observeSubject(target, element)) {
+          element.locator_candidates = [];
+          delete element.record_scoped_locator;
+          incomplete = true;
+        }
       } catch { incomplete = true; }
-      finally { delete element.snapshot_candidates; }
+      finally { delete element.snapshot_candidates; delete element.snapshot_record_locator; }
     }
   }));
   // Strip internal identities even when a deadline interrupts enrichment.
-  for (const element of elements) { delete element.snapshot_selector; delete element.snapshot_candidates; delete element.snapshot_role; }
+  for (const element of elements) { delete element.snapshot_selector; delete element.snapshot_candidates; delete element.snapshot_role; delete element.snapshot_record_locator; }
   return { incomplete };
 }

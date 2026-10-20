@@ -5,6 +5,7 @@ const MODEL_CONTRACT = Object.freeze({
   schema: 'automation-repair/2', target: 'only the pinned first failed case-owned section',
   source_contract: 'Current native Playwright programs use the same strict closed decoder/compiler as Automation Engineer. Existing awaited web helper programs remain supported.',
   changes: 'Correct observed locators consistently across their actions and assertion subjects. Preserve every action, assertion predicate, value, parameter scope, timeout and checkpoint in order. Do not add actions, polling, retries or checks.',
+  evidence_freshness: 'The exact failed result, frozen fixture and complete source are pinned. A changed failure or edited source invalidates this proposal. Missing prerequisite evidence requires a new recorded Run, not guessed setup or a weaker assertion.',
   output: 'automation_repair is replace_locator with step_id/new_locator/rationale for one saved subject, replace_instructions with step_id/automation_code/rationale for a complete section, or null for unsupported or insufficient evidence.',
   verification: 'A proposal is unverified. Trusted fresh-browser runs must reproduce the original failure, pass the entire repaired case including all following sections and linked hooks, and preserve the selected known-negative oracle before apply.'
 });
@@ -43,7 +44,8 @@ function repairProjection({ test, steps, focus, base, failureEvidence, sourceCha
     limitations: [
       'Only the focused case-owned section can change. Current Playwright sections use the same closed native program contract as Automation Engineer. Existing web helpers remain supported.',
       'No extra actions, removed checks, arbitrary scripts, fixture/data changes, assertion weakening or changed waits are accepted by native repair. A different requirement needs an explicit authored change.',
-      'Unchanged code is withheld to conserve context; its complete intent and source fingerprint remain pinned. Runner verification executes every saved section and rejects stale evidence.'
+      'Unchanged code is withheld to conserve context; its complete intent and source fingerprint remain pinned. Runner verification executes every saved section and rejects stale evidence.',
+      'The failed result and frozen fixture are fingerprinted before model review and checked again before proposal save and validation planning. They are observations, never authorization to execute or apply a repair.'
     ]
   };
   return Buffer.byteLength(JSON.stringify(projection)) <= MAX_PROJECTION_BYTES ? projection : null;

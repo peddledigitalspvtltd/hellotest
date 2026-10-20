@@ -8,6 +8,32 @@ const element = (name, candidates, extra = {}) => ({ tag: 'input', accessible_ro
 const snapshot = (elements, extra = {}) => ({ tool: 'browser_snapshot', result: { content: [{ type: 'text', text: JSON.stringify({
   source: 'playwright', observation_id: 'actual-snapshot', url: 'https://app.test/auth', title: 'Sign up', scope: 'body', elements, ...extra }) }] } });
 
+test('a grounded record scope remains preferred over a globally unique control ID', () => {
+  const scoped = 'tr[data-row-id="record-a"] > td:nth-of-type(2) > button';
+  const current = snapshot([element('Delete', ['getByTestId("delete")', scoped], {
+    tag: 'button', accessible_role: 'button', attributes: { 'data-testid': 'delete' },
+    record_scoped_locator: scoped, context_text: 'Record A Delete'
+  })]);
+  const target = projectModelSnapshot(current).targets[0];
+  assert.equal(target.context_text, 'Record A Delete');
+  assert.equal(resolveModelToolRequest({ name: 'browser_click', arguments: { locator: target.ref } }, current).arguments.locator, scoped);
+  assert.equal(resolveModelToolRequest({ name: 'browser_click', arguments: { locator: 'getByTestId("delete")' } }, current).arguments.locator, scoped);
+  for (const assertion of ['hidden', 'count']) assert.equal(resolveModelToolRequest({ name: 'browser_assert', arguments: {
+    locator: 'getByTestId("delete")', assertion, ...(assertion === 'count' ? { value: '0' } : {})
+  } }, current).arguments.locator, 'getByTestId("delete")', 'negative scope cannot be silently narrowed');
+  assert.doesNotMatch(JSON.stringify(target), /data-row-id|record_scoped_locator/);
+});
+
+test('unvalidated or privacy-masked record scope metadata cannot change a target binding', () => {
+  for (const scoped of ['#invented-record button', 'tr[data-id="[private parameter value]"] > button']) {
+    const current = snapshot([element('Delete', ['getByTestId("delete")', ...(scoped.includes('private') ? [scoped] : [])], {
+      tag: 'button', accessible_role: 'button', attributes: { 'data-testid': 'delete' }, record_scoped_locator: scoped
+    })]);
+    const target = projectModelSnapshot(current).targets[0];
+    assert.equal(resolveModelToolRequest({ name: 'browser_click', arguments: { locator: target.ref } }, current).arguments.locator, 'getByTestId("delete")');
+  }
+});
+
 test('field validation declarations become bounded current evidence and reference links without exposing control values',()=>{
  const current=snapshot([
   element('Password',['#password'],{attributes:{id:'password',type:'password','aria-invalid':'true','aria-errormessage':'error-id'},value:'PRIVATE_CONTROL_VALUE'}),

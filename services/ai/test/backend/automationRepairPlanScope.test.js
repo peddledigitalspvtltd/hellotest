@@ -17,6 +17,7 @@ function fixture(){
   if(id.endsWith('/execution.service'))return {};
   if(id.endsWith('/executionStepEvidence'))return {};
   if(id.endsWith('/aiTextPolicy'))return {};
+  if(id.endsWith('/knowledgeExecution.service'))return require('../../../knowledge/backend/services/knowledgeExecution.service');
   if(id==='./automationRepairRules')return rules;
   if(id==='./automationRepairContext')return require('../../backend/services/automationRepairContext');
   throw Error(`Unexpected dependency: ${id}`);

@@ -181,3 +181,11 @@ test('host-bound verification repair has a narrow managed contract and a 600-tok
  assert.equal(selected.profile.deferred_output_schema,true);assert.ok(body.messages[0].content.includes(guidance));assert.ok(!body.messages[1].content.includes(guidance));assert.ok(!body.messages[0].content.includes(selected.profile.config.prompt));assert.equal(body.max_tokens,600);
  const ordinary=await rt.apply(input,{featureKey:id});assert.equal(ordinary.profile.deferred_output_schema,undefined);
 });
+
+test('specialist execution limits are published configuration with bounded total corrections and handoffs',()=>{
+ const id='ai.agentic.story-architect',base=structuredClone(configuration.catalog.find(item=>item.id===id).defaults);
+ assert.ok(base.instruction_blocks['agenticAssistant.outcomes']);assert.ok(base.instruction_blocks['agenticAssistant.revision']);
+ const allowed={max_model_calls:2,max_revision_rounds:1,max_followups:0,timeout_ms:30000};
+ assert.deepEqual(configuration.validate({...base,agent_execution:allowed},id).agent_execution,allowed);
+ for(const policy of [{...allowed,max_model_calls:0},{...allowed,max_model_calls:9},{...allowed,max_revision_rounds:2},{...allowed,max_followups:4},{...allowed,timeout_ms:200000},{...allowed,unsafe_extra:1}])assert.throws(()=>configuration.validate({...base,agent_execution:policy},id),{statusCode:400});
+});

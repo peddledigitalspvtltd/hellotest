@@ -13,6 +13,19 @@ const applicationContextPredicate = ({ source = "sources", document = "documents
   for (const alias of [source, document]) if (!/^[a-z_]+$/i.test(alias)) throw new Error("Invalid knowledge authorization SQL alias");
   return `(${source}.source_kind NOT IN ('test_case', 'execution') OR ${document}.metadata->'source_snapshot'->>'context_permission_profile' = '${APPLICATION_CONTEXT_PROFILE}')`;
 };
+// Current graph facts must disappear as soon as their native record is deleted
+// or moved to another project, before the asynchronous projection worker runs.
+// This is opt-in for current graph reads; historical Knowledge access keeps its
+// separate permission and immutable-revision contract.
+const applicationRecordPredicate = ({source="sources"}={}) => {
+  if(!/^[a-z_]+$/i.test(source))throw new Error("Invalid knowledge authorization SQL alias");
+  return `(CASE ${source}.source_kind
+    WHEN 'requirement' THEN EXISTS(SELECT 1 FROM requirements graph_records WHERE graph_records.id=${source}.source_ref_id AND graph_records.project_id=${source}.project_id)
+    WHEN 'test_case' THEN EXISTS(SELECT 1 FROM test_cases graph_records JOIN app_types graph_apps ON graph_apps.id=graph_records.app_type_id WHERE graph_records.id=${source}.source_ref_id AND graph_apps.project_id=${source}.project_id)
+    WHEN 'execution' THEN EXISTS(SELECT 1 FROM executions graph_records WHERE graph_records.id=${source}.source_ref_id AND graph_records.project_id=${source}.project_id)
+    WHEN 'bug' THEN EXISTS(SELECT 1 FROM feedback graph_records WHERE graph_records.id=${source}.source_ref_id AND graph_records.project_id=${source}.project_id)
+    ELSE TRUE END)`;
+};
 const precedence = (binding) => (binding.inherited ? 0 : 2) + (binding.effect === "DENY" ? 2 : 1);
 const principalsFor = (user, projectId, roleIds = []) => [
   { type: "PROJECT", id: String(projectId) },
@@ -110,7 +123,7 @@ const replaceBindings = async ({ sourceId, bindings, user }) => {
   })();
 };
 
-const getEvidenceAccess = async ({ projectId, user, evidence = [], asOf, signal, timeoutMs } = {}) => {
+const getEvidenceAccess = async ({ projectId, user, evidence = [], asOf, signal, timeoutMs, requireCurrentNativeRecords=false, allowedSourceKinds, appTypeId } = {}) => {
   assertRetrievalActive(signal);
   const deadlineAt = Date.now() + retrievalTimeout(timeoutMs, 2_000);
   const remainingMs = () => Math.max(0, deadlineAt - Date.now());
@@ -132,9 +145,13 @@ const getEvidenceAccess = async ({ projectId, user, evidence = [], asOf, signal,
       WHERE sources.project_id = ? AND chunks.project_id = ? AND documents.project_id = ?
         AND sources.extraction_status = 'ready' AND indexes.required_indexes_ready = TRUE
         AND ${applicationContextPredicate()}
+        ${requireCurrentNativeRecords&&!asOf?`AND ${applicationRecordPredicate()}`:''}
+        ${requireCurrentNativeRecords&&!asOf?"AND indexes.is_current=TRUE AND indexes.project_id=sources.project_id AND indexes.source_id=sources.id AND indexes.document_version=documents.version":''}
+        ${Array.isArray(allowedSourceKinds)?`AND sources.source_kind IN(${allowedSourceKinds.map(()=>'?').join(',')||'NULL'})`:''}
+        ${appTypeId?'AND(sources.app_type_id=? OR sources.app_type_id IS NULL)':''}
         ${asOf ? "AND documents.effective_from <= ?::timestamptz AND (documents.effective_to IS NULL OR documents.effective_to > ?::timestamptz)" : "AND documents.is_active = TRUE"}
         AND chunks.id IN (${ids.map(() => "?").join(",")}) AND ${acl.sql}`
-    ).all(projectId, projectId, projectId, ...(asOf ? [asOf, asOf] : []), ...ids, ...acl.params), {
+    ).all(projectId, projectId, projectId, ...(Array.isArray(allowedSourceKinds)?allowedSourceKinds:[]),...(appTypeId?[appTypeId]:[]),...(asOf ? [asOf, asOf] : []), ...ids, ...acl.params), {
       signal, timeoutMs: remainingMs(), code: "AUTHORIZATION_TIMEOUT"
     });
     assertRetrievalActive(signal);
@@ -156,4 +173,4 @@ const getEvidenceAccess = async ({ projectId, user, evidence = [], asOf, signal,
   return { allowed, denied_ids: deniedIds, partial: allowed.length !== items.length || evidence.length > 1_000 };
 };
 
-module.exports = { APPLICATION_CONTEXT_PROFILE, applicationContextPredicate, assertHistoricalAccess, canRead, getEvidenceAccess, predicate, principalsFor, replaceBindings };
+module.exports = { APPLICATION_CONTEXT_PROFILE, applicationContextPredicate, applicationRecordPredicate, assertHistoricalAccess, canRead, getEvidenceAccess, predicate, principalsFor, replaceBindings };

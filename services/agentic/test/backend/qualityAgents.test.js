@@ -139,6 +139,21 @@ test('autonomous missions checkpoint decisions before dispatch and reuse the sam
 });
 test('cancellation during browser model latency prevents action dispatch',async()=>{
  let f,run,posted=0;
- f=fixture({decideMission:async()=>{await f.service.cancelRun(run.id,user);return {action:'complete',summary:'Done'};},http:async(url,init)=>{if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});if(url.endsWith('/decision')){posted++;return Response.json({accepted:true});}if(url.endsWith('/cancel'))return Response.json({cancelled:true});const value=JSON.parse(init.body);return Response.json({contract_version:'1.0',id:'engine-mission-1234',client_run_id:value.client_run_id,kind:'web',target_url:input.target_url,scope:value.scope,state:'running',outcome:null,stages:[],findings:[],metrics:{},artifacts:[],limitations:[],decision_request:{sequence:1,url:input.target_url,title:'Shop',text:'Ready',elements:[]}});}});
+ f=fixture({decideMission:async(r,actor,observation,history,trace)=>{assert.equal(trace.signal.aborted,false);await f.service.cancelRun(run.id,user);assert.equal(trace.signal.aborted,true);return {action:'complete',summary:'Done'};},http:async(url,init)=>{if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});if(url.endsWith('/decision')){posted++;return Response.json({accepted:true});}if(url.endsWith('/cancel'))return Response.json({cancelled:true});const value=JSON.parse(init.body);return Response.json({contract_version:'1.0',id:'engine-mission-1234',client_run_id:value.client_run_id,kind:'web',target_url:input.target_url,scope:value.scope,state:'running',outcome:null,stages:[],findings:[],metrics:{},artifacts:[],limitations:[],decision_request:{sequence:1,url:input.target_url,title:'Shop',text:'Ready',elements:[]}});}});
  run=await f.service.createRun({...input,goal:'Read the page',options:{mission:{max_actions:3,allow_form_submission:false}}},user);await f.service.processQueuedRuns();assert.equal(posted,0);assert.equal((await f.service.getRun(run.id,user)).status,'cancelled');
+});
+test('real decision phases are durable and visible while the bounded model loop is running',async()=>{
+ let f,run;const phases=[];
+ f=fixture({decideMission:async(r,actor,observation,history,trace)=>{
+  for(const phase of ['deciding','revising']) {
+   await trace.onProgress({phase,message:phase==='deciding'?'Choosing a current control.':'Correcting its observed outcome.',revision:phase==='revising'?1:0});
+   const current=await f.service.getRun(run.id,user);phases.push(current.mission_progress.phase);assert.equal(current.mission_progress.sequence,1);assert.equal(current.task_brief.goal,'Review the visible catalogue');assert.equal(current.task_brief.agent_id,'browser-web');
+  }
+  return {action:'assert_text',text:'Ready',summary:'Check the visible result.'};
+ },http:async(url,init)=>{
+  if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});
+  if(url.endsWith('/decision')){const current=await f.service.getRun(run.id,user);assert.equal(current.mission_progress.phase,'dispatching');return Response.json({accepted:true});}
+  const value=JSON.parse(init.body);return Response.json({contract_version:'1.0',id:'engine-mission-1234',client_run_id:value.client_run_id,kind:'web',target_url:input.target_url,scope:value.scope,state:'running',outcome:null,stages:[],findings:[],metrics:{},artifacts:[],limitations:[],decision_request:{sequence:1,url:input.target_url,title:'Catalogue',text:'Ready',elements:[]}});
+ }});
+ run=await f.service.createRun({...input,goal:'Review the visible catalogue',options:{mission:{max_actions:3,allow_form_submission:false}}},user);await f.service.processQueuedRuns();assert.deepEqual(phases,['deciding','revising']);
 });

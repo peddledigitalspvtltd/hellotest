@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, and honor revocation',{skip:process.env.MCP_POSTGRES_TEST!=='1',timeout:90000},async()=>{
+test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, and honor revocation',{skip:process.env.MCP_POSTGRES_TEST!=='1',timeout:180000},async()=>{
  assert.match(new URL(process.env.DATABASE_URL).pathname,/^\/agent_verify_mcp_[0-9]+$/);
  const db=require('../../src/db'),obsDb=require('../../src/obsDb');let app;
  try{
@@ -28,6 +28,7 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   await require('./agentProfileInheritance.fixture').verify({app,db,createToken});
   await require('./agentEvidenceScope.fixture').verify();
   const webToken=createToken({id:'mcp-a'}),headers={authorization:'Bearer '+webToken};
+  const graphFixture=await require('./contextGraphManagement.fixture').verify({app,db,user:{id:'mcp-a'},headers});
   const issued=await app.inject({method:'POST',url:'/agentic-workflows/mcp/credentials',headers,payload:{project_id:'mcp-p-a'}});
   assert.equal(issued.statusCode,200,issued.body);assert.equal(issued.headers['cache-control'],'no-store');const credential=issued.json();
   const meta={'io.modelcontextprotocol/protocolVersion':'2026-07-28','io.modelcontextprotocol/clientCapabilities':{}};
@@ -36,6 +37,37 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
    return {response,result:response.statusCode===200?response.json().result:null};
   };
   const builtinStatus=await app.inject({method:'GET',url:'/agentic-workflows/mcp/status?project_id=mcp-p-a',headers});assert.equal(builtinStatus.statusCode,200,builtinStatus.body);assert.equal(builtinStatus.json().status,'connected');assert.equal(builtinStatus.headers['cache-control'],'no-store');
+  const connection=await app.inject({method:'GET',url:'/agentic-workflows/mcp/server?project_id=mcp-p-a',headers});assert.equal(connection.statusCode,200,connection.body);const descriptor=connection.json();assert.equal(descriptor.client_contract.authentication,'manual_bearer');assert.equal(descriptor.client_contract.oauth_supported,false);assert.ok(descriptor.tools.find(tool=>tool.name==='hellotest_graph_trace').input_schema.properties.token_budget);assert.ok(descriptor.discovery.resource_templates.includes('hellotest://projects/{project_id}/graph/ontology'));
+  const graphSchema=await rpc('hellotest_graph_schema');assert.equal(graphSchema.result.isError,undefined,JSON.stringify(graphSchema.result));assert.ok(graphSchema.result.structuredContent.data.ontology.node_kinds.includes('requirement'));
+  const graphContext=await rpc('hellotest_graph_context',{seeds:[graphFixture.source],hops:2,token_budget:8000});
+  assert.equal(graphContext.result.isError,undefined,JSON.stringify(graphContext.result));
+  const graphData=graphContext.result.structuredContent.data;
+  assert.equal(graphData.contract_type,'KnowledgeGraph');assert.equal(graphData.project_id,'mcp-p-a');
+  assert.deepEqual(graphData.seeds,[graphFixture.sourceId]);
+  assert.ok(graphData.nodes.some(node=>node.id===graphFixture.targetId));
+  const witnessedEdge=graphData.edges.find(edge=>edge.id===graphFixture.edgeId);
+  assert.equal(witnessedEdge.type,'DEPENDS_ON');assert.equal(witnessedEdge.provenance_type,'HUMAN_VERIFIED');
+  assert.equal(witnessedEdge.source,graphFixture.sourceId);assert.equal(witnessedEdge.target,graphFixture.targetId);
+  const graphProof=graphData.evidence.find(hit=>witnessedEdge.evidence_ids.includes(hit.citation.id));
+  assert.equal(graphProof.citation.document_id,`${graphFixture.sourceId}-doc`);assert.equal(graphProof.citation.source_version,'1');
+  assert.match(graphProof.citation.version_hash,/^[a-f0-9]{64}$/);assert.match(graphProof.citation.chunk_hash,/^[a-f0-9]{64}$/);
+  assert.equal(witnessedEdge.witness_span.offset_unit,'unicode_codepoint');
+  assert.equal(Array.from(graphProof.content).slice(witnessedEdge.witness_span.start,witnessedEdge.witness_span.end).join(''),'Auth service depends on Checkout service');
+  assert.ok(graphData.budget.estimated_tokens<=8000);assert.equal(graphData.budget.estimator,'utf8_bytes_upper_bound');
+  assert.ok(!JSON.stringify(graphData).includes('private design'));assert.ok(!JSON.stringify(graphData).includes('Foreign hidden design'));
+  const graphTrace=await rpc('hellotest_graph_trace',{source:graphFixture.source,target:graphFixture.target,max_paths:2,token_budget:8000});
+  assert.equal(graphTrace.result.isError,undefined,JSON.stringify(graphTrace.result));
+  const graphPath=graphTrace.result.structuredContent.data.paths.find(path=>path.edges.includes(graphFixture.edgeId));
+  assert.deepEqual(graphPath.nodes,[graphFixture.sourceId,graphFixture.targetId]);assert.deepEqual(graphPath.evidence_ids,witnessedEdge.evidence_ids);
+  const graphNoEdges=await rpc('hellotest_graph_context',{seeds:[graphFixture.source],max_edges:0,max_evidence:0,token_budget:2000});
+  assert.equal(graphNoEdges.result.isError,undefined,JSON.stringify(graphNoEdges.result));assert.deepEqual(graphNoEdges.result.structuredContent.data.edges,[]);assert.deepEqual(graphNoEdges.result.structuredContent.data.evidence,[]);
+  await db.prepare("UPDATE ai_knowledge_security_bindings SET effect='DENY' WHERE id=?").run(`${graphFixture.sourceId}-binding`);
+  try{
+   const deniedGraph=await rpc('hellotest_graph_trace',{source:graphFixture.source,target:graphFixture.target,token_budget:8000});
+   assert.equal(deniedGraph.result.isError,undefined,JSON.stringify(deniedGraph.result));assert.deepEqual(deniedGraph.result.structuredContent.data.paths,[]);assert.deepEqual(deniedGraph.result.structuredContent.data.evidence,[]);
+   assert.ok(!JSON.stringify(deniedGraph.result).includes('Auth service depends on Checkout service'));
+  }finally{await db.prepare("UPDATE ai_knowledge_security_bindings SET effect='ALLOW' WHERE id=?").run(`${graphFixture.sourceId}-binding`);}
+  const graphForeignApp=await rpc('hellotest_graph_context',{seeds:[{kind:'text',ref_id:'mcp-source'}],app_type_id:'mcp-app-b'});assert.equal(graphForeignApp.result.isError,true);assert.ok(!JSON.stringify(graphForeignApp.result).includes('B private case'));
   assert.equal((await app.inject({method:'GET',url:'/agentic-workflows/mcp/status?project_id=mcp-p-a',headers:{authorization:'Bearer '+credential.token}})).statusCode,401);
   const applicationProjection=await rpc('hellotest_database_query',{entity:'applications',fields:['id','name']});assert.deepEqual(applicationProjection.result.structuredContent.data.rows.map(row=>row.id),['mcp-app-a']);
   for(const [path,own,foreign] of [['/app-types/:id','mcp-app-a','mcp-app-b'],['/test-environments/:id','mcp-env-a','mcp-env-b'],['/test-configurations/:id','mcp-config-a','mcp-config-b']]){
@@ -59,7 +91,7 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   global.fetch=async(url,init)=>{
    if(String(url)!=='https://mcp-model-fixture.invalid/chat/completions')return originalFetch(url,init);
    modelMessages=JSON.parse(init.body).messages;
-   return new Response(JSON.stringify({id:'model-fixture',model:'fixture',choices:[{message:{role:'assistant',content:'Grounded response'},finish_reason:'stop'}],usage:{prompt_tokens:20,completion_tokens:3,total_tokens:23}}),{headers:{'Content-Type':'application/json'}});
+   return new Response(JSON.stringify({id:'model-fixture',model:'fixture',choices:[{message:{role:'assistant',content:JSON.stringify({title:'Grounded release verification',description:'Verify the authorized release rule.',priority:3,test_case_type:'Functional',parameter_values:{},steps:[{action:'Inspect the current release test results.',expected_result:'All tests pass before release.'}]})},finish_reason:'stop'}],usage:{prompt_tokens:20,completion_tokens:3,total_tokens:23}}),{headers:{'Content-Type':'application/json'}});
   };
   try{
    await require('../../src/utils/llmTraceContext').run({actor_id:'mcp-a',project_id:'mcp-p-a'},()=>require('../../src/utils/llmHttpClient').fetchLlmWithRetry('https://mcp-model-fixture.invalid/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'fixture',messages:[{role:'user',content:'What test cases are available?'}]})},{operation:'case-authoring.generate',timeoutMs:30000,maxAttempts:1}));

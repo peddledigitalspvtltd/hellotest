@@ -180,6 +180,7 @@ function browserPromptContext(observations,stepId,{compactModel=false}={}) {
       // Failed checks are not success receipts. Keep their typed diagnostics
       // prominent without returning expected input values or raw exceptions.
       latestFailure={tool:entry.tool,assertion:entry.arguments?.assertion,
+        ...(['BROWSER_OBSERVED_SUBJECT_CHANGED','BROWSER_OBSERVED_SUBJECT_REQUIRED'].includes(fault?.code)?{kind:'observed_subject',retry_safe:fault.retry_safe===true,remaining_contract:'inspect_current_subject_without_replaying_completed_actions'}:{}),
         assertion_subject:['url','url_contains'].includes(entry.arguments?.assertion)?'address_bar_url':['title','title_normalized'].includes(entry.arguments?.assertion)?'document_title':undefined,
         locator:row.locator,code:typeof fault?.code==='string'?fault.code:undefined,
         action_outcome:fault?.action_outcome,assertion_outcome:fault?.assertion_outcome,
@@ -197,6 +198,7 @@ function browserPromptContext(observations,stepId,{compactModel=false}={}) {
     }
     if(result?.action_outcome==='completed'){
       locatorResolution=undefined;
+      if(latestFailure?.kind==='observed_subject'&&latestFailure.tool===entry.tool)latestFailure=undefined;
       if(latestFailure?.kind==='snapshot_redundant'||latestFailure?.code==='AUTOMATION_BROWSER_LOCATOR_NOT_OBSERVED'&&latestFailure.tool_name===entry.tool)latestFailure=undefined;
     }
   }

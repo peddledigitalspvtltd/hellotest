@@ -34,13 +34,47 @@ The direct API endpoint is `/mcp`; the browser reverse-proxy endpoint is `/api/m
 | `hellotest_database_query` | Bounded, parameterized read projections |
 | `hellotest_knowledge_fetch` | Exact indexed fragment with fresh source ACL/version/readiness checks |
 | `hellotest_graph_expand` | Authorized one-hop relationship witnesses |
+| `hellotest_graph_context` | Exact typed entity seeds, bounded graph expansion and authorized source passages |
+| `hellotest_graph_trace` | Witnessed paths between two exact entities, with provenance and evidence |
+| `hellotest_graph_schema` | Native graph vocabulary, provenance and traversal limits |
+| `hellotest_browser_mission_prepare` | Reviewable, bounded same-origin browser mission plan |
+| `hellotest_browser_mission_status` | Scoped browser mission progress, measured findings and artifact references |
 | `hellotest_operation_prepare` | Persist an immutable action preview, with no business effect |
 | `hellotest_operation_execute` | Claim and execute an authorized plan once |
 | `hellotest_operation_status` | Durable original-plan state and receipt |
 
-The server also publishes `hellotest://schema`, a project ontology resource template, and an `investigate_failure` prompt. Every successful tool result carries a versioned envelope with its verified project and subject.
+The server also publishes `hellotest://schema`, project operation and graph ontology resource templates, and an `investigate_failure` prompt. Every successful tool result carries a versioned envelope with its verified project and subject. **Connect & inspect** exposes the actual tool input/output schemas, supported protocols, resource templates and manual bearer connection contract. Discovery does not grant permission to call a tool.
 
-All registered API routes are inventoried, and routes with permissions are discoverable according to the caller's access. This does **not** make every route executable. The catalog explicitly labels `read`, `planned_action`, `requires_domain_wrapper` or `nondelegable`, and returns exposure counts for the authorized search results. Feature-disabled operations are excluded from discovery. Environment and configuration reads omit variable bags and header/cookie values, which can contain credentials. Generic reads cover projects, applications, environments, configurations, requirements, test cases, suites, shared steps, executions, results, feedback and knowledge sources, excluding privileged, streaming, download and recursive AI routes. Missing controller schemas are returned as unavailable rather than invented. Reviewed action plans validate the declared body schema before persistence; domain services still enforce business rules when execution occurs. The generated artifact captures 178 declared request contracts; business rules remain owned by domain services.
+## Graph context and traceability
+
+The graph tools call the existing Knowledge backplane with the verified MCP project and user. PostgreSQL owns canonical source identities and relationship witnesses; vector search remains a derived retrieval index. The MCP package does not operate a second graph database or expose raw SQL/Cypher. The attachment's standalone Python server was reference material; its unauthenticated transport and unscoped identifiers were not adopted.
+
+Seeds use an exact `{kind, ref_id}` identity. Supported kinds are `requirement`, `test_case`, `execution`, `bug`, `knowledge_item`, `text`, `chat`, `file` and `url`; use `hellotest_graph_schema` for the native vocabulary. Similar names are not automatically merged. Application filters narrow the authorized project. The native service checks source permissions, document readiness, current versions and fragment ACLs; a relationship cannot reveal a hidden endpoint or passage.
+
+`hellotest_graph_context` accepts 1–6 seeds. `hellotest_graph_trace` accepts `source` and `target` plus at most five paths. Both support 0–3 hops, fanout 1–12, up to 100 nodes/edges, up to 30 evidence items, direction and relation-type filters, a 256–8,000 token context budget (default 4,000), and a deadline up to 20 seconds. These are traversal ceilings, not completeness guarantees. Zero edge/evidence budgets remain zero. The smaller MCP node/edge ceiling avoids the generic response projection's 100-item boundary. Oversized results fail explicitly so callers can narrow their request.
+
+Graph packing uses UTF-8 bytes as a conservative token upper bound for the complete graph packet, including provenance and budget metadata. It is not a provider tokenizer or a measured saving. A budget too small for the metadata fails explicitly. Evidence is retained with its complete witnessed paths; redacted passage displays identify their offsets as referring to the immutable source chunk.
+
+For example, the tool arguments below trace an authored Story to a selected Test Case:
+
+```json
+{
+  "source": { "kind": "requirement", "ref_id": "saved-story-id" },
+  "target": { "kind": "test_case", "ref_id": "saved-case-id" },
+  "hops": 2,
+  "max_paths": 3,
+  "max_nodes": 40,
+  "max_edges": 60,
+  "max_evidence": 12,
+  "token_budget": 3000
+}
+```
+
+Returned paths retain canonical node IDs, edge provenance and exact source witnesses. An authorized domain link and an extracted passage relationship have different provenance. A path is evidence of the recorded relationship; it does not establish root cause, a passing test or an approved decision. No path within the selected bounds is an explicit retrieval gap. Source deletion, access changes and stale revisions remain authoritative over cached or indexed relationships.
+
+The graph ontology is also readable at `hellotest://projects/{project_id}/graph/ontology`. Reading another project's resource is rejected. The operation ontology at `hellotest://projects/{project_id}/ontology` remains compatible with existing clients.
+
+All registered API routes are inventoried, and routes with permissions are discoverable according to the caller's access. This does **not** make every route executable. The catalog explicitly labels `read`, `planned_action`, `requires_domain_wrapper` or `nondelegable`, and returns exposure counts for the authorized search results. Feature-disabled operations are excluded from discovery. Environment and configuration reads omit variable bags and header/cookie values, which can contain credentials. Generic reads cover projects, applications, environments, configurations, requirements, test cases, suites, shared steps, executions, results, feedback and knowledge sources, excluding privileged, streaming, download and recursive AI routes. Missing controller schemas are returned as unavailable rather than invented. Reviewed action plans validate the declared body schema before persistence; domain services still enforce business rules when execution occurs. The generated artifact captures 182 declared request contracts; business rules remain owned by domain services.
 
 Initial reviewed writes are **test case creation** and **execution creation with 1–50 explicit test cases**. Suite expansion, destructive operations, secrets, administrative changes, arbitrary URLs, raw SQL and unwrapped mutations are not delegated. Adding another mutation requires a scoped wrapper, meaningful preview, authorization and read-back verification; adding a route alone never silently exposes a write.
 
@@ -76,7 +110,9 @@ This supplies grounded inputs; it does not guarantee an LLM's correctness. Exist
 | `HELLOTEST_MCP_DATABASE_URL` | Optional dedicated SELECT-only projection database connection |
 | `HELLOTEST_MCP_MAX_CONCURRENT` | MCP HTTP concurrency per API process; default 16, capped at 64 |
 
-Run normal migrations before production verification mode. Keep TLS at the trusted ingress and pass the correct allowed host. HTTP requests have a 128KiB body limit, a 30-second cancellation signal and capacity backpressure. Reads return bounded sanitized JSON, at most 50 projection rows, and at most 180KB per tool result. Knowledge retrieval has its own execution budgets. Cancellation is cooperative: it must not be interpreted as proof that an already accepted mutation had no effect.
+Run normal migrations before production verification mode. Keep TLS at the trusted ingress and pass the correct allowed host. HTTP requests have a 128KiB body limit, capacity backpressure and a complete request deadline that includes authentication. Ordinary calls have 30 seconds; a context read can use its selected retrieval budget up to 60 seconds plus a 2-second assembly allowance. Graph reads also enforce their smaller native deadline. Reads return bounded sanitized JSON, at most 50 projection rows, and at most 180KB per tool result. Cancellation is cooperative: it must not be interpreted as proof that an already accepted mutation had no effect.
+
+Protocol verification uses the pinned official TypeScript server package `2.3.1`, the modern `2026-07-28` stateless request format and the three advertised legacy revisions. The current official [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28) and [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) were checked on 20 October 2026. The modern HTTP binding carries method/name metadata in matching headers and request bodies, including resource reads. Compatibility is tested through actual SDK requests rather than inferred from a version constant. See the official [Streamable HTTP binding](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports) for transport semantics.
 
 The built-in authentication flow is **manual resource-bound bearer credentials**. An OAuth authorization server, automatic client onboarding and federated SSO are not implemented or claimed. Hosts that require OAuth-only onboarding need a separate identity-provider integration. The default local endpoint is not a public production deployment. Retain MCP audit/plan records under the deployment's database backup and retention policy; no automatic audit purging is enabled.
 

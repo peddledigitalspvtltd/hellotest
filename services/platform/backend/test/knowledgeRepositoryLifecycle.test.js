@@ -26,7 +26,7 @@ test("knowledge candidate budgets are shared across queries and never round zero
 
 test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain canonical history", {
   skip: process.env.KNOWLEDGE_POSTGRES_TEST !== "1"
-}, async () => {
+}, async t => {
   const db = require("../src/db");
   const rag = require("../../../knowledge/backend/services/knowledgeRag.service");
   const lifecycle = require("../../../knowledge/backend/services/knowledgeSourceLifecycle.service");
@@ -36,16 +36,24 @@ test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain
   const original = { isConfigured: vector.isConfigured, replaceDocument: vector.replaceDocument, search: vector.search, deleteSource: vector.deleteSource };
   const originalSelection = llmSelection.resolveLlmIntegrationForUsage;
   const admin = { id: "reader", role: "admin" };
+  t.mock.method(require("../../../knowledge/backend/services/knowledgeEnrichment.service"), "enrichDocument", async () => ({ sections: [], mode: "standard", reason: "FIXTURE_MODEL_DISABLED" }));
   try {
     vector.isConfigured = () => false;
     await db.transaction(async () => {
+      await db.query("CREATE TEMP TABLE projects (id TEXT PRIMARY KEY) ON COMMIT DROP");
+      await db.query("INSERT INTO projects VALUES ('project'), ('other-project')");
       await db.query("CREATE TEMP TABLE roles (id TEXT PRIMARY KEY, name TEXT) ON COMMIT DROP");
       await db.query("CREATE TEMP TABLE users (id TEXT PRIMARY KEY, default_role_id TEXT, status TEXT) ON COMMIT DROP");
-      await db.query("CREATE TEMP TABLE project_members (project_id TEXT, user_id TEXT, role_id TEXT) ON COMMIT DROP");
+      await db.query("CREATE TEMP TABLE project_members (id TEXT DEFAULT 'fixture-member', project_id TEXT, user_id TEXT, role_id TEXT) ON COMMIT DROP");
       await db.query("CREATE TEMP TABLE role_permissions (role_id TEXT, permission_id TEXT, PRIMARY KEY (role_id, permission_id)) ON COMMIT DROP");
       await db.query("INSERT INTO roles (id, name) VALUES ('workspace-role', 'workspace-reviewer'), ('project-role', 'project-reviewer'), ('other-role', 'other-reviewer')");
       await db.query("INSERT INTO users (id, default_role_id, status) VALUES ('reader', 'workspace-role', 'active')");
       await db.query("INSERT INTO project_members (project_id, user_id, role_id) VALUES ('project', 'reader', 'project-role'), ('other-project', 'reader', 'other-role')");
+      for (const table of ["requirements", "feedback", "executions", "ai_knowledge_repo"]) {
+        await db.query(`CREATE TEMP TABLE ${table}(id TEXT PRIMARY KEY,project_id TEXT,is_active BOOLEAN DEFAULT TRUE) ON COMMIT DROP`);
+      }
+      await db.query(`CREATE TEMP TABLE app_types(id TEXT PRIMARY KEY,project_id TEXT) ON COMMIT DROP`);
+      await db.query(`CREATE TEMP TABLE test_cases(id TEXT PRIMARY KEY,app_type_id TEXT) ON COMMIT DROP`);
       const schema = await readFile(path.join(__dirname, "../instance-setup-data/schema-setup/schema.sql"), "utf8");
       for (const table of ["app_settings", "permissions", "ai_knowledge_sources", "ai_knowledge_documents", "ai_knowledge_chunks", "ai_knowledge_index_states", "ai_knowledge_security_bindings", "ai_knowledge_collection_sources", "ai_knowledge_ingestion_jobs", "ai_knowledge_ingestion_inputs", "ai_knowledge_ingestion_results", "ai_knowledge_relations"]) {
         const block = schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))[0];
@@ -55,6 +63,12 @@ test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain
       }
       await db.query("ALTER TABLE ai_knowledge_documents ADD COLUMN effective_from TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN effective_to TIMESTAMPTZ");
       await db.query("ALTER TABLE ai_knowledge_index_states ADD COLUMN required_indexes_ready BOOLEAN NOT NULL DEFAULT FALSE");
+      for (const statement of require("../../../knowledge/backend/vectorProjectionSchema")) {
+        await db.query(statement.replace("CREATE TABLE IF NOT EXISTS ai_knowledge_vector_jobs", "CREATE TEMP TABLE ai_knowledge_vector_jobs"));
+      }
+      for (const statement of require("../../../knowledge/backend/graphSchema").statements) {
+        await db.query(statement.replace(/CREATE TABLE IF NOT EXISTS ai_knowledge_graph_/g, "CREATE TEMP TABLE ai_knowledge_graph_"));
+      }
       const extension = await db.prepare("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') AS available").get();
       if (extension.available) await db.query("ALTER TABLE ai_knowledge_chunks ADD COLUMN embedding_vector vector");
       await db.query("CREATE UNIQUE INDEX ON ai_knowledge_documents (source_id) WHERE is_active = TRUE");
@@ -148,10 +162,22 @@ test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain
         content: "Onboarding confirmation requires a verified email.", embeddingRuntime: { configured: false } });
       await db.prepare(`INSERT INTO ai_knowledge_relations (id, project_id, source_id, source_type, target_id, target_type, relation_type)
         VALUES ('confirmation-relation', 'project', 'UX-227', 'text', 'UX-228', 'text', 'RELATED_TO')`).run();
+      const unwitnessed = await rag.expandRelationships({ projectId: "project", user: admin, hits: result.results,
+        query: "onboarding", mode: "keyword", maxCandidates: 3 });
+      assert.equal(unwitnessed.relationships.length, 0, "a legacy edge without an immutable witness does not establish a graph fact");
+      const witness = await db.prepare(`SELECT chunks.*,documents.version,documents.checksum_sha256
+        FROM ai_knowledge_chunks chunks JOIN ai_knowledge_documents documents ON documents.id=chunks.document_id
+        WHERE chunks.source_id=? AND documents.is_active=TRUE ORDER BY chunks.chunk_index LIMIT 1`).get(relatedSource.id);
+      await db.prepare(`INSERT INTO ai_knowledge_graph_edges(id,project_id,source_node_id,target_node_id,relation_type,status,provenance_type)
+        VALUES ('verified-confirmation','project',?,?,'RELATED_TO','ACTIVE','HUMAN_VERIFIED')`).run(promoted.source.id,relatedSource.id);
+      await db.prepare(`INSERT INTO ai_knowledge_graph_edge_evidence(edge_id,project_id,chunk_id,document_id,source_id,document_version,version_hash,span_start,span_end,provenance_type)
+        VALUES ('verified-confirmation','project',?,?,?,?,?,0,?,'HUMAN_VERIFIED')`).run(witness.id,witness.document_id,relatedSource.id,witness.version,witness.checksum_sha256,Array.from(witness.content).length);
       const related = await rag.expandRelationships({ projectId: "project", user: admin, hits: result.results,
         query: "onboarding", mode: "keyword", maxCandidates: 3 });
       assert.equal(related.relationships.length, 1);
       assert.ok(related.results.some((hit) => hit.source_id === relatedSource.id));
+      assert.equal(related.relationships[0].evidence_ids[0],`K-${witness.id}`);
+      assert.equal(related.relationships[0].witness_span.offset_basis,'source_chunk');
       assert.equal(related.retrieval.embedding_model, null);
       assert.equal(embeddingResolutions, 0, "keyword batch and relationship searches never resolve an embedding runtime");
       llmSelection.resolveLlmIntegrationForUsage = originalSelection;
@@ -184,6 +210,21 @@ test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain
       assert.deepEqual(after.allowed, []);
       const retained = await lifecycle.listRevisions(promoted.source.id, { user: admin });
       assert.equal(retained.revisions.length, 3);
+
+      // Incremental refresh only sees extant native records. Deleting one must
+      // still tombstone its old knowledge, graph and vector recovery command.
+      await db.query(`INSERT INTO requirements(id,project_id) VALUES ('removed-story','project')`);
+      const removedSource = await rag._internals.createSource({ projectId: "project", userId: admin.id,
+        input: { source_kind: "requirement", source_ref_id: "removed-story", title: "Removed native story", content: "A formerly active native story.", metadata: {} } });
+      const removedDocument = await rag._internals.persistDocument({ projectId: "project", source: removedSource,
+        content: "A formerly active native story.", embeddingRuntime: { configured: false } });
+      await db.query(`DELETE FROM requirements WHERE id = 'removed-story'`);
+      assert.deepEqual(await lifecycle.archiveMissingApplicationSources(), { archived: 1 });
+      assert.equal((await db.prepare(`SELECT extraction_status FROM ai_knowledge_sources WHERE id = ?`).get(removedSource.id)).extraction_status, "archived");
+      assert.equal((await db.prepare(`SELECT is_active FROM ai_knowledge_documents WHERE id = ?`).get(removedDocument.document.id)).is_active, false);
+      assert.ok((await db.prepare(`SELECT tombstoned_at FROM ai_knowledge_graph_nodes WHERE source_id = ?`).get(removedSource.id)).tombstoned_at);
+      assert.equal((await db.prepare(`SELECT status FROM ai_knowledge_vector_jobs WHERE source_id = ?`).get(removedSource.id)).status, "queued");
+      assert.equal((await db.prepare(`SELECT extraction_status FROM ai_knowledge_sources WHERE id = ?`).get(relatedSource.id)).extraction_status, "ready", "Non-native text sources are never treated as missing application records");
     })();
   } finally {
     Object.assign(vector, original);

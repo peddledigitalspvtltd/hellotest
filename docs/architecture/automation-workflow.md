@@ -647,3 +647,60 @@ Source, Build Error and Browser activity keep full labels and wrap on narrow
 screens. Instructions expand with their content. Build Plan collapses Agent
 brief & settings for single-case, batch and create-and-build flows; cancelled
 or rejected preflight/queue requests reopen the brief for correction.
+
+## Shared engineer and repair execution contracts
+
+The browser loop selects at most two locally reviewed strategy cards, bounded to
+1,800 JSON characters, for the current goal and evidence. Engineer and Agent
+Studio repair share these hints; completion-only turns load none. Cards do not
+install upstream skills, select credentials, change tool schemas or authorize
+actions. Prompt diagnostics record selected IDs and character counts; provider
+usage remains the source for actual token accounting. The source comparison and
+license review are in [the agent research](../research/automation-engineer-agent.md).
+
+Native MCP snapshots retain session-local handles for observed subjects. Before
+an interaction, the runner rechecks the same node, page, control identity and
+enclosing row/list-item context. A changed subject returns a typed, retry-safe
+`not_attempted` result; the host can refresh evidence within its existing budget,
+without replaying the operation. Read-only assertions remain the independent
+outcome proof. A stable page ID distinguishes otherwise identical page snapshots.
+
+Identity reads exclude entered values and selection state. They are bounded:
+2,048 characters for control text or an identity attribute, 4,096 for row text,
+256 select choices and 16,384 total choice characters. Incomplete identity cannot
+grant an interaction. Native labels and ARIA name references are also rechecked,
+with at most 16 of each and an 8,192-character combined label allowance.
+Reads use the remaining inspection timeout and handle
+cleanup is bounded. The check immediately precedes dispatch and pins its native
+node; it does not lock application JavaScript against a later same-node change.
+
+Where a semantic row has an observed unique application key, grounded CSS retains
+that record scope in generated code instead of preferring a globally unique
+button ID. Every candidate must still resolve to the captured node. Private or
+unvalidated scoped candidates are excluded. Applications without a suitable key,
+or with keys reused for virtual slots, still need authored record checks or a
+reviewed application locator contract for reliable playback intent.
+
+Within one model response, an unchanged complete control inventory can retain
+queued targets across a host snapshot refresh. This requires the same page ID,
+URL, stable target ID, role, name and complete record context. Rebound work uses
+the fresh validated preferred locator and unchanged arguments. Changed dropdown
+choices, ambiguous IDs, clipped evidence, copied snapshots and prior-turn refs
+cannot use this path. Native select actions and explicit parameter value checks
+retain their original case/suite/run references.
+
+Agent Studio repair produces a typed proposal focused on the first failed
+case-owned section. It pins the exact failed result, frozen inputs, source and
+execution policies, checks freshness again before saving/planning, and rolls back
+cancelled writes. Reviewed validation reproduces the original failure, executes
+the complete repaired case and selected neighbors, then confirms a known-negative
+fixture still fails its protected assertion. Setup, teardown, every successor and
+frozen shared-section bindings remain part of the verification contract. Ordered
+runner receipts and executed assertion-line evidence are required; an
+infrastructure error is not a successful negative control. Older validation
+fingerprints that omitted frozen policy require a new proposal.
+
+The builder's bounded locator-repair pipeline is a separate entry point. It uses
+the same closed native operation contracts, preserves actions, data and assertion
+checkpoints, and commits only after isolated verification. Neither entry point
+can treat a proposed patch or a live browser inspection as a verified repair.

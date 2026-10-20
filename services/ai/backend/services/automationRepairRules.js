@@ -5,6 +5,7 @@ const fail=(message,statusCode=400)=>Object.assign(new Error(message),{statusCod
 const literal='"(?:[^"\\\\]|\\\\.)*"';
 const supported=new RegExp(`^\\s*await\\s+web\\.(click|fill|hover|check|uncheck)\\(\\s*(${literal})(?:\\s*,\\s*(${literal}))?\\s*\\);?\\s*$`);
 const specification=steps=>steps.map(row=>[row.step_order,row.action||'',row.expected_result||'',row.step_type||'',row.automation_code||'',row.api_request||null]);
+const sharedBindings=steps=>steps.map(row=>[row.step_order,row.shared_parameter_values||{},row.shared_parameter_template_values||{},row.shared_parameter_sensitive_names||[]]);
 const {parse}=require('acorn');
 const actions=new Set(['click','dblclick','rightClick','hover','fill','check','uncheck','press','selectOption','waitForUrl','expectVisible','expectHidden','expectEnabled','expectText']);
 function instructionStatements(code) {
@@ -17,7 +18,7 @@ function instructionStatements(code) {
     if(!method||!actions.has(method)||!call.arguments.length||call.arguments.some(node=>!argument(node)))throw fail('Instruction repair accepts awaited supported web helpers with literal strings or params references. Keep scripts, branching, captures, timeouts and external calls outside a typed repair.');
     const count=['fill','press','selectOption','expectText'].includes(method)?2:1;
     if(call.arguments.length!==count)throw fail('Preserve supported web helper argument counts.');
-    return {method,text:code.slice(statement.start,statement.end),line:code.slice(0,statement.start).split('\n').length,arguments:call.arguments.map(node=>code.slice(node.start,node.end))};
+    return {method,text:code.slice(statement.start,statement.end),line:code.slice(0,statement.start).split('\n').length,arguments:call.arguments.map(node=>code.slice(node.start,node.end)),operands:call.arguments.map(node=>node.type==='Literal'?{kind:'literal',value:node.value}:{kind:'parameter',value:node.property.value})};
   });
 }
 function protectedAssertionContract(step) {
@@ -35,16 +36,16 @@ const hasProtectedAssertion=step=>protectedAssertionContract(step)?.assertion_co
 function negativeOracleReached(step,logs) {
   const contract=protectedAssertionContract(step);
   if(!contract?.assertion_count)return false;
-  if(contract.assertion_count===contract.operation_count)return true;
   const lines=contract.operation_lines;
   if(!Array.isArray(lines)||new Set(lines.map(row=>row.line)).size!==lines.length)return false;
   const trace=logs?.stepAutomationDetails?.[step.snapshot_step_id]?.line_results;
   if(!Array.isArray(trace)||!trace.length||trace.length>1000||trace.some(row=>!row||!Number.isSafeInteger(row.line)||row.line<1||row.attempt!==1||!['passed','failed'].includes(row.status)))return false;
   const failedIndex=trace.findIndex(row=>row.status==='failed');
-  if(failedIndex<0)return false;
-  const operationIndex=lines.findIndex(row=>row.line===trace[failedIndex].line);
-  if(operationIndex<0||!lines[operationIndex].assertion)return false;
-  return lines.slice(0,operationIndex).every(row=>trace.slice(0,failedIndex).some(observed=>observed.line===row.line&&observed.status==='passed'));
+  if(failedIndex<0||failedIndex!==trace.length-1||failedIndex>=lines.length||!lines[failedIndex].assertion)return false;
+  const detail=logs?.stepAutomationDetails?.[step.snapshot_step_id];
+  const unavailable=/BROWSER_READ_UNAVAILABLE|BROWSER_CONTEXT_LOST|Execution context was destroyed|Cannot find context|target (?:page|browser|context).*closed|(?:page|browser|context) has been closed|browser (?:has been )?disconnected/i;
+  if([detail?.error_code,detail?.error_message,trace[failedIndex].error].some(value=>typeof value==='string'&&unavailable.test(value)))return false;
+  return trace.every((row,index)=>row.line===lines[index].line&&row.status===(index===failedIndex?'failed':'passed'));
 }
 function completedHookEvidence(payload,statuses) {
   if(payload?.hooks===undefined)return true;
@@ -76,12 +77,23 @@ function instructionPatch(base,input) {
   const before=instructionStatements(step.automation_code),after=instructionStatements(input.automation_code);
   if(!after.length||after.length>80||step.automation_code.trim()===input.automation_code.trim())throw fail('Provide changed, complete section instructions.');
   if(JSON.stringify(before.map(row=>row.method))!==JSON.stringify(after.map(row=>row.method)))throw fail('Preserve every action, assertion checkpoint and wait in order. A focused repair cannot add synchronization or other instructions.');
-  const assertions=rows=>rows.filter(row=>row.method.startsWith('expect')).map(row=>row.text);
-  if(JSON.stringify(assertions(before))!==JSON.stringify(assertions(after)))throw fail('Preserve every existing assertion verbatim and in order.');
   const waits=rows=>rows.filter(row=>row.method==='waitForUrl').map(row=>row.text);
   if(JSON.stringify(waits(before))!==JSON.stringify(waits(after)))throw fail('Preserve existing synchronization targets and timing policy.');
-  const data=rows=>rows.filter(row=>['fill','press','selectOption'].includes(row.method)).map(row=>[row.method,...row.arguments.slice(1)]);
+  const data=rows=>rows.filter(row=>['fill','press','selectOption','expectText'].includes(row.method)).map(row=>[row.method,...row.operands.slice(1)]);
   if(JSON.stringify(data(before))!==JSON.stringify(data(after)))throw fail('Preserve entered values, key presses and parameter references; change test data explicitly outside repair.');
+  const forward=new Map(),reverse=new Map();let changes=0;
+  for(let index=0;index<before.length;index++){
+    if(before[index].method==='waitForUrl')continue;
+    const original=before[index].operands[0],candidate=after[index].operands[0];
+    const oldKey=JSON.stringify(original),newKey=JSON.stringify(candidate);
+    if(oldKey!==newKey){
+      if(original.kind!=='literal'||candidate.kind!=='literal'||!candidate.value.trim()||candidate.value.length>1024||/[\x00-\x1f]|\{\{|\$\{|@[trs]\./.test(candidate.value))throw fail('Repair observed literal locators only. Preserve dynamic locator parameter bindings.');
+      changes++;
+    }
+    if(forward.has(oldKey)&&forward.get(oldKey)!==newKey||reverse.has(newKey)&&reverse.get(newKey)!==oldKey)throw fail('Rebind each saved subject consistently across its actions and assertions; distinct subjects must remain distinct.');
+    forward.set(oldKey,newKey);reverse.set(newKey,oldKey);
+  }
+  if(!changes)throw fail('A locator repair must correct an observed subject; formatting-only changes are unnecessary.');
   return {kind:'replace_instructions',step_id:step.id,step_order:step.step_order,before:step.automation_code,after:input.automation_code,rationale:input.rationale.trim(),hash:hash([base.source_hash,step.id,input.automation_code]),assertions_preserved:true};
 }
 function patch(base,input) {
@@ -121,7 +133,8 @@ function validateStoredPatch(base,saved) {
 function evaluate(manifest,receipts,patchStep,oracleStep) {
   const checks=[];
   const originalJob=Array.isArray(receipts.original?.jobs)?receipts.original.jobs.find(job=>job.test_case_id===manifest.original?.case_ids[0]):null;
-  const contextHash=job=>hash(['environment','configuration','browser','timeouts','run_timeout_seconds','execution_policy','web_engine','hooks','object_repository','run_parameters','case_parameters','suite_parameters'].map(key=>job?.payload?.[key]));
+  const originalSteps=Array.isArray(receipts.original?.steps)?receipts.original.steps.filter(step=>step.test_case_id===manifest.original?.case_ids[0]):null;
+  const contextHash=job=>hash(['environment','configuration','browser','timeouts','run_timeout_seconds','execution_policy','web_engine','hooks','object_repository','run_parameters','case_parameters','suite_parameters','data_policy','parameter_scope_default','parameters_frozen'].map(key=>job?.payload?.[key]));
   for(const phase of ['original','patched','negative']) {
     const receipt=receipts[phase],entry=manifest[phase];
     if(!entry||!receipt||receipt.hash!==entry.hash){checks.push({phase,status:'unknown',detail:'Pinned validation snapshots are missing or changed.'});continue;}
@@ -134,9 +147,16 @@ function evaluate(manifest,receipts,patchStep,oracleStep) {
       if(!job||!job.completed_at||!['completed','failed'].includes(job.status)){status='pending';detail='Waiting for the Test Engine to finish.';break;}
       if(job.runtime_state?.healing_attempted||job.payload?.max_repair_attempts!==0||job.payload?.session_policy?.web?.mode!=='new'||job.payload?.session_policy?.web?.connect_over_cdp_endpoint){status='unknown';detail='Validation must use a fresh browser session with healing disabled.';break;}
       if(phase!=='original'&&caseId===manifest.original.case_ids[0]&&contextHash(job)!==contextHash(originalJob)){status='unknown';detail='Execution settings or repository evidence changed between validation phases.';break;}
+      if(phase!=='original'&&caseId===manifest.original.case_ids[0]&&(!originalSteps||hash(sharedBindings(steps))!==hash(sharedBindings(originalSteps)))){status='unknown';detail='Frozen per-section shared values, templates or private bindings changed between validation phases.';break;}
       const executed=job.payload?.steps||[],logs=job.runtime_state?.logs;
       const parsed=typeof logs==='string'?(()=>{try{return JSON.parse(logs);}catch{return {};}})():logs;
-      if(!Array.isArray(executed)||executed.length!==steps.length||steps.some(step=>!executed.some(item=>item.id===step.snapshot_step_id&&item.automation_code===step.automation_code))){status='unknown';detail='Runner payload does not match the pinned step specification.';break;}
+      if(!Array.isArray(executed)||!steps.length||executed.length!==steps.length||steps.some((step,index)=>{
+        const item=executed[index];
+        return !item||item.id!==step.snapshot_step_id||item.automation_code!==step.automation_code
+          ||item.order!==undefined&&item.order!==step.step_order
+          ||hash(item.shared_parameter_values||{})!==hash(step.shared_parameter_values||{})
+          ||Object.keys(item.source_case_context||{}).length||Object.keys(item.source_case_parameters||{}).length;
+      })){status='unknown';detail='Runner payload does not match the exact pinned step order, source or shared parameter bindings.';break;}
       const statuses=parsed?.stepStatuses||{};
       if(!completedHookEvidence(job.payload,statuses)){status='unknown';detail='Every pinned Before / After hook step must have a passed runner receipt. Failed, skipped, missing or unexecuted setup and cleanup cannot verify a repair, including hooks configured to continue.';break;}
       const expectedFailure=phase==='original'?patchStep:phase==='negative'?oracleStep:null;
@@ -153,4 +173,4 @@ function evaluate(manifest,receipts,patchStep,oracleStep) {
   }
   return {status:checks.every(item=>item.status==='passed')?'verified':checks.some(item=>item.status==='failed')?'failed':'unverified',checks,verifier_version:'automation-repair/1'};
 }
-module.exports={hash,patch,specification,evaluate,fail,hasProtectedAssertion,validateStoredPatch};
+module.exports={hash,patch,specification,sharedBindings,evaluate,fail,hasProtectedAssertion,validateStoredPatch};

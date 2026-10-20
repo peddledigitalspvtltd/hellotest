@@ -20,6 +20,7 @@ function fixture(allowed=true){
   if(id.endsWith('/execution.service'))return {};
   if(id.endsWith('/executionStepEvidence'))return diagnostics;
   if(id.endsWith('/aiTextPolicy'))return aiText;
+  if(id.endsWith('/knowledgeExecution.service'))return require('../../../knowledge/backend/services/knowledgeExecution.service');
   if(id==='./automationRepairRules')return rules;
   if(id==='./automationRepairContext')return require('../../backend/services/automationRepairContext');
   throw new Error(`Unexpected module ${id}`);
