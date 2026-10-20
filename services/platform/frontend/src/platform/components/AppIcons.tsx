@@ -671,7 +671,7 @@ export function MoveIcon({ size, strokeWidth }: IconProps) {
 export function TestRunsResultsIcon({size=20}: IconProps) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4.1a1.5 1.5 0 0 1 2.25-1.3l13 7.9a1.5 1.5 0 0 1 0 2.6l-13 7.9A1.5 1.5 0 0 1 5 19.9Z"/></svg>;
 }
-/** A configurable checklist and pencil, with clearance around the paper edge. */
+/** Reference checklist and stopwatch in the shared monochrome navigation style. */
 export function TestPlanIcon({ size = 24 }: IconProps) {
   return <AssetMaskIcon size={size} source={testPlanIcon} />;
 }

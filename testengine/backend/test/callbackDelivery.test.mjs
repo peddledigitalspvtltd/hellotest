@@ -36,3 +36,15 @@ test('retained final callbacks can be recovered without an in-memory run using o
  await assert.rejects(retryRunCallbacks('restart'),/credential/);process.env.TESTENGINE_SHARED_SECRET=original;
  available=true;assert.equal((await retryRunCallbacks('restart')).status,'delivered');
 });
+test('uploaded screenshot receipts replace duplicate image bytes in the signed final callback',async t=>{
+ let sent;
+ t.mock.method(globalThis,'fetch',async(_url,init)=>{sent=JSON.parse(init.body);return new Response('{}',{status:200});});
+ const input=payload('uploaded-image');
+ input.case_result.logs.stepEvidence.s.fileName='step-1-passed.jpg';
+ input.artifact_bundle.artifact_refs=[{kind:'screenshot',file_name:'step-1-passed.jpg',content_type:'image/jpeg',attachment_id:'stored-image',checksum_sha256:'verified-sha',size_bytes:123}];
+ await deliverRunCallback(envelope('uploaded-image'),input);
+ assert.equal(sent.case_result.logs.stepEvidence.s.attachmentId,'stored-image');
+ assert.equal(sent.case_result.logs.stepEvidence.s.dataUrl,undefined);
+ assert.equal(sent.step_outcomes[0].evidence_image,null);
+ assert.ok(input.case_result.logs.stepEvidence.s.dataUrl,'The retained engine evidence is not mutated.');
+});

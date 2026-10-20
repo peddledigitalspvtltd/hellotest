@@ -59,6 +59,11 @@ const createServiceFixture = () => {
       };
     }
   };
+  const hooksModule = { exports: {} };
+  vm.runInNewContext(readFileSync(path.join(__dirname, "../../backend/services/caseExecutionHooks.service.js"), "utf8"), {
+    module: hooksModule,
+    require: (dependency) => dependencyName(dependency) === "db" ? db : require(dependency)
+  });
   const service = {};
   const noop = async () => {};
   vm.runInNewContext(readFileSync(path.join(__dirname, "../../backend/services/testCase.service.js"), "utf8"), {
@@ -71,6 +76,7 @@ const createServiceFixture = () => {
       if (dependencyName(dependency) === "dropdownCatalog.service") return { getDefaultValue: async () => "functional", validateValue: async (key, value) => { assert.equal(key, "test_cases.types"); assert.equal(value, "functional"); return value; } };
       if (dependencyName(dependency) === "mobileFeature.service") return { assertAuthoringMobileFeatureEnabled: noop };
       if (dependencyName(dependency) === "testCaseVersion.service") return { assertExpectedRevision: noop, capture: async () => ({ revision: state.revision++ }), buildSnapshot: async () => ({ steps: [] }) };
+      if (dependencyName(dependency) === "caseExecutionHooks.service") return hooksModule.exports;
       return {};
     }
   });

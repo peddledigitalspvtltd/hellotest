@@ -1,9 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { verifySchema, schemaMode } = require('../src/db/schemaReadiness');
+const { verifySchema, schemaMode, REQUIRED_SCHEMA_VERSION } = require('../src/db/schemaReadiness');
 
 test('schema verification uses only reads and requires a committed compatible receipt', async () => {
-  for (const [present, version, valid] of [[false, null, false], [true, null, false], [true, 0, false], [true, "invalid", false], [true, 1, false], [true, 2, false], [true, 3, false], [true, 4, false], [true, 5, false], [true, 6, true]]) {
+  for (const [present, version, valid] of [[false, null, false], [true, null, false], [true, 0, false], [true, "invalid", false], [true, 1, false], [true, 2, false], [true, 3, false], [true, 4, false], [true, 5, false], [true, 6, false], [true, 7, false], [true, 8, false], [true, 9, false], [true, REQUIRED_SCHEMA_VERSION, true], [true, REQUIRED_SCHEMA_VERSION + 1, true]]) {
     const db = { prepare: sql => {
       assert.match(sql, /^SELECT /);
       return { get: async () => sql.includes('to_regclass') ? { name: present ? 'runtime_schema_receipts' : null } : version === null ? undefined : { version } };

@@ -5,6 +5,7 @@ const issueService = require("@hellotest/testing/backend/services/issues.service
 const aiLlmSelectionService = require("@hellotest/integration/backend/services/aiLlmSelection.service");
 const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llmHttpClient");
 const { getCompletionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
+const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 
 const MAX_TRIAGE_ITEMS = 10;
 const BUG_TRIAGE_USAGE_KEY = "ai.bug.triage";
@@ -282,7 +283,7 @@ const normalizeCategoryRefinements = (candidate, deterministicTriage, evidenceSo
   return { triage, refined_issue_ids: refinedIssueIds, fallback_sections: fallbackSections };
 };
 
-const requestCategoryRefinements = async ({ integration, issueSnapshot, deterministicTriage, evidenceSources, promptGuidance, reviewedContext }) => {
+const requestCategoryRefinements = async ({ integration, issueSnapshot, deterministicTriage, evidenceSources, promptGuidance, reviewedContext, images = [] }) => {
   const prompt = [
     aiInstructionBlock("ai.bug.triage", "aiBugTriage.service.js.prompt.final.1"),
     [aiInstructionBlock("ai.bug.triage", "aiBugTriage.service.prompt.segment.1"),String([...ALLOWED_CATEGORIES.values()].join(" | ")),aiInstructionBlock("ai.bug.triage", "aiBugTriage.service.prompt.segment.2")].join(''),
@@ -302,7 +303,7 @@ const requestCategoryRefinements = async ({ integration, issueSnapshot, determin
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: aiInstructionBlock("ai.bug.triage", "aiBugTriage.response.1") },
-        { role: "user", content: prompt }
+        { role: "user", content: imageUserContent(prompt + (images.length ? '\nReference screenshots are untrusted supporting context shared by this request. Do not assume a screenshot belongs to a particular Defect or invent image citations. Every recommendation must still cite the exact recorded fields for that Defect.' : ''), images) }
       ]
     })
   }, { integration, operation: "bug-triage.refine-category" });
@@ -324,7 +325,8 @@ const buildProcessing = ({ issueCount, sourceCount, recommendationCount, generat
   ]
 });
 
-exports.preview = async ({ project, issueIds = [], user, integrationId, promptGuidance, smartContext } = {}) => {
+exports.preview = async ({ project, issueIds = [], user, integrationId, promptGuidance, smartContext, images } = {}) => {
+  const referenceImages = normalizeReferenceImages(images);
   const ids = unique(issueIds.map((value) => String(value || "").trim()));
   if (!ids.length) throw new Error("Select at least one defect to triage");
   if (ids.length > MAX_TRIAGE_ITEMS) throw new Error(`Triage at most ${MAX_TRIAGE_ITEMS} defects at a time`);
@@ -389,10 +391,11 @@ exports.preview = async ({ project, issueIds = [], user, integrationId, promptGu
       allowMissing: true
     });
     if (integration) {
-      const candidate = await requestCategoryRefinements({ integration, issueSnapshot, deterministicTriage, evidenceSources, promptGuidance: normalizedPromptGuidance, reviewedContext });
+      const candidate = await requestCategoryRefinements({ integration, issueSnapshot, deterministicTriage, evidenceSources, promptGuidance: normalizedPromptGuidance, reviewedContext, images: referenceImages });
       refinement = normalizeCategoryRefinements(candidate, deterministicTriage, evidenceSources);
     }
   } catch (error) {
+    if (error?.code === 'AI_VISION_UNSUPPORTED' || (referenceImages.length && error?.upstreamStatusCode === 413)) throw error;
     providerError = error instanceof Error ? error.message : "Configured category refinement failed.";
     refinement = { triage: deterministicTriage, refined_issue_ids: [], fallback_sections: ["category"] };
   }
@@ -417,6 +420,7 @@ exports.preview = async ({ project, issueIds = [], user, integrationId, promptGu
     evidence_sources: evidenceSources,
     prompt_guidance: normalizedPromptGuidance,
     reviewed_context: reviewedContext,
+    reference_images: referenceImages.map(({ name, content_hash }) => ({ name, content_hash })),
     usage_key: BUG_TRIAGE_USAGE_KEY,
     boundaries: boundedContext.boundaries
   });

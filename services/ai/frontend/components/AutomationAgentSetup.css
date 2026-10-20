@@ -1,0 +1,18 @@
+.automation-agent-setup { min-width: 0; width: 100%; }
+.automation-agent-setup .agent-command-composer { min-width: 0; }
+.automation-agent-setup .agent-command-composer__footer { flex-wrap: wrap; gap: 10px; }
+.automation-agent-setup .agent-command-composer__controls { flex-wrap: wrap; min-width: 0; }
+.automation-agent-setup .agent-command-composer__submit-group { margin-left: auto; flex-shrink: 0; align-items: center; }
+html body .automation-agent-setup .agent-command-send { display: inline-flex; width: auto; min-width: 116px; min-height: 36px; justify-content: center; align-items: center; gap: 8px; padding: 8px 13px; white-space: nowrap; font-weight: 600; line-height: 1.2; }
+.automation-agent-setup .agent-command-send > svg { flex: 0 0 auto; }
+.automation-agent-setup .agent-command-send > span { display: inline; }
+.automation-agent-setup .agent-command-options__menu,
+.automation-agent-setup .agent-command-context__menu,
+.automation-agent-setup .agent-command-evidence-scope__menu { max-width: calc(100vw - 32px); }
+.ai-lifecycle-review .automation-agent-setup .agent-command-context__menu label,
+.ai-lifecycle-review .automation-agent-setup .agent-command-options__menu .checkbox-field { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 540px) {
+  .automation-agent-setup .agent-command-composer__controls { width: 100%; gap: 6px; }
+  .automation-agent-setup .agent-command-composer__submit-group { width: 100%; max-width: 100%; min-width: 0; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  .automation-agent-setup .agent-command-divider { display: none; }
+}

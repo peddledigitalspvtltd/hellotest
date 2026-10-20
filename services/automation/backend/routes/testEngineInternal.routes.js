@@ -2,6 +2,20 @@ const service = require("../services/testEngineDispatch.service");
 const { config } = require("@hellotest/platform/backend/src/config");
 
 module.exports = async function (fastify) {
+  fastify.post('/testengine/internal/runs/:engineRunId/artifacts', { bodyLimit: config.objectStorage.maxAttachmentBytes + 65536 }, async req => {
+    const artifacts = require('../services/engineArtifact.service');
+    const grant = req.headers['x-testengine-artifact-context'] ? await artifacts.authorize({engineRunId:req.params.engineRunId,headers:req.headers}) : null;
+    if (!grant) await fastify.authenticateTestEngine(req);
+    const part = await req.file({ limits: { files: 1, fileSize: config.objectStorage.maxAttachmentBytes, fields: 4 } });
+    if (!part) throw Object.assign(new Error('Choose an engine evidence file.'), { statusCode: 400 });
+    try {
+      if (grant && (grant.file_name !== part.filename || grant.content_type !== part.mimetype)) throw Object.assign(new Error('The evidence file does not match its signed grant.'),{statusCode:403});
+      return await artifacts.upload({ engineRunId: req.params.engineRunId,
+        kind: grant?.kind || part.fields.kind?.value, outcome: grant?.outcome || part.fields.outcome?.value, checksum: grant?.checksum || part.fields.checksum?.value,
+        fileName: part.filename, mimeType: part.mimetype, stream: part.file });
+    } finally { part.file.resume(); }
+  });
+
   fastify.post("/testengine/internal/jobs/lease", async (req) => {
     await fastify.authenticateTestEngine(req);
 

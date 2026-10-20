@@ -1,4 +1,5 @@
 import { retryRunCallbacks } from "./lib/callbackDelivery.js";
+import { registerAutomationVerification } from "./lib/automationVerification.js";
 import { registerAutomationMcp } from "./lib/automationMcp.js";
 import { registerQualityAgentRoutes } from "./lib/qualityAgents/routes.js";
 import Fastify from "fastify";
@@ -341,6 +342,7 @@ const startServer = async () => {
   await opsTelemetry.register(app);
   await registerRecorderRoutes(app);
   await registerAutomationMcp(app, privilegedRunGuard);
+  await registerAutomationVerification(app, privilegedRunGuard);
   await registerQualityAgentRoutes(app, privilegedRunGuard);
   queueWorker = startQueueWorker(app.log, opsTelemetry);
   app.addHook("onClose", async () => {

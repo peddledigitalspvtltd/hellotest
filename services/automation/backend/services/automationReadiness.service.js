@@ -1,4 +1,5 @@
 const vm = require("node:vm");
+const { normalizeGeneratedProgram } = require('../lib/automationGeneratedProgram');
 
 /** Compile source without executing it before an engine job is allocated. */
 function inspectExecutablePlan(steps) {
@@ -6,7 +7,7 @@ function inspectExecutablePlan(steps) {
   let active = 0;
   for (const step of steps) {
     const source = String(step.automation_code || "");
-    const flags = String(source || step.action || "").match(/@hellotest-options\s+([^\n]+)/i)?.[1].split(/\s+/) || [];
+    const flags = source.match(/^\s*\/\/\s*@hellotest-options\s+([^\r\n]*)/i)?.[1].split(/\s+/) || [];
     if (flags.includes("skip")) continue;
     active += 1;
     const prefix = `Step ${step.order || step.step_order || "?"}`;
@@ -18,7 +19,18 @@ function inspectExecutablePlan(steps) {
     }
     const executable = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/[^\n]*$/gm, "").trim();
     if (!executable) { issues.push(`${prefix}: executable instructions are missing.`); continue; }
-    try { new vm.Script(`(async function () {\n${source}\n})`, { filename: `automation-step-${step.id || "unknown"}.js` }); }
+    try {
+      let body=source;
+      if (step.step_type === 'web') {
+        try { body=normalizeGeneratedProgram(source); }
+        catch (error) {
+          // Anonymous reusable functions are valid runtime expressions too.
+          try { body=normalizeGeneratedProgram(`(${source});`); }
+          catch { throw error; }
+        }
+      }
+      new vm.Script(`(async function () {\n${body}\n})`, { filename: `automation-step-${step.id || "unknown"}.js` });
+    }
     catch (error) { issues.push(`${prefix}: invalid JavaScript (${error.message}).`); }
   }
   if (steps.length && !active) issues.push("All automation steps are skipped.");

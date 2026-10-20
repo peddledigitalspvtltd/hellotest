@@ -1,5 +1,6 @@
 import type { KnowledgeCollection, KnowledgeIngestion, KnowledgeIngestionRequest, KnowledgeIngestionResponse, KnowledgeOverview, KnowledgeSearchFilters, KnowledgeSearchMode, KnowledgeSearchResponse, KnowledgeSource, KnowledgeSourceDetail, KnowledgeSourceRevision } from "@hellotest/platform/frontend/src/types";
 import { request, requestBlob, requestForm, toQueryString } from "@hellotest/platform/frontend/src/lib/httpClient";
+import { AI_REQUEST_TIMEOUT_MS } from "@hellotest/platform/frontend/src/platform/lib/requestTimeout";
 
 
 
@@ -30,7 +31,7 @@ search: (input: {
       method: "POST",
       body: JSON.stringify(input),
       signal: options?.signal
-    }),
+    }, AI_REQUEST_TIMEOUT_MS),
 sources: (projectId: string, options?: { includeArchived?: boolean; signal?: AbortSignal }) =>
       request<KnowledgeSource[]>(`/knowledge/sources${toQueryString({ project_id: projectId, include_archived: options?.includeArchived || undefined })}`, { signal: options?.signal }),
 sourceDetail: (id: string, query?: { revision_id?: string; as_of?: string }) =>
@@ -97,4 +98,3 @@ collections: {
         })
     } }
 };
-

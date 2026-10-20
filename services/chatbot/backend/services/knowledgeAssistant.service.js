@@ -94,6 +94,21 @@ const normalizeSmartContext = (value) => {
   };
 };
 
+// Smart Context narrows the user's selected sources. It cannot silently replace
+// an explicit source filter with a different, broader retrieval scope.
+const mergeAssistantContextFilters = ({ base, override, smartContext }) => {
+  const merged = { ...asObject(base), ...asObject(override) };
+  for (const key of ['source_ids', 'source_kinds']) {
+    const smart = asArray(smartContext?.[key]);
+    if (!smart.length) continue;
+    const selected = asArray(merged[key]);
+    const matches = selected.length ? smart.filter(value => selected.includes(value)) : smart;
+    if (!matches.length) throw createError('Smart Context does not overlap your selected sources. Update the source selection or clear Smart Context.', 422, 'KNOWLEDGE_SOURCE_SELECTION_CONFLICT');
+    merged[key] = [...new Set(matches)];
+  }
+  return merged;
+};
+
 const assertIdempotentTurnRequest = ({ originalUserMessage, questionFingerprint, integrationId }) => {
   if (originalUserMessage?.content_fingerprint !== questionFingerprint) {
     throw createError("client_turn_id was already used for a different message.", 409);
@@ -1098,7 +1113,7 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
   let model = null;
   const mergedFilters = await assistantRead(() => normalizeAssistantFilters({
     projectId: sessionRow.project_id, appTypeId: sessionRow.app_type_id, base: sessionRow.filters,
-    override: { ...asObject(filters), ...(smartContext.source_ids.length ? { source_ids: smartContext.source_ids } : {}), ...(smartContext.source_kinds.length ? { source_kinds: smartContext.source_kinds } : {}) }
+    override: mergeAssistantContextFilters({ base: sessionRow.filters, override: filters, smartContext })
   }));
   const retrievalRequest = knowledgeContracts.buildRetrievalRequest({
     projectId: sessionRow.project_id, query: sanitizedQuestion.text, filters: mergedFilters, smartContext,
@@ -1351,6 +1366,7 @@ module.exports = {
     summarizeLiveEvidence,
     normalizeAssistantFilters,
     normalizeSmartContext,
+    mergeAssistantContextFilters,
     normalizeRetrievalPlan,
     normalizeRetrievalPlanDetails,
     requestsSensitiveDisclosure,

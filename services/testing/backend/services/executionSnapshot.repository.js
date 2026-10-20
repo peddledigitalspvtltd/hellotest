@@ -7,7 +7,7 @@ const BATCH_SIZE = 250;
 const CASE_COLUMNS = [
   "execution_id", "test_case_id", "test_case_title", "test_case_description", "external_references",
   "suite_id", "suite_name", "module_id", "module_name", "priority", "status", "parameter_values",
-  "parameter_template_values", "test_data_options", "suite_parameter_values", "suite_parameter_template_values",
+  "parameter_template_values", "test_data_options", "execution_hooks", "suite_parameter_values", "suite_parameter_template_values",
   "test_data_set_id", "test_data_set_name", "test_data_set_snapshot", "data_set_source", "sort_order",
   "assigned_to", "assigned_to_ids", "assignment_source"
 ];
@@ -22,6 +22,7 @@ const caseValues = (snapshot) => {
     external_references: snapshot.external_references || [],
     parameter_values: snapshot.parameter_values || {},
     test_data_options: snapshot.test_data_options || {},
+    execution_hooks: snapshot.execution_hooks || [],
     parameter_template_values: snapshot.parameter_template_values || snapshot.parameter_values || {},
     suite_parameter_values: snapshot.suite_parameter_values || {},
     suite_parameter_template_values: snapshot.suite_parameter_template_values || snapshot.suite_parameter_values || {},

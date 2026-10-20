@@ -1,3 +1,4 @@
+import { AutomationCodeLines } from "./AutomationCodeLines";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PlayIcon, SparkIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
@@ -31,7 +32,7 @@ import type { ApiRequestPreview, AutomationLearningCacheEntry, StepApiRequest, S
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { StepParameterizedText } from "@hellotest/testing/frontend/components/StepParameterizedText";
 import { AutomationParameterInput, AutomationReferencedParameters, AutomationRepositoryFieldPicker } from "./AutomationAuthoringInputs";
-import { AutomationInstructionPreview, automationProgramLines } from "./AutomationInstructionPreview";
+import { readAutomationInstructions } from "../lib/automationInstructions";
 import { automationNumericArgument, automationParameterArgument, getAutomationKeywordInputSpec, resolveAutomationRepositoryTarget } from "../lib/automationKeywordInputs";
 import "./StepAutomationEditor.css";
 
@@ -1892,12 +1893,18 @@ export function CodePreviewDialog({
   subtitle,
   code,
   objectRepository = [],
+  showMappings = true,
+  copyDisabled = false,
+  onRetry,
   onClose
 }: {
   title: string;
   subtitle: string;
   code: string;
   objectRepository?: AutomationLearningCacheEntry[];
+  showMappings?: boolean;
+  copyDisabled?: boolean;
+  onRetry?: () => void;
   onClose: () => void;
 }) {
   const { session } = useAuth();
@@ -1935,8 +1942,8 @@ export function CodePreviewDialog({
         </div>
         <div className="resource-form">
           <div className="resource-form-body">
-            <div className="automation-code-split">
-              <section className="automation-keyword-map-pane" aria-label="Keyword object mapping">
+            <div className="automation-code-split" style={showMappings ? undefined : {gridTemplateColumns:"minmax(0,1fr)"}}>
+              <section hidden={!showMappings} className="automation-keyword-map-pane" aria-label="Keyword object mapping">
                 <div className="automation-code-pane-head">
                   <strong>Keyword mapping</strong>
                   <span>{keywordMappings.length} call{keywordMappings.length === 1 ? "" : "s"} mapped</span>
@@ -1964,7 +1971,7 @@ export function CodePreviewDialog({
               <section className="automation-code-translation-pane" aria-label="True code translation">
                 <div className="automation-code-pane-head">
                   <strong>True code translation</strong>
-                  <span>Executable step code</span>
+                  <button className="ghost-button compact" type="button" disabled={copyDisabled} onClick={() => { void navigator.clipboard?.writeText(code).catch(() => {}); }}>Copy code</button>{onRetry ? <button className="ghost-button compact" type="button" onClick={onRetry}>Retry context</button> : null}
                 </div>
                 <pre className="automation-code-block">
                   <code>{code}</code>
@@ -2089,7 +2096,7 @@ export function StepAutomationDialog({
   );
 
   const instructionLineCount = useMemo(
-    () => automationProgramLines(automationCode).length,
+    () => readAutomationInstructions(automationCode, { unwrapEntry: true }).instructions.length,
     [automationCode]
   );
   const responseHeaderEntries = useMemo(
@@ -3031,12 +3038,12 @@ export function StepAutomationDialog({
                     {keywordMessage ? <div className={`inline-message step-composer-message ${keywordError ? "error-message" : "success-message"}`} role={keywordError ? "alert" : "status"}>{keywordMessage}</div> : null}
                   </section>
                 ) : null}
-                {automationCode ? (
+                {(
                   <section aria-label="Current instructions" className="step-composer-saved">
-                    <div className="step-composer-saved-heading"><span>Instructions</span><span>{instructionLineCount} lines</span></div>
-                    <AutomationInstructionPreview code={automationCode} sectionName="Current step" />
+                    <div className="step-composer-saved-heading"><span>Instructions</span><span>{instructionLineCount} instructions</span></div>
+                    <AutomationCodeLines mode="instructions" value={automationCode} onChange={setAutomationCode} />
                   </section>
-                ) : null}
+                )}
                 <details className="automation-request-details automation-editor-section" open={webKeywordId === "codedJS" && stepType === "web" || androidKeywordId === "codedJS" && stepType !== "web"}>
                   <summary><span>Automation code</span><strong>{automationCode ? "Configured" : "Optional"}</strong></summary>
                   <div className="automation-request-details-body">

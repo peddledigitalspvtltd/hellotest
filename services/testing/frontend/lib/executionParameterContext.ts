@@ -81,7 +81,8 @@ export function resolveExecutionParameterContext({ execution, caseSnapshot, step
     ? buildDataSetParameterValues({ ...snapshot, mode: templateMode || "table", rows: templateMode === "table" ? [selectedTemplates[rowIndex ?? 0] || {}] : selectedTemplates }) : {};
   const layers: ParameterLayer[] = [
     { source: "shared_group", sourceLabel: stepSnapshot?.group_name || "Shared group default", scope: "r", values: stepSnapshot?.shared_parameter_values || {}, templates: stepSnapshot?.shared_parameter_template_values, sensitiveNames: stepSnapshot?.shared_parameter_sensitive_names },
-    { source: "case", sourceLabel: "Case default", scope: "r", values: caseSnapshot?.parameter_values || {}, templates: caseSnapshot?.parameter_template_values },
+    { source: "case", sourceLabel: "Case default", scope: "r", values: caseSnapshot?.parameter_values || {}, templates: caseSnapshot?.parameter_template_values,
+      sensitiveNames: (caseSnapshot?.test_data_options?.private_parameter_names || []).map(name => normalizeStepParameterName(name, "t")) },
     { source: "suite", sourceLabel: "Suite value", scope: "s", values: caseSnapshot?.suite_parameter_values || {}, templates: caseSnapshot?.suite_parameter_template_values },
     variableLayer("environment", "Run environment", execution?.test_environment?.snapshot),
     variableLayer("configuration", "Run configuration", execution?.test_configuration?.snapshot),
@@ -113,8 +114,11 @@ export function resolveExecutionParameterContext({ execution, caseSnapshot, step
     };
     return { ...layer, values: Object.fromEntries(Object.entries(layer.values).filter(([key]) => allowed(key))), sensitiveNames: layer.sensitiveNames?.filter(allowed) };
   };
+  const reviewed=new Set((policy.case?.parameter_overrides||[]).map(name=>normalizeStepParameterName(name,"t")));
+  const onlyReviewed=(layer:ParameterLayer):ParameterLayer=>({...layer,values:Object.fromEntries(Object.entries(layer.values).filter(([name])=>reviewed.has(normalizeStepParameterName(name,layer.scope))))});
   return resolveStepParameterContext([layers[0], protect(layers[1], "case"), protect(caseData,"case"),
-    protect(layers[2],"suite"), protect(suiteData,"suite"), ...layers.slice(3,6).map(layer => protect(layer,"run")), protect(runData,"run"), layers[7]], definitions);
+    protect(layers[2],"suite"), protect(suiteData,"suite"), ...layers.slice(3,6).map(layer => protect(layer,"run")), protect(runData,"run"),
+    protect(onlyReviewed(layers[1]),"case"),protect(onlyReviewed(layers[5]),"run"),layers[7]], definitions);
 }
 
 /** Canonical scoped headers preserve namespaces and include declared-but-empty values. */

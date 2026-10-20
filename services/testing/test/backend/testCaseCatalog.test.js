@@ -22,7 +22,7 @@ test('catalog filters keep literal search escaped, values parameterized, and exe
   assert.ok(scope.params.includes("%50\\%\\_' OR TRUE --%"));
   assert.match(scope.where, /NOT EXISTS \(SELECT 1 FROM test_steps/);
   assert.doesNotMatch(scope.where, /execution_results/);
-  assert.match(svc.buildScope({ run_filter: 'with-runs', include_execution: true }).where, /EXISTS \(SELECT 1 FROM execution_results/);
+  assert.match(svc.buildScope({ run_filter: 'with-runs', include_execution: true }).where, /EXISTS \(SELECT 1 FROM test_case_effective_results/);
 });
 
 test('only one bounded page is returned and hydrated; cursors cannot cross catalog filters', async () => {

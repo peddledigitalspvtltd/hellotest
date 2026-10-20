@@ -23,7 +23,14 @@ async function persist(record: Pending) {
 function compact(payload: EngineCallbackPayload): EngineCallbackPayload {
   // Images already present in the structured logs need not cross the network twice.
   const evidence = payload.case_result?.logs?.stepEvidence || {};
-  return { ...payload, step_outcomes: payload.step_outcomes?.map(outcome => evidence[outcome.step_id] ? { ...outcome, evidence_image: null } : outcome) };
+  const uploaded = new Map((payload.artifact_bundle?.artifact_refs || []).filter(ref=>ref.kind==='screenshot'&&ref.attachment_id).map(ref=>[ref.file_name,ref]));
+  const compactEvidence = Object.fromEntries(Object.entries(evidence).map(([id,item])=>{
+    const ref = item.fileName ? uploaded.get(item.fileName) : undefined;
+    return [id,ref ? {attachmentId:ref.attachment_id,fileName:ref.file_name||undefined,mimeType:ref.content_type||undefined,size:ref.size_bytes||undefined,checksum:ref.checksum_sha256} : item];
+  }));
+  return { ...payload,
+    case_result:payload.case_result?.logs?{...payload.case_result,logs:{...payload.case_result.logs,stepEvidence:compactEvidence}}:payload.case_result,
+    step_outcomes: payload.step_outcomes?.map(outcome => evidence[outcome.step_id] ? { ...outcome, evidence_image: null } : outcome) };
 }
 async function send(record: Pending, secret: string, retain: boolean): Promise<Delivery> {
   const serialized = JSON.stringify(record.payload);

@@ -48,7 +48,7 @@ const RETRIEVAL_EMBEDDING_TIMEOUT_MS = 2_000;
 // provider batch and retry. Canonical lexical/local indexes do not wait on it.
 const INGESTION_EMBEDDING_TIMEOUT_MS = 8_000;
 const embeddingProviderCooldowns = new Map();
-const KNOWLEDGE_PROCESSING_VERSION = "2026.10-intent-enrichment-v3";
+const KNOWLEDGE_PROCESSING_VERSION = "2026.10-permission-scoped-context-v4";
 const KNOWLEDGE_WORKER_ID = `knowledge-${process.pid}-${uuid()}`;
 const SOURCE_KINDS = new Set(["requirement", "test_case", "execution", "bug", "knowledge_item", "text", "chat", "file", "url"]);
 const SOURCE_PERMISSION_BY_KIND = Object.freeze({
@@ -543,39 +543,26 @@ const serializeRequirement = (row, linkedTestCaseIds = []) => ({
 
 const serializeTestCase = async (row) => {
   const steps = await db.prepare(`
-    SELECT step_order, action, expected_result, step_type
+    SELECT step_order, action, expected_result, step_type, COUNT(*) OVER() AS total_step_count
     FROM test_steps WHERE test_case_id = ? ORDER BY step_order ASC LIMIT 100
   `).all(row.id);
-  const [requirementLinks, dataSets, modules, suite] = await Promise.all([
+  const [requirementLinks, modules] = await Promise.all([
     db.prepare(`
       SELECT requirement_id FROM requirement_test_cases
       WHERE test_case_id = ? ORDER BY requirement_id LIMIT 50
-    `).all(row.id),
-    db.prepare(`
-      SELECT data_sets.id, data_sets.name, data_sets.columns, data_sets.rows
-      FROM test_case_data_sets links
-      JOIN test_data_sets data_sets ON data_sets.id = links.test_data_set_id
-      WHERE links.test_case_id = ? ORDER BY links.sort_order, data_sets.id LIMIT 3
     `).all(row.id),
     db.prepare(`
       SELECT modules.id, modules.name
       FROM test_case_module_cases links
       JOIN test_case_modules modules ON modules.id = links.module_id
       WHERE links.test_case_id = ? ORDER BY links.sort_order, modules.id LIMIT 20
-    `).all(row.id),
-    row.suite_id ? db.prepare("SELECT id, name FROM test_suites WHERE id = ?").get(row.suite_id) : null
+    `).all(row.id)
   ]);
   const requirementIds = [...new Set([
     normalizeId(row.requirement_id),
     ...requirementLinks.map((link) => normalizeId(link.requirement_id))
   ].filter(Boolean))].slice(0, 50);
-  const dataSetEvidence = dataSets.map((dataSet) => ({
-    id: dataSet.id,
-    name: dataSet.name,
-    columns: asArray(dataSet.columns).slice(0, 50),
-    first_row: asArray(dataSet.rows)[0] || null,
-    row_count: asArray(dataSet.rows).length
-  }));
+  const totalStepCount = Number(steps[0]?.total_step_count) || steps.length;
   return {
     source_kind: "test_case",
     source_ref_id: row.id,
@@ -588,64 +575,44 @@ const serializeTestCase = async (row) => {
       `Authoring mode: ${row.authoring_mode || "structured"}`,
       `Review status: ${row.review_status || "not_requested"}`,
       requirementIds.length ? `Requirement IDs: ${requirementIds.join(", ")}` : "",
-      suite ? `Suite: ${suite.name} (${suite.id})` : "",
+      row.suite_id ? `Suite ID: ${row.suite_id}` : "",
       modules.length ? `Modules: ${modules.map((module) => `${module.name} (${module.id})`).join(", ")}` : "",
-      Object.keys(asObject(row.parameter_values)).length ? `Test parameters: ${compactJson(row.parameter_values, 4_000)}` : "",
-      dataSetEvidence.length ? `Linked dataset evidence: ${compactJson(dataSetEvidence, 6_000)}` : "",
+      Object.keys(asObject(row.parameter_values)).length ? `Test parameter names: ${compactJson(Object.keys(row.parameter_values), 4_000)}. Values require live, permission-checked test-data retrieval.` : "",
       asArray(row.labels).length ? `Labels: ${compactJson(row.labels, 1_000)}` : "",
       sanitizeExternalReferences(row.external_references).length ? `External references: ${compactJson(sanitizeExternalReferences(row.external_references), 2_000)}` : "",
       row.description || "",
       row.gherkin_document || "",
-      ...steps.map((step) => `Step ${step.step_order}: ${step.action || ""}\nExpected: ${step.expected_result || ""}\nType: ${step.step_type || "manual"}`)
+      ...steps.map((step) => `Step ${step.step_order}: ${step.action || ""}\nExpected: ${step.expected_result || ""}\nType: ${step.step_type || "manual"}`),
+      totalStepCount > steps.length ? `Indexed step window: first ${steps.length} of ${totalStepCount} steps. Retrieve the current Test Case through MCP before assessing the complete flow.` : ""
     ].filter(Boolean).join("\n\n"),
     metadata: {
       display_id: row.display_id,
       status: row.status,
       priority: row.priority,
       review_status: row.review_status,
-      step_count: steps.length,
+      step_count: totalStepCount,
+      indexed_step_count: steps.length,
+      steps_truncated: totalStepCount > steps.length,
       requirement_ids: requirementIds,
       module_ids: modules.map((module) => module.id),
-      suite_id: suite?.id || null,
-      data_set_ids: dataSetEvidence.map((dataSet) => dataSet.id),
+      suite_id: row.suite_id || null,
+      context_permission_profile: knowledgeAuthorization.APPLICATION_CONTEXT_PROFILE,
       source_updated_at: row.updated_at || row.created_at
     }
   };
 };
 
 const serializeExecution = async (row) => {
-  const [results, countRows] = await Promise.all([
-    db.prepare(`
-      SELECT id, test_case_id, test_case_title, status, duration_ms, error, logs,
-        test_data_set_id, test_data_set_name, data_set_iteration_index,
-        data_set_row_snapshot, created_at
-      FROM execution_results WHERE execution_id = ?
-      ORDER BY CASE status WHEN 'failed' THEN 1 WHEN 'blocked' THEN 2 WHEN 'running' THEN 3 ELSE 4 END,
-        created_at DESC, id DESC LIMIT 50
-    `).all(row.id),
-    db.prepare(`
+  // Run summaries are visible under run.view. Result logs, linked case contents
+  // and execution snapshots belong to separate permissions and are fetched live
+  // through MCP instead of being declassified by a persisted run passage.
+  const countRows = await db.prepare(`
       SELECT COALESCE(status, 'unknown') AS status, COUNT(*)::INTEGER AS count
       FROM execution_results WHERE execution_id = ?
       GROUP BY COALESCE(status, 'unknown')
       ORDER BY COALESCE(status, 'unknown')
-    `).all(row.id)
-  ]);
+    `).all(row.id);
   const resultCounts = Object.fromEntries(countRows.map((entry) => [entry.status, Number(entry.count || 0)]));
-  const sanitizeSnapshot = (value, maxLength) => sanitizeAiText(compactJson(value, maxLength)).text || null;
-  const failureEvidence = results.filter((result) => ["failed", "blocked"].includes(result.status)).slice(0, 12).map((result) => ({
-    result_id: result.id,
-    test_case_id: result.test_case_id,
-    test_case_title: result.test_case_title,
-    status: result.status,
-    error: normalizeText(result.error, 1_500) || null,
-    log_excerpt: normalizeText(result.logs, 1_500) || null,
-    data_set: result.test_data_set_name || result.test_data_set_id || null,
-    iteration: result.data_set_iteration_index ?? null,
-    data_set_row_snapshot: sanitizeSnapshot(result.data_set_row_snapshot, 2_000)
-  }));
-  const environmentSnapshot = sanitizeSnapshot(row.test_environment_snapshot, 3_000);
-  const configurationSnapshot = sanitizeSnapshot(row.test_configuration_snapshot, 3_000);
-  const dataSetSnapshot = sanitizeSnapshot(row.test_data_set_snapshot, 3_000);
   const failedOrBlockedTotal = Number(resultCounts.failed || 0) + Number(resultCounts.blocked || 0);
   return {
     source_kind: "execution",
@@ -658,17 +625,11 @@ const serializeExecution = async (row) => {
       `Trigger: ${row.trigger || "not recorded"}`,
       `Mode: ${row.execution_mode || "not recorded"}`,
       `Result summary: ${compactJson(resultCounts, 1_000)}`,
-      row.test_environment_name ? `Environment: ${row.test_environment_name}` : "",
-      environmentSnapshot ? `Environment snapshot: ${environmentSnapshot}` : "",
-      row.test_configuration_name ? `Configuration: ${row.test_configuration_name}` : "",
-      configurationSnapshot ? `Configuration snapshot: ${configurationSnapshot}` : "",
-      row.test_data_set_name ? `Run dataset: ${row.test_data_set_name}` : "",
-      dataSetSnapshot ? `Run dataset snapshot: ${dataSetSnapshot}` : "",
       row.release ? `Release: ${row.release}` : "",
       row.sprint ? `Sprint: ${row.sprint}` : "",
       row.build ? `Build: ${row.build}` : "",
       row.error_message ? `Recorded run error: ${normalizeText(row.error_message, 2_000)}` : "",
-      failureEvidence.length ? `Failed or blocked case evidence: ${compactJson(failureEvidence, 12_000)}` : "No failed or blocked case results were recorded in the bounded result window."
+      "Failure details, result logs and execution snapshots require live, permission-checked context retrieval."
     ].filter(Boolean).join("\n"),
     metadata: {
       status: row.status,
@@ -677,13 +638,7 @@ const serializeExecution = async (row) => {
       build: row.build,
       result_counts: resultCounts,
       failed_or_blocked_count: failedOrBlockedTotal,
-      failure_evidence_count: failureEvidence.length,
-      failure_evidence_truncated: failedOrBlockedTotal > failureEvidence.length,
-      result_evidence_window_count: results.length,
-      result_evidence_truncated: Object.values(resultCounts).reduce((sum, count) => sum + Number(count || 0), 0) > results.length,
-      environment_name: row.test_environment_name || null,
-      configuration_name: row.test_configuration_name || null,
-      data_set_name: row.test_data_set_name || null,
+      context_permission_profile: knowledgeAuthorization.APPLICATION_CONTEXT_PROFILE,
       source_updated_at: row.ended_at || row.started_at || row.created_at
     }
   };
@@ -1329,7 +1284,8 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
       Math.ceil(sanitized.text.length / 4), sanitized.text.length, checksum,
       { ...metadata, source_snapshot: { source_kind: source.source_kind, source_ref_id: source.source_ref_id || null,
         title: source.title, source_uri: sanitizeSourceUri(source.source_uri), attachment_id: source.attachment_id || null,
-        checksum_sha256: source._pending_checksum || source.checksum_sha256 || null },
+        checksum_sha256: source._pending_checksum || source.checksum_sha256 || null,
+        context_permission_profile: source.metadata?.context_permission_profile || null },
         processing_pipeline: pipeline, context_quality: contextQuality, document_context: documentContext, redactions: sanitized.redactions, redaction_count: sanitized.redaction_count, control_character_count: sanitized.control_character_count, risk_flags: sanitized.risk_flags }
     );
 
@@ -2607,6 +2563,7 @@ const search = async ({
     "index_states.required_indexes_ready = TRUE",
     "sources.extraction_status = 'ready'"
   ];
+  clauses.push(knowledgeAuthorization.applicationContextPredicate());
   if (asOf) filterParams.push(asOf, asOf);
   const fragmentAcl = knowledgeAuthorization.predicate({ user, projectId: normalizedProjectId, document: "documents", chunk: "chunks" });
   clauses.push(fragmentAcl.sql);
@@ -2654,7 +2611,7 @@ const search = async ({
     JOIN ai_knowledge_sources sources ON sources.id = chunks.source_id
     JOIN ai_knowledge_index_states index_states ON index_states.document_id = documents.id
   `;
-  const exactIdentifiers = [...new Set((sanitizedQuery.text.match(/\b(?:[A-Z][A-Z0-9]{1,11}-\d+|(?:BUG|TC|TS|STORY|RUN|REQ)-?[A-Z0-9_-]+|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\b/gi) || []).map((value) => value.toUpperCase()))].slice(0, 10);
+  const exactIdentifiers = [...new Set((sanitizedQuery.text.match(/\b(?:AT[_-][0-9]+|[A-Z][A-Z0-9]{1,11}-\d+|(?:BUG|TC|TS|STORY|RUN|REQ)-?[A-Z0-9_-]+|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\b/gi) || []).map((value) => value.toUpperCase()))].slice(0, 10);
 
   const retrievalErrors = [];
   const readStage = (task, code, cap = 3_500) => boundedRetrievalStage(task, {
@@ -2998,6 +2955,7 @@ const expandEvidence = async ({ projectId, user, hits = [], window = 1, limit = 
       JOIN ai_knowledge_index_states indexes ON indexes.document_id = documents.id
       WHERE chunks.project_id = ? AND documents.project_id = ? AND sources.project_id = ?
         AND sources.extraction_status = 'ready' AND indexes.required_indexes_ready = TRUE
+        AND ${knowledgeAuthorization.applicationContextPredicate()}
         ${asOf ? "AND documents.effective_from <= ?::timestamptz AND (documents.effective_to IS NULL OR documents.effective_to > ?::timestamptz)" : "AND documents.is_active = TRUE"}
         AND chunks.document_id = ? AND chunks.chunk_index BETWEEN ? AND ? AND ${acl.sql}
       ORDER BY chunks.chunk_index LIMIT 5`).all(projectId, projectId, projectId, ...(asOf ? [asOf, asOf] : []),

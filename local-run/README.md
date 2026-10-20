@@ -225,6 +225,21 @@ For visible host recording, the recommended local recorder values are:
 
 Local runs post directly to the configured Playwright runner and return signed step results through the HelloTest gateway. Passing and failing web steps capture screenshots; unexecuted steps after a failure are blocked. Test Runs refreshes once more when the run finishes so the final evidence is visible.
 
+For Automation Engineer's container-based Playwright MCP browser, a localhost
+application must be reachable from the worker. To automate this stack at its
+default frontend port, set this exact mapping in the local environment file:
+
+```dotenv
+RECORDER_TARGET_ORIGIN_ALIASES={"http://localhost:8080":"http://frontend","http://127.0.0.1:8080":"http://frontend"}
+```
+
+Recreate `testengine-web-worker` after changing it. The browser and generated
+script retain `http://localhost:8080`; only the inspection proxy's connection
+endpoint changes. Use canonical HTTP(S) origins without paths or credentials,
+with the same protocol on both sides. Configure the actual frontend port if it
+differs. Other ports and private addresses retain their usual access checks.
+The model and visited pages cannot add routes to this administrator setting.
+
 `HELLOTEST_LOCAL_RUN_ENGINE_URL` is the runner address **reachable from the API**. `HELLOTEST_LOCAL_CALLBACK_BASE_URL` is the HelloTest gateway address **reachable from the runner**. For a native runner on the same computer, the callback defaults to `http://localhost:8080`; `host.docker.internal` is a container-side hostname and may not resolve in a native process. The callback base may already end in `/api`; that prefix is added only once. Both public gateway and legacy direct API callback routes are supported.
 
 For a runner on another machine, configure its exact HTTP(S) origin in `HELLOTEST_LOCAL_RUN_ENGINE_URL` and configure the publicly reachable HelloTest gateway in `HELLOTEST_LOCAL_CALLBACK_BASE_URL`. Do not use `localhost` or Docker-only hostnames for that return path. Keep the configured dispatch and callback credentials available to the runner; do not send credentials as URL parameters. The browser UI lets the API select this configured runner instead of forcing a hard-coded local port.

@@ -1,3 +1,4 @@
+const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const crypto = require("crypto");
@@ -57,19 +58,12 @@ const plainText = (value) => stringifyTextValue(value)
   .replace(/\s+/g, " ")
   .trim();
 const stripMarkup = (value, max = 500) => plainText(value).slice(0, max);
-const IMAGE_DATA_URL_PATTERN = /^data:image\/(?:png|jpe?g|webp);base64,[A-Za-z0-9+/=\s]+$/i;
 const normalizeExternalLinks = (value) => normalizeReferenceList(value)
   .map((item) => normalizeText(item, 2_048))
   .filter((item) => /^https?:\/\//i.test(item))
   .slice(0, MAX_EXTERNAL_LINKS);
-const normalizeImageAssets = (value) => (Array.isArray(value) ? value : [])
-  .filter((item) => item && typeof item === "object" && typeof item.url === "string" && item.url.length <= 1_000_000 && IMAGE_DATA_URL_PATTERN.test(item.url))
-  .slice(0, MAX_REFERENCE_IMAGES)
-  .map((item, index) => ({
-    name: normalizeText(item.name, 180) || `Reference image ${index + 1}`,
-    url: item.url,
-    content_hash: shortHash(item.url)
-  }));
+const normalizeImageAssets = images => normalizeReferenceImages(images);
+
 const extractJson = parseAiJson;
 const allowedSeverity = new Set(["critical", "high", "medium", "low"]);
 const allowedPriority = new Set(["Highest", "High", "Medium", "Low", "Lowest"]);
@@ -424,9 +418,7 @@ const requestLlmDraft = async (integration, input, context, evidenceSources, ima
     // Keep their refs and identity; include each evidence body only once.
     [aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.prompt.segment.3"),String(JSON.stringify({ context, evidence_sources: evidenceSources.map(({ excerpt, ...source }) => source) })),""].join('')
   ].filter(Boolean).join("\n\n");
-  const userContent = images.length
-    ? [{ type: "text", text: prompt }, ...images.map((image) => ({ type: "image_url", image_url: { url: image.url, detail: "low" } }))]
-    : prompt;
+  const userContent = imageUserContent(prompt, images);
   const baseUrl = String(integration.base_url || "https://api.openai.com/v1").replace(/\/+$/, "");
   const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
   const response = await fetchLlmWithRetry(url, {
@@ -510,6 +502,7 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
     integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({ integrationId: integration_id, userId: user?.id, usageKey: BUG_DRAFT_USAGE_KEY, projectId, fallback: "project-then-global", allowMissing: true });
     if (integration) normalized = normalizeCandidate(await requestLlmDraft(integration, input, context, evidenceSources, imageAssets), deterministic, evidenceSources);
   } catch (error) {
+    if (error?.code === 'AI_VISION_UNSUPPORTED') throw error;
     providerError = error instanceof Error ? error.message : "LLM generation failed.";
     normalized = { ...deterministic, fallback_fields: [...DRAFT_FIELDS] };
   }

@@ -27,7 +27,9 @@ function repositoryFixture() {
         get: async (id) => state.entries.find((entry) => entry.id === id),
         all: async (...args) => {
           let rows = [...state.entries];
-          if (/app_type_id IS NOT DISTINCT FROM/.test(sql)) {
+          if(sql.includes('repository canonical scope')) {
+            rows=rows.filter(entry=>(entry.app_type_id||null)===(args[0]||null)&&((entry.project_id||null)===(args[1]||null)||args[2]&&!entry.project_id));
+          } else if (/app_type_id IS NOT DISTINCT FROM/.test(sql)) {
             rows = rows.filter((entry) => entry.app_type_id === args[0] && (entry.metadata.screen_name || entry.page_key) === args[1] && (!args[2] || entry.project_id === args[2]));
           } else if (/WHERE 1 = 1/.test(sql)) {
             let parameter = 0;
@@ -42,7 +44,7 @@ function repositoryFixture() {
               const appTypeId = args[parameter++];
               rows = rows.filter((entry) => entry.app_type_id === appTypeId);
             }
-            rows = rows.slice(args[parameter + 1], args[parameter + 1] + args[parameter]);
+            if(/LIMIT \?/.test(sql))rows = rows.slice(args[parameter + 1], args[parameter + 1] + args[parameter]);
           }
           return rows.map((entry) => ({ ...entry }));
         },
@@ -55,7 +57,9 @@ function repositoryFixture() {
             else state.entries.push({ ...entry, hit_count: 1 });
             return { changes: 1 };
           }
-          if (/^UPDATE automation_learning_cache SET page_url/.test(sql)) {
+          if (/^UPDATE automation_learning_cache SET metadata/.test(sql)) {
+            const entry=state.entries.find(row=>row.id===args[1]);if(entry)entry.metadata=args[0];
+          } else if (/^UPDATE automation_learning_cache SET page_url/.test(sql)) {
             const columns = sql.match(/ SET (.+) WHERE id = \?/)[1].split(",").filter((assignment) => assignment.includes("?")).map((assignment) => assignment.split("=")[0].trim());
             const entry = state.entries.find((candidate) => candidate.id === args[args.length - 1]);
             columns.forEach((column, index) => { entry[column] = args[index]; });
@@ -71,11 +75,13 @@ function repositoryFixture() {
     if (dependency === "@hellotest/platform/backend/src/obsDb") return obsDb;
     if (dependency === "crypto") return require("node:crypto");
     if (dependency === "@hellotest/platform/backend/src/utils/testStepAutomation") return require("../../../platform/backend/src/utils/testStepAutomation");
+    if(dependency==="../lib/repositoryScreenIdentity")return require('../../backend/lib/repositoryScreenIdentity');
+    if(dependency==="../lib/automationLocatorIdentity")return require('../../backend/lib/automationLocatorIdentity');
     return {};
   };
   const source = readFileSync(path.join(__dirname, "../../backend/services/aiAutomationBuilder.service.js"), "utf8");
-  new Function("require", "exports", "module", source)(requireFixture, service, { exports: service });
-  return { state, service };
+  new Function("require", "exports", "module", source+'\nexports.persistLearningForTest=persistLearning;')(requireFixture, service, { exports: service });
+  return { state, service, obsDb };
 }
 
 test("saved screens and selected fields survive an asynchronous database reload with their evidence", async () => {
@@ -99,6 +105,17 @@ test("saved screens and selected fields survive an asynchronous database reload 
   const updated = await service.getLearningCacheEntry(field.id);
   assert.equal(updated.metadata.screen_dom_compressed, "<form>Updated</form>");
   assert.equal(updated.metadata.screen_screenshot_url, "data:image/png;base64,screen");
+});
+
+test('equivalent closed locator syntax reuses one persisted field and its original selector spelling',async()=>{
+ const {service,state}=repositoryFixture();
+ const screen=await service.createLearningCacheEntry({app_type_id:'app-a',screen_name:'Login',page_url:'https://app.test/login',locator:'__screen__',locator_intent:'__screen__',metadata:{record_kind:'screen'}});
+ const original=await service.createLearningCacheEntry({app_type_id:'app-a',screen_name:'Login',page_url:'https://app.test/login',locator:'#email',object_name:'Email',metadata:{screen_entry_id:screen.id}});
+ const retried=await service.createLearningCacheEntry({app_type_id:'app-a',screen_name:'Login',page_url:'https://app.test/login',locator:'locator("#email")',object_name:'Email',metadata:{screen_entry_id:screen.id}});
+ assert.equal(retried.id,original.id);assert.equal(retried.locator,'#email');
+ assert.equal(state.entries.filter(row=>row.locator_intent!=='__screen__'&&!row.metadata.merged_into_entry_id).length,1);
+ const semantic=await service.createLearningCacheEntry({app_type_id:'app-a',screen_name:'Login',page_url:'https://app.test/login',locator:'getByLabel("Email")',object_name:'Email by label',metadata:{screen_entry_id:screen.id}});
+ assert.notEqual(semantic.id,original.id,'a label and CSS ID are not assumed to select the same control');
 });
 
 test("repository listing remains scoped and paginated, including historical app-owned rows without project IDs", async () => {
@@ -190,4 +207,73 @@ test("locator proposals are read-only and reviewed apply persists the locator, f
   assert.equal(applied.entry.metadata.locator_review_history[0].reviewed_by, "reviewer");
   await assert.rejects(service.applyLearningCacheImprovement({ id: field.id, confirmed: true, locator: "#stale", strategy: "css", expected_locator: "#email" }), { statusCode: 409 });
   assert.equal((await service.getLearningCacheEntry(field.id)).locator, "#email-new");
+});
+
+test("recorder and AI learned fields reuse the scoped Page URL screen and preserve source ownership", async () => {
+  const {service}=repositoryFixture();
+  const page_url='https://app.test/login';
+  const screen=await service.createLearningCacheEntry({app_type_id:'app-a',screen_name:'Login',page_url,locator:'__screen__',locator_intent:'__screen__',source:'manual_screen'});
+  const email=await service.createLearningCacheEntry({app_type_id:'app-a',screen_name:'Login',page_url,locator:'#email',object_name:'Email'});
+  await service.persistLearningForTest({testCase:{id:'recorded-case',app_type_id:'app-a',project_id:'project-a',title:'Sign in'},repositoryModel:{screens:new Map([['screen',{screen_name:'Recorded sign in',page_url,platform:'web'}]]),fields:new Map([['email',{screen_name:'Recorded sign in',field_name:'Recorded email',page_url,locator:'#email',platform:'web'}]])},learnedLocators:[{page_url,page_key:'Learned login',locator_intent:'Learned email',locator:'#email',locator_kind:'css',confidence:.8,metadata:{}}]});
+  const rows=await service.listLearningCache({app_type_id:'app-a',limit:200});
+  assert.deepEqual(new Set(rows.map(row=>row.id)),new Set([screen.id,email.id]));
+  const field=await service.getLearningCacheEntry(email.id);
+  assert.equal(field.metadata.screen_name,'Login');
+  assert.ok(field.metadata.reference_aliases.includes('Recorded sign in.Recorded email'));
+  assert.ok(field.metadata.reference_aliases.includes('Learned login.Learned email'));
+  assert.ok(field.metadata.source_owners.some(owner=>owner.test_case_id==='recorded-case'&&owner.source==='object_repository_recorder'));
+  assert.ok(field.metadata.source_owners.some(owner=>owner.test_case_id==='recorded-case'&&owner.source==='ai_builder'));
+});
+
+test('a host-confirmed saved Plan synchronizes only its used field through the real repository domain APIs',async()=>{
+ const {service:repository,state,obsDb:repositoryDb}=repositoryFixture();
+ const {createUsedObjectService,MIME}=require('../../backend/services/automationUsedObjects.service');
+ const {recordBrowserOperation}=require('../../backend/lib/automationBrowserRecording');
+ const {projectModelSnapshot}=require('../../backend/lib/automationBrowserModelTargets');
+ const {createRecordedSectionContract}=require('../../backend/lib/automationRecordedContract');
+ const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
+ const testCase={id:'built-case',app_type_id:'app-a',project_id:'project-a'};
+ const step={id:'built-section',test_case_id:testCase.id,action:'Enter email',expected_result:'Email value is retained'};
+ const result=value=>({content:[{type:'text',text:JSON.stringify({source:'playwright',...value})}]});
+ const snapshot={tool:'browser_snapshot',result:result({observation_id:'actual-capture',url:'https://app.test/login',elements:[{tag:'input',accessible_name:'Email',accessible_role:'textbox',locators_validated:true,locator_candidates:['getByLabel("Email")']},{tag:'button',accessible_name:'Unused button',accessible_role:'button',locators_validated:true,locator_candidates:['#unused']}]})};
+ projectModelSnapshot(snapshot);
+ const requests=[{name:'browser_fill',arguments:{locator:'getByLabel("Email")',value:'@r.email'}},{name:'browser_assert',arguments:{locator:'getByLabel("Email")',assertion:'value',value:'@r.email'}}];
+ const browserObservations=requests.map((request,index)=>{const row={tool:request.name,execution_step_id:step.id,result:result(index?{assertion_outcome:'satisfied'}:{action_outcome:'completed'})};recordBrowserOperation(row,request,{snapshot});return row;});
+ const source=compileRecordedProgram(requests).source;
+ const seal=createRecordedSectionContract({execution:{required:true,step_id:step.id,action:step.action,expected_result:step.expected_result},requests,source,mappings:[{id:step.id,action_operations:[1],assertion_operations:[2]}]});
+ const activity={id:'activity',project_id:'project-a',app_type_id:'app-a',category:'automation_build',created_by:'user'},artifacts=[];
+ const transactions={getTransaction:async()=>activity,listTransactionArtifacts:async()=>artifacts,getTransactionArtifact:async id=>artifacts.find(row=>row.id===id),createTransactionArtifact:async(id,input)=>{const row={...input,id:'binding-intent',transaction_id:id};artifacts.push(row);return row;}};
+ const obsDb={transaction:repositoryDb.transaction,prepare:sql=>sql.startsWith('UPDATE workspace_transaction_artifacts')?{run:async(content,id)=>{artifacts.find(row=>row.id===id).content=content;}}:repositoryDb.prepare(sql)};
+ const db={transaction:callback=>callback,prepare:sql=>({get:async()=>sql.includes('FROM test_cases')?testCase:{...step,automation_code:source}})};
+ const service=createUsedObjectService({db,obsDb,transactions,repository,getAccess:async()=>({'automation.repository.manage':true})});
+ const savedScreen=await repository.createLearningCacheEntry({app_type_id:'app-a',screen_name:'Curated Login',page_url:'https://app.test/login',locator:'__screen__',source:'manual_screen',metadata:{record_kind:'screen'}});
+ const savedField=await repository.createLearningCacheEntry({app_type_id:'app-a',screen_name:'Curated Login',page_url:'https://app.test/login',locator:'getByLabel("Email")',object_name:'CustomerEmail',metadata:{screen_entry_id:savedScreen.id,description:'Curated email binding'}});
+ const input={testCase,step,source,seal,browserObservations,transactionId:'activity',userId:'user'};
+ const pending=await service.stage(input),synced=await service.sync({...input,artifactId:pending.artifact_id});
+ assert.equal(artifacts[0].mime_type,MIME);assert.equal(synced.status,'synced');assert.equal(synced.object_count,1);
+ assert.equal(synced.bindings[0].entry_id,savedField.id);assert.equal(synced.bindings[0].reference,'Curated Login.CustomerEmail');
+ const rows=await repository.listLearningCache({app_type_id:'app-a',limit:200});
+ assert.equal(rows.length,2);assert.deepEqual(new Set(rows.map(row=>row.id)),new Set([savedScreen.id,savedField.id]));
+ const field=await repository.getLearningCacheEntry(savedField.id);
+ assert.equal(field.metadata.description,'Curated email binding');assert.equal(field.metadata.instruction_usages[0].test_case_id,testCase.id);
+ assert.deepEqual(field.metadata.instruction_usages[0].operation_indexes,[1,2]);
+ assert.equal(state.entries.some(row=>row.locator==='#unused'),false);
+});
+
+test('observed route digests isolate same-locator SPA fields through the real repository domain APIs',async()=>{
+ const {service}=repositoryFixture(),url='https://app.test/app';
+ const genericScreen=await service.createLearningCacheEntry({app_type_id:'app-a',screen_name:'Curated app',page_url:url,locator:'__screen__',metadata:{record_kind:'screen'}});
+ const generic=await service.createLearningCacheEntry({app_type_id:'app-a',screen_name:'Curated app',page_url:url,locator:'#email',object_name:'CuratedEmail',metadata:{screen_entry_id:genericScreen.id}});
+ const fields=[];
+ for(const digest of ['a'.repeat(64),'b'.repeat(64)]){
+  const metadata={observed_route_sha256:digest};
+  const screen=await service.createLearningCacheEntry({app_type_id:'app-a',screen_name:'app '+digest.slice(0,12),page_url:url,locator:'__screen__',metadata:{...metadata,record_kind:'screen'}});
+  const field=await service.createLearningCacheEntry({app_type_id:'app-a',page_url:url,locator:'#email',object_name:'Email',metadata:{...metadata,screen_entry_id:screen.id}});
+  fields.push(field);
+  assert.equal(field.metadata.screen_entry_id,screen.id);assert.equal(field.metadata.observed_route_sha256,digest);
+ }
+ assert.notEqual(fields[0].id,fields[1].id);assert.notEqual(fields[0].id,generic.id);
+ const rows=await service.listLearningCache({app_type_id:'app-a',limit:200});assert.equal(rows.length,6);
+ assert.equal(rows.find(row=>row.id===generic.id).metadata.object_name,'CuratedEmail');
+ assert.equal(rows.filter(row=>row.locator==='#email').length,3);
 });

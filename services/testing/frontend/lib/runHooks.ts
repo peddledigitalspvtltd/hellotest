@@ -44,3 +44,17 @@ export function mapRunHooksToExecutionHooks(hooks: RunHookSelection[]) {
     };
   });
 }
+
+
+/** Restore saved case references, excluding frozen execution payloads. */
+export function mapExecutionHooksToRunHooks(hooks: Array<{id:string;name?:string;scope:string;phase:string;target_kind:string;target_id:string}> = []): RunHookSelection[] {
+  return hooks.filter(hook => hook.scope === "test" && ["pre","post"].includes(hook.phase) && ["test","suite"].includes(hook.target_kind)).map(hook => ({
+    id:hook.id, hookType:hook.phase === "post" ? "AFTER_TEST" : "BEFORE_TEST", itemType:hook.target_kind as RunHookItemType, itemId:hook.target_id,
+    name:(hook.name || hook.target_id).replace(/^(?:Before|After) Test: /, "")
+  }));
+}
+
+export function mapCaseHooksToExecutionHooks(hooks: RunHookSelection[]) {
+  if (hooks.some(hook => hook.hookType !== "BEFORE_TEST" && hook.hookType !== "AFTER_TEST")) throw new Error("Case hooks support Before Test and After Test only.");
+  return mapRunHooksToExecutionHooks(hooks).map(hook => ({...hook,scope:"test" as const,phase:hook.phase as "pre" | "post",fail_behavior:hook.fail_behavior as "continue" | "fail-run" | "mark-blocked"}));
+}

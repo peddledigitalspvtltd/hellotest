@@ -1,8 +1,9 @@
-const { normalizeDataOptions, composeScopedTestData, sharedParameterNames, allowsDataParameter } = require("@hellotest/platform/backend/src/utils/scopedTestData");
+const { normalizeDataOptions, dataOptionsForCase, composeScopedTestData, sharedParameterNames, allowsDataParameter } = require("@hellotest/platform/backend/src/utils/scopedTestData");
 const db = require("@hellotest/platform/backend/src/db");
 const { expandSuiteSelection, loadSuiteContexts } = require("./suiteExecutionContext.service");
 const { preserveFrozenRunParameters, canonicalLegacyData } = require("@hellotest/platform/backend/src/utils/frozenRunParameterCompatibility");
 const { normalizeParameterKey } = require("@hellotest/platform/backend/src/utils/stepParameterResolution");
+const { loadEffectiveCaseDataSets, frozenCaseDataSet, caseDataSetResource } = require('./effectiveCaseDataSets.service');
 
 const { collectCaseParameterNames, tokenFor } = require("@hellotest/platform/backend/src/utils/parameterNames");
 
@@ -76,16 +77,14 @@ async function buildRunParameterPlan(input) {
       OR c.id IN (SELECT test_case_id FROM suite_test_cases WHERE suite_id IN (SELECT jsonb_array_elements_text(?::jsonb)))) ORDER BY c.id`)
     .all(app_type_id, addedDirectIds, addedSuiteIds);
   const liveCaseIds = new Set(liveCases.map(item => item.id));
+  const linkedParameters=await require('./linkedManualParameters.service').resolveForCases(liveCases,{projectId:project_id});
   if (addedDirectIds.some(id => !liveCaseIds.has(id))) throw Object.assign(new Error("All cases must belong to the selected application."), { statusCode: 400 });
   const allIds = [...new Set([...existingById.keys(), ...liveCases.map(item => item.id)])];
   const [rawLiveSteps, mappings, linkedData] = await Promise.all([
     db.prepare("SELECT * FROM test_steps WHERE test_case_id IN (SELECT jsonb_array_elements_text(?::jsonb)) ORDER BY test_case_id, step_order").all(liveCases.map(item => item.id)),
     db.prepare(`SELECT mapping.suite_id, mapping.test_case_id FROM suite_test_cases mapping JOIN test_suites suite ON suite.id = mapping.suite_id
       WHERE mapping.test_case_id IN (SELECT jsonb_array_elements_text(?::jsonb)) AND suite.app_type_id = ? ORDER BY mapping.sort_order, suite.created_at DESC, suite.id`).all(allIds, app_type_id),
-    db.prepare(`SELECT mapping.test_case_id, row_to_json(data) AS data_set
-      FROM test_case_data_sets mapping JOIN test_data_sets data ON data.id = mapping.test_data_set_id
-      WHERE mapping.test_case_id IN (SELECT jsonb_array_elements_text(?::jsonb)) AND data.project_id = ?
-        AND (data.app_type_id IS NULL OR data.app_type_id = ?) ORDER BY mapping.sort_order, mapping.test_data_set_id`).all(allIds, project_id, app_type_id)
+    loadEffectiveCaseDataSets({ testCaseIds: liveCases.filter(item => !existingById.has(item.id)).map(item => item.id), projectId: project_id, appTypeId: app_type_id })
   ]);
   const liveSteps = await require("./sharedStepDataSnapshot.service").freezeSharedStepData(rawLiveSteps.map(step => ({ ...step, app_type_id })), { materialize: false });
   const suitesByCase = new Map();
@@ -99,7 +98,7 @@ async function buildRunParameterPlan(input) {
     const suiteId = dataScope === "s" && direct.includes(item.id) ? suiteContextId
       : addedSuiteIds.find(id => memberships.includes(id)) || (dataScope === "s" ? null : memberships[0]) || null;
     desired.set(item.id, { test_case_id: item.id, test_case_title: item.title, suite_id: suiteId,
-      parameter_values: parsed(item.parameter_values), test_data_options: item.test_data_options, authoring_mode: item.authoring_mode, gherkin_document: item.gherkin_document });
+      parameter_values: linkedParameters.get(item.id)?.effective_parameter_values||parsed(item.parameter_values), test_data_options: require('@hellotest/platform/backend/src/utils/linkedManualParameters').effectiveLinkedDataOptions(item,linkedParameters.get(item.id)), authoring_mode: item.authoring_mode, gherkin_document: item.gherkin_document });
   }
   for (const item of retained) desired.set(item.test_case_id, { ...item,
     suite_id: suiteIds.includes(item.suite_id) ? item.suite_id : (suitesByCase.get(item.test_case_id) || []).find(id => retainedSuiteIds.includes(id)) || item.suite_id });
@@ -141,21 +140,23 @@ async function buildRunParameterPlan(input) {
     stepsByCase.get(step.test_case_id).push(step);
   }
   const linkedDataByCase = new Map();
-  for (const row of linkedData) if (!linkedDataByCase.has(row.test_case_id)) linkedDataByCase.set(row.test_case_id, row.data_set);
+  for (const row of linkedData) linkedDataByCase.set(row.test_case_id, caseDataSetResource(row));
   const effective = [...desired.values()].map(item => {
+    const caseOptions = normalizeDataOptions(item.test_data_options, parsed(item.test_data_options).shared_data_kind
+      || ((stepsByCase.get(item.test_case_id) || []).some(step => step.automation_code || step.api_request) ? "sections" : "steps"));
     const frozen = existingById.has(item.test_case_id);
     const context = contexts.get(item.suite_id);
     const composed = frozen && !dataChanged ? null : composeScopedTestData({ hierarchical: true,
-      caseData: linkedDataByCase.get(item.test_case_id),
-      caseOptions: item.test_data_options,
+      caseData: frozen ? frozenCaseDataSet(item) : linkedDataByCase.get(item.test_case_id),
+      caseOptions,
       suiteData: dataScope === "s" && !item.suite_id ? selectedResources.test_data_set_id : context?.dataSet,
       runData: dataScope === "r" ? selectedResources.test_data_set_id : null,
       suiteOptions: dataScope === "s" && !item.suite_id ? dataOptions : context?.dataOptions,
       runOptions: dataOptions, sharedNames: sharedParameterNames(stepsByCase.get(item.test_case_id) || [])
     });
     return { ...item,
-      test_data_options: frozen && !dataChanged ? item.test_data_options : { ...normalizeDataOptions(item.test_data_options), runtime_policy: {
-        version: 2, case: normalizeDataOptions(item.test_data_options), suite: normalizeDataOptions(dataScope === "s" && !item.suite_id ? dataOptions : context?.dataOptions), run: dataOptions
+      test_data_options: frozen && !dataChanged ? { ...item.test_data_options, shared_data_kind: caseOptions.shared_data_kind } : { ...normalizeDataOptions(item.test_data_options), shared_data_kind: caseOptions.shared_data_kind, runtime_policy: {
+        version: 2, case: caseOptions, suite: dataOptionsForCase(dataScope === "s" && !item.suite_id ? dataOptions : context?.dataOptions, caseOptions), run: dataOptionsForCase(dataOptions, caseOptions)
       } },
       suite_parameter_values: frozen ? parsed(item.suite_parameter_values) : contexts.get(item.suite_id)?.parameters || {},
       test_data_set_snapshot: frozen && !dataChanged ? parsed(item.test_data_set_snapshot, null) : composed.snapshot
@@ -210,7 +211,7 @@ async function buildRunParameterPlan(input) {
     return [...ids].some(id => {
       const owner = ownershipByCase.get(id);
       const allowsTarget = isShared => {
-        if (isShared && !dataOptions.override_shared_steps) return false;
+        if (isShared && !dataOptionsForCase(dataOptions, owner?.caseOptions).override_shared_steps) return false;
         if (!dataOptions.override_test_case_data && (name.startsWith("t.") || owner?.caseNames.has(name))
           && !(isShared && owner?.caseOptions.override_shared_steps === false)) return false;
         return dataScope !== "r" || dataOptions.override_suite_data || !(name.startsWith("s.") || owner?.suiteNames.has(name));
@@ -222,7 +223,7 @@ async function buildRunParameterPlan(input) {
   };
   const parameters = [...declarations].filter(([name, ids]) => allowsDeclaration(name, ids)).sort(([a], [b]) => a.localeCompare(b)).map(([name, ids]) => ({ name, token: tokenFor(name), scope: name[0], case_count: ids.size }));
   const validationData = execution?.parameter_scope_default === "t" ? canonicalLegacyData(selectedResources.test_data_set_id) : selectedResources.test_data_set_id;
-  return { expected_instance_count: expectedInstances, case_count: effective.length, suite_count: suiteIds.length, suite_ids: suiteIds,
+  return { shared_group_kinds: [...new Set(effective.map(item => normalizeDataOptions(item.test_data_options).shared_data_kind || "steps"))], expected_instance_count: expectedInstances, case_count: effective.length, suite_count: suiteIds.length, suite_ids: suiteIds,
     parameters, data_set_validation: validateDataSetParameters(validationData, parameters) };
 }
 

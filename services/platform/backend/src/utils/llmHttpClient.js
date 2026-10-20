@@ -16,7 +16,11 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
   // Older feature callers append this suffix even when the integration stores
   // the complete endpoint. Normalize only that duplicate, preserving the host.
   if (typeof url === "string") url = url.replace(/(\/chat\/completions)(?:\/chat\/completions)+\/?$/i, "$1");
-  const managed = await require("./aiFeatureRuntime").apply(init, options);
+  let managed;
+  try{managed=await require("./aiFeatureRuntime").apply(init,options);}catch(error){
+    const preflight=await traces.begin({url,init,options:{...options,traceStage:'configuration_preflight'}});
+    await traces.finish(preflight,{error});throw error;
+  }
   init = managed.init; options = managed.options;
   if (managed.url) url = managed.url;
   const timeoutMs = Math.max(1_000, Number(options.timeoutMs || DEFAULT_TIMEOUT_MS));
@@ -30,19 +34,21 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     prepared = prepareChatRequest(init, { ...options, operation });
     init = prepared.init;
   } catch (error) {
-    const preflight = await traces.begin({ url, init, options: { ...options, operation } });
+    const preflight = await traces.begin({ url, init, options: { ...options, operation,traceStage:'context_preflight' } });
     await traces.finish(preflight, { error });
     throw error;
   }
-  let lastTrace = null, lastResponse = null, attempts = 1;
+  let lastTrace = null, lastResponse = null, attempts = 1, correctionFailure = null;
   const request = async (init, remainingMs = timeoutMs) => {
-    if (lastTrace) await traces.finish(lastTrace, { response: lastResponse, attempts });
-    lastTrace = await traces.begin({ url, init, options: { ...options, operation }, correctionOf: lastTrace?.id });
+    if (lastTrace) await traces.finish(lastTrace, { response: lastResponse, attempts, error:correctionFailure, invalid:Boolean(correctionFailure) });
+    correctionFailure = null;
+    lastTrace = await traces.begin({ url, init, options: { ...options, operation,traceStage:'provider_preflight' }, correctionOf: lastTrace?.id });
     attempts = 1;
     lastResponse = null;
     remainingMs = Math.min(remainingMs, timeoutMs - (Date.now() - startedAt));
     if (remainingMs <= 0) throw Object.assign(new Error("The model request deadline elapsed before dispatch."), { code: "DEADLINE_EXCEEDED", statusCode: 504 });
     lastResponse = await resilientHttpRequest(url, init, {
+    fetchImpl:(...args)=>{traces.dispatch(lastTrace,attempts);return globalThis.fetch(...args);},
     dependency: "llm-provider",
     operation,
     deadlineMs: remainingMs,
@@ -70,6 +76,9 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
   for (let correction = 0; correction < 2 && !response.ok; correction++) {
     if (![400, 413, 422].includes(response.status)) break;
     const detail = await response.clone().text();
+    if (require('./aiReferenceImages').isVisionRejection(response.status, detail) && prepared.payload?.messages?.some(message => Array.isArray(message.content) && message.content.some(part => part?.type === 'image_url'))) {
+      throw Object.assign(new Error('The selected model rejected reference images. Select a vision-capable integration or remove the images; no text-only generation was substituted.'), { code: 'AI_VISION_UNSUPPORTED', statusCode: 422 });
+    }
     let next = options.compatibility === false ? null : compatibleChatRequest(init, response.status, detail);
     if (!next && !contextReduced && options.contextFallback !== false && isContextSizeRejection(response.status, detail)) {
       const body = buildContextFallbackBody(init.body, options.contextFallbackContent, options.contextFallbackInstructions);
@@ -84,6 +93,27 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     if (!next || remainingMs < 1000 || init.signal?.aborted) break;
     init = next;
     response = await request(init, remainingMs);
+  }
+  const nativeContract = !managed.profile?.deferred_output_schema && require('./aiGenerationContracts').nativeArtifactContract(managed.profile?.id);
+  if (nativeContract && response.ok) {
+    const validateArtifact = async candidate => {
+      const value = await candidate.clone().json();
+      if (['length','content_filter'].includes(value.choices?.[0]?.finish_reason) || value.choices?.[0]?.message?.refusal || value.choices?.[0]?.message?.tool_calls?.length) return;
+      let parsed;
+      try { parsed = JSON.parse(require('./llmResponse').getCompletionContent(value).trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'')); } catch { parsed = null; }
+      require('./aiGenerationContracts').validateNativeArtifactOutput(managed.profile.id, parsed, {testCaseTypes:options.nativeArtifactTestCaseTypes});
+    };
+    try { await validateArtifact(response); }
+    catch (error) {
+      const remainingMs = timeoutMs - (Date.now() - startedAt);
+      if (error?.code !== 'AI_NATIVE_CONTRACT_INVALID' || remainingMs < 1000 || init.signal?.aborted) throw error;
+      const body = JSON.parse(init.body);
+      body.messages.push({ role:'system', content:`Format correction, once: required artifact fields were missing or invalid: ${JSON.stringify(error.validation_errors)}. Return the complete original requested artifact JSON using the same evidence and exact permitted IDs. ${nativeContract.note} Do not fabricate missing facts or add unrelated work.` });
+      // This is read-only authoring, never a replay of a browser/tool action.
+      correctionFailure = error;
+      response = await request({ ...init, body:JSON.stringify(body) }, remainingMs);
+      if (response.ok) await validateArtifact(response);
+    }
   }
   await require("./aiFeatureRuntime").validateResponse(response, managed.profile);
   const valid = options.validateResponse === false ? false : await validateChatResponse(response, prepared.payload);

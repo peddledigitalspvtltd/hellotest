@@ -32,3 +32,12 @@ test('editing manual instructions preserves exact reviewed packs and typing whit
   assert.equal(updateManualContextInstructions(current, '').includes(evidence), true);
   assert.throws(() => updateManualContextInstructions(current, 'x'.repeat(AI_CONTEXT_PACK_LIMIT)), /context budget/);
 });
+
+test('edited AI draft metadata retains the mandatory description, priority and type contract',()=>{
+ const complete={title:'Invalid sign in',description:'Reject invalid credentials.',priority:2,test_case_type:'functional',steps:[{action:'Sign in',expected_result:'Invalid credentials'}]};
+ assert.deepEqual(draftReadinessIssues(complete),[]);
+ assert.match(draftReadinessIssues({...complete,description:'',priority:6,test_case_type:''}).join(' '),/description.*priority.*type/);
+});
+test('shared proposal readiness accepts the existing agent P1–P5 priority representation',()=>{
+ const draft={title:'Approval',description:'Review approval',priority:'P2',steps:[{action:'Approve',expected_result:'Approved'}]};assert.deepEqual(draftReadinessIssues(draft),[]);assert.match(draftReadinessIssues({...draft,priority:'urgent'}).join(' '),/priority/);
+});

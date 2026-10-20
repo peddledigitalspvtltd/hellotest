@@ -190,8 +190,12 @@ function buildRepositoryResolver(entries = []) {
   };
   const normalizedEntries = (Array.isArray(entries) ? entries : [])
     .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    .filter((entry) => !entry.metadata?.merged_into_entry_id)
     .map((entry) => {
       const metadata = entry.metadata && typeof entry.metadata === "object" && !Array.isArray(entry.metadata) ? entry.metadata : {};
+      const screen = normalizeText(entry.screen_name || metadata.screen_name || entry.page_key);
+      const name = normalizeText(entry.object_name || metadata.object_name || entry.locator_intent);
+      const field = name.startsWith(`${screen}.`) ? name.slice(screen.length + 1) : name;
       const fallbackLocators = [
         ...(Array.isArray(entry.fallback_locators) ? entry.fallback_locators : []),
         ...(Array.isArray(metadata.fallback_locators) ? metadata.fallback_locators : []),
@@ -199,6 +203,8 @@ function buildRepositoryResolver(entries = []) {
       ].map(locatorValue).filter(Boolean);
       return {
         locator: normalizeText(entry.locator),
+        canonical: screen && field ? normalizeRepositoryKey(`${screen}.${field}`) : "",
+        aliases: [...(Array.isArray(entry.reference_aliases) ? entry.reference_aliases : []), ...(Array.isArray(metadata.reference_aliases) ? metadata.reference_aliases : [])].filter(alias => typeof alias === "string").map(normalizeRepositoryKey).filter(Boolean),
         candidates: [
           entry.locator,
           entry.locator_intent,
@@ -217,7 +223,13 @@ function buildRepositoryResolver(entries = []) {
   return (selector) => {
     const raw = String(selector || "");
     const key = normalizeRepositoryKey(raw);
-    const match = normalizedEntries.find((entry) => entry.candidates.includes(key));
+    let match = normalizedEntries.find(entry => entry.canonical === key);
+    if (!match) {
+      const aliases = normalizedEntries.filter(entry => entry.aliases.includes(key));
+      if (new Set(aliases.map(entry => entry.locator)).size > 1) throw new Error("This historical repository reference matches multiple fields. Use a unique canonical Screen.Field reference.");
+      match = aliases[0];
+    }
+    match ||= normalizedEntries.find(entry => entry.candidates.includes(key));
     return match?.locator || raw;
   };
 }

@@ -23,7 +23,20 @@
 .llm-trace-payloads { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
 .llm-trace-payloads details { min-width: 0; }
 .llm-trace-payloads summary { font-size: 13px; font-weight: 600; cursor: pointer; padding: 8px 0; }
+.llm-trace-payload-toolbar { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-bottom: 8px; }
+.llm-trace-payload-toolbar button { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.llm-trace-copy-notice { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .llm-trace-payloads pre { max-height: 440px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-muted, var(--surface)); border: 1px solid var(--border); padding: 12px; border-radius: 8px; font-size: 12px; line-height: 1.6; margin: 0; }
+.activity-model-calls { display: grid; gap: 10px; min-width: 0; }
+.activity-model-call { min-width: 0; border: 1px solid var(--border); border-radius: 10px; }
+.activity-model-call > summary { display: flex; align-items: center; gap: 12px; padding: 12px; cursor: pointer; }
+.activity-model-call > summary > span:first-child { display: grid; gap: 4px; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.activity-model-call > summary strong { font-size: 13px; }
+.activity-model-call > summary small { font-size: 12px; color: var(--text-muted); }
+.activity-model-call-status { font-size: 12px; white-space: nowrap; }
+.activity-model-call-status[data-status="failed"] { color: var(--danger, #b42318); }
+.activity-model-call > .llm-trace-detail { border: 0; border-top: 1px solid var(--border); border-radius: 0 0 10px 10px; }
+@media(max-width: 600px) { .activity-model-call > summary { flex-wrap: wrap; } }
 @media(max-width: 700px) { .llm-traces-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .llm-trace-payloads, .llm-trace-facts { grid-template-columns: minmax(0,1fr); } .llm-trace-detail { padding: 12px; } }
 
 .llm-call-drawer-backdrop { position: fixed; inset: 0; z-index: 1400; background: #142a3b55; display: flex; justify-content: flex-end; }
@@ -33,3 +46,9 @@
 .llm-call-drawer .llm-trace-payloads { grid-template-columns: minmax(0, 1fr); }
 .llm-call-drawer .llm-trace-payloads pre { max-height: none; }
 @media(max-width: 700px) { .llm-call-drawer { width: 100%; padding: 16px; } }
+
+.engineer-model-payload, .engineer-model-call-body { display: grid; gap: 12px; min-width: 0; }
+.engineer-model-call-select { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; }
+.engineer-model-call-select select { width: 100%; min-width: 0; min-height: 36px; color: var(--text); background: var(--panel-strong); }
+.engineer-model-payloads { grid-template-columns: minmax(0, 1fr); }
+.engineer-model-payloads pre { max-height: 520px; }

@@ -100,3 +100,38 @@ test('a context packet without its verified project cannot cross the MCP boundar
  await assert.rejects(instance.retrievePacket({user:{id:'actor'},projectId:'project',query:'Review stories'}),{code:'MCP_CONTEXT_SCOPE_MISMATCH'});
  await assert.rejects(instance.retrieveContext({user:{id:'actor'},request:{project_id:'project',query:'Review stories'}}),{code:'MCP_CONTEXT_SCOPE_MISMATCH'});
 });
+
+test('packet context preserves selections and budgets on the public remote contract without private identity fields',async()=>{
+ const previous=process.env.HELLOTEST_MCP_INTERNAL_URL;process.env.HELLOTEST_MCP_INTERNAL_URL='http://configured.example/mcp';
+ let call;
+ const instance=gateway(async(actor,name,args)=>{call={actor,name,args};return {packet:{project_id:actor.projectId,evidence:[]}};});
+ try{
+  await instance.retrievePacket({user:{id:'actor'},projectId:'project',appTypeId:'app',integrationId:'model',query:'Review checkout',
+   filters:{requested_scopes:['test-cases','knowledge'],evidence_scope:{test_case_id:'case'},source_ids:['source'],source_kinds:['text'],app_type_id:'app'},
+   budgets:{deadline_ms:60000,max_context_tokens:2000,max_evidence_items:40,max_query_cost_usd:0},onProgress:()=>{}});
+  assert.equal(call.name,'hellotest_context_build');assert.equal(call.actor.packetInput,undefined);
+  assert.equal(call.args.app_type_id,'app');assert.equal(call.args.integration_id,'model');assert.equal(call.args.token_budget,2000);
+  assert.deepEqual(call.args.filters,{requested_scopes:['test-cases','knowledge'],evidence_scope:{test_case_id:'case'},source_ids:['source'],source_kinds:['text']});
+  assert.equal(call.args.budgets.deadline_ms,60000);assert.equal(call.args.budgets.max_evidence_items,30);assert.equal(call.args.budgets.max_query_cost_usd,0);
+  assert.equal(Object.hasOwn(call.args,'project_id'),false);assert.equal(Object.hasOwn(call.args,'user'),false);
+ }finally{if(previous===undefined)delete process.env.HELLOTEST_MCP_INTERNAL_URL;else process.env.HELLOTEST_MCP_INTERNAL_URL=previous;}
+});
+
+test('packet requests honor their configured deadline and reject conflicting application selections',async()=>{
+ const instance=gateway(async()=>({packet:{project_id:'project',evidence:[]}}));
+ assert.equal(instance.retrievalTimeout({budgets:{deadline_ms:60000}}),62000);
+ assert.equal(instance.retrievalTimeout({budgets:{deadline_ms:0}}),2000);
+ await assert.rejects(instance.retrievePacket({user:{id:'actor'},projectId:'project',appTypeId:'app-a',filters:{app_type_id:'app-b'},query:'Inspect'}),{code:'MCP_CONTEXT_SCOPE_MISMATCH'});
+});
+
+test('filtered automatic enrichment sends the configured retrieval budget through MCP',async()=>{
+ let call;
+ const instance=gateway(async(actor,name,args)=>{call={actor,name,args};return {packet:{project_id:'project',evidence:[{content:'Authorized selected evidence'}]}};});
+ await traces.run({actor_id:'actor',project_id:'project'},()=>instance.enrichChatRequest(request('Explain checkout'),{
+  mcpContextFilters:{requested_scopes:['stories'],evidence_scope:{story_id:'story'}},
+  mcpContextPolicy:{token_budget:512,max_items:2,mode:'mcp'},mcpContextTimeoutMs:1000}));
+ assert.equal(call.args.token_budget,512);assert.equal(call.args.budgets.max_context_tokens,512);
+ assert.equal(call.args.budgets.max_evidence_items,2);assert.ok(call.args.budgets.deadline_ms<=1000);
+ assert.equal(call.actor.packetInput.budgets.max_context_tokens,512);
+ assert.deepEqual(call.args.filters.evidence_scope,{story_id:'story'});
+});

@@ -53,6 +53,7 @@ const BATCH_PROCESS_CATEGORIES = new Set([
 ]);
 
 function isBatchProcessTransaction(transaction: WorkspaceTransaction) {
+  if (transaction.category === "automation_build" && transaction.metadata?.agent_activity === true) return false;
   return BATCH_PROCESS_CATEGORIES.has(transaction.category)
     || transaction.action === "testengine_run"
     || transaction.action === "execution_report_export"

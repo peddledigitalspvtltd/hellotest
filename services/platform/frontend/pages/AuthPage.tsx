@@ -1,5 +1,5 @@
 import { ChangeEvent, FocusEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../src/auth/AuthContext";
 import { FormField } from "../src/shared/components/FormField";
 import { LoadingState } from "../src/shared/components/LoadingState";
@@ -276,6 +276,7 @@ function getCurrentCopy(
 
 export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<FormMode, "login" | "signup"> }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const emailInputRef = useRef<HTMLInputElement>(null);
   const googleButtonRef = useRef<HTMLDivElement>(null);
   const {
@@ -438,6 +439,8 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
     setIsResendingCode(false);
     setShowPassword(false);
     setShowNewPassword(false);
+    const route = nextMode === "signup" ? "/signup" : nextMode === "login" ? "/login" : null;
+    if (route && location.pathname !== route) navigate(route);
   };
 
   const moveToVerificationMode = (nextMode: "signup-code" | "forgot-code", email: string) => {
@@ -668,8 +671,8 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
     "new-password-input-hint"
   );
   const verificationCodeDescribedBy = mergeIds(
-    fieldErrors.verificationCode ? "verification-code-error" : undefined,
-    pendingVerification ? "verification-code-hint" : undefined
+    fieldErrors.verificationCode ? "verification-code-input-error" : undefined,
+    pendingVerification ? "verification-code-input-hint" : undefined
   );
 
   return (
@@ -791,6 +794,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
 
                 {(mode === "login" || mode === "signup") && (
                   <FormField
+                    composite
                     error={fieldErrors.password}
                     hint="Minimum 6 characters. Press Alt+V to show or hide."
                     inputId="password-input"
@@ -829,6 +833,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
 
                 {mode === "forgot" && (
                   <FormField
+                    composite
                     error={fieldErrors.newPassword}
                     hint="Minimum 6 characters. Press Alt+V to show or hide."
                     inputId="new-password-input"

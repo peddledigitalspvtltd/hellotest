@@ -92,7 +92,7 @@ test('a late 401 cannot clear or redirect a newer same-token permission context'
   view.requests[0].reply({message:'Invalid token'},401);await assert.rejects(old,/Invalid token/);
   assert.deepEqual(view.sessionStorage.read().user.project_permissions.project,['project.view','testcase.view']);assert.deepEqual(view.redirects,[]);
   const current=list(view);view.requests[1].reply({message:'Token expired'},401);await assert.rejects(current,/Token expired/);
-  assert.equal(view.sessionStorage.read(),null);assert.deepEqual(view.redirects,['/auth'],'current-session 401 still clears authentication');
+  assert.equal(view.sessionStorage.read(),null);assert.deepEqual(view.redirects,['/login'],'current-session 401 still clears authentication');
 });
 
 test('knowledge stream late 401 also preserves the replacement session',async()=>{
@@ -108,4 +108,12 @@ test('a provider invalid-token message does not expire the browser session',asyn
  view.requests[0].reply({message:'LLM provider returned an invalid token for this integration'},401);
  await assert.rejects(pending,/LLM provider/);
  assert.ok(view.sessionStorage.read());assert.deepEqual(view.redirects,[]);
+});
+
+
+test('knowledge stream current-session expiry redirects to the canonical login route',async()=>{
+  const view=fixture();view.sessionStorage.write(session());
+  const pending=view.api.knowledgeRepo.assistant.streamMessage('review',{message:'Explain evidence',client_turn_id:'turn-1'});
+  view.requests[0].reply({message:'Token expired'},401);await assert.rejects(pending,/Token expired/);
+  assert.equal(view.sessionStorage.read(),null);assert.deepEqual(view.redirects,['/login']);
 });

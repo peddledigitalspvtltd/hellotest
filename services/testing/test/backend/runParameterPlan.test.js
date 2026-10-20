@@ -35,7 +35,7 @@ test("nearest suite data wins, parent parameters remain inherited, cycles termin
     { id: "leaf", parent_id: "child", app_type_id: "app", data_set: { id: "child-data" } }
   ];
   const contexts = resolveSuiteContexts(rows, ["child", "leaf"]);
-  assert.deepEqual(contexts.get("child"), { dataOptions: { override_lower_scopes: true, override_shared_steps: true, override_test_case_data: true, override_suite_data: true }, parameters: { "s.tenant": "child", "t.name": "parent" }, dataSet: { id: "parent-data" } });
+  assert.deepEqual(contexts.get("child"), { dataOptions: { override_lower_scopes: true, override_shared_steps: true, override_shared_sections: true, override_test_case_data: true, override_suite_data: true }, parameters: { "s.tenant": "child", "t.name": "parent" }, dataSet: { id: "parent-data" } });
   assert.equal(contexts.get("leaf").dataSet.id, "child-data");
   assert.doesNotThrow(() => resolveSuiteContexts(rows.map(row => row.id === "parent" ? { ...row, parent_id: "leaf" } : row), ["leaf"]));
 });
@@ -51,4 +51,23 @@ test("legacy frozen runs preserve test-default semantics without mutating their 
   assert.deepEqual(old, original);
   assert.deepEqual(preserveFrozenRunParameters(next), next, "compatibility hydration is idempotent");
   assert.strictEqual(preserveFrozenRunParameters({ ...old, parameter_scope_default: "r" }).step_snapshots, old.step_snapshots);
+});
+
+const { normalizeDataOptions, dataOptionsForCase, composeScopedTestData } = require("../../../platform/backend/src/utils/scopedTestData");
+test("manual groups and automation sections honor independent suite and run overrides", () => {
+  for (const higherScope of ["suite", "run"]) for (const allowSections of [true, false]) {
+    const options = { override_shared_steps: !allowSections, override_shared_sections: allowSections };
+    for (const kind of ["steps", "sections"]) {
+      const caseOptions = normalizeDataOptions({ override_shared_steps: false, override_shared_sections: false }, kind);
+      const effective = composeScopedTestData({ hierarchical: true, caseOptions,
+        caseData: { id:"case",mode:"table",rows:[{"t.name":"case"}] },
+        [higherScope+"Data"]: { id:higherScope,mode:"table",rows:[{"t.name":"higher","r.other":"ordinary"}] },
+        [higherScope+"Options"]: options, sharedNames: new Set(["t.name"]) });
+      const resolved = resolveParameterLayers({ isSharedStep:true,sharedValues:{"t.name":"shared"},dataSet:effective.snapshot });
+      assert.equal(resolved["t.name"], (kind === "sections" ? allowSections : !allowSections) ? "higher" : "shared", `${higherScope}: ${kind}`);
+      assert.equal(resolved["r.other"], "ordinary");
+    }
+  }
+  assert.equal(dataOptionsForCase({override_shared_steps:false},normalizeDataOptions({},"sections")).override_shared_steps,false,"legacy policies retain their behavior");
+  assert.throws(()=>normalizeDataOptions({override_shared_sections:"yes"}),/must be true or false/);
 });

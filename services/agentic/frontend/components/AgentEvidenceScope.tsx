@@ -3,7 +3,8 @@ import { IconChevronDown, IconFilter } from '@tabler/icons-react';
 
 import fields from '@hellotest/platform/shared/agentEvidenceScopeFields.json';
 
-export function AgentEvidenceScope({ scopes, values, onChange, disabled }: {
+export function AgentEvidenceScope({ scopes, values, onChange, disabled, readOnlyFields = [] }: {
+  readOnlyFields?: string[];
   scopes: string[]; values: Record<string, unknown>; onChange: (key: string, value: string) => void; disabled?: boolean;
 }) {
   const ref = useRef<HTMLDetailsElement>(null);
@@ -19,7 +20,7 @@ export function AgentEvidenceScope({ scopes, values, onChange, disabled }: {
   }} onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) ref.current?.removeAttribute('open'); }}>
     <summary><IconFilter size={15} aria-hidden="true" /><span>Evidence scope{selected ? ` (${selected})` : ''}</span><IconChevronDown size={13} aria-hidden="true" /></summary>
     <div className="agent-command-evidence-scope__menu"><p>Narrow the selected context sources to exact records. Unavailable records remain evidence gaps.</p>
-      {visible.map(field => <label key={field.key}><span>{field.label}</span><input disabled={disabled} maxLength={255} value={String(values[field.key] ?? '')} onChange={event => onChange(field.key, event.target.value)} /></label>)}
+      {visible.map(field => <label key={field.key}><span>{field.label}</span><input readOnly={readOnlyFields.includes(field.key)} disabled={disabled} maxLength={255} value={String(values[field.key] ?? '')} onChange={event => onChange(field.key, event.target.value)} /></label>)}
       {!visible.length && <p>Select a project context source to narrow its evidence.</p>}
     </div>
   </details>;

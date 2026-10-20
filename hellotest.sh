@@ -68,6 +68,7 @@ High-value overrides:
   HELLOTEST_MOBILE_ENGINE_IMAGE  Mobile Engine image ref.
   MINIO_IMAGE                   MinIO image ref.
   API_STARTUP_TIMEOUT_MS        API initialization deadline. Default: 180000.
+  HELLOTEST_SCHEMA_MODE         migrate or verify existing schema receipts. Default: migrate.
   HELLOTEST_INSTANCE_SETUP_MODULES Optional sample modules: all or comma-separated keys.
   HELLOTEST_OPS_ENABLED         Start local monitoring automatically. Default: true.
 
@@ -200,7 +201,7 @@ resolve_stack() {
 
 resolve_defaults() {
   # Explicit environment/config values win; otherwise retain deployment settings.
-  for deployment_setting in HELLOTEST_PUBLIC_URL HELLOTEST_API_PUBLIC_URL HELLOTEST_ADMIN_URL CORS_ORIGIN HELLOTEST_LOCAL_RUN_ENGINE_URL HELLOTEST_LOCAL_CALLBACK_BASE_URL; do
+  for deployment_setting in HELLOTEST_PUBLIC_URL HELLOTEST_API_PUBLIC_URL HELLOTEST_ADMIN_URL CORS_ORIGIN HELLOTEST_LOCAL_RUN_ENGINE_URL HELLOTEST_LOCAL_CALLBACK_BASE_URL HELLOTEST_SCHEMA_MODE; do
     export "$deployment_setting"
     deployment_value="$(printenv "$deployment_setting" || true)"
     if [ -z "$deployment_value" ]; then
@@ -236,6 +237,8 @@ resolve_defaults() {
   HELLOTEST_ADMIN_PORT="${HELLOTEST_ADMIN_PORT:-8081}"
   API_PORT="${API_PORT:-3000}"
   API_STARTUP_TIMEOUT_MS="${API_STARTUP_TIMEOUT_MS:-180000}"
+  HELLOTEST_SCHEMA_MODE="${HELLOTEST_SCHEMA_MODE:-migrate}"
+  case "$HELLOTEST_SCHEMA_MODE" in migrate|verify) ;; *) die "HELLOTEST_SCHEMA_MODE must be migrate or verify" ;; esac
   HELLOTEST_HTTP_PORT="${HELLOTEST_HTTP_PORT:-80}"
   TESTENGINE_PORT="${TESTENGINE_PORT:-4301}"
   MOBILE_ENGINE_PORT="${MOBILE_ENGINE_PORT:-4312}"
@@ -417,6 +420,7 @@ write_env_file() {
     printf 'ADMIN_PORTAL_PORT=%s\n' "$HELLOTEST_ADMIN_PORT"
     printf 'API_PORT=%s\n' "$API_PORT"
     printf 'API_STARTUP_TIMEOUT_MS=%s\n' "$API_STARTUP_TIMEOUT_MS"
+    printf 'HELLOTEST_SCHEMA_MODE=%s\n' "$HELLOTEST_SCHEMA_MODE"
     printf 'HELLOTEST_INSTANCE_SETUP_MODULES=%s\n' "${HELLOTEST_INSTANCE_SETUP_MODULES:-}"
     printf 'TESTENGINE_PORT=%s\n' "$TESTENGINE_PORT"
     printf 'MOBILE_ENGINE_PORT=%s\n' "$MOBILE_ENGINE_PORT"

@@ -2,6 +2,8 @@
 
 OPS telemetry, monitoring consoles, infrastructure health and trace correlation.
 
+AI-call details in TestOps and agent activity provide separate Copy request and Copy response actions. They copy the displayed, sanitized capture and require the same content access as viewing it. Missing response bodies cannot be copied; clipboard failures keep the visible text available for manual selection.
+
 - `frontend/`: screens, components, hooks and the owning API client. `entry.ts` exposes lazy release views.
 - `backend/`: API routes, use cases and owning workers. `server.cjs` starts this profile through the shared runtime.
 - `test/`: focused backend, frontend and browser checks where available.

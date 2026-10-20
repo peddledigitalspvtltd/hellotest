@@ -38,6 +38,7 @@ function setup(t, options = {}) {
         },
         { kind: "test_case", id: "new", cursor: "test_case:new" },
         { kind: "bug", id: "changed", cursor: "bug:changed" },
+        ...(options.includeRuns ? [{ kind: "execution", id: "run-new", cursor: "execution:run-new" }] : []),
       ];
     },
     run: async (...args) => {
@@ -87,6 +88,20 @@ test("refresh respects record permissions and does not queue inaccessible data",
   const result = await refresh.processDue();
   assert.equal(result.inaccessible, 1);
   assert.deepEqual(queued[0].inputs, [{ kind: "test_case", entity_id: "new" }]);
+});
+test("refresh includes run summaries and respects run permissions independently", async t => {
+  assert.match(refresh._internals.RECORDS_SQL, /'execution', id, project_id FROM executions/);
+  const { queued } = setup(t, { includeRuns: true, denied: ['feedback.view'] });
+  const result = await refresh.processDue();
+  assert.equal(result.scanned, 4);
+  assert.deepEqual(queued[0].inputs, [{ kind: 'test_case', id: 'new' }, { kind: 'execution', id: 'run-new' }].map(({ kind, id }) => ({ kind, entity_id: id })));
+});
+
+test("run access revocation excludes runs without blocking other permitted refresh sources", async t => {
+  const { queued } = setup(t, { includeRuns: true, denied: ['run.view'] });
+  const result = await refresh.processDue();
+  assert.equal(result.inaccessible, 1);
+  assert.ok(!queued[0].inputs.some(input => input.kind === 'execution'));
 });
 test("pending ingestion applies backpressure before scanning or enqueueing", async (t) => {
   const { queued, checked } = setup(t, { pending: { id: "existing" } });

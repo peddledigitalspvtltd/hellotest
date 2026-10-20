@@ -391,7 +391,9 @@ exports.createTransactionNotification = async (transactionId, input = {}) => {
     return await notificationService.createNotification({
       user_id: transaction.created_by,
       project_id: transaction.project_id || undefined,
-      target_url: buildBatchProcessUrl(transaction.id),
+      target_url: transaction.metadata?.agent_activity
+        ? `/automation?${new URLSearchParams({...(transaction.metadata.output_test_case_ids?.[0]||transaction.metadata.input_test_case_ids?.[0]?{case:String(transaction.metadata.output_test_case_ids?.[0]||transaction.metadata.input_test_case_ids?.[0])}:{}),agent_activity:transaction.id})}`
+        : buildBatchProcessUrl(transaction.id),
       type: normalizeText(input.type) || `batch_process.${transaction.status}`,
       title: normalizeText(input.title) || transaction.title,
       message: normalizeText(input.message) || transaction.description || "Batch process status changed."

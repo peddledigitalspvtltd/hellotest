@@ -59,7 +59,7 @@ export function RunDataSetup({ parameterValues, onValidityChange, dataOptions = 
     };
   }, [scope]);
   const dataQuery = optionalQueryView(useQuery({ queryKey: ["test-data-sets", projectId, appTypeId], queryFn: () => testingApi.testDataSets.list({ project_id: projectId, app_type_id: appTypeId }), enabled: Boolean(projectId && appTypeId && canView) }), canView);
-  const canInspectPlan = Boolean(enabled && projectId && appTypeId && (cases.length || suites.length)
+  const canInspectPlan = Boolean(enabled && projectId && appTypeId && (cases.length || suites.length || executionId || suiteContextId)
     && (executionId ? can("run.view") : can("testcase.view") && (!suites.length || can("suite.view")))
     && (!dataSetId || canView || Boolean(executionId)));
   const planInput = (id: string) => ({ parameter_values: parameterValues, suite_context_id: suiteContextId, test_data_options: dataOptions, data_scope: suiteMode ? "suite" as const : "run" as const,
@@ -78,6 +78,7 @@ export function RunDataSetup({ parameterValues, onValidityChange, dataOptions = 
   }, [validationScope]);
   const visibleData = canView ? dataQuery.data || [] : [];
   const selectedData = visibleData.find(item => item.id === dataSetId);
+  const groupKinds = scopePlan.data?.shared_group_kinds || (suites.length || executionId ? ["steps", "sections"] : [...new Set(cases.map(item => item.automated === "yes" ? "sections" : "steps"))]);
   const scopeVerified = canInspectPlan && scopePlan.isSuccess && !scopePlan.isFetching;
   const caseCount = scopeVerified ? scopePlan.data.case_count : null;
   const rows = selectedData ? selectedData.mode === "key_value" ? 1 : selectedData.rows.length : null;
@@ -151,7 +152,8 @@ export function RunDataSetup({ parameterValues, onValidityChange, dataOptions = 
       {onDataOptionsChange ? <fieldset className="run-data-options"><legend>Allow This {suiteMode ? "Suite" : "Run"} To Override</legend>
         <label><input type="checkbox" checked={dataOverrideEnabled(dataOptions, "case")} disabled={disabled || busy} onChange={event => onDataOptionsChange({ ...dataOptions, override_test_case_data: event.target.checked })} />Test Case Params Data</label>
         {!suiteMode ? <label><input type="checkbox" checked={dataOverrideEnabled(dataOptions, "suite")} disabled={disabled || busy} onChange={event => onDataOptionsChange({ ...dataOptions, override_suite_data: event.target.checked })} />Suite Params Data</label> : null}
-        <label><input type="checkbox" checked={dataOverrideEnabled(dataOptions, "shared")} disabled={disabled || busy} onChange={event => onDataOptionsChange({ ...dataOptions, override_shared_steps: event.target.checked })} />Shared Group Params Data</label>
+        {groupKinds.includes("steps") ? <label><input type="checkbox" checked={dataOverrideEnabled(dataOptions, "shared")} disabled={disabled || busy} onChange={event => onDataOptionsChange({ ...dataOptions, override_shared_steps: event.target.checked, override_shared_sections: dataOptions.override_shared_sections ?? dataOverrideEnabled(dataOptions, "shared") })} />Override Shared Groups Test Data</label> : null}
+        {groupKinds.includes("sections") ? <label><input type="checkbox" checked={dataOptions.override_shared_sections ?? dataOverrideEnabled(dataOptions, "shared")} disabled={disabled || busy} onChange={event => onDataOptionsChange({ ...dataOptions, override_shared_sections: event.target.checked })} />Override Shared Sections Test Data</label> : null}
         <p>Unchecked layers retain their saved data. Templates include parameters allowed by these options.</p>
       </fieldset> : null}
       <div className="run-data-actions run-data-primary-actions">

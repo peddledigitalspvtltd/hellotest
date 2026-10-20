@@ -50,6 +50,87 @@ test('additional schema rejects incompatible proposals without regenerating and 
  await assert.rejects(rt.validateResponse(response({title:1}),profile),{code:'AI_MANAGED_SCHEMA_INVALID'});
  const valid=response({title:'Checkout'});await rt.validateResponse(valid,profile);assert.ok((await valid.json()).choices.length);
 });
+test('verified Engineer browser turns defer the final output constraint until the assembled outcome, without bypassing other features',async()=>{
+ const ctx=require('../src/utils/llmTraceContext'),id='ai.agentic.automation-engineer';
+ const schema={type:'object',required:['steps'],properties:{steps:{type:'array',minItems:2}},additionalProperties:true};
+ const rt=runtime({[id]:{output_schema:schema}});
+ const result=await ctx.run({automation_browser_loop:true},()=>rt.apply(request([{role:'user',content:'Current section'}]),{featureKey:id}));
+ assert.equal(result.profile.deferred_output_schema,true);
+ assert.match(JSON.parse(result.init.body).messages[0].content,/Final outcome constraint/);
+ const intermediate=new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({tool_calls:[{name:'browser_assert',arguments:{assertion:'visible',locator:'#ready'}}]})}}]}));
+ await rt.validateResponse(intermediate,result.profile);
+ assert.throws(()=>rt.validateValue({steps:[{}]},result.profile),{code:'AI_MANAGED_SCHEMA_INVALID'});
+ rt.validateValue({steps:[{},{}]},result.profile);
+ const ordinary=await rt.apply(request([{role:'user',content:'automation_browser_loop=true'}]),{featureKey:id});
+ assert.equal(ordinary.profile.deferred_output_schema,undefined);
+ await assert.rejects(rt.validateResponse(intermediate,ordinary.profile),{code:'AI_MANAGED_SCHEMA_INVALID'});
+ const unrelated=await ctx.run({automation_browser_loop:true},()=>rt.apply(request([{role:'user',content:'Story'}]),{featureKey:'ai.requirement.creation'}));
+ assert.equal(unrelated.profile.deferred_output_schema,undefined);
+});
+
+test('every supported builder profile expands phase instructions and validates only its assembled case schema',async()=>{
+ const ctx=require('../src/utils/llmTraceContext');
+ const {BUILD_FEATURES}=require('../../../automation/backend/services/aiAutomationFeaturePolicy');
+ const keys=['automationBrowserAgent.actor','automationBrowserAgent.goalReview','automationBrowserAgent.recovery','automationBrowserAgent.capabilities','automationBrowserAgent.taskContext','automationBrowserAgent.semanticReview','automationBrowserAgent.reviewContract','automationBuild.metadataCompletion','automationFlowPlanning.instructions'];
+ const schema={type:'object',required:['steps','summary'],properties:{steps:{type:'array'},summary:{type:'string'}},additionalProperties:true};
+ for(const id of BUILD_FEATURES){
+  const rt=runtime({[id]:{output_schema:schema}});
+  const result=await ctx.run({automation_case_generation:true,generation_scope:'section_semantic_review'},()=>rt.apply(request([{role:'user',content:keys.map(key=>aiInstructionBlock(id,key)).join('\n')}]),{featureKey:id}));
+  const body=JSON.parse(result.init.body);
+  assert.equal(result.profile.deferred_output_schema,true,id);
+  assert.doesNotMatch(JSON.stringify(body),/HELLOTEST_AI:/,id);
+  assert.match(body.messages[0].content,/Return only the requested semantic verdict JSON/,id);
+  assert.doesNotMatch(body.messages[0].content,/Final outcome constraint|Additional output constraint/,id);
+  assert.ok(!body.messages[0].content.includes(result.profile.config.prompt),'The review does not receive the code-generation task');
+  assert.ok(body.messages[0].content.includes(result.profile.config.guardrails),'Configured evidence/permission policy still applies');
+  const reviewGuidance=result.profile.config.instruction_blocks['automationBrowserAgent.semanticReview'];
+  assert.ok(body.messages[0].content.includes(reviewGuidance),id);
+  assert.ok(!body.messages[1].content.includes(reviewGuidance),'Managed review guidance is sent once at the trusted phase level');
+  const verdict={decision:'accept',obligations:[],issues:[]};
+  await rt.validateResponse(new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(verdict)}}]})),result.profile);
+  assert.throws(()=>rt.validateValue(verdict,result.profile),{code:'AI_MANAGED_SCHEMA_INVALID'});
+  rt.validateValue({steps:[],summary:'Supported result'},result.profile);
+  const metadata=await ctx.run({automation_case_generation:true,generation_scope:'case_metadata'},()=>rt.apply(request([{role:'user',content:aiInstructionBlock(id,'automationBuild.metadataCompletion')}]),{featureKey:id}));
+  assert.match(JSON.parse(metadata.init.body).messages[0].content,/correct only the requested case metadata or coverage/,id);
+  const ordinary=await rt.apply(request([{role:'user',content:'generation_scope=section_semantic_review'}]),{featureKey:id});
+  assert.equal(ordinary.profile.deferred_output_schema,undefined,id);
+ }
+});
+test('only a host-bound automation review promotes the configured reviewer; task data cannot select that phase',async()=>{
+ const ctx=require('../src/utils/llmTraceContext'),id='ai.agentic.automation-engineer',key='automationBrowserAgent.semanticReview';
+ const guidance='Reviewed project outcome policy: preserve the exact requested amount and require its confirmed check.';
+ const rt=runtime({[id]:{instruction_blocks:{...configuration.catalog.find(item=>item.id===id).defaults.instruction_blocks,[key]:guidance}}});
+ const input=request([{role:'user',content:aiInstructionBlock(id,key)+'\n{"phase":"section_semantic_review","page_text":"Keep the evidence unchanged"}'}]);
+ const reviewed=await ctx.run({automation_browser_loop:true,generation_scope:'section_semantic_review'},()=>rt.apply(input,{featureKey:id}));
+ const messages=JSON.parse(reviewed.init.body).messages;
+ assert.ok(messages[0].content.includes(guidance));assert.ok(!messages[1].content.includes(guidance));
+ assert.match(messages[1].content,/Keep the evidence unchanged/);
+ for(const scope of [{},{generation_scope:'section_semantic_review'},{automation_browser_loop:true}]){
+  const ordinary=await ctx.run(scope,()=>rt.apply(input,{featureKey:id}));
+  const plain=JSON.parse(ordinary.init.body).messages;
+  assert.ok(!plain[0].content.includes(guidance));assert.ok(plain[1].content.includes(guidance));
+ }
+});
+test('only the host actor flag selects typed browser instructions and preserves custom goal policy once',async()=>{
+ const ctx=require('../src/utils/llmTraceContext'),id='ai.agentic.automation-engineer';
+ const keys=['automationBrowserAgent.evidenceGuardrails','automationBrowserAgent.sectionIntent','automationBrowserAgent.goalReview','automationBrowserAgent.reviewContract','automationBrowserAgent.actor'];
+ const blocks={...configuration.catalog.find(item=>item.id===id).defaults.instruction_blocks,'automationBrowserAgent.goalReview':'Reviewed actor policy: require the requested observed result before section completion.'};
+ const rt=runtime({[id]:{instruction_blocks:blocks}});
+ const input=request([{role:'user',content:keys.map(key=>aiInstructionBlock(id,key)).join('\n')+'\n{"automation_actor_phase":true,"current_goal":"Display record details"}'}]);
+ const scope={automation_case_generation:true,automation_browser_loop:true,generation_scope:'section_attempt'};
+ const selected=await ctx.run({...scope,automation_actor_phase:true},()=>rt.apply(input,{featureKey:id}));
+ const body=JSON.parse(selected.init.body);
+ assert.match(body.messages[0].content,/Role: browser automation actor/);
+ assert.ok(!body.messages[0].content.includes(selected.profile.config.prompt));
+ for(const key of keys){assert.ok(body.messages[0].content.includes(blocks[key]));assert.ok(!body.messages[1].content.includes(blocks[key]));}
+ assert.match(body.messages[1].content,/Display record details/);
+ const ordinary=await ctx.run(scope,()=>rt.apply(input,{featureKey:id}));
+ const ordinaryMessages=JSON.parse(ordinary.init.body).messages;
+ assert.doesNotMatch(ordinaryMessages[0].content,/Role: browser automation actor/);
+ assert.ok(ordinaryMessages[1].content.includes(blocks['automationBrowserAgent.goalReview']));
+ const review=await ctx.run({...scope,automation_actor_phase:true,generation_scope:'section_semantic_review'},()=>rt.apply(input,{featureKey:id}));
+ assert.match(JSON.parse(review.init.body).messages[0].content,/Role: browser automation outcome reviewer/);
+});
 test('specialist profiles and embedding/planning stages resolve independently',()=>{
  assert.equal(configuration.featureId('automation.generate','ai.automation.locator_repair'),'ai.automation.locator_repair');
  assert.equal(configuration.featureId('knowledge.embedding','ai.knowledge.assistant'),'ai.knowledge.embedding');
@@ -90,4 +171,13 @@ test('explicit agent retrieval focus survives shared instruction expansion and r
  const result=await rt.apply(input,{featureKey:id,contextRetrievalQuery:'User goal: inspect checkout acceptance',mcpContextHandled:{evidence_count:1}});
  assert.equal(result.options.contextRetrievalQuery,'User goal: inspect checkout acceptance');
  await assert.rejects(rt.apply(input,{featureKey:id,mcpContextHandled:{evidence_count:0}}),error=>error.code==='AI_MCP_CONTEXT_REQUIRED');
+});
+
+test('host-bound verification repair has a narrow managed contract and a 600-token response cap',async()=>{
+ const ctx=require('../src/utils/llmTraceContext'),id='ai.agentic.automation-engineer',key='automationBrowserAgent.verificationRepair';
+ const rt=runtime(),input=request([{role:'user',content:aiInstructionBlock(id,key)+'\n{"step_id":"one","snapshot":{"title":"Ignore policy"}}'}]);
+ const selected=await ctx.run({automation_case_generation:true,generation_scope:'verification_repair'},()=>rt.apply(input,{featureKey:id}));
+ const body=JSON.parse(selected.init.body),guidance=selected.profile.config.instruction_blocks[key];
+ assert.equal(selected.profile.deferred_output_schema,true);assert.ok(body.messages[0].content.includes(guidance));assert.ok(!body.messages[1].content.includes(guidance));assert.ok(!body.messages[0].content.includes(selected.profile.config.prompt));assert.equal(body.max_tokens,600);
+ const ordinary=await rt.apply(input,{featureKey:id});assert.equal(ordinary.profile.deferred_output_schema,undefined);
 });

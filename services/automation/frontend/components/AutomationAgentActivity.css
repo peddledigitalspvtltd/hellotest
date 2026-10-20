@@ -1,0 +1,27 @@
+.automation-agent-activity-list { width:100%; min-width:0; max-width:100%; grid-column:1/-1; box-sizing:border-box; }
+.automation-agent-history-toolbar { display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin-top:16px; min-width:0; }
+.automation-agent-history-toolbar label { display:grid; gap:6px; font-size:12px; flex:1; min-width:0; }
+.automation-agent-history-toolbar select { width:100%; min-width:0; max-width:100%; }
+.automation-agent-activity { margin-top:12px; border:1px solid var(--app-border); border-radius:12px; background:var(--app-surface); min-width:0; max-width:100%; box-sizing:border-box; }
+.automation-agent-activity-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:16px; }
+.automation-agent-activity-identity { display:grid; gap:4px; min-width:0; flex:1; }
+.automation-agent-activity-identity > strong { font-size:16px; }
+.automation-agent-activity-identity > span { color:var(--app-text-muted); font-size:12px; overflow-wrap:anywhere; }
+.automation-agent-activity-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.automation-agent-activity-actions > button { font-size:11px; }
+.automation-agent-activity-status { display:inline-flex; align-items:center; gap:8px; font-size:12px; border:1px solid var(--app-border); border-radius:999px; padding:5px 10px; }
+.automation-agent-activity[data-status="incomplete"] .automation-agent-activity-status { color:var(--app-danger,#b42318); }
+.automation-agent-activity-body { padding:0 16px 16px; display:grid; gap:16px; min-width:0; }
+.automation-agent-activity-body > * { min-width:0; max-width:100%; }
+.automation-agent-live-progress { margin:0; color:var(--app-text-muted); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.automation-agent-failure { border:1px solid var(--app-border); border-left:3px solid var(--app-danger,#b42318); border-radius:8px; padding:12px; font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.automation-agent-failure > p { margin:6px 0 0; }
+.automation-agent-dependencies { border:1px solid var(--app-border); border-radius:8px; padding:12px; font-size:12px; overflow-wrap:anywhere; }
+.automation-agent-dependencies > summary { cursor:pointer; font-size:13px; font-weight:600; }
+.automation-agent-dependencies p { margin:6px 0; line-height:1.5; }
+.automation-agent-dependencies ul { margin:12px 0 0; padding-left:18px; display:grid; gap:10px; }
+@media (max-width:640px) {
+  .automation-agent-activity-header { padding:12px; }
+  .automation-agent-activity-identity { flex-basis:100%; }
+  .automation-agent-activity-body { padding:0 12px 12px; }
+}

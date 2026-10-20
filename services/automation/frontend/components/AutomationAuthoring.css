@@ -356,20 +356,15 @@
 .automation-instruction-line > code.automation-instruction-readable { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; font-family: inherit; font-size: 12px; border: 0; }
 .automation-instruction-readable > strong { font-weight: 500; color: var(--primary, #285ce8); }
 .automation-instruction-readable > span { font-size: 11px; color: var(--text-secondary); }
-.automation-ai-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; align-items: start; gap: 20px; }
+.automation-ai-layout { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 20px; }
 .automation-ai-layout .automation-ai-studio { max-width: none; }
-.automation-ai-plan { min-width: 0; border: 1px solid var(--border, #e3e8ef); border-radius: 12px; padding: 18px; background: var(--surface, #fff); display: grid; gap: 16px; }
-.automation-ai-plan h4 { font-size: 14px; font-weight: 600; margin: 7px 0; }
-.automation-ai-plan header > span:last-child { font-size: 11px; color: var(--text-secondary); }
-.automation-ai-plan ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 14px; }
-.automation-ai-plan li { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
-.automation-ai-plan li > span { font-size: 10px; color: var(--text-secondary); padding-top: 3px; }
-.automation-ai-plan li > div { display: grid; gap: 5px; min-width: 0; flex: 1; }
-.automation-ai-plan li strong { font-size: 12px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
-.automation-ai-plan li small { font-size: 10px; color: var(--text-secondary); }
-.automation-ai-plan li > svg { flex: 0 0 auto; color: var(--text-secondary); margin-top: 3px; }
-.automation-ai-plan-note { display: flex; align-items: flex-start; gap: 8px; border-top: 1px solid var(--border, #e3e8ef); padding-top: 14px; font-size: 11px; line-height: 1.6; color: var(--text-secondary); }
-.automation-ai-plan-note svg { flex: 0 0 auto; }
+.automation-engineer-brief { min-width: 0; border: 1px solid var(--app-border, #e3e8ef); border-radius: 12px; background: var(--app-surface, #fff); }
+.automation-engineer-brief > summary { display: flex; align-items: center; gap: 9px; padding: 14px 16px; cursor: pointer; font-size: 13px; color: var(--app-text); }
+.automation-engineer-brief > summary::after { content: "⌄"; margin-left: auto; font-size: 18px; transform: rotate(-90deg); }
+.automation-engineer-brief[open] > summary::after { transform: none; }
+.automation-engineer-brief > summary > span { color: var(--app-text-muted); font-size: 12px; }
+.automation-engineer-brief .automation-ai-studio { border: 0; border-radius: 0 0 12px 12px; }
+@media (max-width: 640px) { .automation-engineer-brief > summary { flex-wrap: wrap; } .automation-engineer-brief > summary > span { display: none; } }
 @container (max-width: 900px) { .automation-ai-layout { grid-template-columns: minmax(0,1fr); } }
 @media (max-width: 950px) { .automation-ai-layout { grid-template-columns: minmax(0,1fr); } }
 .automation-creation-method { display: grid; gap: 14px; }
@@ -388,7 +383,6 @@
 .page-content--automation .automation-detail-page-header { min-height: 56px; }
 .page-content--automation .automation-workspace-navigation { padding: 0; gap: 0; }
 .page-content--automation .automation-workspace-identity { padding: 12px 16px; }
-.automation-ai-plan .automation-command-eyebrow { color: var(--text-secondary); font-size: 10px; }
 @media (max-width: 768px) {
   .page-content--automation .automation-case-commandbar { display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 6px; }
   .page-content--automation .automation-case-commandbar > * { flex: 0 0 auto; width: auto; }
@@ -406,3 +400,11 @@
 .automation-build-header-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .page-content--automation .automation-build-header .automation-quality-launch { float:none; margin:0; width:auto; }
 @media(max-width:600px){.automation-build-header{flex-wrap:wrap;align-items:flex-start}.automation-build-header-actions{width:100%}}
+
+.page-content--automation .automation-agent-workspace { width: 100%; min-width: 0; max-width: none; }
+.page-content--automation .automation-agent-workspace > .automation-build-methods { display: flex; flex-wrap: nowrap; width: 100%; margin: 0; gap: 4px; }
+.page-content--automation .automation-agent-workspace > .automation-build-methods > button { display: inline-flex; align-items: center; flex: 1 1 0; min-width: 0; gap: 8px; white-space: nowrap; min-height: 44px; }
+.automation-maintenance-workspace > .ai-lifecycle-shell { width: 100%; max-width: none; min-width: 0; }
+.automation-maintenance-workspace .ai-lifecycle-review { box-sizing: border-box; width: 100%; max-width: none; }
+.automation-instruction-readable > .automation-instruction-explanation { flex-basis: 100%; color: var(--text-secondary); font: 11px/1.5 var(--font-sans, inherit); }
+.automation-instruction-line[data-instruction-kind="control"] .automation-instruction-readable > strong { color: var(--text-secondary); }

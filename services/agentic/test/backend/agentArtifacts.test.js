@@ -39,3 +39,28 @@ test('existing Story targets bind to exact live evidence and server-recorded rev
 test('completed authoring removes already performed recommendations and preserves remaining review obligations',()=>{
  assert.deepEqual(remainingRecommendations(['Complete the story acceptance criteria.','Add test cases for retry.','Verify runtime evidence.'],['Review the Story proposal.'],['story']),['Add test cases for retry.','Verify runtime evidence.','Review the Story proposal.']);
 });
+
+test('each successor receives only its supported domain findings and ignores unsupported recommendation text',()=>{
+ const result={citation_ids:['story-source','test-source'],findings:[
+  {title:'Missing story acceptance boundary',detail:'Clarify the retry requirement.',citation_ids:['story-source','invented']},
+  {title:'Test coverage gap',detail:'Add a case for the approved timeout boundary.',citation_ids:['test-source']}
+ ],recommendations:['File a defect and create a regression run.']};
+ const plan=planFollowups('quality-orchestrator',['stories','test-cases','bugs','runs'],result);
+ assert.deepEqual(plan.map(item=>[item.agent_id,item.citation_ids]),[['story-completion',['story-source']],['test-designer',['test-source']]]);
+});
+
+test('unconfirmed failure hypotheses and missing expected behavior remain investigation work, not defect drafts',()=>{
+ for(const detail of [
+  'A possible product defect may explain the timeout; investigate the hypothesis.',
+  'Observed environment failure needs investigation before a product issue is known.',
+  'A recorded failure has unknown expected behavior and needs an oracle.'
+ ]) assert.deepEqual(planFollowups('failure-analyst',['bugs'],{citation_ids:['failure-source'],findings:[{title:'Investigate checkout',detail,citation_ids:['failure-source']}]}),[],detail);
+ const plan=planFollowups('failure-analyst',['bugs'],{citation_ids:['failure-source'],findings:[{title:'Duplicate order observed',detail:'Recorded product defect: a reproducible retry creates two orders instead of one.',citation_ids:['failure-source']}]});
+ assert.equal(plan[0].agent_id,'bug-reporter');
+});
+
+test('structured proposed actions drive supported successor routing and run selection',()=>{
+ const result={citation_ids:['cases-source'],findings:[{title:'Release readiness gap',detail:'The delivery needs reviewed execution.',proposed_action:'Prepare a regression run using the affected cases.',citation_ids:['cases-source']}]};
+ assert.equal(planFollowups('release-readiness',['runs','test-cases'],result)[0].agent_id,'run-planner');
+ assert.deepEqual(planFollowups('release-readiness',['runs'],result),[]);
+});

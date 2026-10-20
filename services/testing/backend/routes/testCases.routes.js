@@ -133,6 +133,7 @@ module.exports = async function (fastify) {
       parameter_values: { required: false, type: "object" },
       automated: { required: false, type: "string", enum: TEST_CASE_AUTOMATED_VALUES },
       automation_status: { required: false, type: "string", enum: AUTOMATION_STATUS_VALUES },
+      automation_start_url: { required: false, type: "string", maxLength: 2000 },
       manual_test_case_id: { required: false, type: "string" },
       manual_test_case_ids: { required: false, type: "array", items: "string" },
       source_issue_id: { required: false, type: "string" },
@@ -147,6 +148,7 @@ module.exports = async function (fastify) {
       suite_ids: { required: false, type: "array", items: "string" },
       test_data_set_ids: { required: false, type: "array", items: "string", maxItems: 1 },
       test_data_options: { required: false, type: "object" },
+      execution_hooks: { required: false, type: "array", maxItems: 20 },
       author_id: { required: false, type: "string" },
       reviewer_id: { required: false, type: "string" },
       review_status: { required: false, type: "string", enum: ["not_requested", "pending", "accepted", "changes_requested"] },
@@ -201,6 +203,10 @@ module.exports = async function (fastify) {
       scopedProjectId,
       req.body.suite_ids || (req.body.suite_id ? [req.body.suite_id] : [])
     );
+    if (req.body.execution_hooks?.length) {
+      await fastify.requirePermission("testcase.view", { projectId: scopedProjectId })(req);
+      if (req.body.execution_hooks.some(hook => hook?.target_kind === "suite")) await fastify.requirePermission("suite.view", { projectId: scopedProjectId })(req);
+    }
     if (req.body.test_data_options !== undefined) {
       await fastify.requirePermission("data.view", { projectId: scopedProjectId })(req);
     }
@@ -746,17 +752,20 @@ module.exports = async function (fastify) {
 
   fastify.delete("/test-cases/automation/learning-cache/screens/:screenName", async (req) => {
     await fastify.authenticate(req);
-    const { app_type_id } = req.query || {};
+    const { app_type_id, project_id } = req.query || {};
 
     if (app_type_id) {
       const appType = await appTypeService.getAppType(app_type_id);
       await projectService.getProject(appType.project_id, req.user.id);
+    } else if (project_id) {
+      await projectService.getProject(project_id, req.user.id);
     } else if (req.user?.role !== "admin") {
       throw new Error("App type scope is required");
     }
 
     return aiAutomationBuilderService.deleteLearningCacheScreen({
       app_type_id,
+      project_id,
       screen_name: decodeURIComponent(req.params.screenName),
       confirmed: req.query?.confirm === "true"
     });
@@ -764,17 +773,20 @@ module.exports = async function (fastify) {
 
   fastify.get("/test-cases/automation/learning-cache/screens/:screenName/usage", async (req) => {
     await fastify.authenticate(req);
-    const { app_type_id } = req.query || {};
+    const { app_type_id, project_id } = req.query || {};
 
     if (app_type_id) {
       const appType = await appTypeService.getAppType(app_type_id);
       await projectService.getProject(appType.project_id, req.user.id);
+    } else if (project_id) {
+      await projectService.getProject(project_id, req.user.id);
     } else if (req.user?.role !== "admin") {
       throw new Error("App type scope is required");
     }
 
     return aiAutomationBuilderService.findLearningCacheScreenUsage({
       app_type_id,
+      project_id,
       screen_name: decodeURIComponent(req.params.screenName)
     });
   });
@@ -784,18 +796,22 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       app_type_id: { required: false, type: "string" },
+      project_id: { required: false, type: "string" },
       new_name: { required: true, type: "string", minLength: 1 }
     }, req.body || {});
 
     if (req.body?.app_type_id) {
       const appType = await appTypeService.getAppType(req.body.app_type_id);
       await projectService.getProject(appType.project_id, req.user.id);
+    } else if (req.body?.project_id) {
+      await projectService.getProject(req.body.project_id, req.user.id);
     } else if (req.user?.role !== "admin") {
       throw new Error("App type scope is required");
     }
 
     return aiAutomationBuilderService.renameLearningCacheScreen({
       app_type_id: req.body?.app_type_id,
+      project_id: req.body?.project_id,
       screen_name: decodeURIComponent(req.params.screenName),
       new_name: req.body?.new_name
     });
@@ -855,9 +871,55 @@ module.exports = async function (fastify) {
       throw error;
     }
     await projectService.getProject(transaction.project_id, req.user.id);
-    await fastify.requirePermission("automation.build", { projectId: transaction.project_id })(req);
-    return transaction;
+    for(const code of ["automation.build","automation.view","automation.code.view","automation.ai"])await fastify.requirePermission(code,{projectId:transaction.project_id})(req);
+    return require("@hellotest/automation/backend/services/automationAgentActivity.service").activity(transaction,req.query);
   });
+
+  fastify.get("/test-cases/automation/agent-activity",async(req)=>{
+    await fastify.authenticate(req);
+    fastify.validate({app_type_id:{required:true,type:"string"},test_case_id:{required:false,type:"string"}},req.query||{});
+    const app=await appTypeService.getAppType(req.query.app_type_id);
+    await projectService.getProject(app.project_id,req.user.id);
+    for(const code of ["automation.build","automation.view","automation.code.view","automation.ai"])await fastify.requirePermission(code,{projectId:app.project_id})(req);
+    return require("@hellotest/automation/backend/services/automationAgentActivity.service").latest({projectId:app.project_id,appTypeId:app.id,caseId:req.query.test_case_id});
+  });
+
+  fastify.get("/test-cases/automation/agent-activities",async(req)=>{
+    await fastify.authenticate(req);
+    fastify.validate({app_type_id:{required:true,type:"string"},test_case_id:{required:false,type:"string"}},req.query||{});
+    const app=await appTypeService.getAppType(req.query.app_type_id);
+    await projectService.getProject(app.project_id,req.user.id);
+    for(const code of ["automation.build","automation.view","automation.code.view","automation.ai"])await fastify.requirePermission(code,{projectId:app.project_id})(req);
+    return require("@hellotest/automation/backend/services/automationAgentActivity.service").history({projectId:app.project_id,appTypeId:app.id,caseId:req.query.test_case_id},req.query);
+  });
+
+  fastify.get("/test-cases/automation/jobs/:transactionId/screenshots/:artifactId",async(req)=>{
+    await fastify.authenticate(req);
+    const transaction=await workspaceTransactionService.getTransaction(req.params.transactionId);
+    if(transaction.category!=="automation_build"||!transaction.project_id)throw Object.assign(new Error("Automation build not found"),{statusCode:404});
+    await projectService.getProject(transaction.project_id,req.user.id);
+    for(const code of ["automation.build","automation.view","automation.code.view","automation.ai"])await fastify.requirePermission(code,{projectId:transaction.project_id})(req);
+    return require("@hellotest/automation/backend/services/automationAgentActivity.service").screenshot(transaction,req.params.artifactId);
+  });
+
+  // Generated drafts and browser observations are content, not ordinary job metadata.
+  // Recheck the generation-content permissions on each read, including old activities.
+  const readAutomationActivityContent = (reader) => async (req) => {
+      await fastify.authenticate(req);
+      const transaction = await workspaceTransactionService.getTransaction(req.params.transactionId);
+      if (transaction.category !== "automation_build" || !transaction.project_id) {
+        throw Object.assign(new Error("Automation build not found"), { statusCode: 404 });
+      }
+      await projectService.getProject(transaction.project_id, req.user.id);
+      for (const code of ["automation.build", "automation.view", "automation.code.view", "automation.ai"]) {
+        await fastify.requirePermission(code, { projectId: transaction.project_id })(req);
+      }
+      if (reader === "buildData") await fastify.requirePermission("data.view", { projectId: transaction.project_id })(req);
+      return require("@hellotest/automation/backend/services/automationAgentActivity.service")[reader](transaction, req.params.artifactId);
+  };
+  fastify.get("/test-cases/automation/jobs/:transactionId/previews/:artifactId", readAutomationActivityContent("preview"));
+  fastify.get("/test-cases/automation/jobs/:transactionId/evidence/:artifactId", readAutomationActivityContent("evidence"));
+  fastify.get("/test-cases/automation/jobs/:transactionId/build-data/:artifactId", readAutomationActivityContent("buildData"));
 
   fastify.post("/test-cases/automation/build-batch", async (req) => {
     await fastify.authenticate(req);
@@ -866,13 +928,22 @@ module.exports = async function (fastify) {
       app_type_id: { required: true, type: "string" },
       test_case_ids: { required: false, type: "array", items: "string" },
       integration_id: { required: false, type: "string" },
+      ai_feature: { required: false, type: "string", enum: ["ai.automation.keyword_generation", "ai.automation.review", "ai.automation.gap_analysis", "ai.execution.network_to_api_steps", "ai.agentic.automation-engineer"] },
       allow_browser_actions: { required: false, type: "boolean" },
+      verification_mode: { required: false, type: "string", enum: ["generate_only", "verify", "verify_repair"] },
+      browser_driver: { required: false, type: "string", enum: ["mcp"] },
+      verification_driver: { required: false, type: "string", enum: ["native", "playwright_test_cli"] },
       start_url: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
+      agent_context: { required: false, type: "object" },
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
+      test_suite_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
       failure_threshold: { required: false, type: "number" },
+      test_suite_ids_by_case: { required: false, type: "object" },
+      parameter_values_by_case: { required: false, type: "object" },
+      parameter_plan_keys_by_case: { required: false, type: "object" },
       scheduled_at: { required: false, type: "string" }
     }, req.body);
 
@@ -881,12 +952,24 @@ module.exports = async function (fastify) {
     await fastify.requirePermission("automation.build", { projectId: appType.project_id })(req);
     await fastify.requirePermission("automation.ai", { projectId: appType.project_id })(req);
     await ensureTestCaseDataSetAccess(fastify, req, appType.project_id, req.body?.test_data_set_id);
+    if(req.body?.test_suite_id||Object.values(req.body?.test_suite_ids_by_case||{}).some(Boolean))await fastify.requirePermission("suite.view",{projectId:appType.project_id})(req);
 
     return batchProcessService.queueAutomationBuild({
       ...req.body,
       allow_browser_actions: req.body.allow_browser_actions === true,
       created_by: req.user.id
     });
+  });
+
+  fastify.post("/test-cases/automation/bulk-delete", async(req)=>{
+    await fastify.authenticate(req);
+    fastify.validate({project_id:{required:true,type:"string"},app_type_id:{required:true,type:"string"},test_case_ids:{required:true,type:"array",items:"string",minItems:1,maxItems:10000}},req.body||{});
+    const {project_id,app_type_id}=req.body;
+    await projectService.getProject(project_id,req.user.id);
+    await fastify.requirePermission("testcase.delete",{projectId:project_id})(req);
+    const app=await appTypeService.getAppType(app_type_id);
+    if(app.project_id!==project_id)throw Object.assign(new Error("The application does not belong to this project."),{statusCode:403});
+    return require('../services/automationCaseDeletion.service').deleteAutomationCases(req.body,{actorId:req.user.id,ipAddress:req.ip});
   });
 
   fastify.get("/test-cases/review-summary", async (req, reply) => {
@@ -1003,8 +1086,41 @@ module.exports = async function (fastify) {
 
   fastify.get("/test-cases/:id", async (req) => {
     await fastify.authenticate(req);
-    const { testCase } = await ensureTestCasePermission(fastify, req, "testcase.view");
-    return testCase;
+    const { testCase,projectId } = await ensureTestCasePermission(fastify, req, "testcase.view");
+    let response=testCase;
+    if(testCase.automated==='yes'){
+      const access=await require('@hellotest/platform/backend/services/optionalEvidenceAccess.service').getOptionalEvidenceAccess(req.user,projectId,['data.view']);
+      response=access['data.view']?{...await service.withParameterDefaults(testCase,{projectId}),parameter_defaults_access:'allowed'}:{...testCase,parameter_defaults_access:'restricted'};
+    }
+    if (req.query.include_execution === true || req.query.include_execution === "true") {
+      await fastify.requirePermission("run.view", {projectId})(req);
+      await fastify.requirePermission("result.view", {projectId})(req);
+      return {...response,automation_coverage:await require('../services/automationCaseCoverage.service').getCoverage(testCase.id)};
+    }
+    return response;
+  });
+
+  fastify.post("/test-cases/:id/automation/parameter-plan", async (req,reply) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      test_environment_id: { required: false, type: "string" },
+      test_configuration_id: { required: false, type: "string" },
+      test_suite_id: { required: false, type: "string" },
+      test_data_set_id: { required: false, type: "string" },
+      parameter_values: { required: false, type: "object" }
+    }, req.body || {});
+    const {testCase,projectId}=await ensureTestCasePermission(fastify,req,"automation.build");
+    await ensureTestCaseDataSetAccess(fastify,req,projectId,req.body?.test_data_set_id);
+    if(req.body?.test_suite_id)await fastify.requirePermission("suite.view",{projectId})(req);
+    reply.header('Cache-Control','no-store');
+    return require('@hellotest/automation/backend/services/automationBuildParameterPlan.service').load({
+      caseId:testCase.id,projectId,userId:req.user.id,
+      test_environment_id:req.body?.test_environment_id,
+      test_configuration_id:req.body?.test_configuration_id,
+      test_suite_id:req.body?.test_suite_id,
+      test_data_set_id:req.body?.test_data_set_id,
+      parameter_values:req.body?.parameter_values
+    });
   });
 
   fastify.post("/test-cases/:id/automation/build", async (req) => {
@@ -1012,20 +1128,28 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       integration_id: { required: false, type: "string" },
-      ai_feature: { required: false, type: "string", enum: ["ai.automation.keyword_generation", "ai.automation.review", "ai.automation.gap_analysis", "ai.execution.network_to_api_steps"] },
+      ai_feature: { required: false, type: "string", enum: ["ai.automation.keyword_generation", "ai.automation.review", "ai.automation.gap_analysis", "ai.execution.network_to_api_steps", "ai.agentic.automation-engineer"] },
       allow_browser_actions: { required: false, type: "boolean" },
+      verification_mode: { required: false, type: "string", enum: ["generate_only", "verify", "verify_repair"] },
+      browser_driver: { required: false, type: "string", enum: ["mcp"] },
+      verification_driver: { required: false, type: "string", enum: ["native", "playwright_test_cli"] },
       start_url: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
+      agent_context: { required: false, type: "object" },
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
+      test_suite_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
       captured_actions: { required: false, type: "array" },
-      captured_network: { required: false, type: "array" }
+      captured_network: { required: false, type: "array" },
+      parameter_values: { required: false, type: "object" },
+      parameter_plan_key: { required: false, type: "string" }
     }, req.body || {});
 
     const { projectId } = await ensureTestCasePermission(fastify, req, "automation.build");
     await ensureTestCasePermission(fastify, req, "automation.ai");
     await ensureTestCaseDataSetAccess(fastify, req, projectId, req.body?.test_data_set_id);
+    if(req.body?.test_suite_id)await fastify.requirePermission("suite.view",{projectId})(req);
 
     return aiAutomationBuilderService.buildAutomationForCase({
       test_case_id: req.params.id,
@@ -1033,10 +1157,17 @@ module.exports = async function (fastify) {
       ai_feature: req.body?.ai_feature,
       start_url: req.body?.start_url,
       allow_browser_actions: req.body?.allow_browser_actions === true,
+      verification_mode: req.body?.verification_mode,
+      browser_driver: req.body?.browser_driver,
+      verification_driver: req.body?.verification_driver,
       additional_context: req.body?.additional_context,
+      agent_context: req.body?.agent_context,
       test_environment_id: req.body?.test_environment_id,
       test_configuration_id: req.body?.test_configuration_id,
+      test_suite_id:req.body?.test_suite_id,
       test_data_set_id: req.body?.test_data_set_id,
+      parameter_values: req.body?.parameter_values,
+      parameter_plan_key: req.body?.parameter_plan_key,
       captured_actions: req.body?.captured_actions,
       captured_network: req.body?.captured_network,
       created_by: req.user.id
@@ -1048,19 +1179,27 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       integration_id: { required: false, type: "string" },
-      ai_feature: { required: false, type: "string", enum: ["ai.automation.keyword_generation", "ai.automation.review", "ai.automation.gap_analysis", "ai.execution.network_to_api_steps"] },
+      ai_feature: { required: false, type: "string", enum: ["ai.automation.keyword_generation", "ai.automation.review", "ai.automation.gap_analysis", "ai.execution.network_to_api_steps", "ai.agentic.automation-engineer"] },
       allow_browser_actions: { required: false, type: "boolean" },
+      verification_mode: { required: false, type: "string", enum: ["generate_only", "verify", "verify_repair"] },
+      browser_driver: { required: false, type: "string", enum: ["mcp"] },
+      verification_driver: { required: false, type: "string", enum: ["native", "playwright_test_cli"] },
       start_url: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
+      agent_context: { required: false, type: "object" },
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
+      test_suite_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
+      parameter_values: { required: false, type: "object" },
+      parameter_plan_key: { required: false, type: "string" },
       scheduled_at: { required: false, type: "string" }
     }, req.body || {});
 
     const { projectId } = await ensureTestCasePermission(fastify, req, "automation.build");
     await ensureTestCasePermission(fastify, req, "automation.ai");
     await ensureTestCaseDataSetAccess(fastify, req, projectId, req.body?.test_data_set_id);
+    if(req.body?.test_suite_id)await fastify.requirePermission("suite.view",{projectId})(req);
 
     return automationGeneratorService.queueGeneratorJob({
       test_case_id: req.params.id,
@@ -1069,10 +1208,17 @@ module.exports = async function (fastify) {
       ai_feature: req.body?.ai_feature,
       start_url: req.body?.start_url,
       allow_browser_actions: req.body?.allow_browser_actions === true,
+      verification_mode: req.body?.verification_mode,
+      browser_driver: req.body?.browser_driver,
+      verification_driver: req.body?.verification_driver,
       additional_context: req.body?.additional_context,
+      agent_context: req.body?.agent_context,
       test_environment_id: req.body?.test_environment_id,
       test_configuration_id: req.body?.test_configuration_id,
+      test_suite_id:req.body?.test_suite_id,
       test_data_set_id: req.body?.test_data_set_id,
+      parameter_values: req.body?.parameter_values,
+      parameter_plan_key: req.body?.parameter_plan_key,
       created_by: req.user.id
     });
   });
@@ -1345,6 +1491,7 @@ module.exports = async function (fastify) {
       parameter_values: { required: false, type: "object" },
       automated: { required: false, type: "string", enum: TEST_CASE_AUTOMATED_VALUES },
       automation_status: { required: false, type: "string", enum: AUTOMATION_STATUS_VALUES },
+      automation_start_url: { required: false, type: "string", maxLength: 2000 },
       manual_test_case_id: { required: false, type: "string" },
       manual_test_case_ids: { required: false, type: "array", items: "string" },
       authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
@@ -1358,6 +1505,7 @@ module.exports = async function (fastify) {
       suite_ids: { required: false, type: "array", items: "string" },
       test_data_set_ids: { required: false, type: "array", items: "string", maxItems: 1 },
       test_data_options: { required: false, type: "object" },
+      execution_hooks: { required: false, type: "array", maxItems: 20 },
       author_id: { required: false, type: "string" },
       reviewer_id: { required: false, type: "string" },
       review_status: { required: false, type: "string", enum: ["not_requested", "pending", "accepted", "changes_requested"] },
@@ -1405,6 +1553,10 @@ module.exports = async function (fastify) {
       scopedProjectId,
       req.body.suite_ids || (req.body.suite_id ? [req.body.suite_id] : [])
     );
+    if (req.body.execution_hooks?.length) {
+      await fastify.requirePermission("testcase.view", { projectId: scopedProjectId })(req);
+      if (req.body.execution_hooks.some(hook => hook?.target_kind === "suite")) await fastify.requirePermission("suite.view", { projectId: scopedProjectId })(req);
+    }
     if (req.body.test_data_options !== undefined) {
       await fastify.requirePermission("data.view", { projectId: scopedProjectId })(req);
     }
@@ -1472,6 +1624,6 @@ module.exports = async function (fastify) {
   fastify.delete("/test-cases/:id", async (req) => {
     await fastify.authenticate(req);
     await ensureTestCasePermission(fastify, req, "testcase.delete");
-    return service.deleteTestCase(req.params.id);
+    return service.deleteTestCase(req.params.id,{deleted_by:req.user.id,ip_address:req.ip});
   });
 };

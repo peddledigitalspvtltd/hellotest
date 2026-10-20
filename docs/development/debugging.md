@@ -49,6 +49,26 @@ curl -i --max-time 5 http://localhost:4312/health/ready
 
 Run only the checks for processes you intended to start. API liveness does not establish database readiness; engine readiness includes its configured queue state; mobile readiness depends on whether provider readiness is required. Authenticated **Administration → Service health** / `/admin/health` reports optional provider degradation. Do not substitute a container's “running” state for a ready endpoint or a completed case.
 
+When a code-only refresh reaches the API's startup deadline while replaying
+compatibility backfills, inspect schema receipts and migration logs first. After
+confirming the required main and observability versions and that the change has
+no schema migration, restart with `HELLOTEST_SCHEMA_MODE=verify`. The launcher
+passes this existing application mode to local, full and platform API stacks and
+retains the choice in its private generated environment. Verification still fails
+closed when a required receipt is missing or outdated. Use
+`HELLOTEST_SCHEMA_MODE=migrate` for initial setup and schema upgrades; the default
+remains `migrate`. Do not interrupt a healthy in-progress migration merely to
+change modes.
+
+If the local gateway returns `503` / `NOSRV` while its worker is healthy, compare
+direct worker readiness with gateway readiness and HAProxy's check log. Under
+measured host pressure, valid responses took 2.5–3.1 seconds and exceeded
+HAProxy's implicit two-second check deadline. The local gateway now sets a
+five-second check timeout, matching the worker's Docker check budget, with
+five-second intervals, three failures to mark down and two successes to recover.
+This still rejects an actual readiness failure; it does not change MCP action
+deadlines. See [HAProxy's check timeout contract](https://docs.haproxy.org/2.9/configuration.html#timeout%20check).
+
 ## Attach a debugger
 
 Open the repository root in VS Code, then choose a profile in **Run and Debug** and press **F5**. Start individual profiles first so each dependency can reach readiness. Do not launch another copy of a process that already owns the same HTTP/inspector port.
@@ -155,6 +175,8 @@ With monitoring running, search the trace ID in Test Ops → Telemetry / Jaeger 
 
 Never attach a raw HAR, environment file, bearer token, private prompt or complete test dataset to a bug report. Copy the minimal sanitized route/error details and IDs. Known-field redaction is a safeguard, not a guarantee that arbitrary nested data is safe to log.
 
+TestOps AI calls and agent model-call details have separate Copy request and Copy response actions. They copy the displayed sanitized capture under the existing trace content permission. A missing response disables its copy action; a browser clipboard denial leaves the visible payload available for manual selection.
+
 ## Diagnose a queued execution
 
 A build transaction, queued execution job and saved case result are different records. Capture their IDs from the UI before investigating.
@@ -236,3 +258,286 @@ For agent output, compare the specialist's `outputInstructions` in `services/age
 The repository inspection agent occupies 4311. Start the host Playwright execution/recorder on 4313 with `local-run/bin/start-host-recorder.sh`. Its `/health` and `/api/v1/capabilities` must identify Playwright support; an inspection-agent listener on 4311 is not an execution engine. The API default is `HELLOTEST_LOCAL_RUN_ENGINE_URL=http://host.docker.internal:4313`, while browser-facing connections use `http://localhost:4313`. Override both runner and API ports together. Test Runs leaves local resolution to the server; it must not point local execution at remote port 4301. Live sessions come from dispatched, project-bound run metadata and include a run ID; they do not fall back to another active browser.
 
 For an isolated live-link database check, use `EXECUTION_LIVE_POSTGRES=1 node --test services/automation/test/backend/executionLiveSessions.postgres.test.js` with matching `DATABASE_URL` and `OBS_DATABASE_URL` pointing to an empty disposable database named `agent_verify_live_sessions_*`. The test uses the native schema and verifies project/run isolation, URL sanitization and completed-session removal. Real provider smoke checks must use controlled targets; they do not establish that a customer's saved steps, selectors or target credentials are valid.
+
+## Automation source, options and callback verification
+
+Main schema version 7 separates `TC_` manual IDs from `AT_` automation IDs and
+retains old automation display IDs in `legacy_display_ids`. Run the normal migration
+before starting the API in schema-verify mode. Identity is immutable; use explicit
+automation/manual links rather than changing `automated` on an existing case.
+`test_case_effective_results` derives linked coverage from actual source receipts;
+`execution_results` remains the original execution evidence. Derived result IDs
+are read-only and include source provenance. Investigate the source automation
+case for logs, attachments and per-row failures.
+
+Automation Engineer restores its step workspace through the permission-scoped
+agent activity endpoint. Select a manual step or section to inspect its validated
+draft and the actual browser evidence captured during generation. Protected
+preview/evidence artifacts remain separate from ordinary transaction metadata;
+older activities may have no retained draft. Model request and Model response
+tabs beside Instructions/Source show the selected draft's originating section-attempt
+calls (or the original complete-case scope for legacy activities), subject to
+existing trace permissions. Events remain retained server-side;
+the workspace omits separate log and outcome panels. A generated
+or partial activity is not an execution pass. The completion loop performs at
+most three correction attempts per current section for browser or linked manual
+builds, within the shared case deadline/tool budget; other builds use three case attempts.
+Each validated section is saved to Plan while the case remains incomplete. Later
+failures preserve those saved sections; final coverage and output validation are
+required before the case becomes ready. Only the current section is requested;
+future rows stay queued. Browser tool batches and expected-result assertions finish
+before accepting the interactive section. Browser actions, validated drafts and
+saved Plan sections have separate receipt-based counters.
+
+If the model returns fill/click code without performing it, inspect
+`allow_browser_actions` and `browser_interaction_mode` in the retained build.
+New Engineer forms default visibly to **Perform steps in browser**. An explicit
+source-only selection stays read-only. Code-only output in interactive mode gets
+`AUTOMATION_BROWSER_EXECUTION_REQUIRED` feedback until actual current-section
+actions and a subsequent `browser_assert` succeed. A later failed assertion requires a real corrected
+check; a code-only revision cannot reuse an earlier successful assertion. Startup
+diagnostics are retained as bounded, redacted transaction artifacts with MIME
+`application/vnd.hellotest.automation-browser-diagnostic+json`. Their download
+requires the existing project and automation content permissions.
+Missing test inputs are reported
+as dependencies before dispatch; mailbox/OTP evidence must be configured rather
+than invented. Inspect `automation.agent.section.saved` and row
+`instruction_status: saved` for actual Plan persistence. A later failed activity
+must not downgrade those rows or hide the saved Plan. Partial prepared automation
+IDs remain in activity outputs so latest/history lookup from the AT case works.
+An observed action followed by a provider error stops automatic whole-case retry.
+Published final output schemas apply to the assembled result, allowing intermediate
+tool requests without treating them as a complete case outcome.
+
+For a build that fails before its first model request, inspect the browser setup
+phase. `AUTOMATION_BROWSER_STARTUP_FAILED` preserves MCP's confirmed
+`not_attempted` startup receipt. The same session retries startup once after
+cleanup; two failed starts stop automatic retries rather than multiplying them
+through the durable queue. The bounded diagnostic includes the fatal log tail;
+ordinary Chromium DBus warnings alone do not establish the cause. All four local
+TestEngine worker containers use `init: true` to reap exited browser children.
+Navigation/readiness failures and unknown outcomes do not receive a startup retry.
+The workspace displays the sanitized failure reason and offers **Refresh activity**;
+switching back to the tab resumes bounded latest-activity discovery. A changed URL
+pauses queued mutations while allowing read-only snapshots and assertions. A failed
+tool stops the rest of the batch. Both retain completed actions and request current
+browser evidence before continuing.
+
+`automation_action_reconciliation` is host feedback, not a second MCP action.
+It references a confirmed action ID when a corrected linear section repeats that
+same target and value. Inspect the original receipt; the browser action count
+must not increase. Navigation resets, changed values and additional action
+instances cannot use this shortcut. A failed assertion remains unresolved until
+a subsequent real assertion succeeds. When controls disappear after a submit,
+inspect the current snapshot's visible result text and locator candidates rather
+than an older page's inputs.
+
+When the browser opens but a build exhausts model turns, compare actual tool
+receipts with model responses. Repeated code-only replies are not browser startup
+failures. `automation_program_tools` records bounded AST-to-MCP planning for
+supported linear code; only subsequent real MCP receipts substantiate actions.
+`automation_source_validation` asks for specific syntax corrections before any
+proposed actions run. A corrected source can reuse exact completed prefix
+receipts, including navigation and parameter references, without repeating a
+submission. Native text-content/title assertion capabilities must be advertised
+by the selected runner; `AUTOMATION_MCP_CAPABILITY_MISSING` identifies an old runner.
+
+Empty-case builds use `automation.agent.flow.planning` and the configurable
+`automationFlowPlanning.instructions` block before developing sections. A `flow_plan`
+model trace is a manual specification draft, not an instruction or execution
+receipt. Check case revision, linked sources and parameters on
+`AUTOMATION_FLOW_BASELINE_CHANGED`; the draft transaction preserves concurrent
+edits and rolls back on access or lease loss. The next UI row requires a durable
+`development_status: completed` receipt under the strict progression policy.
+Test-data display reads the protected build snapshot: public values are fixed for
+one build and private values remain masked. Unset authored inputs open a review
+dialog and may continue as empty strings for one case. Full unscoped `@name`
+inputs use an existing `r.name`, otherwise inherited `t.name`; explicit scopes
+never borrow another namespace. The host records the chosen scope before replay.
+
+Main schema version 9 adds the nullable, versioned `automation_start_url` field.
+New browser cases, Engineer builds and retries require an explicit or saved
+HTTP(S) target; existing legacy records can still be viewed and edited without
+inventing a URL. Review the case's Start URL and the activity's browser entry
+source when a build opens the wrong application. Queued jobs capture the reviewed
+target per case. A target edit or replacement after submission stops the job with
+`AUTOMATION_START_URL_CHANGED`; it must not overwrite the newer URL or instructions.
+An old browser job without a captured target must be resubmitted with a URL.
+
+If model output mentions an unrelated site such as Heroku while browser evidence
+shows the correct target, inspect the repository screens included in the model
+request. Older builds supplied application-wide recordings. Browser generation
+now excludes web screen records whose origins do not match the selected Start
+URL, including records without a usable page identity. Retrieved links, old
+source and parameter values do not independently authorize another origin.
+MCP evidence is returned only after document load and bounded interface readiness;
+HTTP/navigation failures and unfinished loading block subsequent actions. A
+post-action readiness failure has an unknown outcome and must not replay a
+possibly completed click or submission. Continuous background polling alone does
+not prevent a settled page from becoming ready.
+
+Linked manual parameter defaults are projected separately from raw automation
+overrides on the scoped case-detail endpoint, with `data.view` required for values.
+Inspect `inherited_parameter_values`, `effective_parameter_values` and
+`parameter_sources` when a value differs between manual and automation cases.
+An explicit automation key wins even when empty; reset removes the key. New
+execution snapshots freeze effective values, while existing runs retain their
+original data. Exact parameter references in browser input tools are resolved
+inside the authorized tool wrapper, never by exposing private values to the model.
+For a build, public generators and aliases materialize once and supply the prompt,
+step labels and browser inputs. The first completed section saves public generated
+case values atomically with its instructions; later sections reuse those defaults.
+A failed save rolls back its own code, defaults and history without losing earlier
+committed sections. Source manual templates remain unchanged. Inspect
+`metadata.build_data_artifacts[caseId]` and the scoped
+`/test-cases/automation/jobs/:transactionId/build-data/:artifactId` endpoint for
+retained resolved labels. It also requires `data.view`; ordinary metadata contains
+no actual parameter data. Optional artifact failure falls back to authored labels,
+not new random values. Observation `active_step_id` / `active_manual_step_ids`
+distinguish selected-step evidence from other-step and legacy observations.
+
+If newly linked automation appears to miss recently entered manual Test Params,
+check the parameter save before the navigation to `/automation?create=1&manual=…`.
+That action flushes only pending parameter edits and waits for the revision-checked
+save; save failures stay on the manual screen. Detail-cache updates must match the
+scoped query prefix, including its user/execution variants. The creation-route
+consumer prevents stale URL state from reopening the dialog after success/cancel.
+Bound runtime parameter names also accompany generation feedback, allowing the
+validator to correct false parameter-only dependency reports without exposing
+values or hiding genuinely missing external context.
+
+`POST /test-cases/:id/automation/parameter-plan` returns authorized public values,
+private/deferred names, missing names and authored bound-empty names. It does not
+materialize random generators. The primary build reviews missing or empty inputs;
+**Review data & build** also reviews configured public values. The receipt is an
+opaque HMAC over the specification and selected sources, not plaintext values.
+`AUTOMATION_PARAMETER_PLAN_CHANGED` requires a fresh review. The save boundary
+locks and rechecks selected source data; a concurrent edit cannot commit stale
+instructions. The build refreshes its own baseline after committing overrides.
+
+Reviewed inputs persist as authored automation values and bounded name-only
+`test_data_options.parameter_overrides` metadata. These values survive selected
+environment/configuration/data-set defaults in runtime and export; explicit run
+input and captures retain their existing precedence. Missing-input empty defaults
+and reviewed changes save atomically with accepted source. An unknown reference
+invented by the model still fails before a browser action. A missing external
+source is separate from an empty form input.
+
+When a build and later run differ, inspect `effective_test_data_set_ids` alongside
+the authored `test_data_set_ids`. The primary linked manual mapping is a fallback
+only when automation has no own mapping. Generation, new-run snapshots and run
+planning share the same scoped resolver; a frozen run never rereads a changed
+manual mapping when its options are updated.
+
+For `AUTOMATION_DEPENDENCY_MISSING`, inspect the activity's required-context card and configure the named mailbox/source/parameters before retrying. A supplied verification code cannot establish that an inbox was checked. For a save-phase `25P01` / `SAVEPOINT can only be used in transaction blocks`, check the shared PostgreSQL adapter's active-context lifecycle: detached background work must not reuse the client of a completed transaction. A successful model response does not mean its code was saved or executed.
+
+Automation readers can inspect saved actions and expected results without
+`automation.code.view`. Scoped Test Step reads withhold executable source and API
+request contracts when that permission or its feature is unavailable, returning
+`automation_source_hidden: true`. Source, generated keywords and runnable exports
+remain subject to source access.
+
+The Engineer build actions explicitly select `ai.agentic.automation-engineer`.
+That feature key survives batch queueing and governs model selection, context
+policy and model settings. Engineer and Repair share configurable browser protocol
+blocks with automation generation; agent-specific published overrides take
+precedence. Shared native-generation templates still define the section mapping
+contract. A compiled mapping is not a passing execution receipt.
+
+Failed current-section checks also appear in `current.latest_failure`, outside
+compactable observation history. URL checks identify the address bar as their
+subject without exposing expected private values. The configurable
+`automationBrowserAgent.recovery` block distinguishes URL requirements from
+visible-state checks; an explicit required route must never be weakened to a
+heading assertion. A failed final tool batch reports
+`AUTOMATION_BROWSER_EXECUTION_INCOMPLETE` and retains previously saved sections.
+
+If a high-level manual action refers to a screen that is not open, inspect the
+current snapshot and its observed navigation controls. `sectionIntent` allows
+necessary intermediate navigation in the same manual section; the Start URL is
+only the entry point. Generated-source failures also populate `latest_failure`
+and include a bounded previous draft for correction. Repeated invalid source
+selects `inspect_and_act_before_source`; no invalid source is executed. Final
+source must include an executable expected-result check even if development
+`browser_assert` calls already passed. The step's Build Error tab retains safe
+failure codes and attempts without copying input values or raw provider errors.
+
+`automation.agent.output.normalized` records when a bare native asynchronous
+matcher was joined with `await`. Compare the raw model response with the saved
+canonical source; locator, polarity and expected values must match. Awaited
+`locator.waitFor` and `page.waitForSelector` visibility checks use real MCP
+assertions. Attached/detached states and dynamic wait options are not approximated.
+
+Interactive Engineer requests use `automationBrowserAgent.actor` and the
+structured actor task instead of the source-only request template. Keep an
+explicit JSON-output instruction in that configurable block: JSON-object
+providers can reject the request before generation when messages omit the word
+JSON. `automation.agent.source.compiled` identifies source compiled from actual
+confirmed operations. Model drafts and serialized/redacted activity history
+cannot manufacture that host ledger. Actor `occurrence` is a cumulative
+execution ordinal, not a retry counter; failed checks reuse confirmed actions.
+
+`AUTOMATION_PARAMETER_REFERENCE_REQUIRED` means a display redaction mask was
+proposed as input. No browser action has run for that request. The loop returns
+safe scoped reference names so the model can correct the input in the same
+session; do not replace private values with literal mask text in task context.
+`AUTOMATION_NAVIGATION_ALREADY_REACHED` skips reopening an already-ready current
+URL. Intentional reloads use `navigation_intent: "reload"`. After a real failed
+navigation, an earlier snapshot or satisfied check cannot establish completion.
+
+For a successful model response followed by an assertion/locator failure,
+compare `current_snapshot.accessibility` with the exact proposed candidate.
+`Email *` in DOM label text can differ from accessible name `Email` when the
+asterisk is `aria-hidden`. `automationSnapshotLocators` validates each advertised
+candidate against the captured node; do not change a correct application label
+to accommodate an incorrect role locator. `browser_validate_locator` with
+`match_count: 0` or `unique: false` is unsuccessful even if JSON-RPC succeeded.
+The model's current failure and recent receipts retain those facts.
+`AUTOMATION_BROWSER_REPEATED_CHECK` stops repeated unchanged unsuccessful probes.
+`AUTOMATION_BROWSER_TOOL_BUDGET_EXHAUSTED` is a browser-stage failure, with
+`tool_calls`, `tool_call_limit` and the last browser code; successful provider
+calls must not be labelled model failures. A completion-only turn can save
+already-observed work but cannot dispatch new browser operations.
+
+For `BROWSER_TOOL_INVALID_ARGUMENTS`, inspect the discovered assertion schema and
+safe `assertion_contract`. State checks (`visible`, `hidden`, checked/enabled
+variants) require `locator` and forbid `value`; text/value/count checks need both;
+page URL/title checks require `value` and forbid `locator`. Correct the argument
+shape without weakening the manual expected result. Host schema feedback excludes
+input values, and server rejection happens before browser execution.
+
+An input-preflight `AUTOMATION_DEPENDENCY_MISSING` lists missing authored test or
+suite values before the browser opens. `generation_provider_requests: 0` applies
+to Engineer completion calls; optional Knowledge intent planning can already
+have used a model. Review inherited manual values and explicit automation
+overrides before retrying. A missing run capture is not a static-input blocker.
+
+Section options are read only from a leading `// @hellotest-options` comment.
+Quoted text inside executable source does not change section execution. Direct
+and queued runners honor `skip`, `optional` and `screenshotOnFailure`, including
+API/native sections and hooks. An optional failure remains visible with its
+original error and a skipped/warning result; required sections must still pass.
+An entirely skipped case cannot pass. Standalone Playwright exports retain those
+options and resolve native `page.*` parameter/repository references as well as
+`web.*` keywords.
+
+Queued lifecycle callbacks serialize on the persisted job row. Replayed completion
+returns the original receipt rather than inserting another result or artifact.
+Final ledgers must account for the frozen sections, and a failed required section
+cannot be hidden by a blocked/passed completion. Mixed runs remain open while a
+manual case is pending, paused or running. Signed direct final callbacks serialize
+by engine run ID; a later delivery cannot replace a terminal receipt for that
+attempt. A newly dispatched attempt has its own engine run ID.
+
+Focused verification:
+
+```sh
+node --test services/automation/test/backend/queuedExecutionLifecycle.test.js services/automation/test/backend/testEngineResultLedger.test.js
+node --test services/testing/test/backend/testStepReadAccess.test.js services/testing/test/backend/automationBatchBrowserActions.test.js
+node --test services/automation/test/frontend/*.test.mjs
+npm --prefix testengine/backend run build
+node --test testengine/backend/test/browser/automationExecutionOptions.test.mjs
+```
+
+The opt-in `queuedExecutionLifecycle.postgres.test.js` requires an empty disposable
+`agent_verify_automation_*` database. Never point it at the workspace database.

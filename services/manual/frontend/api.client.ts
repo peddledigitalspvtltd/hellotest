@@ -154,7 +154,7 @@ requirements: {
         signal: options?.signal,
         body: JSON.stringify(input)
       }),
-    acceptDesignedTestCases: (id: string, input: { app_type_id: string; status?: string; cases: Array<{ title: string; description?: string | null; priority?: number; requirement_ids?: string[]; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string | null; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; step_type?: TestStep["step_type"]; action?: string | null; expected_result?: string | null }> }> }) =>
+    acceptDesignedTestCases: (id: string, input: { app_type_id: string; status?: string; cases: Array<{ title: string; description?: string | null; priority?: number; test_case_type?: string; requirement_ids?: string[]; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string | null; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; step_type?: TestStep["step_type"]; action?: string | null; expected_result?: string | null }> }> }) =>
       request<{ accepted: number; created: Array<{ id: string; title: string; step_count: number; requirement_ids: string[] }> }>(`/requirements/${id}/design-test-cases-accept`, {
         method: "POST",
         body: JSON.stringify(input)

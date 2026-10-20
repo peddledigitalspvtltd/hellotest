@@ -19,7 +19,7 @@ const ENTITY_SCOPES = {
   },
   test_case: {
     query: `
-      SELECT test_cases.id, app_types.project_id
+      SELECT test_cases.id, test_cases.app_type_id, app_types.project_id
       FROM test_cases
       JOIN app_types ON app_types.id = test_cases.app_type_id
       WHERE test_cases.id = ?
@@ -71,7 +71,7 @@ const createError = (message, statusCode) => {
   return error;
 };
 
-const resolveEntityScope = async ({ entityType, entityId, projectId }) => {
+const resolveEntityScope = async ({ entityType, entityId, projectId, appTypeId, allowDisplayId = false }) => {
   const normalizedType = normalizeEntityType(entityType);
   const definition = ENTITY_SCOPES[normalizedType];
 
@@ -84,7 +84,12 @@ const resolveEntityScope = async ({ entityType, entityId, projectId }) => {
     throw createError("Entity id is required.", 400);
   }
 
-  const row = await db.prepare(definition.query).get(normalizedEntityId);
+  const caseAlias=normalizedType==='test_case'&&allowDisplayId&&projectId&&/^(?:AT[_-][0-9]+|TC[_-]?[0-9]+)$/i.test(normalizedEntityId);
+  const row=caseAlias?await db.prepare(`SELECT test_cases.id,test_cases.app_type_id,app_types.project_id FROM test_cases
+    JOIN app_types ON app_types.id=test_cases.app_type_id WHERE app_types.project_id=?
+    ${appTypeId?'AND test_cases.app_type_id=?':''}
+    AND (UPPER(test_cases.display_id)=? OR test_cases.legacy_display_ids @> ?::jsonb)`)
+    .get(projectId,...(appTypeId?[appTypeId]:[]),normalizedEntityId.toUpperCase(),[normalizedEntityId.toUpperCase()]):await db.prepare(definition.query).get(normalizedEntityId);
   if (!row) {
     throw createError("The requested HelloTest record was not found.", 404);
   }
@@ -97,10 +102,11 @@ const resolveEntityScope = async ({ entityType, entityId, projectId }) => {
   if (row.project_id && projectId && String(row.project_id) !== String(projectId)) {
     throw createError("The record does not belong to the selected project.", 403);
   }
+  if(normalizedType==='test_case'&&appTypeId&&row.app_type_id!==appTypeId)throw createError('The record does not belong to the selected application.',403);
 
   return {
     entityType: normalizedType,
-    entityId: normalizedEntityId,
+    entityId: row.id || normalizedEntityId,
     projectId: resolvedProjectId
   };
 };

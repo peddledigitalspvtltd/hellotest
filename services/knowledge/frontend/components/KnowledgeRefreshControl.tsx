@@ -81,7 +81,7 @@ export function KnowledgeRefreshControl({
         <div>
           <strong>Keep project context current</strong>
           <span>
-            Stories, test cases and defects · only new or changed records are
+            Stories, test cases, runs and defects · only new or changed records are
             indexed
           </span>
         </div>

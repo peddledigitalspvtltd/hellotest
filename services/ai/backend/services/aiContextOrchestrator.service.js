@@ -201,7 +201,7 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
         ...effectiveScopes.flatMap((scope) => SOURCE_KINDS_BY_SCOPE[scope] || []),
         ...(hasProductHelpIntent ? ["product_help"] : [])
       ]);
-  const identifiers = unique(resolvedQuestion.match(/\b(?:BUG|TC|TS|STORY|RUN|REQ|REL|SPRINT)-?[A-Z0-9_-]+\b/gi) || []).slice(0, 12);
+  const identifiers = unique(resolvedQuestion.match(/\b(?:AT[_-][0-9]+|(?:BUG|TC|TS|STORY|RUN|REQ|REL|SPRINT)-?[A-Z0-9_-]+)\b/gi) || []).slice(0, 12);
   const answerDepth = DETAILED_ANSWER.test(resolvedQuestion) || ["tool_help", "project_analysis", "mixed", "specialist_analysis"].includes(queryCategory)
     ? "detailed"
     : /\b(?:count|how many|status|list|which)\b/i.test(resolvedQuestion) ? "concise" : "standard";
@@ -439,10 +439,6 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
   const contextRoute = route || planContext({ prompt, requestedScopes });
   const scoped = require("./agentEvidenceScope");
   evidenceScope = scoped.normalize(evidenceScope, contextRoute.live_scopes);
-  const storyScope = scoped.predicate("story", "requirements", evidenceScope);
-  const caseScope = scoped.predicate("test_case", "test_cases", evidenceScope);
-  const runScope = scoped.predicate("run", "executions", evidenceScope);
-  const bugScope = scoped.predicate("bug", "feedback", evidenceScope);
   execution.assertActive();
   if (!contextRoute.live_scopes?.length) return { hits: [], route: contextRoute, counts: {} };
   const project = await safeRow("SELECT id, display_id, name, description, visibility, created_at FROM projects WHERE id = ?", [projectId]);
@@ -462,6 +458,17 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
     execution.assertActive();
     return allowed;
   };
+  if(/^(?:AT[_-][0-9]+|TC[_-]?[0-9]+)$/i.test(evidenceScope.test_case_id||'')&&await canView('testcase.view')){
+    const label=evidenceScope.test_case_id.toUpperCase();
+    const selected=await safeRow(`SELECT test_cases.id FROM test_cases JOIN app_types ON app_types.id=test_cases.app_type_id
+      WHERE app_types.project_id=? ${appTypeId?'AND test_cases.app_type_id=?':''}
+      AND (UPPER(test_cases.display_id)=? OR test_cases.legacy_display_ids @> ?::jsonb)`,[projectId,...(appTypeId?[appTypeId]:[]),label,[label]]);
+    if(selected)evidenceScope={...evidenceScope,test_case_id:selected.id};
+  }
+  const storyScope = scoped.predicate("story", "requirements", evidenceScope);
+  const caseScope = scoped.predicate("test_case", "test_cases", evidenceScope);
+  const runScope = scoped.predicate("run", "executions", evidenceScope);
+  const bugScope = scoped.predicate("bug", "feedback", evidenceScope);
   const scopeSet = new Set(contextRoute.live_scopes || []);
   const hits = [];
   const counts = {};

@@ -17,6 +17,12 @@ while picker requests are delayed, 25-record paging, search beyond the first
 page, retained selections and ordering, linked context, and local retries.
 Run browser fixtures sequentially to avoid Vite reloads from another fixture.
 
+`authFieldAssociations.test.mjs` mounts the actual authentication page and checks
+native input labels, unique hint/error references, password visibility, and
+invalid-to-valid field transitions across sign-in, signup, reset, and code modes.
+It uses isolated email/auth stubs and sends no authentication or email requests.
+It defaults to Vite on port 5197 (`VITE_TEST_URL` overrides it).
+
 `largeSelectionDialogs.test.mjs` stress-tests the real AppShell with 400 selected
 cases from a 450-case catalog and 120 selected suites. It covers delayed names,
 long titles, last-case reordering and focus, native picker scrolling, locked

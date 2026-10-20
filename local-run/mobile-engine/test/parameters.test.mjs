@@ -76,3 +76,22 @@ test('each shared group uses its frozen defaults without leaking into the follow
   assert.equal(result.status, 'passed');
   assert.deepEqual(values, ['first-group', 'second-group', 'case']);
 });
+
+test('screen merges preserve native historical bindings and ignore redirect rows', async () => {
+  const calls=[];
+  const repository=[
+    {page_key:'Login',object_name:'Email',locator:'id=retired',metadata:{merged_into_entry_id:'canonical'}},
+    {id:'canonical',page_key:'Account',object_name:'Email',locator:'id=email',metadata:{reference_aliases:['Login.Email']}},
+    {page_key:'Login',screen_name:'Account',object_name:'Submit',locator_intent:'Login.Submit',locator:'id=secondary',reference_aliases:['Login.Submit','Old.Submit']},
+    {page_key:'Login',object_name:'Submit',locator:'id=primary'},
+    {page_key:'Other',object_name:'Submit',locator:'id=other',metadata:{reference_aliases:['Old.Submit']}}
+  ];
+  const driver={$:selector=>({setValue:async value=>calls.push(['type',selector,value]),click:async()=>calls.push(['tap',selector])})};
+  const result=await executeAndroidStepsWithDriver(driver,{object_repository:repository,steps:[{id:'merge',automation_code:'await android.type("Login.Email", "reader");\nawait android.tap("Login.Submit");'}]});
+  assert.equal(result.status,'passed');
+  assert.deepEqual(calls,[['type','id=email','reader'],['tap','id=primary']]);
+  const ambiguous=await executeAndroidStepsWithDriver(driver,{object_repository:repository,steps:[{id:'conflict',automation_code:'await android.tap("Old.Submit");'}]});
+  assert.equal(ambiguous.status,'failed');
+  assert.match(ambiguous.results[0].note,/historical repository reference matches multiple fields/);
+  assert.equal(calls.length,2);
+});

@@ -25,6 +25,9 @@ const fixture = async (task) => {
   projects.getProject = async () => ({ id: session.project_id });
   db.prepare = (sql) => ({
     get: async (...args) => {
+      // The common model boundary resolves published AI Controls. This fixture
+      // has no published overrides, so execute with the real catalog defaults.
+      if (sql.includes('FROM app_settings')) return undefined;
       if (sql.includes("COUNT(*)")) return { message_count: messages.length };
       if (sql.includes("SELECT * FROM ai_knowledge_assistant_sessions")) return session;
       if (sql.includes("WITH removed AS")) {
@@ -50,7 +53,7 @@ const fixture = async (task) => {
       if (sql.includes("role = 'user'")) return messages.find((item) => item.role === "user" && item.client_turn_id === args[1]);
       throw new Error(`Unhandled fixture read: ${sql}`);
     },
-    all: async (...args) => messages.filter((item) => !sql.includes("id <>") || (item.id !== args[1] && !["pending", "error"].includes(item.status))),
+    all: async (...args) => sql.includes('FROM app_settings') ? [] : messages.filter((item) => !sql.includes("id <>") || (item.id !== args[1] && !["pending", "error"].includes(item.status))),
     run: async (...args) => {
       if (sql.includes("SET status = 'error'")) { const row = messages.find((item) => item.id === args[0]); if (row?.status === "pending") row.status = "error"; }
       if (sql.includes("SET status = 'answered'")) { const row = messages.find((item) => item.id === args[0]); if (row) row.status = "answered"; }

@@ -31,7 +31,7 @@ module.exports=fp(async function mcpPlugin(app){
   try{
   let actor;try{actor=await auth.authenticate(/^Bearer\s+([^\s]+)\s*$/i.exec(req.headers.authorization||'')?.[1]);}catch(error){return reply.code(error.statusCode||401).header('WWW-Authenticate','Bearer realm="HelloTest MCP"').send({code:error.code||'MCP_UNAUTHORIZED',error:error.publicMessage||'MCP authentication required.'});}
    const headers=new Headers();for(const [name,value] of Object.entries(req.headers))if(typeof value==='string'&&!['content-length','host'].includes(name))headers.set(name,value);
-   const response=await handler.fetch(new Request(publicUrl||'http://localhost/mcp',{method:'POST',headers,body:JSON.stringify(req.body),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(30000)])}),{authInfo:{token:'verified-resource-credential',clientId:actor.clientId,scopes:[],extra:{actor}}});
+   const response=await handler.fetch(new Request(publicUrl||'http://localhost/mcp',{method:'POST',headers,body:JSON.stringify(req.body),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(require('./contextRequest').requestTimeoutMs(req.body))])}),{authInfo:{token:'verified-resource-credential',clientId:actor.clientId,scopes:[],extra:{actor}}});
    reply.code(response.status);for(const [name,value] of response.headers)if(!['content-length','transfer-encoding'].includes(name))reply.header(name,value);
    return reply.send(await response.text());
   }finally{inFlight--;req.raw.removeListener('aborted',disconnected);reply.raw.removeListener('close',disconnected);}

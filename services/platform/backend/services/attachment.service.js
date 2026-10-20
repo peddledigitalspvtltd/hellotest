@@ -121,7 +121,7 @@ const list = async ({ user, entityType, entityId, projectId }) => {
   return rows.map(serialize);
 };
 
-const upload = async ({ user, entityType, entityId, projectId, fileName, mimeType, stream, permissionCode = "attachment.create", maxBytes, onStored }) => {
+const upload = async ({ user, entityType, entityId, projectId, fileName, mimeType, stream, permissionCode = "attachment.create", maxBytes, onStored, expectedSha256 }) => {
   await assertKnowledgeSourceAttachmentAccess({ user, entityType, entityId, permissionCode, operation: "upload" });
   const scope = await requireEntityPermission({
     user,
@@ -131,6 +131,30 @@ const upload = async ({ user, entityType, entityId, projectId, fileName, mimeTyp
     projectId
   });
   await assertExecutionAttachmentAccess({ user, scope, operation: "upload" });
+  if(expectedSha256!==undefined&&expectedSha256!==null&&expectedSha256!==''){
+    if(!/^[a-f0-9]{64}$/.test(String(expectedSha256)))throw Object.assign(new Error('A valid SHA-256 upload checksum is required.'),{statusCode:400});
+    return db.transaction(async()=>{
+      await db.query('SELECT pg_advisory_xact_lock(hashtext(?),hashtext(?))',['hellotest.attachment-upload',`${scope.projectId}:${scope.entityType}:${scope.entityId}:${safeFileName(fileName)}:${expectedSha256}`]);
+      const existing=await db.prepare(`SELECT * FROM attachments WHERE project_id=? AND entity_type=? AND entity_id=?
+        AND file_name=? AND checksum_sha256=? ORDER BY created_at DESC LIMIT 1`).get(scope.projectId,scope.entityType,scope.entityId,safeFileName(fileName),expectedSha256);
+      if(existing){
+        const hash=crypto.createHash('sha256');let bytes=0;
+        const limit=Math.min(config.objectStorage.maxAttachmentBytes,Number(maxBytes)>0?Number(maxBytes):config.objectStorage.maxAttachmentBytes);
+        for await(const chunk of stream){bytes+=chunk.length;if(bytes>limit)throw Object.assign(new Error('Attachment exceeds the configured upload limit.'),{statusCode:413});hash.update(chunk);}
+        if(stream.truncated||bytes<=0||bytes>limit)throw Object.assign(new Error(stream.truncated?'Attachment exceeds the configured upload limit.':'Attachment must be non-empty.'),{statusCode:stream.truncated?413:400});
+        if(hash.digest('hex')!==expectedSha256)throw Object.assign(new Error('Attachment checksum does not match its upload receipt.'),{statusCode:400});
+        return serialize(existing);
+      }
+      return storeScopedAttachment({user,scope,fileName,mimeType,stream,maxBytes,onStored,expectedSha256});
+    })();
+  }
+  return storeScopedAttachment({ user, scope, fileName, mimeType, stream, maxBytes, onStored });
+};
+
+// Storage mechanics are shared by interactive uploads and an already-bound
+// engine capture. Only the latter's narrowly scoped verifier bypasses user UI
+// upload grants; no caller can select a principal, project or arbitrary entity.
+const storeScopedAttachment = async ({ user, scope, fileName, mimeType, stream, maxBytes, onStored, expectedSha256 }) => {
   const id = uuid();
   const normalizedFileName = safeFileName(fileName);
   const objectName = `${scope.projectId}/${scope.entityType}/${scope.entityId}/${id}-${normalizedFileName}`;
@@ -167,6 +191,8 @@ const upload = async ({ user, entityType, entityId, projectId, fileName, mimeTyp
       throw error;
     }
 
+    const checksum = hash.digest("hex");
+    if (expectedSha256 && checksum !== expectedSha256) throw Object.assign(new Error("Attachment checksum does not match its upload receipt."), {statusCode:400});
     const persist = async () => {
       const row = await db.prepare(`
       INSERT INTO attachments (
@@ -189,7 +215,7 @@ const upload = async ({ user, entityType, entityId, projectId, fileName, mimeTyp
       stored.size,
       compression,
       stored.etag,
-      hash.digest("hex"),
+      checksum,
       user.id
     );
       const attachment = serialize({ ...row, author_name: user.name, author_email: user.email });
@@ -202,6 +228,27 @@ const upload = async ({ user, entityType, entityId, projectId, fileName, mimeTyp
     await objectStorage.removeObject({ bucket: stored?.bucket || config.objectStorage.bucket, objectName }).catch(() => undefined);
     throw error;
   }
+};
+
+const uploadManagedExecutionObject = async ({ resultId, transactionId, engineRunId, fileName, mimeType, stream, maxBytes, expectedSha256 }) => {
+  const transaction = await require('../src/obsDb').prepare(`SELECT project_id,created_by,metadata FROM workspace_transactions
+    WHERE id=? AND action='testengine_run' AND related_kind='testengine_run' AND related_id=?`).get(transactionId,engineRunId);
+  const result = await db.prepare(`SELECT result.id,result.execution_id,result.test_case_id,run.project_id
+    FROM execution_results result JOIN executions run ON run.id=result.execution_id WHERE result.id=?`).get(resultId);
+  if (!transaction || !result || transaction.project_id!==result.project_id
+    || transaction.metadata?.execution_result_id!==result.id || transaction.metadata?.execution_id!==result.execution_id
+    || transaction.metadata?.test_case_id!==result.test_case_id) {
+    throw Object.assign(new Error('Engine evidence does not match a dispatched execution result.'),{statusCode:403});
+  }
+  if (!/^[a-f0-9]{64}$/.test(String(expectedSha256||''))) throw Object.assign(new Error('A SHA-256 artifact checksum is required.'),{statusCode:400});
+  return db.transaction(async()=>{
+    await db.query('SELECT pg_advisory_xact_lock(hashtext(?),hashtext(?))',['hellotest.engine-artifact',`${engineRunId}:${expectedSha256}:${safeFileName(fileName)}`]);
+    const existing=await db.prepare(`SELECT * FROM attachments WHERE project_id=? AND entity_type='execution_result'
+      AND entity_id=? AND file_name=? AND checksum_sha256=? ORDER BY created_at DESC LIMIT 1`).get(result.project_id,result.id,safeFileName(fileName),expectedSha256);
+    if (existing) { stream.resume(); return serialize(existing); }
+    return storeScopedAttachment({user:{id:transaction.created_by||null},scope:{projectId:result.project_id,entityType:'execution_result',entityId:result.id},
+      fileName,mimeType,stream,maxBytes,expectedSha256});
+  })();
 };
 
 const download = async ({ user, id, permissionCode = "attachment.view" }) => {
@@ -319,5 +366,6 @@ module.exports = {
   remove,
   safeFileName,
   shouldCompress,
-  upload
+  upload,
+  uploadManagedExecutionObject
 };

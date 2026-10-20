@@ -1,6 +1,6 @@
 const knowledgeAssistantService = require("../services/knowledgeAssistant.service");
 const execution = require("@hellotest/knowledge/backend/services/knowledgeExecution.service");
-const { streamAssistant } = require("../http/assistantStream");
+const { streamAssistant, runConnectedAssistant } = require("../http/assistantStream");
 
 
 const { validateAppTypeScope, prepareKnowledgeRequest, createProjectAccess } = require("@hellotest/knowledge/backend/http/requestScope");
@@ -69,7 +69,7 @@ module.exports = async function (fastify) {
 
   fastify.post("/knowledge/assistant/sessions/:id/messages", async (req, reply) => {
     const input = await prepareTurn(req, reply);
-    const result = await knowledgeAssistantService.respond(input);
+    const result = await runConnectedAssistant(req, reply, (connection) => knowledgeAssistantService.respond({ ...input, ...connection }));
     if (result.pending) reply.code(202).header("Retry-After", String(result.retry_after_seconds || 3));
     return result;
   });

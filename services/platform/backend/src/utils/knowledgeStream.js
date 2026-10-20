@@ -3,7 +3,7 @@ const { publicKnowledgeError } = require("./knowledgeAssistantErrors");
 
 // Authentication and project authorization must finish before this function
 // takes ownership of the response. No provider text is emitted as progress.
-const streamKnowledge = async (req, reply, task) => {
+const streamKnowledge = async (req, reply, task, { publicError = publicKnowledgeError } = {}) => {
   const controller = new AbortController();
   const traceId = randomUUID();
   reply.hijack();
@@ -29,7 +29,7 @@ const streamKnowledge = async (req, reply, task) => {
   } catch (error) {
     if (!controller.signal.aborted) {
       req.log?.error({ err: error, trace_id: traceId }, "Knowledge stream failed");
-      send("error", { code: error.code || "KNOWLEDGE_REQUEST_FAILED", message: publicKnowledgeError(error),
+      send("error", { code: error.code || "KNOWLEDGE_REQUEST_FAILED", message: publicError(error),
         retryable: !error.statusCode || error.statusCode >= 500 || error.statusCode === 429, trace_id: traceId });
     }
   } finally {

@@ -1,8 +1,14 @@
+import { automationStepOptions } from "./automationStepOptions.js";
 import { instrumentAutomationLines, createAutomationLineTracer, type AutomationLineResult } from "./automationLineTrace.js";
 import { resolveRepositoryLocator } from "./repositoryLocator.js";
 import { createPlaywrightCodeBindings } from "./playwrightBindings.js";
 import { parse } from "acorn";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { expect as playwrightExpect } from "playwright/test";
+import { compressBrowserVideo, deliverEngineArtifacts } from "./engineArtifacts.js";
+import { assertAutomationAsyncOwnership } from "./automationAsyncOwnership.js";
+import { automationRecoveryDecision, type AutomationRecoveryReason, type AutomationRecoverySummary } from "./automationRecoveryPolicy.js";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Builder, By, Key, until, type WebDriver, type WebElement } from "selenium-webdriver";
@@ -13,7 +19,8 @@ import {
   type Browser,
   type BrowserContext,
   type Locator,
-  type Page
+  type Page,
+  type Video
 } from "playwright";
 import type { EngineArtifactRef, EngineRunEnvelope, EngineRunStep, EngineStepOutcomeStatus, EngineWebEngineProvider } from "../contracts/hellotest.js";
 import {
@@ -64,6 +71,7 @@ type WebStepDetail = {
   console: WebConsoleEntry[];
   network: WebNetworkEntry[];
   captures: Record<string, string>;
+  recovery?: AutomationRecoverySummary;
 };
 
 type WebStepExecutionResult = {
@@ -248,6 +256,7 @@ type WebSession = {
 };
 
 type WebSessionArtifacts = {
+  capture_warnings?: string[];
   trace_path?: string | null;
   video_path?: string | null;
   artifact_refs?: EngineArtifactRef[];
@@ -352,7 +361,7 @@ const resolveScrollDelta = (deltaX?: number, deltaY?: number, options?: WebScrol
   };
 };
 
-const shouldRecordVideo = (envelope: EngineRunEnvelope) => envelope.artifact_policy?.video_mode !== "off";
+const shouldRecordVideo = (envelope: EngineRunEnvelope) => (envelope.artifact_policy?.video_mode || "off") !== "off";
 
 const shouldLaunchHeadless = (envelope: EngineRunEnvelope) => {
   if (envelope.headless !== false) {
@@ -379,9 +388,6 @@ const shouldAttachVideo = (envelope: EngineRunEnvelope, finalStatus?: EngineStep
 
   return true;
 };
-
-const maxVideoAttachmentBytes = (envelope: EngineRunEnvelope) =>
-  normalizePositiveInteger(envelope.artifact_policy?.max_video_attachment_mb, 25, 1, 250) * 1024 * 1024;
 
 type LiveViewEntry = {
   id: string;
@@ -879,10 +885,24 @@ const resolveObjectRepositoryLocatorCandidates = (envelope: EngineRunEnvelope, t
     return [target];
   }
 
-  const match = envelope.object_repository.find((entry) => {
-    const candidates = repositoryMatchKeysForEntry(entry);
-    return candidates.includes(targetKey);
+  const entries = envelope.object_repository.filter(entry => !normalizeRecord(entry.metadata).merged_into_entry_id);
+  let match = entries.find(entry => {
+    const metadata = normalizeRecord(entry.metadata);
+    const screen = normalizeText(entry.screen_name || (typeof metadata.screen_name === 'string' ? metadata.screen_name : null) || entry.page_key) || '';
+    const name = normalizeText(entry.object_name || (typeof metadata.object_name === 'string' ? metadata.object_name : null) || entry.locator_intent) || '';
+    const field = name.startsWith(`${screen}.`) ? name.slice(screen.length + 1) : name;
+    return screen && field && normalizeRepositoryKey(`${screen}.${field}`) === targetKey;
   });
+  if (!match) {
+    const aliases = entries.filter(entry => {
+      const metadata = normalizeRecord(entry.metadata);
+      return [...(Array.isArray(entry.reference_aliases) ? entry.reference_aliases : []), ...(Array.isArray(metadata.reference_aliases) ? metadata.reference_aliases : [])]
+        .some(alias => typeof alias === 'string' && normalizeRepositoryKey(alias) === targetKey);
+    });
+    if (new Set(aliases.map(entry => entry.locator)).size > 1) throw new Error('This historical repository reference matches multiple fields. Use a unique canonical Screen.Field reference.');
+    match = aliases[0];
+  }
+  match ||= entries.find(entry => repositoryMatchKeysForEntry(entry).includes(targetKey));
 
   if (!match) {
     return [target];
@@ -1183,6 +1203,9 @@ class PlaywrightWebSession implements WebSession {
   private consoleEntries: WebConsoleEntry[] = [];
   private networkEntries: WebNetworkEntry[] = [];
   private liveSessionId: string | null = null;
+  private readonly videos = new Set<Video>();
+  private screenshots: EngineArtifactRef[] = [];
+  private readonly pageListener = (page: Page) => this.registerPageTelemetry(page);
   private readonly timeouts: ReturnType<typeof resolveTimeoutPolicy>;
 
   constructor(private readonly envelope: EngineRunEnvelope) {
@@ -1207,6 +1230,8 @@ class PlaywrightWebSession implements WebSession {
 
   private usePage(page: Page) {
     this.browserPage = page;
+    page.setDefaultTimeout(this.timeouts.action);
+    page.setDefaultNavigationTimeout(this.timeouts.navigation);
     this.registerPageTelemetry(page);
   }
 
@@ -1216,6 +1241,10 @@ class PlaywrightWebSession implements WebSession {
     }
 
     this.observedPages.add(page);
+    if (this.ownsContext) {
+      const video = page.video();
+      if (video) this.videos.add(video);
+    }
     page.on("console", (message) => {
       if (this.envelope.artifact_policy?.capture_console === false || this.consoleEntries.length >= 500) return;
       const location = message.location();
@@ -1288,6 +1317,12 @@ class PlaywrightWebSession implements WebSession {
       });
       this.browserPage = await this.browserContext.newPage();
     }
+    if (this.ownsContext) {
+      this.browserContext.setDefaultTimeout(this.timeouts.action);
+      this.browserContext.setDefaultNavigationTimeout(this.timeouts.navigation);
+    }
+    this.browserContext.pages().forEach(page => this.registerPageTelemetry(page));
+    this.browserContext.on("page", this.pageListener);
     if (this.ownsContext && ["on", "retain-on-failure"].includes(this.envelope.artifact_policy?.trace_mode)) {
       await this.browserContext?.tracing.start({ screenshots: true, snapshots: true });
       this.tracing = true;
@@ -1327,11 +1362,9 @@ class PlaywrightWebSession implements WebSession {
   }
 
   async stop(finalStatus?: EngineStepOutcomeStatus) {
-    const video = this.browserPage?.video() || null;
     const shouldAttach = shouldAttachVideo(this.envelope, finalStatus);
-    const artifactPath = `artifacts/${this.envelope.engine_run_id}/video.webm`;
-    const artifactFullPath = path.join(ARTIFACT_ROOT, artifactPath);
-    const artifacts: WebSessionArtifacts = { trace_path: null, video_path: null, artifact_refs: [] };
+    const artifacts: WebSessionArtifacts = { trace_path: null, video_path: null, artifact_refs: [...this.screenshots], capture_warnings: [] };
+    if (!this.ownsContext && shouldAttach) artifacts.capture_warnings?.push('Browser video cannot be finalized from an attached browser session; use a new session to record it.');
     if (this.tracing) {
       const retain = this.envelope.artifact_policy?.trace_mode !== "retain-on-failure" || finalStatus === "failed" || finalStatus === "blocked";
       const tracePath = `artifacts/${this.envelope.engine_run_id}/trace.zip`;
@@ -1342,44 +1375,55 @@ class PlaywrightWebSession implements WebSession {
         if (retain) {
           const metadata = await stat(fullPath);
           artifacts.trace_path = tracePath;
-          artifacts.artifact_refs?.push({ kind: "trace", label: "Playwright execution trace", path: tracePath, file_name: "trace.zip", content_type: "application/zip", size_bytes: metadata.size, ...(metadata.size <= 8 * 1024 * 1024 ? { content_base64: (await readFile(fullPath)).toString("base64") } : {}) });
+          artifacts.artifact_refs?.push({ kind: "trace", label: "Playwright execution trace", path: tracePath, file_name: "trace.zip", content_type: "application/zip", size_bytes: metadata.size });
         }
       } catch { /* Evidence collection must not replace the actual case result. */ }
       this.tracing = false;
     }
 
     unregisterLiveViewSession(this.liveSessionId);
+    this.browserContext?.off("page", this.pageListener);
 
     if (this.ownsContext) {
-      await this.browserContext?.close();
+      await this.browserContext?.close().catch(() => undefined);
     }
 
-    if (video && shouldAttach) {
+    let videoIndex = 0;
+    for (const video of this.videos) {
+      videoIndex++;
+      const artifactPath = `artifacts/${this.envelope.engine_run_id}/${videoIndex === 1 ? 'video' : `video-page-${videoIndex}`}.webm`;
+      const artifactFullPath = path.join(ARTIFACT_ROOT, artifactPath);
+      if (shouldAttach) {
       try {
         await mkdir(path.dirname(artifactFullPath), { recursive: true });
         await video.saveAs(artifactFullPath);
-        const videoStats = await stat(artifactFullPath);
-        artifacts.video_path = artifactPath;
+        const packaged = await compressBrowserVideo(artifactFullPath, normalizePositiveInteger(this.envelope.artifact_policy?.max_video_attachment_mb,25,1,250)*1024*1024);
+        const packagedPath = path.relative(ARTIFACT_ROOT, packaged).split(path.sep).join('/');
+        const videoStats = await stat(packaged);
+        artifacts.video_path ||= packagedPath;
         artifacts.artifact_refs = [
           ...(artifacts.artifact_refs || []),
           {
             kind: "video",
-            label: "Compressed browser run video",
-            path: artifactPath,
-            file_name: "video.webm",
+            label: packaged === artifactFullPath ? `Browser run video${videoIndex > 1 ? ` (page ${videoIndex})` : ''}` : `Compressed browser run video (page ${videoIndex})`,
+            path: packagedPath,
+            file_name: path.basename(packaged),
             content_type: "video/webm",
             size_bytes: videoStats.size,
-            ...(videoStats.size <= maxVideoAttachmentBytes(this.envelope)
-              ? { content_base64: (await readFile(artifactFullPath)).toString("base64") }
-              : {})
+            original_size_bytes: (await stat(artifactFullPath)).size,
+            transcoded: packaged !== artifactFullPath
           }
         ];
       } catch {
-        artifacts.video_path = null;
+        artifacts.capture_warnings?.push(`Browser video for page ${videoIndex} could not be finalized.`);
       }
+      }
+      await video.delete().catch(() => undefined);
     }
-
-    await video?.delete().catch(() => undefined);
+    this.videos.clear();
+    this.screenshots = [];
+    artifacts.artifact_refs = await deliverEngineArtifacts(this.envelope, artifacts.artifact_refs || [], finalStatus);
+    for (const ref of artifacts.artifact_refs) if (ref.attachment_error) artifacts.capture_warnings?.push(`${ref.label}: ${ref.attachment_error}`);
     if (this.ownsBrowser) {
       await this.browser?.close();
     }
@@ -1744,31 +1788,18 @@ class PlaywrightWebSession implements WebSession {
   }
 
   async expectVisible(target: string, options?: WebElementOptions) {
-    const prepared = await this.prepareLocator(target, options, this.timeouts.assertion);
-    const locator = prepared.locator;
-    const isVisible = await locator.isVisible();
-
-    if (!isVisible) {
-      throw new Error(`Expected ${target} to be visible`);
-    }
+    const locator = await this.resolveLocator(target, "visible", true);
+    await playwrightExpect(locator).toBeVisible({ timeout: clampTimeout(options?.timeoutMs, this.timeouts.assertion) });
   }
 
   async expectHidden(target: string, options?: WebElementOptions) {
-    const prepared = await this.prepareLocator(target, { ...(options || {}), waitFor: "attached", scroll: options?.scroll ?? "none" }, this.timeouts.assertion);
-    const isVisible = await prepared.locator.isVisible();
-
-    if (isVisible) {
-      throw new Error(`Expected ${target} to be hidden`);
-    }
+    const locator = await this.resolveLocator(target, "visible", true);
+    await playwrightExpect(locator).toBeHidden({ timeout: clampTimeout(options?.timeoutMs, this.timeouts.assertion) });
   }
 
   async expectEnabled(target: string, options?: WebElementOptions) {
-    const prepared = await this.prepareLocator(target, options, this.timeouts.assertion);
-    const isEnabled = await prepared.locator.isEnabled({ timeout: prepared.options.timeoutMs });
-
-    if (!isEnabled) {
-      throw new Error(`Expected ${target} to be enabled`);
-    }
+    const locator = await this.resolveLocator(target, "visible", true);
+    await playwrightExpect(locator).toBeEnabled({ timeout: clampTimeout(options?.timeoutMs, this.timeouts.assertion) });
   }
 
   async expectText(target: string | null, expected: string, options?: WebElementOptions & { match?: "contains" | "equals" }) {
@@ -1778,11 +1809,10 @@ class PlaywrightWebSession implements WebSession {
       return;
     }
 
-    const actual = await this.text(target, options);
-    const passed = options?.match === "equals" ? actual === expected : actual.includes(expected);
-    if (!passed) {
-      throw new Error(`Expected ${target} to contain "${expected}" but found "${actual}"`);
-    }
+    const locator = await this.resolveLocator(target, "visible", true);
+    const assertion = playwrightExpect(locator);
+    if (options?.match === "equals") await assertion.toHaveText(expected, { timeout: normalized.timeoutMs });
+    else await assertion.toContainText(expected, { timeout: normalized.timeoutMs });
   }
 
   async text(target: string, options?: WebElementOptions & { trim?: boolean }) {
@@ -1797,15 +1827,22 @@ class PlaywrightWebSession implements WebSession {
   }
 
   async screenshot(label: string) {
-    const buffer = await this.pageOrThrow.screenshot({
+    let buffer = await this.pageOrThrow.screenshot({
       fullPage: true,
       type: "jpeg",
       quality: 58
     });
+    if (buffer.length > 2 * 1024 * 1024) buffer = await this.pageOrThrow.screenshot({ fullPage: false, type: 'jpeg', quality: 45 });
+    const fileName = `${label.replace(/[^a-z0-9_-]/gi, '-')}.jpg`;
+    const artifactPath = `artifacts/${this.envelope.engine_run_id}/${fileName}`;
+    await mkdir(path.dirname(path.join(ARTIFACT_ROOT, artifactPath)), { recursive: true });
+    await writeFile(path.join(ARTIFACT_ROOT, artifactPath), buffer);
+    this.screenshots.push({ kind: 'screenshot', label: `Browser ${label}`, path: artifactPath, file_name: fileName, content_type: 'image/jpeg', size_bytes: buffer.length,
+      capture_outcome: label.endsWith('-passed') ? 'passed' : 'failed' });
 
     return {
       dataUrl: `data:image/jpeg;base64,${buffer.toString("base64")}`,
-      fileName: `${label}.jpg`,
+      fileName,
       mimeType: "image/jpeg"
     };
   }
@@ -2579,10 +2616,10 @@ const applyGeneratedAction = async (
       await session.waitForTimeout(action.durationMs);
       return;
     case "check":
-      await session.click(action.target);
+      await session.check(action.target);
       return;
     case "uncheck":
-      await session.click(action.target);
+      await session.uncheck(action.target);
       return;
     default:
       return;
@@ -2597,6 +2634,7 @@ const applyGeneratedExpectation = async (
   const expectation = parseExpectedResult(step, context);
 
   if (!expectation) {
+    if (String(step.expected_result || '').trim()) throw new Error('The expected result cannot be executed as an instruction. Add an explicit assertion to the section source.');
     return;
   }
 
@@ -2854,7 +2892,9 @@ const looksLikeExecutableAutomationSource = (source: string) => {
 };
 
 const toAutomationFunctionExpression = (source: string) => {
-  let trimmed = source.trim().replace(/;+\s*$/, "");
+  const original = source.trim().replace(/;+\s*$/, "");
+  const prefix = original.match(/^(?:\s|\/\/[^\r\n]*(?:\r?\n|$)|\/\*[\s\S]*?\*\/)*/)?.[0] || '';
+  let trimmed = original.slice(prefix.length);
   trimmed = trimmed
     .replace(/^export\s+default\s+/, "")
     .replace(/^module\.exports\s*=\s*/, "")
@@ -2874,15 +2914,19 @@ const toAutomationFunctionExpression = (source: string) => {
     trimmed = `async ${trimmed}`;
   }
 
-  return trimmed;
+  return prefix + trimmed;
 };
 
 const looksLikeAutomationFunction = (source: string) => {
   const trimmed = toAutomationFunctionExpression(source);
-  return /^(?:async\s+)?function\b/.test(trimmed)
-    || /^(?:async\s*)?\([^)]*\)\s*=>/.test(trimmed)
-    || /^async\s+[A-Za-z_$][\w$]*\s*=>/.test(trimmed)
-    || /^[A-Za-z_$][\w$]*\s*=>/.test(trimmed);
+  try {
+    const tree = parse(`(${trimmed})`, { ecmaVersion: "latest", sourceType: "module" }) as any;
+    return tree.body.length === 1 && ["FunctionExpression", "ArrowFunctionExpression"].includes(tree.body[0].expression?.type);
+  } catch {
+    // A helper declaration followed by executable statements is a plain script,
+    // not one reusable function expression to invoke a second time.
+    return false;
+  }
 };
 
 const buildAutomationInvocationSource = (source: string) => {
@@ -2890,7 +2934,7 @@ const buildAutomationInvocationSource = (source: string) => {
   return [
     `const automation = (${expression});`,
     `if (typeof automation !== "function") { throw new Error("Automation wrapper did not evaluate to a function."); }`,
-    `const hellotestBindings = { page, web, expect, params, capture, playwrightPage, driver, bindings };`,
+    `const hellotestBindings = { page, web, expect, params, capture, playwrightPage, driver, bindings, test };`,
     `return await (automation.length > 1`,
     `  ? automation(page, web, expect, params, capture, playwrightPage, driver, bindings)`,
     `  : automation(hellotestBindings));`
@@ -2910,6 +2954,7 @@ const compileAutomationFunction = (source: string, forceInvocation = false) => {
     "driver",
     "bindings",
     "__hellotestTrace",
+    "test",
     body
   );
 };
@@ -2922,7 +2967,12 @@ const executeAutomationCode = async (
 ) => {
   const normalizedSource = normalizeAutomationSource(source);
   const executableSource = looksLikeAutomationFunction(normalizedSource) ? toAutomationFunctionExpression(normalizedSource) : normalizedSource;
+  assertAutomationAsyncOwnership(executableSource);
   const fn = compileAutomationFunction(instrumentAutomationLines(executableSource));
+  const test = { step: async (_title: string, callback: () => unknown) => {
+    if (typeof callback !== "function") throw new Error("test.step requires an executable callback.");
+    return await callback();
+  } };
 
   try {
     const hellotestBindings = {
@@ -2932,7 +2982,8 @@ const executeAutomationCode = async (
       params: bindings.params,
       capture: bindings.capture,
       playwrightPage: bindings.playwrightPage,
-      driver: bindings.driver
+      driver: bindings.driver,
+      test
     };
 
     return await fn(
@@ -2944,7 +2995,8 @@ const executeAutomationCode = async (
       bindings.playwrightPage,
       bindings.driver,
       hellotestBindings,
-      createAutomationLineTracer(lineResults, attempt)
+      createAutomationLineTracer(lineResults, attempt),
+      test
     );
   } catch (error) {
     const stack = error instanceof Error ? error.stack || "" : "";
@@ -2983,6 +3035,7 @@ const buildStepNote = ({
   captures,
   recoveryAttempted,
   recoverySucceeded,
+  recoveryBlockedReason,
   error
 }: {
   step: EngineRunStep;
@@ -2990,6 +3043,7 @@ const buildStepNote = ({
   captures: Record<string, string>;
   recoveryAttempted: boolean;
   recoverySucceeded: boolean;
+  recoveryBlockedReason?: AutomationRecoveryReason;
   error?: Error | null;
 }) => {
   const lines = [
@@ -3001,7 +3055,16 @@ const buildStepNote = ({
   }
 
   if (recoveryAttempted) {
-    lines.push(recoverySucceeded ? "Recovery: fallback retry succeeded." : "Recovery: fallback retry did not recover the step.");
+    lines.push(recoverySucceeded
+      ? "Flaky: the read-only assertion section passed after a bounded retry. The initial failure remains in the line results."
+      : "Recovery: bounded read-only assertion retries did not recover the step. The initial failure remains in the line results.");
+  }
+  if (recoveryBlockedReason === "section_not_read_only") {
+    lines.push("Recovery stopped: the section may change the application or capture data. Completed or uncertain actions were not replayed; review the failed line and repair the remaining work.");
+  } else if (recoveryBlockedReason === "non_transient_failure") {
+    lines.push("Recovery stopped: the failure does not establish a transient read-only timeout.");
+  } else if (["run_stopped", "run_budget_exhausted"].includes(recoveryBlockedReason || "")) {
+    lines.push("Recovery stopped: the run ended or its remaining time cannot contain another assertion attempt.");
   }
 
   Object.entries(captures).forEach(([key, value]) => {
@@ -3030,28 +3093,55 @@ export type EngineWebRunSession = {
 export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues: Record<string, string> = {}): EngineWebRunSession => {
   const session = createWebSession(envelope);
   const context = buildInitialContext(envelope, capturedValues);
+  let stopped = false;
+  let recoveryDeadline = 0;
 
   return {
     provider: session.provider,
     context,
     start: async () => {
+      stopped = false;
+      recoveryDeadline = Date.now() + Math.max(1_000, envelope.run_timeout_seconds * 1_000);
       await session.start();
       const baseUrl = normalizeText(envelope.environment?.base_url || null);
       if (baseUrl) {
         await session.goto(baseUrl);
       }
     },
-    stop: async (finalStatus?: EngineStepOutcomeStatus) => session.stop(finalStatus),
-    runStep: async (step: EngineRunStep) => {
+    stop: async (finalStatus?: EngineStepOutcomeStatus) => {
+      stopped = true;
+      return session.stop(finalStatus);
+    },
+    runStep: async (inputStep: EngineRunStep) => {
+      // A caller changing an in-memory draft cannot replace the source whose
+      // first attempt and retry eligibility belong to this execution.
+      const step = { ...inputStep };
+      const options = automationStepOptions(step);
       const stepContext = buildInitialContext(envelope, context.capturedValues, step);
       const captures: Record<string, string> = {};
       const lineResults: AutomationLineResult[] = [];
       let recoveryAttempted = false;
       let recoverySucceeded = false;
+      let recoveryBlockedReason: AutomationRecoveryReason | undefined;
+      let retryLimit: number | undefined;
+      let retriesPerformed = 0;
       let finalError: Error | null = null;
       const diagnosticsMarker = session.markDiagnostics();
       const startedAtMs = Date.now();
-      const collectWebDetail = () => session.collectDiagnostics(diagnosticsMarker, captures, Math.max(Date.now() - startedAtMs, 0));
+      const collectWebDetail = async (): Promise<WebStepDetail> => {
+        const firstFailure = lineResults.find(result => result.status === "failed" && result.attempt === 1);
+        return { ...await session.collectDiagnostics(diagnosticsMarker, captures, Math.max(Date.now() - startedAtMs, 0)), recovery: {
+          strategy: "read_only_assertion_retry",
+          status: recoverySucceeded ? "recovered" : !finalError ? "not_needed" : retriesPerformed ? "failed" : "blocked",
+          attempts: retriesPerformed + 1,
+          source_changed: false,
+          ...(recoveryBlockedReason ? { reason: recoveryBlockedReason } : recoverySucceeded ? { reason: "read_only_assertion_timeout" as const } : {}),
+          ...(retryLimit !== undefined ? { retry_limit: retryLimit } : {}),
+          ...(finalError ? { first_failure_attempt: 1 as const } : {}),
+          ...(firstFailure ? { first_failure_line: firstFailure.line } : {})
+        } };
+      };
+      const evidenceLabel = `step-${step.order}-${createHash('sha256').update(step.id).digest('hex').slice(0,12)}`;
 
       try {
         await executeStepAttempt(session, { step, context: stepContext, envelope, lineResults, attempt: 1 }, captures);
@@ -3069,7 +3159,7 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
           captures,
           web_detail: await collectWebDetail(),
           line_results: lineResults,
-          evidence: envelope.artifact_policy?.screenshot_on_success ? await session.screenshot(`step-${step.order}-passed`).catch(() => undefined) : undefined,
+          evidence: envelope.artifact_policy?.screenshot_on_success ? await session.screenshot(`${evidenceLabel}-passed`).catch(() => undefined) : undefined,
           recovery_attempted: recoveryAttempted,
           recovery_succeeded: recoverySucceeded
         };
@@ -3077,15 +3167,30 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
         finalError = error instanceof Error ? error : new Error(String(error || "Web automation step failed"));
       }
 
-      const maxRepairAttempts = Math.max(0, envelope.max_repair_attempts || 0);
-
-      for (let attempt = 1; attempt <= maxRepairAttempts; attempt += 1) {
+      let completedRetries = 0;
+      let recoverySource: string | null = null;
+      try { recoverySource = normalizeAutomationSource(step.automation_code || ""); } catch { /* Invalid source never authorizes replay. */ }
+      const timeouts = resolveTimeoutPolicy(envelope);
+      const decideRecovery = (completed: number, waitMs: number) => automationRecoveryDecision({ source: recoverySource, error: finalError,
+        requestedAttempts: envelope.max_repair_attempts || 0, completedRetries: completed,
+        assertionTimeoutMs: timeouts.assertion, recoveryWaitMs: waitMs,
+        remainingMs: recoveryDeadline - Date.now(), stopped });
+      for (;;) {
+        const decision = decideRecovery(completedRetries, timeouts.recoveryWait);
+        retryLimit = decision.limit;
+        if (!decision.retry) { recoveryBlockedReason = decision.reason; break; }
         recoveryAttempted = true;
+        completedRetries++;
 
         try {
           await session.startRetryTrace?.();
-          await session.waitForTimeout(resolveTimeoutPolicy(envelope).recoveryWait * attempt);
-          await executeStepAttempt(session, { step, context: stepContext, envelope, lineResults, attempt: attempt + 1 }, captures);
+          await session.waitForTimeout(decision.delay_ms);
+          // Trace startup or the event loop can consume the reserved time.
+          // Recheck the actual run state after the delay before another read.
+          const dispatch = decideRecovery(completedRetries - 1, 0);
+          if (!dispatch.retry) { recoveryBlockedReason = dispatch.reason; break; }
+          retriesPerformed++;
+          await executeStepAttempt(session, { step, context: stepContext, envelope, lineResults, attempt: completedRetries + 1 }, captures);
           for (const [key, value] of Object.entries(captures)) registerContextValue(context, key, value);
           recoverySucceeded = true;
 
@@ -3101,7 +3206,7 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
             captures,
             web_detail: await collectWebDetail(),
             line_results: lineResults,
-            evidence: envelope.artifact_policy?.screenshot_on_failure === false ? undefined : await session.screenshot(`step-${step.order}-recovered`).catch(() => undefined),
+            evidence: envelope.artifact_policy?.screenshot_on_failure === false && !options.screenshotOnFailure ? undefined : await session.screenshot(`${evidenceLabel}-recovered`).catch(() => undefined),
             recovery_attempted: recoveryAttempted,
             recovery_succeeded: recoverySucceeded
           };
@@ -3118,12 +3223,13 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
           captures,
           recoveryAttempted,
           recoverySucceeded,
+          recoveryBlockedReason,
           error: finalError
         }),
         captures,
         web_detail: await collectWebDetail(),
         line_results: lineResults,
-        evidence: envelope.artifact_policy?.screenshot_on_failure === false ? undefined : await session.screenshot(`step-${step.order}-failed`).catch(() => undefined),
+        evidence: envelope.artifact_policy?.screenshot_on_failure === false && !options.screenshotOnFailure ? undefined : await session.screenshot(`${evidenceLabel}-failed`).catch(() => undefined),
         recovery_attempted: recoveryAttempted,
         recovery_succeeded: recoverySucceeded
       };

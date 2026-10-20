@@ -1,30 +1,49 @@
+import { AutomationBuildVerificationSettings } from "../components/AutomationBuildVerificationSettings";
+import { automationBuildPipelineRequest, type AutomationBuildVerificationChoice } from "../lib/automationBuildPipeline";
+import { AutomationAgentSetup, automationAgentSelection, automationAgentRequest } from "@hellotest/ai/frontend/components/AutomationAgentSetup";
+import { TraceabilityRunHistory } from "@hellotest/manual/frontend/components/TraceabilityRunHistory";
+import { buildAutomationGherkin } from "../lib/automationGherkin";
+import { useAutomationExportPreview } from "../hooks/useAutomationExportPreview";
+import { AutomationSourceSections } from "../components/AutomationSourceSections";
+import { GherkinEditor } from "@hellotest/testing/frontend/components/GherkinEditor";
+import { LinkedDefectsPanel } from "@hellotest/testing/frontend/components/LinkedDefectsPanel";
+import { RelatedWorkItemsPanel } from "@hellotest/manual/frontend/components/RelatedWorkItemsPanel";
+import { AutomationDataSets } from "../components/AutomationDataSets";
+import { QualityMetricStrip } from "@hellotest/dashboard/frontend/components/QualityMetricStrip";
+import { evaluateTestDataTemplate, hasTestDataGeneratorTemplate } from "@hellotest/testing/frontend/lib/testDataGenerators";
 import { AutomationSectionGroupDialog, type SectionGroupReview } from "../components/AutomationSectionGroupDialog";
 import { collectRepositoryPages } from "../lib/repositoryEntries";
 import { useRecorderStatus } from "@hellotest/platform/frontend/src/shared/hooks/useRecorderStatus";
 import { parseApiRequestSource } from "../lib/apiRequestSource";
-import { ExecutionHookResults } from "@hellotest/testing/frontend/components/ExecutionHookResults";
+import { applyAutomationStepOptions, parseAutomationStepOptions, type AutomationStepOptions } from "../lib/automationStepOptions";
 import { AutomationIconButton, AutomationOverlay } from "../components/AutomationOverlay";
 import { handoverAutomationRun } from "../lib/automationExecution";
-import { summarizeAutomationInstruction } from "../lib/automationInstructionSummary";
-import { AutomationBuildEvidence, type AutomationBuildChange } from "../components/AutomationBuildEvidence";
+import type { AutomationBuildChange } from "../components/AutomationBuildEvidence";
+import { AutomationAgentActivity, type AutomationAgentActivityRecord } from "../components/AutomationAgentActivity";
+import { AutomationBrowserBuildMode } from "../components/AutomationBrowserBuildMode";
 import { AutomationRunReviewDialog, type AutomationRunReviewRequest } from "../components/AutomationRunReviewDialog";
 import { inspectAutomationTargets, requireReadyAutomation, type AutomationReadiness } from "../lib/automationReadiness";
 import { assertAutomationDispatchAccepted, AutomationStartError, retrySavedAutomationRun, verifyCreatedAutomationRun, type PendingAutomationRun } from "../lib/automationRunDispatch";
+import { automationStartUrlError, reviewedAutomationStartUrl } from "../lib/automationStartUrl";
+import { initialEngineerParameterValues } from "../lib/automationEngineerData";
+import { casePrivateParameterNames, collectPrivateParameterNames, caseParameterSaveOptions } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
+import { useAutomationBuildParameters } from "../hooks/useAutomationBuildParameters";
 import "../components/AutomationWorkspace.css";
 import { AutomationBuildContext } from "../components/AutomationBuildContext";
 import { AUTOMATION_RUNTIMES, getAutomationRuntimeTypes, getDefaultAutomationStepType, getRecorderPlatform } from "../lib/automationRuntime";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
 const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
 const AiAssurancePanel = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiAssurancePanel")["AiAssurancePanel"]> & {}>("ai", "AiAssurancePanel", () => import("@hellotest/ai/frontend/components/AiAssurancePanel"), "ai");
-import { mapRunHooksToExecutionHooks } from "@hellotest/testing/frontend/lib/runHooks";
+import { mapCaseHooksToExecutionHooks, mapExecutionHooksToRunHooks } from "@hellotest/testing/frontend/lib/runHooks";
 import { type ChangeEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconWorld, IconApi, IconBrandAndroid, IconBrandApple, IconArrowUp, IconArrowDown, IconArrowRight, IconBraces, IconCheck, IconCircleDot, IconCode, IconCpu, IconDeviceDesktop, IconSettings, IconWand, IconDots, IconShieldCheck, IconTargetArrow } from "@tabler/icons-react";
+import { IconFolder, IconFolderShare, IconClipboard, IconFolderOff, IconWorld, IconApi, IconBrandAndroid, IconBrandApple, IconArrowUp, IconArrowDown, IconArrowRight, IconBraces, IconCheck, IconCircleDot, IconCode, IconCpu, IconDeviceDesktop, IconSettings, IconWand, IconDots, IconShieldCheck, IconTargetArrow } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AddIcon, CollapseExpandIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, RefreshIcon, SelectionToggleIcon, SparkIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
+import { AddIcon, BugIcon, CollapseExpandIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, RefreshIcon, SelectionToggleIcon, SparkIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 
 import { RepositoryLocatorBuilder } from "../components/RepositoryLocatorBuilder";
-import { isRepositoryMemberUsed } from "../lib/repositoryLocators";
+import { AutomationObjects } from "../components/AutomationObjects";
+import { collectRepositoryStepReferences, collectRouteScopedLocatorKeys, isRepositoryMemberUsed } from "../lib/repositoryLocators";
 import { AiFeatureComposer } from "@hellotest/agentic/frontend/components/AgenticExperience";
 import { CatalogActionMenu } from "@hellotest/platform/frontend/src/shared/components/CatalogActionMenu";
 import { CatalogCardDescription } from "@hellotest/platform/frontend/src/shared/components/CatalogCardDescription";
@@ -34,6 +53,7 @@ import { CatalogViewToggle } from "@hellotest/platform/frontend/src/shared/compo
 import { DataTable, type DataTableColumn } from "@hellotest/platform/frontend/src/shared/components/DataTable";
 import { DetailSectionTabs } from "@hellotest/platform/frontend/src/shared/components/DetailSectionTabs";
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
+import { useDeleteConfirmation } from "@hellotest/platform/frontend/src/shared/components/DeleteConfirmationDialog";
 import { DisplayIdBadge } from "@hellotest/platform/frontend/src/shared/components/DisplayIdBadge";
 import { ExecutionContextSelector } from "@hellotest/testing/frontend/components/ExecutionContextSelector";
 import { InfoTooltip } from "@hellotest/platform/frontend/src/shared/components/InfoTooltip";
@@ -55,6 +75,7 @@ import { ToastMessage } from "@hellotest/platform/frontend/src/shared/components
 import { TestCaseVersionHistory } from "@hellotest/testing/frontend/components/TestCaseVersionHistory";
 import { AutomationCaseMetadata, AutomationDraftPlan, emptyAutomationMetadata, type AutomationDraftBehavior, type AutomationMetadata } from "../components/AutomationCaseMetadata";
 import { AutomationInstructionPreview } from "../components/AutomationInstructionPreview";
+import { AutomationCodeLines } from "../components/AutomationCodeLines";
 import { AutomationParameterInput, AutomationReferencedParameters, AutomationRepositoryFieldPicker } from "../components/AutomationAuthoringInputs";
 import { GherkinStepTextField } from "@hellotest/testing/frontend/components/GherkinStepTextField";
 import { StepParameterizedText } from "@hellotest/testing/frontend/components/StepParameterizedText";
@@ -69,6 +90,7 @@ import {
   TileCardProgress,
   TileCardRunsIcon,
   TileCardStepsIcon,
+  TileCardSuiteIcon,
   getTileCardTone
 } from "@hellotest/platform/frontend/src/shared/components/TileCardPrimitives";
 import { TileBrowserPane } from "@hellotest/platform/frontend/src/shared/components/TileBrowserPane";
@@ -79,7 +101,7 @@ import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAi
 import { useCurrentAppType, useCurrentProject } from "@hellotest/platform/frontend/src/platform/hooks/useCurrentProject";
 import { useFeatureFlags } from "@hellotest/platform/frontend/src/platform/hooks/useFeatureFlags";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
-import { mergeRefreshedAutomationDrafts } from "../lib/automationBuildTracking";
+import { automationSavedPlanReceipt, mergeRefreshedAutomationDrafts } from "../lib/automationBuildTracking";
 import { mergeAutomationMetadataFields, mergeAutomationMetadataValue } from "../lib/automationMetadataDraft";
 import { buildAutomationCreateParameters } from "../lib/automationCreateParameters";
 import { api } from "@hellotest/platform/frontend/src/lib/api";
@@ -93,7 +115,8 @@ import {
 } from "../lib/automationAccess";
 import { assessLocatorReviewReadiness } from "@hellotest/ai/frontend/lib/aiAssurance";
 import { areFeatureFlagsEnabled } from "@hellotest/platform/frontend/src/platform/lib/featureFlags";
-import { parseObjectRepositoryFiles, type ObjectRepositoryImportPreview } from "../lib/objectRepositoryImport";
+import type { ObjectRepositoryImportPreview } from "../lib/objectRepositoryImport";
+import { createAutomationOptionalModule } from "../lib/automationOptionalModule";
 import { mergeInspectedFields, mergeRepositoryEntries, persistRepositoryScreenBundle, retainUnsavedInspectedFields } from "@hellotest/agentic/frontend/lib/repositoryWorkspace";
 import { hasPermission } from "@hellotest/platform/frontend/src/platform/lib/permissions";
 import { findByRoutableId, getRoutableId } from "@hellotest/platform/frontend/src/shared/lib/urlSelection";
@@ -101,12 +124,12 @@ import { readDefaultCatalogViewMode } from "@hellotest/platform/frontend/src/sha
 import { resolveStepAutomationCode } from "../lib/stepAutomation";
 import {
   collectStepParameters,
+  collectCaseStepParameters,
   buildDataSetParameterDefinitions,
   buildDataSetParameterValues,
-  buildStepParameterDefinitionsFromValues,
+  buildCaseParameterValues,
   collectSensitiveDataSetParameterNames,
   excludeSensitiveStepParameterValues,
-  mergeStepParameterDefinitions,
   combineStepParameterValues,
   normalizeStepParameterValues,
   parseStepParameterName,
@@ -116,8 +139,8 @@ import type { AutomationLearningCacheEntry, ExecutionResult, RecorderSessionResp
 
 type AutomationView = "cases" | "repository";
 type AutomationCaseSectionKey = "case" | "build" | "steps" | "history";
-type AutomationWorkspaceTab = "details" | "steps" | "data" | "hooks" | "build" | "repository" | "runs";
-type AutomationStepView = "keyword" | "code";
+type AutomationWorkspaceTab = "details" | "steps" | "data" | "hooks" | "build" | "repository" | "runs" | "history" | "suites" | "defects";
+type AutomationStepView = "keyword" | "code" | "gherkin";
 type AutomationCreationMode = "ai" | "record" | "blank";
 type AutomationBehaviorKeyword = "Given" | "When" | "Then" | "And";
 type RepositoryScreenTab = "overview" | "fields" | "dom";
@@ -143,7 +166,6 @@ type AutomationCaseDraft = {
   description: string;
   status: string;
   priority: string;
-  parameterText: string;
 };
 
 type AutomationStepDraft = {
@@ -160,13 +182,8 @@ type AutomationStepDraft = {
   apiExpectedStatus: string;
 };
 
-type AutomationStepOptions = {
-  screenshotOnFailure: boolean;
-  optional: boolean;
-  skip: boolean;
-};
-
 const REPOSITORY_PAGE_SIZE = 200;
+const repositoryImporter = createAutomationOptionalModule(() => import("../lib/objectRepositoryImport"));
 
 type RecorderTab = {
   id: string | null;
@@ -447,7 +464,7 @@ function makeRepositoryScreenKey(screenName: string, appTypeId?: string | null) 
 }
 
 function getRepositoryScreenKey(entry: AutomationLearningCacheEntry) {
-  return makeRepositoryScreenKey(getScreenName(entry), entry.app_type_id);
+  return makeRepositoryScreenKey(getScreenName(entry), entry.app_type_id || (entry.project_id ? `project-${entry.project_id}` : null));
 }
 
 function getObjectName(entry: AutomationLearningCacheEntry) {
@@ -547,10 +564,6 @@ function buildSuggestedFieldName(entry: AutomationLearningCacheEntry) {
   }
 
   return getObjectName(entry).replace(/\s+/g, "_").toLowerCase();
-}
-
-function formatAutomationCaseId(sequence: number) {
-  return `AT-${String(sequence + 1).padStart(3, "0")}`;
 }
 
 function ChevronIcon({ isExpanded }: { isExpanded: boolean }) {
@@ -681,44 +694,6 @@ function getRepositoryHtmlTag(entry: AutomationLearningCacheEntry) {
   if (role.includes("checkbox") || role.includes("toggle")) return "input";
   if (role.includes("field") || role.includes("textbox") || role.includes("input")) return "input";
   return "element";
-}
-
-function formatParameterText(values?: Record<string, string> | null) {
-  return Object.entries(values || {}).map(([key, value]) => `${key}=${value}`).join("\n");
-}
-
-function parseParameterText(value: string) {
-  return value.split(/\n+/).reduce<Record<string, string>>((accumulator, line) => {
-    const [rawKey, ...rest] = line.split("=");
-    const key = rawKey?.trim();
-    if (key) {
-      accumulator[key] = rest.join("=").trim();
-    }
-    return accumulator;
-  }, {});
-}
-
-function parseAutomationStepOptions(step: TestStep): AutomationStepOptions {
-  const code = step.automation_code || step.action || "";
-  const optionMatch = code.match(/@hellotest-options\s+([^\n]+)/i);
-  const flags = new Set((optionMatch?.[1] || "").split(/\s+/).filter(Boolean));
-
-  return {
-    screenshotOnFailure: flags.has("screenshotOnFailure"),
-    optional: flags.has("optional"),
-    skip: flags.has("skip")
-  };
-}
-
-function applyAutomationStepOptions(code: string, options: AutomationStepOptions) {
-  const cleaned = code.replace(/^\s*\/\/\s*@hellotest-options\s+[^\n]*\n?/i, "").trim();
-  const flags = [
-    options.screenshotOnFailure ? "screenshotOnFailure" : "",
-    options.optional ? "optional" : "",
-    options.skip ? "skip" : ""
-  ].filter(Boolean);
-
-  return flags.length ? `// @hellotest-options ${flags.join(" ")}\n${cleaned}` : cleaned;
 }
 
 function getAutomationStepTypeLabel(step: TestStep) {
@@ -1097,17 +1072,9 @@ function buildAutomationCodeFromDraft(draft: AutomationStepDraft) {
   return `await ${draft.keyword}(${q(targetRef)});`;
 }
 
-function escapeAutomationPdfHtml(value: unknown) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 export function AutomationPage({ initialView = "cases" }: { initialView?: AutomationView } = {}) {
   const { session } = useAuth();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const { getPrompt } = useAiPromptRegistry(Boolean(session));
@@ -1120,6 +1087,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const canEditAutomationCode = resolveCanEditAutomationCode(session, featureFlagsQuery.data, projectId);
   const canUseAutomationBuilder = canEditAutomationCode;
   const canUpdateAutomationCase = canUseAutomationBuilder && hasPermission(session, "testcase.update", projectId);
+  const canEditAutomationSuiteLinks = canUpdateAutomationCase && hasPermission(session, "suite.update", projectId) && hasPermission(session, "suite.view", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.suites"]);
   const canCreateAutomationDraft = canUseAutomationBuilder && hasPermission(session, "testcase.create", projectId);
   const canUseAutomationAi = resolveCanGenerateAutomationCode(session, featureFlagsQuery.data, projectId);
   const canUseRecorder = resolveCanRecordAutomationCode(session, featureFlagsQuery.data, projectId);
@@ -1143,6 +1111,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [selectedCaseId, setSelectedCaseId] = useState("");
   const closingCaseRouteRef = useRef("");
   const lastAutomationRouteRef = useRef("");
+  const consumedAutomationCreateRouteRef = useRef("");
   const [automationCatalogViewMode, setAutomationCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [automationCaseSearch, setAutomationCaseSearch] = useState("");
   const [selectedAutomationCaseIds, setSelectedAutomationCaseIds] = useState<string[]>([]);
@@ -1171,6 +1140,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [caseRequirementIds, setCaseRequirementIds] = useState<string[]>([]);
   const [caseModuleIds, setCaseModuleIds] = useState<string[]>([]);
   const [caseDataSetId, setCaseDataSetId] = useState("");
+  const [buildAgentSelection, setBuildAgentSelection] = useState(automationAgentSelection);
+  useEffect(()=>setBuildAgentSelection(automationAgentSelection()),[projectId,appTypeId,selectedCaseId]);
+  const [overrideSharedSteps, setOverrideSharedSteps] = useState(true);
+  const [parameterPreviewRevision, setParameterPreviewRevision] = useState(0);
+  const parameterPreviewCache = useRef(new Map<string, string>());
   const [newStepIsPrecondition, setNewStepIsPrecondition] = useState(false);
   const [isNewSectionOpen, setIsNewSectionOpen] = useState(false);
   const [isExecutionContextOpen, setIsExecutionContextOpen] = useState(false);
@@ -1194,8 +1168,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [batchBuildTargetIds, setBatchBuildTargetIds] = useState<string[]>([]);
 
   const [agentBuildStatus, setAgentBuildStatus] = useState<"idle" | "queued" | "running" | "completed" | "failed" | "paused">("idle");
+  const agentBriefScope = `${projectId}:${appTypeId}:${selectedCaseId}`;
+  const [agentBriefOpenByCase, setAgentBriefOpenByCase] = useState<Record<string, boolean>>({});
+  const agentBriefOpen = agentBriefOpenByCase[agentBriefScope] ?? true;
+  const setAgentBriefOpen = (open: boolean, caseId = selectedCaseId) => {
+    const scope = `${projectId}:${appTypeId}:${caseId}`;
+    setAgentBriefOpenByCase(current => current[scope] === open ? current : { ...current, [scope]: open });
+  };
   const [agentBuildTracking, setAgentBuildTracking] = useState<{ transactionId: string; projectId: string; caseIds: string[]; scheduledAt: string | null; startedAt: number } | null>(null);
-  const automationBuildDraftBaselineRef = useRef<{ steps: Record<string, AutomationStepDraft>; options: Record<string, AutomationStepOptions>; code: Record<string, string>; evidence: Record<string, string> }>({ steps: {}, options: {}, code: {}, evidence: {} });
+  const automationBuildDraftBaselineRef = useRef<{ projectId?: string; caseId?: string; steps: Record<string, AutomationStepDraft>; options: Record<string, AutomationStepOptions>; code: Record<string, string>; evidence: Record<string, string> }>({ steps: {}, options: {}, code: {}, evidence: {} });
   const recorderOriginRef = useRef<{ caseId: string; projectId: string; appTypeId: string; targetStepId: string; environmentId: string; configurationId: string; dataSetId: string } | null>(null);
   const currentAutomationSelectionRef = useRef({ projectId, selectedCaseId, workspaceTab: activeAutomationWorkspaceTab });
   currentAutomationSelectionRef.current = { projectId, selectedCaseId, workspaceTab: activeAutomationWorkspaceTab };
@@ -1211,24 +1192,27 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [sectionGroupDialog, setSectionGroupDialog] = useState<SectionGroupReview | null>(null);
   const [saveAutomationGroupAsShared, setSaveAutomationGroupAsShared] = useState(false);
   const [isSharedGroupLibraryOpen, setIsSharedGroupLibraryOpen] = useState(false);
+  const [sectionClipboard, setSectionClipboard] = useState<{ projectId: string; caseId: string; appTypeId: string; ids: string[]; standalone: boolean } | null>(null);
   const [automationStepView, setAutomationStepView] = useState<AutomationStepView>("keyword");
   const [visibleInstructionIds, setVisibleInstructionIds] = useState<string[]>([]);
-  const [flowExpanded, setFlowExpanded] = useState({ preconditions: true, steps: true });
+  const [flowExpanded, setFlowExpanded] = useState({ preconditions: true, steps: true, dataSets: false });
   const [expandedAutomationStepIds, setExpandedAutomationStepIds] = useState<string[]>([]);
   const [automationStudioStep, setAutomationStudioStep] = useState<TestStep | null>(null);
   const [caseDraft, setCaseDraft] = useState<AutomationCaseDraft>({
     title: "",
     description: "",
     status: "active",
-    priority: "3",
-    parameterText: ""
+    priority: "3"
   });
   const lastAutomationCaseDraftSeedRef = useRef<{ caseKey: string; detail: TestCase } | null>(null);
   const [stepDrafts, setStepDrafts] = useState<Record<string, AutomationStepDraft>>({});
   const [apiSourceDrafts, setApiSourceDrafts] = useState<Record<string, string>>({});
   const [stepCodeDrafts, setStepCodeDrafts] = useState<Record<string, string>>({});
+  const automationEditorServerSnapshotRef = useRef<{ scope: string; steps: Record<string, AutomationStepDraft>; options: Record<string, AutomationStepOptions>; code: Record<string, string> }>({ scope: "", steps: {}, options: {}, code: {} });
   const [isParameterDialogOpen, setIsParameterDialogOpen] = useState(false);
   const [testCaseParameterValues, setTestCaseParameterValues] = useState<Record<string, string>>({});
+  const [privateCaseParameterDraft, setPrivateCaseParameterDraft] = useState<{ scope: string; names: string[] }>({ scope: "", names: [] });
+  const caseParameterOverrideDraftRef = useRef<{ scope: string; names: Set<string> }>({ scope: "", names: new Set() });
   const [suiteParameterValues, setSuiteParameterValues] = useState<Record<string, string>>({});
   const lastAutomationSuiteParameterSeedRef = useRef<{ suiteId: string; values: Record<string, string> } | null>(null);
   const [selectedParameterSuiteId, setSelectedParameterSuiteId] = useState("");
@@ -1239,11 +1223,24 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [newStepDraft, setNewStepDraft] = useState<AutomationStepDraft>(() => emptyAutomationStepDraft("web"));
   const [newStepPlacement, setNewStepPlacement] = useState<{ mode: "end" | "before" | "after"; stepId: string }>({ mode: "end", stepId: "" });
   const [startUrl, setStartUrl] = useState("");
+  const [automationCreateStartUrl, setAutomationCreateStartUrl] = useState("");
+  const [batchStartUrl, setBatchStartUrl] = useState("");
+  const startUrlCaseScopeRef = useRef("");
   const [builderContext, setBuilderContext] = useState("");
-  const [allowBrowserActions, setAllowBrowserActions] = useState(false);
+  const [allowBrowserActions, setAllowBrowserActions] = useState(true);
+  const [buildVerificationMode,setBuildVerificationMode]=useState<AutomationBuildVerificationChoice>("generate_only");
+  const canVerifyBuild=canRunLocalAutomation&&hasPermission(session,"run.create",projectId);
+  const buildPipelineOptions=automationBuildPipelineRequest({mode:buildVerificationMode,driver:"mcp",canVerify:canVerifyBuild,interactive:allowBrowserActions});
+  const [agentPlanRefreshError, setAgentPlanRefreshError] = useState("");
+  const latestAgentActivityRef = useRef<AutomationAgentActivityRecord | null>(null);
+  useEffect(() => { setAgentPlanRefreshError(""); latestAgentActivityRef.current = null; }, [projectId, appTypeId, selectedCaseId]);
   const [selectedExecutionEnvironmentId, setSelectedExecutionEnvironmentId] = useState("");
   const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
+  const { reviewBuildParameters, parameterReviewDialog } = useAutomationBuildParameters(JSON.stringify([
+    projectId, appTypeId, selectedCaseId, selectedParameterSuiteId,
+    selectedExecutionEnvironmentId, selectedExecutionConfigurationId, selectedExecutionDataSetId
+  ]));
   const [recordingTargetStepId, setRecordingTargetStepId] = useState("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error" | "info">("success");
@@ -1269,6 +1266,17 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [isRepositoryImportModalOpen, setIsRepositoryImportModalOpen] = useState(false);
   const [repositoryImportPreview, setRepositoryImportPreview] = useState<ObjectRepositoryImportPreview | null>(null);
   const [isParsingRepositoryImport, setIsParsingRepositoryImport] = useState(false);
+  const repositoryImportScope = JSON.stringify([projectId, appTypeId]);
+  const repositoryImportScopeRef = useRef(repositoryImportScope);
+  repositoryImportScopeRef.current = repositoryImportScope;
+  const repositoryImportRequestRef = useRef(0);
+  useEffect(() => {
+    ++repositoryImportRequestRef.current;
+    setRepositoryImportPreview(null);
+    setIsParsingRepositoryImport(false);
+    setIsRepositoryImportModalOpen(false);
+    return () => { ++repositoryImportRequestRef.current; };
+  }, [repositoryImportScope]);
   const [locatorImprovementPreview, setLocatorImprovementPreview] = useState<Awaited<ReturnType<typeof api.testCases.improveLearningCacheEntry>> | null>(null);
   const [isAddingRepositoryScreen, setIsAddingRepositoryScreen] = useState(false);
   const [newRepositoryScreenDraft, setNewRepositoryScreenDraft] = useState({
@@ -1474,17 +1482,26 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const automatedStepsQuery = useQuery({
     queryKey: ["test-steps", "automation-workspace", selectedCaseId],
     queryFn: ({ signal }) => api.testSteps.list({ test_case_id: selectedCaseId }, { signal }),
-    enabled: Boolean(selectedAutomationCaseDetail && session && canViewAutomationCode && view === "cases")
+    enabled: Boolean(selectedAutomationCaseDetail && session && view === "cases")
   });
+  const canViewExecutionMetrics = hasPermission(session, "run.view", projectId) && hasPermission(session, "result.view", projectId);
+  const canViewTestData = hasPermission(session, "data.view", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.test_data"]);
+  const automationMetricsQuery = useQuery({
+    queryKey: ["test-case-metrics", "automation", projectId, appTypeId, canViewExecutionMetrics],
+    queryFn: () => api.testCases.metrics({ project_id: projectId, app_type_id: appTypeId, automated: "yes", include_execution: canViewExecutionMetrics }),
+    enabled: Boolean(projectId && appTypeId && session && view === "cases")
+  });
+  const automationMetrics = automationMetricsQuery.data?.catalog;
   const executionResultsQuery = useQuery({
     queryKey: ["execution-results", "automation-workspace", "summary", projectId, appTypeId],
     queryFn: ({ signal }) => api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, projection: "summary", limit: 5000 }, { signal }),
-    enabled: Boolean(appTypeId && session && view === "cases")
+    enabled: Boolean(appTypeId && session && view === "cases" && canViewExecutionMetrics)
   });
   const selectedCaseHistoryQuery = useQuery({
-    queryKey: ["execution-results", "automation-case-history", projectId, selectedCaseId],
-    queryFn: ({ signal }) => api.executionResults.list({ project_id: projectId, test_case_id: selectedCaseId, limit: 5000 }, { signal }),
-    enabled: Boolean(selectedAutomationCaseDetail && session && view === "cases")
+    queryKey: ["execution-results", "automation-case-history", "summary", projectId, selectedCaseId],
+    queryFn: ({ signal }) => api.executionResults.list({ project_id: projectId, test_case_id: selectedCaseId, projection: "summary", limit: 5000 }, { signal }),
+    enabled: Boolean(selectedAutomationCaseDetail && session && view === "cases" && activeAutomationWorkspaceTab === "runs" && canViewExecutionMetrics),
+    staleTime: AUTOMATION_CASE_DETAIL_STALE_TIME_MS
   });
   const suitesQuery = useQuery({
     queryKey: ["test-case-suites", appTypeId],
@@ -1532,8 +1549,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const testDataSetsQuery = useQuery({
     queryKey: ["test-data-sets", "automation-workspace", projectId, appTypeId],
     queryFn: ({ signal }) => api.testDataSets.list({ project_id: projectId, app_type_id: appTypeId || undefined }, { signal }),
-    enabled: Boolean(projectId && session && needsAutomationEditorData)
+    enabled: Boolean(projectId && session && needsAutomationEditorData && canViewTestData)
   });
+  const automationLlmIntegrationsQuery = useQuery({queryKey:["integrations","automation-llm",projectId],queryFn:()=>api.integrations.list({type:"llm",is_active:true}),enabled:Boolean(projectId && session && needsAutomationEditorData && canUseAutomationAi && hasPermission(session,"integration.view",projectId))});
   const testEngineIntegrationsQuery = useQuery({
     queryKey: ["integrations", "testengine", projectId],
     queryFn: ({ signal }) => api.integrations.list({ type: "testengine", is_active: true }, { signal }),
@@ -1542,7 +1560,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const sharedStepGroupsQuery = useQuery({
     queryKey: ["shared-step-groups", "automation-workspace", appTypeId],
     queryFn: ({ signal }) => api.sharedStepGroups.list({ app_type_id: appTypeId }, { signal }),
-    enabled: Boolean(appTypeId && session && isSharedGroupLibraryOpen)
+    enabled: Boolean(appTypeId && session && (isSharedGroupLibraryOpen || asArray<TestStep>(automatedStepsQuery.data).some(step => step.reusable_group_id)))
   });
 
   const appTypes = asArray(appTypesQuery.data);
@@ -1568,11 +1586,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     && testEngineIntegration.config.mobile_cloud_provider !== "none"
     && testEngineIntegration.config.mobile_remote_url
   );
-  const sharedStepGroups = asArray<SharedStepGroup>(sharedStepGroupsQuery.data);
+  const sharedStepGroups = useMemo(() => asArray<SharedStepGroup>(sharedStepGroupsQuery.data), [sharedStepGroupsQuery.data]);
   const automatedCases = useMemo(() => testCases.filter(isAutomatedCase), [testCases]);
   const automationDisplayIdByCaseId = useMemo(
-    () => automatedCases.reduce<Record<string, string>>((accumulator, testCase, index) => {
-      accumulator[testCase.id] = formatAutomationCaseId(index);
+    () => automatedCases.reduce<Record<string, string>>((accumulator, testCase) => {
+      accumulator[testCase.id] = testCase.display_id || testCase.id;
       return accumulator;
     }, {}),
     [automatedCases]
@@ -1597,10 +1615,20 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const automationActionTargetIds = selectedAutomationActionTargetIds;
   const selectedCaseSummary = automatedCases.find((testCase) => testCase.id === selectedCaseId) || null;
   const activeCase = selectedAutomationCaseDetail;
-  const canRemoveAutomationCase = canUseAutomationBuilder && Boolean(activeCase)
-    && (activeCase?.manual_test_case_id || activeCase?.manual_test_case_ids?.length
-      ? hasPermission(session, "testcase.delete", projectId)
-      : canUpdateAutomationCase && hasPermission(session, "step.manage", projectId));
+  useEffect(() => {
+    const scope = `${projectId}:${appTypeId}:${selectedCaseId}`;
+    if (startUrlCaseScopeRef.current === scope) return;
+    // Wait for the selected detail instead of borrowing a previous case's URL.
+    setStartUrl("");
+    if (!selectedCaseId || activeCase?.id === selectedCaseId) {
+      startUrlCaseScopeRef.current = scope;
+      setStartUrl(activeCase?.id === selectedCaseId ? activeCase.automation_start_url || "" : "");
+    }
+  }, [projectId, appTypeId, selectedCaseId, activeCase?.id, activeCase?.automation_start_url]);
+  const canDeleteAutomationCases = isAutomationWorkspaceEnabled
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.builder"])
+    && hasPermission(session, "testcase.delete", projectId);
+  const canRemoveAutomationCase = canDeleteAutomationCases && Boolean(activeCase);
   const isAutomationCaseDetailReady = Boolean(activeCase);
   const isAutomationCaseWorkspaceOpen = Boolean(selectedCaseId);
   const linkedManualCases = useMemo(() => {
@@ -1610,11 +1638,32 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     return linkedIds.map((id) => manualCases.find((testCase) => testCase.id === id)).filter(Boolean) as TestCase[];
   }, [activeCase?.manual_test_case_id, activeCase?.manual_test_case_ids, manualCases]);
   const linkedManualCase = linkedManualCases[0] || null;
+  const linkedManualCaseIds = activeCase?.manual_test_case_ids?.length
+    ? activeCase.manual_test_case_ids : activeCase?.manual_test_case_id ? [activeCase.manual_test_case_id] : [];
+  const linkedManualStepsQuery = useQuery({
+    queryKey: ["automation-linked-manual-steps", projectId, appTypeId, activeCase?.id, linkedManualCaseIds],
+    queryFn: async ({ signal }) => Promise.all(linkedManualCaseIds.map(async manualCaseId => {
+      const [source, steps] = await Promise.all([
+        api.testCases.get(manualCaseId, { project_id: projectId }, { signal }),
+        api.testSteps.list({ test_case_id: manualCaseId }, { signal })
+      ]);
+      if (source.app_type_id !== appTypeId || source.automated !== "no" || steps.some(step => step.test_case_id !== manualCaseId)) {
+        throw new Error("The linked manual case is unavailable in this application.");
+      }
+      return steps.map(step => ({
+        test_case_id: activeCase!.id, manual_test_case_id: manualCaseId, manual_step_id: step.id,
+        manual_step_order: step.step_order, action: step.action || "", expected_result: step.expected_result || ""
+      }));
+    })),
+    enabled: Boolean(activeCase && linkedManualCaseIds.length && activeAutomationWorkspaceTab === "build"
+      && canUseAutomationAi && canUseAutomationBuilder && canViewAutomationCode && hasPermission(session, "testcase.view", projectId)),
+    retry: false
+  });
   const activeManualCase = linkedManualCase
     || testCases.find((testCase) => testCase.id === selectedManualCaseId)
     || manualCases[0]
     || null;
-  const automatedSteps = canViewAutomationCode ? asArray(automatedStepsQuery.data) : asArray<TestStep>(null);
+  const automatedSteps = useMemo(() => asArray<TestStep>(automatedStepsQuery.data).map(step => canViewAutomationCode ? step : {...step, automation_code:null, automation_source_sha256:null, api_request:null}), [automatedStepsQuery.data,canViewAutomationCode]);
   const unsavedAutomationStepIds = automatedSteps.filter(step =>
     (stepDrafts[step.id] && JSON.stringify(stepDrafts[step.id]) !== JSON.stringify(parseAutomationStepDraft(step)))
     || (stepCodeDrafts[step.id] !== undefined && stepCodeDrafts[step.id] !== (step.automation_code || ""))
@@ -1624,9 +1673,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const inspectSavedPlans = (ids: string[], intent: "build" | "run" = "run") => inspectAutomationTargets(ids, appTypeId, {
     getCase: id => api.testCases.get(id, { project_id: projectId }),
     getSteps: id => api.testSteps.list({ test_case_id: id })
-  }, intent, unsavedAutomationStepIds, undefined, canViewAutomationCode);
+  }, intent, unsavedAutomationStepIds, undefined, canViewAutomationCode, intent === "build" ? [agentMission, builderContext].filter(Boolean).join("\n\n") : "");
   const batchBuildReadinessQuery = useQuery({
-    queryKey: ["automation-build-preflight", projectId, appTypeId, batchBuildTargetIds, unsavedAutomationStepIds],
+    queryKey: ["automation-build-preflight", projectId, appTypeId, batchBuildTargetIds, unsavedAutomationStepIds, Boolean(agentMission.trim() || builderContext.trim())],
     queryFn: () => inspectSavedPlans(batchBuildTargetIds, "build"),
     enabled: isBatchAgentOpen && Boolean(batchBuildTargetIds.length),
     staleTime: 0, retry: false
@@ -1689,19 +1738,73 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     suites,
     suiteIds: automationCreateMetadata.suiteIds
   }), [testDataSets, automationCreateMetadata.dataSetId, automationCreateMetadata.suiteIds, automationCreateManualCaseIds, createSourcesQuery.data, automationCreateSteps, suites]);
-  const mergedParameterValues = useMemo(
-    () => excludeSensitiveStepParameterValues(combineStepParameterValues(buildDataSetParameterValues(testDataSets.find((item) => item.id === caseDataSetId)), testCaseParameterValues, suiteParameterValues), collectSensitiveDataSetParameterNames(testDataSets.find((item) => item.id === caseDataSetId))),
-    [suiteParameterValues, testCaseParameterValues, caseDataSetId, testDataSets]
+  const inheritedManualParameterValues = useMemo(
+    () => canViewTestData ? normalizeAutomationParameterValues(activeCase?.inherited_parameter_values, "t") : {},
+    [activeCase?.inherited_parameter_values, canViewTestData]
   );
+  const effectiveCaseParameterValues = useMemo(
+    () => combineStepParameterValues(inheritedManualParameterValues, testCaseParameterValues),
+    [inheritedManualParameterValues, testCaseParameterValues]
+  );
+  // Effective inherited links are supplied in primary-source order by the
+  // authorized case projection. Keep an unsaved own-link removal separate
+  // from that saved projection until the case is refreshed.
+  const effectiveCaseDataSetId = caseDataSetId || (!activeCase?.test_data_set_ids?.length ? activeCase?.effective_test_data_set_ids?.[0] : "") || "";
+  const casePrivateNames = useMemo(() => casePrivateParameterNames(activeCase), [activeCase?.test_data_options?.private_parameter_names, activeCase?.effective_private_parameter_names]);
+  const caseParameterPrivacyScope = `${projectId}:${activeCase?.id || selectedCaseId}`;
+  const visiblePrivateNames = useMemo(() => collectPrivateParameterNames([effectiveCaseParameterValues, suiteParameterValues], [
+    ...casePrivateNames, ...collectSensitiveDataSetParameterNames(testDataSets.find(item => item.id === effectiveCaseDataSetId)),
+    ...(privateCaseParameterDraft.scope === caseParameterPrivacyScope ? privateCaseParameterDraft.names : [])
+  ]), [effectiveCaseParameterValues, suiteParameterValues, casePrivateNames, testDataSets, effectiveCaseDataSetId, privateCaseParameterDraft, caseParameterPrivacyScope]);
+  useEffect(() => {
+    const names = Object.keys(testCaseParameterValues).filter(name => visiblePrivateNames.has(name)).sort();
+    setPrivateCaseParameterDraft(current => current.scope === caseParameterPrivacyScope && current.names.join("\0") === names.join("\0") ? current : { scope: caseParameterPrivacyScope, names });
+  }, [caseParameterPrivacyScope, testCaseParameterValues, visiblePrivateNames]);
+  const initialEngineerValues = useMemo(() => canViewTestData ? initialEngineerParameterValues(effectiveCaseParameterValues,
+    testDataSets.find(item => item.id === (selectedExecutionDataSetId || effectiveCaseDataSetId)), {...activeCase?.test_data_options, parameter_overrides: activeCase?.effective_parameter_overrides || activeCase?.test_data_options?.parameter_overrides, effective_private_parameter_names: [...visiblePrivateNames]}) : {},
+    [canViewTestData, effectiveCaseParameterValues, testDataSets, selectedExecutionDataSetId, effectiveCaseDataSetId, activeCase?.test_data_options, activeCase?.effective_parameter_overrides, visiblePrivateNames]);
+  const inheritedParameterDefaults = useMemo(
+    () => buildCaseParameterValues({ inheritedValues: inheritedManualParameterValues, dataSet: testDataSets.find(item => item.id === effectiveCaseDataSetId), inheritedOverrideNames: activeCase?.inherited_parameter_overrides }),
+    [testDataSets, effectiveCaseDataSetId, inheritedManualParameterValues, activeCase?.inherited_parameter_overrides]
+  );
+  const mergedParameterValues = useMemo(
+    () => excludeSensitiveStepParameterValues(combineStepParameterValues(buildCaseParameterValues({
+      ownValues: testCaseParameterValues, inheritedValues: inheritedManualParameterValues,
+      dataSet: testDataSets.find(item => item.id === effectiveCaseDataSetId),
+      inheritedOverrideNames: activeCase?.inherited_parameter_overrides,
+      overrideNames: caseParameterSaveOptions(activeCase?.test_data_options, testCaseParameterValues, activeCase?.parameter_values, visiblePrivateNames, caseParameterOverrideDraftRef.current.scope === caseParameterPrivacyScope ? caseParameterOverrideDraftRef.current.names : []).parameter_overrides
+    }), suiteParameterValues), visiblePrivateNames),
+    [suiteParameterValues, testCaseParameterValues, inheritedManualParameterValues, testDataSets, effectiveCaseDataSetId, activeCase?.test_data_options, activeCase?.parameter_values, activeCase?.inherited_parameter_overrides, visiblePrivateNames]
+  );
+  const resolvedParameterValues = useMemo(() => {
+    const nextCache = new Map<string, string>();
+    const values = Object.fromEntries(Object.entries(mergedParameterValues).map(([name, value]) => {
+      if (!hasTestDataGeneratorTemplate(value)) return [name, value];
+      const key = `${projectId}:${selectedCaseId}:${effectiveCaseDataSetId}:${parameterPreviewRevision}:${name}:${value}`;
+      const resolved = parameterPreviewCache.current.get(key) ?? evaluateTestDataTemplate(value);
+      nextCache.set(key, resolved);
+      return [name, resolved];
+    }));
+    parameterPreviewCache.current = nextCache;
+    return values;
+  }, [mergedParameterValues, projectId, selectedCaseId, effectiveCaseDataSetId, parameterPreviewRevision]);
   const detectedStepParameters = useMemo(
-    () => mergeStepParameterDefinitions(collectStepParameters(automatedSteps.map((step) => ({
+    () => lastAutomationCaseDraftSeedRef.current?.caseKey !== `case:${projectId}:${activeCase?.id}` ? [] : collectCaseStepParameters({ steps: [{ id: "automation-case-metadata", action: caseDraft.title, expected_result: richTextToPlainText(caseDraft.description) }, ...automatedSteps.map((step) => ({
       id: step.id,
       action: [stepDrafts[step.id]?.name ?? step.action, stepDrafts[step.id]?.objectRef, stepDrafts[step.id]?.value].filter(Boolean).join(" "),
       expected_result: stepDrafts[step.id]?.expected_result ?? step.expected_result,
       automation_code: stepCodeDrafts[step.id] ?? step.automation_code,
       api_request: step.api_request
-    }))), buildStepParameterDefinitionsFromValues(mergedParameterValues), buildDataSetParameterDefinitions(testDataSets.find((item) => item.id === caseDataSetId))),
-    [automatedSteps, stepCodeDrafts, stepDrafts, mergedParameterValues, testDataSets, caseDataSetId]
+    }))], ownValues: testCaseParameterValues, inheritedValues: inheritedManualParameterValues,
+      availableValues: mergedParameterValues, dataSet: testDataSets.find(item => item.id === effectiveCaseDataSetId),
+      privateNames: [...casePrivateNames, ...(privateCaseParameterDraft.scope === caseParameterPrivacyScope ? privateCaseParameterDraft.names : [])]
+    }).map(parameter => {
+      const protectedParameter = visiblePrivateNames.has(parameter.name) ? {...parameter, sensitive: true} : parameter;
+      const source = activeCase?.parameter_sources?.[parameter.name];
+      return Object.prototype.hasOwnProperty.call(inheritedManualParameterValues, parameter.name)
+        ? { ...protectedParameter, sourceLabel: source?.kind === "linked_manual" ? `Manual case ${source.display_id || source.test_case_id}` : "Manual case" } : protectedParameter;
+    }),
+    [projectId, activeCase?.id, automatedSteps, stepCodeDrafts, stepDrafts, mergedParameterValues, testDataSets, effectiveCaseDataSetId, caseDraft.title, caseDraft.description, activeCase?.parameter_sources, inheritedManualParameterValues, testCaseParameterValues, visiblePrivateNames, casePrivateNames, privateCaseParameterDraft, caseParameterPrivacyScope]
   );
   const automationStepGroups = useMemo(() => {
     const groups: { id: string; title: string; subtitle: string; steps: TestStep[]; isStandalone: boolean }[] = [];
@@ -1722,11 +1825,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     ? `${newStepPlacement.mode === "before" ? "Insert before" : "Add after"} ${newStepPlacementTarget.group_name || newStepPlacementTarget.action || `step ${newStepPlacementTarget.step_order}`}`
     : "";
   const inlineTestDataGroups = useMemo(() => {
-    const buildRows = (scope: StepParameterScope, values: Record<string, string>) => {
-      const names = new Set<string>(Object.keys(values));
-      detectedStepParameters
-        .filter((parameter) => parameter.scope === scope)
-        .forEach((parameter) => names.add(parameter.name));
+    const buildRows = (scope: StepParameterScope) => {
+      const names = new Set(detectedStepParameters.filter(parameter => parameter.scope === scope).map(parameter => parameter.name));
 
       return Array.from(names)
         .sort((left, right) => left.localeCompare(right))
@@ -1735,151 +1835,85 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
           return {
             name: parsed?.name || name,
             token: parsed?.token || `@${name.replace(/^@/, "")}`,
-            value: values[parsed?.name || name] || "",
-            locked: scope === "r"
+            value: mergedParameterValues[parsed?.name || name] ?? "",
+            locked: Boolean(detectedStepParameters.find(parameter => parameter.name === name)?.sensitive)
           };
         });
     };
 
     return [
-      { scope: "t" as const, title: "Test case data", rows: buildRows("t", testCaseParameterValues) },
-      { scope: "s" as const, title: selectedParameterSuite ? `Suite data · ${selectedParameterSuite.name}` : "Suite-shared data", rows: buildRows("s", suiteParameterValues) },
-      { scope: "r" as const, title: "Run data", rows: buildRows("r", {}) }
+      { scope: "t" as const, title: "Test case data", rows: buildRows("t") },
+      { scope: "s" as const, title: selectedParameterSuite ? `Suite data · ${selectedParameterSuite.name}` : "Suite-shared data", rows: buildRows("s") },
+      { scope: "r" as const, title: "Run data", rows: buildRows("r") }
     ].filter((group) => group.rows.length);
-  }, [detectedStepParameters, selectedParameterSuite, suiteParameterValues, testCaseParameterValues]);
+  }, [detectedStepParameters, selectedParameterSuite, suiteParameterValues, testCaseParameterValues, mergedParameterValues]);
   const automationDataTokens = useMemo(() => Array.from(new Set([
     ...inlineTestDataGroups.flatMap((group) => group.rows.map((row) => row.token)),
     ...detectedStepParameters.map((parameter) => parameter.token)
   ])).sort((left, right) => left.localeCompare(right)), [inlineTestDataGroups, detectedStepParameters]);
-  const completeAutomationCode = useMemo(() => {
-    const parameterLines = Object.entries(mergedParameterValues)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, value]) => `// ${key.replace(/[\r\n]+/g, " ")} = ${JSON.stringify(value || "<empty>")}`);
-    const stepLines = automationStepGroups.flatMap((group) => [
-      `// ${group.isStandalone ? "Step" : group.title.replace(/[\r\n]+/g, " ")}`,
-      ...group.steps.map((step) => {
-        const code = stepCodeDrafts[step.id] ?? step.automation_code ?? "";
-        const body = step.step_type === "api" ? step.api_request?.url?.trim() ? resolveStepAutomationCode({ ...step, automation_code: "" }) : "// Automation mapping needed" : code.trim() || "// Automation mapping needed";
-        return [`// ${step.step_order}. ${step.step_type || "web"}`, "{", ...body.split("\n").map((line) => `  ${line}`), "}"].join("\n");
-      })
-    ]);
-
-    return [
-      `// Automation case: ${activeCase?.display_id || activeCase?.id || "selected-case"} ${(activeCase?.title || "").replace(/[\r\n]+/g, " ")}`.trim(),
-      parameterLines.length ? "// Data references" : "",
-      ...parameterLines,
-      parameterLines.length ? "" : "",
-      "// Source reference. Test Engine executes each section with its runtime, data, hooks and evidence policy.",
-      "export async function runAutomation({ page, expect, driver, web, api, mobile, android, ios, params, capture }) {",
-      ...stepLines.flatMap((section) => section.split("\n").map((line) => `  ${line}`)),
-      "}"
-    ].filter((line) => line !== "").join("\n");
-  }, [activeCase?.display_id, activeCase?.id, activeCase?.title, automationStepGroups, mergedParameterValues, stepCodeDrafts, stepDrafts]);
-
-  const exportAutomationCasePdf = () => {
-    if (!canViewAutomationCode) {
-      showError(new Error("Permission required: automation.code.view"), "Unable to export automation code.");
-      return;
+  const needsAutomationSource = canViewAutomationCode && isAutomationCaseDetailReady && Boolean(activeCase)
+    && (isAutomationCodePreviewOpen || (activeAutomationWorkspaceTab === "steps" && automationStepView === "code"));
+  const needsAutomationGherkin = isAutomationCaseDetailReady && activeAutomationWorkspaceTab === "steps" && automationStepView === "gherkin";
+  const exportEnvironmentsQuery = useQuery({ queryKey: ["test-environments", projectId, appTypeId], queryFn: () => api.testEnvironments.list({ project_id: projectId, app_type_id: appTypeId || undefined }), enabled: Boolean(projectId && selectedExecutionEnvironmentId && needsAutomationSource) });
+  const exportConfigurationsQuery = useQuery({queryKey:["test-configurations",projectId,appTypeId],queryFn:() => api.testConfigurations.list({project_id:projectId,app_type_id:appTypeId || undefined}),enabled:Boolean(projectId && selectedExecutionConfigurationId && needsAutomationSource)});
+  const exportSourceSnapshot = useMemo(() => {
+    if (!needsAutomationSource && !needsAutomationGherkin) return { steps: [], errors: [] };
+    const errors: string[] = [];
+    const steps = automatedSteps.map(step => {
+    const draft = stepDrafts[step.id] || parseAutomationStepDraft(step);
+    const unchanged = automationMappingFieldsEqual(draft,parseAutomationStepDraft(step));
+    const options = stepOptionDrafts[step.id] || parseAutomationStepOptions(step);
+    let code = unchanged ? stepCodeDrafts[step.id] ?? step.automation_code ?? "" : buildAutomationCodeFromDraft(draft);
+    if (!unchanged || JSON.stringify(options) !== JSON.stringify(parseAutomationStepOptions(step))) code = applyAutomationStepOptions(code,options);
+    let request = unchanged ? step.api_request : buildAutomationApiRequest(draft, step.api_request);
+    if (draft.step_type === "api" && apiSourceDrafts[step.id] !== undefined) {
+      try { request = parseApiRequestSource(apiSourceDrafts[step.id]); }
+      catch (error) {
+        request = null;
+        errors.push(`Section ${step.step_order}: ${error instanceof Error ? error.message : "API source is invalid."}`);
+      }
     }
-    if (!isAutomationCaseDetailReady || !activeCase) {
-      showError(new Error("Wait for the complete automation case details before exporting."), "Unable to export automation case.");
-      return;
-    }
+    return {...step,action:draft.name,expected_result:draft.expected_result,step_type:draft.step_type,automation_code:code,api_request:request};
+    });
+    return { steps, errors };
+  },[needsAutomationSource,needsAutomationGherkin,automatedSteps,stepDrafts,stepCodeDrafts,stepOptionDrafts,apiSourceDrafts]);
+  const exportSteps = exportSourceSnapshot.steps;
+  const exportInput = useMemo(() => ({
+    testCase: {
+      ...(activeCase || { id: "draft" }),
+      title: caseDraft.title,
+      execution_hooks: mapCaseHooksToExecutionHooks(executionHookDraft)
+    },
+    steps: exportSteps,
+    values: effectiveCaseParameterValues,
+    suiteValues: suiteParameterValues,
+    dataSet: testDataSets.find(item => item.id === (selectedExecutionDataSetId || effectiveCaseDataSetId)),
+    repository: learningCache,
+    baseURL: asArray(exportEnvironmentsQuery.data).find(item => item.id === selectedExecutionEnvironmentId)?.base_url || "",
+    sensitiveNames: detectedStepParameters.filter(parameter => parameter.sensitive).map(parameter => parameter.name),
+    sharedGroups: sharedStepGroups,
+    dataSets: testDataSets,
+    overrideSharedSteps,
+    suiteOptions: selectedParameterSuite?.test_data_options,
+    environment: asArray(exportEnvironmentsQuery.data).find(item => item.id === selectedExecutionEnvironmentId),
+    configuration: asArray(exportConfigurationsQuery.data).find(item => item.id === selectedExecutionConfigurationId),
+    runtimeSettings: testEngineIntegration?.config ?? undefined
+  }), [activeCase, caseDraft.title, executionHookDraft, exportSteps, effectiveCaseParameterValues, suiteParameterValues,
+    testDataSets, selectedExecutionDataSetId, effectiveCaseDataSetId, learningCache, exportEnvironmentsQuery.data,
+    exportConfigurationsQuery.data, selectedExecutionEnvironmentId, selectedExecutionConfigurationId, detectedStepParameters,
+    sharedStepGroups, overrideSharedSteps, selectedParameterSuite?.test_data_options, parameterPreviewRevision, testEngineIntegration?.config]);
+  const exportContextQueries = [automatedStepsQuery, testDataSetsQuery, learningCacheQuery, sharedStepGroupsQuery, exportEnvironmentsQuery, exportConfigurationsQuery, testEngineIntegrationsQuery];
+  const exportDataLoading = exportContextQueries.some(query => query.isFetching);
+  const exportDataError = exportContextQueries.some(query => query.isError);
+  const exportSourceInvalid = exportSourceSnapshot.errors.length > 0;
+  const exportPreview = useAutomationExportPreview({ enabled: needsAutomationSource, ready: !exportDataLoading && !exportDataError && !exportSourceInvalid, input: exportInput });
+  const completeAutomationCode = exportPreview.code;
+  const exportContextLoading = exportDataLoading || exportPreview.loading;
+  const exportContextError = exportDataError || Boolean(exportPreview.error);
+  const exportPreviewCode = exportContextLoading ? "// Loading execution context and source compiler…" : exportContextError ? "// Automation source could not be prepared. Retry before copying the export." : exportSourceInvalid ? `// Correct the current API source before exporting.\n${exportSourceSnapshot.errors.map(message => `// ${message}`).join("\n")}` : completeAutomationCode;
+  const retryExportContext = () => { exportPreview.retry(); void Promise.all(exportContextQueries.filter(query => query.isError).map(query => query.refetch())); };
+  const automationGherkin = useMemo(() => needsAutomationGherkin ? buildAutomationGherkin(caseDraft.title, exportSteps, testDataSets.find(item => item.id === effectiveCaseDataSetId), { repository: learningCache, parameterValues: resolvedParameterValues }) : "", [needsAutomationGherkin,caseDraft.title,exportSteps,testDataSets,effectiveCaseDataSetId,learningCache,resolvedParameterValues]);
 
-    const metadataRows = [
-      ["Case", `${activeCase.display_id || activeCase.id} · ${activeCase.title}`],
-      ["Status", activeCase.status || "active"],
-      ["Priority", `P${activeCase.priority || 3}`],
-      ["Automation", activeCase.automation_status || "ready"],
-      ["Suites", activeCaseSuiteIds.length ? activeCaseSuiteIds.join(", ") : "None"],
-      ["Story", activeCase.requirement_id || "Not linked"]
-    ];
-    const testDataRows = inlineTestDataGroups.flatMap((group) =>
-      group.rows.map((row) => [group.title, row.token, row.locked ? "Supplied at run time" : row.value || "(empty)"])
-    );
-    const stepSections = automationStepGroups.map((group) => {
-      const rows = group.steps.map((step) => {
-        const draft = stepDrafts[step.id] || parseAutomationStepDraft(step);
-        const variables = extractVariables(step);
-        return `
-          <tr>
-            <td>${escapeAutomationPdfHtml(step.step_order)}</td>
-            <td>${escapeAutomationPdfHtml(formatAutomationKeywordReadable(draft, variables))}</td>
-            <td><code>${escapeAutomationPdfHtml(draft.objectRef || "No locator")}</code></td>
-            <td><code>${escapeAutomationPdfHtml(draft.value || "No data reference")}</code></td>
-            <td><pre>${escapeAutomationPdfHtml(stepCodeDrafts[step.id] ?? step.automation_code ?? "Automation mapping needed")}</pre></td>
-          </tr>
-        `;
-      }).join("");
-
-      return `
-        <section>
-          <h2>${escapeAutomationPdfHtml(group.isStandalone ? group.title : `Manual step: ${group.title}`)}</h2>
-          <p>${escapeAutomationPdfHtml(group.subtitle)}</p>
-          <table>
-            <thead><tr><th>Step</th><th>Keyword</th><th>Locator</th><th>Data reference</th><th>Code</th></tr></thead>
-            <tbody>${rows || "<tr><td colspan=\"5\">No automation keywords.</td></tr>"}</tbody>
-          </table>
-        </section>
-      `;
-    }).join("");
-    const printable = window.open("", "_blank", "noopener,noreferrer,width=1100,height=900");
-
-    if (!printable) {
-      showError(new Error("Allow pop-ups to export the automation case PDF."), "Unable to open PDF export.");
-      return;
-    }
-
-    printable.document.write(`
-      <!doctype html>
-      <html>
-        <head>
-          <title>${escapeAutomationPdfHtml(activeCase.title)} automation export</title>
-          <style>
-            body { color: #111827; font: 13px/1.45 Inter, Arial, sans-serif; margin: 32px; }
-            h1 { font-size: 24px; margin: 0 0 6px; }
-            h2 { border-bottom: 1px solid #d8dee8; font-size: 17px; margin: 28px 0 8px; padding-bottom: 6px; }
-            p { color: #526071; margin: 0 0 14px; }
-            table { border-collapse: collapse; margin: 10px 0 18px; width: 100%; }
-            th, td { border: 1px solid #d8dee8; padding: 8px; text-align: left; vertical-align: top; }
-            th { background: #f3f6fb; font-size: 11px; text-transform: uppercase; }
-            code, pre { background: #f8fafc; border-radius: 6px; color: #0f172a; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-            code { padding: 2px 4px; }
-            pre { margin: 0; max-width: 100%; overflow-wrap: anywhere; padding: 8px; white-space: pre-wrap; }
-            .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
-            .meta div { border: 1px solid #d8dee8; border-radius: 8px; padding: 9px; }
-            .meta span { color: #64748b; display: block; font-size: 11px; text-transform: uppercase; }
-            .meta strong { display: block; margin-top: 3px; }
-            @media print { body { margin: 18mm; } button { display: none; } }
-          </style>
-        </head>
-        <body>
-          <h1>${escapeAutomationPdfHtml(activeCase.title)}</h1>
-          <p>${escapeAutomationPdfHtml(richTextToPlainText(activeCase.description) || "No description recorded.")}</p>
-          <section class="meta">
-            ${metadataRows.map(([label, value]) => `<div><span>${escapeAutomationPdfHtml(label)}</span><strong>${escapeAutomationPdfHtml(value)}</strong></div>`).join("")}
-          </section>
-          <section>
-            <h2>Test data</h2>
-            <table>
-              <thead><tr><th>Scope</th><th>Token</th><th>Value</th></tr></thead>
-              <tbody>
-                ${testDataRows.length ? testDataRows.map(([scope, token, value]) => `<tr><td>${escapeAutomationPdfHtml(scope)}</td><td><code>${escapeAutomationPdfHtml(token)}</code></td><td>${escapeAutomationPdfHtml(value)}</td></tr>`).join("") : "<tr><td colspan=\"3\">No test data references detected.</td></tr>"}
-              </tbody>
-            </table>
-          </section>
-          ${stepSections}
-          <section>
-            <h2>Complete automation code</h2>
-            <pre>${escapeAutomationPdfHtml(completeAutomationCode)}</pre>
-          </section>
-          <script>window.addEventListener("load", () => { window.focus(); window.print(); });</script>
-        </body>
-      </html>
-    `);
-    printable.document.close();
-    showSuccess("Automation case PDF export opened.");
-  };
   const groupedRepository = useMemo(() => {
     const grouped = new Map<string, AutomationLearningCacheEntry[]>();
 
@@ -1936,21 +1970,55 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   }, [groupedRepository, repositoryDraft.object_name, repositoryDraft.object_role, selectedRepositoryId]);
   const activePageObject = pageObjectModels.find((page) => page.screenName === selectedScreenName) || pageObjectModels[0] || null;
   const allObjectMembers = useMemo(() => pageObjectModels.flatMap((page) => page.members), [pageObjectModels]);
+  const routeScopedLocatorKeys = useMemo(() => collectRouteScopedLocatorKeys(allObjectMembers), [allObjectMembers]);
   const caseRepositorySteps = useMemo(() => automatedSteps.map((step) => {
     const draft = stepDrafts[step.id];
     const spec = draft ? getAutomationKeywordInputSpec(draft.keyword, draft.step_type) : null;
     return {
+      id: step.id,
+      automation_source_sha256: stepCodeDrafts[step.id] === undefined || stepCodeDrafts[step.id] === step.automation_code ? step.automation_source_sha256||undefined : undefined,
+      automation_context_sha256: automatedSteps.slice(0,automatedSteps.findIndex(row=>row.id===step.id)).every(row=>stepCodeDrafts[row.id]===undefined||stepCodeDrafts[row.id]===row.automation_code)?step.automation_context_sha256||undefined:undefined,
       automation_code: stepCodeDrafts[step.id] ?? step.automation_code,
       objectRefs: [spec?.target === "repository" ? draft?.objectRef || "" : "", spec?.valueTarget === "repository" ? draft?.value || "" : ""]
     };
   }), [automatedSteps, stepCodeDrafts, stepDrafts]);
-  const caseObjectMembers = useMemo(() => allObjectMembers.filter((member) => isRepositoryMemberUsed(member, activeCase?.id, caseRepositorySteps)), [allObjectMembers, activeCase?.id, caseRepositorySteps]);
+  const caseRepositoryReferences = useMemo(()=>collectRepositoryStepReferences(caseRepositorySteps,resolvedParameterValues),[caseRepositorySteps,resolvedParameterValues]);
+  const repositoryCanonicalReferences=useMemo(()=>new Set(allObjectMembers.map(member=>`${getScreenName(member.entry)}.${getRepositoryMemberName(member.entry)}`)),[allObjectMembers]);
+  const caseObjectMembers = useMemo(() => allObjectMembers.filter((member) => isRepositoryMemberUsed({...member,ref:`${getScreenName(member.entry)}.${getRepositoryMemberName(member.entry)}`}, activeCase?.id, caseRepositorySteps,{includeCaseOwned:false,references:caseRepositoryReferences,canonicalReferences:repositoryCanonicalReferences,routeScopedLocatorKeys})), [allObjectMembers, activeCase?.id, caseRepositorySteps,caseRepositoryReferences,repositoryCanonicalReferences,routeScopedLocatorKeys]);
+  const caseRepositoryPages = useMemo(() => {
+    const used=new Set(caseObjectMembers.map(member=>member.entry.id));
+    return pageObjectModels.map(page=>({...page,members:page.members.filter(member=>used.has(member.entry.id))})).filter(page=>page.members.length);
+  },[pageObjectModels,caseObjectMembers]);
+  const caseObjectsScopeRef=useRef("");
+  useEffect(()=>{
+    if(view!=="cases" || activeAutomationWorkspaceTab!=="repository") {caseObjectsScopeRef.current="";return;}
+    const scope=`${projectId}:${activeCase?.id}`;
+    if(caseObjectsScopeRef.current!==scope) {caseObjectsScopeRef.current=scope;setScreenDetailTab("fields");setIsRepositoryConfigOpen(false);}
+    if(caseRepositoryPages.length && !caseRepositoryPages.some(page=>page.screenName===selectedScreenName)) {setSelectedScreenName(caseRepositoryPages[0].screenName);setSelectedRepositoryId("");setIsRepositoryConfigOpen(false);}
+  },[view,activeAutomationWorkspaceTab,projectId,activeCase?.id,caseRepositoryPages,selectedScreenName]);
   const selectedRuntimeType = appTypes.find((item) => item.id === appTypeId)?.type || "web";
   const automationRuntimeTypes = getAutomationRuntimeTypes(automatedSteps, selectedRuntimeType);
   const automationCreateRuntimeTypes = getAutomationRuntimeTypes([
     ...automationCreateManualCaseIds.flatMap((id) => createSourcesQuery.data?.find((source) => source.testCase.id === id)?.steps || []),
     ...automationCreateSteps.filter((step) => step.action.trim() || step.expected_result.trim())
   ], selectedRuntimeType);
+  const automationStartUrlRequired = automationRuntimeTypes.includes("web");
+  const automationCreateStartUrlRequired = automationCreateRuntimeTypes.includes("web");
+  const automationStartUrlValidation = automationStartUrlError(startUrl, automationStartUrlRequired);
+  const automationCreateStartUrlValidation = automationStartUrlError(automationCreateStartUrl, automationCreateStartUrlRequired);
+  const batchStartUrlRequired = batchBuildReadinessQuery.data
+    ? batchBuildReadinessQuery.data.some(result => result.runtimes.includes("web") || !result.stepCount && ["web", "unified"].includes(selectedRuntimeType))
+    : selectedRuntimeType === "web" || selectedRuntimeType === "unified";
+  const batchHasUrlRuntime = batchBuildReadinessQuery.data
+    ? batchBuildReadinessQuery.data.some(result => result.runtimes.some(type => type === "web" || type === "api") || !result.stepCount && !["android", "ios"].includes(selectedRuntimeType))
+    : !["android", "ios"].includes(selectedRuntimeType);
+  const batchStartUrlValidation = automationStartUrlError(batchStartUrl, batchStartUrlRequired);
+  const openAutomationBuild = (ids: string[]) => {
+    const savedUrls = ids.map(id => activeCase?.id === id ? startUrl.trim() : automatedCases.find(testCase => testCase.id === id)?.automation_start_url?.trim() || "");
+    setBatchStartUrl(savedUrls.length && savedUrls.every(url => url === savedUrls[0]) ? savedUrls[0] : "");
+    setBatchBuildTargetIds(ids);
+    setIsBatchAgentOpen(true);
+  };
   const canRecordCreation = canUseRecorder && automationCreateRuntimeTypes.some((type) => type === "web" || type !== "api" && canUseMobileAppium);
   useEffect(() => {
     if (isCreateAutomationOpen && requestedCreationMode === "record" && !canRecordCreation) setAutomationCreationMode("blank");
@@ -1974,7 +2042,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     if (activeAutomationWorkspaceTab === "build" && !canUseAutomationAi && !canRecordCurrentPlan
       || activeAutomationWorkspaceTab === "repository" && !canViewObjectRepository) setActiveAutomationWorkspaceTab("steps");
     if (buildMethod === "record" && !canRecordCurrentPlan && canUseAutomationAi) setBuildMethod("agent");
-  }, [activeAutomationWorkspaceTab, canUseAutomationAi, canRecordCurrentPlan, canViewObjectRepository, buildMethod]);
+  }, [activeAutomationWorkspaceTab, canUseAutomationAi, canRecordCurrentPlan, canViewObjectRepository, buildMethod, session, projectId, featureFlagsQuery.data]);
 
   const deferredScreenDomDraft = useDeferredValue(screenDomDraft);
   const inspectedFields = useMemo(() => extractRepositoryFieldsFromDom(deferredScreenDomDraft), [deferredScreenDomDraft]);
@@ -2048,15 +2116,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }, { replace: true });
   }, [setSearchParams]);
 
-  const selectRepositoryScreen = (screenName: string) => {
+  const selectRepositoryScreen = (screenName: string, withinCase = false) => {
     setSelectedScreenName(screenName);
     setSelectedRepositoryId("");
     setIsRepositoryConfigOpen(false);
     setLocatorImprovementPreview(null);
-    syncRepositorySearchParams(null);
+    if (!withinCase) syncRepositorySearchParams(null);
   };
 
-  const selectRepositoryEntry = useCallback((repositoryId: string, screenName?: string) => {
+  const selectRepositoryEntry = useCallback((repositoryId: string, screenName?: string, withinCase = false) => {
     if (screenName && screenName !== selectedScreenName) {
       setSelectedScreenName(screenName);
     }
@@ -2064,7 +2132,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     setSelectedRepositoryId(repositoryId);
     setFieldDetailTab("locators");
     setIsRepositoryConfigOpen(true);
-    syncRepositorySearchParams(repositoryId);
+    if (!withinCase) syncRepositorySearchParams(repositoryId);
   }, [selectedScreenName, syncRepositorySearchParams]);
 
   const openRepositoryInspect = (page: typeof activePageObject = activePageObject) => {
@@ -2160,16 +2228,25 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
   useEffect(() => {
     const requestedManualId = searchParams.get("manual") || "";
-    if (isCreateAutomationOpen || initialView !== "cases" || searchParams.get("create") !== "1" || testCasesQuery.isLoading) {
+    if (searchParams.get("create") !== "1") {
+      consumedAutomationCreateRouteRef.current = "";
       return;
     }
+    if (isCreateAutomationOpen || initialView !== "cases" || testCasesQuery.isLoading) {
+      return;
+    }
+    // Closing locally can render before the router removes the creation query.
+    // Consume the request once so a successful save or Cancel cannot reopen it.
+    const routeKey = `${projectId}:${appTypeId}:${requestedManualId}`;
+    if (consumedAutomationCreateRouteRef.current === routeKey) return;
+    consumedAutomationCreateRouteRef.current = routeKey;
     const manualCase = findByRoutableId(availableManualCases, requestedManualId);
     automationCreateTouchedMetadataRef.current.clear();
     setView("cases");
     setAutomationCreateManualCaseIds(manualCase ? [manualCase.id] : []);
     setAutomationCreateMetadata({ ...emptyAutomationMetadata, title: manualCase ? `${manualCase.title} · Automation` : "", manualCaseIds: manualCase ? [manualCase.id] : [] });
     setIsCreateAutomationOpen(true);
-  }, [availableManualCases, initialView, searchParams, testCasesQuery.isLoading, isCreateAutomationOpen]);
+  }, [availableManualCases, initialView, searchParams, testCasesQuery.isLoading, isCreateAutomationOpen, projectId, appTypeId]);
 
   useEffect(() => {
     if (activeAutomatedCase && selectedAutomatedCaseId !== activeAutomatedCase.id) {
@@ -2201,9 +2278,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     lastRepositoryRouteRef.current = routeKey;
     if (!requestedRepositoryId) return;
 
-    const requestedEntry = groupedRepository
+    const repositorySelections = groupedRepository
       .flatMap(([screenName, entries]) => entries.map((entry) => ({ screenName, entry })))
-      .find(({ entry }) => entry.id === requestedRepositoryId && !isNonElementRepositoryEntry(entry));
+      .filter(({ entry }) => !isNonElementRepositoryEntry(entry));
+    const requestedEntry = repositorySelections.find(({ entry }) => entry.id === requestedRepositoryId)
+      || repositorySelections.find(({ entry }) => Array.isArray(entry.metadata?.source_owners)
+        && entry.metadata.source_owners.some((owner: { entry_id?: string }) => owner?.entry_id === requestedRepositoryId));
 
     if (requestedEntry) {
       if (selectedRepositoryId === requestedEntry.entry.id && selectedScreenName === requestedEntry.screenName) return;
@@ -2329,6 +2409,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         setCaseModuleIds([]);
         setCaseDataSetId("");
         setAutomationManualLinkDraftIds([]);
+        setExecutionHookDraft([]);
         setSelectedExecutionDataSetId("");
         lastAutomationCaseDraftSeedRef.current = null;
       }
@@ -2344,8 +2425,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       title: testCase.title || "",
       description: testCase.description || "",
       status: testCase.status || "active",
-      priority: String(testCase.priority || 3),
-      parameterText: formatParameterText(testCase.parameter_values)
+      priority: String(testCase.priority || 3)
     });
     const suitesFromCase = (testCase: TestCase) => testCase.suite_ids || (testCase.suite_id ? [testCase.suite_id] : []);
     const requirementsFromCase = (testCase: TestCase) => testCase.requirement_ids || (testCase.requirement_id ? [testCase.requirement_id] : []);
@@ -2360,7 +2440,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     setSuiteLinkDraftIds((current) => previous ? mergeAutomationMetadataValue(current, suitesFromCase(previous), suitesFromCase(activeCase)) : suitesFromCase(activeCase));
     setCaseRequirementIds((current) => previous ? mergeAutomationMetadataValue(current, requirementsFromCase(previous), requirementsFromCase(activeCase)) : requirementsFromCase(activeCase));
     setCaseModuleIds((current) => previous ? mergeAutomationMetadataValue(current, previous.module_ids || [], activeCase.module_ids || []) : activeCase.module_ids || []);
+    setOverrideSharedSteps(current => previous ? mergeAutomationMetadataValue(current, (previous.test_data_options?.override_shared_sections ?? previous.test_data_options?.override_shared_steps) !== false, (activeCase.test_data_options?.override_shared_sections ?? activeCase.test_data_options?.override_shared_steps) !== false) : (activeCase.test_data_options?.override_shared_sections ?? activeCase.test_data_options?.override_shared_steps) !== false);
     setCaseDataSetId((current) => previous ? mergeAutomationMetadataValue(current, previous.test_data_set_ids?.[0] || "", nextDataSetId) : nextDataSetId);
+    setExecutionHookDraft(current => previous ? mergeAutomationMetadataValue(current, mapExecutionHooksToRunHooks(previous.execution_hooks), mapExecutionHooksToRunHooks(activeCase.execution_hooks)) : mapExecutionHooksToRunHooks(activeCase.execution_hooks));
     setAutomationManualLinkDraftIds((current) => previous ? mergeAutomationMetadataValue(current, manualCasesFromCase(previous), manualCasesFromCase(activeCase)) : manualCasesFromCase(activeCase));
     setSelectedExecutionDataSetId((current) => previous ? mergeAutomationMetadataValue(current, previous.test_data_set_ids?.[0] || "", nextDataSetId) : nextDataSetId);
     lastAutomationCaseDraftSeedRef.current = { caseKey, detail: activeCase };
@@ -2374,7 +2456,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }
 
     if (!activeCaseSuiteIds.includes(selectedParameterSuiteId)) {
-      setSelectedParameterSuiteId(activeCaseSuiteIds[0] || "");
+      setSelectedParameterSuiteId(activeCaseSuiteIds.length === 1 ? activeCaseSuiteIds[0] : "");
     }
   }, [activeCaseSuiteIds, selectedParameterSuiteId]);
 
@@ -2392,55 +2474,20 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   }, [selectedParameterSuite?.id, selectedParameterSuite?.parameter_values]);
 
   useEffect(() => {
-    setStepDrafts((current) => {
-      const next = { ...current };
-      automatedSteps.forEach((step) => {
-        if (!next[step.id]) {
-          next[step.id] = parseAutomationStepDraft(step);
-        }
-      });
-      Object.keys(next).forEach((stepId) => {
-        if (!automatedSteps.some((step) => step.id === stepId)) {
-          delete next[stepId];
-        }
-      });
-      return next;
-    });
-  }, [automatedSteps]);
-
-  useEffect(() => {
-    setStepOptionDrafts((current) => {
-      const next = { ...current };
-      automatedSteps.forEach((step) => {
-        if (!next[step.id]) {
-          next[step.id] = parseAutomationStepOptions(step);
-        }
-      });
-      Object.keys(next).forEach((stepId) => {
-        if (!automatedSteps.some((step) => step.id === stepId)) {
-          delete next[stepId];
-        }
-      });
-      return next;
-    });
-  }, [automatedSteps]);
-
-  useEffect(() => {
-    setStepCodeDrafts((current) => {
-      const next = { ...current };
-      automatedSteps.forEach((step) => {
-        if (!Object.prototype.hasOwnProperty.call(next, step.id)) {
-          next[step.id] = step.automation_code || "";
-        }
-      });
-      Object.keys(next).forEach((stepId) => {
-        if (!automatedSteps.some((step) => step.id === stepId)) {
-          delete next[stepId];
-        }
-      });
-      return next;
-    });
-  }, [automatedSteps]);
+    const scope = `${projectId}:${selectedCaseId}`;
+    const previous = automationEditorServerSnapshotRef.current;
+    const baseline = previous.scope === scope ? previous : { steps: {}, options: {}, code: {} };
+    const next = {
+      scope,
+      steps: Object.fromEntries(automatedSteps.map(step => [step.id, parseAutomationStepDraft(step)])),
+      options: Object.fromEntries(automatedSteps.map(step => [step.id, parseAutomationStepOptions(step)])),
+      code: Object.fromEntries(automatedSteps.map(step => [step.id, step.automation_code || ""]))
+    };
+    setStepDrafts(current => mergeRefreshedAutomationDrafts(current, baseline.steps, next.steps));
+    setStepOptionDrafts(current => mergeRefreshedAutomationDrafts(current, baseline.options, next.options));
+    setStepCodeDrafts(current => mergeRefreshedAutomationDrafts(current, baseline.code, next.code));
+    automationEditorServerSnapshotRef.current = next;
+  }, [projectId, selectedCaseId, automatedSteps]);
 
   useRecorderStatus(recorderSession, setRecorderSession);
 
@@ -2502,11 +2549,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   }, [inspectRecorderSession?.id, inspectRecorderSession?.status, inspectRecorderSession?.status_url]);
 
   const invalidateAutomationData = () => {
-    void queryClient.invalidateQueries({ queryKey: ["test-cases"] });
-    void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
-    void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
-    void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
-    void queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] });
+    for (const key of ["test-cases", "test-case-detail", "global-test-cases", "global-test-case-results", "test-case-metrics",
+      "test-case-picker", "test-case-picker-selected", "design-test-cases", "design-run-scope-cases", "test-steps",
+      "automation-learning-cache", "automation-repository-context", "workspace-transactions", "test-case-suites",
+      "test-case-modules", "test-suites", "execution-results", "execution-history"]) {
+      void queryClient.invalidateQueries({ queryKey: [key] });
+    }
   };
 
   const selectAutomationCase = useCallback((testCaseId: string) => {
@@ -2520,15 +2568,23 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.delete("repository");
+      next.delete("agent_activity");
       next.set("case", getRoutableId(targetCase) || testCaseId);
       return next;
     }, { replace: true });
   }, [automatedCases, setSearchParams]);
 
   const rememberAutomationBuildDrafts = () => {
-    automationBuildDraftBaselineRef.current = { steps: stepDrafts, options: stepOptionDrafts, code: stepCodeDrafts, evidence: Object.fromEntries(automatedSteps.map(step => [step.id, step.step_type === "api" ? JSON.stringify(step.api_request || {}, null, 2) : step.automation_code || ""])) };
+    automationBuildDraftBaselineRef.current = { projectId, caseId: selectedCaseId, steps: stepDrafts, options: stepOptionDrafts, code: stepCodeDrafts, evidence: Object.fromEntries(automatedSteps.map(step => [step.id, step.step_type === "api" ? JSON.stringify(step.api_request || {}, null, 2) : step.automation_code || ""])) };
   };
-  const openGeneratedAutomationPlan = async (outputCaseId: string, outputProjectId = projectId, sourceCaseIds = [selectedCaseId]) => {
+  const openGeneratedAutomationPlan = async (outputCaseId: string, outputProjectId = projectId, sourceCaseIds = [selectedCaseId], focusPlan = true) => {
+    const previous = automationBuildDraftBaselineRef.current;
+    const baseline = previous.projectId === outputProjectId && previous.caseId === outputCaseId ? previous : {
+      steps: Object.fromEntries(automatedSteps.map(step => [step.id, parseAutomationStepDraft(step)])),
+      options: Object.fromEntries(automatedSteps.map(step => [step.id, parseAutomationStepOptions(step)])),
+      code: Object.fromEntries(automatedSteps.map(step => [step.id, step.automation_code || ""])),
+      evidence: Object.fromEntries(automatedSteps.map(step => [step.id, step.step_type === "api" ? JSON.stringify(step.api_request || {}, null, 2) : step.automation_code || ""]))
+    };
     const [detail, freshSteps] = await Promise.all([
       api.testCases.get(outputCaseId, { project_id: outputProjectId }),
       api.testSteps.list({ test_case_id: outputCaseId })
@@ -2538,7 +2594,6 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     if (currentAutomationSelectionRef.current.projectId !== outputProjectId
       || ![outputCaseId, ...sourceCaseIds].includes(currentAutomationSelectionRef.current.selectedCaseId)) return;
     const outputChanged = currentAutomationSelectionRef.current.selectedCaseId !== outputCaseId;
-    const baseline = automationBuildDraftBaselineRef.current;
     const refreshedSteps = Object.fromEntries(freshSteps.map((step) => [step.id, parseAutomationStepDraft(step)]));
     const refreshedOptions = Object.fromEntries(freshSteps.map((step) => [step.id, parseAutomationStepOptions(step)]));
     const refreshedCode = Object.fromEntries(freshSteps.map((step) => [step.id, step.automation_code || ""]));
@@ -2550,69 +2605,49 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     setStepDrafts((current) => outputChanged ? refreshedSteps : mergeRefreshedAutomationDrafts(current, baseline.steps, refreshedSteps));
     setStepOptionDrafts((current) => outputChanged ? refreshedOptions : mergeRefreshedAutomationDrafts(current, baseline.options, refreshedOptions));
     setStepCodeDrafts((current) => outputChanged ? refreshedCode : mergeRefreshedAutomationDrafts(current, baseline.code, refreshedCode));
+    automationBuildDraftBaselineRef.current = { projectId: outputProjectId, caseId: outputCaseId, steps: refreshedSteps, options: refreshedOptions, code: refreshedCode, evidence: Object.fromEntries(freshSteps.map(step => [step.id, step.step_type === "api" ? JSON.stringify(step.api_request || {}, null, 2) : step.automation_code || ""])) };
     if (!outputChanged && !["build", "steps"].includes(currentAutomationSelectionRef.current.workspaceTab)) return;
-    selectAutomationCase(outputCaseId);
-    setActiveAutomationWorkspaceTab("steps");
+    if (focusPlan) {
+      selectAutomationCase(outputCaseId);
+      setActiveAutomationWorkspaceTab("steps");
+    }
   };
 
   useEffect(() => {
-    if (!agentBuildTracking) return;
-    let cancelled = false;
-    let timer: number | undefined;
-    let failureCount = 0;
-    const poll = async () => {
+    if (searchParams.get("agent_activity") && selectedCaseId) { setActiveAutomationWorkspaceTab("build"); setBuildMethod("agent"); }
+  }, [searchParams.get("agent_activity"), selectedCaseId]);
+  const handledAgentActivityRef = useRef(new Set<string>());
+  const refreshingAgentActivityRef = useRef(new Set<string>());
+  const handleAutomationAgentActivity = async (transaction: AutomationAgentActivityRecord) => {
+    if (transaction.project_id !== projectId || transaction.app_type_id !== appTypeId) return;
+    const tracking = agentBuildTracking;
+    if (tracking?.caseIds.includes(selectedCaseId) && ["queued", "running"].includes(agentBuildStatus) && tracking.transactionId !== transaction.id) return;
+    latestAgentActivityRef.current = transaction;
+    const inputs = Array.isArray(transaction.metadata.input_test_case_ids) ? transaction.metadata.input_test_case_ids.filter((id): id is string => typeof id === "string") : [selectedCaseId];
+    const outputs = Array.isArray(transaction.metadata.output_test_case_ids) ? transaction.metadata.output_test_case_ids.filter((id): id is string => typeof id === "string") : [];
+    const caseIds = [...new Set([...inputs, ...outputs])];
+    if (!tracking || tracking.transactionId !== transaction.id) setAgentBuildTracking({transactionId:transaction.id,projectId,caseIds,scheduledAt:typeof transaction.metadata.scheduled_at === "string" ? transaction.metadata.scheduled_at : null,startedAt:Date.now()});
+    const completed = transaction.status === "completed";
+    const failed = ["failed", "cancelled", "canceled"].includes(transaction.status);
+    setAgentBuildStatus(failed || transaction.metadata.outcome_status === "incomplete" ? "failed" : transaction.metadata.outcome_status === "partial" ? "paused" : completed ? "completed" : transaction.status === "running" ? "running" : "queued");
+    setAgentBuildReceipt(typeof transaction.metadata.phase_message === "string" ? transaction.metadata.phase_message : transaction.description || "Agent activity recorded.");
+    setAgentBuildOutputIds(outputs);
+    const unfinished = Array.isArray(transaction.metadata.retry_test_case_ids) ? transaction.metadata.retry_test_case_ids.filter((id): id is string => typeof id === "string") : failed ? inputs.filter(id => !outputs.includes(id)) : [];
+    setAgentBuildRetryIds(unfinished);
+    const saved = automationSavedPlanReceipt(transaction.metadata, selectedCaseId);
+    const receipt = `${transaction.id}:${saved.signature}`;
+    if (saved.caseId && !handledAgentActivityRef.current.has(receipt) && !refreshingAgentActivityRef.current.has(receipt)) {
+      refreshingAgentActivityRef.current.add(receipt);
       try {
-        const transaction = await api.testCases.automationBuildStatus(agentBuildTracking.transactionId);
-        if (cancelled) return;
-        failureCount = 0;
-        const processedItems = Number(transaction.metadata.processed_items) || 0;
-        const totalItems = Number(transaction.metadata.total_items) || 0;
-        const completed = transaction.status === "completed";
-        const failed = ["failed", "cancelled", "canceled"].includes(transaction.status);
-        const failedCaseCount = Number(transaction.metadata.failed) || 0;
-        setAgentBuildStatus(completed ? "completed" : failed ? "failed" : transaction.status === "running" ? "running" : "queued");
-        setAgentBuildReceipt(`${completed ? `Build completed${failedCaseCount ? ` · ${failedCaseCount} cases need a retry` : ""}` : failed ? "Build failed" : transaction.status === "running" ? (typeof transaction.metadata.phase_message === "string" ? transaction.metadata.phase_message : totalItems ? `Built ${processedItems} of ${totalItems} cases` : "Generating executable instructions") : agentBuildTracking.scheduledAt ? `Scheduled for ${new Date(agentBuildTracking.scheduledAt).toLocaleString()}` : "Waiting for the automation agent"} · ${transaction.id.slice(0, 8)}${failed && transaction.description ? ` · ${transaction.description}` : ""}`);
-        if (completed || failed) {
-          invalidateAutomationData();
-          const outputIds = Array.isArray(transaction.metadata.output_test_case_ids)
-            ? transaction.metadata.output_test_case_ids.filter((id): id is string => typeof id === "string")
-            : [];
-          const outputId = outputIds.includes(currentAutomationSelectionRef.current.selectedCaseId)
-            ? currentAutomationSelectionRef.current.selectedCaseId
-            : outputIds[0] || (typeof transaction.metadata.test_case_id === "string" ? transaction.metadata.test_case_id : transaction.related_kind === "test_case" ? transaction.related_id : null);
-          setAgentBuildOutputIds(outputIds.length ? outputIds : outputId ? [outputId] : []);
-          const unfinishedIds = Array.isArray(transaction.metadata.retry_test_case_ids)
-            ? transaction.metadata.retry_test_case_ids.filter((id): id is string => typeof id === "string" && agentBuildTracking.caseIds.includes(id))
-            : failed || failedCaseCount || Number(transaction.metadata.skipped) ? agentBuildTracking.caseIds.filter(id => !outputIds.includes(id)) : [];
-          setAgentBuildRetryIds(unfinishedIds);
-          if (completed && outputId) {
-            try { await openGeneratedAutomationPlan(outputId, agentBuildTracking.projectId, agentBuildTracking.caseIds); }
-            catch { if (!cancelled) setAgentBuildReceipt(`Build completed · ${transaction.id.slice(0, 8)}. Reopen the case to load its updated plan.`); }
-          }
-          if (!cancelled) setAgentBuildTracking(null);
-          return;
-        }
-        const untilScheduled = agentBuildTracking.scheduledAt ? Date.parse(agentBuildTracking.scheduledAt) - Date.now() : 0;
-        if (untilScheduled > 15 * 60_000 || Date.now() - agentBuildTracking.startedAt > 15 * 60_000) {
-          setAgentBuildStatus("paused");
-          setAgentBuildReceipt((current) => `${current}. Automatic progress checks paused; follow this build in TestOps.`);
-          setAgentBuildTracking(null);
-          return;
-        }
-        timer = window.setTimeout(() => void poll(), untilScheduled > 0 ? Math.min(60_000, Math.max(3000, untilScheduled)) : 3000);
-      } catch (error) {
-        if (cancelled) return;
-        failureCount += 1;
-        if (failureCount >= 3) {
-          setAgentBuildStatus("paused");
-          setAgentBuildReceipt(`Progress checks paused · ${agentBuildTracking.transactionId.slice(0, 8)}. ${error instanceof Error ? error.message : "Open TestOps to check the build."}`);
-          setAgentBuildTracking(null);
-        } else timer = window.setTimeout(() => void poll(), 5000);
-      }
-    };
-    void poll();
-    return () => { cancelled = true; if (timer !== undefined) window.clearTimeout(timer); };
-  }, [agentBuildTracking]);
+        await openGeneratedAutomationPlan(saved.caseId, projectId, caseIds, false);
+        handledAgentActivityRef.current.add(receipt);
+        setAgentPlanRefreshError("");
+        invalidateAutomationData();
+      } catch {
+        if (currentAutomationSelectionRef.current.projectId === projectId && currentAutomationSelectionRef.current.selectedCaseId === saved.caseId) setAgentPlanRefreshError("Saved instructions could not be loaded into Plan. Your drafts are retained.");
+      } finally { refreshingAgentActivityRef.current.delete(receipt); }
+    }
+  };
 
   const automationCaseListColumns = useMemo<Array<DataTableColumn<TestCase>>>(() => [
     {
@@ -2750,6 +2785,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     setAutomationCreateSteps([]);
     automationCreateTouchedMetadataRef.current.clear();
     setAutomationCreateManualCaseIds([]);
+    setAutomationCreateStartUrl("");
     setSearchParams((previous) => {
       const next = new URLSearchParams(previous);
       next.delete("create");
@@ -2767,6 +2803,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   };
 
   const resolveParameterInputState = (scope: StepParameterScope) => {
+    if (!canUpdateAutomationCase || (scope === "s" && !hasPermission(session, "suite.update", projectId))) return { disabled: true, hint: "Update access is required to edit these parameters." };
     if (scope === "s" && !selectedParameterSuite) {
       return {
         disabled: true,
@@ -2774,10 +2811,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       };
     }
     if (scope === "r") {
-      return {
-        disabled: true,
-        hint: "@r values are supplied from the execution run context."
-      };
+      return { hint: "Saved as an automation case default. Explicit run values can replace it during execution." };
     }
     return {};
   };
@@ -2793,6 +2827,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       return;
     }
 
+    if (visiblePrivateNames.has(parsed.name)) setPrivateCaseParameterDraft(current => ({ scope: caseParameterPrivacyScope, names: [...new Set([...(current.scope === caseParameterPrivacyScope ? current.names : []), parsed.name])] }));
+    if (caseParameterOverrideDraftRef.current.scope !== caseParameterPrivacyScope) caseParameterOverrideDraftRef.current = { scope: caseParameterPrivacyScope, names: new Set() };
+    caseParameterOverrideDraftRef.current.names.add(parsed.name);
     setTestCaseParameterValues((current) => ({ ...current, [parsed.name]: value }));
   };
 
@@ -2826,7 +2863,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     setActiveAutomationWorkspaceTab(tab);
     const section: AutomationCaseSectionKey | null = tab === "details" || tab === "data" || tab === "hooks"
       ? "case"
-      : tab === "runs" ? "history" : tab === "repository" ? null : tab;
+      : tab === "runs" || tab === "history" ? "history" : ["repository", "suites", "defects"].includes(tab) ? null : tab as AutomationCaseSectionKey;
     if (section) {
       setExpandedCaseSections((current) => ({ ...current, [section]: true }));
     }
@@ -2859,9 +2896,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       return;
     }
 
+    const request = ++repositoryImportRequestRef.current;
+    const scope = repositoryImportScopeRef.current;
+    const isCurrent = () => request === repositoryImportRequestRef.current && scope === repositoryImportScopeRef.current;
     setIsParsingRepositoryImport(true);
     try {
+      const { parseObjectRepositoryFiles } = await repositoryImporter.load();
+      if (!isCurrent()) return;
       const preview = await parseObjectRepositoryFiles(files);
+      if (!isCurrent()) return;
       setRepositoryImportPreview(preview);
       const fields = preview.entries.filter((entry) => entry.record_type === "field").length;
       const screens = preview.entries.filter((entry) => entry.record_type === "screen").length;
@@ -2871,10 +2914,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       setIsRepositoryImportModalOpen(true);
       showInfo(`Prepared ${screens} screen${screens === 1 ? "" : "s"} and ${fields} field${fields === 1 ? "" : "s"} for review before import.`);
     } catch (error) {
+      if (!isCurrent()) return;
       setRepositoryImportPreview(null);
       showError(error, "Unable to read object repository import files.");
     } finally {
-      setIsParsingRepositoryImport(false);
+      if (isCurrent()) setIsParsingRepositoryImport(false);
     }
   };
 
@@ -2934,8 +2978,30 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to import object repository entries.")
   });
 
+  const flushAutomationBuildParameters = async (caseIds: string[]) => {
+    if (!activeCase || !caseIds.includes(activeCase.id)) return;
+    if (lastAutomationCaseDraftSeedRef.current?.caseKey !== `case:${projectId}:${activeCase.id}`) throw new Error("Wait for this case's Test Params to finish loading.");
+    const same = (left: Record<string, string>, right: Record<string, string>) => JSON.stringify(Object.entries(left).sort()) === JSON.stringify(Object.entries(right).sort());
+    const ownValues = normalizeAutomationParameterValues(testCaseParameterValues, "t");
+    const options = caseParameterSaveOptions(activeCase.test_data_options, ownValues, activeCase.parameter_values, visiblePrivateNames, caseParameterOverrideDraftRef.current.scope === caseParameterPrivacyScope ? caseParameterOverrideDraftRef.current.names : []);
+    const priorityChanged = (options.parameter_overrides || []).join("\0") !== [...(activeCase.test_data_options?.parameter_overrides || [])].sort().join("\0");
+    if (!same(ownValues, normalizeAutomationParameterValues(activeCase.parameter_values, "t")) || priorityChanged) {
+      if (!canUpdateAutomationCase || !canViewTestData) throw new Error("Case update and Test Data access are required to use edited Test Params.");
+      const response = await api.testCases.update(activeCase.id, { parameter_values: ownValues, test_data_options: options, expected_revision: activeCase.revision });
+      queryClient.setQueriesData<TestCase>({ queryKey: automationCaseDetailQueryKey(projectId, activeCase.id) }, current => current ? { ...current, parameter_values: ownValues, test_data_options: options, ...(response.revision ? { revision: response.revision } : {}) } : current);
+    }
+    if (selectedParameterSuite && activeCaseSuiteIds.includes(selectedParameterSuite.id) && !same(normalizeAutomationParameterValues(suiteParameterValues, "s"), normalizeAutomationParameterValues(selectedParameterSuite.parameter_values, "s"))) {
+      if (!hasPermission(session, "suite.update", projectId)) throw new Error("Suite update access is required to use edited Suite Params.");
+      await api.testSuites.update(selectedParameterSuite.id, { parameter_values: normalizeAutomationParameterValues(suiteParameterValues, "s") });
+      await queryClient.invalidateQueries({ queryKey: ["test-case-suites"] });
+    }
+  };
 	  const buildSingleAutomation = useMutation({
-	    mutationFn: async () => {
+	    onMutate: () => {
+        setAgentBriefOpen(false);
+        return { briefScope: agentBriefScope };
+      },
+	    mutationFn: async (forceReview: boolean) => {
 	      if (!canUseAutomationBuilder || !canUseAutomationAi) {
 	        throw new Error("Permission required: automation.build and automation.ai");
 	      }
@@ -2945,18 +3011,32 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	      }
 
       const caseId = activeCase.id;
+      const requestedStartUrl = reviewedAutomationStartUrl(startUrl, automationStartUrlRequired);
       const buildProjectId = projectId;
       const scheduledAt = getAutomationSchedule(agentScheduledAt);
+      await flushAutomationBuildParameters([caseId]);
       requireReadyAutomation(await inspectSavedPlans([caseId], "build"));
+      const reviewedParameters = await reviewBuildParameters([caseId], {
+        test_suite_id: selectedParameterSuiteId || undefined,
+        test_environment_id: selectedExecutionEnvironmentId || undefined,
+        test_configuration_id: selectedExecutionConfigurationId || undefined,
+        test_data_set_id: selectedExecutionDataSetId || undefined
+      }, { [caseId]: activeCase.title }, { forceReview });
+      if (!reviewedParameters) return null;
       rememberAutomationBuildDrafts();
       setAgentBuildChanges([]); setAgentBuildRetryIds([]); setAgentBuildOutputIds([]);
-      const response = await api.testCases.queueAutomationGenerator(caseId, {
+      const response = await api.testCases.buildAutomationBatch({
+        ...reviewedParameters,
+        ai_feature: "ai.agentic.automation-engineer",
+        app_type_id: appTypeId, test_case_ids:[caseId],
+        integration_id:buildAgentSelection.integrationId || undefined, agent_context:automationAgentRequest(buildAgentSelection),
         allow_browser_actions: allowBrowserActions,
+        ...buildPipelineOptions,
         scheduled_at: scheduledAt,
-        start_url: startUrl || undefined,
+        start_url: requestedStartUrl,
         additional_context: [
           builderContext,
-          agentMission.trim() ? `Agent mission: ${agentMission.trim()}` : "Automate the saved behavior plan and verify its expected results.",
+          agentMission.trim() ? `Agent mission: ${agentMission.trim()}` : !automatedSteps.length && richTextToPlainText(activeCase.description).trim() ? richTextToPlainText(activeCase.description).trim() : "Automate the saved behavior plan and verify its expected results.",
         ].filter(Boolean).join("\n\n"),
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
@@ -2965,14 +3045,23 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       });
       return { ...response, caseId, buildProjectId };
     },
-    onSuccess: (response) => {
+    onSuccess: (response, _forceReview, context) => {
+      if (!response) {
+        if (context?.briefScope) setAgentBriefOpenByCase(current => ({ ...current, [context.briefScope]: true }));
+        return;
+      }
       setAgentBuildStatus("queued");
+      setAgentBriefOpen(false, response.caseId);
+      setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("agent_activity"); return next; }, { replace: true });
       setAgentBuildTracking({ transactionId: response.transaction_id, projectId: response.buildProjectId, caseIds: [response.caseId], scheduledAt: response.scheduled_at || null, startedAt: Date.now() });
       setAgentBuildReceipt(`${agentScheduledAt ? "Build scheduled" : "Build queued"} · ${response.transaction_id}`);
       showSuccess(`Automation build ${agentScheduledAt ? "scheduled" : "queued"}. Its output will appear in this case's step plan.`);
       invalidateAutomationData();
     },
-    onError: (error) => showError(error, "Unable to queue automation.")
+    onError: (error, _forceReview, context) => {
+      if (context?.briefScope) setAgentBriefOpenByCase(current => ({ ...current, [context.briefScope]: true }));
+      showError(error, "Unable to queue automation.");
+    }
   });
 
   const mapExistingAutomation = useMutation({
@@ -2983,9 +3072,20 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       if (!automationActionTargetIds.length) {
         throw new Error("Select at least one Automation Case to map.");
       }
-
-      const results = await Promise.allSettled(automationActionTargetIds.map((testCaseId) =>
+      const caseIds = [...automationActionTargetIds];
+      await flushAutomationBuildParameters(caseIds);
+      const reviewedParameters = await reviewBuildParameters(caseIds, {
+        test_suite_ids_by_case: activeCase && selectedParameterSuiteId ? { [activeCase.id]: selectedParameterSuiteId } : undefined,
+        test_environment_id: selectedExecutionEnvironmentId || undefined,
+        test_configuration_id: selectedExecutionConfigurationId || undefined,
+        test_data_set_id: selectedExecutionDataSetId || undefined
+      }, Object.fromEntries(automatedCases.map(item => [item.id, item.title])));
+      if (!reviewedParameters) return null;
+      const results = await Promise.allSettled(caseIds.map((testCaseId) =>
         api.testCases.buildAutomation(testCaseId, {
+          parameter_values: reviewedParameters.parameter_values_by_case[testCaseId],
+          parameter_plan_key: reviewedParameters.parameter_plan_keys_by_case[testCaseId],
+          test_suite_id: reviewedParameters.test_suite_ids_by_case[testCaseId] || undefined,
           start_url: startUrl || undefined,
           ai_feature: "ai.automation.gap_analysis",
           additional_context: builderContext || undefined,
@@ -3008,7 +3108,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         mappedSteps: successfulResponses.reduce((total, response) => total + Number(response.generated_step_count || 0), 0)
       };
     },
-    onSuccess: ({ count, failedCount, mappedSteps }) => {
+    onSuccess: (response) => {
+      if (!response) return;
+      const { count, failedCount, mappedSteps } = response;
       invalidateAutomationData();
       showSuccess(`AI mapped ${mappedSteps} step${mappedSteps === 1 ? "" : "s"} across ${count} Automation Case${count === 1 ? "" : "s"}${failedCount ? `; ${failedCount} case${failedCount === 1 ? "" : "s"} need a retry` : ""}.`);
     },
@@ -3025,16 +3127,29 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       }
 
       const caseIds = [...batchBuildTargetIds];
+      await flushAutomationBuildParameters(caseIds);
       const buildProjectId = projectId;
-      requireReadyAutomation(await inspectSavedPlans(caseIds, "build"));
+      const savedPlans = await inspectSavedPlans(caseIds, "build");
+      const requestedStartUrl = reviewedAutomationStartUrl(batchStartUrl, savedPlans.some(result => result.runtimes.includes("web") || !result.stepCount && ["web", "unified"].includes(selectedRuntimeType)));
+      requireReadyAutomation(savedPlans);
+      const reviewedParameters = await reviewBuildParameters(caseIds, {
+        test_suite_ids_by_case: activeCase && selectedParameterSuiteId ? { [activeCase.id]: selectedParameterSuiteId } : undefined,
+        test_environment_id: selectedExecutionEnvironmentId || undefined,
+        test_configuration_id: selectedExecutionConfigurationId || undefined,
+        test_data_set_id: selectedExecutionDataSetId || undefined
+      }, Object.fromEntries(automatedCases.map(item => [item.id, item.title])));
+      if (!reviewedParameters) return null;
       rememberAutomationBuildDrafts();
       setAgentBuildChanges([]); setAgentBuildRetryIds([]); setAgentBuildOutputIds([]);
       const response = await api.testCases.buildAutomationBatch({
+        ...reviewedParameters,
+        ai_feature: "ai.agentic.automation-engineer",
         allow_browser_actions: allowBrowserActions,
+        ...buildPipelineOptions,
         scheduled_at: getAutomationSchedule(agentScheduledAt),
         app_type_id: appTypeId,
         test_case_ids: caseIds,
-        start_url: startUrl || undefined,
+        start_url: requestedStartUrl,
         additional_context: [builderContext, agentMission.trim() ? `Agent mission: ${agentMission.trim()}` : "Automate the saved behavior plan and verify its expected results."].filter(Boolean).join("\n\n"),
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
@@ -3044,11 +3159,14 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       return { ...response, caseIds, buildProjectId };
     },
     onSuccess: (response) => {
+      if (!response) return;
       setAgentBuildStatus("queued");
+      if (response.caseIds[0]) setAgentBriefOpen(false, response.caseIds[0]);
       setAgentBuildTracking({ transactionId: response.transaction_id, projectId: response.buildProjectId, caseIds: response.caseIds, scheduledAt: response.scheduled_at || null, startedAt: Date.now() });
       setAgentBuildReceipt(`${response.scheduled_at ? "Build scheduled" : "Build queued"} · ${response.transaction_id.slice(0, 8)}`);
       invalidateAutomationData();
       setIsBatchAgentOpen(false);
+      if (response.caseIds[0]) { selectAutomationCase(response.caseIds[0]); setActiveAutomationWorkspaceTab("build"); setBuildMethod("agent"); }
       showSuccess(`AI automation scheduled as ${response.transaction_id.slice(0, 8)} for ${response.caseIds.length} Automation Case${response.caseIds.length === 1 ? "" : "s"}.`);
     },
     onError: (error) => showError(error, "Unable to schedule AI automation.")
@@ -3061,11 +3179,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       const metadata = { ...automationCreateMetadata, manualCaseIds: [...automationCreateManualCaseIds] };
       const title = metadata.title.trim();
       if (!title) throw new Error("Enter an automation case name.");
+      const requestedStartUrl = reviewedAutomationStartUrl(automationCreateStartUrl, automationCreateStartUrlRequired);
       if (automationCreationMode === "ai" && !canUseAutomationAi) throw new Error("Permission required: automation.ai");
       if (automationCreationMode === "record" && !canUseRecorder) throw new Error("Permission required: automation.record");
       const authoredSteps = automationCreateSteps.filter((step) => step.action.trim() || step.expected_result.trim());
-      if (automationCreationMode === "ai" && !metadata.manualCaseIds.length && !authoredSteps.length) {
-        throw new Error("Link a source Test Case or add a step before starting an AI build.");
+      if (automationCreationMode === "ai" && !metadata.manualCaseIds.length && !authoredSteps.length && !agentMission.trim() && !builderContext.trim() && !richTextToPlainText(metadata.description).trim()) {
+        throw new Error("Describe the requested flow, link a source Test Case or add a step before starting an AI build.");
       }
       const scheduledAt = automationCreationMode === "ai" ? getAutomationSchedule(agentScheduledAt) : undefined;
       const sources = await Promise.all(metadata.manualCaseIds.map(async (id) => {
@@ -3101,13 +3220,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         description: metadata.description,
         external_references: [...new Set(sourceCases.flatMap((item) => item.external_references || []))],
         labels: [...new Set(sourceCases.flatMap((item) => item.labels || []))],
-        parameter_values: Object.assign({}, ...[...sourceCases].reverse().map((item) => item.parameter_values || {})),
+        parameter_values: {},
         automated: "yes",
         automation_status: automationCaseMappingStatus(steps),
+        automation_start_url: requestedStartUrl || null,
         manual_test_case_id: metadata.manualCaseIds[0] || null,
         manual_test_case_ids: metadata.manualCaseIds,
+        execution_hooks: sourceCases.flatMap(item => item.execution_hooks || []).filter((hook, index, hooks) => hooks.findIndex(other => other.phase === hook.phase && other.target_kind === hook.target_kind && other.target_id === hook.target_id) === index).map((hook,index) => ({...hook,id:`source-hook-${index + 1}`})),
         test_case_type: source?.test_case_type || "functional",
         test_data_set_ids: metadata.dataSetId ? [metadata.dataSetId] : [],
+        ...(source?.test_data_options ? { test_data_options: { ...source.test_data_options, override_shared_sections: source.test_data_options.override_shared_steps !== false, shared_data_kind: "sections" as const } } : {}),
         priority: Number(metadata.priority) || 3,
         status: metadata.status,
         requirement_id: metadata.requirementIds[0],
@@ -3128,14 +3250,28 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         }
       });
       let transactionId = "";
+      let buildCancelled = false;
       if (automationCreationMode === "ai") {
         try {
-          const queued = await api.testCases.queueAutomationGenerator(result.id, {
+          const reviewedParameters = await reviewBuildParameters([result.id], {
+            test_suite_id: metadata.suiteIds.length === 1 ? metadata.suiteIds[0] : undefined,
+            test_environment_id: selectedExecutionEnvironmentId || undefined,
+            test_configuration_id: selectedExecutionConfigurationId || undefined,
+            test_data_set_id: metadata.dataSetId || undefined
+          }, { [result.id]: title });
+          if (!reviewedParameters) buildCancelled = true;
+          else {
+          const queued = await api.testCases.buildAutomationBatch({
+            ...reviewedParameters,
+            ai_feature: "ai.agentic.automation-engineer",
+            app_type_id: appTypeId,
+            test_case_ids: [result.id],
             allow_browser_actions: allowBrowserActions,
+        ...buildPipelineOptions,
             scheduled_at: scheduledAt,
-            start_url: startUrl.trim() || undefined,
+            start_url: requestedStartUrl,
             additional_context: [
-              agentMission.trim() ? `Agent mission: ${agentMission.trim()}` : "Automate the saved behavior plan and verify its expected results.",
+              agentMission.trim() ? `Agent mission: ${agentMission.trim()}` : !steps.length && richTextToPlainText(metadata.description).trim() ? richTextToPlainText(metadata.description).trim() : "Automate the saved behavior plan and verify its expected results.",
               builderContext.trim(),
             ].filter(Boolean).join("\n\n"),
             test_environment_id: selectedExecutionEnvironmentId || undefined,
@@ -3144,17 +3280,22 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             ai_requested: true
           });
           transactionId = queued.transaction_id;
+          }
         } catch (error) {
           followUpFailures.push(`AI build was not queued. ${error instanceof Error ? error.message : "Retry from this case's Build tab."}`);
         }
       }
-      return { id: result.id, title, transactionId, mode: automationCreationMode, scheduledAt, followUpFailures };
+      return { id: result.id, title, transactionId, mode: automationCreationMode, scheduledAt, followUpFailures, buildCancelled, startUrl: requestedStartUrl || "" };
     },
-    onSuccess: async ({ id, title, transactionId, mode, scheduledAt, followUpFailures }) => {
+    onSuccess: async ({ id, title, transactionId, mode, scheduledAt, followUpFailures, buildCancelled, startUrl: savedStartUrl }) => {
       setIsCreateAutomationOpen(false);
       setAutomationCreateManualCaseIds([]);
       setAutomationCreateMetadata(emptyAutomationMetadata);
       setAutomationCreateSteps([]);
+      setAutomationCreateStartUrl("");
+      // Keep the newly saved URL while its detail request is loading.
+      startUrlCaseScopeRef.current = `${projectId}:${appTypeId}:${id}`;
+      setStartUrl(savedStartUrl);
       automationCreateTouchedMetadataRef.current.clear();
       setSelectedCaseId(id);
       setSelectedAutomatedCaseId(id);
@@ -3164,6 +3305,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       if (transactionId) {
         rememberAutomationBuildDrafts();
         setAgentBuildStatus("queued");
+        setAgentBriefOpen(false, id);
         setAgentBuildTracking({ transactionId, projectId, caseIds: [id], scheduledAt: scheduledAt || null, startedAt: Date.now() });
       }
       setExpandedCaseSections((current) => ({ ...current, build: true, steps: true }));
@@ -3171,6 +3313,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         const next = new URLSearchParams(previous);
         next.delete("create");
         next.delete("manual");
+        next.delete("agent_activity");
         next.set("case", id);
         return next;
       }, { replace: true });
@@ -3178,6 +3321,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       void queryClient.invalidateQueries({ queryKey: ["test-case-modules"] });
       if (followUpFailures.length) {
         showError(new Error(`${title} was created and its plan was saved. ${followUpFailures.join(" ")} Continue in the saved case to retry.`), "Automation case created; follow-up needs attention.");
+      } else if (buildCancelled) {
+        showInfo(`${title} was created with its linked defaults. The build was cancelled before it started.`);
       } else {
         showSuccess(mode === "ai"
           ? `${title} created and AI build ${scheduledAt ? "scheduled" : "queued"}${transactionId ? ` as ${transactionId}` : ""}.`
@@ -3266,6 +3411,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
       return api.testCases.queueAutomationGenerator(activeCase.id, {
         allow_browser_actions: allowBrowserActions,
+        ...buildPipelineOptions,
         ai_feature: "ai.automation.review",
         ai_requested: true
       });
@@ -3287,7 +3433,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       }
 
       const caseId = activeCase.id;
-      const selectedSuiteParameterTarget = selectedParameterSuite
+      const selectedSuiteParameterTarget = selectedParameterSuite && hasPermission(session, "suite.update", projectId)
         ? {
             id: selectedParameterSuite.id,
             parameterValues: normalizeAutomationParameterValues(suiteParameterValues, "s")
@@ -3298,17 +3444,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         description: caseDraft.description.trim(),
         status: caseDraft.status.trim() || "active",
         priority: Number(caseDraft.priority) || 3,
-        parameter_values: {
-          ...normalizeAutomationParameterValues(parseParameterText(caseDraft.parameterText), "t"),
-          ...normalizeAutomationParameterValues(testCaseParameterValues, "t")
-        },
+        parameter_values: normalizeAutomationParameterValues(testCaseParameterValues, "t"),
         suite_id: suiteLinkDraftIds[0] || "",
         suite_ids: suiteLinkDraftIds,
         requirement_id: caseRequirementIds[0] || "",
         requirement_ids: caseRequirementIds,
-        test_data_set_ids: caseDataSetId ? [caseDataSetId] : [],
+        ...(canViewTestData ? { test_data_set_ids: caseDataSetId ? [caseDataSetId] : [], test_data_options: { ...caseParameterSaveOptions(activeCase.test_data_options, testCaseParameterValues, activeCase.parameter_values, visiblePrivateNames, caseParameterOverrideDraftRef.current.scope === caseParameterPrivacyScope ? caseParameterOverrideDraftRef.current.names : []), override_shared_sections: overrideSharedSteps, shared_data_kind: "sections" } } : {}),
         automated: "yes",
         manual_test_case_ids: automationManualLinkDraftIds,
+        execution_hooks: mapCaseHooksToExecutionHooks(executionHookDraft),
         expected_revision: activeCase.revision
       });
 
@@ -3334,6 +3478,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: automationCaseDetailQueryKey(projectId, caseId), exact: true }),
         queryClient.invalidateQueries({ queryKey: ["test-cases"] }),
+        queryClient.invalidateQueries({ queryKey: ["test-case-metrics"] }),
         queryClient.invalidateQueries({ queryKey: ["test-case-modules"] }),
         queryClient.invalidateQueries({ queryKey: ["test-case-suites"] })
       ]);
@@ -3344,23 +3489,30 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to update automation case.")
   });
 
+  const saveAutomationHooks = useMutation({
+    mutationFn: async () => {
+      if (!activeCase || !isAutomationCaseDetailReady || !canUpdateAutomationCase) throw new Error("Wait for editable automation case details.");
+      const caseId = activeCase.id;
+      await api.testCases.update(caseId, {execution_hooks:mapCaseHooksToExecutionHooks(executionHookDraft),expected_revision:activeCase.revision});
+      return caseId;
+    },
+    onSuccess: async caseId => { await queryClient.invalidateQueries({queryKey:automationCaseDetailQueryKey(projectId,caseId),exact:true}); showSuccess("Before / After cases saved."); },
+    onError: error => showError(error,"Unable to save Before / After cases.")
+  });
+
+  const saveAutomationSuiteLinks = async (ids: string[]) => {
+    if (!activeCase || !canEditAutomationSuiteLinks) return;
+    const caseId = activeCase.id;
+    const response = await api.testCases.update(caseId, { suite_ids: ids, expected_revision: activeCase.revision });
+    queryClient.setQueryData<TestCase>(automationCaseDetailQueryKey(projectId, caseId), current => current ? { ...current, suite_ids: ids, suite_id: ids[0] || null, revision: response.revision } : current);
+    if (currentAutomationSelectionRef.current.selectedCaseId === caseId) setSuiteLinkDraftIds(ids);
+    await Promise.all([queryClient.invalidateQueries({ queryKey: automationCaseDetailQueryKey(projectId, caseId), exact: true }), queryClient.invalidateQueries({ queryKey: ["test-case-suites"] }), queryClient.invalidateQueries({ queryKey: ["test-cases"] })]);
+  };
   const deleteAutomationCase = useMutation({
     mutationFn: async (testCase: TestCase) => {
       if (!canRemoveAutomationCase) throw new Error("Permission to remove this automation case is required.");
-      if (testCase.manual_test_case_id || testCase.manual_test_case_ids?.length) {
-        await api.testCases.delete(testCase.id);
-        return { preservedManual: true };
-      }
-
-      await Promise.all(automatedSteps.map((step) => api.testSteps.update(step.id, {
-        automation_code: "",
-        api_request: null
-      })));
-      await api.testCases.update(testCase.id, {
-        automated: "no",
-        automation_status: "not_automated"
-      });
-      return { preservedManual: true };
+      await api.testCases.delete(testCase.id);
+      return { preservedManual: Boolean(testCase.manual_test_case_id || testCase.manual_test_case_ids?.length) };
     },
     onSuccess: ({ preservedManual }) => {
       showSuccess(preservedManual ? "Automation case removed. Its manual test case was preserved." : "Automation case deleted.");
@@ -3374,6 +3526,20 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       invalidateAutomationData();
     },
     onError: (error) => showError(error, "Unable to delete automation case.")
+  });
+
+  const deleteSelectedAutomationCases = useMutation({
+    mutationFn: async (ids: string[]) => {
+      if (!canDeleteAutomationCases || !projectId || !appTypeId) throw new Error("Permission to delete automation cases is required.");
+      await api.testCases.deleteAutomationCases({ project_id: projectId, app_type_id: appTypeId, test_case_ids: ids });
+      return ids;
+    },
+    onSuccess: (ids) => {
+      setSelectedAutomationCaseIds(current => current.filter(id => !ids.includes(id)));
+      invalidateAutomationData();
+      showSuccess(`${ids.length} automation case${ids.length === 1 ? "" : "s"} deleted. Manual cases are preserved and coverage has been updated.`);
+    },
+    onError: error => showError(error, "Unable to delete the selected automation cases.")
   });
 
   const syncAutomationStepDrafts = (step: TestStep) => {
@@ -3396,6 +3562,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     mutationFn: async () => {
       if (!canEditAutomationCode) throw new Error("Permission required: automation.build and automation.code.view");
       if (!activeCase) throw new Error("Select an automation case first.");
+      if (newStepIsPrecondition && automatedSteps.some(isAutomationPrecondition)) throw new Error("Edit the existing precondition section to add setup instructions.");
       if (!newStepDraft.name.trim() && !automationMappingIsComplete(newStepDraft)) throw new Error("Describe the step before adding it.");
       const hasMapping = automationMappingIsComplete(newStepDraft);
       const automation_code = hasMapping ? buildAutomationCodeFromDraft(newStepDraft) : "";
@@ -3550,7 +3717,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         test_case: {
           title: activeCase.title,
           description: activeCase.description || "",
-          parameter_values: testCaseParameterValues
+          parameter_values: excludeSensitiveStepParameterValues(testCaseParameterValues, visiblePrivateNames)
         },
         step: {
           step_order: step.step_order,
@@ -3588,6 +3755,14 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to reorder automation step.")
   });
 
+  const pasteAutomationSections = useMutation({
+    mutationFn: async (afterId?: string) => {
+      if (!canEditAutomationCode || !activeCase || !sectionClipboard || sectionClipboard.projectId !== projectId || sectionClipboard.appTypeId !== appTypeId) throw new Error("Copy sections within the same application first.");
+      if (unsavedAutomationStepIds.length) throw new Error("Save section changes before pasting.");
+      return api.testSteps.duplicate({test_case_id:activeCase.id,source_test_case_id:sectionClipboard.caseId,step_ids:sectionClipboard.ids,as_standalone:sectionClipboard.standalone,insert_after_step_id:afterId || automatedSteps.at(-1)?.id});
+    }, onSuccess: () => { void queryClient.invalidateQueries({queryKey:["test-steps"]}); void queryClient.invalidateQueries({queryKey:["test-cases"]}); showSuccess("Sections pasted."); }, onError: error => showError(error,"Unable to paste sections.")
+  });
+  const copyAutomationSections = (ids: string[], standalone = false) => { if (!activeCase) return; if (unsavedAutomationStepIds.some(id => ids.includes(id))) { showError(new Error("Save the selected section changes before copying."),"Unable to copy sections."); return; } setSectionClipboard({projectId,caseId:activeCase.id,appTypeId,ids,standalone}); showSuccess("Sections copied. Choose Paste sections or Paste after group."); };
   const deleteAutomationStep = useMutation({
     mutationFn: async (step: TestStep) => {
       if (!canEditAutomationCode) throw new Error("Permission required: automation.build and automation.code.view");
@@ -3638,6 +3813,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
   const requestAutomationRun = (mode: "local" | "remote", caseIds: string[]) => {
     if (recorderSession || startRecorder.isPending || finishRecorder.isPending) { showError(new Error("Finish the recording before running the saved plan."), "Recording in progress."); return; }
+    if (activeCase && caseIds.includes(activeCase.id) && JSON.stringify(executionHookDraft) !== JSON.stringify(mapExecutionHooksToRunHooks(activeCase.execution_hooks))) { showError(new Error("Save the changed Before / After cases before starting a run."), "Unsaved Before / After cases"); return; }
     const targets = [...new Set(caseIds)].filter(id => automatedCases.some(testCase => testCase.id === id));
     if (!targets.length) { showError(new Error("Select at least one automation case."), "Selection required."); return; }
     setPendingRemoteRun(null); setRunReviewError("");
@@ -3654,8 +3830,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         created_by: session.user.id,
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined,
-        execution_hooks: executionHookDraft.length ? mapRunHooksToExecutionHooks(executionHookDraft) : undefined
+        test_data_set_id: selectedExecutionDataSetId || undefined
       };
       // Re-read immediately before snapshot creation. Catalog readiness and a
       // stale review must never dispatch an unfinished or changed plan.
@@ -3912,6 +4087,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         : "Object repository field saved for execution-time locator resolution.");
       void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
       void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
+      if (updatedReferences) void queryClient.invalidateQueries({ queryKey: ["test-steps"] });
     },
     onError: (error) => showError(error, "Unable to save repository field.")
   });
@@ -4411,6 +4587,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
       return api.testCases.renameLearningCacheScreen(activeScreenName, {
         app_type_id: activeRepositoryAppTypeId || appTypeId || undefined,
+        project_id: projectId || undefined,
         new_name: screenRenameDraft.trim()
       });
     },
@@ -4457,6 +4634,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       }
       return api.testCases.deleteLearningCacheScreen(activeScreenName, {
         app_type_id: activeRepositoryAppTypeId || appTypeId || undefined,
+        project_id: projectId || undefined,
         ...(confirmed ? { confirm: "true" } : {})
       });
     },
@@ -4547,10 +4725,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
       if (recorderSession) throw new Error("Finish the current recording before starting another.");
       if (!canRecordCurrentPlan) throw new Error("Recording is unavailable for this case’s runtime or your permissions.");
+      const requestedStartUrl = reviewedAutomationStartUrl(startUrl, automationStartUrlRequired);
       rememberAutomationBuildDrafts();
       recorderOriginRef.current = { caseId: activeCase.id, projectId, appTypeId, targetStepId: recordingTargetStepId, environmentId: selectedExecutionEnvironmentId, configurationId: selectedExecutionConfigurationId, dataSetId: selectedExecutionDataSetId };
       return api.testCases.startRecorderSession(activeCase.id, {
-        start_url: startUrl || undefined,
+        start_url: requestedStartUrl,
         recorder_mode: options.recorder_mode,
         recorder_target: options.recorder_target,
         engine_base_url: options.engine_base_url,
@@ -5098,7 +5277,227 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
   const batchAgentDialogRef = useDialogFocus<HTMLDivElement>({ active: isBatchAgentOpen, closeDisabled: scheduleAiAutomation.isPending, onClose: () => setIsBatchAgentOpen(false) });
   const activeAgentBuildStatus = agentBuildTracking?.projectId === projectId && agentBuildTracking.caseIds.includes(selectedCaseId) ? agentBuildStatus : "idle";
-  const activeAgentBuildReceipt = activeAgentBuildStatus === "idle" ? "" : agentBuildReceipt;
+
+  const renderAutomationDataSets = (expanded = false, valuesOnly = false) => activeCase ? (<AutomationDataSets expanded={expanded} valuesOnly={valuesOnly} inheritedLink={Boolean(effectiveCaseDataSetId && !caseDataSetId)} key={`${projectId}:${activeCase.id}`} projectId={projectId} appTypeId={appTypeId} dataSets={testDataSets} linkedId={effectiveCaseDataSetId}
+                          isLoading={testDataSetsQuery.isLoading} error={testDataSetsQuery.isError ? "Data sets could not be loaded." : undefined} onRetry={() => void testDataSetsQuery.refetch()}
+                          canView={canViewTestData} canLink={canViewTestData && canUpdateAutomationCase} canManage={hasPermission(session, "data.manage", projectId)}
+                          overrideSharedSteps={overrideSharedSteps} onOverrideSharedStepsChange={setOverrideSharedSteps}
+                          onLink={id => { setCaseDataSetId(id); setSelectedExecutionDataSetId(id); }} parameters={detectedStepParameters} parameterValues={mergedParameterValues} canEditParameters={canUpdateAutomationCase} onManageParameters={() => setIsParameterDialogOpen(true)} />) : null;
+
+  const renderRepositoryConfiguration = () => selectedRepositoryEntry && isRepositoryConfigOpen ? (
+		            <aside className="panel card automation-detail-panel object-repository-config-drawer" aria-label="Object configuration">
+		              <button
+		                aria-label="Resize object configuration panel"
+		                className="object-repository-config-resize-handle"
+		                onKeyDown={handleRepositoryConfigResizeKeyDown}
+		                onPointerDown={handleRepositoryConfigResizeStart}
+		                title="Drag left or right to resize object configuration"
+		                type="button"
+		              />
+		              <div className="object-repository-config-head">
+	                <div>
+	                  <strong>Object Configuration</strong>
+	                  <span>Element Configuration: {repositoryDraft.object_name || getRepositoryMemberName(selectedRepositoryEntry)}</span>
+	                </div>
+	                <button
+	                  aria-label="Close object configuration"
+	                  className="object-repository-config-close"
+	                  onClick={() => setIsRepositoryConfigOpen(false)}
+	                  title="Close object configuration"
+	                  type="button"
+	                >
+	                  <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="18">
+	                    <path d="M18 6 6 18" />
+	                    <path d="m6 6 12 12" />
+	                  </svg>
+	                </button>
+	              </div>
+	              <fieldset className="repository-config-fields" disabled={!canInspectRepository}>
+                  <div className="testops-action-row object-repository-config-actions">
+	                {view === "repository" ? <button className="ghost-button" onClick={() => void highlightRepositoryLocator(selectedRepositoryEntry.locator, `${activeScreenName}.${getRepositoryMemberName(selectedRepositoryEntry)}`, selectedRepositoryEntry.id).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight field."))} type="button">
+	                  <MousePointerIcon />
+	                  <span>Highlight</span>
+	                </button> : null}
+
+	                <button className="primary-button" disabled={saveRepositoryEntry.isPending} onClick={() => saveRepositoryEntry.mutate()} type="button">
+	                  <PlayIcon />
+	                  <span>{saveRepositoryEntry.isPending ? "Saving..." : "Save field"}</span>
+	                </button>
+	                <button className="ghost-button danger" disabled={deleteRepositoryEntry.isPending} onClick={() => deleteRepositoryEntry.mutate(false)} type="button">
+	                  <TrashIcon size={16} />
+	                  <span>{deleteRepositoryEntry.isPending ? "Checking..." : "Delete field"}</span>
+	                </button>
+	              </div>
+	              <div className="repository-field-detail">
+	                <SubnavTabs
+	                  ariaLabel="Field details"
+	                  className="object-repository-screen-tabs"
+                  value={fieldDetailTab}
+                  onChange={setFieldDetailTab}
+                  items={[
+	                    { value: "locators", label: "Locators", meta: `${selectedLocators.length} strategies` },
+	                    { value: "evidence", label: "Evidence", meta: "DOM + visual" },
+	                    { value: "meaning", label: "AI Meaning", meta: "Agent context" },
+                      { value: "healing", label: "Healing", meta: locatorImprovementPreview ? "Review proposal" : "Readiness" }
+	                  ]}
+                />
+                {fieldDetailTab === "healing" ? (
+                  <div className="repository-healing-panel">
+	                <AiAssurancePanel
+	                  compact
+	                  gaps={selectedLocatorReviewReadiness.gaps}
+	                  provenance="Saved locator strategies, stability metadata, validation history, DOM/accessibility evidence, and captured images"
+	                  reviewState="review-required"
+	                  score={selectedLocatorReviewReadiness.score}
+	                  scoreLabel={selectedLocatorReviewReadiness.scoreLabel}
+	                  signals={selectedLocatorReviewReadiness.signals}
+	                  summary={selectedLocatorReviewReadiness.summary}
+	                  title="Locator healing readiness"
+	                />
+	                {locatorImprovementPreview ? (
+	                  <section className="locator-improvement-review" aria-label="Locator improvement review">
+	                    <div className="locator-improvement-review-head">
+	                      <div>
+	                        <span>Proposed change</span>
+	                        <strong>Human approval required</strong>
+	                      </div>
+	                      <span className="count-pill">{locatorImprovementPreview.generation_mode === "llm" ? "AI proposal" : "Rule-based proposal"}</span>
+	                    </div>
+	                    <div className="locator-improvement-diff">
+	                      <div>
+	                        <span>Current</span>
+	                        <b>{selectedRepositoryEntry.locator_kind || "css"}</b>
+	                        <code>{selectedRepositoryEntry.locator}</code>
+	                      </div>
+	                      <div>
+	                        <span>Proposed</span>
+	                        <input aria-label="Edit proposed locator strategy" onChange={(event) => setLocatorImprovementPreview((current) => current ? { ...current, suggestion: { ...current.suggestion, strategy: event.target.value } } : current)} placeholder="Locator strategy" value={locatorImprovementPreview.suggestion.strategy || ""} />
+	                        <textarea aria-label="Edit proposed locator" onChange={(event) => setLocatorImprovementPreview((current) => current ? { ...current, suggestion: { ...current.suggestion, locator: event.target.value } } : current)} placeholder="Proposed locator" rows={3} value={locatorImprovementPreview.suggestion.locator || ""} />
+	                      </div>
+	                    </div>
+	                    <p>{locatorImprovementPreview.suggestion.reason || locatorImprovementPreview.fallback_reason || "Review the proposed locator against captured evidence before applying it."}</p>
+	                    <div className="locator-improvement-provenance">
+	                      <span>{locatorImprovementPreview.provenance?.provider || (locatorImprovementPreview.generation_mode === "llm" ? "Configured AI provider" : "HelloTest deterministic rules")}</span>
+	                      {locatorImprovementPreview.provenance?.model ? <span>{locatorImprovementPreview.provenance.model}</span> : null}
+	                      {locatorImprovementPreview.request_id ? <code>{locatorImprovementPreview.request_id}</code> : null}
+	                    </div>
+	                    <div className="action-row">
+	                      <button
+	                        className="primary-button"
+	                        disabled={applyRepositoryImprovement.isPending || !locatorImprovementPreview.suggestion.locator || !locatorImprovementPreview.suggestion.strategy}
+	                        onClick={() => applyRepositoryImprovement.mutate()}
+	                        type="button"
+	                      >
+	                        {applyRepositoryImprovement.isPending ? "Applying..." : "Apply reviewed change"}
+	                      </button>
+	                      <button className="ghost-button" disabled={applyRepositoryImprovement.isPending} onClick={() => setLocatorImprovementPreview(null)} type="button">
+	                        Discard proposal
+	                      </button>
+	                    </div>
+	                  </section>
+	                ) : null}
+                    <div className="action-row">
+	                {canUseAutomationAi ? <button className="ghost-button" disabled={improveRepositoryEntry.isPending || applyRepositoryImprovement.isPending} onClick={() => improveRepositoryEntry.mutate()} type="button">
+	                  <SparkIcon />
+	                  <span>{improveRepositoryEntry.isPending ? "Preparing..." : locatorImprovementPreview ? "Regenerate proposal" : "Suggest improvement"}</span>
+	                </button> : null}
+                    </div>
+                  </div>
+                ) : null}
+                {fieldDetailTab === "locators" ? (
+                  <div className="repository-locator-detail">
+                    <div className="repository-locator-list">
+                      {selectedLocators.map((locator) => (
+                        <article key={`${locator.strategy}-${locator.locator}`}>
+                          <StatusBadge value={locator.isPrimary ? "Primary" : "Fallback"} />
+                          <strong>{locator.strategy}</strong>
+                          <code>{locator.locator}</code>
+                          <span>{Math.round(locator.confidenceScore * 100)}% · {locator.lastValidatedStatus}</span>
+                        </article>
+                      ))}
+                    </div>
+                    <div className="record-grid testops-builder-form">
+                    <label className="form-field">
+                      <span>Screen name</span>
+                      <input readOnly value={screenInfoDraft.screen_name || activeScreenName} />
+                    </label>
+                    <label className="form-field">
+                      <span>Inherited screen URL rule</span>
+                      <input readOnly value={`${screenInfoDraft.url_pattern_type} ${screenInfoDraft.url_pattern_value}`} />
+                    </label>
+                    <label className="form-field">
+                      <span>Field name</span>
+                      <input value={repositoryDraft.object_name} onChange={(event) => setRepositoryDraft((current) => ({ ...current, object_name: event.target.value }))} />
+                    </label>
+                    <label className="form-field">
+                      <span>Element type / role</span>
+                      <input value={repositoryDraft.object_role} onChange={(event) => setRepositoryDraft((current) => ({ ...current, object_role: event.target.value }))} />
+                    </label>
+                    <label className="form-field">
+                      <span>Primary locator · {Math.round(selectedRepositoryEntry.confidence * 100)}% confidence</span>
+                      <input value={repositoryDraft.locator} onChange={(event) => setRepositoryDraft((current) => ({ ...current, locator: event.target.value }))} />
+                    </label>
+                    <label className="form-field">
+                      <span>Primary strategy</span>
+                      <input value={repositoryDraft.locator_kind} onChange={(event) => setRepositoryDraft((current) => ({ ...current, locator_kind: event.target.value }))} />
+                    </label>
+                    <label className="form-field repository-span-two">
+                      <span>Fallback locators · `strategy | locator | confidence %`</span>
+                      <textarea rows={4} value={repositoryDraft.fallback_locators} onChange={(event) => setRepositoryDraft((current) => ({ ...current, fallback_locators: event.target.value }))} placeholder={"aria-label | [aria-label='Login'] | 90\ncss | button[type='submit'] | 70"} />
+                    </label>
+                    <label className="form-field">
+                      <span>Stability score (%)</span>
+                      <input max="100" min="0" type="number" value={repositoryDraft.stability_score} onChange={(event) => setRepositoryDraft((current) => ({ ...current, stability_score: event.target.value }))} />
+                    </label>
+                    <label className="form-field">
+                      <span>Inherited screen fingerprint</span>
+                      <input readOnly value={screenInfoDraft.screen_fingerprint} placeholder="Capture screen evidence to generate identity" />
+                    </label>
+                    </div>
+                  </div>
+                ) : null}
+                {fieldDetailTab === "evidence" ? (
+                  <div className="record-grid testops-builder-form">
+                    <label className="form-field"><span>Element screenshot URL</span><input value={repositoryDraft.element_screenshot_url} onChange={(event) => setRepositoryDraft((current) => ({ ...current, element_screenshot_url: event.target.value }))} /></label>
+                    <label className="form-field"><span>Ancestor screenshot URL</span><input value={repositoryDraft.ancestor_screenshot_url} onChange={(event) => setRepositoryDraft((current) => ({ ...current, ancestor_screenshot_url: event.target.value }))} /></label>
+                    <label className="form-field repository-span-two"><span>Parent / ancestor DOM snapshot</span><textarea rows={5} value={repositoryDraft.ancestor_dom || repositoryDraft.dom_structure} onChange={(event) => setRepositoryDraft((current) => ({ ...current, ancestor_dom: event.target.value }))} /></label>
+                    <label className="form-field repository-span-two"><span>Inherited screen accessibility tree</span><textarea readOnly rows={5} value={screenInfoDraft.accessibility_tree} /></label>
+                    {repositoryDraft.element_screenshot_url && isLikelyImageUrl(repositoryDraft.element_screenshot_url) ? <div className="object-repository-snapshot"><img alt={`${repositoryDraft.object_name} element`} src={repositoryDraft.element_screenshot_url} /></div> : null}
+                  </div>
+                ) : null}
+                {fieldDetailTab === "meaning" ? (
+                  <div className="record-grid testops-builder-form">
+                    <label className="form-field repository-span-two"><span>AI-generated description</span><RichTextEditor disabled={!canInspectRepository} appearance="canonical" rows={3} value={repositoryDraft.description} onChange={(description) => setRepositoryDraft((current) => ({ ...current, description }))} /></label>
+                    <label className="form-field repository-span-two"><span>Business meaning</span><textarea rows={3} value={repositoryDraft.business_meaning} onChange={(event) => setRepositoryDraft((current) => ({ ...current, business_meaning: event.target.value }))} /></label>
+                    <label className="form-field"><span>Usage keywords</span><input value={repositoryDraft.usage_keywords} onChange={(event) => setRepositoryDraft((current) => ({ ...current, usage_keywords: event.target.value }))} placeholder="login, submit, authenticate" /></label>
+                    <label className="form-field repository-span-two"><span>Healing guidance</span><textarea rows={3} value={repositoryDraft.fallback_strategy} onChange={(event) => setRepositoryDraft((current) => ({ ...current, fallback_strategy: event.target.value }))} /></label>
+	                  </div>
+	                ) : null}
+	              </div>
+	            </fieldset>
+                </aside>
+	          ) : null;
+
+  const renderRepositoryScreenOverview = () => activePageObject ? (<fieldset className="repository-screen-overview repository-config-fields" disabled={!canInspectRepository}>
+	                      <div className="record-grid testops-builder-form repository-screen-overview-grid">
+                        <label className="form-field"><span>Screen name</span><input readOnly value={screenInfoDraft.screen_name || activeScreenName} /></label>
+                        <label className="form-field"><span>Page URL</span><input onChange={(event) => setScreenUrlDraft(event.target.value)} placeholder="https://app.example.com/login" value={screenUrlDraft} /></label>
+                        <label className="form-field repository-span-two">
+                          <span>URL match rule</span>
+                          <div className="repository-url-rule"><select value={screenInfoDraft.url_pattern_type} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_type: event.target.value }))}><option value="exact">exact</option><option value="startsWith">startsWith</option><option value="endsWith">endsWith</option><option value="contains">contains</option><option value="regex">regex</option></select><input value={screenInfoDraft.url_pattern_value} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_value: event.target.value }))} placeholder="/auth/login" /></div>
+                        </label>
+                        <label className="form-field repository-span-two"><span>Description</span><RichTextEditor disabled={!canInspectRepository} appearance="canonical" rows={3} value={screenInfoDraft.description} onChange={(description) => setScreenInfoDraft((current) => ({ ...current, description }))} placeholder="What this screen represents." /></label>
+                        <label className="form-field repository-span-two"><span>Intended flows</span><textarea rows={3} value={screenInfoDraft.business_meaning} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, business_meaning: event.target.value }))} placeholder="Sign in, recover password, continue as guest." /></label>
+                      </div>
+                      <div className="testops-action-row">
+                        <button className="primary-button" disabled={saveRepositoryScreenEvidence.isPending} onClick={() => saveRepositoryScreenEvidence.mutate()} type="button"><LayersIcon /><span>{saveRepositoryScreenEvidence.isPending ? "Saving..." : "Save screen"}</span></button>
+	                        {view === "repository" && canInspectRepository ? (<button className="ghost-button" disabled={!canInspectRepository} onClick={() => openRepositoryInspect(activePageObject)} type="button"><MousePointerIcon /><span>Inspect screen</span></button>) : null}
+	                        {view === "repository" && canUseAutomationAi && canInspectRepository ? <button className="ghost-button" disabled={(!screenDomDraft && !screenScreenshotDraft) || extractRepositoryFields.isPending} onClick={() => {
+	                          openRepositoryInspect(activePageObject);
+	                          extractRepositoryFields.mutate();
+	                        }} type="button"><SparkIcon /><span>{extractRepositoryFields.isPending ? "Suggesting..." : "AI suggest fields"}</span></button> : null}
+                      </div>
+                    </fieldset>) : null;
 
   const automationPageHeader = view === "repository"
     ? {
@@ -5113,7 +5512,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       };
 
   return (
-    <div className="page-content page-content--automation">
+    <div className={`page-content page-content--automation${isAutomationCaseWorkspaceOpen ? " page-content--workspace-focus" : ""}`}>
+      {confirmationDialog}
           {canInspectRepository ? <RepositoryAgentSetup connection={inspectAgent} onUseRemote={inspectCapabilities.data?.remote.available && inspectRecorderSession?.status !== "running" && !isLaunchingInspectBrowser ? () => {
             setIsInspectOpen(true);
             void launchInspectBrowser("remote").catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to start remote inspection browser."));
@@ -5124,16 +5524,19 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         title={automationPageHeader.title}
         description={view === "cases" && selectedCaseId ? undefined : automationPageHeader.description}
         actions={canInspectRepository ? <RepositoryAgentStatus connection={inspectAgent} /> : undefined}
-        meta={[
-          { label: "Automation cases", value: testCasesQuery.data ? automatedCases.length : "—" },
-          { label: "Mapped cases", value: testCasesQuery.data ? automatedCases.filter(item => item.automation_status === "ready").length : "—" },
-          { label: "Repository objects", value: learningCacheQuery.data ? learningCache.length : "—" }
-        ]}
+        meta={view === "repository" ? [{ label: "Repository objects", value: learningCacheQuery.data ? learningCache.length : "—" }] : undefined}
       />
 
+      {view === "cases" ? <>
+        {automationMetricsQuery.isError ? <div role="alert">Automation metrics could not be loaded. <button className="link-button" type="button" onClick={() => void automationMetricsQuery.refetch()}>Retry</button></div> : null}
+        <QualityMetricStrip ariaLabel="Automation quality metrics" metrics={[
+          { label: "Total test cases", value: automationMetrics?.total ?? "—", detail: "All automation cases in the selected application" },
+          { label: "Recent pass rate", value: canViewExecutionMetrics && automationMetrics?.recentPassRate != null ? `${automationMetrics.recentPassRate}%` : "—", detail: !canViewExecutionMetrics ? "Run result access required" : automationMetrics?.finalizedResults ? `${automationMetrics.passedResults} of ${automationMetrics.finalizedResults} passed` : "No recent runs", tone: "success" },
+          { label: "Failed cases", value: canViewExecutionMetrics ? automationMetrics?.failed ?? "—" : "—", detail: "Latest finalized outcome per case", tone: automationMetrics?.failed ? "danger" : "neutral" }
+        ]} />
+      </> : null}
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
 
-      {view === "cases" && !isAutomationCaseWorkspaceOpen ? <AutomationBuildEvidence status={agentBuildStatus} receipt={agentBuildReceipt} changes={[]} retryCount={agentBuildRetryIds.length} onOpenJobs={() => navigate("/testops")} onReview={() => { if (agentBuildOutputIds[0]) selectAutomationCase(agentBuildOutputIds[0]); }} onRetry={() => { setBatchBuildTargetIds([...agentBuildRetryIds]); setIsBatchAgentOpen(true); }} /> : null}
 
       {view === "cases" ? (
         <WorkspaceMasterDetail
@@ -5182,7 +5585,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                 </div>
                 <div className="catalog-toolbar-actions" aria-label="Automation case actions">
                   {automationActionTargetIds.length ? <>
-                  {canUseAutomationAi ? (<button className="ghost-button automation-ai-catalog-action" disabled={!automationActionTargetIds.length || !appTypeId || !canUseAutomationBuilder || !canUseAutomationAi || scheduleAiAutomation.isPending} onClick={() => { setBatchBuildTargetIds([...automationActionTargetIds]); setIsBatchAgentOpen(true); }} title="Review the agent brief, then build now or choose a scheduled time" type="button"><SparkIcon /><span>Build with automation agent</span></button>) : null}
+                  {canDeleteAutomationCases ? <button className="ghost-button danger" type="button" disabled={deleteSelectedAutomationCases.isPending} onClick={async () => {
+                    const ids = [...automationActionTargetIds];
+                    if (await confirmDelete({ message: `Delete ${ids.length} selected automation case${ids.length === 1 ? "" : "s"}? This removes their manual-case links and automation coverage. Manual cases, reusable assets and historical run evidence are preserved.`, confirmLabel: "Delete automation cases" })) deleteSelectedAutomationCases.mutate(ids);
+                  }}><TrashIcon /><span>{deleteSelectedAutomationCases.isPending ? "Deleting…" : "Delete selected"}</span></button> : null}
+                  {canUseAutomationAi ? (<button className="ghost-button automation-ai-catalog-action" disabled={!automationActionTargetIds.length || !appTypeId || !canUseAutomationBuilder || !canUseAutomationAi || scheduleAiAutomation.isPending} onClick={() => openAutomationBuild([...automationActionTargetIds])} title="Review the agent brief, then build now or choose a scheduled time" type="button"><SparkIcon /><span>Build with automation agent</span></button>) : null}
                   {canRunLocalAutomation ? (<button
                     className="ghost-button catalog-run-button"
                     disabled={!automationActionTargetIds.length || !canRunLocalAutomation || !projectId || !appTypeId || runSelectedAutomationCases.isPending}
@@ -5201,8 +5608,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     aria-label="Run remote"
                     type="button"
                   >
-                    <OpenIcon />
-
+                    <PlayIcon />
+                    <span>Run remote</span>
                   </button>) : null}
                   </> : null}
                   {canCreateAutomationDraft ? <button className="primary-button automation-choose-manual-toolbar-button" disabled={!appTypeId} onClick={() => setIsCreateAutomationOpen(true)} type="button">
@@ -5360,7 +5767,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                 {activeCase ? (
                   <>
                   {canRunLocalAutomation ? <button className="primary-button" disabled={!isAutomationCaseDetailReady || runSelectedAutomationCases.isPending || activeCase.automated !== "yes" || Boolean(recorderSession)} onClick={() => requestAutomationRun("local", [activeCase.id])} type="button"><PlayIcon/><span>Run local</span></button> : null}
-                  {canRunRemoteAutomation ? <button className="ghost-button" disabled={!isAutomationCaseDetailReady || runSelectedAutomationCases.isPending || activeCase.automated !== "yes" || Boolean(recorderSession)} onClick={() => requestAutomationRun("remote", [activeCase.id])} type="button"><OpenIcon size={17}/><span>Run remote</span></button> : null}
+                  {canRunRemoteAutomation ? <button className="ghost-button" disabled={!isAutomationCaseDetailReady || runSelectedAutomationCases.isPending || activeCase.automated !== "yes" || Boolean(recorderSession)} onClick={() => requestAutomationRun("remote", [activeCase.id])} type="button"><PlayIcon/><span>Run remote</span></button> : null}
                   </>
                 ) : null}
               </div>
@@ -5370,7 +5777,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
               <div className="empty-state compact">Select a case tile to inspect its automation detail.</div>
             ) : isAutomationCaseDetailPending ? (
               <LoadingState
-                description="Retrieving complete metadata before enabling edits, test data, PDF export, and AI actions."
+                description="Retrieving complete metadata before enabling edits, test data, source export, and AI actions."
                 label="Loading automation case details"
               />
             ) : !activeCase ? (
@@ -5383,7 +5790,6 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             ) : (
               <div className="automation-case-detail editor-accordion">
                 {unsavedAutomationStepIds.length ? <div className="automation-unsaved-state" role="status"><span>{unsavedAutomationStepIds.length} unsaved section{unsavedAutomationStepIds.length === 1 ? "" : "s"}</span><button className="ghost-button compact" onClick={() => selectAutomationWorkspaceTab("steps")} type="button">Review changes</button></div> : null}
-                <AutomationBuildEvidence status={agentBuildStatus} receipt={agentBuildReceipt} changes={canViewAutomationCode ? agentBuildChanges : []} retryCount={agentBuildRetryIds.length} onOpenJobs={() => navigate("/testops")} onReview={() => selectAutomationWorkspaceTab("steps")} onRetry={() => { setBatchBuildTargetIds([...agentBuildRetryIds]); setIsBatchAgentOpen(true); }} />
                 <div className="automation-workspace-navigation">
                   <div className="automation-workspace-identity">
                     <div>
@@ -5402,8 +5808,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       { value: "data", label: "Test Data", description: "Params & profiles", icon: <TileCardStepsIcon />, count: automationDataTokens.length },
                       { value: "hooks", label: "Before / After", description: "Setup & teardown", icon: <LayersIcon />, count: executionHookDraft.length },
                       ...(canUseAutomationAi || canRecordCurrentPlan ? [{ value: "build" as const, label: "Build tools", description: "Agent & recorder", icon: <SparkIcon /> }] : []),
-                      ...(canViewObjectRepository ? [{ value: "repository" as const, label: "Objects", description: "Repository bindings", icon: <IconTargetArrow />, count: caseObjectMembers.length }] : []),
-                      { value: "runs", label: "Runs", description: "History & debug", icon: <PlayIcon />, count: activeCaseHistory.length }
+                      ...(canViewObjectRepository ? [{ value: "repository" as const, label: "Objects", description: "Repository bindings", icon: <IconTargetArrow />, count: canViewAutomationCode ? caseObjectMembers.length : undefined }] : []),
+                      { value: "suites", label: "Suites", description: "Collection links", icon: <TileCardSuiteIcon />, count: suiteLinkDraftIds.length },
+                      { value: "defects", label: "Defects", description: "Failure traceability", icon: <BugIcon />, count: activeCase.defect_ids?.length || 0 },
+                      { value: "runs", label: "Runs", description: "Execution outcomes", icon: <PlayIcon />, count: selectedCaseHistoryQuery.data ? activeCaseHistory.length : undefined },
+                      { value: "history", label: "History", description: "Version history", icon: <TileCardStepsIcon /> }
                     ]}
                     onChange={selectAutomationWorkspaceTab}
                   />
@@ -5426,229 +5835,88 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     <div className="automation-plan-actions">
                       {canUpdateAutomationCase ? (<button className="primary-button" disabled={!caseDraft.title.trim() || updateAutomationCase.isPending} onClick={() => updateAutomationCase.mutate()} type="button">{updateAutomationCase.isPending ? "Saving…" : "Save details"}</button>) : null}
                       {linkedManualCases.map((source) => <button className="ghost-button compact" key={source.id} onClick={() => openLinkedManualCase(activeCase, source.id)} type="button"><OpenIcon size={14} />{source.display_id || source.title}</button>)}
-                      <button className="ghost-button compact" onClick={exportAutomationCasePdf} type="button">Export PDF</button>
-                      {canRemoveAutomationCase ? (<button className="ghost-button compact danger" disabled={deleteAutomationCase.isPending} onClick={() => deleteAutomationCase.mutate(activeCase)} type="button">Remove automation case</button>) : null}
+                      {canRemoveAutomationCase ? (<button className="ghost-button compact danger" disabled={deleteAutomationCase.isPending} onClick={async () => {
+                        if (await confirmDelete({ message: `Delete automation case "${activeCase.title}"? Linked manual cases and historical run evidence remain available.`, confirmLabel: "Delete automation case" })) deleteAutomationCase.mutate(activeCase);
+                      }} type="button">Remove automation case</button>) : null}
                     </div>
                   </section>
                 ) : null}
-                {(["data", "hooks"] as AutomationWorkspaceTab[]).includes(activeAutomationWorkspaceTab) ? (
-                <AutomationAccordionSection
-                  countLabel={activeAutomationWorkspaceTab === "data" ? `${automationDataTokens.length} token${automationDataTokens.length === 1 ? "" : "s"}` : activeAutomationWorkspaceTab === "hooks" ? `${executionHookDraft.length} hook${executionHookDraft.length === 1 ? "" : "s"}` : automationDisplayIdByCaseId[activeCase.id] || activeCase.display_id || "AT"}
-                  isExpanded={expandedCaseSections.case}
-                  onToggle={() => toggleCaseSection("case")}
-	                  stage="case"
-	                  summary={activeAutomationWorkspaceTab === "data" ? "Case, suite, run, and linked data-set values used by executable actions." : activeAutomationWorkspaceTab === "hooks" ? "Setup and teardown for the next run. These selections are saved with the run and retained when it is rerun." : "Identity, ownership, status, and manual coverage for this independent automation case."}
-	                  title={activeAutomationWorkspaceTab === "data" ? "Test Data & run profile" : activeAutomationWorkspaceTab === "hooks" ? "Before / After hooks" : "Automation case details"}
-	                >
-	                  <div className="automation-description-panel">
-	                    {activeAutomationWorkspaceTab === "details" ? (
-	                    <>
-	                    <div className="automation-manual-summary-grid">
-	                      <button className="automation-linked-manual-card automation-linked-manual-card--button" disabled={!linkedManualCases.length} onClick={() => openLinkedManualCase(activeCase)} type="button">
-	                        <strong>{linkedManualCases.length ? `Linked manual test cases · ${linkedManualCases.length}` : "Standalone automation"}</strong>
-	                        <span>{linkedManualCase?.display_id || activeCase.display_id || activeCase.id} · {linkedManualCase?.title || "Use the relationship hub to add coverage links"}</span>
-	                      </button>
-	                      <div className="automation-manual-meta-grid" aria-label="Manual test case metadata carried into automation">
-	                        <div><span>Status</span><strong>{activeCase.status || "active"}</strong></div>
-	                        <div><span>Priority</span><strong>P{activeCase.priority || 3}</strong></div>
-	                        <div><span>Automation</span><strong>{activeCase.automation_status || "ready"}</strong></div>
-	                        <div><span>Suites</span><strong>{activeCaseSuiteIds.length || "None"}</strong></div>
-	                        <div><span>Story</span><strong>{activeCase.requirement_id || "Not linked"}</strong></div>
-	                        <div><span>Updated</span><strong>{activeCase.updated_at ? formatRunDate.format(new Date(activeCase.updated_at)) : "Not recorded"}</strong></div>
-	                      </div>
-	                    </div>
-	                    <div className="automation-case-editor-grid automation-case-editor-grid--metadata">
-	                      <label className="form-field">
-	                        <span>Automation case name</span>
-	                        <input value={caseDraft.title} onChange={(event) => setCaseDraft((current) => ({ ...current, title: event.target.value }))} />
-	                      </label>
-	                      <label className="form-field form-field--compact-enum">
-	                        <span>Status</span>
-	                        <input value={caseDraft.status} onChange={(event) => setCaseDraft((current) => ({ ...current, status: event.target.value }))} />
-	                      </label>
-	                      <label className="form-field form-field--compact-enum form-field--compact-number">
-	                        <span>Priority</span>
-	                        <input min={1} max={5} type="number" value={caseDraft.priority} onChange={(event) => setCaseDraft((current) => ({ ...current, priority: event.target.value }))} />
-	                      </label>
-	                    </div>
-	                    <label className="form-field">
-	                      <span>Description</span>
-	                      <RichTextEditor appearance="canonical" rows={3} value={caseDraft.description} onChange={(description) => setCaseDraft((current) => ({ ...current, description }))} />
-	                    </label>
-	                    </>
-	                    ) : null}
-	                    {activeAutomationWorkspaceTab === "data" ? (
-	                    <>
-	                    <section className="automation-run-profile-panel" aria-label="Automation execution profile">
-	                      <div className="automation-section-heading">
-	                        <div><strong>Execution profile</strong><span>Choose the environment, configuration, and data-set iteration used when this case runs.</span></div>
-	                      </div>
-	                      <ExecutionContextSelector
-	                        appTypeId={appTypeId}
-	                        onConfigurationChange={setSelectedExecutionConfigurationId}
-	                        onDataSetChange={setSelectedExecutionDataSetId}
-	                        onEnvironmentChange={setSelectedExecutionEnvironmentId}
-	                        projectId={projectId}
-	                        selectedConfigurationId={selectedExecutionConfigurationId}
-	                        selectedDataSetId={selectedExecutionDataSetId}
-	                        selectedEnvironmentId={selectedExecutionEnvironmentId}
-	                      />
-	                    </section>
-	                    <section className="automation-test-data-panel step-parameter-list" aria-label="Automation test data inherited from manual case">
-	                      <div className="automation-section-heading">
-	                        <div>
-	                          <strong>Test data</strong>
-	                        <span>Scoped automation data. @t belongs to this case, @s comes from suites, and @r is supplied by the run.</span>
-	                        </div>
-	                        <button className="ghost-button compact" disabled={!isAutomationCaseDetailReady} onClick={() => setIsParameterDialogOpen(true)} type="button">
-	                          <SparkIcon />
-	                          <span>{detectedStepParameters.length ? `Edit ${detectedStepParameters.length}` : "Edit test data"}</span>
-	                        </button>
-	                      </div>
-	                      {inlineTestDataGroups.length ? inlineTestDataGroups.map((group) => (
-	                        <section className="step-parameter-group automation-inline-parameter-group" key={group.scope}>
-	                          <div className="step-parameter-group-head">
-	                            <strong>{group.title}</strong>
-	                            <span>{group.rows.length} item{group.rows.length === 1 ? "" : "s"}</span>
-	                          </div>
-	                          {group.rows.map((row) => (
-	                            <div className="step-parameter-row" key={row.name}>
-	                              <label className="form-field">
-	                                <span>{row.token}</span>
-	                                <div className="step-parameter-input-row">
-	                                  <input
-	                                    disabled={row.locked}
-	                                    placeholder={row.locked ? "Supplied when the run starts" : `Value for ${row.token}`}
-	                                    value={row.locked ? "" : row.value}
-	                                    onChange={(event) => handleParameterValueChange(row.name, event.target.value)}
-	                                  />
-	                                </div>
-	                              </label>
-	                            </div>
-	                          ))}
-	                        </section>
-	                      )) : (
-	                        <div className="empty-state compact">No test data references detected yet. Add @t, @s, or @r tokens in manual steps or automation keywords.</div>
-	                      )}
-	                    </section>
-	                    </>
-	                    ) : null}
-	                    {activeAutomationWorkspaceTab === "hooks" ? (
-	                    <section className="automation-run-hooks-panel">
-                          <p className="muted">For the next run: choose setup and teardown cases below. These selections apply when you start a run from this workspace.</p>
-	                      <RunHooksBuilder
-	                        onChange={setExecutionHookDraft}
-	                        suites={suites}
-	                        testCases={testCases}
-	                        value={executionHookDraft}
-	                      />
-	                    </section>
-	                    ) : null}
-	                    {activeAutomationWorkspaceTab === "data" ? (
-	                    <div className="automation-suite-link-panel">
-                      <strong>Linked Suites</strong>
-                      <span>@s values are saved against the selected linked suite, matching the manual test case workspace.</span>
-                      {suites.length ? (
-                        <div className="selection-chip-row">
-                          {suites.map((suite: TestSuite) => {
-                            const isLinked = suiteLinkDraftIds.includes(suite.id);
-                            return (
-                              <button
-                                className={isLinked ? "selection-chip is-selected" : "selection-chip is-unselected"}
-                                key={suite.id}
-                                onClick={() => {
-                                  setSuiteLinkDraftIds((current) =>
-                                    current.includes(suite.id) ? current.filter((id) => id !== suite.id) : [...current, suite.id]
-                                  );
-                                  if (!selectedParameterSuiteId) {
-                                    setSelectedParameterSuiteId(suite.id);
-                                  }
-                                }}
-                                type="button"
-                              >
-                                {suite.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-	                      ) : <div className="empty-state compact">No suites exist for this app type yet.</div>}
-	                    </div>
-	                    ) : null}
-		                    <div className="testops-action-row">
-		                      {activeAutomationWorkspaceTab === "data" && canUpdateAutomationCase ? (<button className="primary-button" disabled={!isAutomationCaseDetailReady || updateAutomationCase.isPending} onClick={() => updateAutomationCase.mutate()} type="button">
-		                        <span>{updateAutomationCase.isPending ? "Saving..." : "Save automation case"}</span>
-		                      </button>) : null}
-                      {canViewAutomationCode ? (
-                        <button className="ghost-button" disabled={!isAutomationCaseDetailReady} onClick={exportAutomationCasePdf} type="button">
-                          <ExportIcon size={16} />
-                          <span>Export PDF</span>
-                        </button>
-                      ) : null}
-	                      {activeAutomationWorkspaceTab === "details" && canRemoveAutomationCase ? <button className="ghost-button danger" disabled={deleteAutomationCase.isPending} onClick={() => deleteAutomationCase.mutate(activeCase)} type="button">
-	                        <TrashIcon size={16} />
-	                        <span>{deleteAutomationCase.isPending ? "Deleting..." : "Delete automation case"}</span>
-                      </button> : null}
-                    </div>
-                  </div>
-                </AutomationAccordionSection>
-                ) : null}
+                {activeAutomationWorkspaceTab === "data" ? <div className="detail-section-panel" role="tabpanel">{renderAutomationDataSets(true, true)}</div> : null}
+                {activeAutomationWorkspaceTab === "hooks" ? <div className="detail-section-panel" role="tabpanel">
+                  <section className="automation-run-hooks-panel">
+                    <p className="muted">Save setup and teardown cases for this automation case. Direct, suite and scheduled runs use these saved selections. A manual source uses its linked automation case.</p>
+                    <button type="button" className="ghost-button compact" disabled={!canUpdateAutomationCase || saveAutomationHooks.isPending || !isAutomationCaseDetailReady} onClick={() => saveAutomationHooks.mutate()}>{saveAutomationHooks.isPending ? "Saving…" : "Save Before / After"}</button>
+                    <RunHooksBuilder onChange={setExecutionHookDraft} suites={suites} testCases={testCases.filter(item => item.id !== activeCase.id)} value={executionHookDraft} />
+                  </section>
+                </div> : null}
 
                 {activeAutomationWorkspaceTab === "build" && (canUseAutomationAi || canRecordCurrentPlan) ? (
                   <section className="automation-agent-workspace" aria-label="Automation build tools">
-                    <header className="automation-build-header"><div><span className="automation-command-eyebrow">Automation studio</span><h3>{buildMethod === "agent" ? "Generate from your saved behavior" : "Capture a real flow"}</h3></div><div className="automation-build-header-actions">{canUseAutomationAi && hasPermission(session, "agentic_workflow.run", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) ? <button className="ghost-button compact automation-quality-launch" onClick={() => navigate(`/agentic-workflows?surface=quality&test_case=${activeCase.id}`)} type="button"><IconShieldCheck size={16} />Open quality agents <span aria-hidden="true">↗</span></button> : null}</div></header>
+                    <header className="automation-build-header"><div><span className="automation-command-eyebrow">Automation studio</span><h3>{buildMethod === "agent" ? "Turn manual cases or prompts into automation" : "Capture a real flow"}</h3></div><div className="automation-build-header-actions">{canUseAutomationAi && hasPermission(session, "agentic_workflow.run", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) ? <button className="ghost-button compact automation-quality-launch" onClick={() => navigate(`/agentic-workflows?surface=quality&test_case=${activeCase.id}`)} type="button"><IconShieldCheck size={16} />Open quality agents <span aria-hidden="true">↗</span></button> : null}</div></header>
                     <div className="automation-build-methods" aria-label="Build method">
-                      {canUseAutomationAi ? <button aria-pressed={buildMethod === "agent"} onClick={() => setBuildMethod("agent")} type="button"><SparkIcon size={15} />AI agent</button> : null}
+                      {canUseAutomationAi ? <button aria-pressed={buildMethod === "agent"} onClick={() => setBuildMethod("agent")} type="button"><SparkIcon size={15} />Automation Engineer</button> : null}
                       {canRecordCurrentPlan ? <button aria-pressed={buildMethod === "record"} onClick={() => setBuildMethod("record")} type="button"><MousePointerIcon size={15} />Record & playback{recorderSession?.status === "running" ? " · Recording" : ""}</button> : null}
                     </div>
-                    {buildMethod === "agent" && canUseAutomationAi ? <div className="automation-ai-layout"><div className="automation-ai-studio">
-                      <div className="automation-ai-intro"><span className="automation-ai-avatar"><IconWand size={23} /></span><div><strong>Automation agent</strong><p>Builds your saved plan into editable instructions.</p></div><span className={`automation-ai-status is-${activeAgentBuildStatus}`} role="status"><IconCircleDot size={13} />{buildSingleAutomation.isPending ? "Submitting" : activeAgentBuildStatus === "idle" ? "Ready" : activeAgentBuildStatus === "running" ? "Building" : activeAgentBuildStatus === "completed" ? "Built" : activeAgentBuildStatus[0].toUpperCase() + activeAgentBuildStatus.slice(1)}</span></div>
+                    {buildMethod === "agent" && canUseAutomationAi ? <div className="automation-ai-layout"><details className="automation-engineer-brief" open={agentBriefOpen} onToggle={event => setAgentBriefOpen(event.currentTarget.open)}>
+                      <summary><IconSettings size={16} /><strong>Agent brief & settings</strong><span>{agentBriefOpen ? "Configure the build" : "Review or update the next build"}</span></summary><div className="automation-ai-studio">
+                      <div className="automation-ai-intro"><span className="automation-ai-avatar"><IconWand size={23} /></span><div><strong>Automation Engineer</strong><p>Converts linked manual tests, saved steps or your prompt into editable automation.</p></div><span className={`automation-ai-status is-${activeAgentBuildStatus}`} role="status"><IconCircleDot size={13} />{buildSingleAutomation.isPending ? "Submitting" : activeAgentBuildStatus === "idle" ? "Ready" : activeAgentBuildStatus === "running" ? "Building" : activeAgentBuildStatus === "completed" ? "Built" : activeAgentBuildStatus[0].toUpperCase() + activeAgentBuildStatus.slice(1)}</span></div>
                       <AutomationBuildContext stepCount={automatedSteps.length} expectedResultCount={automatedSteps.filter((step) => richTextToPlainText(step.expected_result || "").trim()).length} manualCaseCount={linkedManualCases.length} repositoryCount={allObjectMembers.length} runtimes={automationRuntimeTypes} />
-                      <div className="automation-ai-composer">
-                        <label className="form-field"><span>Build instructions (optional)</span><textarea aria-label="Build instructions (optional)" onChange={(event) => setAgentMission(event.target.value)} placeholder="What should the agent focus on? Add an edge case, assertion or constraint…" rows={5} value={agentMission} /></label>
-                        <div className="automation-ai-prompt-tools"><span>Uses your saved actions and expected results</span></div>
-                      </div>
+                      {automationRuntimeTypes.some(type => type === "web" || type === "api") ? <label className="form-field"><span>Start URL{automationStartUrlRequired ? " (required)" : " (optional)"}</span><input aria-label="Agent start URL" type="url" required={automationStartUrlRequired} onChange={(event) => setStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={startUrl} /><small className="muted">{automationStartUrlRequired ? "The agent opens this URL and waits for the page before developing your steps." : "Provide an API base URL if needed; native and API-only plans do not require browser navigation."}</small>{startUrl.trim() && automationStartUrlValidation ? <small role="alert">{automationStartUrlValidation}</small> : null}</label> : null}
+                      {automationStartUrlRequired ? <AutomationBrowserBuildMode interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={buildSingleAutomation.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"}/> : null}
+                      <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} disabled={buildSingleAutomation.isPending || scheduleAiAutomation.isPending || createAutomationCase.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"}/>
+                      <AutomationAgentSetup agentId="automation-engineer" projectId={projectId} appTypeId={appTypeId} testCaseId={activeCase.id} value={buildAgentSelection} onChange={setBuildAgentSelection} integrations={asArray(automationLlmIntegrationsQuery.data)}
+                        prompt={agentMission} onPromptChange={setAgentMission} onSubmit={()=>buildSingleAutomation.mutate(false)} running={buildSingleAutomation.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"} submitDisabled={!automatedSteps.length && !agentMission.trim() && !builderContext.trim() && !richTextToPlainText(activeCase.description).trim() || Boolean(automationStartUrlValidation)}
+                        submitLabel={agentScheduledAt ? "Schedule build" : "Build plan"}/>
+                      <div className="automation-plan-actions"><button className="ghost-button compact" type="button"
+                        disabled={!canUseAutomationBuilder || buildSingleAutomation.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running" || (!automatedSteps.length && !agentMission.trim() && !builderContext.trim() && !richTextToPlainText(activeCase.description).trim()) || Boolean(automationStartUrlValidation)}
+                        onClick={() => buildSingleAutomation.mutate(true)}><IconBraces size={15} />Review data &amp; build</button></div>
                       <div className="automation-ai-suggestions" aria-label="Agent instruction suggestions">{["Prioritize assertions", "Reuse repository objects", "Cover edge cases"].map((suggestion) => <button type="button" key={suggestion} onClick={() => setAgentMission(current => [current.trim(), suggestion + "."].filter(Boolean).join("\n"))}><AddIcon size={12} />{suggestion}</button>)}</div>
                       <details className="automation-ai-options"><summary><IconSettings size={15} />Build settings{agentScheduledAt ? <span>Scheduled</span> : null}</summary><div className="automation-ai-options-body">
                         <div className="automation-plan-behavior-fields">
-                          {automationRuntimeTypes.some(type => type === "web" || type === "api") ? <label className="form-field"><span>Start URL</span><input aria-label="Agent start URL" type="url" onChange={(event) => setStartUrl(event.target.value)} placeholder="Use selected environment" value={startUrl} /></label> : <p className="muted">The execution context supplies the device, app and Appium connection.</p>}
+                          {!automationRuntimeTypes.some(type => type === "web" || type === "api") ? <p className="muted">The execution context supplies the device, app and Appium connection.</p> : null}
                           <label className="form-field"><span>Build time</span><input aria-label="Schedule agent build" min={new Date().toLocaleString("sv-SE").slice(0,16).replace(" ", "T")} onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt} /><small>Leave empty to build now.</small></label>
                         </div>
                         <label className="form-field"><span>Additional guidance</span><textarea rows={3} onChange={(event) => setBuilderContext(event.target.value)} value={builderContext} placeholder="Authentication, edge cases and constraints" /></label>
-                        {automationRuntimeTypes.includes("web") ? <label className="repository-field-check"><input type="checkbox" checked={allowBrowserActions} onChange={(event) => setAllowBrowserActions(event.target.checked)} /><span>Allow browser interactions while building (may submit forms)</span></label> : null}
                         <button className="ghost-button compact" type="button" onClick={() => setIsExecutionContextOpen(true)}><IconSettings size={15} />Execution context</button>
                         <p className="muted">{automationRuntimeTypes.map(type => AUTOMATION_RUNTIMES[type].agent).join(" ")}</p>
                       </div></details>
-                      {!automatedSteps.length ? <p className="muted">Add a section to your plan to start building.</p> : null}
+                      {!automatedSteps.length ? <p className="muted">{richTextToPlainText(activeCase.description).trim() ? "The case description supplies the requested flow. Add any missing setup, actions or expected results above." : linkedManualCaseIds.length ? "Linked manual tests provide context. Describe the requested flow and expected results above or in the case description to create this empty plan." : "Describe the flow, required setup and expected results above or in the case description."} The Engineer creates the plan, then builds each step in order using the selected browser mode.</p> : null}
                       {buildSingleAutomation.isError ? <p role="alert" className="automation-overlay-error">{buildSingleAutomation.error instanceof Error ? buildSingleAutomation.error.message : "The build could not be queued."}</p> : null}
-                      <div className="automation-ai-footer"><span><IconShieldCheck size={15} />Review before running</span><button className="primary-button automation-ai-submit" disabled={!automatedSteps.length || buildSingleAutomation.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"} onClick={() => buildSingleAutomation.mutate()} type="button"><SparkIcon size={16} />{buildSingleAutomation.isPending ? "Queueing…" : agentScheduledAt ? "Schedule build" : "Build step plan"}<IconArrowRight size={15} /></button></div>
-                      {activeAgentBuildReceipt ? <div className="automation-ai-activity" role="status"><div><span className={`automation-ai-activity-dot is-${activeAgentBuildStatus}`} /><strong>{activeAgentBuildStatus === "completed" ? "Your plan is ready to review" : activeAgentBuildStatus === "failed" ? "Build needs attention" : activeAgentBuildStatus === "running" ? "Building your implementation" : activeAgentBuildStatus === "paused" ? "Build paused" : "Build queued"}</strong></div><p>{activeAgentBuildReceipt}</p><div className="automation-plan-actions"><button className="ghost-button compact" onClick={() => navigate("/testops")} type="button">View build jobs<OpenIcon size={13} /></button><button className="ghost-button compact" onClick={() => { invalidateAutomationData(); selectAutomationWorkspaceTab("steps"); }} type="button">Review plan<IconArrowRight size={13} /></button></div></div> : null}
-                    </div><aside className="automation-ai-plan" aria-label="Plan included in AI build"><header><span className="automation-command-eyebrow">Working context</span><h4>Plan in focus</h4><span>{automatedSteps.length} saved sections</span></header><ol>{automatedSteps.slice(0, 8).map((step, index) => <li key={step.id}><span>{String(index + 1).padStart(2, "0")}</span><div><strong><StepParameterizedText text={richTextToPlainText(step.action || "Untitled section")} values={mergedParameterValues} /></strong><small>{step.step_type?.toUpperCase()} · {isAutomationStepMapped(step) ? "Implemented" : "To build"}</small></div>{isAutomationStepMapped(step) ? <IconCheck size={14} /> : <IconCircleDot size={14} />}</li>)}</ol>{!automatedSteps.length ? <p>Add actions and expected results to give the agent a plan.</p> : null}<button className="ghost-button compact" type="button" onClick={() => selectAutomationWorkspaceTab("steps")}>Review {automatedSteps.length > 8 ? "all sections" : "plan"}<IconArrowRight size={14} /></button><div className="automation-ai-plan-note"><IconShieldCheck size={17} /><span>Generated instructions stay editable. A test run verifies the outcome.</span></div></aside></div> : <div className="automation-agent-brief">
+
+                    </div></details>
+                      {agentPlanRefreshError ? <div role="alert"><p>{agentPlanRefreshError}</p><button type="button" className="ghost-button compact" onClick={() => { if (latestAgentActivityRef.current) void handleAutomationAgentActivity(latestAgentActivityRef.current); }}>Reload saved Plan</button></div> : null}
+                      {linkedManualStepsQuery.isError ? <p role="alert">Linked manual coverage could not be loaded. <button className="ghost-button compact" type="button" onClick={() => void linkedManualStepsQuery.refetch()}>Retry manual coverage</button></p> : null}
+                      <AutomationAgentActivity projectId={projectId} appTypeId={appTypeId} caseId={activeCase.id} caseTitle={activeCase.title} initialSteps={automatedSteps} initialManualSteps={linkedManualStepsQuery.data?.flat() || []} initialManualLoading={Boolean(linkedManualCaseIds.length && linkedManualStepsQuery.isFetching)} initialParameterValues={initialEngineerValues} transactionId={searchParams.get("agent_activity") || (agentBuildTracking?.projectId === projectId && agentBuildTracking.caseIds.includes(activeCase.id) && ["queued", "running"].includes(agentBuildStatus) ? agentBuildTracking.transactionId : undefined)} onUpdate={activity => { void handleAutomationAgentActivity(activity); }} onReview={id => { if (id === activeCase.id) selectAutomationWorkspaceTab("steps"); else selectAutomationCase(id); }} onRetry={openAutomationBuild} />
+                    </div> : <div className="automation-agent-brief">
                       <div><strong>Record a flow</strong><p className="muted">Capture browser or mobile actions, then inspect their keywords, repository fields, and data in the plan.</p></div>
                       <div className="automation-plan-behavior-fields">
-                        {recorderPlatform === "web" || recorderPlatform === "unified" ? <label className="form-field"><span>Start URL</span><input disabled={Boolean(recorderSession)} onChange={(event) => setStartUrl(event.target.value)} placeholder="Uses the selected environment when blank" value={startUrl} /></label> : <p className="muted">The selected configuration supplies the device and app for this recording.</p>}
+                        {recorderPlatform === "web" || recorderPlatform === "unified" ? <label className="form-field"><span>Start URL{automationStartUrlRequired ? " (required)" : ""}</span><input type="url" required={automationStartUrlRequired} disabled={Boolean(recorderSession)} onChange={(event) => setStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={startUrl} /></label> : <p className="muted">The selected configuration supplies the device and app for this recording.</p>}
                         <label className="form-field"><span>Save recording to</span><select disabled={Boolean(recorderSession)} onChange={(event) => setRecordingTargetStepId(event.target.value)} value={recordingTargetStepId}><option value="">Complete step plan</option>{automatedSteps.map((step) => <option key={step.id} value={step.id}>{step.step_order}. {richTextToPlainText(step.action || "Untitled step")}</option>)}</select></label>
                       </div>
                       <details><summary>Recording environment & data</summary><ExecutionContextSelector appTypeId={appTypeId} projectId={projectId} onConfigurationChange={setSelectedExecutionConfigurationId} onDataSetChange={setSelectedExecutionDataSetId} onEnvironmentChange={setSelectedExecutionEnvironmentId} selectedConfigurationId={selectedExecutionConfigurationId} selectedDataSetId={selectedExecutionDataSetId} selectedEnvironmentId={selectedExecutionEnvironmentId} /></details>
                       <RecorderStartControls platform={recorderPlatform} disabled={!canRecordCurrentPlan || !activeCase} hasSession={Boolean(recorderSession)} isStarting={startRecorder.isPending} mobileAppiumEnabled={canUseMobileAppium} mobileRemoteEnabled={mobileRemoteRecorderEnabled} onStart={(options) => startRecorder.mutate(options)} primaryAction={recorderSession ? <button className="primary-button recorder-stop-button" disabled={finishRecorder.isPending} onClick={() => finishRecorder.mutate()} type="button"><PauseIcon />{finishRecorder.isPending ? "Saving recording…" : "Save recording to plan"}</button> : undefined} moreActions={recorderSession?.live_view_url ? <a className="ghost-button compact" href={recorderSession.live_view_url} rel="noreferrer" target="_blank"><OpenIcon size={14} />Open live view</a> : undefined} />
                       {recorderSession?.live_view_url ? <iframe allow="clipboard-read; clipboard-write" className="recorder-live-frame" src={recorderSession.live_view_url} title="HelloTest automation recorder" /> : null}
                       <RecorderSessionInsights session={recorderSession} />
-                      <div className="automation-plan-actions"><button className="ghost-button" onClick={() => selectAutomationWorkspaceTab("steps")} type="button">Review step plan</button>{canRunLocalAutomation ? (<button className="primary-button" disabled={!canRunLocalAutomation || Boolean(recorderSession) || !automatedSteps.length || runSelectedAutomationCases.isPending} onClick={() => requestAutomationRun("local", [activeCase.id])} type="button"><PlayIcon />{runSelectedAutomationCases.isPending ? "Starting playback…" : "Play saved plan"}</button>) : null}</div>
+
                     </div>}
-                    <div className="automation-build-repair">{canUseAutomationAi && hasPermission(session, "agentic_workflow.run", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) && <AiLifecycleReview projectId={projectId} appTypeId={appTypeId} inputs={{ test_case_id: activeCase.id }} features={["automation-repair"]} title="AI Automation Repair" />}</div>
                   </section>
                 ) : null}
                 {activeAutomationWorkspaceTab === "steps" ? (
                   <section className="automation-plan-workspace automation-program-workspace" aria-label="Automation step plan">
-                    <div className="automation-plan-heading"><div><h3>Saved plan</h3><span>{automatedSteps.length} {automatedSteps.length === 1 ? "section" : "sections"} · {automatedSteps.filter(isAutomationStepMapped).length} ready</span></div><div className="automation-plan-actions">
-                      <div className="automation-build-methods"><button aria-pressed={automationStepView === "keyword"} onClick={() => setAutomationStepView("keyword")} type="button">Instructions</button>{canViewAutomationCode ? (<button aria-pressed={automationStepView === "code"} disabled={!canViewAutomationCode} onClick={() => setAutomationStepView("code")} type="button">Source</button>) : null}</div>
+                    <div className="test-authoring-mode-card automation-plan-view-toolbar"><div className="automation-plan-actions">
+                      <div className="test-authoring-mode-toggle" role="tablist" aria-label="Automation authoring mode">{(["keyword", ...(canViewAutomationCode ? ["code"] : []), "gherkin"] as AutomationStepView[]).map(mode => <button key={mode} role="tab" aria-selected={automationStepView === mode} aria-controls="automation-authoring-mode-panel" id={`automation-${mode}-tab`} tabIndex={automationStepView === mode ? 0 : -1} className={automationStepView === mode ? "is-active" : ""} onClick={() => setAutomationStepView(mode)} onKeyDown={event => { if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return; event.preventDefault(); const modes: AutomationStepView[] = canViewAutomationCode ? ["keyword","code","gherkin"] : ["keyword","gherkin"]; const index = modes.indexOf(mode); const next = event.key === "Home" ? modes[0] : event.key === "End" ? modes[modes.length-1] : modes[(index + (event.key === "ArrowRight" ? 1 : -1) + modes.length) % modes.length]; setAutomationStepView(next); requestAnimationFrame(() => document.getElementById(`automation-${next}-tab`)?.focus()); }} type="button">{mode === "keyword" ? "Instructions" : mode === "code" ? "Source" : "Gherkin"}</button>)}</div>
                       {canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => setIsSharedGroupLibraryOpen(true)} aria-label="Shared Section Group" title="Shared Section Group" type="button"><LayersIcon size={16} /></button>) : null}
+                      {canEditAutomationCode ? <button className="ghost-button compact" disabled={!sectionClipboard || sectionClipboard.appTypeId !== appTypeId || sectionClipboard.projectId !== projectId || pasteAutomationSections.isPending} onClick={() => pasteAutomationSections.mutate(undefined)} type="button">Paste sections</button> : null}
                       <AutomationIconButton label="Parameters" onClick={() => setIsParameterDialogOpen(true)}><IconBraces size={17} /></AutomationIconButton>{canViewAutomationCode ? (<button className="ghost-button compact" disabled={!canViewAutomationCode || !automatedSteps.length} onClick={() => setIsAutomationCodePreviewOpen(true)} aria-label="Full source" title="Full source" type="button"><IconCode size={17} /></button>) : null}
                     </div></div>
                     {linkedManualCases.length ? <div className="automation-program-origin"><span>Linked test cases</span>{linkedManualCases.map((item) => <span key={item.id}>{item.display_id || item.id} · {item.title}</span>)}</div> : null}
                     {selectedAutomationStepIds.length ? <div className="automation-program-selection"><div className="automation-plan-heading"><strong>{selectedAutomationStepIds.length} selected sections</strong><div className="automation-plan-actions"><button className="ghost-button compact" onClick={() => setSelectedAutomationStepIds([])} type="button">Clear selection</button>{canEditAutomationCode ? <button className="primary-button compact" disabled={selectedAutomationStepIds.length < 2} onClick={() => openSectionGroupDialog("group", selectedAutomationStepIds)} type="button">Group Selected Sections</button> : null}</div></div></div> : null}
                     {automatedStepsQuery.isError ? <div className="empty-state compact" role="alert">Unable to load the plan.<button className="ghost-button" onClick={() => void automatedStepsQuery.refetch()} type="button">Retry</button></div> : null}
-                    {automationStepView === "code" && canViewAutomationCode ? <details className="automation-agent-brief"><summary>Complete automation code</summary><pre className="automation-code-block automation-code-block--complete">{completeAutomationCode}</pre><button className="ghost-button compact" onClick={() => navigator.clipboard?.writeText(completeAutomationCode)} type="button">Copy code</button></details> : null}
-                    {[true, false].map((precondition) => <AutomationAccordionSection key={String(precondition)} title={precondition ? "Preconditions" : "Steps"} summary={precondition ? "Setup assumptions and pre-run steps captured before the main flow." : "Actions and expected results for the automation flow."} countLabel={String(automatedSteps.filter(step => isAutomationPrecondition(step) === precondition).length)} isExpanded={flowExpanded[precondition ? "preconditions" : "steps"]} onToggle={() => setFlowExpanded(current => ({ ...current, [precondition ? "preconditions" : "steps"]: !current[precondition ? "preconditions" : "steps"] }))} actions={canEditAutomationCode ? <button className="ghost-button compact" onClick={() => { setNewStepIsPrecondition(precondition); setNewStepPlacement({ mode: "end", stepId: "" }); setIsNewSectionOpen(true); }} type="button"><AddIcon size={14} />{precondition ? "Add precondition" : "Add section"}</button> : undefined}>
+                    <div role="tabpanel" id="automation-authoring-mode-panel" aria-labelledby={`automation-${automationStepView}-tab`}>
+                    {automationStepView === "code" && canViewAutomationCode ? <section className="automation-full-source" aria-label="Automation source"><div className="automation-source-toolbar"><button className="ghost-button compact" disabled={exportContextLoading || exportContextError || exportSourceInvalid} onClick={() => navigator.clipboard?.writeText(completeAutomationCode).catch(error => showError(error, "Unable to copy code."))} type="button"><CopyIcon size={14}/>Copy full source</button>{exportContextError ? <button className="ghost-button compact" type="button" onClick={retryExportContext}>Retry context</button> : null}</div>{exportContextLoading || exportContextError ? <p role={exportContextError ? "alert" : "status"}>{exportContextError ? "Automation source could not be prepared. Retry before copying the export." : "Preparing automation source…"}</p> : null}{exportSourceInvalid ? <p role="alert">{exportSourceSnapshot.errors.join(" ")}</p> : null}<AutomationSourceSections steps={exportSteps} onCopy={source => { void navigator.clipboard?.writeText(source).catch(error => showError(error, "Unable to copy section source.")); }}/></section> : null}
+                    {automationStepView === "gherkin" ? <GherkinEditor value={automationGherkin} onChange={() => {}} featureTitle={richTextToPlainText(caseDraft.title)} availableParameters={detectedStepParameters} parameterValues={resolvedParameterValues} readOnly minimalBehaviorEditor exampleColumns={testDataSets.find(item => item.id === effectiveCaseDataSetId)?.columns || []} exampleRows={testDataSets.find(item => item.id === effectiveCaseDataSetId)?.rows || []} /> : null}
+                    <div className="automation-instruction-sections" hidden={automationStepView !== "keyword"}>
+                    {[true, false].map((precondition) => <AutomationAccordionSection key={String(precondition)} title={precondition ? "Preconditions" : "Steps"} summary={precondition ? "Setup assumptions and pre-run steps captured before the main flow." : "Actions and expected results for the automation flow."} countLabel={String(automatedSteps.filter(step => isAutomationPrecondition(step) === precondition).length)} isExpanded={flowExpanded[precondition ? "preconditions" : "steps"]} onToggle={() => setFlowExpanded(current => ({ ...current, [precondition ? "preconditions" : "steps"]: !current[precondition ? "preconditions" : "steps"] }))} actions={canEditAutomationCode && (!precondition || !automatedSteps.some(isAutomationPrecondition)) ? <button className="ghost-button compact" onClick={() => { setNewStepIsPrecondition(precondition); setNewStepPlacement({ mode: "end", stepId: "" }); setIsNewSectionOpen(true); }} type="button"><AddIcon size={14} />{precondition ? "Add precondition" : "Add section"}</button> : undefined}>
                       {!automatedSteps.some((step) => isAutomationPrecondition(step) === precondition) ? <p className="muted">{precondition ? "No preconditions." : "Add a named section, insert a Shared Section Group, or record a flow."}</p> : null}
                       {automationStepGroups.filter((group) => isAutomationPrecondition(group.steps[0]) === precondition).map((group) => {
                         const rows = group.steps.map((step) => {
@@ -5684,7 +5952,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                               <input aria-label={`Select step ${step.step_order}`} checked={selectedAutomationStepIds.includes(step.id)} disabled={!canEditAutomationCode || precondition} onChange={(event) => setSelectedAutomationStepIds((current) => event.target.checked ? [...current, step.id] : current.filter((id) => id !== step.id))} type="checkbox" />
                               <button aria-controls={`automation-plan-step-${step.id}`} aria-expanded={instructionsVisible} onClick={() => setVisibleInstructionIds(current => current.includes(step.id) ? current.filter(id => id !== step.id) : [...current, step.id])} type="button">
                                 <span className="automation-section-chevron" aria-hidden="true">{instructionsVisible ? "⌄" : "›"}</span><span className="automation-plan-number">{String(step.step_order).padStart(2, "0")}</span><span className="automation-section-platform" title={draft.step_type === "ios" ? "iOS" : draft.step_type.toUpperCase()} aria-label={draft.step_type === "ios" ? "iOS" : draft.step_type.toUpperCase()}>{draft.step_type === "api" ? <IconApi size={17} /> : draft.step_type === "android" ? <IconBrandAndroid size={17} /> : draft.step_type === "ios" ? <IconBrandApple size={17} /> : <IconWorld size={17} />}</span>
-                                <span className="automation-plan-copy"><strong><StepParameterizedText text={sectionName} values={mergedParameterValues} /></strong>{draft.expected_result ? <small><span className="automation-section-expect">Expect</span><StepParameterizedText text={richTextToPlainText(draft.expected_result)} values={mergedParameterValues} /></small> : null}</span>{hasChanges ? <span className="automation-section-unsaved">Unsaved</span> : null}
+                                <span className="automation-plan-copy"><strong><StepParameterizedText text={sectionName} values={resolvedParameterValues} /></strong>{draft.expected_result ? <small><span className="automation-section-expect">Expect</span><StepParameterizedText text={richTextToPlainText(draft.expected_result)} values={resolvedParameterValues} /></small> : null}</span>{hasChanges ? <span className="automation-section-unsaved">Unsaved</span> : null}
 
                               </button>
                             {canEditAutomationCode ? <div className="automation-section-tools">
@@ -5693,27 +5961,30 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                               <AutomationIconButton label="Edit" onClick={() => toggleAutomationStep(step.id)}><PencilIcon size={15} /></AutomationIconButton>
                               <AutomationIconButton label="Add instruction" onClick={openInstructionEditor}><AddIcon size={15} /></AutomationIconButton>
                               <CatalogActionMenu label={`${sectionName} actions`} actions={[
-                                { label: "Group Selected Sections", icon: <LayersIcon size={15} />, disabled: selectedAutomationStepIds.length < 2, onClick: () => openSectionGroupDialog("group", selectedAutomationStepIds) },
-                                ...(step.group_id ? [{ label: "Ungroup sections", icon: <LayersIcon size={15} />, onClick: () => openSectionGroupDialog("ungroup", group.steps.map(item => item.id), group.title, step.group_id || undefined) }, { label: step.group_kind === "reusable" ? "Convert to local section group" : "Convert to Shared Section Group", icon: <LayersIcon size={15} />, disabled: step.group_kind !== "reusable" && !hasPermission(session, "shared_step.manage", projectId), onClick: () => openSectionGroupDialog(step.group_kind === "reusable" ? "local" : "shared", group.steps.map(item => item.id), group.title, step.group_id || undefined) }] : []),
+                                { label: "Group Selected Sections", icon: <IconFolder size={15} />, disabled: selectedAutomationStepIds.length < 2, onClick: () => openSectionGroupDialog("group", selectedAutomationStepIds) },
+                                ...(step.group_id ? [{ label: "Ungroup sections", icon: <IconFolderOff size={15} />, onClick: () => openSectionGroupDialog("ungroup", group.steps.map(item => item.id), group.title, step.group_id || undefined) }, { label: step.group_kind === "reusable" ? "Convert to local section group" : "Convert to Shared Section Group", icon: step.group_kind === "reusable" ? <IconFolder size={15}/> : <IconFolderShare size={15}/>, disabled: step.group_kind !== "reusable" && !hasPermission(session, "shared_step.manage", projectId), onClick: () => openSectionGroupDialog(step.group_kind === "reusable" ? "local" : "shared", group.steps.map(item => item.id), group.title, step.group_id || undefined) }] : []),
                                 { label: "Insert after", icon: <AddIcon size={15} />, onClick: () => { setNewStepIsPrecondition(precondition); setNewStepPlacement({ mode: "after", stepId: step.id }); setIsNewSectionOpen(true); } },
                                 ...(canUseRecorder && step.step_type !== "api" && (!["android", "ios"].includes(step.step_type || "") || canUseMobileAppium) ? [{ label: "Replace with recording", icon: <MousePointerIcon size={15} />, disabled: Boolean(recorderSession) || startRecorder.isPending, onClick: () => { setRecordingTargetStepId(step.id); setBuildMethod("record"); selectAutomationWorkspaceTab("build"); } }] : []),
                                 ...(canUseAutomationAi ? [{ label: "Improve wording", icon: <SparkIcon size={15} />, disabled: rephraseAutomationStep.isPending, onClick: () => rephraseAutomationStep.mutate(step) }] : []),
+                                { label: "Copy section", icon: <CopyIcon size={15} />, onClick: () => copyAutomationSections([step.id],true) },
+                                { label: "Paste after section", icon: <CopyIcon size={15} />, disabled: !sectionClipboard || pasteAutomationSections.isPending, onClick: () => pasteAutomationSections.mutate(step.id) },
                                 { label: "Clear implementation", icon: <RefreshIcon size={15} />, tone: "danger", disabled: deleteAutomationStep.isPending, onClick: () => deleteAutomationStep.mutate(step) },
                                 { label: "Remove section", icon: <TrashIcon size={15} />, tone: "danger", disabled: removeAutomationPlanStep.isPending, onClick: () => removeAutomationPlanStep.mutate(step) }
                               ]} />
                             </div> : null}
                             </div>
                             <div id={`automation-plan-step-${step.id}`} hidden={!instructionsVisible}>
-                            {instructionsVisible && canViewAutomationCode ? <AutomationInstructionPreview view={automationStepView === "code" ? "source" : "instructions"} formatInstruction={summarizeAutomationInstruction} renderArgument={argument => <StepParameterizedText text={argument} values={mergedParameterValues} />} code={step.step_type === "api" ? "" : sourceCode} apiRequest={step.step_type === "api" ? step.api_request : null} sectionName={sectionName} emptyAction={canEditAutomationCode ? <button className="ghost-button compact" onClick={openInstructionEditor} type="button"><AddIcon size={13} />Add instruction</button> : undefined} /> : null}
-                            {step.step_type === "api" && !programNeedsEditor && step.api_request?.query_params?.length ? <div className="automation-plan-api-parameters" aria-label={`Step ${step.step_order} query parameters`}>{step.api_request.query_params.filter((parameter) => parameter.key).map((parameter, index) => <span key={`${parameter.key}:${index}`}><code>{parameter.key}</code><span>=</span>{/password|secret|token|api.?key/i.test(parameter.key) ? <span>Hidden value</span> : <StepParameterizedText text={parameter.value} values={mergedParameterValues} fallback="Empty value" />}</span>)}</div> : null}
-                            {step.step_type === "api" && !programNeedsEditor ? <AutomationReferencedParameters parameters={collectStepParameters([step]).map((parameter) => detectedStepParameters.find((available) => available.name === parameter.name) || parameter)} values={mergedParameterValues} /> : null}
+                            {instructionsVisible && !canViewAutomationCode ? <p className="muted">Executable instructions are hidden by your role.</p> : null}
+                            {instructionsVisible && canViewAutomationCode ? <AutomationInstructionPreview view={automationStepView === "code" ? "source" : "instructions"} context={{repository:learningCache,parameterValues:resolvedParameterValues,platform:step.step_type || "web"}} renderArgument={argument => <StepParameterizedText text={argument} values={resolvedParameterValues} />} code={step.step_type === "api" ? "" : sourceCode} apiRequest={step.step_type === "api" ? step.api_request : null} sectionName={sectionName} emptyAction={canEditAutomationCode ? <button className="ghost-button compact" onClick={openInstructionEditor} type="button"><AddIcon size={13} />Add instruction</button> : undefined} /> : null}
+                            {step.step_type === "api" && !programNeedsEditor && step.api_request?.query_params?.length ? <div className="automation-plan-api-parameters" aria-label={`Step ${step.step_order} query parameters`}>{step.api_request.query_params.filter((parameter) => parameter.key).map((parameter, index) => <span key={`${parameter.key}:${index}`}><code>{parameter.key}</code><span>=</span>{/password|secret|token|api.?key/i.test(parameter.key) ? <span>Hidden value</span> : <StepParameterizedText text={parameter.value} values={resolvedParameterValues} fallback="Empty value" />}</span>)}</div> : null}
+                            {step.step_type === "api" && !programNeedsEditor ? <AutomationReferencedParameters parameters={collectStepParameters([step]).map((parameter) => detectedStepParameters.find((available) => available.name === parameter.name) || parameter)} values={resolvedParameterValues} /> : null}
                             </div>
                             {expanded ? <AutomationOverlay title="Edit section" subtitle={`${String(step.step_order).padStart(2, "0")} · ${sectionName}`} icon={<PencilIcon size={20} />} onClose={() => toggleAutomationStep(step.id)} closeDisabled={updateAutomationStep.isPending || updateAutomationStepCode.isPending}><fieldset disabled={!canEditAutomationCode} className="automation-plan-editor" id={`automation-plan-step-editor-${step.id}`} style={{ border: 0, margin: 0, minWidth: 0 }}>
                               <div className="automation-section-details"><div className="automation-plan-behavior-fields">
                                 <label className="form-field"><span>Section name</span><GherkinStepTextField ariaLabel={`Step ${step.step_order} action`} availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(name) => updateDraft({ name })} value={draft.name} /></label>
                                 <label className="form-field"><span>Expected result</span><GherkinStepTextField ariaLabel={`Step ${step.step_order} expected result`} availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(expected_result) => updateDraft({ expected_result })} value={draft.expected_result} /></label>
                               </div></div>
-                              {automationStepView === "code" && step.step_type === "api" ? <label className="form-field"><span>API request JSON</span><textarea className="automation-code-input" disabled={!canEditAutomationCode} rows={12} spellCheck={false} value={apiSourceDrafts[step.id] ?? JSON.stringify(step.api_request || { method: "GET", url: "", validations: [{ kind: "status", expected: "200" }] }, null, 2)} onChange={(event) => setApiSourceDrafts((current) => ({ ...current, [step.id]: event.target.value }))} /><small>Requests, assertions and captures execute through the API runner.</small></label> : automationStepView === "code" ? <label className="form-field"><span>Executable code</span><textarea className="automation-code-input" disabled={!canEditAutomationCode} rows={8} spellCheck={false} onChange={(event) => setStepCodeDrafts((current) => ({ ...current, [step.id]: event.target.value }))} value={stepCodeDrafts[step.id] ?? step.automation_code ?? ""} /></label> : programNeedsEditor ? <div className="automation-program-preserved"><span>Recorded or custom instructions</span><button className="ghost-button compact" onClick={openInstructionEditor} type="button">Edit instructions</button></div> : <div className="automation-plan-mapping automation-instruction-composer">
+                              {step.step_type === "api" ? <label className="form-field"><span>API request JSON</span><textarea className="automation-code-input" disabled={!canEditAutomationCode} rows={12} spellCheck={false} value={apiSourceDrafts[step.id] ?? JSON.stringify(step.api_request || { method: "GET", url: "", validations: [{ kind: "status", expected: "200" }] }, null, 2)} onChange={(event) => setApiSourceDrafts((current) => ({ ...current, [step.id]: event.target.value }))} /><small>Requests, assertions and captures execute through the API runner.</small></label> : automationStepView === "code" ? <label className="form-field"><span>Executable code</span><textarea className="automation-code-input" disabled={!canEditAutomationCode} rows={8} spellCheck={false} onChange={(event) => setStepCodeDrafts((current) => ({ ...current, [step.id]: event.target.value }))} value={stepCodeDrafts[step.id] ?? step.automation_code ?? ""} /></label> : draft.step_type !== "api" ? <AutomationCodeLines mode="instructions" value={sourceCode} onChange={code => setStepCodeDrafts(current => ({ ...current, [step.id]: code }))} /> : <div className="automation-plan-mapping automation-instruction-composer">
                                 <label className="form-field"><span>Platform</span><select disabled={!canEditAutomationCode} onChange={(event) => { const nextType = event.target.value as TestStepType; updateDraft({ step_type: nextType, keyword: AUTOMATION_KEYWORDS_BY_TYPE[nextType][0], objectRef: "", value: "" }); }} value={draft.step_type}>{[...new Set([...allowedStepTypes, draft.step_type])].map((type) => <option key={type} value={type}>{type === "ios" ? "iOS" : type.toUpperCase()}</option>)}</select></label>
                                 <label className="form-field"><span>Keyword</span><select disabled={!canEditAutomationCode} onChange={(event) => updateDraft({ keyword: event.target.value, objectRef: "", value: "" })} value={draft.keyword}>{AUTOMATION_KEYWORDS_BY_TYPE[draft.step_type].map((keyword) => <option key={keyword} value={keyword}>{formatKeywordDisplay(keyword)}</option>)}</select></label>
                                 {draft.step_type === "api" ? <div className="automation-plan-target automation-plan-behavior-fields">
@@ -5728,94 +5999,51 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                               </div>}
                               <details><summary>Execution options</summary><div className="automation-plan-actions">{([['optional', 'Optional step'], ['skip', 'Skip step'], ['screenshotOnFailure', 'Screenshot on failure']] as const).map(([key, label]) => <label className="checkbox-field" key={key}><input disabled={!canEditAutomationCode} checked={options[key]} onChange={(event) => setStepOptionDrafts((current) => ({ ...current, [step.id]: { ...options, [key]: event.target.checked } }))} type="checkbox" />{label}</label>)}</div></details>
                               <div className="automation-plan-actions">
-                                {canEditAutomationCode ? (<button className="primary-button compact" disabled={!canEditAutomationCode || updateAutomationStep.isPending || updateAutomationStepCode.isPending} onClick={() => automationStepView === "code" ? updateAutomationStepCode.mutate(step) : updateAutomationStep.mutate(step)} type="button">{updateAutomationStep.isPending || updateAutomationStepCode.isPending ? "Saving…" : "Save section"}</button>) : null}
+                                {canEditAutomationCode ? (<button className="primary-button compact" disabled={!canEditAutomationCode || updateAutomationStep.isPending || updateAutomationStepCode.isPending} onClick={() => updateAutomationStepCode.mutate(step)} type="button">{updateAutomationStep.isPending || updateAutomationStepCode.isPending ? "Saving…" : "Save section"}</button>) : null}
                                 {canEditAutomationCode && (hasChanges || apiSourceDrafts[step.id] !== undefined) ? <button className="ghost-button compact" disabled={updateAutomationStep.isPending || updateAutomationStepCode.isPending} onClick={() => syncAutomationStepDrafts(step)} type="button">Discard changes</button> : null}
-                                {draft.step_type !== "api" ? (canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={openInstructionEditor} type="button">Add / edit instructions</button>) : null) : null}
+                                {draft.step_type !== "api" ? (canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={openInstructionEditor} type="button">Edit instructions</button>) : null) : null}
                                 {canUseRecorder && step.step_type !== "api" && (!["android", "ios"].includes(step.step_type || "") || canUseMobileAppium) ? (<button className="ghost-button compact" disabled={!canUseRecorder || Boolean(recorderSession) || startRecorder.isPending} onClick={() => { setRecordingTargetStepId(step.id); setBuildMethod("record"); selectAutomationWorkspaceTab("build"); }} type="button">Replace with recording</button>) : null}
 
                               </div>
                             </fieldset></AutomationOverlay> : null}
                           </article>;
                         });
-                        return group.isStandalone || precondition ? <div className="automation-program-sections" key={group.id}>{rows}</div> : <details className="automation-plan-group automation-program-group" open key={group.id}><summary><strong>{group.title}</strong><span>{group.steps.length} sections{group.steps[0]?.group_kind === "reusable" ? " · Shared Section Group" : ""}</span></summary><div className="automation-plan-actions">{group.steps[0]?.reusable_group_id ? <span className="muted">Edits also update the Shared Section Group.</span> : null}{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode || ungroupAutomationSteps.isPending} onClick={() => openSectionGroupDialog("ungroup", group.steps.map(step => step.id), group.title, group.steps[0].group_id || undefined)} aria-label="Ungroup" title="Ungroup" type="button"><LayersIcon size={15} /></button>) : null}{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => { setNewStepIsPrecondition(false); setNewStepPlacement({ mode: "after", stepId: group.steps[group.steps.length - 1].id }); setIsNewSectionOpen(true); }} aria-label="Add section to group" title="Add section to group" type="button"><AddIcon size={15} /></button>) : null}</div>{rows}</details>;
+                        return group.isStandalone || precondition ? <div className="automation-program-sections" key={group.id}>{rows}</div> : <details className="automation-plan-group automation-program-group" open key={group.id}><summary><span className="automation-group-kind-icon" title={group.steps[0]?.group_kind === "reusable" ? "Shared Section Group" : "Section Group"}>{group.steps[0]?.group_kind === "reusable" ? <IconFolderShare size={19}/> : <IconFolder size={19}/>}</span><strong>{group.title}</strong><span>{group.steps.length} sections{group.steps[0]?.group_kind === "reusable" ? " · Shared Section Group" : ""}</span><span className="automation-plan-actions automation-group-header-actions" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>{canEditAutomationCode ? <><button className="ghost-button compact" aria-label={`Move ${group.title} up`} disabled={!getAutomationStepReorder(automatedSteps, group.steps[0].id,"up") || reorderAutomationStep.isPending} onClick={() => reorderAutomationStep.mutate({stepId:group.steps[0].id,direction:"up"})} type="button"><IconArrowUp size={15}/></button><button className="ghost-button compact" aria-label={`Move ${group.title} down`} disabled={!getAutomationStepReorder(automatedSteps, group.steps.at(-1)!.id,"down") || reorderAutomationStep.isPending} onClick={() => reorderAutomationStep.mutate({stepId:group.steps.at(-1)!.id,direction:"down"})} type="button"><IconArrowDown size={15}/></button><AutomationIconButton label="Copy group" onClick={() => copyAutomationSections(group.steps.map(step => step.id))}><CopyIcon size={15}/></AutomationIconButton><AutomationIconButton label="Paste after group" disabled={!sectionClipboard || pasteAutomationSections.isPending} onClick={() => pasteAutomationSections.mutate(group.steps.at(-1)!.id)}><IconClipboard size={15}/></AutomationIconButton></> : null}{canEditAutomationCode ? <CatalogActionMenu label={`${group.title} group actions`} actions={[
+ {label:"Add section to group",icon:<AddIcon size={15}/>,onClick:()=>{setNewStepIsPrecondition(false);setNewStepPlacement({mode:"after",stepId:group.steps.at(-1)!.id});setIsNewSectionOpen(true);}},
+ {label:group.steps[0]?.group_kind === "reusable" ? "Convert to local section group" : "Convert to Shared Section Group",icon:group.steps[0]?.group_kind === "reusable" ? <IconFolder size={15}/> : <IconFolderShare size={15}/>,disabled:group.steps[0]?.group_kind !== "reusable" && !hasPermission(session,"shared_step.manage",projectId),onClick:()=>openSectionGroupDialog(group.steps[0]?.group_kind === "reusable" ? "local" : "shared",group.steps.map(step=>step.id),group.title,group.steps[0]?.group_id || undefined)},
+ {label:"Ungroup sections",icon:<IconFolderOff size={15}/>,disabled:ungroupAutomationSteps.isPending,onClick:()=>openSectionGroupDialog("ungroup",group.steps.map(step=>step.id),group.title,group.steps[0]?.group_id || undefined)}
+ ]}/> : null}</span></summary>{rows}</details>;
                       })}
                     </AutomationAccordionSection>)}
+                    <AutomationAccordionSection title="Data Sets" summary="Reusable iteration data linked to this automation case." countLabel={caseDataSetId ? "1 linked" : "None"} isExpanded={flowExpanded.dataSets} onToggle={() => setFlowExpanded(current => ({ ...current, dataSets: !current.dataSets }))}>
+                      {renderAutomationDataSets()}
+                      <div className="automation-plan-actions">
+                      {canUpdateAutomationCase ? <button className="primary-button compact" disabled={updateAutomationCase.isPending} type="button" onClick={() => updateAutomationCase.mutate()}>{updateAutomationCase.isPending ? "Saving…" : "Save automation case"}</button> : null}</div>
+                    </AutomationAccordionSection>
+                    </div>
+                    </div>
 
                   </section>
                 ) : null}
-                {activeAutomationWorkspaceTab === "repository" && canViewObjectRepository ? (
-                  <section className="automation-repository-tab" role="tabpanel" aria-label="Automation object bindings">
-                    <div className="automation-repository-tab-head">
-                      <div>
-                        <span className="automation-command-eyebrow">Reusable selectors</span>
-                        <h3>Object Repository bindings</h3>
-                        <p>Bind Web and mobile actions to reviewed objects. Semantic, unique locators remain preferred over structural CSS or XPath fallbacks.</p>
-                      </div>
-                      <button className="primary-button" onClick={() => setView("repository")} type="button"><IconTargetArrow size={16} /><span>Open Object Repository</span></button>
-                    </div>
-                    <div className="automation-repository-health-grid">
-                      <article><strong>{new Set(caseObjectMembers.map((member) => member.pageName)).size}</strong><span>Linked screens</span></article>
-                      <article><strong>{caseObjectMembers.length}</strong><span>Associated fields</span></article>
-                      <article className={caseObjectMembers.filter((member) => atRiskRepositoryEntries.some((entry) => entry.id === member.entry.id)).length ? "is-attention" : "is-healthy"}><strong>{caseObjectMembers.filter((member) => atRiskRepositoryEntries.some((entry) => entry.id === member.entry.id)).length}</strong><span>Need locator review</span></article>
-                    </div>
-                    <div className="automation-object-binding-list">
-                      {caseObjectMembers.map((member) => (
-                        <button key={member.entry.id} onClick={() => {
-                          setView("repository");
-                          selectRepositoryEntry(member.entry.id, getRepositoryScreenKey(member.entry));
-                        }} type="button">
-                          <span><strong>{member.ref}</strong><small>{member.htmlTag} · {member.entry.locator_kind || "locator"}</small></span>
-                          <OpenIcon size={14} />
-                        </button>
-                      ))}
-                      {!caseObjectMembers.length ? <div className="empty-state compact">No repository fields are associated with this case. Reference a saved Screen.Field in your automation to link it here.</div> : null}
-                    </div>
-                  </section>
-                ) : null}
+                {activeAutomationWorkspaceTab === "suites" ? <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
+                  <RelatedWorkItemsPanel key={activeCase.id} ariaLabel="Linked Suites" title="Linked Suites" eyebrow="Traceability" description="Organize this automation case in reusable Suites."
+                    items={suiteLinkDraftIds.map(id => { const suite = suites.find(item => item.id === id); return { id, displayId: suite?.display_id, title: suite?.name || id, description: richTextToPlainText(suite?.description || ""), relation: "included in", icon: <TileCardSuiteIcon />, canUnlink: canEditAutomationSuiteLinks, onOpen: () => navigate(`/design?suite=${encodeURIComponent(id)}`) }; })}
+                    linking={canEditAutomationSuiteLinks ? { scopeKey: `automation-suites:${projectId}:${activeCase.id}`, loadCandidates: async () => ({ items: asArray(await api.testSuites.list({ app_type_id: appTypeId })).map(suite => ({ id: suite.id, displayId: suite.display_id, title: suite.name, relation: "included in", icon: <TileCardSuiteIcon /> })) }), onLink: async suite => { await saveAutomationSuiteLinks([...new Set([...suiteLinkDraftIds, suite.id])]); } } : undefined}
+                    onUnlink={canEditAutomationSuiteLinks ? async suite => { await saveAutomationSuiteLinks(suiteLinkDraftIds.filter(id => id !== suite.id)); } : undefined} />
+                </div> : null}
+                {activeAutomationWorkspaceTab === "defects" ? <div className="detail-section-panel" role="tabpanel"><LinkedDefectsPanel canUpdate={canUpdateAutomationCase} itemId={activeCase.id} projectId={projectId} subject="test-case" onSaved={() => void queryClient.invalidateQueries({ queryKey: automationCaseDetailQueryKey(projectId, activeCase.id), exact: true })} /></div> : null}
+                {activeAutomationWorkspaceTab === "repository" && canViewObjectRepository ? <AutomationObjects pages={caseRepositoryPages} selectedScreen={selectedScreenName} selectedField={selectedRepositoryId}
+                  onSelectScreen={key => selectRepositoryScreen(key, true)} onSelectField={(id,key) => selectRepositoryEntry(id,key,true)} tab={screenDetailTab} onTabChange={setScreenDetailTab}
+                  overview={renderRepositoryScreenOverview()} evidence={<div className="repository-evidence-block">{screenScreenshotDraft && isLikelyImageUrl(screenScreenshotDraft) ? <img alt={`${activeScreenName} full screen`} src={screenScreenshotDraft}/> : null}<label>Full DOM / accessibility tree</label><pre>{screenDomDraft || screenInfoDraft.accessibility_tree || "No full-page DOM or accessibility snapshot captured."}</pre><small>Fingerprint: {screenInfoDraft.screen_fingerprint || "Not generated"}</small></div>}
+                  configuration={renderRepositoryConfiguration()} bindingsUnavailable={!canViewAutomationCode} loading={learningCacheQuery.isLoading} error={learningCacheQuery.isError} onRetry={() => void learningCacheQuery.refetch()}/> : null}
 
-                {activeAutomationWorkspaceTab === "runs" ? (
-                <AutomationAccordionSection
-                  countLabel={`${activeCaseHistory.length} run${activeCaseHistory.length === 1 ? "" : "s"}`}
-                  isExpanded={expandedCaseSections.history}
-                  onToggle={() => toggleCaseSection("history")}
-                  stage="history"
-                  summary={activeCaseHistory.length ? "Recent local and manual execution outcomes for this automation case." : "No run history yet."}
-                  title="Run history"
-                >
-                  <TestCaseVersionHistory
-                    canRestore={canUseAutomationBuilder}
-                    currentCase={activeCase}
-                    currentSteps={automatedSteps}
-                  />
-                  <div className="automation-run-history">
-                    {selectedCaseHistoryQuery.isLoading ? <LoadingState label="Loading run history" /> : null}
-                    {selectedCaseHistoryQuery.isError ? <div className="empty-state compact" role="alert">Run history couldn’t be loaded. <button className="ghost-button compact" onClick={() => void selectedCaseHistoryQuery.refetch()} type="button">Retry</button></div> : null}
-                    {selectedCaseHistoryQuery.isSuccess && !activeCaseHistory.length ? <div className="empty-state compact">No run history yet.</div> : null}
-                    {activeCaseHistory.map((result) => (
-                      <article className="automation-history-row" key={result.id}>
-                        <div>
-                          <strong>{result.test_case_title || activeCase.title}</strong>
-                          <span>
-                            {result.created_at ? formatRunDate.format(new Date(result.created_at)) : "Run timestamp unavailable"}
-                            {` · ${result.duration_ms ? `${Math.round(result.duration_ms / 1000)}s` : "duration pending"}`}
-                            {result.data_set_iteration_index !== null && result.data_set_iteration_index !== undefined
-                              ? ` · ${result.test_data_set_name || "Data set"} iteration ${result.data_set_iteration_index + 1}`
-                              : ""}
-                          </span>
-                          {result.data_set_row_snapshot ? (
-                            <div className="automation-history-data-row" aria-label="Execution data row">
-                              {Object.entries(result.data_set_row_snapshot).slice(0, 5).map(([key, value]) => <span key={key}><strong>{key}</strong>{value}</span>)}
-                            </div>
-                          ) : null}
-                          {result.error ? <p>{result.error}</p> : null}
-                          <ExecutionHookResults logs={result.logs || null} canViewAutomationCode={canViewAutomationCode} canViewEvidence={hasPermission(session, "result.view", projectId) && hasPermission(session, "attachment.view", projectId)} />
-                        </div>
-                        <StatusBadge value={result.status} />
-                      </article>
-                    ))}
-                  </div>
-                </AutomationAccordionSection>
-                ) : null}
+                {activeAutomationWorkspaceTab === "runs" ? <div className="detail-section-panel" role="tabpanel">
+                  <TraceabilityRunHistory appTypeId={appTypeId || undefined} projectId={projectId} testCaseId={activeCase.id} />
+                  {canUseAutomationAi && hasPermission(session, "agentic_workflow.run", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) ? <section className="automation-agent-workspace automation-maintenance-workspace" aria-label="Automation Repair"><AiLifecycleReview projectId={projectId} appTypeId={appTypeId} inputs={{ test_case_id: activeCase.id }} features={["automation-repair"]} integrations={asArray(automationLlmIntegrationsQuery.data)} title="Automation Repair" /></section> : null}
+                </div> : null}
+                {activeAutomationWorkspaceTab === "history" ? <div className="detail-section-panel" role="tabpanel">
+                  <TestCaseVersionHistory canRestore={canUseAutomationBuilder} currentCase={activeCase} currentSteps={automatedSteps} key={activeCase.id} />
+                </div> : null}
               </div>
             )}
           </Panel>
@@ -5959,28 +6187,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                      { value: "dom", label: "DOM Snapshot", meta: screenDomDraft ? "Captured" : "Pending" }
 	                    ]}
                   />
-                  {screenDetailTab === "overview" ? (
-                    <div className="repository-screen-overview">
-	                      <div className="record-grid testops-builder-form repository-screen-overview-grid">
-                        <label className="form-field"><span>Screen name</span><input readOnly value={screenInfoDraft.screen_name || activeScreenName} /></label>
-                        <label className="form-field"><span>Page URL</span><input onChange={(event) => setScreenUrlDraft(event.target.value)} placeholder="https://app.example.com/login" value={screenUrlDraft} /></label>
-                        <label className="form-field repository-span-two">
-                          <span>URL match rule</span>
-                          <div className="repository-url-rule"><select value={screenInfoDraft.url_pattern_type} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_type: event.target.value }))}><option value="exact">exact</option><option value="startsWith">startsWith</option><option value="endsWith">endsWith</option><option value="contains">contains</option><option value="regex">regex</option></select><input value={screenInfoDraft.url_pattern_value} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, url_pattern_value: event.target.value }))} placeholder="/auth/login" /></div>
-                        </label>
-                        <label className="form-field repository-span-two"><span>Description</span><RichTextEditor appearance="canonical" rows={3} value={screenInfoDraft.description} onChange={(description) => setScreenInfoDraft((current) => ({ ...current, description }))} placeholder="What this screen represents." /></label>
-                        <label className="form-field repository-span-two"><span>Intended flows</span><textarea rows={3} value={screenInfoDraft.business_meaning} onChange={(event) => setScreenInfoDraft((current) => ({ ...current, business_meaning: event.target.value }))} placeholder="Sign in, recover password, continue as guest." /></label>
-                      </div>
-                      <div className="testops-action-row">
-                        <button className="primary-button" disabled={saveRepositoryScreenEvidence.isPending} onClick={() => saveRepositoryScreenEvidence.mutate()} type="button"><LayersIcon /><span>{saveRepositoryScreenEvidence.isPending ? "Saving..." : "Save screen"}</span></button>
-	                        {canInspectRepository ? (<button className="ghost-button" disabled={!canInspectRepository} onClick={() => openRepositoryInspect(activePageObject)} type="button"><MousePointerIcon /><span>Inspect screen</span></button>) : null}
-	                        {canUseAutomationAi && canInspectRepository ? <button className="ghost-button" disabled={(!screenDomDraft && !screenScreenshotDraft) || extractRepositoryFields.isPending} onClick={() => {
-	                          openRepositoryInspect(activePageObject);
-	                          extractRepositoryFields.mutate();
-	                        }} type="button"><SparkIcon /><span>{extractRepositoryFields.isPending ? "Suggesting..." : "AI suggest fields"}</span></button> : null}
-                      </div>
-                    </div>
-                  ) : null}
+                  {screenDetailTab === "overview" ? renderRepositoryScreenOverview() : null}
                   {screenDetailTab === "fields" ? (
                     <div className="repository-fields-panel">
                       <div className="testops-action-row">
@@ -6038,197 +6245,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             </div>
           </Panel>
 
-	          {selectedRepositoryEntry && isRepositoryConfigOpen ? (
-		            <aside className="panel card automation-detail-panel object-repository-config-drawer" aria-label="Object configuration">
-		              <button
-		                aria-label="Resize object configuration panel"
-		                className="object-repository-config-resize-handle"
-		                onKeyDown={handleRepositoryConfigResizeKeyDown}
-		                onPointerDown={handleRepositoryConfigResizeStart}
-		                title="Drag left or right to resize object configuration"
-		                type="button"
-		              />
-		              <div className="object-repository-config-head">
-	                <div>
-	                  <strong>Object Configuration</strong>
-	                  <span>Element Configuration: {repositoryDraft.object_name || getRepositoryMemberName(selectedRepositoryEntry)}</span>
-	                </div>
-	                <button
-	                  aria-label="Close object configuration"
-	                  className="object-repository-config-close"
-	                  onClick={() => setIsRepositoryConfigOpen(false)}
-	                  title="Close object configuration"
-	                  type="button"
-	                >
-	                  <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="18">
-	                    <path d="M18 6 6 18" />
-	                    <path d="m6 6 12 12" />
-	                  </svg>
-	                </button>
-	              </div>
-	              <div className="testops-action-row object-repository-config-actions">
-	                <button className="ghost-button" onClick={() => void highlightRepositoryLocator(selectedRepositoryEntry.locator, `${activeScreenName}.${getRepositoryMemberName(selectedRepositoryEntry)}`, selectedRepositoryEntry.id).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to highlight field."))} type="button">
-	                  <MousePointerIcon />
-	                  <span>Highlight</span>
-	                </button>
-
-	                <button className="primary-button" disabled={saveRepositoryEntry.isPending} onClick={() => saveRepositoryEntry.mutate()} type="button">
-	                  <PlayIcon />
-	                  <span>{saveRepositoryEntry.isPending ? "Saving..." : "Save field"}</span>
-	                </button>
-	                <button className="ghost-button danger" disabled={deleteRepositoryEntry.isPending} onClick={() => deleteRepositoryEntry.mutate(false)} type="button">
-	                  <TrashIcon size={16} />
-	                  <span>{deleteRepositoryEntry.isPending ? "Checking..." : "Delete field"}</span>
-	                </button>
-	              </div>
-	              <div className="repository-field-detail">
-	                <SubnavTabs
-	                  ariaLabel="Field details"
-	                  className="object-repository-screen-tabs"
-                  value={fieldDetailTab}
-                  onChange={setFieldDetailTab}
-                  items={[
-	                    { value: "locators", label: "Locators", meta: `${selectedLocators.length} strategies` },
-	                    { value: "evidence", label: "Evidence", meta: "DOM + visual" },
-	                    { value: "meaning", label: "AI Meaning", meta: "Agent context" },
-                      { value: "healing", label: "Healing", meta: locatorImprovementPreview ? "Review proposal" : "Readiness" }
-	                  ]}
-                />
-                {fieldDetailTab === "healing" ? (
-                  <div className="repository-healing-panel">
-	                <AiAssurancePanel
-	                  compact
-	                  gaps={selectedLocatorReviewReadiness.gaps}
-	                  provenance="Saved locator strategies, stability metadata, validation history, DOM/accessibility evidence, and captured images"
-	                  reviewState="review-required"
-	                  score={selectedLocatorReviewReadiness.score}
-	                  scoreLabel={selectedLocatorReviewReadiness.scoreLabel}
-	                  signals={selectedLocatorReviewReadiness.signals}
-	                  summary={selectedLocatorReviewReadiness.summary}
-	                  title="Locator healing readiness"
-	                />
-	                {locatorImprovementPreview ? (
-	                  <section className="locator-improvement-review" aria-label="Locator improvement review">
-	                    <div className="locator-improvement-review-head">
-	                      <div>
-	                        <span>Proposed change</span>
-	                        <strong>Human approval required</strong>
-	                      </div>
-	                      <span className="count-pill">{locatorImprovementPreview.generation_mode === "llm" ? "AI proposal" : "Rule-based proposal"}</span>
-	                    </div>
-	                    <div className="locator-improvement-diff">
-	                      <div>
-	                        <span>Current</span>
-	                        <b>{selectedRepositoryEntry.locator_kind || "css"}</b>
-	                        <code>{selectedRepositoryEntry.locator}</code>
-	                      </div>
-	                      <div>
-	                        <span>Proposed</span>
-	                        <input aria-label="Edit proposed locator strategy" onChange={(event) => setLocatorImprovementPreview((current) => current ? { ...current, suggestion: { ...current.suggestion, strategy: event.target.value } } : current)} placeholder="Locator strategy" value={locatorImprovementPreview.suggestion.strategy || ""} />
-	                        <textarea aria-label="Edit proposed locator" onChange={(event) => setLocatorImprovementPreview((current) => current ? { ...current, suggestion: { ...current.suggestion, locator: event.target.value } } : current)} placeholder="Proposed locator" rows={3} value={locatorImprovementPreview.suggestion.locator || ""} />
-	                      </div>
-	                    </div>
-	                    <p>{locatorImprovementPreview.suggestion.reason || locatorImprovementPreview.fallback_reason || "Review the proposed locator against captured evidence before applying it."}</p>
-	                    <div className="locator-improvement-provenance">
-	                      <span>{locatorImprovementPreview.provenance?.provider || (locatorImprovementPreview.generation_mode === "llm" ? "Configured AI provider" : "HelloTest deterministic rules")}</span>
-	                      {locatorImprovementPreview.provenance?.model ? <span>{locatorImprovementPreview.provenance.model}</span> : null}
-	                      {locatorImprovementPreview.request_id ? <code>{locatorImprovementPreview.request_id}</code> : null}
-	                    </div>
-	                    <div className="action-row">
-	                      <button
-	                        className="primary-button"
-	                        disabled={applyRepositoryImprovement.isPending || !locatorImprovementPreview.suggestion.locator || !locatorImprovementPreview.suggestion.strategy}
-	                        onClick={() => applyRepositoryImprovement.mutate()}
-	                        type="button"
-	                      >
-	                        {applyRepositoryImprovement.isPending ? "Applying..." : "Apply reviewed change"}
-	                      </button>
-	                      <button className="ghost-button" disabled={applyRepositoryImprovement.isPending} onClick={() => setLocatorImprovementPreview(null)} type="button">
-	                        Discard proposal
-	                      </button>
-	                    </div>
-	                  </section>
-	                ) : null}
-                    <div className="action-row">
-	                {canUseAutomationAi ? <button className="ghost-button" disabled={improveRepositoryEntry.isPending || applyRepositoryImprovement.isPending} onClick={() => improveRepositoryEntry.mutate()} type="button">
-	                  <SparkIcon />
-	                  <span>{improveRepositoryEntry.isPending ? "Preparing..." : locatorImprovementPreview ? "Regenerate proposal" : "Suggest improvement"}</span>
-	                </button> : null}
-                    </div>
-                  </div>
-                ) : null}
-                {fieldDetailTab === "locators" ? (
-                  <div className="repository-locator-detail">
-                    <div className="repository-locator-list">
-                      {selectedLocators.map((locator) => (
-                        <article key={`${locator.strategy}-${locator.locator}`}>
-                          <StatusBadge value={locator.isPrimary ? "Primary" : "Fallback"} />
-                          <strong>{locator.strategy}</strong>
-                          <code>{locator.locator}</code>
-                          <span>{Math.round(locator.confidenceScore * 100)}% · {locator.lastValidatedStatus}</span>
-                        </article>
-                      ))}
-                    </div>
-                    <div className="record-grid testops-builder-form">
-                    <label className="form-field">
-                      <span>Screen name</span>
-                      <input readOnly value={screenInfoDraft.screen_name || activeScreenName} />
-                    </label>
-                    <label className="form-field">
-                      <span>Inherited screen URL rule</span>
-                      <input readOnly value={`${screenInfoDraft.url_pattern_type} ${screenInfoDraft.url_pattern_value}`} />
-                    </label>
-                    <label className="form-field">
-                      <span>Field name</span>
-                      <input value={repositoryDraft.object_name} onChange={(event) => setRepositoryDraft((current) => ({ ...current, object_name: event.target.value }))} />
-                    </label>
-                    <label className="form-field">
-                      <span>Element type / role</span>
-                      <input value={repositoryDraft.object_role} onChange={(event) => setRepositoryDraft((current) => ({ ...current, object_role: event.target.value }))} />
-                    </label>
-                    <label className="form-field">
-                      <span>Primary locator · {Math.round(selectedRepositoryEntry.confidence * 100)}% confidence</span>
-                      <input value={repositoryDraft.locator} onChange={(event) => setRepositoryDraft((current) => ({ ...current, locator: event.target.value }))} />
-                    </label>
-                    <label className="form-field">
-                      <span>Primary strategy</span>
-                      <input value={repositoryDraft.locator_kind} onChange={(event) => setRepositoryDraft((current) => ({ ...current, locator_kind: event.target.value }))} />
-                    </label>
-                    <label className="form-field repository-span-two">
-                      <span>Fallback locators · `strategy | locator | confidence %`</span>
-                      <textarea rows={4} value={repositoryDraft.fallback_locators} onChange={(event) => setRepositoryDraft((current) => ({ ...current, fallback_locators: event.target.value }))} placeholder={"aria-label | [aria-label='Login'] | 90\ncss | button[type='submit'] | 70"} />
-                    </label>
-                    <label className="form-field">
-                      <span>Stability score (%)</span>
-                      <input max="100" min="0" type="number" value={repositoryDraft.stability_score} onChange={(event) => setRepositoryDraft((current) => ({ ...current, stability_score: event.target.value }))} />
-                    </label>
-                    <label className="form-field">
-                      <span>Inherited screen fingerprint</span>
-                      <input readOnly value={screenInfoDraft.screen_fingerprint} placeholder="Capture screen evidence to generate identity" />
-                    </label>
-                    </div>
-                  </div>
-                ) : null}
-                {fieldDetailTab === "evidence" ? (
-                  <div className="record-grid testops-builder-form">
-                    <label className="form-field"><span>Element screenshot URL</span><input value={repositoryDraft.element_screenshot_url} onChange={(event) => setRepositoryDraft((current) => ({ ...current, element_screenshot_url: event.target.value }))} /></label>
-                    <label className="form-field"><span>Ancestor screenshot URL</span><input value={repositoryDraft.ancestor_screenshot_url} onChange={(event) => setRepositoryDraft((current) => ({ ...current, ancestor_screenshot_url: event.target.value }))} /></label>
-                    <label className="form-field repository-span-two"><span>Parent / ancestor DOM snapshot</span><textarea rows={5} value={repositoryDraft.ancestor_dom || repositoryDraft.dom_structure} onChange={(event) => setRepositoryDraft((current) => ({ ...current, ancestor_dom: event.target.value }))} /></label>
-                    <label className="form-field repository-span-two"><span>Inherited screen accessibility tree</span><textarea readOnly rows={5} value={screenInfoDraft.accessibility_tree} /></label>
-                    {repositoryDraft.element_screenshot_url && isLikelyImageUrl(repositoryDraft.element_screenshot_url) ? <div className="object-repository-snapshot"><img alt={`${repositoryDraft.object_name} element`} src={repositoryDraft.element_screenshot_url} /></div> : null}
-                  </div>
-                ) : null}
-                {fieldDetailTab === "meaning" ? (
-                  <div className="record-grid testops-builder-form">
-                    <label className="form-field repository-span-two"><span>AI-generated description</span><RichTextEditor appearance="canonical" rows={3} value={repositoryDraft.description} onChange={(description) => setRepositoryDraft((current) => ({ ...current, description }))} /></label>
-                    <label className="form-field repository-span-two"><span>Business meaning</span><textarea rows={3} value={repositoryDraft.business_meaning} onChange={(event) => setRepositoryDraft((current) => ({ ...current, business_meaning: event.target.value }))} /></label>
-                    <label className="form-field"><span>Usage keywords</span><input value={repositoryDraft.usage_keywords} onChange={(event) => setRepositoryDraft((current) => ({ ...current, usage_keywords: event.target.value }))} placeholder="login, submit, authenticate" /></label>
-                    <label className="form-field repository-span-two"><span>Healing guidance</span><textarea rows={3} value={repositoryDraft.fallback_strategy} onChange={(event) => setRepositoryDraft((current) => ({ ...current, fallback_strategy: event.target.value }))} /></label>
-	                  </div>
-	                ) : null}
-	              </div>
-	            </aside>
-	          ) : null}
+	          {renderRepositoryConfiguration()}
 
 	          {isRepositoryImportModalOpen ? (
 	            <div className="modal-backdrop" onClick={() => !importRepositoryEntries.isPending && setIsRepositoryImportModalOpen(false)} role="presentation">
@@ -6587,7 +6604,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         executionProfile={<ExecutionContextSelector appTypeId={runReviewRequest.appTypeId} projectId={runReviewRequest.projectId} onConfigurationChange={setSelectedExecutionConfigurationId} onDataSetChange={setSelectedExecutionDataSetId} onEnvironmentChange={setSelectedExecutionEnvironmentId} selectedConfigurationId={selectedExecutionConfigurationId} selectedDataSetId={selectedExecutionDataSetId} selectedEnvironmentId={selectedExecutionEnvironmentId} />}
         onClose={() => setRunReviewRequest(null)} onOpenCase={id => { setRunReviewRequest(null); selectAutomationCase(id); }} onRun={reviewed => { setRunReviewError(""); runSelectedAutomationCases.mutate({ request: runReviewRequest, reviewed }); }} onRetryStart={() => { setRunReviewError(""); retryRemoteAutomationStart.mutate(); }} onOpenRun={() => { if (pendingRemoteRun) navigate(`/executions?view=${pendingRemoteRun.mode === "local" ? "local-runs" : "suite-runs"}&execution=${pendingRemoteRun.id}`); setRunReviewRequest(null); }} /> : null}
       {isNewSectionOpen && canEditAutomationCode ? <AutomationOverlay title={newStepIsPrecondition ? "Add precondition" : "Add section"} subtitle={newStepPlacementLabel ? richTextToPlainText(newStepPlacementLabel) : "Describe the action and expected outcome."} icon={<AddIcon size={20} />} closeDisabled={createAutomationStep.isPending} onClose={() => setIsNewSectionOpen(false)} variant="dialog"><section className="automation-new-section" id="automation-new-step-composer" aria-label="Add plan section">
-                      <div className="automation-plan-heading"><strong>{newStepIsPrecondition ? "New precondition" : "New section"}</strong><select aria-label="New step section" onChange={(event) => { setNewStepIsPrecondition(event.target.value === "precondition"); setNewStepPlacement({ mode: "end", stepId: "" }); }} value={newStepIsPrecondition ? "precondition" : "step"}><option value="step">Test section</option><option value="precondition">Precondition</option></select></div>
+                      <div className="automation-plan-heading"><strong>{newStepIsPrecondition ? "New precondition" : "New section"}</strong><select aria-label="New step section" onChange={(event) => { setNewStepIsPrecondition(event.target.value === "precondition"); setNewStepPlacement({ mode: "end", stepId: "" }); }} value={newStepIsPrecondition ? "precondition" : "step"}><option value="step">Test section</option><option value="precondition" disabled={automatedSteps.some(isAutomationPrecondition)}>Precondition</option></select></div>
                       {newStepPlacementLabel ? <span className="muted">{richTextToPlainText(newStepPlacementLabel)} <button className="ghost-button compact" onClick={() => setNewStepPlacement({ mode: "end", stepId: "" })} type="button">Reset placement</button></span> : null}
                       <div className="automation-plan-behavior-fields"><label className="form-field"><span>Section name</span><GherkinStepTextField ariaLabel="New step action" availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(name) => setNewStepDraft((current) => ({ ...current, name }))} placeholder="For example, sign in with valid credentials" value={newStepDraft.name} /></label><label className="form-field"><span>Expected result</span><GherkinStepTextField ariaLabel="New step expected result" availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(expected_result) => setNewStepDraft((current) => ({ ...current, expected_result }))} placeholder="Describe the outcome" value={newStepDraft.expected_result} /></label></div>
                       <div className="automation-plan-actions"><select aria-label="New step type" onChange={(event) => setNewStepDraft((current) => ({ ...emptyAutomationStepDraft(event.target.value as TestStepType), name: current.name, expected_result: current.expected_result }))} value={newStepDraft.step_type}>{allowedStepTypes.map((type) => <option key={type} value={type}>{type.toUpperCase()}</option>)}</select><button className="primary-button compact" disabled={!newStepDraft.name.trim() || createAutomationStep.isPending} onClick={() => createAutomationStep.mutate()} type="button"><AddIcon size={14} />{createAutomationStep.isPending ? "Adding…" : newStepIsPrecondition ? "Add precondition" : "Add section"}</button></div>
@@ -6598,16 +6615,17 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
           <div className="modal-header"><div><h2>Build with automation agent</h2><p>{batchBuildTargetIds.length} selected cases · Saved plans are checked before building.</p></div><DialogCloseButton disabled={scheduleAiAutomation.isPending} onClick={() => setIsBatchAgentOpen(false)} /></div>
           <div className="resource-form"><div className="resource-form-body automation-agent-brief">
             <label className="form-field"><span>Build instructions (optional)</span><textarea onChange={(event) => setAgentMission(event.target.value)} rows={4} value={agentMission} placeholder="Each agent uses its case’s saved plan. Add instructions that apply to all selected cases." /></label>
-            <div className="automation-plan-behavior-fields"><label className="form-field"><span>Start URL</span><input onChange={(event) => setStartUrl(event.target.value)} placeholder="Use selected environment" value={startUrl} /></label><label className="form-field"><span>Build time</span><input onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt} /><small className="muted">Leave empty to queue now.</small></label></div>
+            <div className="automation-plan-behavior-fields">{batchHasUrlRuntime ? <label className="form-field"><span>Start URL{batchStartUrlRequired ? " (required)" : " (optional)"}</span><input aria-label="Build start URL" type="url" required={batchStartUrlRequired} onChange={(event) => setBatchStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={batchStartUrl} /><small className="muted">{batchStartUrlRequired ? "Review the application URL for this build, including retries." : "API-only plans may use their configured request URLs."}</small>{batchStartUrl.trim() && batchStartUrlValidation ? <small role="alert">{batchStartUrlValidation}</small> : null}</label> : null}<label className="form-field"><span>Build time</span><input onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt} /><small className="muted">Leave empty to queue now.</small></label></div>
             <details><summary>Additional guidance & execution context</summary><div className="stack-list"><label className="form-field"><span>Guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} rows={3} value={builderContext} /></label><ExecutionContextSelector appTypeId={appTypeId} projectId={projectId} onConfigurationChange={setSelectedExecutionConfigurationId} onDataSetChange={setSelectedExecutionDataSetId} onEnvironmentChange={setSelectedExecutionEnvironmentId} selectedConfigurationId={selectedExecutionConfigurationId} selectedDataSetId={selectedExecutionDataSetId} selectedEnvironmentId={selectedExecutionEnvironmentId} /></div></details>
-            <label className="repository-field-check"><input type="checkbox" checked={allowBrowserActions} onChange={(event) => setAllowBrowserActions(event.target.checked)} /><span>Allow browser interactions while building Web steps (may submit forms)</span></label>
+            {batchStartUrlRequired ? <AutomationBrowserBuildMode interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={scheduleAiAutomation.isPending}/> : null}
+                      <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} disabled={buildSingleAutomation.isPending || scheduleAiAutomation.isPending || createAutomationCase.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"}/>
             <p className="muted">Each build includes its saved steps, expected results, accessible stories, reusable objects and selected execution context.</p>
             <section className="automation-batch-readiness" aria-label="Selected build plans">
               {batchBuildReadinessQuery.isPending ? <p role="status">Checking saved behavior…</p> : null}
               {batchBuildReadinessQuery.isError ? <div role="alert"><p>{batchBuildReadinessQuery.error instanceof Error ? batchBuildReadinessQuery.error.message : "Saved plans could not be checked."}</p><button className="ghost-button compact" type="button" onClick={() => void batchBuildReadinessQuery.refetch()}>Recheck plans</button></div> : null}
-              {batchBuildReadinessQuery.data?.map(result => <div key={result.id}><strong>{result.title}</strong><span>{result.stepCount} steps · {result.ready ? "Ready to build" : "Needs attention"}</span>{result.issues.filter(issue => issue.severity === "blocker").map((issue, index) => <p className="automation-validation-error" key={index}>{issue.order ? `Step ${issue.order} · ` : ""}{issue.message}</p>)}</div>)}
+              {batchBuildReadinessQuery.data?.map(result => <div key={result.id}><strong>{result.title}</strong><span>{result.stepCount} steps · {result.ready ? result.stepCount ? "Ready to build" : "Plan from instructions" : "Needs attention"}</span>{result.issues.filter(issue => issue.severity === "blocker").map((issue, index) => <p className="automation-validation-error" key={index}>{issue.order ? `Step ${issue.order} · ` : ""}{issue.message}</p>)}</div>)}
             </section>
-          </div><div className="modal-footer"><button className="ghost-button" disabled={scheduleAiAutomation.isPending} onClick={() => setIsBatchAgentOpen(false)} type="button">Cancel</button>{canUseAutomationAi ? (<button className="primary-button" disabled={!batchBuildTargetIds.length || !canUseAutomationAi || scheduleAiAutomation.isPending || batchBuildReadinessQuery.isPending || batchBuildReadinessQuery.isError || Boolean(batchBuildReadinessQuery.data?.some(result => !result.ready))} onClick={() => scheduleAiAutomation.mutate()} type="button"><SparkIcon />{scheduleAiAutomation.isPending ? "Queueing…" : agentScheduledAt ? "Schedule builds" : "Build selected cases"}</button>) : null}</div></div>
+          </div><div className="modal-footer"><button className="ghost-button" disabled={scheduleAiAutomation.isPending} onClick={() => setIsBatchAgentOpen(false)} type="button">Cancel</button>{canUseAutomationAi ? (<button className="primary-button" disabled={!batchBuildTargetIds.length || !canUseAutomationAi || scheduleAiAutomation.isPending || Boolean(batchStartUrlValidation) || batchBuildReadinessQuery.isPending || batchBuildReadinessQuery.isError || Boolean(batchBuildReadinessQuery.data?.some(result => !result.ready))} onClick={() => scheduleAiAutomation.mutate()} type="button"><SparkIcon />{scheduleAiAutomation.isPending ? "Queueing…" : agentScheduledAt ? "Schedule builds" : "Build selected cases"}</button>) : null}</div></div>
         </div>
       </div> : null}
 
@@ -6640,14 +6658,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           {canRecordCreation ? (<button aria-pressed={automationCreationMode === "record"} disabled={!canUseRecorder} onClick={() => setAutomationCreationMode("record")} type="button"><MousePointerIcon />Record flow</button>) : null}
                           <button aria-pressed={automationCreationMode === "blank"} onClick={() => setAutomationCreationMode("blank")} type="button"><PencilIcon />Author steps</button>
                         </div>
-                        {automationCreationMode !== "blank" ? <label className="form-field"><span>Start URL</span><input onChange={(event) => setStartUrl(event.target.value)} placeholder="https://app.example.com" value={startUrl} /></label> : null}
+                        {automationCreateRuntimeTypes.some(type => type === "web" || type === "api") ? <label className="form-field"><span>Start URL{automationCreateStartUrlRequired ? " (required)" : " (optional)"}</span><input aria-label="Automation case start URL" type="url" required={automationCreateStartUrlRequired} onChange={(event) => setAutomationCreateStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={automationCreateStartUrl} /><small className="muted">{automationCreateStartUrlRequired ? "Saved with this case and used when generating or retrying its automation." : "Optional for API-only cases."}</small>{automationCreateStartUrl.trim() && automationCreateStartUrlValidation ? <small role="alert">{automationCreateStartUrlValidation}</small> : null}</label> : null}
                         {automationCreationMode === "ai" ? (
                           <div className="automation-agent-brief automation-create-ai">
                             <label className="form-field"><span>Build instructions (optional)</span><textarea onChange={(event) => setAgentMission(event.target.value)} placeholder="The linked cases and behavior plan are included. Add any priorities or constraints." rows={3} value={agentMission} /></label>
-                            <details className="automation-ai-options"><summary><IconSettings size={14} />Build settings</summary><div className="automation-ai-options-body"><label className="form-field"><span>Additional guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} placeholder="Authentication, important assertions, edge cases, and repository preferences." rows={2} value={builderContext} /></label>{automationCreateRuntimeTypes.includes("web") ? <label className="repository-field-check"><input type="checkbox" checked={allowBrowserActions} onChange={(event) => setAllowBrowserActions(event.target.checked)} /><span>Allow the automation agent to interact with this application while building (may submit forms)</span></label> : null}
+                            {automationCreateRuntimeTypes.includes("web") ? <AutomationBrowserBuildMode interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={createAutomationCase.isPending}/> : null}
+                      <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} disabled={buildSingleAutomation.isPending || scheduleAiAutomation.isPending || createAutomationCase.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"}/>
+                            <details className="automation-ai-options"><summary><IconSettings size={14} />Build settings</summary><div className="automation-ai-options-body"><label className="form-field"><span>Additional guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} placeholder="Authentication, important assertions, edge cases, and repository preferences." rows={2} value={builderContext} /></label>
                             <label className="form-field"><span>Schedule build (optional)</span><input onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt} /><small>Leave blank to queue the build after the case is saved.</small></label>
                             </div></details>
-                            {!automationCreateManualCaseIds.length && !automationCreateSteps.some((step) => step.action.trim() || step.expected_result.trim()) ? <p className="muted">Link a source Test Case or add a step so the AI has behavior to build.</p> : null}
+                            {!automationCreateManualCaseIds.length && !automationCreateSteps.some((step) => step.action.trim() || step.expected_result.trim()) ? <p className="muted">Describe the requested flow in Build instructions or the case description. The agent will create its steps before automating them.</p> : null}
                           </div>
                         ) : <p className="muted">{automationCreationMode === "record" ? "The saved case opens in Build with Record flow selected." : "The saved case opens with its preconditions and steps ready to edit."}</p>}
                       </section>
@@ -6676,7 +6696,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
               </div>
               <div className="resource-form-footer">
                 <button className="ghost-button" disabled={createAutomationCase.isPending} onClick={closeCreateAutomation} type="button">Cancel</button>
-                {canCreateAutomationCase ? (<button className="primary-button" disabled={!automationCreateMetadata.title.trim() || createAutomationCase.isPending || (automationCreationMode === "record" && !canUseRecorder) || Boolean(automationCreateManualCaseIds.length && (createSourcesQuery.isPending || createSourcesQuery.isError)) || (automationCreationMode === "ai" && (!canUseAutomationAi || (!automationCreateManualCaseIds.length && !automationCreateSteps.some((step) => step.action.trim() || step.expected_result.trim()))))} type="submit">
+                {canCreateAutomationCase ? (<button className="primary-button" disabled={!automationCreateMetadata.title.trim() || createAutomationCase.isPending || Boolean(automationCreateStartUrlValidation) || (automationCreationMode === "record" && !canUseRecorder) || Boolean(automationCreateManualCaseIds.length && (createSourcesQuery.isPending || createSourcesQuery.isError)) || (automationCreationMode === "ai" && (!canUseAutomationAi || (!automationCreateManualCaseIds.length && !automationCreateSteps.some((step) => step.action.trim() || step.expected_result.trim()) && !agentMission.trim() && !builderContext.trim() && !richTextToPlainText(automationCreateMetadata.description).trim())))} type="submit">
                   <AddIcon /><span>{createAutomationCase.isPending ? "Creating..." : automationCreationMode === "ai" ? agentScheduledAt ? "Create & schedule" : "Create & build" : automationCreationMode === "record" ? "Create & record" : "Create case"}</span>
                 </button>) : null}
               </div>
@@ -6720,26 +6740,38 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
       {isAutomationCodePreviewOpen && activeCase ? (
         <CodePreviewDialog
-          code={completeAutomationCode}
+          code={exportPreviewCode}
+          copyDisabled={exportContextLoading || exportContextError || exportSourceInvalid}
+          onRetry={exportContextError ? retryExportContext : undefined}
           objectRepository={learningCache}
           onClose={() => setIsAutomationCodePreviewOpen(false)}
-          subtitle="Code for the current step plan, including structured API requests. Save edited steps before playback."
+          showMappings={false}
+          subtitle="Save as automation.spec.ts and run with Playwright. Data rows and repository locators are included; supply private or missing run values through QAIRA_DATA_JSON."
           title={`${activeCase.display_id || activeCase.id} automation code`}
         />
       ) : null}
 
       {isParameterDialogOpen ? (
         <StepParameterDialog
+          key={activeCase?.id || selectedCaseId}
+          allowSensitiveValueOverrides
+          defaultValues={inheritedParameterDefaults}
+          inheritedParameterNames={[...Object.keys(inheritedParameterDefaults), ...buildDataSetParameterDefinitions(testDataSets.find(item => item.id === effectiveCaseDataSetId)).map(parameter => parameter.name)]}
+          overrideValues={testCaseParameterValues}
+          previewValues={resolvedParameterValues}
+          onRefreshPreviews={() => setParameterPreviewRevision(value => value + 1)}
+          onReset={name => { if (caseParameterOverrideDraftRef.current.scope === caseParameterPrivacyScope) caseParameterOverrideDraftRef.current.names.delete(name); setTestCaseParameterValues(current => { const next = { ...current }; delete next[name]; return next; }); }}
           getInputState={(parameter) => resolveParameterInputState(parameter.scope)}
           headerContent={(
             <div className="step-parameter-dialog-context">
               <div className="step-parameter-dialog-context-card">
                 <strong>Automation test data</strong>
-                <span>`@t` saves on this automation case, `@s` saves on the selected linked suite, and `@r` is supplied by the run context.</span>
+                <span>Linked manual test values supply the defaults. `@t` and `@r` changes save on this automation case; resetting an override restores its inherited value. `@s` saves on the selected suite. Explicit run values can replace case defaults.</span>
               </div>
               {activeCaseSuiteIds.length ? (
                 <div className="step-parameter-dialog-context-card">
                   <strong>Suite target</strong>
+                  {!selectedParameterSuiteId && activeCaseSuiteIds.length > 1 ? <span>Select the suite whose values this build should use. Different suite defaults require an explicit choice.</span> : null}
                   <div className="selection-chip-row">
                     {activeCaseSuiteIds.map((suiteId) => {
                       const suite = suites.find((item) => item.id === suiteId);
@@ -6767,6 +6799,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
           values={mergedParameterValues}
         />
       ) : null}
+      {parameterReviewDialog}
 
       {repositoryUsageBlock ? (
         <div className="modal-backdrop" role="presentation">

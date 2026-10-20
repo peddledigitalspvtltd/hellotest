@@ -98,3 +98,26 @@ test('stock legacy Test Case priorities and regression templates upgrade while c
  old.prompt='Our reviewed performance testing instructions.';
  assert.equal((await service({[item.id]:{published:{version:1,config:old}}}).resolve(item.id)).config.prompt,old.prompt);
 });
+
+test('stock browser evidence guidance upgrades in published and draft controls while reviewed custom blocks remain exact',async()=>{
+ const ids=['ai.automation.keyword_generation','ai.agentic.automation-engineer','ai.automation.review','ai.automation.gap_analysis','ai.execution.network_to_api_steps'];
+ for(const id of ids){
+  const item=catalog.find(item=>item.id===id);
+  for(const [key,previousDefaults] of Object.entries(item.instruction_default_migrations)){
+   for(const previousDefault of previousDefaults){
+    const old=structuredClone(item.defaults);
+    old.instruction_blocks[key]=previousDefault;
+    const stored={revision:5,published:{version:4,config:old},draft:{config:old}};
+    const config=service({[id]:stored}),detail=await config.detail(id);
+    assert.equal(detail.config.instruction_blocks[key],item.defaults.instruction_blocks[key]);
+    assert.equal(detail.draft.config.instruction_blocks[key],item.defaults.instruction_blocks[key]);
+    assert.equal(detail.published_version,4,'Reading defaults does not publish a new configuration');
+    assert.equal(detail.instruction_default_migrations,undefined);
+    const custom=structuredClone(old);custom.instruction_blocks[key]='Our reviewed screen and URL acceptance policy.';
+    const reviewed=await service({[id]:{published:{version:5,config:custom},draft:{config:custom}}}).detail(id);
+    assert.equal(reviewed.config.instruction_blocks[key],custom.instruction_blocks[key]);
+    assert.equal(reviewed.draft.config.instruction_blocks[key],custom.instruction_blocks[key]);
+   }
+  }
+ }
+});

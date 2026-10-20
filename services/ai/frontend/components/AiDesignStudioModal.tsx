@@ -4,7 +4,7 @@ import { useAiOutputSizing } from "../lib/useAiOutputSizing";
 import { useEffect, useId, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import {
-  IconAdjustmentsHorizontal, IconCalendarTime, IconCheck, IconChevronDown, IconChevronUp,
+  IconAdjustmentsHorizontal, IconArrowDown, IconArrowUp, IconCalendarTime, IconCheck, IconChevronDown, IconChevronUp,
   IconEdit, IconLayoutGrid, IconLibraryPlus,
   IconBraces, IconListDetails, IconPlus, IconRefresh, IconSearch, IconSparkles, IconTrash, IconX
 } from "@tabler/icons-react";
@@ -12,6 +12,7 @@ import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requ
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
 import { useAiLlmDefault } from "@hellotest/integration/frontend/hooks/useAiLlmDefault";
 import { AiPromptContextPanel } from "./AiPromptContextPanel";
+import { useDomainMetadata } from '@hellotest/platform/frontend/src/platform/hooks/useDomainMetadata';
 import { AiLlmSelect } from "./AiLlmSelect";
 import { AiGenerationProgress } from "./AiGenerationProgress";
 import { AiIntentCanvas } from "./AiIntentCanvas";
@@ -72,6 +73,7 @@ type AiDesignStudioModalProps = {
   onViewExistingCase?: (testCaseId: string) => void;
   previewCases: AiDesignedTestCaseCandidate[];
   onPreviewCaseChange?: (clientId: string, next: AiDesignedTestCaseCandidate) => void;
+  onPreviewCasesReorder?: (orderedClientIds: string[]) => void;
   onRemovePreviewCase: (clientId: string) => void;
   onTogglePreviewRequirement?: (clientId: string, requirementId: string) => void;
   previewMessage: string;
@@ -109,12 +111,13 @@ const gherkinFor = (candidate: AiDesignedTestCaseCandidate) => candidate.gherkin
   || buildGherkinFromSteps(candidate.title, [], candidate.steps);
 
 export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
+  const domainMetadata=useDomainMetadata();
   const {
     requirementLabel, requirementHelpText, requirements, selectedRequirementIds, allowMultipleRequirements,
     onRequirementSelectionChange, integrations, integrationId, onIntegrationIdChange, maxCases, onMaxCasesChange,
     additionalContext, onAdditionalContextChange, externalLinksText, onExternalLinksTextChange, referenceImages,
     onAddImages, onRemoveImage, appTypeName, existingCases, existingCasesTitle, existingCasesSubtitle,
-    onViewExistingCase, previewCases, onPreviewCaseChange, onRemovePreviewCase, onTogglePreviewRequirement,
+    onViewExistingCase, previewCases, onPreviewCaseChange, onPreviewCasesReorder, onRemovePreviewCase, onTogglePreviewRequirement,
     previewMessage, previewTone, onPreviewMessageDismiss, isPreviewing, isAccepting, onPreview, onSchedule,
     onAuthoringModeChange, onAccept, onClose, onCancel, disablePreview, disableSchedule = true, disableAccept,
     isScheduling = false, closeDisabled = false, acceptLabel, dialogClassName,
@@ -129,6 +132,8 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const [editingIds, setEditingIds] = useState<string[]>([]);
+  const [orderAnnouncement, setOrderAnnouncement] = useState("");
+  const outlineRef = useRef<HTMLElement>(null);
   const outputRef = useAiOutputSizing<HTMLDivElement>([previewCases, editingIds]);
   const [storyPickerOpen, setStoryPickerOpen] = useState(false);
   const [draftStoryIds, setDraftStoryIds] = useState<string[]>([]);
@@ -182,6 +187,21 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
     onPreviewCaseChange?.(draft.client_id, updated);
   };
   const toggleFrom = (setter: Dispatch<SetStateAction<string[]>>, id: string) => setter((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  const reorderCase = (clientId: string, direction: -1 | 1) => {
+    // Searching is a filtered view; require the full order before moving drafts.
+    if (busy || draftSearch.trim() || !onPreviewCasesReorder) return;
+    const index = previewCases.findIndex(item => item.client_id === clientId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= previewCases.length) return;
+    const nextIds = previewCases.map(item => item.client_id);
+    [nextIds[index], nextIds[target]] = [nextIds[target], nextIds[index]];
+    onPreviewCasesReorder(nextIds);
+    setOrderAnnouncement(`${previewCases[index].title || "Draft"} moved to position ${target + 1} of ${previewCases.length}.`);
+    window.requestAnimationFrame(() => {
+      const item = Array.from(outlineRef.current?.querySelectorAll<HTMLElement>(".ai-artifact-item") || []).find(element => element.dataset.clientId === clientId);
+      item?.querySelector<HTMLButtonElement>(":scope > button")?.focus();
+    });
+  };
   const changeMode = (mode: AuthoringMode) => {
     if (mode === authoringMode || busy) return;
     setAuthoringMode(mode);
@@ -256,14 +276,19 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
               {isPreviewing ? <AiGenerationProgress modelLabel={integrationLabel} onCancel={onCancel} /> : null}
               {!previewCases.length && !isPreviewing ? <div className="ai-test-generator-empty"><h3>{selectedStories.length ? "Your proposal will appear here" : "Your proposal will appear here"}</h3><p>{selectedStories.length ? "Generate a proposal, then refine and save the drafts you choose." : requirementHelpText}</p></div> : null}
               {visibleDrafts.length ? <div className="ai-artifact-workspace">
-                <nav aria-label="Proposal outline" className="ai-artifact-outline">
+                <nav aria-label="Proposal outline" className="ai-artifact-outline" ref={outlineRef}>
+                  <span className="sr-only" role="status" aria-live="polite">{orderAnnouncement}</span>
                   <div className="ai-artifact-outline__tools"><label><input aria-label="Select all" checked={visibleDrafts.every(item => selectedIds.includes(item.client_id))} disabled={busy} onChange={event => setSelectedIds(current => event.target.checked ? [...new Set([...current, ...visibleDrafts.map(item => item.client_id)])] : current.filter(id => !visibleDrafts.some(item => item.client_id === id)))} type="checkbox" />Select all</label><button disabled={!selectedIds.length || busy} onClick={() => setSelectedIds([])} type="button">Clear selection</button></div>
-                  {visibleDrafts.map((draft, index) => <article aria-current={(expandedIds[0] || visibleDrafts[0]?.client_id) === draft.client_id ? "true" : undefined} className="ai-artifact-item" key={draft.client_id}>
+                  {visibleDrafts.map((draft, index) => <article aria-current={(expandedIds[0] || visibleDrafts[0]?.client_id) === draft.client_id ? "true" : undefined} className="ai-artifact-item" data-client-id={draft.client_id} key={draft.client_id}>
                     <input aria-label={`Select ${draft.title}`} checked={selectedIds.includes(draft.client_id)} disabled={busy} onChange={event => setSelectedIds(current => event.target.checked ? [...new Set([...current, draft.client_id])] : current.filter(id => id !== draft.client_id))} type="checkbox" />
                     <button aria-current={(expandedIds[0] || visibleDrafts[0]?.client_id) === draft.client_id ? "true" : undefined} onClick={() => setExpandedIds([draft.client_id])} onKeyDown={event => {
                       const next = event.key === "ArrowDown" ? index + 1 : event.key === "ArrowUp" ? index - 1 : event.key === "Home" ? 0 : event.key === "End" ? visibleDrafts.length - 1 : -1;
                       if (next >= 0 && next < visibleDrafts.length) { event.preventDefault(); setExpandedIds([visibleDrafts[next].client_id]); event.currentTarget.closest("nav")?.querySelectorAll<HTMLButtonElement>(".ai-artifact-item > button")[next]?.focus(); }
-                    }} type="button"><strong>{draft.title || "Untitled draft"}</strong><small>P{draft.priority} · {draft.step_count} {draft.authoring_mode === "gherkin" ? "scenario lines" : "steps"}{draftReadinessIssues(draft, authoringMode).length ? " · Needs attention" : ""}</small></button>
+                    }} type="button"><strong>{draft.title || "Untitled draft"}</strong><small>Case {previewCases.indexOf(draft) + 1} · P{draft.priority} · {draft.step_count} {draft.authoring_mode === "gherkin" ? "scenario lines" : "steps"}{draftReadinessIssues(draft, authoringMode).length ? " · Needs attention" : ""}</small></button>
+                    {onPreviewCasesReorder && previewCases.length > 1 ? <div className="ai-test-case-order-actions" role="group" aria-label={`Reorder ${draft.title || "draft"}`}>
+                      <button aria-label={`Move case ${previewCases.indexOf(draft) + 1} up`} disabled={busy || Boolean(draftSearch.trim()) || previewCases[0].client_id === draft.client_id} onClick={() => reorderCase(draft.client_id, -1)} title={draftSearch.trim() ? "Clear the search to reorder cases" : "Move case up"} type="button"><IconArrowUp size={16} /></button>
+                      <button aria-label={`Move case ${previewCases.indexOf(draft) + 1} down`} disabled={busy || Boolean(draftSearch.trim()) || previewCases[previewCases.length - 1].client_id === draft.client_id} onClick={() => reorderCase(draft.client_id, 1)} title={draftSearch.trim() ? "Clear the search to reorder cases" : "Move case down"} type="button"><IconArrowDown size={16} /></button>
+                    </div> : null}
                   </article>)}
                 </nav>
                 {visibleDrafts.filter(draft => draft.client_id === (visibleDrafts.some(item => item.client_id === expandedIds[0]) ? expandedIds[0] : visibleDrafts[0]?.client_id)).map(draft => {
@@ -283,7 +308,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
                       { label: "Test content", before: sourceCase.authoringMode === "gherkin" ? sourceCase.gherkinDocument || "" : sourceCase.steps.map(step => `${step.step_order}. ${step.action || ""}\nExpected: ${step.expected_result || ""}`).join("\n\n"), after: draftMode === "gherkin" ? gherkinFor(draft) : draft.steps.map(step => `${step.step_order}. ${step.action || ""}\nExpected: ${step.expected_result || ""}`).join("\n\n") }
                     ]} /> : null}
                     {issues.length ? <p className="ai-test-generator-draft-issues" role="status">{issues.join(" ")}</p> : null}
-                    <AiTestCaseDraftFields section="fields" title={draft.title} description={draft.description} descriptionText={plainText(draft.description)} priority={draft.priority} editing={editing} disabled={busy} onChange={patch => updateDraft(draft,patch)} />
+                    <AiTestCaseDraftFields section="fields" title={draft.title} description={draft.description} descriptionText={plainText(draft.description)} priority={draft.priority} testCaseType={draft.test_case_type} typeOptions={domainMetadata.data?.test_cases?.types||[]} editing={editing} disabled={busy} onChange={patch => updateDraft(draft,patch)} />
                     {draftMode === "gherkin" ? <GherkinEditor compact featureTitle={draft.title} onChange={(document) => updateDraft(draft, { authoring_mode: "gherkin", gherkin_document: document })} parameterValues={draft.parameter_values} readOnly={!editing} value={gherkinFor(draft)} /> : <AiTestCaseStepTable steps={draft.steps} editing={editing} disabled={busy} newStep={() => ({ step_order: draft.steps.length + 1, step_type: "web" as const, action: "", expected_result: "" })} onChange={items => { const steps = items.map((step, index) => ({ ...step, step_order: index + 1 })); updateDraft(draft, { steps, step_count: steps.length }); }} />}
                     {selectedStories.length > 1 ? <div className="ai-test-generator-traceability"><span>Story traceability</span>{selectedStories.map((story) => <button className={draft.requirement_ids.includes(story.id) ? "is-linked" : ""} disabled={!onTogglePreviewRequirement || busy} key={story.id} onClick={() => onTogglePreviewRequirement?.(draft.client_id, story.id)} type="button">{draft.requirement_ids.includes(story.id) ? <IconCheck size={13} /> : <IconPlus size={13} />}{story.display_id || story.title}</button>)}</div> : null}
 
@@ -298,7 +323,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
 
 
         </div>
-            <footer className="ai-test-generator-footer"><strong>{previewCases.length ? `${selectedCount} selected of ${previewCases.length}` : "Draft first. Save after review."}</strong><div>{previewCases.length ? <button disabled={busy} onClick={() => previewCases.forEach((draft) => onRemovePreviewCase(draft.client_id))} type="button">Decline all</button> : null}{onSchedule ? <span><button disabled={disableSchedule || busy || integrationUnavailable} onClick={() => onSchedule(authoringMode)} type="button"><IconCalendarTime size={17} />{isScheduling ? "Scheduling…" : "Schedule"}</button><InfoTooltip content={scheduleHelperText || "Queue generation for the selected Stories. Generated cases return as reviewable drafts."} label="Scheduled generation information" /></span> : null}<button disabled={disablePreview || busy || integrationUnavailable} onClick={() => onPreview(authoringMode)} className={!previewCases.length ? "primary-button" : undefined} type="button"><IconSparkles size={17} />{isPreviewing ? "Generating…" : previewTone === "error" && previewMessage ? "Retry" : previewCases.length ? "Regenerate" : "Generate drafts"}</button>{previewCases.length ? <button className="primary-button" disabled={disableAccept || !selectedCount || invalidSelectedDraft || busy} onClick={() => onAccept(selectedIds)} title={invalidSelectedDraft ? "Complete the selected draft title and required test content before accepting." : undefined} type="button"><IconLibraryPlus size={17} />{isAccepting ? "Accepting…" : `${acceptLabel} (${selectedCount})`}</button> : null}</div></footer>
+            <footer className="ai-test-generator-footer"><strong>{previewCases.length ? `${selectedCount} selected of ${previewCases.length}` : "Draft first. Save after review."}</strong><div>{previewCases.length ? <button disabled={busy} onClick={() => previewCases.forEach((draft) => onRemovePreviewCase(draft.client_id))} type="button">Decline all</button> : null}{onSchedule ? <span><button disabled={disableSchedule || busy || integrationUnavailable} onClick={() => onSchedule(authoringMode)} type="button"><IconCalendarTime size={17} />{isScheduling ? "Scheduling…" : "Schedule"}</button><InfoTooltip content={scheduleHelperText || "Queue generation for the selected Stories. Generated cases return as reviewable drafts."} label="Scheduled generation information" /></span> : null}<button disabled={disablePreview || busy || integrationUnavailable} onClick={() => onPreview(authoringMode)} className={!previewCases.length ? "primary-button" : undefined} type="button"><IconSparkles size={17} />{isPreviewing ? "Generating…" : previewTone === "error" && previewMessage ? "Retry" : previewCases.length ? "Regenerate" : "Generate drafts"}</button>{previewCases.length ? <button className="primary-button" disabled={disableAccept || !selectedCount || invalidSelectedDraft || busy} onClick={() => onAccept(previewCases.filter(item => selectedIds.includes(item.client_id)).map(item => item.client_id))} title={invalidSelectedDraft ? "Complete the selected draft title and required test content before accepting." : undefined} type="button"><IconLibraryPlus size={17} />{isAccepting ? "Accepting…" : `${acceptLabel} (${selectedCount})`}</button> : null}</div></footer>
         <footer className="ai-test-generator-status-footer">
           <span>{isPreviewing ? "Waiting for the model" : isAccepting ? "Saving reviewed drafts…" : previewCases.length ? "Proposal ready for review" : "Ready to generate"}</span>
           <div>

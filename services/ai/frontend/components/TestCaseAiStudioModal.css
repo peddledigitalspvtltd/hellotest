@@ -1075,3 +1075,68 @@ html body .modal-backdrop.test-case-ai-studio-backdrop > .modal-card.ai-test-gen
   .ai-test-generator-modal .ai-test-generator-step-row > p:nth-child(2)::before { content: "Action"; }
   .ai-test-generator-modal .ai-test-generator-step-row > p:nth-child(3)::before { content: "Expected"; }
 }
+
+/* Shared Test Case review editor: comfortable fields with local ordering tools. */
+.ai-test-generator-modal .ai-test-generator-header__actions > .ai-studio-search { color: var(--app-text-muted, #64737e); background: var(--app-surface-muted, #f5f8f7); border-color: var(--app-border, #dce5e4); border-radius: 9px; }
+.ai-test-generator-modal .ai-test-generator-header__actions > button { color: var(--app-text-muted, #64737e); }
+.ai-test-generator-modal .ai-studio-search input { color: var(--app-text, #172433); }
+.ai-test-generator-modal .ai-studio-search input::placeholder { color: var(--app-text-muted, #64737e); opacity: 1; }
+.ai-test-case-draft-title-field { display: grid; min-width: 0; gap: 7px; margin: 18px 0 14px; color: var(--app-text-muted, #64737e); font-size: 12px; font-weight: 600; }
+.ai-test-case-draft-title-field > input { box-sizing: border-box; min-width: 0; width: 100%; padding: 11px 12px; border: 1px solid var(--app-border, #dce5e4); border-radius: 9px; color: var(--app-text, #172433); background: var(--app-surface, #fff); font: inherit; font-size: 16px; line-height: 1.5; }
+.ai-test-generator-modal .ai-test-generator-draft-fields { grid-template-columns: minmax(0, 1fr) 110px; align-items: start; gap: 14px; margin: 0 0 18px; }
+.ai-test-generator-modal .ai-test-generator-draft-fields > label { min-width: 0; gap: 7px; color: var(--app-text-muted, #64737e); font-size: 12px; font-weight: 600; }
+.ai-test-generator-modal .ai-test-generator-draft-fields :is(textarea, select) { box-sizing: border-box; min-width: 0; width: 100%; padding: 10px 12px; color: var(--app-text, #172433); background: var(--app-surface, #fff); border: 1px solid var(--app-border, #dce5e4); border-radius: 9px; font: inherit; font-size: 13px; font-weight: 400; line-height: 1.6; }
+.ai-test-generator-modal .ai-test-generator-draft-fields textarea { min-height: 88px; resize: vertical; }
+.ai-test-generator-modal .ai-test-case-step-editor .ai-test-generator-step-table__head,
+.ai-test-generator-modal .ai-test-case-step-editor .ai-test-generator-step-row,
+.ai-test-case-step-editor .ai-test-generator-step-table__head,
+.ai-test-case-step-editor .ai-test-generator-step-row { box-sizing: border-box; min-width: 0; grid-template-columns: 32px minmax(0, 1fr) minmax(0, 1fr) 104px; gap: 12px; padding: 14px; }
+.ai-test-case-step-editor .ai-test-generator-step-table__head > :last-child { text-align: right; font-size: 10px; }
+.ai-test-case-step-editor .ai-test-generator-step-row { align-items: start; }
+.ai-test-generator-modal .ai-test-case-step-editor:not(.is-editing) .ai-test-generator-step-table__head,
+.ai-test-generator-modal .ai-test-case-step-editor:not(.is-editing) .ai-test-generator-step-row,
+.ai-test-case-step-editor:not(.is-editing) .ai-test-generator-step-table__head,
+.ai-test-case-step-editor:not(.is-editing) .ai-test-generator-step-row { grid-template-columns: 32px minmax(0, 1fr) minmax(0, 1fr); }
+.ai-test-case-step-editor:not(.is-editing) :is(.ai-test-generator-step-table__head, .ai-test-generator-step-row) > :nth-child(4) { display: none; }
+.ai-test-case-step-editor .ai-test-case-step-number { display: grid; place-items: center; width: 26px; min-height: 30px; color: var(--app-text-muted, #64737e); font-size: 12px; font-weight: 650; }
+.ai-test-case-step-editor .ai-test-case-step-field { display: grid; min-width: 0; gap: 6px; margin: 0; }
+.ai-test-case-step-editor .ai-test-case-step-field > span { display: none; color: var(--app-text-muted, #64737e); font-size: 11px; font-weight: 600; }
+.ai-test-case-step-editor .ai-test-case-step-field textarea { box-sizing: border-box; min-width: 0; width: 100%; min-height: 88px; padding: 9px 10px; resize: vertical; border: 1px solid var(--app-border, #dce5e4); border-radius: 8px; color: var(--app-text, #172433); background: var(--app-surface, #fff); font: inherit; font-size: 13px; line-height: 1.6; }
+.ai-test-case-step-editor .ai-test-case-step-field p { min-width: 0; margin: 3px 0 0; overflow-wrap: anywhere; }
+.ai-test-case-step-editor .ai-test-case-step-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 4px; }
+.ai-test-case-step-editor .ai-test-case-step-actions > button,
+.ai-test-generator-modal .ai-test-case-order-actions > button { display: inline-grid; place-items: center; box-sizing: border-box; width: 32px; height: 32px; padding: 0; border: 1px solid var(--app-border, #dce5e4); border-radius: 7px; color: var(--app-text-muted, #64737e); background: var(--app-surface, #fff); cursor: pointer; }
+.ai-test-case-step-editor .ai-test-case-step-actions > button:hover:not(:disabled),
+.ai-test-generator-modal .ai-test-case-order-actions > button:hover:not(:disabled) { color: var(--app-accent, #18786d); background: var(--app-accent-soft, #edf6f5); }
+.ai-test-case-step-editor .ai-test-case-step-actions > button:disabled,
+.ai-test-generator-modal .ai-test-case-order-actions > button:disabled { opacity: .38; cursor: default; }
+.ai-test-case-step-editor .ai-test-generator-add-step { width: 100%; min-height: 40px; padding: 10px 14px; color: var(--app-accent, #18786d); font-size: 12px; }
+.ai-test-generator-modal .ai-artifact-item { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; column-gap: 8px; row-gap: 8px; }
+.ai-test-generator-modal .ai-artifact-item > input { margin: 4px 0 0; }
+.ai-test-generator-modal .ai-artifact-item > button { text-align: left; }
+.ai-test-generator-modal .ai-artifact-detail > header { flex-wrap: wrap; }
+.ai-test-generator-modal .ai-artifact-detail__tools { flex-wrap: wrap; margin-left: auto; }
+.ai-test-generator-modal .ai-artifact-item small { line-height: 1.5; }
+.ai-test-generator-modal .ai-test-case-order-actions { display: flex; grid-column: 2; gap: 5px; justify-content: flex-end; }
+.ai-test-generator-modal .ai-test-case-order-actions > button { width: 28px; height: 28px; }
+.ai-test-case-draft-title-field > input:focus-visible,
+.ai-test-case-step-editor :is(textarea, button):focus-visible,
+.ai-test-generator-modal :is(.ai-test-generator-draft-fields textarea, .ai-test-generator-draft-fields select, .ai-test-case-order-actions > button):focus-visible { outline: 2px solid var(--app-accent, #18786d); outline-offset: 2px; }
+@media (max-width: 720px) {
+  .ai-test-generator-modal .ai-test-generator-draft-fields { grid-template-columns: minmax(0, 1fr); }
+  .ai-test-generator-modal .ai-test-generator-draft-fields > label:last-child { max-width: 140px; }
+  .ai-test-case-step-editor .ai-test-generator-step-table__head { display: none; }
+  .ai-test-generator-modal .ai-test-case-step-editor .ai-test-generator-step-row,
+  .ai-test-generator-modal .ai-test-case-step-editor:not(.is-editing) .ai-test-generator-step-row,
+  .ai-test-case-step-editor:not(.is-editing) .ai-test-generator-step-row,
+  .ai-test-case-step-editor .ai-test-generator-step-row { grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 12px; }
+  .ai-test-generator-modal .ai-test-case-step-editor .ai-test-generator-step-row > :nth-child(2),
+  .ai-test-case-step-editor .ai-test-generator-step-row > :nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+  .ai-test-generator-modal .ai-test-case-step-editor .ai-test-generator-step-row > :nth-child(3),
+  .ai-test-case-step-editor .ai-test-generator-step-row > :nth-child(3) { grid-column: 1 / -1; grid-row: 3; }
+  .ai-test-generator-modal .ai-test-case-step-editor .ai-test-generator-step-row > :nth-child(4),
+  .ai-test-case-step-editor .ai-test-generator-step-row > :nth-child(4) { grid-column: 2; grid-row: 1; }
+  .ai-test-case-step-editor .ai-test-case-step-field > span { display: block; }
+  .ai-test-case-step-editor .ai-test-case-step-actions > button,
+  .ai-test-generator-modal .ai-test-case-order-actions > button { width: 34px; height: 34px; }
+}

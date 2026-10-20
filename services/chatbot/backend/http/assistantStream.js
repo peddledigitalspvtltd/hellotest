@@ -18,9 +18,26 @@ const answerDeliveryEvents = function* (result, chunkSize = 240) {
   }
 };
 
+// JSON clients receive the same disconnect cancellation as the streaming UI.
+const runConnectedAssistant = async (req, reply, task) => {
+  const controller = new AbortController();
+  const disconnect = () => { if (!reply.raw.writableEnded) controller.abort(); };
+  req.raw?.once("aborted", disconnect);
+  reply.raw.once("close", disconnect);
+  if (req.raw?.aborted || reply.raw.destroyed) controller.abort();
+  try {
+    controller.signal.throwIfAborted();
+    return await task({ signal: controller.signal });
+  } finally {
+    req.raw?.removeListener("aborted", disconnect);
+    reply.raw.removeListener("close", disconnect);
+  }
+};
+
 const streamAssistant = async (req, reply, task) => {
   const controller = new AbortController();
   const traceId = randomUUID();
+  if (req.raw?.aborted || reply.raw.destroyed) return;
   reply.hijack();
   reply.raw.writeHead(200, {
     ...reply.getHeaders(), "Content-Type": "text/event-stream; charset=utf-8",
@@ -33,6 +50,7 @@ const streamAssistant = async (req, reply, task) => {
     return reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
   const disconnect = () => { if (!reply.raw.writableEnded) controller.abort(); };
+  req.raw?.once("aborted", disconnect);
   reply.raw.on("close", disconnect);
   const waitForDrain = () => new Promise((resolve) => {
     if (!active()) { resolve(); return; }
@@ -62,9 +80,10 @@ const streamAssistant = async (req, reply, task) => {
     }
   } finally {
     clearInterval(heartbeat);
+    req.raw?.removeListener("aborted", disconnect);
     reply.raw.removeListener("close", disconnect);
     if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.end();
   }
 };
 
-module.exports = { streamAssistant, answerDeliveryEvents };
+module.exports = { streamAssistant, answerDeliveryEvents, runConnectedAssistant };

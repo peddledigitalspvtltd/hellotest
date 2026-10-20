@@ -32,7 +32,7 @@ api.notifications.unreadCount=async()=>({count:0,by_preference:{}});
 setCurrentScope('boot-project','boot-app');
 if(mode==='signedin')appSession.write(session);else appSession.clear();
 sessionStorage.setItem('hellotest.auth_redirect_route','/support');
-history.replaceState(null,'',mode==='signedin'?'/support':'/auth');
+history.replaceState(null,'',mode==='signedin'?'/support':new URLSearchParams(location.search).get('route')||'/login');
 await import('/src/main.tsx');
 `;
 
@@ -42,8 +42,8 @@ async function assertNoOverflow(page,label) {
 }
 async function assertSidebarTheme(page,theme) {
   const style=await page.locator('#app-sidebar').evaluate(node=>({background:getComputedStyle(node).backgroundColor,image:getComputedStyle(node).backgroundImage,color:getComputedStyle(node).color}));
-  assert.equal(style.image,'none','Late-loaded shell styles must not restore the legacy gradient');
-  assert.equal(style.background,theme==='light'?'rgb(255, 255, 255)':'rgb(23, 38, 48)');
+  assert.equal(style.image,'linear-gradient(rgb(16, 38, 53), rgb(13, 32, 45))','The shared administration sidebar palette survives lazy shell loading in '+theme);
+  assert.equal(style.color,'rgb(219, 229, 232)');
   assert.notEqual(style.color,style.background,'Sidebar text has visible contrast');
 }
 
@@ -64,6 +64,7 @@ test('actual App boot defers shell at sign-in and preserves light/dark/mobile ch
     const url=`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`;
     await page.goto(url+'?mode=guest');
     await page.getByRole('heading',{name:'Welcome back',exact:true}).waitFor();
+    assert.equal(new URL(page.url()).pathname,'/login');
     assert.equal(await page.locator('#app-sidebar').count(),0);
     assert.equal(shellRequests.length,0,'Unauthenticated startup never imports AppShell');
     await assertNoOverflow(page,'desktop sign-in');
@@ -72,6 +73,15 @@ test('actual App boot defers shell at sign-in and preserves light/dark/mobile ch
     await assertNoOverflow(page,'mobile sign-in');
     await page.screenshot({path:artifacts+'/auth-mobile.png'});
     await page.setViewportSize({width:1440,height:1000});
+    await page.getByRole('button',{name:'Sign up',exact:true}).click();
+    await page.getByRole('heading',{name:'Set up your HelloTest access',exact:true}).waitFor();
+    assert.equal(new URL(page.url()).pathname,'/signup');
+    assert.equal(await page.title(),'Sign Up · HelloTest');
+    await page.goBack();await page.getByRole('heading',{name:'Welcome back',exact:true}).waitFor();
+    assert.equal(new URL(page.url()).pathname,'/login');
+    await page.goForward();await page.getByRole('heading',{name:'Set up your HelloTest access',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Sign in',exact:true}).click();
+    assert.equal(new URL(page.url()).pathname,'/login');
     await page.locator('#email-input').fill('architect@example.test');
     await page.locator('#password-input').fill('fixture-password');
     await page.getByRole('button',{name:'Sign in to HelloTest',exact:true}).click();
@@ -99,6 +109,13 @@ test('actual App boot defers shell at sign-in and preserves light/dark/mobile ch
     await page.getByRole('button',{name:'Sign out',exact:true}).click();
     await page.getByRole('heading',{name:'Welcome back',exact:true}).waitFor();
     assert.equal(await page.locator('#app-sidebar').count(),0,'Sign out returns to the real auth route');
+    for(const [route,heading] of [['/auth?legacy=1#old','Welcome back'],['/signup','Set up your HelloTest access'],['/executions?view=scheduled-runs','Welcome back']]) {
+      await page.goto(url+'?mode=guest&route='+encodeURIComponent(route));
+      await page.getByRole('heading',{name:heading,exact:true}).waitFor();
+      assert.equal(new URL(page.url()).pathname,route==='/signup'?'/signup':'/login');
+      if(route.startsWith('/auth'))assert.equal(new URL(page.url()).search,'?legacy=1');
+      if(route.startsWith('/executions'))assert.equal(await page.evaluate(()=>sessionStorage.getItem('hellotest.auth_redirect_route')),route);
+    }
     await page.goto(url+'?mode=signedin');
     await page.getByRole('heading',{name:'Support Center',exact:true}).waitFor();
     assert.equal(await page.evaluate(()=>window.bootCalls.filter(call=>call.path==='auth.session').length),1,'Stored-session startup verifies once under StrictMode');

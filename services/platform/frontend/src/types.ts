@@ -1,4 +1,5 @@
-export type TestDataOptions = { override_lower_scopes?: boolean; override_test_case_data?: boolean; override_suite_data?: boolean; override_shared_steps?: boolean; runtime_policy?: { version: number; case?: TestDataOptions; suite?: TestDataOptions; run?: TestDataOptions } };
+export type AutomationAgentContextOptions = { context_scopes?: string[]; inputs?: Record<string,string>; smart_context?: {query?:string;source_ids?:string[];source_kinds?:string[];reviewed_context?:string} };
+export type TestDataOptions = { parameter_overrides?: string[]; private_parameter_names?: string[]; override_shared_sections?: boolean; shared_data_kind?: "steps" | "sections"; override_lower_scopes?: boolean; override_test_case_data?: boolean; override_suite_data?: boolean; override_shared_steps?: boolean; runtime_policy?: { version: number; case?: TestDataOptions; suite?: TestDataOptions; run?: TestDataOptions } };
 export type DataSetValidation = { valid: boolean; missing_parameters: string[]; required_parameters: string[]; available_parameters: string[]; iteration_count?: number; reason?: string; test_data_set_id?: string; data_set_id?: string };
 export type User = {
   id: string;
@@ -1807,6 +1808,8 @@ export type AiAuthoredTestCasePreview = {
   summary?: string | null;
   title: string;
   description: string | null;
+  priority?: number;
+  test_case_type?: TestCase["test_case_type"];
   authoring_mode?: "structured" | "gherkin";
   gherkin_document?: string | null;
   parameter_values: Record<string, string>;
@@ -2086,11 +2089,18 @@ export type TestSuite = {
   revision?: number;
 };
 
+export type CaseExecutionHook = {
+  id: string; name?: string; scope: "test"; phase: "pre" | "post"; target_kind: "test" | "suite"; target_id: string;
+  fail_behavior?: "continue" | "fail-run" | "mark-blocked"; execution_order?: number;
+};
+
 export type TestCase = {
+  execution_hooks?: CaseExecutionHook[];
   test_data_options?: TestDataOptions;
   linked_requirements?: Array<{ id: string; display_id?: string | null; title: string }>;
   id: string;
   display_id?: string | null;
+  legacy_display_ids?: string[];
   app_type_id?: string | null;
   source_issue_id?: string | null;
   suite_id: string | null;
@@ -2103,14 +2113,32 @@ export type TestCase = {
   external_references?: string[];
   labels?: string[];
   parameter_values?: Record<string, string>;
+  inherited_parameter_values?: Record<string, string>;
+  effective_parameter_values?: Record<string, string>;
+  inherited_parameter_overrides?: string[];
+  effective_parameter_overrides?: string[];
+  effective_private_parameter_names?: string[];
+  parameter_sources?: Record<string, {kind:"linked_manual"|"automation";test_case_id:string;display_id?:string|null}>;
+  parameter_conflicts?: Array<{name:string;chosen_test_case_id:string;other_test_case_ids:string[]}>;
+  parameter_defaults_access?: "allowed" | "restricted";
   automated: "yes" | "no" | null;
   automation_status?: "not_automated" | "ready" | "incomplete" | null;
+  automation_start_url?: string | null;
   manual_test_case_id?: string | null;
   manual_test_case_ids?: string[];
+  automation_test_case_ids?: string[];
+  linked_manual_cases?: Array<{ id: string; display_id?: string | null; title: string }>;
+  linked_automation_cases?: Array<{ id: string; display_id?: string | null; title: string }>;
+  automation_coverage?: {
+    status: ExecutionResult["status"] | "not_run" | null;
+    linked_case_count: number;
+    latest_result: ExecutionResult | null;
+  };
   authoring_mode?: "structured" | "gherkin";
   test_case_type?: string;
   gherkin_document?: string | null;
   test_data_set_ids?: string[];
+  effective_test_data_set_ids?: string[];
   test_data_sets?: Array<Pick<TestDataSet, "id" | "app_type_id" | "name" | "description" | "mode" | "columns" | "rows">>;
   author_id?: string | null;
   author?: { id: string; name?: string | null; email?: string | null } | null;
@@ -2166,6 +2194,7 @@ export type TestCaseVersionSummary = {
 };
 
 export type TestCaseVersionContent = {
+  execution_hooks?: CaseExecutionHook[];
   app_type_id?: string | null;
   suite_id?: string | null;
   suite_ids?: string[];
@@ -2222,6 +2251,8 @@ export type TestStep = {
   expected_result: string | null;
   step_type?: TestStepType | null;
   automation_code?: string | null;
+  automation_source_sha256?: string | null;
+  automation_context_sha256?: string | null;
   api_request?: StepApiRequest | null;
   group_id?: string | null;
   group_name?: string | null;
@@ -2495,6 +2526,8 @@ export type SharedStepGroup = {
   gherkin_document?: string | null;
   steps: SharedStepGroupStep[];
   parameter_values?: Record<string, string>;
+  parameter_sensitive_names?: string[];
+  automation_source_hidden?: boolean;
   step_count?: number;
   usage_count?: number;
   used_test_cases?: Array<{
@@ -3094,6 +3127,7 @@ export type KnowledgeSourceRevision = {
 
 export type KnowledgeSourceDetail = {
   source: KnowledgeSource;
+  context_unavailable_reason?: string;
   revision?: KnowledgeSourceRevision | null;
   fragments: Array<{ id: string; fragment_id?: string; knowledge_id?: string; canonical_id?: string; chunk_index?: number; heading?: string; content?: string; token_count?: number; char_start?: number; char_end?: number; metadata?: Record<string, unknown> }>;
   authorization?: { partial?: boolean };
@@ -3195,6 +3229,9 @@ export type KnowledgeCollection = {
 export type KnowledgeSearchMode = "hybrid" | "semantic" | "keyword";
 
 export type KnowledgeSearchFilters = {
+  agent_id?: string;
+  requested_scopes?: string[];
+  evidence_scope?: Record<string, unknown>;
   app_type_id?: string | null;
   collection_ids?: string[];
   source_kinds?: string[];
@@ -3660,6 +3697,15 @@ export type ExecutionStepSnapshot = {
 export type ExecutionResult = {
   detail_complete?: boolean;
   id: string;
+  result_origin?: "direct" | "linked_automation";
+  derived?: boolean;
+  covers_entire_case?: boolean;
+  source_result_id?: string;
+  source_test_case_id?: string;
+  source_display_id?: string | null;
+  effective_at?: string | null;
+  source_duration_ms?: number | null;
+  source_results?: Array<{ source_result_id: string; source_test_case_id: string; source_display_id?: string | null; status: ExecutionResult["status"] }>;
   execution_id: string;
   test_case_id: string;
   test_case_display_id?: string | null;
@@ -3710,6 +3756,11 @@ export type ReleaseReadinessExecutionEvidence = {
 
 export type TraceabilityRunHistoryItem = {
   id: string;
+  result_origin?: ExecutionResult["result_origin"];
+  derived?: boolean;
+  source_result_id?: string;
+  source_test_case_id?: string;
+  source_display_id?: string | null;
   execution_id: string;
   execution_display_id?: string | null;
   execution_name: string;

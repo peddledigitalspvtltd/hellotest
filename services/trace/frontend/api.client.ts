@@ -4,7 +4,7 @@ import { request, toQueryString } from "@hellotest/platform/frontend/src/lib/htt
 
 export const traceApi = {
   llmTraces: {
-    list: (query: { project_id: string; search?: string; status?: string; since?: string; cursor?: string; run_id?: string; session_id?: string }, signal?: AbortSignal) => request<import('./llmTraceTypes').LlmTracePage>(`/ops-telemetry/llm-traces${toQueryString(query)}`, { signal, cache: 'no-store' }, 10000),
+    list: (query: { project_id: string; search?: string; status?: string; since?: string; cursor?: string; run_id?: string; session_id?: string; test_case_id?: string; completion_attempt?: number; trace_ids?: string }, signal?: AbortSignal) => request<import('./llmTraceTypes').LlmTracePage>(`/ops-telemetry/llm-traces${toQueryString(query)}`, { signal, cache: 'no-store' }, 10000),
     detail: (projectId: string, id: string, signal?: AbortSignal) => request<import('./llmTraceTypes').LlmTrace>(`/ops-telemetry/llm-traces/${encodeURIComponent(id)}${toQueryString({ project_id: projectId })}`, { signal, cache: 'no-store' }, 6000)
   },
 opsTelemetry: {
@@ -21,4 +21,3 @@ opsTelemetry: {
       })
   }
 };
-

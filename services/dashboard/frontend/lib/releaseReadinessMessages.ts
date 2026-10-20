@@ -1,6 +1,6 @@
 import { READINESS_EXPLORER_MESSAGES, READINESS_EXPLORER_MESSAGES_ES } from "./readinessRecordExplorerMessages";
 export const READINESS_MESSAGES: Record<string, string> = {
-  "readiness.title": "Release readiness",
+  "readiness.title": "Release Readiness",
   "readiness.eyebrow": "Release review",
   "readiness.subtitle":
     "Review delivery scope, unresolved risks and the evidence behind your next decision.",

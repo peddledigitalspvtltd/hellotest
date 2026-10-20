@@ -3,6 +3,7 @@ const metricsService = require("../services/sharedStepMetrics.service");
 const appTypeService = require("@hellotest/platform/backend/public/applicationAccess");
 const projectService = require("@hellotest/platform/backend/public/projectAccess");
 const { containsMobileStepPayload, isMobileAppType } = require("@hellotest/platform/backend/src/utils/mobileFeature");
+const { publicSharedStepImplementation, preserveHiddenSharedStepImplementation, sharedStepImplementationChanged, sharedStepImplementationFingerprint } = require("../domain/sharedStepAutomationAccess");
 
 const withVisibleUsage = async (fastify, req, groups, projectId) => {
   let visibleGroups = groups;
@@ -19,7 +20,25 @@ const withVisibleUsage = async (fastify, req, groups, projectId) => {
     if (error?.statusCode !== 403) throw error;
     visibleGroups = visibleGroups.map(({ test_data_set, ...metadata }) => metadata);
   }
+  try { await fastify.requirePermission("automation.code.view", { projectId })(req); }
+  catch (error) {
+    if (error?.statusCode !== 403) throw error;
+    visibleGroups = visibleGroups.map(publicSharedStepImplementation);
+  }
   return visibleGroups;
+};
+
+const requireImplementationWrite = async (fastify, req, projectId, existing) => {
+  if (!Array.isArray(req.body.steps)) return;
+  let canViewSource = true;
+  try { await fastify.requirePermission("automation.code.view", { projectId })(req); }
+  catch (error) { if (error?.statusCode !== 403) throw error; canViewSource = false; }
+  const steps = canViewSource ? req.body.steps : preserveHiddenSharedStepImplementation(req.body.steps, existing?.steps);
+  if (sharedStepImplementationChanged(steps, existing?.steps)) {
+    await fastify.requirePermission("automation.build", { projectId })(req);
+    await fastify.requirePermission("automation.code.view", { projectId })(req);
+  }
+  req.body = { ...req.body, steps };
 };
 
 const requireDataLinkPermission = async (fastify, req, projectId) => {
@@ -63,6 +82,7 @@ module.exports = async function (fastify) {
     const appType = await appTypeService.getAppType(req.body.app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
     await fastify.requirePermission("shared_step.manage", { projectId: appType.project_id })(req);
+    await requireImplementationWrite(fastify, req, appType.project_id);
     await requireDataLinkPermission(fastify, req, appType.project_id);
     await requireMobileGroupWrite(fastify, req, appType.project_id, appType, req.body.steps);
 
@@ -137,6 +157,7 @@ module.exports = async function (fastify) {
     const existing = await service.getSharedStepGroup(req.params.id);
     await ensureSharedStepGroupPermission(fastify, req, "shared_step.manage", existing.app_type_id);
     const existingAppType = await appTypeService.getAppType(existing.app_type_id);
+    await requireImplementationWrite(fastify, req, existingAppType.project_id, existing);
     await requireDataLinkPermission(fastify, req, existingAppType.project_id);
     await requireMobileGroupWrite(fastify, req, existingAppType.project_id, existingAppType, [existing.steps, req.body.steps]);
     if (req.body.app_type_id && req.body.app_type_id !== existing.app_type_id) {
@@ -151,6 +172,8 @@ module.exports = async function (fastify) {
     const updated = await service.updateSharedStepGroup(req.params.id, {
       ...req.body,
       updated_by: req.user.id
+    }, {
+      expectedImplementationFingerprint: req.body.steps !== undefined ? sharedStepImplementationFingerprint(existing.steps) : undefined
     });
     return (await withVisibleUsage(fastify, req, [updated], existingAppType.project_id))[0];
   });

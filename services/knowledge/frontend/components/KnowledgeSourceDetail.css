@@ -18,6 +18,9 @@
 .knowledge-source-index strong { color: var(--text-primary); font-size: 12px; text-transform: capitalize; }
 .knowledge-source-index p, .knowledge-source-detail-limit { font-size: 12px; line-height: 1.6; }
 .knowledge-source-detail-limit { padding: 9px 12px; border-left: 3px solid var(--warning, #b7791f); background: color-mix(in srgb, var(--warning, #b7791f) 7%, transparent); margin: 0; }
+.knowledge-source-context-refresh { display: grid; gap: 10px; }
+.knowledge-source-context-refresh p { margin: 0; }
+.knowledge-source-context-refresh > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .knowledge-source-passages { display: grid; gap: 8px; }
 .knowledge-source-passages details { border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px 12px; }
 .knowledge-source-detail summary { cursor: pointer; font-size: 12px; }

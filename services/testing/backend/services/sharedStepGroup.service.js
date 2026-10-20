@@ -1,4 +1,6 @@
-const { normalizeSharedSteps: normalizeSteps } = require("../domain/sharedStepDefinition");
+const { sharedStepsWithIds, reconcileSharedStepIds } = require("../domain/sharedStepDefinition");
+const { normalizeSharedParameterValues, sharedSensitiveParameterNames, publicSharedParameterValues, mergeSharedParameterValues, referencedSharedParameterNames } = require("../domain/sharedStepParameters");
+const { sharedStepImplementationFingerprint } = require("../domain/sharedStepAutomationAccess");
 const db = require("@hellotest/platform/backend/src/db");
 const { randomUUID: uuid } = require("crypto");
 const sharedStepSyncService = require("./sharedStepSync.service");
@@ -16,7 +18,10 @@ const selectAppType = db.prepare(`
 `);
 
 const sharedGroupQuery = (includeDataRows = false) => `
-  SELECT shared_group.*, ${includeDataRows ? "to_jsonb(data_set)" : "CASE WHEN data_set.id IS NOT NULL THEN jsonb_build_object('id', data_set.id) END"} AS test_data_set
+  SELECT shared_group.*, ${includeDataRows ? "to_jsonb(data_set)" : `CASE WHEN data_set.id IS NOT NULL THEN jsonb_build_object('id', data_set.id, 'mode', data_set.mode,
+    'sensitive_parameter_names', CASE WHEN data_set.mode = 'key_value' THEN
+      (SELECT COALESCE(jsonb_agg(secret->>'key'), '[]'::jsonb) FROM jsonb_array_elements(data_set.rows) secret WHERE secret->>'is_secret' = 'true')
+      ELSE '[]'::jsonb END) END`} AS test_data_set
   FROM shared_step_groups AS shared_group
   JOIN app_types AS app ON app.id = shared_group.app_type_id
   LEFT JOIN test_data_sets AS data_set ON data_set.id = shared_group.test_data_set_id
@@ -68,23 +73,6 @@ const normalizeText = (value) => {
 const normalizeAuthoringMode = (value) => value === "gherkin" ? "gherkin" : "structured";
 
 
-const normalizeParameterValues = (values = {}) => {
-  if (!values || typeof values !== "object" || Array.isArray(values)) {
-    return {};
-  }
-
-  return Object.entries(values).reduce((next, [key, value]) => {
-    const normalizedKey = normalizeText(key);
-
-    if (!normalizedKey) {
-      return next;
-    }
-
-    next[normalizedKey] = value === null || value === undefined ? "" : String(value);
-    return next;
-  }, {});
-};
-
 const buildUsageMap = (rows = []) => {
   return rows.reduce((map, row) => {
     map[row.shared_step_group_id] = map[row.shared_step_group_id] || [];
@@ -103,10 +91,11 @@ const hydrateSharedStepGroup = (group, usageMap = {}, includeDataRows = true) =>
     return group;
   }
 
-  const steps = normalizeSteps(parseJsonValue(group.steps, []));
-  const parameterValues = normalizeParameterValues(parseJsonValue(group.parameter_values, {}));
+  const steps = sharedStepsWithIds(parseJsonValue(group.steps, []), group.id);
+  const parameterValues = normalizeSharedParameterValues(parseJsonValue(group.parameter_values, {}));
   const usedTestCases = usageMap[group.id] || [];
   const dataSet = parseJsonValue(group.test_data_set, null);
+  const sensitiveNames = sharedSensitiveParameterNames(dataSet, parameterValues);
 
   const { test_data_set, ...metadata } = group;
   return {
@@ -114,7 +103,8 @@ const hydrateSharedStepGroup = (group, usageMap = {}, includeDataRows = true) =>
     authoring_mode: normalizeAuthoringMode(group.authoring_mode),
     gherkin_document: typeof group.gherkin_document === "string" ? group.gherkin_document : null,
     steps,
-    parameter_values: parameterValues,
+    parameter_values: publicSharedParameterValues(parameterValues, sensitiveNames),
+    parameter_sensitive_names: sensitiveNames,
     test_data_set_id: dataSet?.id || null,
     test_data_row_index: dataSet ? Number(group.test_data_row_index) || 0 : 0,
     ...(includeDataRows ? { test_data_set: dataSet ? {
@@ -149,7 +139,7 @@ const validateDataSetLink = async (appType, dataSetId, rowIndex = 0, allowLegacy
     throw Object.assign(new Error("Test Data row index must be a non-negative integer."), { statusCode: 400 });
   }
   const id = normalizeText(dataSetId);
-  if (!id) return { id: null, rowIndex: 0 };
+  if (!id) return { id: null, rowIndex: 0, dataSet: null };
   // Serialize against dataset edits so its scope and selected row cannot change
   // between validation and saving this link.
   const dataSet = await db.prepare("SELECT * FROM test_data_sets WHERE id = ? FOR SHARE").get(id);
@@ -165,7 +155,7 @@ const validateDataSetLink = async (appType, dataSetId, rowIndex = 0, allowLegacy
   if (rowIndex >= rowCount) {
     throw Object.assign(new Error("Select an available Test Data row. Shared Step Groups use exactly one row."), { statusCode: 400 });
   }
-  return { id, rowIndex };
+  return { id, rowIndex, dataSet };
 };
 
 exports.listSharedStepGroups = async ({ app_type_id, project_id } = {}) => {
@@ -214,7 +204,7 @@ exports.createSharedStepGroup = async ({ app_type_id, name, description, authori
 
   const id = uuid();
   const display_id = await displayIdService.createDisplayId("shared_step_group");
-  const normalizedSteps = normalizeSteps(steps);
+  const normalizedSteps = reconcileSharedStepIds(steps, [], id);
   const dataLink = await validateDataSetLink(appType, test_data_set_id, test_data_row_index);
 
   await insertSharedStepGroup.run(
@@ -226,7 +216,7 @@ exports.createSharedStepGroup = async ({ app_type_id, name, description, authori
     normalizeAuthoringMode(authoring_mode),
     normalizeText(gherkin_document),
     normalizedSteps,
-    normalizeParameterValues(parameter_values),
+    normalizeSharedParameterValues(parameter_values),
     dataLink.id,
     dataLink.rowIndex,
     normalizeText(created_by),
@@ -236,9 +226,19 @@ exports.createSharedStepGroup = async ({ app_type_id, name, description, authori
   return { id };
 })();
 
-exports.updateSharedStepGroup = async (id, data = {}) => db.transaction(async () => {
+exports.updateSharedStepGroup = async (id, data = {}, options = {}) => db.transaction(async () => {
+  // Serialize definition edits and reference synchronization against insertion
+  // and other group saves. No linked case observes half of a reordered group.
+  await db.prepare("SELECT id FROM shared_step_groups WHERE id = ? FOR UPDATE").get(id);
   const existing = await exports.getSharedStepGroup(id);
+  const stored = await selectSharedStepGroup.get(id);
+  if (options.expectedImplementationFingerprint !== undefined && options.expectedImplementationFingerprint !== sharedStepImplementationFingerprint(existing.steps)) {
+    throw Object.assign(new Error("The Shared Section Group instructions changed while this save was being authorized. Refresh the group and retry to keep the latest instructions."), { statusCode: 409, code: "SHARED_SECTION_SOURCE_CONFLICT" });
+  }
   const resolvedAppType = await ensureAppTypeExists(data.app_type_id || existing.app_type_id);
+  if (resolvedAppType.id !== existing.app_type_id && existing.usage_count > 0) {
+    throw Object.assign(new Error("Unlink this Shared Section Group from its test cases before moving it to another application."), { statusCode: 409, code: "SHARED_GROUP_SCOPE_REFERENCED" });
+  }
   await mobileFeatureService.assertAuthoringMobileFeatureEnabled({
     app_type_id: resolvedAppType.id,
     payload: data.steps !== undefined ? data.steps : existing.steps
@@ -254,29 +254,40 @@ exports.updateSharedStepGroup = async (id, data = {}) => db.transaction(async ()
     ? (dataSetId === existing.test_data_set_id ? existing.test_data_row_index : 0)
     : data.test_data_row_index;
   const dataLink = await validateDataSetLink(resolvedAppType, dataSetId, rowIndex, dataSetId === existing.test_data_set_id && rowIndex === existing.test_data_row_index);
+  const nextSteps = data.steps !== undefined ? reconcileSharedStepIds(data.steps, existing.steps, id) : existing.steps;
+  const authoringMode = data.authoring_mode !== undefined ? normalizeAuthoringMode(data.authoring_mode) : normalizeAuthoringMode(existing.authoring_mode);
+  const gherkinDocument = data.gherkin_document !== undefined ? normalizeText(data.gherkin_document) : existing.gherkin_document;
+  const parameterValues = mergeSharedParameterValues({ values: data.parameter_values,
+    previousValues: parseJsonValue(stored.parameter_values, {}),
+    previousSensitiveNames: existing.parameter_sensitive_names,
+    nextSensitiveNames: sharedSensitiveParameterNames(dataLink.dataSet, { ...parseJsonValue(stored.parameter_values, {}), ...data.parameter_values }),
+    referencedNames: data.steps !== undefined && data.parameter_values !== undefined
+      ? referencedSharedParameterNames({ steps: nextSteps, authoring_mode: authoringMode, gherkin_document: gherkinDocument }) : undefined
+  });
 
   await updateSharedStepGroup.run(
     resolvedAppType.id,
     resolvedName,
     data.description !== undefined ? normalizeText(data.description) : existing.description,
-    data.authoring_mode !== undefined ? normalizeAuthoringMode(data.authoring_mode) : normalizeAuthoringMode(existing.authoring_mode),
-    data.gherkin_document !== undefined ? normalizeText(data.gherkin_document) : existing.gherkin_document,
-    data.steps !== undefined ? normalizeSteps(data.steps) : existing.steps,
-    data.parameter_values !== undefined ? normalizeParameterValues(data.parameter_values) : existing.parameter_values,
+    authoringMode,
+    gherkinDocument,
+    nextSteps,
+    parameterValues,
     dataLink.id,
     dataLink.rowIndex,
     normalizeText(data.updated_by) || existing.updated_by || existing.created_by || null,
     id
   );
 
-  await sharedStepSyncService.syncSharedGroupReferences(id);
+  await sharedStepSyncService.syncSharedGroupReferences(id, { previousSteps: existing.steps });
 
   return { updated: true };
 })();
 
-exports.deleteSharedStepGroup = async (id) => {
+exports.deleteSharedStepGroup = async (id) => db.transaction(async () => {
+  await db.prepare("SELECT id FROM shared_step_groups WHERE id = ? FOR UPDATE").get(id);
   await exports.getSharedStepGroup(id);
   await sharedStepSyncService.unlinkSharedGroupReferences(id);
   await deleteSharedStepGroup.run(id);
   return { deleted: true };
-};
+})();

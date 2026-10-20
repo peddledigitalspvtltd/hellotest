@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
 import { AddIcon, CollapseExpandIcon, OpenIcon, RefreshIcon, TestDataIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { CatalogSearchFilter } from "@hellotest/platform/frontend/src/shared/components/CatalogSearchFilter";
@@ -471,6 +471,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const [searchParams, setSearchParams] = useSearchParams();
+  const resourceLocation = useLocation();
   const domainMetadataQuery = useDomainMetadata();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canUseMobileMetadata = hasPermission(session, "mobile.view", projectId)
@@ -478,6 +479,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
+  const closingResourceRef = useRef<string | null>(null);
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState("");
   const [selectedConfigurationId, setSelectedConfigurationId] = useState("");
   const [selectedDataSetId, setSelectedDataSetId] = useState("");
@@ -829,16 +831,19 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   };
 
   const openEnvironmentWorkspace = (environmentId: string) => {
+    closingResourceRef.current = null;
     syncResourceSearchParams("environment", environmentId);
     setSelectedEnvironmentId(environmentId);
   };
 
   const openConfigurationWorkspace = (configurationId: string) => {
+    closingResourceRef.current = null;
     syncResourceSearchParams("configuration", configurationId);
     setSelectedConfigurationId(configurationId);
   };
 
   const openDataSetWorkspace = (dataSetId: string) => {
+    closingResourceRef.current = null;
     syncResourceSearchParams("dataSet", dataSetId);
     setSelectedDataSetId(dataSetId);
   };
@@ -882,6 +887,8 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
     }
 
     const requestedEnvironmentId = searchParams.get("environment");
+    if (requestedEnvironmentId && closingResourceRef.current === `${resourceLocation.key}:environment:${requestedEnvironmentId}`) return;
+    if (!requestedEnvironmentId) closingResourceRef.current = null;
 
     if (requestedEnvironmentId && environments.some((item) => item.id === requestedEnvironmentId)) {
       if (selectedEnvironmentId !== requestedEnvironmentId) {
@@ -899,7 +906,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
     }
 
     setSelectedEnvironmentId((current) => (current && environments.some((item) => item.id === current) ? current : ""));
-  }, [environments, environmentsQuery.isFetching, environmentsQuery.isLoading, searchParams, selectedEnvironmentId, view]);
+  }, [environments, environmentsQuery.isFetching, environmentsQuery.isLoading, searchParams, selectedEnvironmentId, view, resourceLocation.key]);
 
   useEffect(() => {
     if (view !== "configurations" || configurationsQuery.isLoading || configurationsQuery.isFetching) {
@@ -907,6 +914,8 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
     }
 
     const requestedConfigurationId = searchParams.get("configuration");
+    if (requestedConfigurationId && closingResourceRef.current === `${resourceLocation.key}:configuration:${requestedConfigurationId}`) return;
+    if (!requestedConfigurationId) closingResourceRef.current = null;
 
     if (requestedConfigurationId && configurations.some((item) => item.id === requestedConfigurationId)) {
       if (selectedConfigurationId !== requestedConfigurationId) {
@@ -926,7 +935,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
     setSelectedConfigurationId((current) =>
       current && configurations.some((item) => item.id === current) ? current : ""
     );
-  }, [configurations, configurationsQuery.isFetching, configurationsQuery.isLoading, searchParams, selectedConfigurationId, view]);
+  }, [configurations, configurationsQuery.isFetching, configurationsQuery.isLoading, searchParams, selectedConfigurationId, view, resourceLocation.key]);
 
   useEffect(() => {
     if (view !== "data" || dataSetsQuery.isLoading || dataSetsQuery.isFetching) {
@@ -934,6 +943,8 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
     }
 
     const requestedDataSetId = searchParams.get("dataSet");
+    if (requestedDataSetId && closingResourceRef.current === `${resourceLocation.key}:dataSet:${requestedDataSetId}`) return;
+    if (!requestedDataSetId) closingResourceRef.current = null;
 
     if (requestedDataSetId && dataSets.some((item) => item.id === requestedDataSetId)) {
       if (selectedDataSetId !== requestedDataSetId) {
@@ -951,7 +962,7 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
     }
 
     setSelectedDataSetId((current) => (current && dataSets.some((item) => item.id === current) ? current : ""));
-  }, [dataSets, dataSetsQuery.isFetching, dataSetsQuery.isLoading, searchParams, selectedDataSetId, view]);
+  }, [dataSets, dataSetsQuery.isFetching, dataSetsQuery.isLoading, searchParams, selectedDataSetId, view, resourceLocation.key]);
 
   useEffect(() => {
     if (selectedEnvironment) {
@@ -1003,6 +1014,8 @@ export function TestEnvironmentPage({ view }: { view: TestEnvironmentPageView })
   };
 
   const closeResourceWorkspace = () => {
+    const key = view === "environments" ? "environment" : view === "configurations" ? "configuration" : "dataSet";
+    closingResourceRef.current = `${resourceLocation.key}:${key}:${searchParams.get(key) || ""}`;
     if (view === "environments") {
       syncResourceSearchParams("environment", null);
       setSelectedEnvironmentId("");
@@ -1765,7 +1778,7 @@ export function ResourceModalShell({
 
 /** Shares the authoring fields with frozen run inspection, without enabling mutations. */
 function ResourceFormFields({ readOnly, children }: { readOnly: boolean; children: ReactNode }) {
-  return readOnly ? <fieldset className="resource-form-fields" disabled>{children}</fieldset> : <>{children}</>;
+  return <fieldset className="resource-form-fields" disabled={readOnly}>{children}</fieldset>;
 }
 
 export function EnvironmentForm({

@@ -85,6 +85,7 @@ export function TraceabilityRunHistory({
         row.execution_status || "",
         row.test_case_id,
         row.test_case_title,
+        row.source_display_id || "",
         row.result_status,
         row.release || "",
         ...row.defects
@@ -145,7 +146,7 @@ export function TraceabilityRunHistory({
 
   const openRun = (item: TraceabilityRunHistoryItem) => {
     const view = item.trigger === "local" ? "local-runs" : item.suite_ids.length ? "suite-runs" : "suite-runs";
-    const params = new URLSearchParams({ view, execution: item.execution_id, testCase: item.test_case_id });
+    const params = new URLSearchParams({ view, execution: item.execution_id, testCase: item.source_test_case_id || item.test_case_id });
     navigate(`/executions?${params.toString()}`);
   };
 
@@ -172,7 +173,7 @@ export function TraceabilityRunHistory({
       key: "result",
       label: "Result",
       sortValue: (item) => item.result_status,
-      render: (item) => <StatusBadge value={item.result_status} />
+      render: (item) => <div className="traceability-run-name"><StatusBadge value={item.result_status} />{item.derived ? <small>Via {item.source_display_id || "linked automation"}</small> : null}</div>
     },
     {
       key: "runStatus",

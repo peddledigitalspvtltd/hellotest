@@ -94,7 +94,7 @@ test("linked Data Set definitions are unioned with authored Test Params without 
   assert.equal(definitions.find((definition) => definition.name === "r.username")?.sourceLabel, "Login users");
 });
 
-test("Test Case authoring names case-level values Test Params and merges linked Data Set defaults before overrides", async () => {
+test("Test Case authoring names case-level values Test Params and preserves deliberate overrides above selected data", async () => {
   const [page, dialog, linkedModal, versionHistory, styles] = await Promise.all([
     readSource("../../frontend/pages/TestCasesPage.tsx"),
     readSource("../../frontend/components/StepParameterDialog.tsx"),
@@ -104,10 +104,11 @@ test("Test Case authoring names case-level values Test Params and merges linked 
   ]);
 
   assert.match(page, /buildDataSetParameterValues\(linkedDataSet/);
-  assert.match(page, /combineStepParameterValues\(\s*linkedDataSetDefaultParameterValues,\s*visibleTestCaseParameterValues/);
+  assert.match(page, /buildCaseParameterValues\(\{ ownValues: visibleTestCaseParameterValues, dataSet: linkedDataSet/);
+  assert.match(page, /overrideNames: caseParameterSaveOptions\(/);
   assert.match(page, /collectSensitiveDataSetParameterNames\(linkedDataSet\)/);
   assert.match(page, /excludeSensitiveStepParameterValues\(testCaseParameterValues, linkedDataSetSensitiveParameterNames\)/);
-  assert.match(page, /mergeStepParameterDefinitions\([\s\S]*linkedDataSetParameterDefinitions/);
+  assert.match(page, /collectCaseStepParameters\(\{/);
   assert.match(page, /parameter_values: visibleTestCaseParameterValues/);
   assert.doesNotMatch(page, /parameter_values: effectiveTestCaseParameterValues/);
   assert.match(page, /parameterPreviewScopeKey/);

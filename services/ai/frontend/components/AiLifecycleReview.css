@@ -31,5 +31,8 @@
 @media (max-width: 600px) { .ai-lifecycle-shell > summary span { display: none; } }
 
 .ai-lifecycle-result { min-width:0; overflow-wrap:anywhere; }
+.ai-lifecycle-activity, .ai-lifecycle-model-calls { min-width: 0; margin-top: 16px; font-size: 13px; }
+.ai-lifecycle-activity > summary, .ai-lifecycle-model-calls > summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+.ai-lifecycle-activity ol { max-height: 320px; overflow: auto; padding-left: 24px; line-height: 1.7; overflow-wrap: anywhere; }
 .ai-lifecycle-result .knowledge-formatted-text { min-width:0; line-height:1.7; }
 .ai-lifecycle-result :is(pre, .knowledge-answer-table-scroll) { max-width:100%; }

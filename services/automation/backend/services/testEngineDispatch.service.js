@@ -26,6 +26,7 @@ const { resolveTestEngineSecret } = require("@hellotest/platform/backend/src/sec
 const { readBoundedResponseJson } = require("@hellotest/platform/backend/src/utils/boundedResponse");
 const { resilientHttpRequest } = require("@hellotest/platform/backend/src/utils/resilientHttpClient");
 const { SERVICE_ERROR_CODES, serviceError } = require("@hellotest/platform/backend/src/utils/serviceErrors");
+const { createExecutionDiagnosticRedactor } = require('../lib/automationExecutionDiagnostics');
 
 const SUPPORTED_ENGINE_STEP_TYPES = new Set(["api", "web", "android", "ios"]);
 const TESTENGINE_ENGINE_CLASSES = new Set(["api", "web", "android"]);
@@ -61,12 +62,13 @@ const selectTestCaseDispatchMetadata = db.prepare(`
 `);
 
 const selectObjectRepositoryEntries = obsDb.prepare(`
-  SELECT id, test_case_id, page_url, page_key, locator_intent, locator, locator_kind, confidence, source, metadata, updated_at
+  SELECT id, project_id, app_type_id, test_case_id, page_url, page_key, locator_intent, locator, locator_kind, confidence, source, metadata, created_at, updated_at
   FROM automation_learning_cache
-  WHERE (?::text IS NULL OR project_id = ?::text)
+  WHERE (?::text IS NULL OR project_id = ?::text OR (project_id IS NULL AND app_type_id = ?::text
+    AND EXISTS(SELECT 1 FROM app_types owner_app WHERE owner_app.id=automation_learning_cache.app_type_id AND owner_app.project_id=?::text)))
     AND (?::text IS NULL OR app_type_id = ?::text)
+    AND COALESCE(metadata->>'merged_into_entry_id', '') = ''
   ORDER BY hit_count DESC, updated_at DESC
-  LIMIT 500
 `);
 
 const selectExecutionCaseIds = db.prepare(`
@@ -96,10 +98,10 @@ const selectSuiteParallelConfig = db.prepare(`
 
 const selectLatestResultsForExecution = db.prepare(`
   SELECT DISTINCT ON (test_case_id, COALESCE(data_set_iteration_index, -1))
-    test_case_id, data_set_iteration_index, status
-  FROM execution_results
+    test_case_id, data_set_iteration_index, status,derived,covers_entire_case
+  FROM test_case_effective_results
   WHERE execution_id = ?
-  ORDER BY test_case_id ASC, COALESCE(data_set_iteration_index, -1) ASC, created_at DESC, id DESC
+  ORDER BY test_case_id ASC, COALESCE(data_set_iteration_index, -1) ASC, derived DESC, created_at DESC, id DESC
 `);
 
 const selectLatestJobStatusesForExecution = obsDb.prepare(`
@@ -285,6 +287,11 @@ const normalizeObjectRepositoryEntry = (row) => {
     normalizeText(metadata.primary_playwright_locator),
     ...fallbackLocators.map((item) => item.locator)
   ].filter(Boolean);
+  // Execution needs locator bindings, not every field's captured DOM/images.
+  // Keeping captures in the repository avoids multiplying them across runs
+  // while allowing the complete scoped binding set to reach the engine.
+  const executionMetadata = Object.fromEntries(['object_label', 'object_name', 'playwright_locator', 'primary_playwright_locator', 'locator']
+    .filter(key => typeof metadata[key] === 'string').map(key => [key, metadata[key]]));
 
   return {
     id: row.id,
@@ -300,12 +307,11 @@ const normalizeObjectRepositoryEntry = (row) => {
     object_name: normalizeText(metadata.object_name) || normalizeText(row.locator_intent) || "Object",
     object_role: normalizeText(metadata.object_role) || normalizeText(row.locator_kind) || null,
     target_criteria: Array.isArray(metadata.target_criteria) ? metadata.target_criteria.map(String) : [],
-    dom_structure: normalizeText(metadata.dom_structure || metadata.dom_path || metadata.html),
-    screenshot_url: normalizeText(metadata.screenshot_url || metadata.screenshot_path),
     fallback_strategy: normalizeText(metadata.fallback_strategy),
     previous_locators: [...new Set(previousLocators)],
+    reference_aliases: [...new Set((Array.isArray(metadata.reference_aliases) ? metadata.reference_aliases : []).filter(alias => typeof alias === "string").map(alias => alias.trim()).filter(Boolean))],
     fallback_locators: fallbackLocators,
-    metadata,
+    metadata: executionMetadata,
     updated_at: row.updated_at || null
   };
 };
@@ -313,11 +319,17 @@ const normalizeObjectRepositoryEntry = (row) => {
 const listObjectRepositoryForEnvelope = async ({ projectId, appTypeId, testCaseId }) => {
   const scopedProjectId = projectId || null;
   const scopedAppTypeId = appTypeId || null;
-  const rows = await selectObjectRepositoryEntries.all(scopedProjectId, scopedProjectId, scopedAppTypeId, scopedAppTypeId);
-  const normalized = rows
+  const rows = await selectObjectRepositoryEntries.all(scopedProjectId, scopedProjectId, scopedAppTypeId, scopedProjectId, scopedAppTypeId, scopedAppTypeId);
+  const identity = require('../lib/repositoryScreenIdentity');
+  const canonical = identity.canonicalizeRepositoryRows(rows.map(row => ({...row,
+    project_id: row.project_id || scopedProjectId, app_type_id: row.app_type_id || scopedAppTypeId
+  }))).rows;
+  const normalized = canonical
+    .filter(entry => !identity.isRepositoryScreen(entry))
     .map(normalizeObjectRepositoryEntry)
     .filter((entry) =>
       entry.locator
+      && !entry.metadata?.merged_into_entry_id
       && entry.locator_intent !== "__screen__"
       && entry.metadata?.record_kind !== "screen"
     );
@@ -325,7 +337,7 @@ const listObjectRepositoryForEnvelope = async ({ projectId, appTypeId, testCaseI
   const direct = normalized.filter((entry) => entry.test_case_id && entry.test_case_id === testCaseId);
   const shared = normalized.filter((entry) => !entry.test_case_id || entry.test_case_id !== testCaseId);
 
-  return [...direct, ...shared].slice(0, 250);
+  return [...direct, ...shared];
 };
 
 const nowIso = () => new Date().toISOString();
@@ -539,6 +551,7 @@ const normalizeEngineHookStep = (step, index, fallbackType = "api") => {
     step_type: stepType,
     engine_class: resolveStepEngineClass(step, fallbackType),
     source_case_parameters: normalizeStringRecord(step.source_case_parameters),
+    ...(step.source_case_context ? {source_case_context:{case_parameters:step.source_case_context.case_parameters || {},suite_parameters:step.source_case_context.suite_parameters || {},data_policy:step.source_case_context.data_policy,data_set:step.source_case_context.data_set || null}} : {}),
     shared_parameter_values: normalizeStringRecord(step.shared_parameter_values),
     action: normalizeText(step.action) || null,
     expected_result: normalizeText(step.expected_result) || normalizeText(step.expectedResult) || null,
@@ -622,9 +635,16 @@ const normalizeHookArray = (value) => {
 
 const resolveExecutionHooks = ({ execution, integrationHooks, caseSnapshot, stepsByCaseId, appTypeKind = "web" }) => {
   const executionHooks = normalizeHookArray(execution.execution_hooks);
-  const rawHooks = executionHooks.length
-    ? executionHooks
-    : integrationHooks;
+  const runHooks = executionHooks.length ? executionHooks : normalizeHookArray(integrationHooks);
+  const caseHooks = normalizeHookArray(caseSnapshot.execution_hooks);
+  // Outer run setup, case setup, main case, case cleanup, outer run cleanup.
+  // Do not apply the selected workspace case hooks to other selected cases.
+  const rawHooks = [
+    ...runHooks.filter(hook => hook?.phase !== "post"),
+    ...caseHooks.filter(hook => hook?.phase !== "post"),
+    ...caseHooks.filter(hook => hook?.phase === "post"),
+    ...runHooks.filter(hook => hook?.phase === "post")
+  ];
   const caseSnapshots = Array.isArray(execution.case_snapshots) ? execution.case_snapshots : [];
 
   const resolvedHooks = (Array.isArray(rawHooks) ? rawHooks : []).map((hook) => {
@@ -1171,7 +1191,7 @@ const buildEngineEnvelope = async ({
     artifact_policy: {
       trace_mode: normalizeText(integrationConfig.trace_mode) || "off",
       video_mode: normalizeText(integrationConfig.video_mode) || "off",
-      screenshot_on_failure: true,
+      screenshot_on_failure: integrationConfig.screenshot_on_failure !== false,
       screenshot_on_success: integration?.config?.screenshot_on_success !== false,
       capture_console: integrationConfig.capture_console !== false,
       capture_network: integrationConfig.capture_network !== false,
@@ -1270,18 +1290,18 @@ const hydrateJob = (row) => {
 const buildRuntimeParameterValues = (envelope, capturedValues = {}, step = null) => ({
   ...resolveParameterLayers({
     sharedValues: step?.shared_parameter_values,
-    dataPolicy: envelope.data_policy,
+    dataPolicy: step?.source_case_context?.data_policy || envelope.data_policy,
     isSharedStep: step?.group_kind === "reusable",
-    caseValues: { ...envelope.manual_spec?.test_data, ...envelope.case_parameters },
-    suiteValues: envelope.suite_parameters,
+    caseValues: step?.source_case_context ? step.source_case_context.case_parameters : { ...envelope.manual_spec?.test_data, ...envelope.case_parameters },
+    suiteValues: step?.source_case_context ? step.source_case_context.suite_parameters : envelope.suite_parameters,
     environmentVariables: envelope.environment?.variables,
     configurationVariables: envelope.configuration?.variables,
     runValues: envelope.run_parameters,
-    dataSet: envelope.data_set
+    dataSet: step?.source_case_context ? step.source_case_context.data_set : envelope.data_set
   }),
   // A hook executes with its source case's test data, just as in the web/native
   // worker. Captures remain the last layer so setup can hand values to teardown.
-  ...normalizeParameterLayer(step?.source_case_parameters, "t"),
+  ...normalizeParameterLayer(step?.source_case_context ? {} : step?.source_case_parameters, "t"),
   ...normalizeFrozenCapturedValues(capturedValues, envelope.parameter_scope_default)
 });
 
@@ -1479,6 +1499,7 @@ async function settleExecutionIfComplete(executionId) {
     `${normalizeText(result.test_case_id)}:${Number.isInteger(result.data_set_iteration_index) ? result.data_set_iteration_index : -1}`,
     normalizeText(result.status)
   ]));
+  const coveredCases=new Map(latestResults.filter(row=>row.derived&&row.covers_entire_case).map(row=>[row.test_case_id,row.status]));
   const requiredIterationKeys = requiredCases.flatMap((caseSnapshot) => {
     const testCaseId = normalizeText(caseSnapshot.test_case_id);
     const dataSet = resolveCaseDataSetContext(legacyExecution, caseSnapshot);
@@ -1488,12 +1509,16 @@ async function settleExecutionIfComplete(executionId) {
     const iterationIndexes = dataSet
       ? rows.length ? rows.map((_row, index) => index) : [0]
       : [-1];
-    return iterationIndexes.map((iterationIndex) => `${testCaseId}:${iterationIndex}`);
+    return iterationIndexes.map((iterationIndex) => {
+      const key=`${testCaseId}:${iterationIndex}`;
+      if(coveredCases.has(testCaseId)&&(!latestStatusByIteration.has(key)||latestStatusByIteration.get(key)==="pending")) latestStatusByIteration.set(key,coveredCases.get(testCaseId));
+      return key;
+    });
   });
 
   if (
     requiredIterationKeys.some((key) => !latestStatusByIteration.has(key))
-    || requiredIterationKeys.some((key) => latestStatusByIteration.get(key) === "running")
+    || requiredIterationKeys.some((key) => !isFinalResultStatus(latestStatusByIteration.get(key)))
   ) {
     return;
   }
@@ -1537,8 +1562,9 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
         objectRepository,
         dataSetIteration: item.data_set_iteration
       });
-      const orchestrationClass = resolveOrchestrationClass(item.steps, plan.appType?.type || "web");
-      const stepEngineClasses = resolveStepEngineClasses(item.steps, plan.appType?.type || "web");
+      const orchestrationSteps = [...item.steps, ...(envelope.hooks || []).flatMap(hook => hook.steps)];
+      const orchestrationClass = resolveOrchestrationClass(orchestrationSteps, plan.appType?.type || "web");
+      const stepEngineClasses = resolveStepEngineClasses(orchestrationSteps, plan.appType?.type || "web");
       const integrationConfig = integration?.config && typeof integration.config === "object" && !Array.isArray(integration.config)
         ? integration.config
         : {};
@@ -1650,9 +1676,9 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       ...(integration?.config || {}),
       active_web_engine: activeWebEngine,
       headless: false,
-      video_mode: "on",
-      trace_mode: "on",
-      max_video_attachment_mb: 16,
+      video_mode: normalizeText(integration?.config?.video_mode) || "on",
+      trace_mode: normalizeText(integration?.config?.trace_mode) || "on",
+      max_video_attachment_mb: integration?.config?.max_video_attachment_mb ?? 16,
       web_session_mode: "new",
       web_session_reuse_key: null,
       connect_over_cdp_endpoint: null,
@@ -1684,7 +1710,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       ...baseEnvelope,
       callback
     };
-    const orchestrationClass = resolveOrchestrationClass(item.steps, plan.appType?.type || "web");
+    const orchestrationClass = resolveOrchestrationClass([...item.steps, ...(envelope.hooks || []).flatMap(hook => hook.steps)], plan.appType?.type || "web");
     const isApiOnlyRun = orchestrationClass === "api";
     const liveViewUrl = buildProviderLiveViewUrl(directIntegration, activeWebEngine);
     const transactionMetadata = {
@@ -1697,7 +1723,9 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       orchestration_class: orchestrationClass,
       active_web_engine: activeWebEngine,
       live_view_url: isApiOnlyRun ? null : liveViewUrl,
-      callback_url: callback.url
+      callback_url: callback.url,
+      artifact_policy: envelope.artifact_policy,
+      capture_failure_override: item.steps.some(step => /^\s*\/\/\s*@hellotest-options\s+[^\r\n]*\bscreenshotOnFailure\b/i.test(step.automation_code || ''))
     };
     const transaction = await workspaceTransactionService.createTransaction({
       project_id: plan.execution.project_id,
@@ -1858,7 +1886,7 @@ async function queueSingleStepDispatch({
     dataSetIteration
   });
   const activeWebEngine = envelope.web_engine?.active || "playwright";
-  const orchestrationClass = resolveOrchestrationClass([step], appType?.type || "web");
+  const orchestrationClass = resolveOrchestrationClass([step, ...(envelope.hooks || []).flatMap(hook => hook.steps)], appType?.type || "web");
   const stepEngineClasses = resolveStepEngineClasses([step], appType?.type || "web");
   const integrationConfig = integration?.config && typeof integration.config === "object" && !Array.isArray(integration.config)
     ? integration.config
@@ -1962,7 +1990,7 @@ async function getQueuedJob(id) {
   return job;
 }
 
-const isFinalResultStatus = (status) => ["passed", "failed", "blocked"].includes(normalizeText(status));
+const isFinalResultStatus = (status) => ["passed", "failed", "blocked", "aborted", "skipped"].includes(normalizeText(status));
 const isFinalJobStatus = (status) => ["completed", "failed", "aborted"].includes(normalizeText(status));
 
 const collectPriorExecutionCaptures = async (executionId, testCaseId, suiteId, suiteScoped, iteration = {}, defaultScope = "r") => {
@@ -2303,8 +2331,36 @@ exports.getQueueStats = async () => {
   };
 };
 
-exports.startQueuedJob = async ({ job_id, worker_id } = {}) => {
+// Queue callbacks can be retried or arrive after completion. Serialize all
+// mutations on the persisted job row, across API processes and worker leases.
+const withQueuedJobLock = (operation) => obsDb.transaction(async (params = {}) => {
+  const jobId = normalizeText(params.job_id);
+  if (!jobId) throw new Error("Queued job ID is required");
+  const locked = await obsDb.prepare("SELECT id FROM test_engine_jobs WHERE id = ? FOR UPDATE").get(jobId);
+  if (!locked) throw new Error("Queued job not found");
+  return operation(params);
+});
+
+const terminalJobReceipt = async (job) => {
+  if (!job.completed_at && !isFinalJobStatus(job.status)) return null;
+  const result = await executionResultService.findLatestExecutionResult({
+    execution_id: job.execution_id,
+    test_case_id: job.test_case_id,
+    data_set_iteration_index: resultIterationFromJob(job).data_set_iteration_index
+  });
+  return {
+    job_id: job.id,
+    execution_result_id: result?.id || null,
+    status: result?.status || (job.status === "completed" ? "passed" : job.status === "aborted" ? "aborted" : "failed")
+  };
+};
+
+exports.startQueuedJob = withQueuedJobLock(async ({ job_id, worker_id } = {}) => {
   const job = await getQueuedJob(job_id);
+  const receipt = await terminalJobReceipt(job);
+  if (receipt) throw Object.assign(new Error("Finished jobs cannot start another execution."), {
+    code: "TESTENGINE_JOB_FINISHED", statusCode: 409, receipt
+  });
   const normalizedWorkerId = normalizeText(worker_id) || job.leased_by || "testengine-worker";
   const leaseExpiresAt = new Date(Date.now() + DEFAULT_LEASE_SECONDS * 1000).toISOString();
   const runtimeState = parseRuntimeState(job.runtime_state);
@@ -2360,10 +2416,15 @@ exports.startQueuedJob = async ({ job_id, worker_id } = {}) => {
     execution_result_id: result.id,
     status: "running"
   };
-};
+});
 
-exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
+exports.executeQueuedApiStep = withQueuedJobLock(async ({ job_id, step_id } = {}) => {
   const job = await getQueuedJob(job_id);
+  if (job.completed_at || isFinalJobStatus(job.status)) {
+    throw Object.assign(new Error("Finished jobs cannot execute additional API requests."), {
+      code: "TESTENGINE_JOB_FINISHED", statusCode: 409
+    });
+  }
 
   if (!job.payload?.steps?.length) {
     throw new Error("Queued job payload is missing step data");
@@ -2386,8 +2447,10 @@ exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
     parameter_values: parameterValues
   });
   const normalizedStepCaptures = normalizeFrozenCapturedValues(stepResult.captures, job.payload?.parameter_scope_default);
-  const formattedStepNote = executionStepRuntimeService.formatApiStepEvidenceNote(stepResult);
-  const mergedLogs = {
+  const redactDiagnostic = createExecutionDiagnosticRedactor(job.payload, parameterValues, normalizedStepCaptures, runtimeState.captured_values);
+  const publicCaptures = redactDiagnostic({captures: normalizedStepCaptures}).captures;
+  const formattedStepNote = redactDiagnostic(executionStepRuntimeService.formatApiStepEvidenceNote(stepResult));
+  const mergedLogs = redactDiagnostic({
     ...existingLogs,
     stepStatuses: {
       ...existingLogs.stepStatuses,
@@ -2420,7 +2483,7 @@ exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
       : {
           ...existingLogs.stepCaptures
         }
-  };
+  });
   const nextRuntimeState = {
     ...runtimeState,
     captured_values: {
@@ -2439,7 +2502,7 @@ exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
     "running",
     nextRuntimeState,
     new Date(Date.now() + DEFAULT_LEASE_SECONDS * 1000).toISOString(),
-    stepResult.status === "failed" ? stepResult.note : null,
+    stepResult.status === "failed" ? redactDiagnostic(stepResult.note) : null,
     job.id
   );
 
@@ -2449,7 +2512,7 @@ exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
     app_type_id: job.app_type_id,
     status: caseStatus,
     duration_ms: durationMs,
-    error: stepResult.status === "failed" ? stepResult.note : null,
+    error: stepResult.status === "failed" ? redactDiagnostic(stepResult.note) : null,
     logs: JSON.stringify(mergedLogs),
     executed_by: job.created_by || null,
     ...resultIterationFromJob(job)
@@ -2459,13 +2522,13 @@ exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
     await appendQueueTransactionEvent(job.transaction_id, {
       level: stepResult.status === "failed" ? "error" : "info",
       phase: stepResult.status === "failed" ? "step.failed" : "step.completed",
-      message: stepResult.note,
+      message: redactDiagnostic(stepResult.note),
       details: {
         job_id: job.id,
         step_id: step.id,
         step_order: step.order,
         execution_result_id: result.id,
-        captures: stepResult.captures
+        captures: publicCaptures
       },
       status: "running",
       metadata: {
@@ -2486,9 +2549,9 @@ exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
       execution_result_id: result.id,
       step_status: stepResult.status,
       step_note: formattedStepNote,
-      step_detail: stepResult.detail,
+      step_detail: redactDiagnostic(stepResult.detail),
       step_evidence: stepResult.evidence,
-      captures: stepResult.captures
+      captures: publicCaptures
     });
   } catch {
     // OPS telemetry is best-effort and must not block queue processing.
@@ -2504,9 +2567,9 @@ exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
     case_status: caseStatus,
     execution_result_id: result.id
   };
-};
+});
 
-exports.reportQueuedStep = async ({
+exports.reportQueuedStep = withQueuedJobLock(async ({
   job_id,
   step_id,
   status,
@@ -2536,8 +2599,20 @@ exports.reportQueuedStep = async ({
 
   const normalizedStatus = normalizeText(status);
 
-  if (!["passed", "failed", "blocked"].includes(normalizedStatus)) {
-    throw new Error("Queued step status must be passed, failed, or blocked");
+  if (!["passed", "failed", "blocked", "skipped"].includes(normalizedStatus)) {
+    throw new Error("Queued step status must be passed, failed, blocked, or skipped");
+  }
+
+  const receipt = await terminalJobReceipt(job);
+  if (receipt) {
+    const savedLogs = parseStructuredLogs(job.runtime_state?.logs);
+    return {
+      ...receipt,
+      step_id: step.id,
+      status: savedLogs.stepStatuses[step.id] || "blocked",
+      case_status: receipt.status,
+      captures: savedLogs.stepCaptures[step.id] || {}
+    };
   }
 
   const runtimeState = parseRuntimeState(job.runtime_state);
@@ -2547,9 +2622,13 @@ exports.reportQueuedStep = async ({
   const normalizedWebDetail = normalizeWebDetail(web_detail);
   const normalizedAutomationDetail = normalizeAutomationDetail(automation_detail);
   const normalizedCaptures = normalizeFrozenCapturedValues(captures, job.payload?.parameter_scope_default);
+  const redactDiagnostic = createExecutionDiagnosticRedactor(job.payload, runtimeState.captured_values, normalizedCaptures,
+    buildRuntimeParameterValues(job.payload, {...runtimeState.captured_values, ...normalizedCaptures}, step));
+  const publicNote = note === undefined ? undefined : redactDiagnostic(String(note || ''));
+  const publicCaptures = redactDiagnostic({captures: normalizedCaptures}).captures;
   const recoveryAttempted = Boolean(recovery_attempted);
   const recoverySucceeded = Boolean(recovery_succeeded);
-  const mergedLogs = {
+  const mergedLogs = redactDiagnostic({
     ...existingLogs,
     stepStatuses: {
       ...existingLogs.stepStatuses,
@@ -2604,7 +2683,7 @@ exports.reportQueuedStep = async ({
       : {
           ...existingLogs.stepCaptures
         }
-  };
+  });
   const nextRuntimeState = {
     ...runtimeState,
     captured_values: {
@@ -2621,7 +2700,7 @@ exports.reportQueuedStep = async ({
   const stepIds = Array.isArray(job.payload?.steps) ? job.payload.steps.map((entry) => entry.id) : [];
   const caseStatus = executionStepRuntimeService.deriveCaseStatusFromStepStatuses(stepIds, mergedLogs.stepStatuses);
   const persistedCaseStatus = caseStatus === "running" || caseStatus === "blocked" ? caseStatus : caseStatus;
-  const errorMessage = normalizedStatus === "failed" ? normalizeText(note) || `${job.test_case_title} failed on step ${step.order}.` : null;
+  const errorMessage = normalizedStatus === "failed" ? normalizeText(publicNote) || `${job.test_case_title} failed on step ${step.order}.` : null;
 
   await updateJobRuntimeState.run(
     "running",
@@ -2647,13 +2726,13 @@ exports.reportQueuedStep = async ({
     await appendQueueTransactionEvent(job.transaction_id, {
       level: normalizedStatus === "failed" ? "error" : normalizedStatus === "blocked" ? "warning" : "info",
       phase: normalizedStatus === "failed" ? "step.failed" : normalizedStatus === "blocked" ? "step.blocked" : "step.completed",
-      message: normalizeText(note) || `${job.test_case_title}: step ${step.order} ${normalizedStatus}.`,
+      message: normalizeText(publicNote) || `${job.test_case_title}: step ${step.order} ${normalizedStatus}.`,
       details: {
         job_id: job.id,
         step_id: step.id,
         step_order: step.order,
         execution_result_id: result.id,
-        captures: normalizedCaptures,
+        captures: publicCaptures,
         recovery_attempted: recoveryAttempted,
         recovery_succeeded: recoverySucceeded
       },
@@ -2674,14 +2753,14 @@ exports.reportQueuedStep = async ({
       test_case_id: job.test_case_id,
       step_id: step.id,
       source: "testengine.queue.web-step",
-      summary: normalizeText(note) || `${job.test_case_title}: step ${step.order} ${normalizedStatus}.`,
+      summary: normalizeText(publicNote) || `${job.test_case_title}: step ${step.order} ${normalizedStatus}.`,
       execution_result_id: result.id,
       step_status: normalizedStatus,
-      step_note: normalizeText(note) || "",
-      step_detail: normalizedApiDetail,
-      web_detail: normalizedWebDetail,
+      step_note: normalizeText(publicNote) || "",
+      step_detail: redactDiagnostic(normalizedApiDetail),
+      web_detail: redactDiagnostic(normalizedWebDetail),
       step_evidence: normalizedEvidence,
-      captures: normalizedCaptures
+      captures: publicCaptures
     });
   } catch {
     // OPS telemetry is best-effort and must not block queue processing.
@@ -2695,9 +2774,9 @@ exports.reportQueuedStep = async ({
     execution_result_id: result.id,
     captures: normalizedCaptures
   };
-};
+});
 
-exports.completeQueuedJob = async ({
+exports.completeQueuedJob = withQueuedJobLock(async ({
   job_id,
   status,
   error,
@@ -2709,13 +2788,16 @@ exports.completeQueuedJob = async ({
   patch_proposals
 } = {}) => {
   const job = await getQueuedJob(job_id);
+  const receipt = await terminalJobReceipt(job);
+  if (receipt) return receipt;
   const runtimeState = parseRuntimeState(job.runtime_state);
-  const logs = parseStructuredLogs(runtimeState.logs);
+  const redactDiagnostic = createExecutionDiagnosticRedactor(job.payload, runtimeState.captured_values);
+  const logs = redactDiagnostic(parseStructuredLogs(runtimeState.logs));
   const stepIds = Array.isArray(job.payload?.steps) ? job.payload.steps.map((step) => step.id) : [];
   const resolvedStatuses = stepIds.map((stepId) => logs.stepStatuses[stepId]).filter(Boolean);
   const derivedStatus = resolvedStatuses.includes("failed")
     ? "failed"
-    : stepIds.length && resolvedStatuses.length === stepIds.length && resolvedStatuses.every((value) => value === "passed")
+    : stepIds.length && resolvedStatuses.length === stepIds.length && resolvedStatuses.some((value) => value === "passed") && resolvedStatuses.every((value) => value === "passed" || value === "skipped")
       ? "passed"
       : resolvedStatuses.includes("blocked")
         ? "blocked"
@@ -2726,25 +2808,30 @@ exports.completeQueuedJob = async ({
     finalStatus = derivedStatus;
   } else if (finalStatus === "passed" && derivedStatus !== "passed") {
     finalStatus = derivedStatus;
+  } else if (derivedStatus === "failed") {
+    finalStatus = "failed";
   }
 
   const startedAt = job.started_at ? new Date(job.started_at).getTime() : Date.now();
   const durationMs = Math.max(Date.now() - startedAt, 0);
-  const errorMessage = normalizeText(error) || (finalStatus === "failed" ? "API execution failed." : null);
-  const normalizedSummary =
+  const failedStepId = stepIds.find((id) => logs.stepStatuses[id] === "failed");
+  const errorMessage = redactDiagnostic(finalStatus === "failed"
+    ? normalizeText(error) || normalizeText(failedStepId && logs.stepNotes[failedStepId]) || normalizeText(job.last_error) || "Automation execution failed."
+    : normalizeText(error));
+  const normalizedSummary = redactDiagnostic(
     normalizeText(summary)
     || runtimeState.final_summary
     || (finalStatus === "passed"
       ? `${job.test_case_title} completed successfully.`
-      : errorMessage || `${job.test_case_title} finished with ${finalStatus}.`);
+      : errorMessage || `${job.test_case_title} finished with ${finalStatus}.`));
   const normalizedArtifactBundle = normalizeArtifactBundle(artifact_bundle);
-  const normalizedPatchProposals = normalizePatchProposals(patch_proposals);
+  const normalizedPatchProposals = redactDiagnostic(normalizePatchProposals(patch_proposals));
   const nextRuntimeState = {
     ...runtimeState,
     logs,
     deterministic_attempted:
       deterministic_attempted === undefined
-        ? runtimeState.deterministic_attempted || true
+        ? runtimeState.deterministic_attempted || resolvedStatuses.length > 0
         : Boolean(deterministic_attempted),
     healing_attempted: runtimeState.healing_attempted || Boolean(healing_attempted),
     healing_succeeded: runtimeState.healing_succeeded || Boolean(healing_succeeded),
@@ -2758,14 +2845,6 @@ exports.completeQueuedJob = async ({
   const completedAt = nowIso();
   const attachedArtifacts = await attachInlineArtifacts(job.transaction_id, nextRuntimeState.artifact_bundle);
 
-  await finalizeJobState.run(
-    resultStatusToJobStatus(finalStatus),
-    nextRuntimeState,
-    completedAt,
-    errorMessage,
-    job.id
-  );
-
   const result = await executionResultService.upsertExecutionResult({
     execution_id: job.execution_id,
     test_case_id: job.test_case_id,
@@ -2777,6 +2856,16 @@ exports.completeQueuedJob = async ({
     executed_by: job.created_by || null,
     ...resultIterationFromJob(job)
   });
+
+  nextRuntimeState.artifact_bundle = await require("./engineArtifact.service").validateBundle(nextRuntimeState.artifact_bundle, result.id);
+
+  await finalizeJobState.run(
+    resultStatusToJobStatus(finalStatus),
+    nextRuntimeState,
+    completedAt,
+    errorMessage,
+    job.id
+  );
 
   if (job.transaction_id) {
     await appendQueueTransactionEvent(job.transaction_id, {
@@ -2843,7 +2932,7 @@ exports.completeQueuedJob = async ({
     execution_result_id: result.id,
     status: finalStatus
   };
-};
+});
 
 exports.failQueuedJob = async ({ job_id, message } = {}) => {
   return exports.completeQueuedJob({

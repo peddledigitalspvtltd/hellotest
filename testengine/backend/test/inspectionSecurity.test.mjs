@@ -130,3 +130,16 @@ test("API-bundled local agent matches the compiled inspection runtime", async ()
     assert.equal(modules[key], current);
   }
 });
+
+test('administrator origin routes preserve exact scheme and port scope without granting loopback access elsewhere', async t => {
+ const prior=process.env.RECORDER_TARGET_ORIGIN_ALIASES;
+ t.after(()=>{if(prior===undefined)delete process.env.RECORDER_TARGET_ORIGIN_ALIASES;else process.env.RECORDER_TARGET_ORIGIN_ALIASES=prior;});
+ process.env.RECORDER_TARGET_ORIGIN_ALIASES=JSON.stringify({'http://localhost:8080':'http://frontend:4400'});
+ const {resolveRemoteInspectionEndpoint}=await import('../dist/lib/inspectionSecurity.js');
+ const queries=[];const dns=async(host)=>{queries.push(host);return [{address:'172.18.0.7'}];};
+ assert.deepEqual(await resolveRemoteInspectionEndpoint('http://localhost:8080/auth?token=private',dns),{address:'172.18.0.7',port:4400});assert.deepEqual(queries,['frontend']);
+ for(const url of ['http://localhost:8081','https://localhost:8080','http://127.0.0.1:8080','http://169.254.169.254','http://other.test:8080'])await assert.rejects(resolveRemoteInspectionEndpoint(url,dns),{code:'INSPECTION_PRIVATE_TARGET'});
+ for(const map of [{'http://localhost:8080':'https://frontend:4400'},{'http://localhost:8080':'http://user:secret@frontend:4400'},{'http://localhost:8080':'http://frontend/path'},{'*':'http://frontend'}]){
+  process.env.RECORDER_TARGET_ORIGIN_ALIASES=JSON.stringify(map);await assert.rejects(resolveRemoteInspectionEndpoint('http://localhost:8080',dns),error=>error.code==='INSPECTION_URL_INVALID'&&!error.message.includes('secret'));
+ }
+});

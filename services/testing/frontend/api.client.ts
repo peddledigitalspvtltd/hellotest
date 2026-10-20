@@ -174,11 +174,12 @@ issues: {
       method: "POST",
       body: JSON.stringify(input)
     }),
-    previewAiImprove: (input: { project_id: string; issue_id?: string; intent: string; evidence?: string; linked_test_case_ids?: string[]; integration_id?: string; prompt_guidance?: string }) =>
+    previewAiImprove: (input: { reference_photos?: AiDesignImageInput[]; additional_context?:string; external_links?:string[]; project_id: string; issue_id?: string; intent: string; evidence?: string; linked_test_case_ids?: string[]; integration_id?: string; prompt_guidance?: string }) =>
       request<import("@hellotest/platform/frontend/src/types").AiBugDraftPreview>("/feedback/ai-improve-preview", { method: "POST", body: JSON.stringify(input) }),
     previewAiTriage: (input: {
       project_id: string;
       issue_ids: string[];
+      images?: AiDesignImageInput[];
       integration_id?: string;
       prompt_guidance?: string;
       smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string };
@@ -269,9 +270,9 @@ testCases: {
       request<PagedResult<TestCase>>(`/test-cases${toQueryString({ page_size: 25, ...query, projection: "picker", include_page: true, include_total: false })}`, { signal: options?.signal }),
     resolveRequirementCases: (input: { app_type_id: string; requirement_ids: string[] }) =>
       request<TestCase[]>("/test-cases/resolve-requirements", { method: "POST", body: JSON.stringify(input) }),
-    get: (id: string, query?: { project_id?: string }, options?: { signal?: AbortSignal }) =>
+    get: (id: string, query?: { project_id?: string; include_execution?: boolean }, options?: { signal?: AbortSignal }) =>
       request<TestCase>(`/test-cases/${id}${toQueryString(query)}`, { signal: options?.signal }),
-    create: (input: { ai_generation_source?: "interactive"; app_type_id?: string; source_issue_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; manual_test_case_id?: string | null; manual_test_case_ids?: string[]; authoring_mode?: "structured" | "gherkin"; test_case_type?: TestCase["test_case_type"]; gherkin_document?: string | null; test_data_set_ids?: string[]; test_data_options?: TestDataOptions; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; author_id?: string; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
+    create: (input: { ai_generation_source?: "interactive"; app_type_id?: string; source_issue_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; automation_start_url?: string | null; manual_test_case_id?: string | null; manual_test_case_ids?: string[]; execution_hooks?: TestCase["execution_hooks"]; authoring_mode?: "structured" | "gherkin"; test_case_type?: TestCase["test_case_type"]; gherkin_document?: string | null; test_data_set_ids?: string[]; test_data_options?: TestDataOptions; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; author_id?: string; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
       request<{ id: string }>("/test-cases", { method: "POST", body: JSON.stringify(input) }),
     previewImpact: (id: string, input: AiArtifactAssuranceInput) =>
       request<TestCaseImpactPreviewResponse>(`/test-cases/${id}/ai-impact-preview`, {
@@ -289,6 +290,8 @@ testCases: {
       test_case?: {
         title?: string;
         description?: string;
+        priority?:number;
+        test_case_type?:string;
         authoring_mode?: "structured" | "gherkin";
         gherkin_document?: string | null;
         parameter_values?: Record<string, string>;
@@ -333,7 +336,7 @@ testCases: {
         signal: options?.signal,
         body: JSON.stringify(input)
       }),
-    acceptDesignedCases: (input: { app_type_id: string; requirement_ids: string[]; status?: string; cases: Array<{ title: string; description?: string | null; priority?: number; requirement_ids?: string[]; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string | null; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; step_type?: TestStep["step_type"]; action?: string | null; expected_result?: string | null }> }> }) =>
+    acceptDesignedCases: (input: { app_type_id: string; requirement_ids: string[]; status?: string; cases: Array<{ title: string; description?: string | null; priority?: number; test_case_type?: string; requirement_ids?: string[]; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string | null; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; step_type?: TestStep["step_type"]; action?: string | null; expected_result?: string | null }> }> }) =>
       request<{ accepted: number; created: Array<{ id: string; title: string; step_count: number; requirement_ids: string[] }> }>("/test-cases/design-test-cases-accept", {
         method: "POST",
         body: JSON.stringify(input)
@@ -524,30 +527,44 @@ testCases: {
       }),
     learningCacheUsage: (id: string) =>
       request<Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>>(`/test-cases/automation/learning-cache/${id}/usage`),
-    learningCacheScreenUsage: (screenName: string, query: { app_type_id?: string }) =>
+    learningCacheScreenUsage: (screenName: string, query: { app_type_id?: string; project_id?: string }) =>
       request<Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>>(`/test-cases/automation/learning-cache/screens/${encodeURIComponent(screenName)}/usage${toQueryString(query)}`),
     deleteLearningCacheEntry: (id: string, confirmed = false) =>
       request<{ deleted: boolean; requires_confirmation: boolean; usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>; invalidated_cases: Array<{ id: string; title: string }> }>(`/test-cases/automation/learning-cache/${id}${toQueryString(confirmed ? { confirm: "true" } : undefined)}`, { method: "DELETE" }),
-    deleteLearningCacheScreen: (screenName: string, query: { app_type_id?: string; confirm?: string }) =>
+    deleteLearningCacheScreen: (screenName: string, query: { app_type_id?: string; project_id?: string; confirm?: string }) =>
       request<{ deleted: boolean; requires_confirmation: boolean; usage: Array<{ id: string; display_id?: string | null; title: string; automated?: "yes" | "no" | null }>; invalidated_cases: Array<{ id: string; title: string }> }>(`/test-cases/automation/learning-cache/screens/${encodeURIComponent(screenName)}${toQueryString(query)}`, { method: "DELETE" }),
-    renameLearningCacheScreen: (screenName: string, input: { app_type_id?: string; new_name: string }) =>
+    renameLearningCacheScreen: (screenName: string, input: { app_type_id?: string; project_id?: string; new_name: string }) =>
       request<{ renamed: boolean; screen_name: string; updated_fields: number; updated_step_references: number }>(`/test-cases/automation/learning-cache/screens/${encodeURIComponent(screenName)}`, {
         method: "PUT",
         body: JSON.stringify({ ...input, screen_name: input.new_name })
       }),
-    buildAutomation: (id: string, input?: { ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps"; allow_browser_actions?: boolean; integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; captured_actions?: unknown[]; captured_network?: unknown[] }) =>
+    automationParameterPlan: (id:string,input?:{test_suite_id?:string;test_environment_id?:string;test_configuration_id?:string;test_data_set_id?:string;parameter_values?:Record<string,string>}) =>
+      request<{test_case_id:string;test_suite_id?:string|null;parameter_values:Record<string,string>;parameter_references:string[];private_parameter_references:string[];missing_parameter_references:string[];empty_parameter_references?:string[];deferred_parameter_references:string[];parameter_plan_key:string}>(`/test-cases/${encodeURIComponent(id)}/automation/parameter-plan`,{method:"POST",body:JSON.stringify(input||{})}),
+    buildAutomation: (id: string, input?: { agent_context?: import("@hellotest/platform/frontend/src/types").AutomationAgentContextOptions; ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps" | "ai.agentic.automation-engineer"; allow_browser_actions?: boolean; verification_mode?: "generate_only" | "verify" | "verify_repair"; verification_driver?: "native" | "playwright_test_cli"; browser_driver?: "mcp"; integration_id?: string; start_url?: string; additional_context?: string; test_suite_id?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; parameter_values?: Record<string,string>; parameter_plan_key?: string; captured_actions?: unknown[]; captured_network?: unknown[] }) =>
       request<AutomationBuildResponse>(`/test-cases/${id}/automation/build`, {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    automationBuildStatus: (transactionId: string) =>
-      request<WorkspaceTransaction>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}`),
-    queueAutomationGenerator: (id: string, input?: { ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps"; allow_browser_actions?: boolean; scheduled_at?: string; integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; ai_requested?: boolean }) =>
+    automationBuildStatus: (transactionId: string,query?:{events_offset?:number;events_limit?:number}) =>
+      request<WorkspaceTransaction & {events?: import("@hellotest/platform/frontend/src/types").WorkspaceTransactionEvent[];events_has_more?:boolean;events_next_offset?:number;events_total?:number}>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}${toQueryString(query)}`),
+    automationAgentActivity: (query:{app_type_id:string;test_case_id?:string}) =>
+      request<(WorkspaceTransaction & {events?: import("@hellotest/platform/frontend/src/types").WorkspaceTransactionEvent[];events_has_more?:boolean;events_next_offset?:number;events_total?:number}) | null>(`/test-cases/automation/agent-activity${toQueryString(query)}`),
+    automationAgentActivities: (query:{app_type_id:string;test_case_id?:string;limit?:number;cursor?:string}) =>
+      request<{items:Array<Pick<WorkspaceTransaction,"id"|"project_id"|"app_type_id"|"status"|"description"|"created_at">>;next_cursor:string|null}>(`/test-cases/automation/agent-activities${toQueryString(query)}`),
+    automationAgentScreenshot: (transactionId:string,artifactId:string) =>
+      request<{id:string;mime_type:string;data_url:string}>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}/screenshots/${encodeURIComponent(artifactId)}`),
+    automationAgentPreview: (transactionId:string,artifactId:string,signal?:AbortSignal) =>
+      request<Record<string,unknown>>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}/previews/${encodeURIComponent(artifactId)}`, {signal}),
+    automationAgentEvidence: (transactionId:string,artifactId:string,signal?:AbortSignal) =>
+      request<Record<string,unknown>>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}/evidence/${encodeURIComponent(artifactId)}`, {signal}),
+    automationAgentBuildData: (transactionId:string,artifactId:string,signal?:AbortSignal) =>
+      request<Record<string,unknown>>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}/build-data/${encodeURIComponent(artifactId)}`, {signal}),
+    queueAutomationGenerator: (id: string, input?: { agent_context?: import("@hellotest/platform/frontend/src/types").AutomationAgentContextOptions; ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps" | "ai.agentic.automation-engineer"; allow_browser_actions?: boolean; verification_mode?: "generate_only" | "verify" | "verify_repair"; verification_driver?: "native" | "playwright_test_cli"; browser_driver?: "mcp"; scheduled_at?: string; integration_id?: string; start_url?: string; additional_context?: string; test_suite_id?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; parameter_values?: Record<string,string>; parameter_plan_key?: string; ai_requested?: boolean }) =>
       request<BatchQueueResponse>(`/test-cases/${id}/automation/generator-jobs`, {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    buildAutomationBatch: (input: { allow_browser_actions?: boolean; scheduled_at?: string; app_type_id: string; test_case_ids?: string[]; integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; failure_threshold?: number; ai_requested?: boolean }) =>
+    buildAutomationBatch: (input: { ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps" | "ai.agentic.automation-engineer"; agent_context?: import("@hellotest/platform/frontend/src/types").AutomationAgentContextOptions; allow_browser_actions?: boolean; verification_mode?: "generate_only" | "verify" | "verify_repair"; verification_driver?: "native" | "playwright_test_cli"; browser_driver?: "mcp"; scheduled_at?: string; app_type_id: string; test_case_ids?: string[]; integration_id?: string; start_url?: string; additional_context?: string; test_suite_id?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; test_suite_ids_by_case?: Record<string,string|null>; parameter_values_by_case?: Record<string,Record<string,string>>; parameter_plan_keys_by_case?: Record<string,string>; failure_threshold?: number; ai_requested?: boolean }) =>
       request<BatchQueueResponse>("/test-cases/automation/build-batch", {
         method: "POST",
         body: JSON.stringify(input)
@@ -562,7 +579,7 @@ testCases: {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; labels: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; automation_status: "not_automated" | "ready" | "incomplete"; manual_test_case_id: string | null; manual_test_case_ids: string[]; authoring_mode: "structured" | "gherkin"; test_case_type: TestCase["test_case_type"]; gherkin_document: string | null; test_data_set_ids: string[]; test_data_options: TestDataOptions; priority: number; status: string; requirement_id: string; requirement_ids: string[]; author_id: string; reviewer_id: string | null; review_status: TestCase["review_status"]; review_history: TestCase["review_history"]; ai_quality_score: number | null; expected_revision: number; steps: Array<{ id?: string; test_case_id?: string; step_order?: number; action?: string | null; expected_result?: string | null; step_type?: TestStep["step_type"]; automation_code?: string | null; api_request?: TestStep["api_request"]; group_id?: string | null; group_name?: string | null; group_kind?: "local" | "reusable" | null; reusable_group_id?: string | null }> }>) =>
+    update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; labels: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; automation_status: "not_automated" | "ready" | "incomplete"; manual_test_case_id: string | null; manual_test_case_ids: string[]; execution_hooks: TestCase["execution_hooks"]; authoring_mode: "structured" | "gherkin"; test_case_type: TestCase["test_case_type"]; gherkin_document: string | null; test_data_set_ids: string[]; test_data_options: TestDataOptions; priority: number; status: string; requirement_id: string; requirement_ids: string[]; author_id: string; reviewer_id: string | null; review_status: TestCase["review_status"]; review_history: TestCase["review_history"]; ai_quality_score: number | null; expected_revision: number; steps: Array<{ id?: string; test_case_id?: string; step_order?: number; action?: string | null; expected_result?: string | null; step_type?: TestStep["step_type"]; automation_code?: string | null; api_request?: TestStep["api_request"]; group_id?: string | null; group_name?: string | null; group_kind?: "local" | "reusable" | null; reusable_group_id?: string | null }> }>) =>
       request<{ updated: boolean; revision: number }>(`/test-cases/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     review: (id: string, input: { review_status: "accepted" | "changes_requested"; comment?: string; expected_updated_at?: string; expected_revision?: number }) =>
       request<{ updated: boolean; review: NonNullable<TestCase["review_history"]>[number] }>(`/test-cases/${id}/review`, {
@@ -578,6 +595,8 @@ testCases: {
         method: "POST",
         body: JSON.stringify({ expected_revision: expectedRevision })
       }),
+    deleteAutomationCases: (input: {project_id:string;app_type_id:string;test_case_ids:string[]}) =>
+      request<{deleted:true;deleted_count:number;deleted_ids:string[];unlinked_manual_case_ids:string[];retained_run_count:number;retained_result_count:number;operation_id:string;idempotent_replay?:boolean}>("/test-cases/automation/bulk-delete",{method:"POST",body:JSON.stringify(input)}),
     delete: (id: string) => request<{ deleted: boolean }>(`/test-cases/${id}`, { method: "DELETE" })
   },
 suiteTestCases: {
@@ -613,7 +632,7 @@ testSteps: {
         method: "PUT",
         body: JSON.stringify({ test_case_id, step_ids })
       }),
-    duplicate: (input: { test_case_id: string; step_ids: string[]; insert_after_step_id?: string }) =>
+    duplicate: (input: { test_case_id: string; source_test_case_id?: string; as_standalone?: boolean; step_ids: string[]; insert_after_step_id?: string }) =>
       request<{ duplicated: boolean }>("/test-steps/duplicate", {
         method: "POST",
         body: JSON.stringify(input)
@@ -679,7 +698,7 @@ testDataSets: {
   },
 executions: {
     parameterPlan: (input: { suite_context_id?: string; data_scope?: "suite" | "run"; parameter_values?: Record<string, string>; project_id: string; app_type_id: string; execution_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string }) =>
-      request<{ expected_instance_count: number; case_count: number; suite_count: number; suite_ids: string[]; data_set_validation?: import("@hellotest/platform/frontend/src/types").DataSetValidation | null; parameters: Array<{ name: string; token: string; scope: "t" | "s" | "r"; case_count: number }> }>("/executions/parameter-plan", { method: "POST", body: JSON.stringify(input) }),
+      request<{ shared_group_kinds?: Array<"steps" | "sections">; expected_instance_count: number; case_count: number; suite_count: number; suite_ids: string[]; data_set_validation?: import("@hellotest/platform/frontend/src/types").DataSetValidation | null; parameters: Array<{ name: string; token: string; scope: "t" | "s" | "r"; case_count: number }> }>("/executions/parameter-plan", { method: "POST", body: JSON.stringify(input) }),
     list: (query?: { project_id?: string; app_type_id?: string; status?: string; test_case_id?: string; page_size?: number }, options?: { signal?: AbortSignal }) =>
       request<Execution[]>(`/executions${toQueryString(query)}`, { signal: options?.signal }),
     history: (query: { project_id: string; app_type_id?: string; requirement_id?: string; test_case_id?: string; page_size?: number }) =>
@@ -691,7 +710,7 @@ executions: {
         method: "POST",
         body: JSON.stringify(input)
       }, 70000),
-    previewSmartPlan: (input: { project_id: string; app_type_id: string; integration_id?: string; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; scope_description?: string; additional_context?: string; prompt_guidance?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string }) =>
+    previewSmartPlan: (input: { images?: AiDesignImageInput[]; project_id: string; app_type_id: string; integration_id?: string; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; scope_description?: string; additional_context?: string; prompt_guidance?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string }) =>
       request<SmartExecutionPreviewResponse>("/executions/smart-plan-preview", { method: "POST", body: JSON.stringify(input) }),
     create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; name?: string; start_date?: string; end_date?: string; scope_source?: "smart-run"; smart_plan?: { acceptance_token: string; request_id: string; input_fingerprint: string; selected_test_case_ids: string[] }; created_by: string }) =>
       request<{ id: string; transaction_id?: string; audit_status?: "completed" | "acceptance-recorded" }>("/executions", { method: "POST", body: JSON.stringify(input) }),

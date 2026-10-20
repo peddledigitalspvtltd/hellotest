@@ -18,7 +18,7 @@ export const newAgentDefinition = (): AgentDefinition => ({ name: '', descriptio
   allowed_tools: ['project_evidence', 'knowledge_search'], context_scopes: ['stories', 'test-cases', 'runs', 'bugs', 'knowledge'],
   context: '', guardrails: '', integration_id: '', source_ids: [], source_kinds: [], required_inputs: [],
   acceptance: { require_evidence: true, no_evidence_gaps: false, minimum_findings: 0 },
-  limits: { timeout_ms: 70000, max_model_calls: 2, max_output_tokens: 4000 } });
+  limits: { timeout_ms: 150000, max_model_calls: 2, max_output_tokens: 4000 } });
 export function definitionNode(definition: AgentDefinition): AgenticWorkflowNodeData {
   return { kind: 'agent', label: definition.name, summary: definition.description, prompt: definition.objective,
     instructions: definition.instructions, skills: definition.skills, allowedTools: definition.allowed_tools,

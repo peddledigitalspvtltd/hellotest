@@ -60,6 +60,7 @@ Start with [capabilities](product/capabilities.md), [source layout](architecture
 - [HelloTest agent experience: market research and product direction](research/agent-experience.md)
 - [AI platform deep-research source record](research/ai-source-review.md)
 - [Automation and agent workflow implementation review](research/automation.md)
+- [Automation Engineer: Playwright MCP, browser-use patterns and capability disclosure](research/automation-engineer-agent.md)
 - [Administration and companion API architecture review](research/backend-api-admin-engine-review.md)
 - [Backend API architecture review — 2026-09-18](research/backend-api-architecture-review.md)
 - [Catalog API architecture review — 2026-09-18](research/backend-api-catalog-review.md)

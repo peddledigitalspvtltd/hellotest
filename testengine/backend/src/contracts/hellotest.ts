@@ -38,6 +38,7 @@ export type EngineApiRequest = {
 
 export type EngineRunStep = {
   source_case_parameters?: Record<string, string>;
+  source_case_context?: Pick<EngineRunEnvelope, "case_parameters" | "suite_parameters" | "data_policy" | "data_set">;
   shared_parameter_values?: Record<string, string>;
   id: string;
   order: number;
@@ -84,6 +85,7 @@ export type EngineObjectRepositoryEntry = {
   screenshot_url?: string | null;
   fallback_strategy?: string | null;
   previous_locators?: string[];
+  reference_aliases?: string[];
   fallback_locators?: Array<{
     locator?: string | null;
     strategy?: string | null;
@@ -163,7 +165,10 @@ export type EngineInlineEvidenceImage = {
 };
 
 export type HelloTestExecutionStepEvidence = {
-  dataUrl: string;
+  dataUrl?: string;
+  attachmentId?: string;
+  size?: number;
+  checksum?: string;
   fileName?: string;
   mimeType?: string;
 };
@@ -232,7 +237,7 @@ export type HelloTestExecutionStepAutomationDetail = {
 };
 
 export type HelloTestExecutionLogsPayload = {
-  stepStatuses?: Record<string, HelloTestExecutionResultStatus>;
+  stepStatuses?: Record<string, EngineStepOutcomeStatus>;
   stepNotes?: Record<string, string>;
   stepEvidence?: Record<string, HelloTestExecutionStepEvidence>;
   stepApiDetails?: Record<string, HelloTestExecutionStepApiDetail>;
@@ -261,6 +266,14 @@ export type EngineArtifactRef = {
   file_name?: string | null;
   content_base64?: string | null;
   size_bytes?: number | null;
+  attachment_id?: string;
+  attachment_status?: "uploaded" | "inline" | "unavailable";
+  attachment_error?: string;
+  checksum_sha256?: string;
+  compression?: string;
+  capture_outcome?: EngineStepOutcomeStatus;
+  transcoded?: boolean;
+  original_size_bytes?: number;
 };
 
 export type EngineStepOutcome = {
@@ -294,7 +307,7 @@ export type ParameterDataPolicy = {
   version: number;
   case?: ParameterOverrideOptions; suite?: ParameterOverrideOptions; run?: ParameterOverrideOptions;
 };
-export type ParameterOverrideOptions = { override_shared_steps?: boolean; override_test_case_data?: boolean; override_suite_data?: boolean };
+export type ParameterOverrideOptions = { parameter_overrides?: string[]; private_parameter_names?: string[]; override_shared_steps?: boolean; override_test_case_data?: boolean; override_suite_data?: boolean };
 
 export type EngineRunEnvelope = {
   engine_run_id: string;
@@ -404,6 +417,7 @@ export type EngineRunEnvelope = {
 };
 
 export type EngineArtifactBundle = {
+  capture_warnings?: string[];
   trace_path?: string | null;
   video_path?: string | null;
   screenshot_paths: string[];

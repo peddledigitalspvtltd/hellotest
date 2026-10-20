@@ -8,6 +8,9 @@ const db = require("@hellotest/platform/backend/src/db");
 const { evidenceTime } = require("@hellotest/dashboard/backend/services/qualityOverview.service");
 const { releaseExecutionMembershipSql } = require("@hellotest/platform/backend/src/utils/deliveryScopeSql");
 
+const scopedResultSourceId=(id,result)=>result.derived?result.source_result_id:id;
+const rejectDerivedResultWrite=id=>{if(String(id).startsWith('linked:'))throw Object.assign(new Error('Linked automation coverage is read-only. Open the source automation result to manage evidence.'),{statusCode:409,code:'LINKED_RESULT_READ_ONLY'});};
+
 const ensureResultAccess = async (id, userId) => {
   const result = await service.getExecutionResult(id);
   const execution = await executionService.getExecution(result.execution_id);
@@ -27,11 +30,12 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const { execution } = await ensureResultPermission(fastify, req, "result.view");
     await fastify.requirePermission("attachment.view", { projectId: execution.project_id })(req);
-    return executionAttachments.list({ user: req.user, resultId: req.params.id });
+    return executionAttachments.list({ user: req.user, resultId: scopedResultSourceId(req.params.id, await service.getExecutionResult(req.params.id)) });
   });
 
   fastify.post("/execution-results/:id/attachments", async (req) => {
     await fastify.authenticate(req);
+    rejectDerivedResultWrite(req.params.id);
     const { execution } = await ensureResultPermission(fastify, req, "result.manage");
     await fastify.requirePermission("attachment.create", { projectId: execution.project_id })(req);
     const part = await req.file({ limits: { fileSize: executionAttachments.MAX_EVIDENCE_BYTES, files: 1 } });
@@ -53,6 +57,7 @@ module.exports = async function (fastify) {
 
   fastify.delete("/execution-results/:id/attachments/:attachmentId", async (req) => {
     await fastify.authenticate(req);
+    rejectDerivedResultWrite(req.params.id);
     const { execution } = await ensureResultPermission(fastify, req, "result.manage");
     await fastify.requirePermission("attachment.delete", { projectId: execution.project_id })(req);
     return executionAttachments.remove({ user: req.user, resultId: req.params.id, attachmentId: req.params.attachmentId });
@@ -277,6 +282,7 @@ module.exports = async function (fastify) {
   // UPDATE RESULT
   fastify.put("/execution-results/:id", async (req) => {
     await fastify.authenticate(req);
+    rejectDerivedResultWrite(req.params.id);
 
     fastify.validate({
       status: { required: false, enum: EXECUTION_RESULT_STATUS_VALUES },
@@ -294,6 +300,7 @@ module.exports = async function (fastify) {
 
   fastify.put("/execution-results/:id/defect-links", async (req) => {
     await fastify.authenticate(req);
+    rejectDerivedResultWrite(req.params.id);
     fastify.validate({ step_id: { required: true, type: "string" }, defect_ids: { required: true, type: "array", items: "string", maxItems: 50 }, expected_revision: { required: false, type: "number" } }, req.body || {});
     await ensureResultPermission(fastify, req, "result.manage");
     return service.linkStepDefects(req.params.id, req.body);
@@ -303,6 +310,7 @@ module.exports = async function (fastify) {
   // DELETE RESULT
   fastify.delete("/execution-results/:id", async (req) => {
     await fastify.authenticate(req);
+    rejectDerivedResultWrite(req.params.id);
     await ensureResultPermission(fastify, req, "result.manage");
     return service.deleteExecutionResult(req.params.id);
   });

@@ -1,3 +1,4 @@
+const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const db = require("@hellotest/platform/backend/src/db");
@@ -177,7 +178,7 @@ const buildStoryCreationEvidence = ({ additionalContext, externalLinks, images, 
   });
   });
   images.forEach((image, index) => {
-    const ref = storyEvidenceRef("reference-image", `${image.name}:${index}:${image.url.slice(0, 96)}`);
+    const ref = storyEvidenceRef("reference-image", `${image.name}:${index}:${image.content_hash || storyEvidenceRef('image-content',image.url)}`);
     evidence.push({
     ref,
     id: ref,
@@ -238,7 +239,7 @@ const buildStoryCompletionEvidence = ({ requirement, linkedTestCases, knowledge,
     evidence.push({ ref, id: ref, type: "external-reference", title: link, label: link, excerpt: "External reference pointer; linked page content was not fetched.", url: link, trust: "pointer-only", citation_allowed: false, limitation: "Pointer metadata cannot support a factual Story change until the linked content is verified." });
   });
   images.forEach((image, index) => {
-    const ref = storyEvidenceRef("reference-image", `${image.name}:${index}:${image.url.slice(0, 96)}`);
+    const ref = storyEvidenceRef("reference-image", `${image.name}:${index}:${image.content_hash || storyEvidenceRef('image-content',image.url)}`);
     evidence.push({ ref, id: ref, type: "reference-image", title: image.name, label: image.name, excerpt: "User-supplied reference image attached to this run.", trust: "user-provided", citation_allowed: true, limitation: null });
   });
   return evidence;
@@ -270,40 +271,8 @@ const evaluateStoryCandidate = (candidate) => {
   };
 };
 
-const REQUIREMENT_AI_REFERENCE_IMAGE_LIMIT = 6;
-const REQUIREMENT_AI_REFERENCE_IMAGE_TOTAL_CHARS = 950_000;
-const REQUIREMENT_AI_REFERENCE_IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp);base64,[a-z0-9+/=\s]+$/i;
 
-const invalidRequirementAiImage = (message) => Object.assign(new Error(message), {
-  statusCode: 400,
-  code: "INVALID_AI_REFERENCE_IMAGE"
-});
-
-const normalizeRequirementAiReferenceImages = (images) => {
-  const collection = Array.isArray(images) ? images : [];
-
-  if (collection.length > REQUIREMENT_AI_REFERENCE_IMAGE_LIMIT) {
-    throw invalidRequirementAiImage(`Reference images are limited to ${REQUIREMENT_AI_REFERENCE_IMAGE_LIMIT}.`);
-  }
-
-  let totalChars = 0;
-  return collection.map((image, index) => {
-    const url = normalizeText(image?.url);
-    if (!url || !REQUIREMENT_AI_REFERENCE_IMAGE_DATA_URL.test(url)) {
-      throw invalidRequirementAiImage(`Reference image ${index + 1} must be a PNG, JPEG, or WebP data URL.`);
-    }
-
-    totalChars += url.length;
-    if (totalChars > REQUIREMENT_AI_REFERENCE_IMAGE_TOTAL_CHARS) {
-      throw invalidRequirementAiImage("Reference images exceed the supported compressed image budget.");
-    }
-
-    return {
-      name: (normalizeText(image?.name) || `Reference image ${index + 1}`).slice(0, 255),
-      url
-    };
-  });
-};
+const normalizeRequirementAiReferenceImages = images => normalizeReferenceImages(images);
 
 const normalizeMatchText = (value) =>
   String(value || "")
@@ -624,12 +593,7 @@ const resolveLlmIntegration = async (integrationId, projectId, { userId, usageKe
 const requestRequirementOptimization = async ({ integration, prompt, images = [], fallbackContent, contextState }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/+$/, "");
   const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
-  const userContent = images.length
-    ? [
-        { type: "text", text: prompt },
-        ...images.map((image) => ({ type: "image_url", image_url: { url: image.url, detail: "low" } }))
-      ]
-    : prompt;
+  const userContent = imageUserContent(prompt, images);
   const response = await fetchLlmWithRetry(url, {
     method: "POST",
     headers: {
@@ -819,15 +783,8 @@ const buildRequirementCreationPrompt = ({ additionalContext, externalLinks, imag
 const requestRequirementCreation = async ({ integration, prompt, images, fallbackContent, contextState }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/+$/, "");
   const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
-  const safeImages = (Array.isArray(images) ? images : [])
-    .filter((image) => typeof image?.url === "string" && /^data:image\/(?:png|jpe?g|webp);base64,/i.test(image.url))
-    .slice(0, 4);
-  const userContent = safeImages.length
-    ? [
-        { type: "text", text: prompt },
-        ...safeImages.map((image) => ({ type: "image_url", image_url: { url: image.url, detail: "low" } }))
-      ]
-    : prompt;
+  const safeImages = normalizeReferenceImages(images, {max_images:4});
+  const userContent = imageUserContent(prompt, safeImages);
   const response = await fetchLlmWithRetry(url, {
     method: "POST",
     headers: {
@@ -1810,6 +1767,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
       });
       suggestion = extractJsonPayload(content);
     } catch (error) {
+      if (error?.code === 'AI_VISION_UNSUPPORTED') throw error;
       fallbackUsed = true;
       fallbackReason = "The configured AI provider could not return a valid evidence-backed Story completion; no generated Story changes were proposed.";
       suggestion = {
@@ -1967,7 +1925,7 @@ exports.previewRequirementCreation = async ({
   const defaultStatus = (normalizeText(status) || "open").slice(0, 100);
   const additionalContext = (normalizeText(additional_context) || "").slice(0, 20_000);
   const externalLinks = normalizeTextList(external_links, 20, 2000);
-  const safeImages = normalizeRequirementAiReferenceImages(images).slice(0, 4);
+  const safeImages = normalizeReferenceImages(images, {max_images:4});
   const knowledgePackage = additionalContext
     ? await aiKnowledgeService.buildKnowledgeContextPackage(project_id, {
         query: additionalContext,
@@ -2026,7 +1984,8 @@ exports.previewRequirementCreation = async ({
       });
       rawCandidates = Array.isArray(result?.requirements) ? result.requirements : [];
       if (!rawCandidates.length) throw new Error("LLM response did not contain requirement drafts");
-    } catch {
+    } catch (error) {
+      if (error?.code === 'AI_VISION_UNSUPPORTED') throw error;
       fallbackUsed = true;
       fallbackReason = "The configured AI provider could not return a valid evidence-backed draft set; HelloTest used an evidence-preserving fallback.";
     }

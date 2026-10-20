@@ -1,5 +1,8 @@
 export type ReviewableDraft = {
   title: string;
+  description?: string | null;
+  priority?: number | string;
+  test_case_type?: string;
   authoring_mode?: "structured" | "gherkin";
   gherkin_document?: string | null;
   steps: Array<{ action?: string | null; expected_result?: string | null }>;
@@ -10,6 +13,10 @@ export function draftReadinessIssues(draft: ReviewableDraft, fallbackMode: "stru
   const issues: string[] = [];
   if (!draft.title.trim()) issues.push("Add a title.");
   if (draft.title.length > 255) issues.push("Keep the title within 255 characters.");
+  const priority=typeof draft.priority==='string'&&/^P[1-5]$/.test(draft.priority)?Number(draft.priority.slice(1)):draft.priority;
+  if (Object.prototype.hasOwnProperty.call(draft,'description')&&!String(draft.description||'').trim()) issues.push('Add a description.');
+  if (Object.prototype.hasOwnProperty.call(draft,'priority')&&(!Number.isSafeInteger(priority)||Number(priority)<1||Number(priority)>5)) issues.push('Choose a priority from P1 to P5.');
+  if (Object.prototype.hasOwnProperty.call(draft,'test_case_type')&&!String(draft.test_case_type||'').trim()) issues.push('Choose a Test Case type.');
   if ((draft.authoring_mode || fallbackMode) === "gherkin") {
     const document = draft.gherkin_document || "";
     // Doc strings may contain heading-like examples, which are data.

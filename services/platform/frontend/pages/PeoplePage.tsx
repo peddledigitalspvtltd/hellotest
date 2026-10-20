@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { AddIcon, CollapseExpandIcon, ExportIcon, SelectionToggleIcon, TrashIcon } from "../src/platform/components/AppIcons";
 import { platformApi } from "../api.client";
 import { asArray } from "../src/shared/lib/collectionGuards";
@@ -92,6 +92,8 @@ export function PeoplePage({
   });
   const [feedback, setFeedback] = useState<{ message: string; tone: FeedbackTone } | null>(null);
   const [view, setView] = useState<PeopleView>(forcedView || (searchParams.get("view") === "roles" ? "roles" : "users"));
+  const personLocation = useLocation();
+  const closingPersonRef = useRef<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedRoleId, setSelectedRoleId] = useState("");
   const [userDraft, setUserDraft] = useState<UserDraft>(() => createEmptyUserDraft());
@@ -311,6 +313,8 @@ export function PeoplePage({
     }
 
     const requestedUserId = searchParams.get("userId") || "";
+    if (requestedUserId && closingPersonRef.current === `${personLocation.key}:userId:${requestedUserId}`) return;
+    if (!requestedUserId) closingPersonRef.current = null;
 
     if (!requestedUserId) {
       if (selectedUserId) {
@@ -326,7 +330,7 @@ export function PeoplePage({
     if (userItems.some((item) => item.id === requestedUserId)) {
       setSelectedUserId(requestedUserId);
     }
-  }, [searchParams, selectedUserId, userItems, view]);
+  }, [searchParams, selectedUserId, userItems, view, personLocation.key]);
 
   useEffect(() => {
     if (view !== "roles") {
@@ -334,6 +338,8 @@ export function PeoplePage({
     }
 
     const requestedRoleId = searchParams.get("roleId") || "";
+    if (requestedRoleId && closingPersonRef.current === `${personLocation.key}:roleId:${requestedRoleId}`) return;
+    if (!requestedRoleId) closingPersonRef.current = null;
 
     if (!requestedRoleId) {
       if (selectedRoleId) {
@@ -349,7 +355,7 @@ export function PeoplePage({
     if (roleItems.some((item) => item.id === requestedRoleId)) {
       setSelectedRoleId(requestedRoleId);
     }
-  }, [roleItems, searchParams, selectedRoleId, view]);
+  }, [roleItems, searchParams, selectedRoleId, view, personLocation.key]);
 
   const invalidate = async () => {
     await Promise.all([
@@ -750,11 +756,13 @@ export function PeoplePage({
   };
 
   const closeUserWorkspace = () => {
+    closingPersonRef.current = `${personLocation.key}:userId:${searchParams.get("userId") || ""}`;
     setSelectedUserId("");
     syncPeopleSearchParams("users", null, null);
   };
 
   const closeRoleWorkspace = () => {
+    closingPersonRef.current = `${personLocation.key}:roleId:${searchParams.get("roleId") || ""}`;
     setSelectedRoleId("");
     setRoleDraft(EMPTY_ROLE_DRAFT);
     syncPeopleSearchParams("roles", null, null);

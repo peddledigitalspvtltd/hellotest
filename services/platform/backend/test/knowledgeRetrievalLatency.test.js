@@ -33,6 +33,16 @@ const stubSearchDatabase = (context, { onLexical = () => {}, failVisibility = fa
   context.mock.method(vectorStore, "isConfigured", () => false);
   context.mock.method(permissions, "hasPermission", async () => true);
 };
+test('AT case IDs use the exact indexed lookup while ordinary at-prefixed words do not',async context=>{
+ const exact=[];
+ context.mock.method(db.pool,'query',async()=>({rows:[],rowCount:0}));
+ context.mock.method(db,'prepare',sql=>({get:async()=>({available:false}),all:async(...params)=>{
+  if(sql.includes('TRUE AS exact_match')){exact.push(params);return [{...candidate(),exact_match:true}];}
+  return [];
+ }}));context.mock.method(vectorStore,'isConfigured',()=>false);context.mock.method(permissions,'hasPermission',async()=>true);
+ await rag.search({projectId:'project-1',query:'Inspect AT_0042',mode:'keyword',allowedSourcePermissions:[],filters:{source_ids:['source-1']},timeoutMs:100});assert.ok(exact[0].includes('AT_0042'));
+ exact.length=0;await rag.search({projectId:'project-1',query:'Inspect attributes and attempts',mode:'keyword',allowedSourcePermissions:[],filters:{source_ids:['source-1']},timeoutMs:100});assert.equal(exact.length,0);
+});
 
 test("an unresponsive embedding cannot delay lexical dispatch or discard authorized results", async (context) => {
   context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });

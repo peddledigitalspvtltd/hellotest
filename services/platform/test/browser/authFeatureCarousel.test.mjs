@@ -27,7 +27,7 @@ api.auth.login=async input=>{window.authCalls.push({kind:'login',input});if(wind
 api.auth.requestSignupCode=async input=>{window.authCalls.push({kind:'signup',input});return{success:true}};
 api.auth.requestPasswordResetCode=async input=>{window.authCalls.push({kind:'reset',input});return{success:true}};
 api.auth.verifySignupCode=api.auth.verifyPasswordResetCode=async()=>({success:true});
-const router=createMemoryRouter([{path:'/auth',element:<AuthPage/>},{path:'/',element:<h1>Signed in workspace</h1>}],{initialEntries:['/auth']});
+const router=createMemoryRouter([{path:'/login',element:<AuthPage key="login"/>},{path:'/signup',element:<AuthPage key="signup" initialMode="signup"/>},{path:'/',element:<h1>Signed in workspace</h1>}],{initialEntries:['/login']});window.authRouter=router;
 createRoot(document.getElementById('root')).render(<AuthProvider><RouterProvider router={router}/></AuthProvider>);`;
 
 test('Login uses a manual navy-and-green coverflow while sign-in stays usable across themes and mobile', { timeout: 120000 }, async () => {
@@ -110,7 +110,9 @@ test('Login uses a manual navy-and-green coverflow while sign-in stays usable ac
     await page.getByRole('button', { name: 'Sign up', exact: true }).click();
     await page.getByRole('heading', { name: 'Set up your HelloTest access', exact: true }).waitFor();
     assert.equal(await page.getByRole('textbox', { name: 'Full name', exact: true }).isVisible(), true);
+    assert.equal(await page.evaluate(()=>window.authRouter.state.location.pathname),'/signup');
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    assert.equal(await page.evaluate(()=>window.authRouter.state.location.pathname),'/login');
     await page.getByRole('button', { name: 'Forgot password?', exact: true }).click();
     await page.getByRole('heading', { name: 'Reset your password', exact: true }).waitFor();
     assert.equal(await page.locator('#new-password-input').isVisible(), true);

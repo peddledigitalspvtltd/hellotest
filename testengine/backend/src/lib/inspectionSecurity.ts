@@ -48,19 +48,43 @@ export function isPrivateInspectionAddress(value: string): boolean {
     || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19));
 }
 
-export async function resolveRemoteInspectionTarget(value: string, resolver = lookup) {
+/** An administrator may route one exact origin to a local network endpoint.
+ * Browser URLs/Host headers stay unchanged; mappings never come from a tool,
+ * prompt, request body or page. No wildcard host/port grants are accepted. */
+function configuredOriginTarget(origin: string): URL | null {
+  const raw = process.env.RECORDER_TARGET_ORIGIN_ALIASES;
+  if (!raw?.trim()) return null;
+  let entries: Record<string, unknown>;
+  try {
+    entries = JSON.parse(raw);
+    if (!entries || typeof entries !== "object" || Array.isArray(entries) || raw.length > 4096 || Object.keys(entries).length > 8) throw new Error();
+    for (const [source, target] of Object.entries(entries)) {
+      const from = new URL(source), to = new URL(String(target));
+      if (typeof target !== "string" || !["http:", "https:"].includes(from.protocol) || from.protocol !== to.protocol
+        || from.origin !== source || to.origin !== target || from.username || from.password || to.username || to.password) throw new Error();
+    }
+  } catch { throw new InspectionTargetError("INSPECTION_URL_INVALID", "The configured inspection origin routes are invalid. Ask an administrator to correct the exact origin mapping."); }
+  return Object.hasOwn(entries, origin) ? new URL(String(entries[origin])) : null;
+}
+
+export async function resolveRemoteInspectionEndpoint(value: string, resolver = lookup) {
   let url: URL;
   try { url = new URL(value); } catch { throw new InspectionTargetError("INSPECTION_URL_INVALID", "Enter an HTTP or HTTPS URL without embedded credentials."); }
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new InspectionTargetError("INSPECTION_URL_INVALID", "Inspection supports HTTP(S) URLs without embedded credentials.");
-  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const mapped = configuredOriginTarget(url.origin), endpoint = mapped || url;
+  const host = endpoint.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   const allowlisted = (process.env.RECORDER_ALLOWED_PRIVATE_HOSTS || "").split(",").map(item => item.trim().toLowerCase()).filter(Boolean);
-  const allowedPrivate = allowlisted.includes(host);
+  const allowedPrivate = Boolean(mapped) || allowlisted.includes(host);
   if (!allowedPrivate && isPrivateInspectionAddress(host)) throw new InspectionTargetError("INSPECTION_PRIVATE_TARGET", "This address is private to the Test Engine. Use a connected local session, or ask an administrator to allow this exact hostname.");
   let addresses: Array<{ address: string }>;
   addresses = isIP(host) ? [{ address: host }] : await lookupInspectionHost(host, resolver);
   if (!addresses.length) throw new InspectionTargetError("INSPECTION_DNS_FAILED", `The remote Test Engine found no DNS addresses for "${host}". Check Page URL or use a connected local session for a private application.`);
   if (!allowedPrivate && addresses.some(item => isPrivateInspectionAddress(item.address))) throw new InspectionTargetError("INSPECTION_PRIVATE_TARGET", "The remote inspection destination resolves to a private network. Use a local session for private applications.");
-  return addresses[0].address;
+  return { address: addresses[0].address, port: Number(endpoint.port || (endpoint.protocol === "https:" ? 443 : 80)) };
+}
+
+export async function resolveRemoteInspectionTarget(value: string, resolver = lookup) {
+  return (await resolveRemoteInspectionEndpoint(value, resolver)).address;
 }
 
 export async function assertRemoteInspectionUrl(value: string, resolver = lookup) {

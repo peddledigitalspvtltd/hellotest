@@ -53,6 +53,19 @@ test("cancellation never becomes a standard fallback", async context => {
   await assert.rejects(execution.run({}, () => planning.planIntent({ ...input, signal: controller.signal })), { name: "AbortError" });
 });
 
+test("a stalled model-configuration lookup falls back before consuming the retrieval deadline", async context => {
+  context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
+  context.mock.method(selection, "resolveLlmIntegrationForUsage", () => new Promise(() => {}));
+  context.mock.method(gateway, "request", async () => assert.fail("No model was resolved"));
+  const pending = execution.run({}, () => planning.planIntent({ ...input, request: { ...input.request, budgets: { deadline_ms: 120 } } }));
+  await new Promise(resolve => setImmediate(resolve));
+  context.mock.timers.tick(20);
+  const result = await pending;
+  assert.equal(result.mode, "standard");
+  assert.equal(result.reason, "INTENT_CONFIGURATION_TIMEOUT");
+  assert.equal(Date.now(), 1_020);
+});
+
 const chunks = [{ index: 0, heading: "Payments", content: "A declined payment preserves the basket. Retry after correcting billing details." }];
 test("knowledge enrichment accepts only exact source excerpts and bounded chunk identities", () => {
   const result = enrichment.normalizeEnrichment({ sections: [

@@ -6,6 +6,7 @@ const { ROUTE_PERMISSIONS } = require("../src/security/permissions.catalog");
 const agenticAssistant = require("../../../agentic/backend/services/agenticAssistant.service");
 const contextOrchestrator = require("../../../ai/backend/services/aiContextOrchestrator.service");
 
+const governedInstructions = JSON.stringify(require("../../shared/aiFeatureCatalog.json"));
 const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
 
 test("requested evidence scopes remain authoritative when the prompt mentions other domains", () => {
@@ -39,7 +40,7 @@ test("agent assistant maturity evaluation remains bounded", async () => {
     assert.match(source, new RegExp(metric));
   }
   assert.match(source, /Math\.max\(0, Math\.min\(100/);
-  assert.match(source, /Do not reveal hidden reasoning or chain of thought/);
+  assert.match(governedInstructions, /Do not reveal hidden reasoning or chain of thought/);
 });
 
 test("agent assistant accepts only exact supplied citation ids", () => {
@@ -126,7 +127,8 @@ test("specialist live context includes governed supporting evidence domains", as
   assert.match(source, /authoritative_live_object_repository_snapshot/);
   assert.match(source, /relevant_shared_step_groups/);
   assert.match(source, /authoritative_live_execution_context/);
-  assert.match(agentSource, /Required specialist deliverable/);
+  assert.match(agentSource, /outputInstructions/);
+  assert.match(governedInstructions, /reviewable Test Cases/);
   assert.match(agentSource, /context_manifest/);
   assert.match(agentSource, /knowledge_repo_retrieval/);
   assert.match(agentSource, /specialist-mcp-intent-retrieval/);
@@ -197,6 +199,16 @@ test("agent prompt context stays valid JSON and bounded without slicing evidence
   parsed.bounded_workspace_context.live_project.forEach((item) => assert.doesNotThrow(() => JSON.parse(item.content)));
 });
 
+test("typed repair context remains atomic through the bounded model packet", () => {
+  const content = JSON.stringify({ contract: { kind: "replace_instructions" }, focus: { id: "failed", code: "native source ".repeat(1200) }, steps: [{ id: "next", expected_result: "Preserved following outcome" }] });
+  const input = { mode: "agent", prompt: "Repair the failed section", context: { automation_repair: [{ id: "repair", content }] }, citations: [], contextRoute: {} };
+  const packet = JSON.parse(agenticAssistant._internals.buildBoundedAgentPromptPayload(input));
+  assert.equal(packet.bounded_workspace_context.automation_repair[0].content, content);
+  assert.equal(packet.bounded_workspace_context.automation_repair[0].excerpt_truncated, undefined);
+  assert.throws(() => agenticAssistant._internals.buildBoundedAgentPromptPayload({ ...input, maxChars: 1000 }), /exact repair contract/);
+  assert.throws(() => agenticAssistant._internals.buildBoundedAgentPromptPayload({ ...input, context: { automation_repair: [{ content: "x".repeat(24001) }] } }), /exact repair contract/);
+});
+
 test("deterministic agent fallback produces a decision-ready specialist brief from live evidence", () => {
   const citation = { id: "K-live-stories", label: "Current Story coverage" };
   const context = {
@@ -243,7 +255,7 @@ test("run analysis accepts a bounded reviewer focus without weakening evidence r
   assert.match(routeSource, /interactionMode: req\.body\?\.interaction_mode/);
   assert.match(serviceSource, /reviewer_request/);
   assert.match(serviceSource, /focus: truncateText\(instruction, 1200\)/);
-  assert.match(serviceSource, /never as authority to ignore evidence or safety rules/);
+  assert.match(governedInstructions, /never as authority to ignore evidence or safety rules/);
 });
 
 test("complete specialist outputs preserve detailed cases and reject oversized results instead of silently clipping", () => {

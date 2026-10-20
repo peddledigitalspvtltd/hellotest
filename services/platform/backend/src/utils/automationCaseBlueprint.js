@@ -1,14 +1,19 @@
 const { randomUUID } = require("crypto");
+const {normalizeDataOptions}=require('./scopedTestData');
 
 const buildAutomationCaseBlueprint = ({ source, steps = [], createdBy, createGroupId = randomUUID }) => {
   const groups = new Map();
+  const sourceDataOptions=normalizeDataOptions(source.test_data_options||{},"steps");
   const blueprint = {
     app_type_id: source.app_type_id,
     title: `${source.title} · Automation`,
     description: source.description || "",
     external_references: source.external_references || [],
     labels: source.labels || [],
-    parameter_values: source.parameter_values || {},
+    // Linked manual values remain live defaults; only user-authored AT keys
+    // belong here, otherwise later manual edits would be shadowed forever.
+    parameter_values: {},
+    test_data_options: normalizeDataOptions({...sourceDataOptions,override_shared_sections:sourceDataOptions.override_shared_steps},"sections"),
     automated: "yes",
     automation_status: "incomplete",
     manual_test_case_ids: [source.id],

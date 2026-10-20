@@ -9,6 +9,8 @@ export type TestCaseCatalogFilters = {
   step_filter?: string;
   run_filter?: string;
   exclude_automated?: boolean;
+  automated?: "yes" | "no";
+  manual_test_case_id?: string;
   include_execution?: boolean;
   review_queue?: 'mine';
 };

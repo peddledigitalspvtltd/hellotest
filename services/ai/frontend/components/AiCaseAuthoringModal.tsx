@@ -10,6 +10,7 @@ type SourceDraft = {
   display_id?: string;
   title: string;
   description: string;
+  priority?: number;
   authoring_mode?: AuthoringMode;
   gherkin_document?: string;
   parameter_values: Record<string, string>;
@@ -55,12 +56,13 @@ type AiCaseAuthoringModalProps = {
 
 const IMPROVED_DRAFT_ID = "improved-test-case";
 
-function toCandidate(preview: AiAuthoredTestCasePreview, requirement?: Requirement | null): AiDesignedTestCaseCandidate {
+function toCandidate(preview: AiAuthoredTestCasePreview, priority: number, requirement?: Requirement | null): AiDesignedTestCaseCandidate {
   return {
     client_id: IMPROVED_DRAFT_ID,
     title: preview.title,
     description: preview.description,
-    priority: 3,
+    priority: preview.priority ?? priority,
+    test_case_type: preview.test_case_type,
     authoring_mode: preview.authoring_mode || "structured",
     gherkin_document: preview.gherkin_document,
     parameter_values: preview.parameter_values,
@@ -77,6 +79,8 @@ function fromCandidate(candidate: AiDesignedTestCaseCandidate, current: AiAuthor
     ...current,
     title: candidate.title,
     description: candidate.description,
+    priority: candidate.priority,
+    test_case_type: candidate.test_case_type,
     authoring_mode: candidate.authoring_mode || "structured",
     gherkin_document: candidate.gherkin_document || "",
     parameter_values: candidate.parameter_values || {},
@@ -97,7 +101,7 @@ export function AiCaseAuthoringModal(props: AiCaseAuthoringModalProps) {
     applyLabel, hasAutomationWarning, isCreating, appTypeName = "Current application", promptTemplateProjectId, promptTemplateAppTypeId, onCancel
   } = props;
   const selectedRequirement = requirements.find((requirement) => requirement.id === requirementId) || null;
-  const previewCases = useMemo(() => preview ? [toCandidate(preview, selectedRequirement)] : [], [preview, selectedRequirement]);
+  const previewCases = useMemo(() => preview ? [toCandidate(preview, sourceDraft.priority ?? 3, selectedRequirement)] : [], [preview, sourceDraft.priority, selectedRequirement]);
   const sourceCase = useMemo<AiDesignSourceCase>(() => ({
     id: sourceDraft.id,
     displayId: sourceDraft.display_id,

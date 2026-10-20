@@ -458,7 +458,9 @@ test("Ask HelloTest combines intent routing, live project facts, and indexed ret
   assert.match(source, /buildLiveProjectEvidence/);
   assert.match(engine, /authoritative live project context/);
   assert.match(engine, /live_context_count/);
-  assert.match(source, /Evidence marked authoritative_live_/);
+  assert.match(source, /aiInstructionBlock\("ai\.knowledge\.assistant", "knowledgeAssistant\.request\.10"\)/);
+  const governed = require("../../shared/aiFeatureCatalog.json").find(feature => feature.id === "ai.knowledge.assistant");
+  assert.match(governed.defaults.instruction_blocks["knowledgeAssistant.request.10"], /Evidence marked authoritative_live_/);
 });
 
 test("context routing separates tool help, project facts, and mixed questions", () => {
@@ -923,7 +925,10 @@ test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay align
   assert.match(attachments, /downloadManagedKnowledgeObject/);
   assert.match(rag, /processLegacyKnowledgeSyncOutbox/);
   assert.match(rag, /FROM execution_results WHERE execution_id = \?/);
-  assert.match(rag, /Failed or blocked case evidence/);
+  assert.match(rag, /context_permission_profile/);
+  const runProjection = require("../../../knowledge/backend/services/knowledgeRag.service")._internals.serializeExecution.toString();
+  assert.match(runProjection, /Failure details, result logs and execution snapshots require live, permission-checked context retrieval/);
+  assert.doesNotMatch(runProjection, /row\.test_data_set_snapshot|row\.test_environment_snapshot|row\.test_configuration_snapshot|result\.logs/);
   assert.match(rag, /postgresql-fts-only/);
   assert.match(rag, /usageKey: "ai\.knowledge\.assistant"/);
   assert.match(rag, /UPDATE ai_knowledge_documents SET is_active = FALSE/);

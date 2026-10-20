@@ -1,3 +1,4 @@
+import { consumeAssistantProgress, type AgentProgress } from "./lib/assistantProgressStream";
 import type { AgentStructuredArtifact } from '@hellotest/platform/frontend/src/types';
 import { AI_REQUEST_TIMEOUT_MS } from "@hellotest/platform/frontend/src/platform/lib/requestTimeout";
 import type { RepositoryAgentCatalog, RepositoryAgentPublishResult, RepositoryAgentRun, RepositoryAgentRunInput, RepositoryAgentRunPage } from "./agents/agentTypes";
@@ -141,11 +142,29 @@ agenticWorkflows: {
       };
       integration_id?: string;
       history?: Array<{ role: "user" | "assistant"; content: string }>;
-    }, options?: { signal?: AbortSignal }) => request<AgenticAssistantSessionResponse>("/agentic-assistant/sessions", {
-      method: "POST",
-      body: JSON.stringify(input),
-      signal: options?.signal
-    }, AI_REQUEST_TIMEOUT_MS),
+    }, options?: { signal?: AbortSignal; onProgress?: (event: AgentProgress) => void }) => {
+      if (!options?.onProgress) return request<AgenticAssistantSessionResponse>("/agentic-assistant/sessions", {
+        method: "POST", body: JSON.stringify(input), signal: options?.signal
+      }, AI_REQUEST_TIMEOUT_MS);
+      return (async () => {
+        const controller=new AbortController();
+        const abort=()=>controller.abort();
+        options.signal?.addEventListener("abort",abort,{once:true});
+        if(options.signal?.aborted)controller.abort();
+        const timer=setTimeout(abort,AI_REQUEST_TIMEOUT_MS);
+        try {
+          const path="/agentic-assistant/sessions";
+          const token=readRequestSession().token;
+          const response=await fetch(`${resolveServiceBase(path,API_BASE_URL)}${path}`,{
+            method:"POST",headers:{"Content-Type":"application/json",Accept:"text/event-stream",...(token?{Authorization:`Bearer ${token}`}:{})},
+            body:JSON.stringify(input),signal:controller.signal
+          });
+          if(!response.ok) {const failure=await response.json().catch(()=>({}));throw new Error(failure.message || failure.error || `Review request failed (${response.status}).`);}
+          if(!response.headers.get("content-type")?.includes("text/event-stream"))return response.json() as Promise<AgenticAssistantSessionResponse>;
+          return await consumeAssistantProgress<AgenticAssistantSessionResponse>(response,options.onProgress,controller.signal);
+        } finally {clearTimeout(timer);options.signal?.removeEventListener("abort",abort);}
+      })();
+    },
     list: (query?: { project_id?: string; app_type_id?: string; status?: string }, options?: { signal?: AbortSignal; fresh?: boolean }) =>
       request<AgenticWorkflow[]>(`/agentic-workflows${toQueryString(query)}`, { signal: options?.signal, cache: options?.fresh ? "no-store" : undefined }),
     get: (id: string) =>

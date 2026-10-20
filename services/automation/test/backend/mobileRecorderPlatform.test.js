@@ -18,7 +18,8 @@ function recorderFixture({ steps = [], kind = "unified", configuration = null, r
   const source = fs.readFileSync(path.join(__dirname, "../../backend/services/aiAutomationBuilder.service.js"), "utf8");
   new Function("require", "exports", "module", source)((name) => {
     if (name.endsWith("/db")) return database;
-    if (name.endsWith("/obsDb")) return { prepare: () => ({ all: async () => [], run: async () => ({ changes: 1 }) }) };
+    if (name.endsWith("/obsDb")) return {transaction:callback=>callback, prepare: () => ({get:async()=>undefined, all: async () => [], run: async () => ({ changes: 1 }) }) };
+    if(name.endsWith('/repositoryScreenIdentity'))return require('../../backend/lib/repositoryScreenIdentity');
     if (name === "crypto") return require("node:crypto");
     if (name.endsWith("/testStepAutomation")) return require("../../../platform/backend/src/utils/testStepAutomation");
     if (name.endsWith("/mobileRecorderPlan")) return { resolveMobileRecorderPlatform, buildMobileRecorderPlan };

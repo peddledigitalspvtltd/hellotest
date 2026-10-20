@@ -9,6 +9,7 @@ import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/compo
 import { FormField } from "@hellotest/platform/frontend/src/shared/components/FormField";
 import { TestDataIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import type { StepParameterDefinition } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
+import { isPrivateParameterName } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
 import { evaluateTestDataTemplate, hasTestDataGeneratorTemplate, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
 import "./StepParameterDialog.css";
 
@@ -16,6 +17,7 @@ type StepParameterDialogInputState = {
   disabled?: boolean;
   hint?: string;
   placeholder?: string;
+  inputType?: "text" | "password";
 };
 
 type UtilityTemplate = {
@@ -49,7 +51,12 @@ export function StepParameterDialog({
   previewValues = {},
   scopeLabels,
   onReset,
-  onRefreshPreviews
+  onRefreshPreviews,
+  footerContent,
+  overrideLabel = "Test Case override",
+  resetLabel,
+  allowSensitiveValueOverrides = false,
+  inheritedParameterNames = []
 }: {
   title: string;
   subtitle: string;
@@ -66,6 +73,11 @@ export function StepParameterDialog({
   scopeLabels?: Partial<Record<"t" | "s" | "r", string>>;
   onReset?: (name: string) => void;
   onRefreshPreviews?: () => void;
+  footerContent?: ReactNode;
+  overrideLabel?: string;
+  resetLabel?: string;
+  allowSensitiveValueOverrides?: boolean;
+  inheritedParameterNames?: readonly string[];
 }) {
   const { session } = useAuth();
   const [projectId] = useCurrentProject();
@@ -74,6 +86,18 @@ export function StepParameterDialog({
   const generateAiData = useMutation({ mutationFn: testingApi.testDataSets.previewAiData });
   const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const dialogId = useId();
+  // Stored private values never seed an input. Only replacements authored in
+  // this open dialog may be displayed, using a password control.
+  const [sensitiveEdits, setSensitiveEdits] = useState<Record<string, string>>({});
+  const inheritedNames = new Set([...Object.keys(defaultValues), ...inheritedParameterNames]);
+  const changeValue = (parameter: StepParameterDefinition, value: string) => {
+    if ((parameter.sensitive || isPrivateParameterName(parameter.name)) && allowSensitiveValueOverrides) setSensitiveEdits(current => ({ ...current, [parameter.name]: value }));
+    onChange(parameter.name, value);
+  };
+  const resetValue = (parameter: StepParameterDefinition) => {
+    setSensitiveEdits(current => { const next = { ...current }; delete next[parameter.name]; return next; });
+    onReset?.(parameter.name);
+  };
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
     t: false,
     s: false,
@@ -291,18 +315,24 @@ export function StepParameterDialog({
                   {!collapsedGroups[group.scope] ? (
                     <div className="step-parameter-group-items">
                       {group.items.map((parameter) => {
+                        const isSensitive = parameter.sensitive || isPrivateParameterName(parameter.name);
                         const configuredInputState = getInputState?.(parameter) || {};
-                        const inputState = parameter.sensitive
-                          ? { ...configuredInputState, disabled: true, placeholder: "Hidden value", hint: "This linked value stays hidden and is resolved when the test runs." }
+                        const inputState = isSensitive
+                          ? allowSensitiveValueOverrides
+                            ? { ...configuredInputState, inputType: "password" as const,
+                              placeholder: "Hidden value — enter a replacement",
+                              hint: configuredInputState.disabled ? configuredInputState.hint : `The stored value stays hidden. Enter a replacement or use an empty value. ${configuredInputState.hint || ""}`.trim() }
+                            : { ...configuredInputState, disabled: true, placeholder: "Hidden value", hint: "This linked value stays hidden and is resolved when the test runs." }
                           : configuredInputState;
-                        const hasDefaultValue = Object.prototype.hasOwnProperty.call(defaultValues, parameter.name);
+                        const hasDefaultValue = inheritedNames.has(parameter.name);
                         const hasOverrideValue = Object.prototype.hasOwnProperty.call(overrideValues, parameter.name);
-                        const currentValue = parameter.sensitive ? "" : values[parameter.name] ?? "";
+                        const currentValue = isSensitive ? allowSensitiveValueOverrides ? sensitiveEdits[parameter.name] ?? "" : "" : values[parameter.name] ?? "";
                         const inputId = `${dialogId}-${encodeURIComponent(parameter.name)}`;
-                        const isDynamicValue = hasTestDataGeneratorTemplate(currentValue);
-                        const previewValue = parameter.sensitive ? "" : previewValues[parameter.name] ?? currentValue;
+                        const isPrivateInput = inputState.inputType === "password";
+                        const isDynamicValue = !isPrivateInput && hasTestDataGeneratorTemplate(currentValue);
+                        const previewValue = isSensitive ? "" : previewValues[parameter.name] ?? currentValue;
                         const sourceLabel = hasOverrideValue
-                          ? "Test Case override"
+                          ? overrideLabel
                           : hasDefaultValue
                             ? parameter.sourceLabel ? `Inherited from ${parameter.sourceLabel}` : "Inherited from Data Set"
                             : scopeLabels?.[parameter.scope] || parameter.scopeLabel;
@@ -324,7 +354,17 @@ export function StepParameterDialog({
                                 <span className="step-parameter-source-badge">{sourceLabel}</span>
                               </div>
                               <div className="step-parameter-input-row">
-                                <textarea
+                                {isPrivateInput ? <input
+                                  aria-describedby={`${inputId}-hint`}
+                                  autoComplete="off"
+                                  className="step-parameter-value-input"
+                                  disabled={inputState.disabled}
+                                  id={inputId}
+                                  placeholder={inputState.placeholder || `Value for ${parameter.token}`}
+                                  type="password"
+                                  value={currentValue}
+                                  onChange={(event) => changeValue(parameter, event.target.value)}
+                                /> : <textarea
                                   aria-describedby={`${inputId}-hint`}
                                   className="step-parameter-value-input"
                                   disabled={inputState.disabled}
@@ -332,15 +372,15 @@ export function StepParameterDialog({
                                   placeholder={inputState.placeholder || `Value for ${parameter.token}`}
                                   rows={Math.min(6, Math.max(1, currentValue.split("\n").length, Math.ceil(currentValue.length / 100)))}
                                   value={currentValue}
-                                  onChange={(event) => onChange(parameter.name, event.target.value)}
+                                  onChange={(event) => changeValue(parameter, event.target.value)}
                                   onBlur={(event) => { void resolveAiDataTemplate(parameter.name, event.target.value); }}
-                                />
+                                />}
                                 <label className="step-parameter-utility-select">
                                   <span aria-hidden="true" className="step-parameter-utility-select-icon"><TestDataIcon size={17} /></span>
                                   <span className="sr-only">Data utility for {parameter.token}</span>
                                   <select
                                     aria-label={`Data utility for ${parameter.token}`}
-                                    disabled={inputState.disabled}
+                                    disabled={inputState.disabled || isPrivateInput}
                                     onChange={(event) => selectUtility(parameter.name, event.target.value)}
                                     value=""
                                   >
@@ -363,12 +403,17 @@ export function StepParameterDialog({
                                   <strong>{previewValue || "—"}</strong>
                                 </div>
                               ) : null}
-                              {hasDefaultValue && hasOverrideValue && onReset ? (
-                                <button className="link-button step-parameter-reset-button" disabled={inputState.disabled} onClick={() => onReset(parameter.name)} type="button">
-                                  Reset to Data Set value
+                              {isSensitive && allowSensitiveValueOverrides ? (
+                                <button className="link-button step-parameter-reset-button" disabled={inputState.disabled} onClick={() => changeValue(parameter, "")} type="button">
+                                  Use empty value
                                 </button>
                               ) : null}
-                              {activeUtilityParameter === parameter.name && !parameter.sensitive ? (
+                              {hasDefaultValue && hasOverrideValue && onReset ? (
+                                <button className="link-button step-parameter-reset-button" disabled={inputState.disabled} onClick={() => resetValue(parameter)} type="button">
+                                  {resetLabel || (parameter.sourceLabel?.startsWith("Manual case") ? `Reset to ${parameter.sourceLabel} value` : "Reset to Data Set value")}
+                                </button>
+                              ) : null}
+                              {activeUtilityParameter === parameter.name && !isSensitive ? (
                                 <div aria-label={`Data utilities for ${parameter.token}`} className="step-parameter-utility-panel" role="dialog">
                                   <div className="step-parameter-utility-modal-head">
                                     <div>
@@ -440,9 +485,9 @@ export function StepParameterDialog({
         </div>
 
         <div className="step-parameter-dialog-footer">
-          <button className="ghost-button" onClick={onClose} type="button">
+          {footerContent ?? <button className="ghost-button" onClick={onClose} type="button">
             Done
-          </button>
+          </button>}
         </div>
       </div>
     </div>

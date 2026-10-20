@@ -326,6 +326,40 @@
         "additionalProperties": true
       }
     },
+    "GET /test-cases/automation/agent-activities": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "test_case_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /test-cases/automation/agent-activity": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "test_case_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
     "PATCH /knowledge/assistant/sessions/:id": {
       "body": {
         "type": "object",
@@ -666,6 +700,88 @@
                       "maxLength": 2000
                     }
                   }
+                }
+              }
+            }
+          },
+          "llm_integration_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 255
+          },
+          "context_scopes": {
+            "type": "array",
+            "maxItems": 6,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "stories",
+                "test-cases",
+                "automation",
+                "runs",
+                "bugs",
+                "knowledge"
+              ]
+            }
+          },
+          "evidence_scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "story_id": {
+                "type": "string",
+                "maxLength": 255
+              },
+              "test_case_id": {
+                "type": "string",
+                "maxLength": 255
+              },
+              "execution_id": {
+                "type": "string",
+                "maxLength": 255
+              },
+              "release_id": {
+                "type": "string",
+                "maxLength": 255
+              },
+              "build": {
+                "type": "string",
+                "maxLength": 255
+              },
+              "environment_id": {
+                "type": "string",
+                "maxLength": 255
+              }
+            }
+          },
+          "smart_context": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "reviewed_context": {
+                "type": "string",
+                "maxLength": 12000
+              },
+              "source_ids": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "string",
+                  "maxLength": 255
+                }
+              },
+              "source_kinds": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "string",
+                  "maxLength": 80
                 }
               }
             }
@@ -2526,6 +2642,14 @@
           "requirements": {
             "type": "array",
             "maxItems": 20
+          },
+          "integration_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "additional_context": {
+            "type": "string",
+            "maxLength": 18000
           }
         },
         "required": [
@@ -2894,6 +3018,16 @@
           "integration_id": {
             "type": "string"
           },
+          "ai_feature": {
+            "type": "string",
+            "enum": [
+              "ai.automation.keyword_generation",
+              "ai.automation.review",
+              "ai.automation.gap_analysis",
+              "ai.execution.network_to_api_steps",
+              "ai.agentic.automation-engineer"
+            ]
+          },
           "allow_browser_actions": {
             "type": "boolean"
           },
@@ -2902,6 +3036,9 @@
           },
           "additional_context": {
             "type": "string"
+          },
+          "agent_context": {
+            "type": "object"
           },
           "test_environment_id": {
             "type": "string"
@@ -2929,6 +3066,16 @@
           "integration_id": {
             "type": "string"
           },
+          "ai_feature": {
+            "type": "string",
+            "enum": [
+              "ai.automation.keyword_generation",
+              "ai.automation.review",
+              "ai.automation.gap_analysis",
+              "ai.execution.network_to_api_steps",
+              "ai.agentic.automation-engineer"
+            ]
+          },
           "allow_browser_actions": {
             "type": "boolean"
           },
@@ -2937,6 +3084,9 @@
           },
           "additional_context": {
             "type": "string"
+          },
+          "agent_context": {
+            "type": "object"
           },
           "test_environment_id": {
             "type": "string"
@@ -3113,8 +3263,7 @@
           }
         },
         "required": [
-          "app_type_id",
-          "requirement_id"
+          "app_type_id"
         ],
         "additionalProperties": true
       }
@@ -3178,6 +3327,13 @@
           "integration_id": {
             "type": "string"
           },
+          "ai_feature": {
+            "type": "string",
+            "enum": [
+              "ai.case_authoring.step_rephrase",
+              "ai.automation.step_rephrase"
+            ]
+          },
           "additional_context": {
             "type": "string"
           },
@@ -3211,6 +3367,16 @@
           "integration_id": {
             "type": "string"
           },
+          "ai_feature": {
+            "type": "string",
+            "enum": [
+              "ai.automation.keyword_generation",
+              "ai.automation.review",
+              "ai.automation.gap_analysis",
+              "ai.execution.network_to_api_steps",
+              "ai.agentic.automation-engineer"
+            ]
+          },
           "allow_browser_actions": {
             "type": "boolean"
           },
@@ -3219,6 +3385,9 @@
           },
           "additional_context": {
             "type": "string"
+          },
+          "agent_context": {
+            "type": "object"
           },
           "test_environment_id": {
             "type": "string"
@@ -3238,6 +3407,33 @@
         },
         "required": [
           "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/automation/bulk-delete": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "test_case_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000
+          }
+        },
+        "required": [
+          "project_id",
+          "app_type_id",
+          "test_case_ids"
         ],
         "additionalProperties": true
       }
@@ -3400,7 +3596,6 @@
         },
         "required": [
           "app_type_id",
-          "requirement_ids",
           "cases"
         ],
         "additionalProperties": true
@@ -3446,8 +3641,7 @@
           }
         },
         "required": [
-          "app_type_id",
-          "requirement_ids"
+          "app_type_id"
         ],
         "additionalProperties": true
       }
@@ -3787,6 +3981,12 @@
               "type": "string"
             }
           },
+          "source_test_case_id": {
+            "type": "string"
+          },
+          "as_standalone": {
+            "type": "boolean"
+          },
           "insert_after_step_id": {
             "type": "string"
           }
@@ -3826,6 +4026,9 @@
           },
           "reusable_group_id": {
             "type": "string"
+          },
+          "create_shared_group": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -5394,6 +5597,9 @@
         "type": "object",
         "properties": {
           "app_type_id": {
+            "type": "string"
+          },
+          "project_id": {
             "type": "string"
           },
           "new_name": {

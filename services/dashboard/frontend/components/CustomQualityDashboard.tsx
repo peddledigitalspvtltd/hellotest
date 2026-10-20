@@ -673,7 +673,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
   return (
     <div className="custom-dashboard-workspace">
       <header className="dashboard-page-header">
-        <div className="dashboard-page-title"><span className="dashboard-page-icon"><IconLayoutDashboard size={23} /></span><div><h1>Dashboards</h1><p>Turn project evidence into the next decision.</p></div></div>
+        <div className="dashboard-page-title"><span className="dashboard-page-icon"><IconLayoutDashboard size={23} /></span><div><h1>Custom Dashboards</h1><p>Turn project evidence into the next decision.</p></div></div>
         {canManage ? (<button className="primary-button" disabled={!canManage} onClick={openCreateEditor} type="button"><IconPlus size={17} />Create dashboard</button>) : null}
       </header>
       <nav className="dashboard-preset-navigation" aria-label="Preloaded dashboards">

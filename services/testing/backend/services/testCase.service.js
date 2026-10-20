@@ -20,6 +20,23 @@ const { normalizeReferenceList, normalizeStoredReferenceList } = require("@hello
 const { groupRows, placeholdersFor, uniqueIds } = require("@hellotest/platform/backend/src/utils/batchHydration");
 const { normalizeDataOptions } = require("@hellotest/platform/backend/src/utils/scopedTestData");
 const { setGherkinFeatureTitle } = require("@hellotest/platform/backend/src/utils/gherkinFeatureTitle");
+const { normalizeAutomationStartUrl, requiresAutomationStartUrl } = require("@hellotest/platform/backend/src/utils/automationStartUrl");
+const {normalizeParameterLayer}=require('@hellotest/platform/backend/src/utils/stepParameterResolution');
+
+// Removing an authored own value restores its supplying layer's precedence.
+// A stale name-only marker must never keep shadowing live linked defaults.
+const caseDataOptions = (input, values, previousOptions) => {
+  const options=normalizeDataOptions(input);
+  const previousPrivate=previousOptions?normalizeDataOptions(previousOptions).private_parameter_names||[]:[];
+  if(previousPrivate.length)options.private_parameter_names=[...new Set([...previousPrivate,...(options.private_parameter_names||[])])].sort();
+  if(!options.parameter_overrides?.length&&!options.private_parameter_names?.length)return options;
+  const ownNames=new Set(Object.keys(normalizeParameterLayer(values,'t')));
+  for(const field of ['parameter_overrides','private_parameter_names'])if(options[field]){
+    const names=options[field].filter(key=>ownNames.has(key));
+    if(names.length)options[field]=names;else delete options[field];
+  }
+  return normalizeDataOptions(options);
+};
 
 const DEFAULT_PRIORITY = 3;
 const DEFAULT_STATUS = DOMAIN_METADATA.test_cases.default_status;
@@ -34,7 +51,7 @@ const IMPORT_SOURCE_LABELS = {
 };
 
 const selectAppType = db.prepare(`
-  SELECT id, project_id
+  SELECT id, project_id, type
   FROM app_types
   WHERE id = ?
 `);
@@ -113,6 +130,7 @@ const insertTestCaseRecord = db.prepare(`
     test_data_options,
     automated,
     automation_status,
+    automation_start_url,
     manual_test_case_id,
     authoring_mode,
     test_case_type,
@@ -135,7 +153,7 @@ const insertTestCaseRecord = db.prepare(`
     source_issue_id,
     updated_at
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `);
 
 const selectTestCaseBySourceIdempotency = db.prepare(`
@@ -146,7 +164,7 @@ const selectTestCaseBySourceIdempotency = db.prepare(`
 
 const updateTestCaseRecord = db.prepare(`
   UPDATE test_cases
-  SET app_type_id = ?, suite_id = ?, title = ?, description = ?, external_references = ?, labels = ?, parameter_values = ?, test_data_options = ?, automated = ?, automation_status = ?, manual_test_case_id = ?, authoring_mode = ?, test_case_type = ?, gherkin_document = ?, priority = ?, status = ?, requirement_id = ?, reviewer_id = ?, review_status = ?, review_history = ?, ai_quality_score = ?, author_id = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+  SET app_type_id = ?, suite_id = ?, title = ?, description = ?, external_references = ?, labels = ?, parameter_values = ?, test_data_options = ?, automated = ?, automation_status = ?, automation_start_url = ?, manual_test_case_id = ?, authoring_mode = ?, test_case_type = ?, gherkin_document = ?, priority = ?, status = ?, requirement_id = ?, reviewer_id = ?, review_status = ?, review_history = ?, ai_quality_score = ?, author_id = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
 
@@ -160,7 +178,7 @@ const insertAutomationCaseLink = db.prepare(`
     automation_test_case_id,
     manual_test_case_id,
     is_primary
-  ) VALUES (?, ?, ?)
+  ) VALUES (?, ?, ?) ON CONFLICT(automation_test_case_id,manual_test_case_id) DO UPDATE SET is_primary=EXCLUDED.is_primary
 `);
 
 const insertSuiteMapping = db.prepare(`
@@ -279,11 +297,19 @@ const hydrateTestCases = async (testCases) => {
       ORDER BY test_case_id ASC, issue_id ASC
     `).all(...ids),
     db.prepare(`
-      SELECT automation_test_case_id AS test_case_id, manual_test_case_id, is_primary
-      FROM automation_case_links
-      WHERE automation_test_case_id IN (${placeholders})
-      ORDER BY automation_test_case_id ASC, is_primary DESC, created_at ASC, manual_test_case_id ASC
-    `).all(...ids),
+      SELECT link.automation_test_case_id AS test_case_id, link.manual_test_case_id, link.is_primary,
+        'manual' AS direction, manual.id AS linked_id, manual.display_id, manual.title
+      FROM automation_case_links link JOIN test_cases manual ON manual.id=link.manual_test_case_id
+      JOIN test_cases automation ON automation.id=link.automation_test_case_id AND automation.app_type_id=manual.app_type_id
+      WHERE link.automation_test_case_id IN (${placeholders}) AND automation.automated='yes' AND COALESCE(manual.automated,'no')='no'
+      UNION ALL
+      SELECT link.manual_test_case_id AS test_case_id, link.manual_test_case_id, link.is_primary,
+        'automation' AS direction, automation.id AS linked_id, automation.display_id, automation.title
+      FROM automation_case_links link JOIN test_cases manual ON manual.id=link.manual_test_case_id
+      JOIN test_cases automation ON automation.id=link.automation_test_case_id AND automation.app_type_id=manual.app_type_id
+      WHERE link.manual_test_case_id IN (${placeholders}) AND automation.automated='yes' AND COALESCE(manual.automated,'no')='no'
+      ORDER BY test_case_id,is_primary DESC,linked_id
+    `).all(...ids, ...ids),
     db.prepare(`
       SELECT mapping.test_case_id, mapping.test_data_set_id, data_set.app_type_id, data_set.name, data_set.description, data_set.mode, data_set.columns, data_set.rows
       FROM test_case_data_sets AS mapping
@@ -321,7 +347,8 @@ const hydrateTestCases = async (testCases) => {
       external_references: normalizeStoredReferenceList(testCase.external_references),
       labels: normalizeStoredReferenceList(testCase.labels),
       parameter_values: normalizeParameterValues(testCase.parameter_values),
-      test_data_options: normalizeDataOptions(testCase.test_data_options || {}),
+      execution_hooks: require("./caseExecutionHooks.service").normalizeCaseExecutionHooks(testCase.execution_hooks),
+      test_data_options: normalizeDataOptions(testCase.test_data_options || {}, testCase.automated === "yes" ? "sections" : "steps"),
       review_history: normalizeReviewHistory(testCase.review_history),
       author_id: testCase.author_id || testCase.created_by || null,
       suite_ids: (suitesByCase.get(testCase.id) || []).map((row) => row.suite_id),
@@ -330,7 +357,10 @@ const hydrateTestCases = async (testCases) => {
       module_ids: (modulesByCase.get(testCase.id) || []).map((row) => row.module_id),
       primary_module_id: (modulesByCase.get(testCase.id) || []).find(row => row.is_explicit)?.module_id || null,
       defect_ids: (defectsByCase.get(testCase.id) || []).map((row) => row.issue_id),
-      manual_test_case_ids: (automationLinksByCase.get(testCase.id) || []).map((row) => row.manual_test_case_id),
+      manual_test_case_ids: (automationLinksByCase.get(testCase.id) || []).filter(row => row.direction === "manual").map((row) => row.manual_test_case_id),
+      automation_test_case_ids: (automationLinksByCase.get(testCase.id) || []).filter(row => row.direction === "automation").map((row) => row.linked_id),
+      linked_manual_cases: (automationLinksByCase.get(testCase.id) || []).filter(row => row.direction === "manual").map(row => ({id:row.linked_id,display_id:row.display_id,title:row.title})),
+      linked_automation_cases: (automationLinksByCase.get(testCase.id) || []).filter(row => row.direction === "automation").map(row => ({id:row.linked_id,display_id:row.display_id,title:row.title})),
       test_data_set_ids: (dataSetsByCase.get(testCase.id) || []).map((row) => row.test_data_set_id),
       test_data_sets: (dataSetsByCase.get(testCase.id) || []).map((row) => ({
         id: row.test_data_set_id,
@@ -715,7 +745,8 @@ const ensureManualTestCaseLinks = async ({ manualTestCaseIds = [], appTypeId, au
 };
 
 const syncAutomationCaseLinks = async (automationTestCaseId, manualTestCaseIds = []) => {
-  await deleteAutomationCaseLinks.run(automationTestCaseId);
+  await db.prepare("DELETE FROM automation_case_links WHERE automation_test_case_id=? AND manual_test_case_id NOT IN (SELECT jsonb_array_elements_text(?::jsonb))").run(automationTestCaseId, manualTestCaseIds);
+  await db.prepare("UPDATE automation_case_links SET is_primary=FALSE WHERE automation_test_case_id=?").run(automationTestCaseId);
   for (const [index, manualTestCaseId] of manualTestCaseIds.entries()) {
     await insertAutomationCaseLink.run(automationTestCaseId, manualTestCaseId, index === 0);
   }
@@ -1160,6 +1191,7 @@ const createPersistablePayload = async ({
   labels,
   automated,
   automation_status,
+  automation_start_url,
   manual_test_case_id,
   manual_test_case_ids = [],
   authoring_mode,
@@ -1172,6 +1204,7 @@ const createPersistablePayload = async ({
   test_data_set_ids = [],
   test_data_options = { override_shared_steps: false },
   parameter_values,
+  execution_hooks = [],
   steps = [],
   ai_generation_source,
   ai_generation_review_status,
@@ -1193,7 +1226,7 @@ const createPersistablePayload = async ({
     throw new Error("Test case title is required");
   }
 
-  const display_id = await displayIdService.createDisplayId("test_case");
+  const display_id = await displayIdService.createDisplayId(normalizeAutomated(automated) === "yes" ? "automation_case" : "test_case");
 
   let resolvedAppTypeId = normalizeText(app_type_id);
   const resolvedSuiteIds = normalizeTextList([suite_id, ...suite_ids]);
@@ -1242,7 +1275,7 @@ const createPersistablePayload = async ({
         ? "draft"
         : normalizeStatus(status);
   const previousSourceCase = source_idempotency_key
-    ? await db.prepare("SELECT test_case_type FROM test_cases WHERE app_type_id = ? AND source_idempotency_key = ?")
+    ? await db.prepare("SELECT test_case_type, automation_start_url FROM test_cases WHERE app_type_id = ? AND source_idempotency_key = ?")
       .get(resolvedAppTypeId, normalizeText(source_idempotency_key))
     : null;
 
@@ -1252,13 +1285,17 @@ const createPersistablePayload = async ({
     suite_ids: resolvedSuiteIds,
     requirement_ids: resolvedRequirementIds,
     test_data_set_ids: resolvedDataSetIds,
-    test_data_options: normalizeDataOptions(test_data_options),
+    test_data_options: caseDataOptions(test_data_options,normalizeParameterValues(parameter_values)),
     title: resolvedTitle,
     description: normalizeText(description),
     external_references: normalizeReferenceList(external_references),
     labels: normalizeReferenceList(labels),
     parameter_values: normalizeParameterValues(parameter_values),
+    execution_hooks: await require("./caseExecutionHooks.service").validateCaseExecutionHooks(execution_hooks, {projectId:resolvedAppType?.project_id,appTypeId:resolvedAppTypeId}),
     automated: normalizedAutomated,
+    automation_start_url: normalizeAutomationStartUrl(automation_start_url === undefined && previousSourceCase ? previousSourceCase.automation_start_url : automation_start_url, {
+      required: !previousSourceCase && normalizedAutomated === "yes" && requiresAutomationStartUrl({ appTypeKind: resolvedAppType?.type, steps: normalizedSteps })
+    }),
     automation_status: normalizeAutomationStatus(
       automation_status,
       normalizedAutomated,
@@ -1323,6 +1360,7 @@ const createOne = db.transaction(async (payload) => {
     payload.test_data_options,
     payload.automated,
     payload.automation_status,
+    payload.automation_start_url,
     payload.manual_test_case_id,
     payload.authoring_mode,
     payload.test_case_type,
@@ -1345,6 +1383,7 @@ const createOne = db.transaction(async (payload) => {
     payload.source_issue_id
   );
 
+  if (payload.execution_hooks?.length) await db.prepare("UPDATE test_cases SET execution_hooks = ? WHERE id = ?").run(payload.execution_hooks, id);
   await syncSuiteMappings(id, payload.suite_ids);
   await syncRequirementMappings(id, payload.requirement_ids);
   await syncDataSetMappings(id, payload.test_data_set_ids);
@@ -1599,6 +1638,7 @@ exports.bulkImportTestCases = async ({ app_type_id, requirement_id, rows = [], c
               labels: normalizedRow.labels, author_id: author?.id, reviewer_id: reviewer?.id,
               authoring_mode: normalizedRow.authoring_mode, test_case_type: normalizedRow.test_case_type,
               gherkin_document: normalizedRow.gherkin_document, automation_status: normalizedRow.automation_status,
+              automation_start_url: normalizedRow.automation_start_url,
               external_references: normalizeReferenceList(normalizedRow.external_references || normalizedRow.externalReferences || normalizedRow.references || normalizedRow.reference),
               parameter_values: normalizedRow.parameter_values || normalizedRow.parameterValues,
               test_data_options: normalizedRow.test_data_options,
@@ -1847,8 +1887,8 @@ exports.getTestCase = async (id) => {
       COALESCE((SELECT MAX(version.revision) FROM test_case_versions version
         WHERE version.test_case_id = test_cases.id), 0) + 1 AS revision
     FROM test_cases
-    WHERE test_cases.id = ?
-  `).get(id);
+    WHERE test_cases.id = ? OR test_cases.display_id = ? OR test_cases.legacy_display_ids @> ?::jsonb
+  `).get(id, id, [id]);
 
   if (!testCase) {
     throw new Error("Test case not found");
@@ -1857,8 +1897,19 @@ exports.getTestCase = async (id) => {
   return hydrateSuiteIds(testCase);
 };
 
-exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups = true } = {}) => {
+// Caller authorizes data visibility before exposing live linked-manual defaults.
+exports.withParameterDefaults = async (testCase,{projectId}={}) => {
+  const [projected]=await require('./linkedManualParameters.service').projectCases([testCase],{projectId});
+  const data=await require('./effectiveCaseDataSets.service').loadEffectiveCaseDataSets({testCaseIds:[testCase.id],projectId,appTypeId:testCase.app_type_id});
+  return {...projected,effective_test_data_set_ids:data.filter(row=>row.test_case_id===testCase.id).map(row=>row.test_data_set_id||row.id)};
+};
+
+exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups = true, preserveLegacyAutomationStartUrl = false, expectedAutomationStartUrl } = {}) => {
   const existing = await exports.getTestCase(id);
+  id=existing.id;
+  if (data.automated !== undefined && normalizeAutomated(data.automated) !== normalizeAutomated(existing.automated)) {
+    throw Object.assign(new Error("Manual and automation cases have separate identities. Create a linked automation case instead of changing this case type."), { statusCode: 409, code: "TEST_CASE_IDENTITY_IMMUTABLE" });
+  }
 
   const requestedSuiteIds = data.suite_ids !== undefined
     ? normalizeTextList(data.suite_ids)
@@ -1879,6 +1930,9 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
   const resolvedAppType = await ensureAppTypeExists(resolvedAppTypeId);
   resolvedAppTypeId = await ensureSuitesMatchAppType(requestedSuiteIds, resolvedAppTypeId);
   const finalAppType = resolvedAppTypeId !== resolvedAppType?.id ? await ensureAppTypeExists(resolvedAppTypeId) : resolvedAppType;
+  if(resolvedAppTypeId!==existing.app_type_id && (existing.manual_test_case_ids?.length||existing.automation_test_case_ids?.length)){
+    throw Object.assign(new Error("Unlink manual and automation cases before moving them to another application."),{statusCode:409,code:"AUTOMATION_LINK_SCOPE_CHANGED"});
+  }
   const linkedRequirements = await ensureRequirementsExist(requestedRequirementIds, finalAppType?.project_id || null);
   await ensureDataSetsExist(requestedDataSetIds, finalAppType?.project_id || null, resolvedAppTypeId);
   const existingAuthorId = existing.author_id || existing.author?.id || existing.created_by || null;
@@ -1911,7 +1965,7 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
     suite_ids: requestedSuiteIds,
     requirement_ids: requestedRequirementIds,
     test_data_set_ids: requestedDataSetIds,
-    test_data_options: normalizeDataOptions(data.test_data_options === undefined ? existing.test_data_options || {} : data.test_data_options),
+    test_data_options: caseDataOptions(data.test_data_options === undefined ? existing.test_data_options || {} : data.test_data_options,normalizeParameterValues(data.parameter_values === undefined ? existing.parameter_values : data.parameter_values),existing.test_data_options),
     title: normalizeText(data.title) || existing.title,
     description: data.description !== undefined ? normalizeText(data.description) : existing.description,
     external_references: data.external_references !== undefined
@@ -1921,7 +1975,11 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
       ? normalizeReferenceList(data.labels)
       : normalizeStoredReferenceList(existing.labels),
     parameter_values: data.parameter_values !== undefined ? normalizeParameterValues(data.parameter_values) : normalizeParameterValues(existing.parameter_values),
+    execution_hooks: data.execution_hooks === undefined && resolvedAppTypeId === existing.app_type_id
+      ? require("./caseExecutionHooks.service").normalizeCaseExecutionHooks(existing.execution_hooks)
+      : await require("./caseExecutionHooks.service").validateCaseExecutionHooks(data.execution_hooks === undefined ? existing.execution_hooks : data.execution_hooks, {projectId:finalAppType?.project_id,appTypeId:resolvedAppTypeId,caseId:id}),
     automated: data.automated !== undefined ? normalizeAutomated(data.automated, existing.automated || DEFAULT_AUTOMATED) : existing.automated || DEFAULT_AUTOMATED,
+    automation_start_url: existing.automation_start_url || null,
     authoring_mode: data.authoring_mode !== undefined
       ? normalizeAuthoringMode(data.authoring_mode, existing.authoring_mode || "structured")
       : normalizeAuthoringMode(existing.authoring_mode || "structured"),
@@ -1947,6 +2005,16 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
     author_id: requestedAuthorId,
     updated_by: normalizeText(data.updated_by) || existing.updated_by || existing.created_by || null
   };
+  if (data.automation_start_url !== undefined) {
+    payload.automation_start_url = normalizeAutomationStartUrl(data.automation_start_url, {
+      // Existing cases may predate the Start URL contract. Normal edits keep
+      // that nullable value; only a trusted version restore may clear it.
+      required: !preserveLegacyAutomationStartUrl && payload.automated === "yes" && requiresAutomationStartUrl({
+        appTypeKind: finalAppType?.type,
+        steps: payload.steps !== null ? payload.steps : await selectStepsForTestCase.all(id)
+      })
+    });
+  }
   await mobileFeatureService.assertAuthoringMobileFeatureEnabled({
     app_type_id: payload.app_type_id,
     payload: payload.steps !== null ? payload.steps : await selectStepsForTestCase.all(id)
@@ -1979,6 +2047,9 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
   const executeUpdate = db.transaction(async () => {
     const current = await db.prepare("SELECT * FROM test_cases WHERE id = ? FOR UPDATE").get(id);
     if (!current) throw reviewError("Test case not found", 404);
+    if (expectedAutomationStartUrl !== undefined && (current.automation_start_url ?? null) !== expectedAutomationStartUrl) {
+      throw Object.assign(new Error('The automation Start URL changed after this build was reviewed. Review the current target and start a new build.'), { statusCode: 409, code: 'AUTOMATION_START_URL_CHANGED' });
+    }
     if (reviewStateKey(current) !== reviewStateKey(existing)) {
       throw reviewError("The test case review changed while saving. Refresh before editing.");
     }
@@ -2002,6 +2073,7 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
       payload.test_data_options,
       payload.automated,
       payload.automation_status,
+      payload.automation_start_url,
       payload.manual_test_case_id,
       payload.authoring_mode,
       payload.test_case_type,
@@ -2017,6 +2089,7 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
       payload.updated_by,
       id
     );
+    if (data.execution_hooks !== undefined) await db.prepare("UPDATE test_cases SET execution_hooks = ? WHERE id = ?").run(payload.execution_hooks, id);
     if (existing.ai_generation_source && (reviewerChanged || payload.review_status !== existingReviewStatus)) {
       await updateGeneratedReviewState.run(
         payload.review_status === "accepted" ? "accepted" : payload.review_status === "changes_requested" ? "rejected" : "pending",
@@ -2177,8 +2250,13 @@ const applyReviewDecision = async (id, { review_status, comment, reviewed_by, ex
 
 exports.reviewTestCase = (id, data) => applyReviewDecision(id, data);
 
-exports.deleteTestCase = async (id) => {
-  await exports.getTestCase(id);
+exports.deleteTestCase = async (id, {deleted_by=null,ip_address=null}={}) => {
+  const existing=await exports.getTestCase(id);
+  id=existing.id;
+  if(existing.automated==='yes'){
+    const app=await selectAppType.get(existing.app_type_id);
+    return require('./automationCaseDeletion.service').deleteAutomationCases({project_id:app?.project_id,app_type_id:existing.app_type_id,test_case_ids:[id]},{actorId:deleted_by,ipAddress:ip_address});
+  }
 
   const executeDelete = db.transaction(async () => {
     await deleteStepsForTestCase.run(id);

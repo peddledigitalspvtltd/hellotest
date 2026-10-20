@@ -292,7 +292,7 @@ const loadImage = (url: string) =>
     image.src = url;
   });
 
-const compressImageDataUrl = async (dataUrl: string, maxEdge = 520, quality = 0.28) => {
+export const compressImageDataUrl = async (dataUrl: string, maxEdge = 1280, quality = 0.72) => {
   const image = await loadImage(dataUrl);
   const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height, 1));
   const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
@@ -301,27 +301,37 @@ const compressImageDataUrl = async (dataUrl: string, maxEdge = 520, quality = 0.
   const context = canvas.getContext("2d");
 
   if (!context) {
-    return dataUrl;
+    throw new Error('Image compression is unavailable. Retry in a browser with canvas support.');
   }
 
   canvas.width = width;
   canvas.height = height;
+  // JPEG has no transparency: a white background preserves transparent text.
+  context.fillStyle = '#fff';
+  context.fillRect(0, 0, width, height);
   context.drawImage(image, 0, 0, width, height);
-  return canvas.toDataURL("image/jpeg", quality);
+  const perImageBudget = Math.floor(REFERENCE_IMAGE_MAX_TOTAL_CHARS / REFERENCE_IMAGE_MAX_COUNT);
+  let encoded = canvas.toDataURL('image/jpeg', quality);
+  for (const nextQuality of [0.6, 0.48, 0.36]) {
+    if (encoded.length <= perImageBudget) break;
+    encoded = canvas.toDataURL('image/jpeg', nextQuality);
+  }
+  if (encoded.length > perImageBudget) throw new Error('This screenshot is too detailed for the image budget. Crop it to the relevant area.');
+  return encoded;
 };
 
 export const readImageFiles = async (files: FileList | null) => {
   const collection = Array.from(files || []);
+  if (collection.length > REFERENCE_IMAGE_MAX_COUNT) throw new Error(`Choose at most ${REFERENCE_IMAGE_MAX_COUNT} reference images.`);
+  if (collection.some(file => !['image/png', 'image/jpeg', 'image/webp'].includes(file.type))) throw new Error('Choose PNG, JPEG, or WebP screenshots.');
   const oversized = collection.find((file) => file.size > REFERENCE_IMAGE_MAX_FILE_BYTES);
   if (oversized) {
     throw new Error(`${oversized.name} is too large for AI context. Remove it or upload a smaller screenshot.`);
   }
-  const images = await Promise.all(
-    collection.map(async (file) => ({
-      name: file.name,
-      url: await compressImageDataUrl(await readFileAsDataUrl(file))
-    }))
-  );
+  // Decode one original at a time: several large PNGs otherwise keep multiple
+  // full-resolution pixel buffers alive despite the small outgoing budget.
+  const images: AiDesignImageInput[] = [];
+  for (const file of collection) images.push({name:file.name,url:await compressImageDataUrl(await readFileAsDataUrl(file))});
 
   return images.filter((image) => image.url) as AiDesignImageInput[];
 };

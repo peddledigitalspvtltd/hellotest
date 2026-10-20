@@ -116,6 +116,14 @@ const getDetail = async (id, { user, revisionId, asOf } = {}) => {
     fragments: [], authorization: { partial: false }, historical: Boolean(asOf || revisionId || archived)
   };
   if (!revision) return result;
+  if (["test_case", "execution"].includes(source.source_kind)
+    && revision.metadata?.source_snapshot?.context_permission_profile !== authorization.APPLICATION_CONTEXT_PROFILE) {
+    // Legacy application revisions may contain values from separately protected
+    // data/config/result objects. Show their version metadata for reindexing,
+    // while withholding the old passages from both UI and MCP source fetches.
+    return { ...result, knowledge_object: null, authorization: { partial: true },
+      context_unavailable_reason: "Refresh or reingest this application source to use permission-scoped context." };
+  }
   if (!revision.is_active && !revisionId && !asOf) await authorization.assertHistoricalAccess(user, source.project_id);
   const fragmentAcl = authorization.predicate({ user, projectId: source.project_id, document: "documents", chunk: "chunks" });
   const fragments = await db.prepare(`SELECT chunks.id, chunks.document_id AS knowledge_id,

@@ -45,6 +45,7 @@ COPY --chown=node:node services/knowledge/backend ./services/knowledge/backend
 COPY --chown=node:node services/manual/backend ./services/manual/backend
 COPY --chown=node:node services/dashboard/backend ./services/dashboard/backend
 COPY --chown=node:node services/automation/backend ./services/automation/backend
+COPY --chown=node:node services/automation/shared ./services/automation/shared
 COPY --chown=node:node services/agentic/backend ./services/agentic/backend
 COPY --chown=node:node services/agentic/shared ./services/agentic/shared
 COPY --chown=node:node services/chatbot/backend ./services/chatbot/backend

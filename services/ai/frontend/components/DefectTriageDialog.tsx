@@ -6,7 +6,8 @@ import { asArray } from "@hellotest/platform/frontend/src/shared/lib/collectionG
 import { formatDefectFieldLabel } from "@hellotest/testing/frontend/lib/defectTerminology";
 import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAiPromptRegistry";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
-import type { AiBugTriageRecommendation, Issue } from "@hellotest/platform/frontend/src/types";
+import type { AiBugTriageRecommendation, AiDesignImageInput, Issue } from "@hellotest/platform/frontend/src/types";
+import { AiReferenceImages } from './AiReferenceImages';
 import { AiReviewControls } from "./AiReviewControls";
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
@@ -29,6 +30,8 @@ export function DefectTriageDialog({ projectId, issues, canViewIntegrations, onC
   const [integrationId, setIntegrationId] = useState("");
   const [promptGuidance, setPromptGuidance] = useState<string>();
   const [additionalContext, setAdditionalContext] = useState("");
+  const [images, setImages] = useState<AiDesignImageInput[]>([]);
+  const [imageBusy, setImageBusy] = useState(false);
   const [contextBusy, setContextBusy] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [search, setSearch] = useState("");
@@ -41,7 +44,7 @@ export function DefectTriageDialog({ projectId, issues, canViewIntegrations, onC
   });
   const preview = useMutation({ mutationFn: api.issues.previewAiTriage });
   const guidance = promptGuidance ?? getPrompt("ai.bug.triage");
-  const settings = JSON.stringify([integrationId, guidance, additionalContext]);
+  const settings = JSON.stringify([integrationId, guidance, additionalContext, images.map(image=>image.url)]);
   const stale = Boolean(preview.data && submittedSettings !== settings);
   const selectedIds = useMemo(() => new Set(issues.map(issue => issue.id)), [issues]);
   const recommendations = asArray(preview.data?.triage).filter(item => selectedIds.has(item.issue_id));
@@ -51,7 +54,7 @@ export function DefectTriageDialog({ projectId, issues, canViewIntegrations, onC
   );
   const active = visible.find(item => item.issue_id === selectedId) || visible[0];
   const evidence = asArray(preview.data?.evidence_sources).filter(source => active?.evidence_refs.includes(source.ref));
-  const busy = preview.isPending || contextBusy;
+  const busy = preview.isPending || contextBusy || imageBusy;
   const analyze = () => {
     if (busy || !issues.length || issues.length > 10) return;
     setSubmittedSettings(settings);
@@ -61,6 +64,7 @@ export function DefectTriageDialog({ projectId, issues, canViewIntegrations, onC
       issue_ids: issues.map(issue => issue.id),
       integration_id: integrationId || getLlmIntegrationId("ai.bug.triage") || undefined,
       prompt_guidance: guidance.slice(0, 4_000) || undefined,
+      images,
       ...(additionalContext.trim() ? { smart_context: { reviewed_context: additionalContext.trim().slice(0, 8_000) } } : {})
     });
   };
@@ -78,6 +82,7 @@ export function DefectTriageDialog({ projectId, issues, canViewIntegrations, onC
           <div className="defect-triage-controls">
             <AiReviewControls usageKey="ai.bug.triage" projectId={projectId} integrations={asArray(integrationsQuery.data)} integrationId={integrationId} onIntegrationIdChange={setIntegrationId} promptGuidance={promptGuidance} onPromptGuidanceChange={setPromptGuidance} promptMaxLength={4_000} contextMaxLength={8_000} additionalContext={additionalContext} onAdditionalContextChange={setAdditionalContext} artifactContext={issues.map(issue => `${issue.title}: ${issue.message || ""}`.slice(0, 600)).join("\n")} artifactIds={issues.map(issue => issue.id)} disabled={preview.isPending} onBusyChange={setContextBusy} />
             {integrationsQuery.isError ? <p className="defect-triage-note">Model choices could not be loaded. Your configured model is still available. <button className="text-button" onClick={() => void integrationsQuery.refetch()} type="button">Retry models</button></p> : null}
+            <AiReferenceImages images={images} onChange={setImages} disabled={preview.isPending} onBusyChange={setImageBusy}/>
             <button className="primary-button defect-triage-run" disabled={busy || promptQuery.isFetching || integrationsQuery.isFetching || !issues.length || issues.length > 10} onClick={analyze} type="button"><IconSparkles size={17} aria-hidden="true" />{preview.isPending ? "Analyzing…" : preview.error ? "Retry analysis" : preview.data ? "Analyze again" : "Analyze selected Defects"}</button>
           </div>
         </section>

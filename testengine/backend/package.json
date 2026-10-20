@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test test/*.test.mjs",
+    "test": "npm run build && node --test --test-concurrency=2 test/*.test.mjs",
     "package:host-recorder": "node scripts/build-host-recorder-binary.mjs",
     "package:inspection-agent": "npm run build && node scripts/package-inspection-agent.mjs",
     "start": "node dist/server.js"

@@ -1,5 +1,6 @@
 const { TEST_CASE_STATUS_VALUES, TEST_CASE_AUTOMATED_VALUES } = require('../domain/catalog');
 const { normalizeDataOptions } = require('./scopedTestData');
+const { normalizeAutomationStartUrl } = require('./automationStartUrl');
 const fail = message => { throw Object.assign(new Error(message), { statusCode: 400 }); };
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 exports.validateTestCaseImportRow = row => {
@@ -13,6 +14,7 @@ exports.validateTestCaseImportRow = row => {
     if (row[key] !== undefined && (!Array.isArray(row[key]) || row[key].some(value => !object(value)))) fail(`${key} must be an array of objects`);
   }
   if (row.parameter_values !== undefined && (!object(row.parameter_values) || Object.values(row.parameter_values).some(value => value !== null && typeof value === 'object'))) fail('Parameter Values must be an object of scalar values');
+  if (row.automation_start_url !== undefined) normalizeAutomationStartUrl(row.automation_start_url);
   if (row.test_data_options !== undefined) normalizeDataOptions(row.test_data_options);
   for (const group of row.shared_groups || []) {
     if (group.test_data_set_id !== undefined && group.test_data_set_id !== null && typeof group.test_data_set_id !== 'string') fail('Shared Step Group Test Data Set ID must be a string');

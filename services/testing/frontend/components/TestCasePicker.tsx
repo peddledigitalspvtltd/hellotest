@@ -7,7 +7,7 @@ import { testingApi } from "../api.client";
 import { richTextToPlainText } from "@hellotest/platform/frontend/src/platform/components/RichTextEditor";
 import type { TestCase } from "@hellotest/platform/frontend/src/types";
 import { HierarchyAutoLoadSentinel } from "./HierarchyLoadMoreButton";
-import { SelectionToggleIcon, TestCaseIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
+import { TestAutomationIcon, SelectionToggleIcon, TestCaseIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { CatalogSearchFilter } from "@hellotest/platform/frontend/src/shared/components/CatalogSearchFilter";
 import { StatusBadge } from "@hellotest/platform/frontend/src/shared/components/StatusBadge";
 import "./TestCasePicker.css";
@@ -51,6 +51,12 @@ export type TestCasePickerProps = {
 const PAGE_SIZE = 25;
 const EMPTY_ITEMS: TestCase[] = [];
 
+function CaseIdentity({ item, fallback }: { item?: TestCase; fallback: string }) {
+  const isAutomation = item?.automated === "yes";
+  const Icon = isAutomation ? TestAutomationIcon : TestCaseIcon;
+  return <span className="test-case-picker-id"><Icon size={15} strokeWidth={1.8} />{item?.display_id || fallback}<span className="test-case-picker-kind">{isAutomation ? "Automation" : item ? "Manual" : "Loading"}</span></span>;
+}
+
 // A new project/application gets its own label cache. Within that scope, selected
 // IDs and labels survive searches and page changes independently of result rows.
 export function TestCasePicker(props: TestCasePickerProps) {
@@ -73,6 +79,7 @@ function ScopedTestCasePicker({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [moduleFilter, setModuleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [automationFilter, setAutomationFilter] = useState<"" | "yes" | "no">("");
   const [knownItems, setKnownItems] = useState(() => new Map(initialItems.map(item => [item.id, item])));
   const isImpact = presentation === "impact";
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -81,7 +88,7 @@ function ScopedTestCasePicker({
   const filterKey = JSON.stringify([
     filters?.module_id, filters?.suite_id, filters?.requirement_id,
     filters?.label, filters?.shared_step_group_id, filters?.automated,
-    filters?.status, filters?.unassigned_module, moduleFilter, statusFilter
+    filters?.status, filters?.unassigned_module, moduleFilter, statusFilter, automationFilter
   ]);
   const scopeKey = JSON.stringify([projectId, appTypeId, filterKey, debouncedSearch]);
 
@@ -97,6 +104,7 @@ function ScopedTestCasePicker({
       module_id: filters?.module_id || (moduleFilter !== "__unassigned__" ? moduleFilter || undefined : undefined),
       unassigned_module: filters?.unassigned_module || (!filters?.module_id && moduleFilter === "__unassigned__") || undefined,
       status: filters?.status || statusFilter || undefined,
+      automated: filters?.automated || automationFilter || undefined,
       projection: "picker", include_total: false, page_size: PAGE_SIZE,
       search: debouncedSearch || undefined, cursor: pageParam
     }, { signal }),
@@ -204,7 +212,7 @@ function ScopedTestCasePicker({
   useLayoutEffect(() => { if (viewport.current) viewport.current.scrollTop = 0; }, [scopeKey]);
   const isChangingSearch = search.trim() !== debouncedSearch || catalog.isPlaceholderData;
   const isInline = presentation === "inline";
-  const hasLocalFilter = Boolean(debouncedSearch || moduleFilter || statusFilter);
+  const hasLocalFilter = Boolean(debouncedSearch || moduleFilter || statusFilter || automationFilter);
   const inlineRows = useMemo(() => {
     const visibleById = new Map(items.map(item => [item.id, item]));
     // In the unfiltered list, retain the complete selection in its saved order,
@@ -264,7 +272,7 @@ function ScopedTestCasePicker({
           {catalog.isError && !items.length ? <p className="test-case-picker-status" role="alert">Test cases couldn't be loaded. <button className="impact-checkbox-action" type="button" onClick={() => void catalog.refetch()}>Retry test cases</button></p> : null}
           {inlineRows.map(({ id, item }) => <label className={`impact-checkbox-option${selectedIdSet.has(id) ? " is-selected" : ""}`} key={id}>
             <input type={multiple ? "checkbox" : "radio"} name={`${controlId}-case`} checked={selectedIdSet.has(id)} disabled={disabled || isChangingSearch} onChange={() => toggle(id)} />
-            <span><strong>{item?.title || id}</strong><small>{item?.display_id || id}</small></span>
+            <span><strong>{item?.title || id}</strong><CaseIdentity item={item} fallback={id} /></span>
           </label>)}
           {!catalog.isLoading && !catalog.isError && !inlineRows.length ? <div className="empty-state compact">{emptyMessage}</div> : null}
           {selectedLookup.isLoading ? <p className="test-case-picker-status" role="status">Loading selected test case names…</p> : null}
@@ -291,7 +299,8 @@ function ScopedTestCasePicker({
       <option value="">All statuses</option>
       {(metadata.data?.test_cases?.statuses || []).map(status => <option key={status.value} value={status.value}>{status.label}</option>)}
     </select></label> : null}
-    {isInline ? <button className="ghost-button" type="button" disabled={disabled || (!moduleFilter && !statusFilter)} onClick={() => { setModuleFilter(""); setStatusFilter(""); }}>Clear filters</button> : null}
+    {!filters?.automated ? <label>Case type<select aria-label="Filter test cases by automation" disabled={disabled} value={automationFilter} onChange={event => setAutomationFilter(event.target.value as "" | "yes" | "no")}><option value="">All cases</option><option value="no">Manual cases</option><option value="yes">Automation cases</option></select></label> : null}
+    {isInline ? <button className="ghost-button" type="button" disabled={disabled || (!moduleFilter && !statusFilter && !automationFilter)} onClick={() => { setModuleFilter(""); setStatusFilter(""); setAutomationFilter(""); }}>Clear filters</button> : null}
     {modules.isError ? <p role="alert">Module filters couldn't be loaded. <button className="ghost-button" type="button" onClick={() => void modules.refetch()}>Retry modules</button></p> : null}
   </>;
 
@@ -306,7 +315,7 @@ function ScopedTestCasePicker({
       {isInline ? <CatalogSearchFilter
         value={search} onChange={setSearch} onOpenChange={setFiltersOpen}
         placeholder="Search ID or title…" ariaLabel="Search test cases" type="search"
-        activeFilterCount={Number(Boolean(moduleFilter)) + Number(Boolean(statusFilter))}
+        activeFilterCount={Number(Boolean(moduleFilter)) + Number(Boolean(statusFilter)) + Number(Boolean(automationFilter))}
         title="Filter Test Cases" disabled={disabled}
       ><div className="test-case-picker-filter-fields">{filterFields}</div></CatalogSearchFilter> : <label className="test-case-picker-search">
         <IconSearch aria-hidden="true" size={17} />
@@ -320,7 +329,7 @@ function ScopedTestCasePicker({
       <button className="ghost-button" type="button" disabled={disabled || !selectedIds.length} onClick={() => commitSelection([])}>{isInline ? <SelectionToggleIcon checked={false} /> : null}Clear</button>
     </div>
     {!isInline ? <details className="test-case-picker-filters" onToggle={event => setFiltersOpen(event.currentTarget.open)}>
-      <summary>Filters{moduleFilter || statusFilter ? " · Active" : ""}</summary>
+      <summary>Filters{moduleFilter || statusFilter || automationFilter ? " · Active" : ""}</summary>
       <div>
         {filterFields}
       </div>
@@ -332,7 +341,7 @@ function ScopedTestCasePicker({
           const item = itemById.get(id);
           const label = item?.title || id;
           return <li key={id}>
-            <span className="test-case-picker-selected-label"><small>{item?.display_id || id}</small><span>{label}</span></span>
+            <span className="test-case-picker-selected-label"><CaseIdentity item={item} fallback={id} /><span>{label}</span></span>
             <div className="test-case-picker-selected-actions">
               {allowReorder && multiple ? <>
                 <button type="button" className="ghost-button" aria-label={`Move ${label} up`} disabled={disabled || index === 0} onClick={() => move(index, -1)}><IconChevronUp aria-hidden="true" size={16} /></button>
@@ -363,7 +372,7 @@ function ScopedTestCasePicker({
           toggle(id);
         }}>
           <span role="cell"><input aria-label={`${selected ? "Remove" : "Add"} ${item?.display_id || id} ${selected ? "from" : "to"} the new ${selectionContext}`} type={multiple ? "checkbox" : "radio"} name={`${controlId}-case`} checked={selected} disabled={disabled || isChangingSearch} onChange={() => toggle(id)} /></span>
-          <span className="test-case-picker-copy" role="cell"><span className="test-case-picker-id"><TestCaseIcon size={15} strokeWidth={1.8} />{item?.display_id || id}</span><strong>{label}</strong></span>
+          <span className="test-case-picker-copy" role="cell"><CaseIdentity item={item} fallback={id} /><strong>{label}</strong></span>
           <span className="test-case-picker-inline-status" role="cell">{item?.status ? <StatusBadge value={item.status} /> : "—"}</span>
           <span className="test-case-picker-inline-order" role="cell">
             {selected ? <><span aria-label={`Selection position ${index + 1}`}>{index + 1}</span>{allowReorder && multiple ? <>
@@ -375,7 +384,7 @@ function ScopedTestCasePicker({
       }) : items.map(item => <label className={`test-case-picker-row${selectedIdSet.has(item.id) ? " is-selected" : ""}`} key={item.id}>
         <input type={multiple ? "checkbox" : "radio"} name={`${controlId}-case`} checked={selectedIdSet.has(item.id)} disabled={disabled || isChangingSearch} onChange={() => toggle(item.id)} />
         <span className="test-case-picker-copy">
-          <span className="test-case-picker-id"><TestCaseIcon size={15} strokeWidth={1.8} />{item.display_id || item.id}</span>
+          <CaseIdentity item={item} fallback={item.id} />
           <strong>{item.title}</strong>
           {item.description ? <span className="test-case-picker-description">{richTextToPlainText(item.description)}</span> : null}
           {item.labels?.length ? <small>{item.labels.join(" · ")}</small> : null}

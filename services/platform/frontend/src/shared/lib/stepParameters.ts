@@ -1,4 +1,5 @@
 import type { ExecutionDataSetSnapshot, TestDataSet, TestStep } from "../../types";
+import { parse } from "acorn";
 
 export type StepParameterScope = "t" | "s" | "r";
 
@@ -30,6 +31,11 @@ export type StepParameterSegment =
     };
 
 export type StepParameterSource = Pick<TestStep, "id" | "action" | "expected_result" | "automation_code" | "api_request">;
+export type StepParameterDiscoveryOptions = {
+  /** Editors discover new parameters through explicit @t/@s/@r references.
+   * Existing unscoped references remain supported when their name is known. */
+  knownLegacyNames?: Iterable<string>;
+};
 type StepApiLike = NonNullable<TestStep["api_request"]>;
 type StepParameterDataSet = Pick<ExecutionDataSetSnapshot | TestDataSet, "columns" | "mode" | "rows">;
 
@@ -149,15 +155,23 @@ export function filterStepParameterValuesByScope(values: Record<string, string>,
   }, {});
 }
 
-export function extractStepParameterMatches(text?: string | null) {
+export function extractStepParameterMatches(text?: string | null, options: StepParameterDiscoveryOptions = {}) {
   const source = String(text || "");
 
   if (!source) {
     return [];
   }
 
+  const knownLegacyNames = options.knownLegacyNames === undefined ? null : new Set(Array.from(options.knownLegacyNames, name => normalizeStepParameterName(name)));
   return [...source.matchAll(STEP_PARAMETER_PATTERN)]
-    .filter((match) => !(!match[1] && /^[tsr]$/i.test(match[2]) && source[(match.index || 0) + match[0].length] === "."))
+    .filter((match) => {
+      const before = source[(match.index || 0) - 1] || "";
+      const after = source[(match.index || 0) + match[0].length] || "";
+      // An address, package path, decorator or incomplete scoped prefix is
+      // literal content. The explicit scoped grammar remains authoritative.
+      if (before === "@" || (!match[1] && /[./]/.test(after))) return false;
+      return Boolean(match[1]) || knownLegacyNames === null || knownLegacyNames.has(normalizeStepParameterName(match[2]));
+    })
     .map((match) => ({
     token: match[0],
     label: decodeStepParameterRawName(match[2]),
@@ -168,7 +182,39 @@ export function extractStepParameterMatches(text?: string | null) {
   }));
 }
 
-export function collectStepParameters(steps: StepParameterSource[]): StepParameterDefinition[] {
+/** Inventory parsed runtime data bindings; source is never executed. Keep
+ * imports, comments, regexes and inert string literals out of Test Params. */
+export function collectAutomationCodeParameterNames(code?: string | null) {
+  let tree;
+  try { tree = parse(String(code || ""), { ecmaVersion: "latest", sourceType: "module", allowAwaitOutsideFunction: true, allowReturnOutsideFunction: true }); }
+  catch { return []; }
+  const names = new Set<string>();
+  const bindingMethods = new Set(["goto", "locator", "getByRole", "getByText", "getByLabel", "getByPlaceholder", "getByTestId", "getByTitle", "getByAltText", "fill", "type", "press", "pressSequentially", "selectOption", "filter", "toHaveText", "toContainText", "toHaveValue", "toHaveValues", "toHaveAttribute", "toHaveClass", "toHaveCSS", "toHaveURL", "toHaveTitle", "toHaveCount", "toEqual", "toBe", "toMatch", "toMatchObject", "toContain", "toContainEqual"]);
+  const argumentStrings = (node: any) => {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "Literal" && typeof node.value === "string") extractStepParameterMatches(node.value, { knownLegacyNames: [] }).forEach(match => names.add(match.name));
+    else if (node.type === "ArrayExpression") node.elements.forEach(argumentStrings);
+    else if (node.type === "ObjectExpression") node.properties.forEach((property: any) => property.type === "Property" && argumentStrings(property.value));
+  };
+  const walk = (node: any) => {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "MemberExpression" && node.computed && node.object?.type === "Identifier" && node.object.name === "params" && node.property?.type === "Literal" && typeof node.property.value === "string" && /^[tsr]\.[^\u0000-\u001f\u007f]+$/i.test(node.property.value)) names.add(normalizeStepParameterName(node.property.value));
+    if (node.type === "CallExpression" && node.callee?.type === "MemberExpression") {
+      const callee = node.callee;
+      const method = callee.computed ? callee.property?.value : callee.property?.name;
+      const keyword = callee.object?.type === "Identifier" && ["web", "api", "mobile", "android", "ios"].includes(callee.object.name);
+      if (keyword || bindingMethods.has(method)) node.arguments.forEach(argumentStrings);
+    }
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) value.forEach(walk);
+      else if (value && typeof value === "object") walk(value);
+    }
+  };
+  walk(tree);
+  return [...names];
+}
+
+export function collectStepParameters(steps: StepParameterSource[], options: StepParameterDiscoveryOptions = {}): StepParameterDefinition[] {
   const parameterMap = new Map<string, StepParameterDefinition>();
 
   const registerParsedParameter = (stepId: string, value?: string | null) => {
@@ -200,7 +246,7 @@ export function collectStepParameters(steps: StepParameterSource[]): StepParamet
   };
 
   const registerValue = (stepId: string, value?: string | null) => {
-    extractStepParameterMatches(value).forEach((match) => {
+    extractStepParameterMatches(value, options).forEach((match) => {
       const current =
         parameterMap.get(match.name) || {
           name: match.name,
@@ -247,7 +293,8 @@ export function collectStepParameters(steps: StepParameterSource[]): StepParamet
   };
 
   steps.forEach((step) => {
-    [step.action, step.expected_result, step.automation_code].forEach((value) => registerValue(step.id, value));
+    [step.action, step.expected_result].forEach((value) => registerValue(step.id, value));
+    collectAutomationCodeParameterNames(step.automation_code).forEach(name => registerParsedParameter(step.id, name));
     registerApiRequest(step.id, step.api_request);
   });
 
@@ -305,6 +352,29 @@ export function buildDataSetParameterValues(dataSet?: StepParameterDataSet | nul
   });
 
   return values;
+}
+
+/** Match frozen build resolution: selected data supplies defaults, then only
+ * deliberate case overrides replace it, including an explicit empty string. */
+export function buildCaseParameterValues({ ownValues = {}, inheritedValues = {}, dataSet, overrideNames = [], inheritedOverrideNames = [] }: {
+  ownValues?: Record<string, string>;
+  inheritedValues?: Record<string, string>;
+  dataSet?: StepParameterDataSet | null;
+  overrideNames?: Iterable<string>;
+  inheritedOverrideNames?: Iterable<string>;
+}) {
+  const own = normalizeStepParameterValues(ownValues, "t");
+  const inherited = normalizeStepParameterValues(inheritedValues, "t");
+  const result = combineStepParameterValues(inherited, own, buildDataSetParameterValues(dataSet));
+  for (const reference of inheritedOverrideNames) {
+    const name = normalizeStepParameterName(reference, "t");
+    if (!Object.prototype.hasOwnProperty.call(own, name) && Object.prototype.hasOwnProperty.call(inherited, name)) result[name] = inherited[name];
+  }
+  for (const reference of overrideNames) {
+    const name = normalizeStepParameterName(reference, "t");
+    if (Object.prototype.hasOwnProperty.call(own, name)) result[name] = own[name];
+  }
+  return result;
 }
 
 export function isSensitiveDataSetRow(row?: Record<string, unknown> | null) {
@@ -377,6 +447,28 @@ export function buildStepParameterDefinitionsFromValues(values: Record<string, s
     const parsed = parseStepParameterName(name);
     return parsed ? [{ ...parsed, label: parsed.rawName, stepIds: [], occurrenceCount: 0 }] : [];
   });
+}
+
+/** A case owns its saved defaults and linked data. Suite/run maps can resolve
+ * references, but unrelated shared keys must never become case fields. */
+export function collectCaseStepParameters({ steps, ownValues = {}, inheritedValues = {}, availableValues = {}, dataSet, privateNames = [] }: {
+  steps: StepParameterSource[];
+  ownValues?: Record<string, string>;
+  inheritedValues?: Record<string, string>;
+  availableValues?: Record<string, string>;
+  dataSet?: StepParameterDataSet | null;
+  privateNames?: Iterable<string>;
+}) {
+  const owned = combineStepParameterValues(inheritedValues, ownValues);
+  const privateSet = new Set(Array.from(privateNames, name => normalizeStepParameterName(name, "t")).filter(Boolean));
+  const dataDefinitions = buildDataSetParameterDefinitions(dataSet);
+  const knownLegacyNames = [...Object.keys(owned), ...Object.keys(availableValues), ...dataDefinitions.map(parameter => parameter.name), ...privateSet];
+  return mergeStepParameterDefinitions(
+    collectStepParameters(steps, { knownLegacyNames }).map(parameter => ({ ...parameter, source: "authoring" as const })),
+    buildStepParameterDefinitionsFromValues(owned),
+    buildStepParameterDefinitionsFromValues(Object.fromEntries([...privateSet].map(name => [name, ""]))),
+    dataDefinitions
+  ).map(parameter => privateSet.has(parameter.name) ? { ...parameter, sensitive: true } : parameter);
 }
 
 export type StepParameterQuery = {

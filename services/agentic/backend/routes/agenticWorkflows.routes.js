@@ -45,7 +45,11 @@ module.exports = async function (fastify) {
 
     await requireProjectPermission(req, req.body.project_id, "agentic_workflow.run");
     await validateApp(req.body.project_id, req.body.app_type_id);
-    return withConnection(req, reply, (signal) => agenticAssistantService.respond({ ...Object.fromEntries(["project_id", "app_type_id", "mode", "agent_id", "agent_version", "inputs", "prompt", "context_scopes", "smart_context", "integration_id", "history"].filter(key => Object.hasOwn(req.body, key)).map(key => [key, req.body[key]])), user: req.user, signal }));
+    const input = { ...Object.fromEntries(["project_id", "app_type_id", "mode", "agent_id", "agent_version", "inputs", "prompt", "context_scopes", "smart_context", "integration_id", "history"].filter(key => Object.hasOwn(req.body, key)).map(key => [key, req.body[key]])), user: req.user };
+    if (String(req.headers?.accept || "").includes("text/event-stream")) {
+      return require("@hellotest/platform/backend/src/utils/knowledgeStream").streamKnowledge(req,reply, stream => agenticAssistantService.respond({...input,...stream}), {publicError:error=>error.publicMessage || (error.statusCode < 500 ? error.message : "The agent review could not finish. Check review history and the selected model connection.")});
+    }
+    return withConnection(req, reply, signal => agenticAssistantService.respond({...input,signal}));
   });
 
   fastify.get("/agentic-assistant/sessions", async (req) => {

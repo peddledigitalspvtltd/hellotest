@@ -13,7 +13,7 @@ const selectedIds = (value, field) => {
   if (ids.length > 200) throw Object.assign(new Error(`${field} accepts at most 200 IDs per request.`), { statusCode: 400 });
   return ids;
 };
-const latestStatusSql = `(SELECT status FROM execution_results er WHERE er.test_case_id = tc.id ORDER BY er.created_at DESC, er.id DESC LIMIT 1)`;
+const latestStatusSql = `(SELECT status FROM test_case_effective_results er WHERE er.test_case_id = tc.id ORDER BY er.effective_at DESC, er.derived DESC, er.id DESC LIMIT 1)`;
 const aiPendingSql = alias => `(NULLIF(${alias}.ai_generation_source, '') IS NOT NULL AND ${alias}.ai_generation_review_status = 'pending')`;
 const pendingReviewSql = alias => `(${alias}.review_status = 'pending' OR (${aiPendingSql(alias)} AND COALESCE(${alias}.review_status, 'not_requested') NOT IN ('accepted', 'changes_requested')))`;
 const workflowStatusSql = (includeExecution) => `CASE
@@ -66,6 +66,10 @@ const buildScope = (query = {}) => {
     if (!['yes', 'no'].includes(query.automated)) throw Object.assign(new Error('automated must be yes or no.'), { statusCode: 400 });
     where.push('tc.automated = ?'); params.push(query.automated);
   }
+  if (query.manual_test_case_id) {
+    where.push("tc.automated='yes' AND EXISTS (SELECT 1 FROM automation_case_links link JOIN test_cases manual ON manual.id=link.manual_test_case_id WHERE link.automation_test_case_id=tc.id AND manual.id=? AND manual.app_type_id=tc.app_type_id AND COALESCE(manual.automated,'no')='no')");
+    params.push(String(query.manual_test_case_id));
+  }
   if (query.label && query.label !== 'all') { where.push("COALESCE(tc.labels, '[]'::jsonb) @> ?::jsonb"); params.push(JSON.stringify([query.label])); }
   if (query.shared_step_group_id && query.shared_step_group_id !== 'all') {
     where.push('EXISTS (SELECT 1 FROM test_steps step WHERE step.test_case_id = tc.id AND step.reusable_group_id = ?)');
@@ -78,12 +82,12 @@ const buildScope = (query = {}) => {
     params.push(query.workflow_status);
   }
   if (!picker && ['with-steps', 'no-steps'].includes(query.step_filter)) where.push(`${query.step_filter === 'no-steps' ? 'NOT ' : ''}EXISTS (SELECT 1 FROM test_steps s WHERE s.test_case_id = tc.id)`);
-  if (!picker && ['with-runs', 'no-runs'].includes(query.run_filter) && yes(query.include_execution)) where.push(`${query.run_filter === 'no-runs' ? 'NOT ' : ''}EXISTS (SELECT 1 FROM execution_results r WHERE r.test_case_id = tc.id)`);
+  if (!picker && ['with-runs', 'no-runs'].includes(query.run_filter) && yes(query.include_execution)) where.push(`${query.run_filter === 'no-runs' ? 'NOT ' : ''}EXISTS (SELECT 1 FROM test_case_effective_results r WHERE r.test_case_id = tc.id)`);
   const search = String(query.search || '').trim();
   if (search) {
     const pattern = `%${search.replace(/[\\%_]/g, '\\$&')}%`;
     where.push(`(concat_ws(' ', tc.id, tc.display_id, tc.title, tc.description, tc.labels::text,
-      tc.external_references::text, tc.review_status, replace(${workflowStatusSql(!picker && yes(query.include_execution))}, '-', ' ')) ILIKE ? ESCAPE '\\'
+      tc.external_references::text, tc.legacy_display_ids::text, tc.review_status, replace(${workflowStatusSql(!picker && yes(query.include_execution))}, '-', ' ')) ILIKE ? ESCAPE '\\'
       OR EXISTS (SELECT 1 FROM test_case_effective_module_cases m JOIN test_case_modules mo ON mo.id = m.module_id WHERE m.test_case_id = tc.id AND mo.name ILIKE ? ESCAPE '\\')
       OR EXISTS (SELECT 1 FROM requirement_test_cases m JOIN requirements r ON r.id = m.requirement_id WHERE m.test_case_id = tc.id AND concat_ws(' ', r.id, r.display_id, r.title) ILIKE ? ESCAPE '\\')
       OR EXISTS (SELECT 1 FROM requirements r WHERE r.id = tc.requirement_id AND concat_ws(' ', r.id, r.display_id, r.title) ILIKE ? ESCAPE '\\')
@@ -106,9 +110,9 @@ const readCursor = (cursor, scope) => {
   }
 };
 
-const PICKER_FIELDS = `tc.id, tc.display_id, tc.app_type_id, tc.suite_id, tc.title,
+const PICKER_FIELDS = `tc.id, tc.display_id, tc.legacy_display_ids, tc.app_type_id, tc.suite_id, tc.title,
   LEFT(tc.description, 240) AS description, tc.labels, tc.priority, tc.status, tc.automated,
-  tc.automation_status, tc.authoring_mode, tc.test_case_type, tc.requirement_id,
+  tc.automation_status, tc.automation_start_url, tc.authoring_mode, tc.test_case_type, tc.requirement_id,
   tc.review_status, tc.created_at, tc.updated_at`;
 
 // Membership display metadata is resolved only after the requested page is fixed.
@@ -164,7 +168,7 @@ exports.listPage = async (query = {}) => {
     : '((COALESCE(tc.updated_at, tc.created_at), tc.id) < (?::timestamptz, ?) OR COALESCE(tc.updated_at, tc.created_at) IS NULL)';
   const pageWhere = cursor && !membership ? `${where} AND (${cursorCondition})` : where;
   const pageParams = [...params, ...(cursor && !membership ? (cursor.activity === null ? [cursor.id] : [cursor.activity, cursor.id]) : []), ...(membership ? [membership] : []), size + 1, ...(membership ? [cursor?.offset || 0] : [])];
-  const projection = picker ? PICKER_FIELDS : query.projection === 'summary' ? `tc.id, tc.display_id, tc.app_type_id, tc.suite_id,
+  const projection = picker ? PICKER_FIELDS : query.projection === 'summary' ? `tc.id, tc.display_id, tc.legacy_display_ids, tc.app_type_id, tc.suite_id,
     tc.title, tc.description, tc.external_references, tc.labels, tc.automated, tc.automation_status,
     tc.manual_test_case_id, tc.authoring_mode, tc.test_case_type, tc.priority, tc.status, tc.requirement_id,
     tc.reviewer_id, tc.review_status, tc.ai_quality_score, tc.author_id, tc.source_issue_id,
@@ -195,8 +199,10 @@ exports.listPage = async (query = {}) => {
       ) linked), '[]') AS linked_requirements,
       COALESCE((SELECT jsonb_agg(m.module_id ORDER BY m.is_explicit DESC, m.sort_order, m.module_id) FROM test_case_effective_module_cases m WHERE m.test_case_id = tc.id), '[]') AS module_ids,
       COALESCE((SELECT jsonb_agg(m.issue_id) FROM test_case_defects m WHERE m.test_case_id = tc.id), '[]') AS defect_ids,
-      ${yes(query.include_execution) ? `(SELECT COUNT(*)::int FROM execution_results er WHERE er.test_case_id = tc.id)` : 'NULL'} AS run_count,
-      ${yes(query.include_execution) ? `COALESCE((SELECT jsonb_agg(r) FROM (SELECT id, execution_id, test_case_id, app_type_id, status, duration_ms, created_at FROM execution_results er WHERE er.test_case_id = tc.id ORDER BY created_at DESC, id DESC LIMIT 10) r), '[]')` : "'[]'::jsonb"} AS recent_results
+      COALESCE((SELECT jsonb_agg(manual.id) FROM automation_case_links link JOIN test_cases manual ON manual.id=link.manual_test_case_id WHERE link.automation_test_case_id=tc.id AND manual.app_type_id=tc.app_type_id AND COALESCE(manual.automated,'no')='no'),'[]') AS manual_test_case_ids,
+      COALESCE((SELECT jsonb_agg(automation.id) FROM automation_case_links link JOIN test_cases automation ON automation.id=link.automation_test_case_id WHERE link.manual_test_case_id=tc.id AND automation.app_type_id=tc.app_type_id AND automation.automated='yes'),'[]') AS automation_test_case_ids,
+      ${yes(query.include_execution) ? `(SELECT COUNT(*)::int FROM test_case_effective_results er WHERE er.test_case_id = tc.id)` : 'NULL'} AS run_count,
+      ${yes(query.include_execution) ? `COALESCE((SELECT jsonb_agg(r) FROM (SELECT id, execution_id, test_case_id, app_type_id, status, duration_ms, created_at,effective_at,result_origin,derived,source_result_id,source_test_case_id,source_display_id,covers_entire_case,source_results,source_duration_ms FROM test_case_effective_results er WHERE er.test_case_id = tc.id ORDER BY effective_at DESC,derived DESC,id DESC LIMIT 10) r), '[]')` : "'[]'::jsonb"} AS recent_results
       FROM test_cases tc WHERE tc.id IN (${ids.map(() => '?').join(',')})`).all(...ids);
   }
   const byId = new Map(summaries.map((row) => [row.id, row]));
@@ -204,6 +210,11 @@ exports.listPage = async (query = {}) => {
     if (picker) return { ...row, labels: normalizeStoredReferenceList(row.labels), detail_complete: false, summary_complete: false };
     const summary = byId.get(row.id) || {};
     const result = { ...row, ...summary, external_references: normalizeStoredReferenceList(row.external_references), labels: normalizeStoredReferenceList(row.labels), detail_complete: false, summary_complete: true };
+    if (yes(query.include_execution)) {
+      const latestLinked=(summary.recent_results||[]).find(item=>item.derived);
+      result.automation_coverage={linked_case_count:(summary.automation_test_case_ids||[]).length,status:latestLinked?.status||null,latest_result:latestLinked||null};
+      result.latest_result=summary.recent_results?.[0]||null;
+    }
     result.requirement_ids = [...new Set([row.requirement_id, ...(summary.requirement_ids || [])].filter(Boolean))];
     if (query.projection === 'summary') {
       for (const field of ['gherkin_document', 'parameter_values', 'review_history']) delete result[field];
@@ -235,7 +246,9 @@ exports.getMetrics = async (query = {}) => {
   // Recent pass rate samples ten results; case health keeps the latest finalized
   // outcome across the full history so a queued/running retry cannot erase it.
   const rows = await db.prepare(`WITH scoped AS MATERIALIZED (
-    SELECT tc.id, tc.priority, tc.automated, tc.review_status, tc.ai_generation_source, tc.ai_generation_review_status,
+    SELECT tc.id, tc.priority, tc.automated,
+      EXISTS(SELECT 1 FROM automation_case_links link JOIN test_cases automation ON automation.id=link.automation_test_case_id AND automation.automated='yes' AND automation.app_type_id=tc.app_type_id WHERE link.manual_test_case_id=tc.id) AS has_linked_automation,
+      tc.review_status, tc.ai_generation_source, tc.ai_generation_review_status,
       ARRAY(SELECT module_id FROM test_case_effective_module_cases m WHERE m.test_case_id = tc.id) AS module_ids,
       (tc.requirement_id IS NOT NULL OR EXISTS (SELECT 1 FROM requirement_test_cases m WHERE m.test_case_id = tc.id)) AS covered,
       EXISTS (SELECT 1 FROM suite_test_cases m WHERE m.test_case_id = tc.id) AS with_suites,
@@ -247,9 +260,9 @@ exports.getMetrics = async (query = {}) => {
         COUNT(*) FILTER (WHERE status = 'passed')::int AS passed,
         SUM(duration_ms) FILTER (WHERE status IN ('passed','failed') AND duration_ms >= 0) AS duration_sum,
         COUNT(*) FILTER (WHERE status IN ('passed','failed') AND duration_ms >= 0)::int AS duration_count,
-        (SELECT er.status FROM execution_results er WHERE er.test_case_id = s.id AND er.status IN ('passed','failed','blocked')
-          ORDER BY er.created_at DESC NULLS LAST, er.id DESC LIMIT 1) AS latest_finalized
-        FROM (SELECT id, status, duration_ms, created_at FROM execution_results er WHERE er.test_case_id = s.id ORDER BY created_at DESC, id DESC LIMIT 10) recent`
+        (SELECT er.status FROM test_case_effective_results er WHERE er.test_case_id = s.id AND er.status IN ('passed','failed','blocked')
+          ORDER BY er.effective_at DESC NULLS LAST,er.derived DESC,er.id DESC LIMIT 1) AS latest_finalized
+        FROM (SELECT id, status, duration_ms, created_at FROM test_case_effective_results er WHERE er.test_case_id = s.id ORDER BY effective_at DESC,derived DESC,id DESC LIMIT 10) recent`
         : `SELECT 0 AS runs, 0 AS finalized, 0 AS passed, NULL::bigint AS duration_sum, 0 AS duration_count, NULL::text AS latest_finalized`}
     ) r ON TRUE
   ) , memberships AS (
@@ -261,7 +274,7 @@ exports.getMetrics = async (query = {}) => {
   ), rollups AS (SELECT catalog, module_id, COUNT(*)::int AS count,
     COUNT(*) FILTER (WHERE covered)::int AS covered, COUNT(*) FILTER (WHERE executable)::int AS executable,
     COUNT(*) FILTER (WHERE with_suites)::int AS with_suites,
-    COUNT(*) FILTER (WHERE automated = 'yes')::int AS automated,
+    COUNT(*) FILTER (WHERE automated = 'yes' OR has_linked_automation)::int AS automated,
     COUNT(*) FILTER (WHERE automated IN ('yes','no'))::int AS automation_known,
     COUNT(*) FILTER (WHERE runs > 0)::int AS with_history,
     COUNT(*) FILTER (WHERE latest_finalized = 'blocked')::int AS blocked,
@@ -271,7 +284,7 @@ exports.getMetrics = async (query = {}) => {
     COALESCE(SUM(finalized),0)::int AS finalized, COALESCE(SUM(passed),0)::int AS passed,
     COALESCE(SUM(duration_sum),0)::float8 AS duration_sum, COALESCE(SUM(duration_count),0)::int AS duration_count,
     COUNT(*) FILTER (WHERE ${pendingReviewSql('f')})::int AS pending_review,
-    COUNT(*) FILTER (WHERE NOT covered OR NOT executable OR latest_finalized IN ('failed','blocked') OR (COALESCE(priority,3) <= 2 AND automated = 'no'))::int AS risk
+    COUNT(*) FILTER (WHERE NOT covered OR NOT executable OR latest_finalized IN ('failed','blocked') OR (COALESCE(priority,3) <= 2 AND automated = 'no' AND NOT has_linked_automation))::int AS risk
     FROM memberships f GROUP BY catalog, module_id)
     SELECT rollups.*, (SELECT COUNT(DISTINCT d.issue_id)::int FROM test_case_defects d JOIN scoped ds ON ds.id = d.test_case_id
       WHERE rollups.catalog = 1 OR rollups.module_id = ANY(ds.module_ids) OR (rollups.module_id IS NULL AND cardinality(ds.module_ids) = 0)) AS defects FROM rollups`).all(...params);

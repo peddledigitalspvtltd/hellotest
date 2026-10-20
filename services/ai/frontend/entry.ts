@@ -1,5 +1,6 @@
 // Public, lazily loaded UI entry points owned by this capability.
 export const views = {
+  AiReferenceImages: () => import('./components/AiReferenceImages'),
   AiLifecycleReview: () => import("./components/AiLifecycleReview"),
   AiCaseAuthoringModal: () => import("./components/AiCaseAuthoringModal"),
   AiDesignStudioModal: () => import("./components/AiDesignStudioModal"),

@@ -1,4 +1,7 @@
 import { takeAgentProposal } from "@hellotest/platform/frontend/src/lib/agentProposalDraft";
+import { automationStartUrlError, reviewedAutomationStartUrl } from "@hellotest/automation/frontend/lib/automationStartUrl";
+import { useAutomationBuildParameters } from "@hellotest/automation/frontend/hooks/useAutomationBuildParameters";
+import { getAutomationRuntimeTypes } from "@hellotest/automation/frontend/lib/automationRuntime";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
 const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
 const AiCaseAuthoringModal = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiCaseAuthoringModal")["AiCaseAuthoringModal"]> & {}>("ai", "AiCaseAuthoringModal", () => import("@hellotest/ai/frontend/components/AiCaseAuthoringModal"), "ai");
@@ -67,6 +70,7 @@ import { RecorderSessionInsights } from "@hellotest/automation/frontend/componen
 import { RecorderStartControls, type RecorderStartOptions } from "@hellotest/automation/frontend/components/RecorderStartControls";
 import { RichTextAiRephraseIcon, RichTextContent, RichTextEditor, richTextToPlainText } from "@hellotest/platform/frontend/src/platform/components/RichTextEditor";
 import { StepParameterDialog } from "../components/StepParameterDialog";
+import { casePrivateParameterNames, collectPrivateParameterNames, caseParameterSaveOptions, caseParameterDraftValues, restoreCaseParameterDraftValues } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
 import { StepParameterizedText } from "../components/StepParameterizedText";
 import {
   AutomationCodeIcon,
@@ -136,6 +140,7 @@ import {
 } from "../lib/testCaseSourceImport";
 import { api } from "@hellotest/platform/frontend/src/lib/api";
 import type { TestCaseCatalogRow } from "../lib/testCaseCatalog";
+import { hasAutomationCoverage } from "../lib/caseIdentity";
 import {
   BUG_TO_TEST_CASE_STORAGE_KEY,
   buildConvertedBugSteps,
@@ -181,13 +186,12 @@ import {
 import { type AssigneeOption, buildAssigneeOptions } from "@hellotest/platform/frontend/src/platform/lib/userDisplay";
 import {
   buildDataSetParameterDefinitions,
-  buildStepParameterDefinitionsFromValues,
   buildDataSetParameterValues,
+  buildCaseParameterValues,
   combineStepParameterValues,
   collectSensitiveDataSetParameterNames,
-  collectStepParameters,
+  collectCaseStepParameters,
   excludeSensitiveStepParameterValues,
-  mergeStepParameterDefinitions,
   normalizeStepParameterValues,
   parseStepParameterName,
   resolveStepParameterText,
@@ -1024,8 +1028,8 @@ const buildDraftStepsFromAiAuthoringPreview = (preview: AiAuthoredTestCasePrevie
   }));
 
 const buildPersistedStepsFromAiAuthoringPreview = (preview: AiAuthoredTestCasePreview) =>
-  preview.steps.map((step) => ({
-    step_order: step.step_order,
+  preview.steps.map((step, index) => ({
+    step_order: index + 1,
     step_type: normalizeStepType(step.step_type),
     action: step.action || undefined,
     expected_result: step.expected_result || undefined
@@ -2087,10 +2091,14 @@ function TestCaseCreateModuleModal({
 export function TestCasesPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [automationCloneSource, setAutomationCloneSource] = useState<TestCase | null>(null);
+  const [automationCloneStartUrl, setAutomationCloneStartUrl] = useState("");
+  const [automationCloneSubmitting, setAutomationCloneSubmitting] = useState(false);
 	  const [searchParams, setSearchParams] = useSearchParams();
 	  const { session } = useAuth();
 	  const [projectId, setProjectId] = useCurrentProject();
 	  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
+  const { reviewBuildParameters, parameterReviewDialog } = useAutomationBuildParameters(`${projectId}:${appTypeId}`);
 	  const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const { can, isLoading: isCapabilityLoading } = useCapabilityAccess(projectId);
 	  const canCreateTestCases = can("testcase.create");
@@ -2260,7 +2268,7 @@ export function TestCasesPage() {
   const surfacedGenerationJobFailureIdsRef = useRef<Set<string>>(new Set());
   const surfacedGenerationJobCompletionIdsRef = useRef<Set<string>>(new Set());
   const defaultTestCaseStatus = domainMetadataQuery.data?.test_cases?.default_status || "active";
-  const defaultTestCaseAutomated = (domainMetadataQuery.data?.test_cases?.default_automated || "no") as "yes" | "no";
+  const defaultTestCaseAutomated = "no" as const;
   const testCaseStatusOptions = domainMetadataQuery.data?.test_cases?.statuses || [];
   const dataSetModeOptions = domainMetadataQuery.data?.test_data_sets?.modes?.length
     ? domainMetadataQuery.data.test_data_sets.modes
@@ -2291,6 +2299,12 @@ export function TestCasesPage() {
   const [isDataSetCreatorOpen, setIsDataSetCreatorOpen] = useState(false);
   const [newDataSetDraft, setNewDataSetDraft] = useState<DataSetDraft>(() => buildEmptyDataSetDraft());
   const [testCaseParameterValues, setTestCaseParameterValues] = useState<Record<string, string>>({});
+  const [privateCaseParameterDraft, setPrivateCaseParameterDraft] = useState<{ scope: string; names: string[] }>({ scope: "", names: [] });
+  const caseParameterOverrideDraftRef = useRef<{ scope: string; names: Set<string> }>({ scope: "", names: new Set() });
+  const pendingCaseParameterSaveRef = useRef<{ id: string; promise: ReturnType<typeof api.testCases.update> } | null>(null);
+  const caseParameterAutosaveTimeoutRef = useRef<number | null>(null);
+  const openingLinkedAutomationRef = useRef(false);
+  const [isOpeningLinkedAutomation, setIsOpeningLinkedAutomation] = useState(false);
   const [suiteParameterValues, setSuiteParameterValues] = useState<Record<string, string>>({});
   const [runPreviewParameterValues, setRunPreviewParameterValues] = useState<Record<string, string>>({});
   const [parameterPreviewRevision, setParameterPreviewRevision] = useState(0);
@@ -2639,8 +2653,8 @@ export function TestCasesPage() {
     retry: false
   });
   const selectedTestCaseDetailQuery = useQuery({
-    queryKey: [...testCaseDetailQueryKey(projectId, selectedTestCaseId), reviewUserId],
-    queryFn: () => api.testCases.get(selectedTestCaseId, { project_id: projectId }),
+    queryKey: [...testCaseDetailQueryKey(projectId, selectedTestCaseId), reviewUserId, canViewExecutionInsights],
+    queryFn: () => api.testCases.get(selectedTestCaseId, { project_id: projectId, include_execution: canViewExecutionInsights }),
     enabled: (can("testcase.view")) && Boolean(projectId && selectedTestCaseId),
     initialData: () => {
       const deepLinkedCase = deepLinkTestCasesQuery.data;
@@ -2649,8 +2663,25 @@ export function TestCasesPage() {
     staleTime: TEST_CASE_DETAIL_STALE_TIME_MS
   });
   const automationCaseLinksQuery = optionalQueryView(useQuery({
-    queryKey: ["test-cases", "manual-automation-links", appTypeId, selectedTestCaseId],
-    queryFn: () => api.testCases.list({ app_type_id: appTypeId, projection: "summary" }),
+    queryKey: ["test-cases", "manual-automation-links", projectId, appTypeId, selectedTestCaseId, canViewExecutionInsights],
+    queryFn: async ({ signal }) => {
+      const linked: TestCase[] = [];
+      const seen = new Set<string>();
+      let cursor: string | undefined;
+      do {
+        const page = await api.testCases.listPage({
+          project_id: projectId, app_type_id: appTypeId, manual_test_case_id: selectedTestCaseId,
+          automated: "yes", projection: "summary", include_execution: canViewExecutionInsights,
+          include_total: false, page_size: 100, cursor
+        }, { signal });
+        linked.push(...page.items);
+        if (page.is_last) break;
+        if (!page.next_cursor || seen.has(page.next_cursor)) throw new Error("Linked automation cases could not be fully loaded. Retry the lookup.");
+        cursor = page.next_cursor;
+        seen.add(cursor);
+      } while (cursor);
+      return linked;
+    },
     enabled: (canViewAutomationInsights) && Boolean(appTypeId && selectedTestCaseId && canViewAutomationInsights),
     staleTime: 30_000
   }), canViewAutomationInsights);
@@ -2753,8 +2784,8 @@ export function TestCasesPage() {
       api.testCases.update(id, input)
   });
   const persistCaseParameterValues = useMutation({
-    mutationFn: ({ id, parameter_values }: { id: string; parameter_values: Record<string, string> }) =>
-      api.testCases.update(id, { parameter_values })
+    mutationFn: ({ id, parameter_values, test_data_options, test_data_set_ids, expected_revision }: { id: string; parameter_values: Record<string, string>; test_data_options?: TestCase["test_data_options"]; test_data_set_ids?: string[]; expected_revision?: number }) =>
+      api.testCases.update(id, { parameter_values, ...(test_data_options ? { test_data_options } : {}), ...(test_data_set_ids ? { test_data_set_ids } : {}), expected_revision })
   });
   const deleteTestCase = useMutation({ mutationFn: api.testCases.delete });
   const importTestCases = useMutation({ mutationFn: api.testCases.bulkImport });
@@ -2777,19 +2808,37 @@ export function TestCasesPage() {
   });
   const acceptDesignedCases = useMutation({ mutationFn: api.testCases.acceptDesignedCases });
   const buildSingleAutomation = useMutation({
-    mutationFn: ({ testCaseId }: { testCaseId: string }) =>
-      api.testCases.queueAutomationGenerator(testCaseId, {
+    mutationFn: async ({ testCaseId }: { testCaseId: string }) => {
+      const context = {
+        test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
+        test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
+        test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined
+      };
+      const reviewed = await reviewBuildParameters([testCaseId], context, selectedTestCase ? { [selectedTestCase.id]: selectedTestCase.title } : {});
+      if (!reviewed) return null;
+      return api.testCases.queueAutomationGenerator(testCaseId, {
+        parameter_values: reviewed.parameter_values_by_case[testCaseId],
+        parameter_plan_key: reviewed.parameter_plan_keys_by_case[testCaseId],
         integration_id: integrationId || undefined,
         start_url: automationStartUrl.trim() || undefined,
         additional_context: automationContext.trim() || undefined,
         test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
         test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
         test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined
-      })
+      });
+    }
   });
   const buildBatchAutomation = useMutation({
-    mutationFn: ({ testCaseIds, aiRequested = false }: { testCaseIds: string[]; aiRequested?: boolean }) =>
-      api.testCases.buildAutomationBatch({
+    mutationFn: async ({ testCaseIds, aiRequested = false }: { testCaseIds: string[]; aiRequested?: boolean }) => {
+      const context = {
+        test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
+        test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
+        test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined
+      };
+      const reviewed = await reviewBuildParameters([...testCaseIds], context);
+      if (!reviewed) return null;
+      return api.testCases.buildAutomationBatch({
+        ...reviewed,
         app_type_id: appTypeId,
         test_case_ids: testCaseIds,
         integration_id: integrationId || undefined,
@@ -2800,7 +2849,8 @@ export function TestCasesPage() {
         test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined,
         failure_threshold: automationFailureThreshold,
         ai_requested: aiRequested
-      })
+      });
+    }
   });
   const startRecorder = useMutation({
     mutationFn: ({ testCaseId, options, targetStepId }: { testCaseId: string; options: RecorderStartOptions; targetStepId?: string }) =>
@@ -3610,7 +3660,7 @@ export function TestCasesPage() {
       { label: "Execution Coverage", value: !canViewExecutionInsights ? "Unavailable" : noCases ? "No cases" : `${health.executionPercent}%`, tone: "info",
         detail: canViewExecutionInsights ? `${health.executionPercent}% of module cases have a finalized outcome.` : executionUnavailable, methodology: "Cases with a finalized passed, failed, or blocked result divided by Test Cases in this module." },
       { label: "Automation Coverage", value: noCases ? "No cases" : `${health.automationPercent}%`, tone: "info",
-        detail: `${health.automationPercent}% of evaluated module Test Cases are automated.`, methodology: "Automated cases divided by module cases whose automation status is known (yes or no)." },
+        detail: `${health.automationPercent}% of evaluated module Test Cases have automation coverage.`, methodology: "Cases with a linked automation case, divided by evaluated module cases. Manual and automation identities remain separate." },
       { label: "Average Execution", value: canViewExecutionInsights ? formatCompactDuration(health.averageExecutionMs) : "Unavailable", tone: "neutral",
         detail: !canViewExecutionInsights ? executionUnavailable : health.executionDurationSampleCount ? `Average across ${health.executionDurationSampleCount} recent finalized result durations.` : "No finalized execution durations are available.", methodology: "Total recorded duration divided by recent finalized results with a valid duration; missing durations are excluded." },
       { label: "Defect Density", value: !can("feedback.view") ? "Unavailable" : noCases ? "No cases" : health.defectDensity.toFixed(2), tone: !can("feedback.view") ? "neutral" : health.defectCount ? "warning" : "success",
@@ -3885,6 +3935,11 @@ export function TestCasesPage() {
   const selectedTestCase = selectedTestCaseDetailQuery.data?.id === selectedTestCaseId
     ? selectedTestCaseDetailQuery.data
     : null;
+  useEffect(() => {
+    if (selectedTestCase?.automated === "yes" && canViewAutomationInsights) {
+      navigate(`/automation?case=${encodeURIComponent(selectedTestCase.display_id || selectedTestCase.id)}`, { replace: true });
+    }
+  }, [selectedTestCase?.id, selectedTestCase?.display_id, selectedTestCase?.automated, canViewAutomationInsights, navigate]);
   const selectedCaseDisplayId = selectedTestCase?.display_id?.trim()
     || testCases.find((testCase) => testCase.id === selectedTestCaseId)?.display_id?.trim()
     || deepLinkTestCases.find((testCase) => testCase.id === selectedTestCaseId)?.display_id?.trim()
@@ -3909,10 +3964,18 @@ export function TestCasesPage() {
     () => buildDataSetParameterDefinitions(linkedDataSet, linkedDataSet?.name),
     [linkedDataSet]
   );
+  const caseParameterPrivacyScope = isCreating ? `draft:${appTypeId}` : `case:${selectedTestCaseId}`;
   const linkedDataSetSensitiveParameterNames = useMemo(
-    () => new Set(collectSensitiveDataSetParameterNames(linkedDataSet)),
-    [linkedDataSet]
+    () => collectPrivateParameterNames([testCaseParameterValues, linkedDataSetDefaultParameterValues, suiteParameterValues, runPreviewParameterValues], [
+      ...collectSensitiveDataSetParameterNames(linkedDataSet), ...casePrivateParameterNames(selectedTestCase),
+      ...(privateCaseParameterDraft.scope === caseParameterPrivacyScope ? privateCaseParameterDraft.names : [])
+    ]),
+    [linkedDataSet, linkedDataSetDefaultParameterValues, selectedTestCase?.test_data_options?.private_parameter_names, selectedTestCase?.effective_private_parameter_names, testCaseParameterValues, suiteParameterValues, runPreviewParameterValues, privateCaseParameterDraft, caseParameterPrivacyScope]
   );
+  useEffect(() => {
+    const names = Object.keys(testCaseParameterValues).filter(name => linkedDataSetSensitiveParameterNames.has(name)).sort();
+    setPrivateCaseParameterDraft(current => current.scope === caseParameterPrivacyScope && current.names.join("\0") === names.join("\0") ? current : { scope: caseParameterPrivacyScope, names });
+  }, [caseParameterPrivacyScope, testCaseParameterValues, linkedDataSetSensitiveParameterNames]);
   const linkedAutomationCases = useMemo(
     () => asArray<TestCase>(automationCaseLinksQuery.data).filter((testCase) =>
       testCase.automated === "yes" && (
@@ -3996,12 +4059,13 @@ export function TestCasesPage() {
     [linkedDataSetSensitiveParameterNames, testCaseParameterValues]
   );
   const effectiveTestCaseParameterValues = useMemo(
-    () => combineStepParameterValues(linkedDataSetDefaultParameterValues, visibleTestCaseParameterValues),
-    [linkedDataSetDefaultParameterValues, visibleTestCaseParameterValues]
+    () => buildCaseParameterValues({ ownValues: visibleTestCaseParameterValues, dataSet: linkedDataSet,
+      overrideNames: caseParameterSaveOptions(selectedTestCase?.test_data_options, testCaseParameterValues, selectedTestCase?.parameter_values, linkedDataSetSensitiveParameterNames, caseParameterOverrideDraftRef.current.scope === caseParameterPrivacyScope ? caseParameterOverrideDraftRef.current.names : []).parameter_overrides }),
+    [linkedDataSet, visibleTestCaseParameterValues, selectedTestCase?.test_data_options, selectedTestCase?.parameter_values, testCaseParameterValues, linkedDataSetSensitiveParameterNames]
   );
   const mergedScopedParameterValues = useMemo(
-    () => combineStepParameterValues(effectiveTestCaseParameterValues, suiteParameterValues, runPreviewParameterValues),
-    [effectiveTestCaseParameterValues, runPreviewParameterValues, suiteParameterValues]
+    () => excludeSensitiveStepParameterValues(combineStepParameterValues(effectiveTestCaseParameterValues, suiteParameterValues, runPreviewParameterValues), linkedDataSetSensitiveParameterNames),
+    [effectiveTestCaseParameterValues, runPreviewParameterValues, suiteParameterValues, linkedDataSetSensitiveParameterNames]
   );
   const parameterPreviewScopeKey = `${isCreating ? createCaseParameterDraftScopeKey : selectedCaseParameterDraftScopeKey}\u0000${linkedDataSetId || "no-data-set"}`;
   const resolvedScopedParameterValues = useMemo(() => {
@@ -4049,6 +4113,7 @@ export function TestCasesPage() {
     setParameterPreviewRevision((current) => current + 1);
   };
   const resetTestCaseParameterOverride = (name: string) => {
+    if (caseParameterOverrideDraftRef.current.scope === caseParameterPrivacyScope) caseParameterOverrideDraftRef.current.names.delete(name);
     setTestCaseParameterValues((current) => {
       if (!Object.prototype.hasOwnProperty.call(current, name)) return current;
       const next = { ...current };
@@ -4069,11 +4134,11 @@ export function TestCasesPage() {
       reviewer_id: caseDraft.reviewer_id || null,
       labels: parseReferenceList(caseDraft.labelsText),
       external_references: parseReferenceList(caseDraft.externalReferencesText),
-      ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds, test_data_options: { override_shared_steps: overrideSharedGroupData } } : {}),
+      ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds, test_data_options: { ...selectedTestCase?.test_data_options, private_parameter_names: [...linkedDataSetSensitiveParameterNames].sort(), override_shared_steps: overrideSharedGroupData } } : {}),
       description: caseDraft.description,
       authoring_mode: caseDraft.authoring_mode,
       gherkin_document: caseDraft.gherkin_document,
-      parameter_values: testCaseParameterValues,
+      parameter_values: visibleTestCaseParameterValues,
       steps: caseDraft.authoring_mode === "gherkin" ? buildGherkinQualitySteps(caseDraft.gherkin_document).map((step, index) => ({ ...step, step_order: index + 1 })) : displaySteps.map((step) => ({
         step_order: step.step_order,
         step_type: stepDrafts[step.id]?.step_type ?? step.step_type,
@@ -4081,7 +4146,7 @@ export function TestCasesPage() {
         expected_result: stepDrafts[step.id]?.expected_result ?? step.expected_result
       }))
     }),
-    [canViewTestData, linkedDataSetDraftIds, overrideSharedGroupData, caseDraft.priority, caseDraft.status, caseDraft.test_case_type, caseDraft.automated, caseDraft.module_id, caseDraft.reviewer_id, caseDraft.labelsText, caseDraft.externalReferencesText, caseDraft.authoring_mode, caseDraft.description, caseDraft.gherkin_document, caseDraft.title, displaySteps, selectedTestCase?.display_id, selectedTestCase?.id, stepDrafts, testCaseParameterValues]
+    [canViewTestData, linkedDataSetDraftIds, overrideSharedGroupData, caseDraft.priority, caseDraft.status, caseDraft.test_case_type, caseDraft.automated, caseDraft.module_id, caseDraft.reviewer_id, caseDraft.labelsText, caseDraft.externalReferencesText, caseDraft.authoring_mode, caseDraft.description, caseDraft.gherkin_document, caseDraft.title, displaySteps, selectedTestCase?.display_id, selectedTestCase?.id, selectedTestCase?.test_data_options, linkedDataSetSensitiveParameterNames, stepDrafts, visibleTestCaseParameterValues]
   );
   const aiCaseAuthoringAutomationStepCount = useMemo(
     () => canViewAutomationCode
@@ -4103,6 +4168,8 @@ export function TestCasesPage() {
     || selectedTestCase?.automation_status === "ready"
   );
   const resolveScopedParameterInputState = (scope: StepParameterScope) => {
+    if (isCreating ? !canCreateTestCases : !canUpdateTestCases) return { disabled: true, hint: "Test Case update access is required to edit these parameters." };
+    if (scope === "s" && !canUpdateSuites) return { disabled: true, hint: "Suite update access is required to edit shared values." };
     if (scope === "s") {
       if (!selectedCaseSuiteIds.length) {
         return {
@@ -4129,7 +4196,7 @@ export function TestCasesPage() {
     if (scope === "r") {
       return {
         disabled: false,
-        hint: "Preview only here. Real runs resolve @r values from the attached run data set."
+        hint: "Saved as a Test Case default. Explicit run values can replace it during execution."
       };
     }
 
@@ -4143,7 +4210,7 @@ export function TestCasesPage() {
   const handleScopedParameterValueChange = (name: string, value: string) => {
     const parsed = parseStepParameterName(name);
 
-    if (!parsed || linkedDataSetSensitiveParameterNames.has(parsed.name) || resolveScopedParameterInputState(parsed.scope).disabled) {
+    if (!parsed || resolveScopedParameterInputState(parsed.scope).disabled) {
       return;
     }
 
@@ -4155,20 +4222,16 @@ export function TestCasesPage() {
       return;
     }
 
-    if (parsed.scope === "r") {
-      setRunPreviewParameterValues((current) => ({
-        ...current,
-        [parsed.name]: value
-      }));
-      return;
-    }
-
+    if (linkedDataSetSensitiveParameterNames.has(parsed.name)) setPrivateCaseParameterDraft(current => ({ scope: caseParameterPrivacyScope, names: [...new Set([...(current.scope === caseParameterPrivacyScope ? current.names : []), parsed.name])] }));
+    if (caseParameterOverrideDraftRef.current.scope !== caseParameterPrivacyScope) caseParameterOverrideDraftRef.current = { scope: caseParameterPrivacyScope, names: new Set() };
+    caseParameterOverrideDraftRef.current.names.add(parsed.name);
+    if (parsed.scope === "r") setRunPreviewParameterValues(current => { const next = { ...current }; delete next[parsed.name]; return next; });
     setTestCaseParameterValues((current) => ({
       ...current,
       [parsed.name]: value
     }));
   };
-  const syncCachedTestCaseParameterValues = (testCaseId: string, parameterValues: Record<string, string>, revision?: number) => {
+  const syncCachedTestCaseParameterValues = (testCaseId: string, parameterValues: Record<string, string>, revision?: number, options?: TestCase["test_data_options"], dataSetIds?: string[]) => {
     const normalizedValues = normalizeTestCaseParameterValues(parameterValues);
 
     if (revision && selectedTestCaseId === testCaseId) {
@@ -4176,11 +4239,13 @@ export function TestCasesPage() {
       lastTestCaseParameterSeedRef.current = `case:${testCaseId}:${revision}`;
     }
 
-    queryClient.setQueryData<TestCase>(testCaseDetailQueryKey(projectId, testCaseId), (current) =>
+    queryClient.setQueriesData<TestCase>({ queryKey: testCaseDetailQueryKey(projectId, testCaseId) }, (current) =>
       current
         ? {
             ...current,
             parameter_values: normalizedValues,
+            ...(dataSetIds ? { test_data_set_ids: dataSetIds } : {}),
+            ...(options ? { test_data_options: options } : {}),
             ...(revision ? { revision } : {})
           }
         : current
@@ -4192,7 +4257,9 @@ export function TestCasesPage() {
             item.id === testCaseId
               ? {
                   ...item,
-                  parameter_values: normalizedValues
+                  parameter_values: normalizedValues,
+                  ...(dataSetIds ? { test_data_set_ids: dataSetIds } : {}),
+                  ...(options ? { test_data_options: options } : {})
                 }
               : item
           )
@@ -4349,7 +4416,7 @@ export function TestCasesPage() {
       const nextSeedKey = `draft:${appTypeId || "global"}`;
 
       if (lastTestCaseParameterSeedRef.current !== nextSeedKey) {
-        setTestCaseParameterValues(readStoredTestCaseParameterDraft(createCaseParameterDraftScopeKey));
+        setTestCaseParameterValues(caseParameterDraftValues(readStoredTestCaseParameterDraft(createCaseParameterDraftScopeKey), linkedDataSetSensitiveParameterNames));
         setIsCaseParameterDialogOpen(false);
         lastTestCaseParameterSeedRef.current = nextSeedKey;
       }
@@ -4377,7 +4444,7 @@ export function TestCasesPage() {
 
     const storedDraft = readStoredTestCaseParameterDraft(selectedCaseParameterDraftScopeKey);
     const nextValues = Object.keys(storedDraft).length || hasStoredTestCaseParameterDraft(selectedCaseParameterDraftScopeKey)
-      ? storedDraft
+      ? restoreCaseParameterDraftValues(storedDraft, normalizeTestCaseParameterValues(selectedTestCase.parameter_values), linkedDataSetSensitiveParameterNames)
       : normalizeTestCaseParameterValues(selectedTestCase.parameter_values);
 
     setTestCaseParameterValues(nextValues);
@@ -4389,6 +4456,7 @@ export function TestCasesPage() {
     createCaseParameterDraftScopeKey,
     isCreating,
     selectedCaseParameterDraftScopeKey,
+    linkedDataSetSensitiveParameterNames,
     selectedTestCase,
     selectedTestCaseId
   ]);
@@ -4470,12 +4538,13 @@ export function TestCasesPage() {
       return;
     }
 
-    writeStoredTestCaseParameterDraft(scopeKey, testCaseParameterValues);
+    writeStoredTestCaseParameterDraft(scopeKey, caseParameterDraftValues(testCaseParameterValues, linkedDataSetSensitiveParameterNames));
   }, [
     activeTestCaseParameterSeedKey,
     createCaseParameterDraftScopeKey,
     isCreating,
     selectedCaseParameterDraftScopeKey,
+    linkedDataSetSensitiveParameterNames,
     testCaseParameterValues
   ]);
 
@@ -4485,6 +4554,7 @@ export function TestCasesPage() {
       || !selectedTestCase
       || lastTestCaseParameterSeedRef.current !== activeTestCaseParameterSeedKey
       || persistCaseParameterValues.isPending
+      || isOpeningLinkedAutomation
       || updateTestCase.isPending
       || linkedDataSetId !== (selectedTestCase.test_data_set_ids?.[0] || "")
       || overrideSharedGroupData !== (selectedTestCase.test_data_options?.override_shared_steps !== false)
@@ -4495,34 +4565,46 @@ export function TestCasesPage() {
     const normalizedCurrentValues = normalizeTestCaseParameterValues(testCaseParameterValues);
     const normalizedSavedValues = normalizeTestCaseParameterValues(selectedTestCase.parameter_values);
 
-    if (areTestCaseParameterValuesEqual(normalizedCurrentValues, normalizedSavedValues)) {
+    const parameterSaveOptions = canViewTestData ? caseParameterSaveOptions(selectedTestCase.test_data_options, normalizedCurrentValues, selectedTestCase.parameter_values, linkedDataSetSensitiveParameterNames, caseParameterOverrideDraftRef.current.scope === caseParameterPrivacyScope ? caseParameterOverrideDraftRef.current.names : []) : undefined;
+    const priorityChanged = parameterSaveOptions && (parameterSaveOptions.parameter_overrides || []).join("\0") !== [...(selectedTestCase.test_data_options?.parameter_overrides || [])].sort().join("\0");
+    if (areTestCaseParameterValuesEqual(normalizedCurrentValues, normalizedSavedValues) && !priorityChanged) {
       clearStoredTestCaseParameterDraft(selectedCaseParameterDraftScopeKey);
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
-      persistCaseParameterValues.mutate(
-        { id: selectedTestCase.id, parameter_values: normalizedCurrentValues },
-        {
-          onSuccess: (response) => {
-            syncCachedTestCaseParameterValues(selectedTestCase.id, normalizedCurrentValues, response.revision);
-
-            if (areTestCaseParameterValuesEqual(readStoredTestCaseParameterDraft(selectedCaseParameterDraftScopeKey), normalizedCurrentValues)) {
-              clearStoredTestCaseParameterDraft(selectedCaseParameterDraftScopeKey);
-            }
-          },
-          onError: (error) => {
-            showError(error, "Unable to store Test Params");
-          }
+      caseParameterAutosaveTimeoutRef.current = null;
+      const promise = persistCaseParameterValues.mutateAsync({
+        id: selectedTestCase.id,
+        parameter_values: normalizedCurrentValues,
+        ...(parameterSaveOptions ? { test_data_options: parameterSaveOptions } : {}),
+        expected_revision: selectedTestCase.revision
+      });
+      const pending = { id: selectedTestCase.id, promise };
+      pendingCaseParameterSaveRef.current = pending;
+      void promise.then((response) => {
+        syncCachedTestCaseParameterValues(selectedTestCase.id, normalizedCurrentValues, response.revision, parameterSaveOptions);
+        if (areTestCaseParameterValuesEqual(readStoredTestCaseParameterDraft(selectedCaseParameterDraftScopeKey), caseParameterDraftValues(normalizedCurrentValues, linkedDataSetSensitiveParameterNames))) {
+          clearStoredTestCaseParameterDraft(selectedCaseParameterDraftScopeKey);
         }
-      );
+      }).catch((error) => {
+        showError(error, "Unable to store Test Params");
+      }).finally(() => {
+        if (pendingCaseParameterSaveRef.current === pending) pendingCaseParameterSaveRef.current = null;
+      });
     }, 450);
-
-    return () => window.clearTimeout(timeoutId);
+    caseParameterAutosaveTimeoutRef.current = timeoutId;
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (caseParameterAutosaveTimeoutRef.current === timeoutId) caseParameterAutosaveTimeoutRef.current = null;
+    };
   }, [
     activeTestCaseParameterSeedKey,
     isCreating,
+    isOpeningLinkedAutomation,
     linkedDataSetId,
+    linkedDataSetSensitiveParameterNames,
+    canViewTestData,
     overrideSharedGroupData,
     persistCaseParameterValues.isPending,
     selectedCaseParameterDraftScopeKey,
@@ -4530,6 +4612,55 @@ export function TestCasesPage() {
     testCaseParameterValues,
     updateTestCase.isPending
   ]);
+
+  const handleCreateLinkedAutomation = async () => {
+    if (!selectedTestCase || openingLinkedAutomationRef.current) return;
+    openingLinkedAutomationRef.current = true;
+    setIsOpeningLinkedAutomation(true);
+    if (caseParameterAutosaveTimeoutRef.current !== null) {
+      window.clearTimeout(caseParameterAutosaveTimeoutRef.current);
+      caseParameterAutosaveTimeoutRef.current = null;
+    }
+    const manualCase = selectedTestCase;
+    const parameterValues = normalizeTestCaseParameterValues(testCaseParameterValues);
+    try {
+      // Flush the reviewed test-data choices before leaving. The automation
+      // inherits the saved manual values without copying them into AT overrides.
+      const pending = pendingCaseParameterSaveRef.current;
+      if (pending?.id === manualCase.id) await pending.promise;
+      if (currentCaseLinkScopeRef.current !== `${projectId}:${manualCase.id}`) return;
+      const latest = queryClient.getQueryData<TestCase>([
+        ...testCaseDetailQueryKey(projectId, manualCase.id), reviewUserId, canViewExecutionInsights
+      ]) || queryClient.getQueryData<TestCase>(testCaseDetailQueryKey(projectId, manualCase.id)) || manualCase;
+      const selectedDataSetIds = linkedDataSetDraftIds.slice(0, 1);
+      const dataLinkChanged = canViewTestData && selectedDataSetIds.join("\0") !== (latest.test_data_set_ids || []).slice(0, 1).join("\0");
+      const dataPolicyChanged = canViewTestData && overrideSharedGroupData !== (latest.test_data_options?.override_shared_steps !== false);
+      const parameterSaveOptions = canViewTestData ? { ...caseParameterSaveOptions(latest.test_data_options, parameterValues, latest.parameter_values, linkedDataSetSensitiveParameterNames, caseParameterOverrideDraftRef.current.scope === caseParameterPrivacyScope ? caseParameterOverrideDraftRef.current.names : []), override_shared_steps: overrideSharedGroupData } : undefined;
+      const priorityChanged = parameterSaveOptions && (parameterSaveOptions.parameter_overrides || []).join("\0") !== [...(latest.test_data_options?.parameter_overrides || [])].sort().join("\0");
+      if (!areTestCaseParameterValuesEqual(parameterValues, latest.parameter_values) || dataLinkChanged || dataPolicyChanged || priorityChanged) {
+        if (!canUpdateTestCases) throw new Error("Save permissions are required to use the edited Test Params.");
+        const response = await persistCaseParameterValues.mutateAsync({
+          id: manualCase.id,
+          parameter_values: parameterValues,
+          ...(parameterSaveOptions ? { test_data_options: parameterSaveOptions } : {}),
+          ...(dataLinkChanged ? { test_data_set_ids: selectedDataSetIds } : {}),
+          expected_revision: latest.revision
+        });
+        syncCachedTestCaseParameterValues(manualCase.id, parameterValues, response.revision, parameterSaveOptions, dataLinkChanged ? selectedDataSetIds : undefined);
+        if (areTestCaseParameterValuesEqual(readStoredTestCaseParameterDraft(selectedCaseParameterDraftScopeKey), caseParameterDraftValues(parameterValues, linkedDataSetSensitiveParameterNames))) {
+          clearStoredTestCaseParameterDraft(selectedCaseParameterDraftScopeKey);
+        }
+      }
+      if (currentCaseLinkScopeRef.current === `${projectId}:${manualCase.id}`) {
+        navigate(`/automation?create=1&manual=${encodeURIComponent(manualCase.id)}`);
+      }
+    } catch (error) {
+      showError(error, "Unable to prepare the manual case's Test Params for automation.");
+    } finally {
+      openingLinkedAutomationRef.current = false;
+      setIsOpeningLinkedAutomation(false);
+    }
+  };
 
   useEffect(() => {
     if (!selectedParameterSuiteId) {
@@ -5226,12 +5357,12 @@ export function TestCasesPage() {
           description: caseDraft.description || undefined,
           external_references: parseReferenceList(caseDraft.externalReferencesText),
           labels,
-          parameter_values: visibleTestCaseParameterValues,
-          automated: caseDraft.automated,
+          parameter_values: testCaseParameterValues,
+          automated: "no",
           authoring_mode: caseDraft.authoring_mode,
           test_case_type: caseDraft.test_case_type,
           gherkin_document: persistedGherkinDocument || null,
-          ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds.slice(0, 1), test_data_options: { override_shared_steps: overrideSharedGroupData } } : {}),
+          ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds.slice(0, 1), test_data_options: { ...caseParameterSaveOptions(undefined, testCaseParameterValues, {}, linkedDataSetSensitiveParameterNames, caseParameterOverrideDraftRef.current.scope === caseParameterPrivacyScope ? caseParameterOverrideDraftRef.current.names : []), override_shared_steps: overrideSharedGroupData } } : {}),
           priority: Number(caseDraft.priority),
           status: caseDraft.status,
           requirement_ids: requirementIds,
@@ -5312,12 +5443,12 @@ export function TestCasesPage() {
             description: caseDraft.description,
             external_references: parseReferenceList(caseDraft.externalReferencesText),
             labels,
-            parameter_values: visibleTestCaseParameterValues,
+            parameter_values: testCaseParameterValues,
             automated: caseDraft.automated,
             authoring_mode: caseDraft.authoring_mode,
             test_case_type: caseDraft.test_case_type,
             gherkin_document: persistedGherkinDocument || null,
-            ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds.slice(0, 1), test_data_options: { override_shared_steps: overrideSharedGroupData } } : {}),
+            ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds.slice(0, 1), test_data_options: { ...caseParameterSaveOptions(selectedTestCase.test_data_options, testCaseParameterValues, selectedTestCase.parameter_values, linkedDataSetSensitiveParameterNames, caseParameterOverrideDraftRef.current.scope === caseParameterPrivacyScope ? caseParameterOverrideDraftRef.current.names : []), override_shared_steps: overrideSharedGroupData } } : {}),
             automation_status: caseDraft.automated === "yes"
               ? selectedTestCase.automated === "yes" ? existingAutomationStatus : hasMappedAutomation ? "ready" : "incomplete"
               : "not_automated",
@@ -6223,9 +6354,11 @@ export function TestCasesPage() {
     try {
       if (automationTargetCaseIds.length === 1) {
         const response = await buildSingleAutomation.mutateAsync({ testCaseId: automationTargetCaseIds[0] });
+        if (!response) return;
         showSuccess(`Automation generator queued as ${response.transaction_id.slice(0, 8)}. Track it in TestOps.`);
       } else {
         const response = await buildBatchAutomation.mutateAsync({ testCaseIds: automationTargetCaseIds });
+        if (!response) return;
         showSuccess(`Batch AI automation queued as ${response.transaction_id}. Track it in TestOps.`);
       }
 
@@ -6651,7 +6784,7 @@ export function TestCasesPage() {
         test_case: {
           title: caseDraft.title || selectedTestCase?.title || "",
           description: caseDraft.description || selectedTestCase?.description || "",
-          parameter_values: testCaseParameterValues
+          parameter_values: visibleTestCaseParameterValues
         },
         step: {
           step_order: step.step_order,
@@ -7376,6 +7509,7 @@ export function TestCasesPage() {
           "Authoring Mode": testCase.authoring_mode || "structured",
           "Gherkin Document": testCase.gherkin_document || "",
           "Automation Status": canUseAutomationWorkspace ? testCase.automation_status || "not_automated" : undefined,
+          "Automation Start URL": canUseAutomationWorkspace ? testCase.automation_start_url || "" : undefined,
           Automated: canUseAutomationWorkspace ? testCase.automated || "no" : undefined,
           Labels: (testCase.labels || []).join("|"),
           "External References": (testCase.external_references || []).join("|"),
@@ -7417,7 +7551,8 @@ export function TestCasesPage() {
     }
   };
 
-  const handleCloneCase = async (testCase: TestCase) => {
+  const handleCloneCase = async (testCase: TestCase, requestedStartUrl?: string) => {
+	    if (automationCloneSubmitting) return;
 	    if (!canCreateTestCases) {
 	      showError(new Error("Permission required: testcase.create"), "Unable to clone test case");
 	      return;
@@ -7428,6 +7563,7 @@ export function TestCasesPage() {
       return;
     }
 
+    setAutomationCloneSubmitting(true);
     try {
       const [sourceTestCase, caseSteps] = await Promise.all([
         ensureTestCaseDetail(testCase.id),
@@ -7444,6 +7580,16 @@ export function TestCasesPage() {
         return;
       }
 
+      const automated = canEditAutomationCode ? sourceTestCase.automated || defaultTestCaseAutomated : "no";
+      const requiresStartUrl = automated === "yes" && getAutomationRuntimeTypes(caseSteps, appTypes.find(app => app.id === nextAppTypeId)?.type || "web").includes("web");
+      const suppliedStartUrl = requestedStartUrl ?? sourceTestCase.automation_start_url ?? "";
+      if (requiresStartUrl && automationStartUrlError(suppliedStartUrl, true)) {
+        setAutomationCloneSource(sourceTestCase);
+        setAutomationCloneStartUrl(requestedStartUrl ?? "");
+        return;
+      }
+      const cloneStartUrl = automated === "yes" ? reviewedAutomationStartUrl(suppliedStartUrl, requiresStartUrl) : undefined;
+
       const response = await createTestCase.mutateAsync({
         app_type_id: nextAppTypeId,
         suite_ids: sourceTestCase.suite_ids || (sourceTestCase.suite_id ? [sourceTestCase.suite_id] : []),
@@ -7454,7 +7600,9 @@ export function TestCasesPage() {
         test_case_type: sourceTestCase.test_case_type || "functional",
         test_data_set_ids: (sourceTestCase.test_data_set_ids || []).slice(0, 1),
         test_data_options: sourceTestCase.test_data_options,
-        automated: canEditAutomationCode ? sourceTestCase.automated || defaultTestCaseAutomated : "no",
+        automated,
+        automation_start_url: cloneStartUrl || null,
+        execution_hooks: sourceTestCase.execution_hooks,
         priority: sourceTestCase.priority || 3,
         status: sourceTestCase.status || defaultTestCaseStatus,
         requirement_ids: sourceTestCase.requirement_ids || (sourceTestCase.requirement_id ? [sourceTestCase.requirement_id] : []),
@@ -7478,11 +7626,15 @@ export function TestCasesPage() {
       syncTestCaseSearchParams(response.id);
       setSelectedTestCaseId(response.id);
       setIsCreating(false);
+      setAutomationCloneSource(null);
+      setAutomationCloneStartUrl("");
       setDraftSteps([]);
       showSuccess(`Cloned "${sourceTestCase.title}" with its current steps.`);
       await refreshCases();
     } catch (error) {
       showError(error, "Unable to clone test case");
+    } finally {
+      setAutomationCloneSubmitting(false);
     }
   };
 
@@ -7748,6 +7900,8 @@ export function TestCasesPage() {
         ai_generation_source: "interactive",
         reviewer_id: current.reviewer_id || reviewUserId,
         title: aiCaseAuthoringPreview.title,
+        priority: aiCaseAuthoringPreview.priority ?? current.priority,
+        test_case_type: aiCaseAuthoringPreview.test_case_type ?? current.test_case_type,
         description: aiCaseAuthoringPreview.description || "",
         authoring_mode: aiCaseAuthoringPreview.authoring_mode || "structured",
         gherkin_document: aiCaseAuthoringPreview.authoring_mode === "gherkin" ? aiCaseAuthoringPreview.gherkin_document || "" : "",
@@ -7787,6 +7941,8 @@ export function TestCasesPage() {
         id: selectedTestCase.id,
         input: {
           title: aiCaseAuthoringPreview.title,
+          priority: aiCaseAuthoringPreview.priority ?? caseDraft.priority,
+          test_case_type: aiCaseAuthoringPreview.test_case_type ?? caseDraft.test_case_type,
           description: aiCaseAuthoringPreview.description || "",
           authoring_mode: aiCaseAuthoringPreview.authoring_mode || "structured",
           gherkin_document: aiCaseAuthoringPreview.authoring_mode === "gherkin" ? aiCaseAuthoringPreview.gherkin_document || "" : null,
@@ -7799,6 +7955,8 @@ export function TestCasesPage() {
       setCaseDraft((current) => ({
         ...current,
         title: aiCaseAuthoringPreview.title,
+        priority: aiCaseAuthoringPreview.priority ?? current.priority,
+        test_case_type: aiCaseAuthoringPreview.test_case_type ?? current.test_case_type,
         description: aiCaseAuthoringPreview.description || "",
         authoring_mode: aiCaseAuthoringPreview.authoring_mode || "structured",
         gherkin_document: aiCaseAuthoringPreview.authoring_mode === "gherkin" ? aiCaseAuthoringPreview.gherkin_document || "" : "",
@@ -7852,12 +8010,13 @@ export function TestCasesPage() {
           title: item.title,
           description: item.description,
           priority: item.priority,
+          test_case_type: item.test_case_type,
           requirement_ids: item.requirement_ids,
           authoring_mode: item.authoring_mode,
           gherkin_document: item.gherkin_document,
           parameter_values: item.parameter_values,
-          steps: item.steps.map((step) => ({
-            step_order: step.step_order,
+          steps: item.steps.map((step, index) => ({
+            step_order: index + 1,
             step_type: step.step_type || "web",
             action: step.action,
             expected_result: step.expected_result
@@ -8176,10 +8335,10 @@ export function TestCasesPage() {
     authoring_mode: caseDraft.authoring_mode,
     gherkin_document: caseDraft.gherkin_document,
     test_case_type: caseDraft.test_case_type,
-    ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds, test_data_options: { override_shared_steps: overrideSharedGroupData } } : {}),
+    ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds, test_data_options: { ...selectedTestCase?.test_data_options, private_parameter_names: [...linkedDataSetSensitiveParameterNames].sort(), override_shared_steps: overrideSharedGroupData } } : {}),
     external_references: parseReferenceList(caseDraft.externalReferencesText),
     labels: caseDraftLabels,
-    parameter_values: testCaseParameterValues,
+    parameter_values: visibleTestCaseParameterValues,
     steps: caseDraft.authoring_mode === "gherkin" ? gherkinQualitySteps : displaySteps.map((step) => ({
       id: step.id,
       step_order: step.step_order,
@@ -8189,7 +8348,7 @@ export function TestCasesPage() {
       automation_code: canViewAutomationCode ? stepDrafts[step.id]?.automation_code ?? step.automation_code ?? "" : undefined,
       api_request: canViewAutomationCode ? stepDrafts[step.id]?.api_request ?? step.api_request ?? null : undefined
     }))
-  }), [canViewTestData, linkedDataSetDraftIds, overrideSharedGroupData, caseDraft.module_id, caseDraft.author_id, caseDraft.reviewer_id, caseDraft.authoring_mode, caseDraft.gherkin_document, caseDraft.test_case_type, gherkinQualitySteps, canViewAutomationCode, caseDraft.automated, caseDraft.description, caseDraft.externalReferencesText, caseDraft.priority, caseDraft.requirement_id, caseDraft.status, caseDraft.title, caseDraftLabels, displaySteps, stepDrafts, testCaseParameterValues]);
+  }), [canViewTestData, linkedDataSetDraftIds, overrideSharedGroupData, caseDraft.module_id, caseDraft.author_id, caseDraft.reviewer_id, caseDraft.authoring_mode, caseDraft.gherkin_document, caseDraft.test_case_type, gherkinQualitySteps, canViewAutomationCode, caseDraft.automated, caseDraft.description, caseDraft.externalReferencesText, caseDraft.priority, caseDraft.requirement_id, caseDraft.status, caseDraft.title, caseDraftLabels, displaySteps, stepDrafts, visibleTestCaseParameterValues, selectedTestCase?.test_data_options, linkedDataSetSensitiveParameterNames]);
   const selectedTestCaseAssuranceSteps = useMemo(
     () => caseDraft.authoring_mode === "gherkin" ? gherkinQualitySteps : selectedTestCaseAssuranceProposedChange.steps,
     [caseDraft.authoring_mode, gherkinQualitySteps, selectedTestCaseAssuranceProposedChange.steps]
@@ -8426,9 +8585,9 @@ export function TestCasesPage() {
     return group ? [group] : [];
   });
   const detectedStepParameters = useMemo<StepParameterDefinition[]>(
-    () => mergeStepParameterDefinitions(
-      collectStepParameters([
-        { id: `${selectedTestCaseId || "draft"}:title`, action: caseDraft.authoring_mode === "gherkin" ? normalizeGherkinParameterReferences(caseDraft.title) : caseDraft.title, expected_result: "", automation_code: "", api_request: null },
+    () => !isCreating && (!selectedTestCase || lastTestCaseParameterSeedRef.current !== activeTestCaseParameterSeedKey) ? [] : collectCaseStepParameters({
+      steps: [
+        { id: `${selectedTestCaseId || "draft"}:title`, action: caseDraft.authoring_mode === "gherkin" ? normalizeGherkinParameterReferences(caseDraft.title) : caseDraft.title, expected_result: richTextToPlainText(caseDraft.description), automation_code: "", api_request: null },
         ...displaySteps.map((step) => ({
           id: step.id,
           action: stepDrafts[step.id]?.action ?? step.action,
@@ -8445,11 +8604,13 @@ export function TestCasesPage() {
               api_request: null
             }]
           : [])
-      ]).map((definition) => ({ ...definition, source: "authoring" as const })),
-      linkedDataSetParameterDefinitions,
-      buildStepParameterDefinitionsFromValues(mergedScopedParameterValues)
-    ),
-    [canViewAutomationCode, caseDraft.title, caseDraft.authoring_mode, caseDraft.gherkin_document, displaySteps, linkedDataSetParameterDefinitions, mergedScopedParameterValues, selectedTestCaseId, stepDrafts]
+      ],
+      ownValues: testCaseParameterValues,
+      availableValues: mergedScopedParameterValues,
+      dataSet: linkedDataSet,
+      privateNames: casePrivateParameterNames(selectedTestCase).concat(privateCaseParameterDraft.scope === caseParameterPrivacyScope ? privateCaseParameterDraft.names : [])
+    }).map(parameter => linkedDataSetSensitiveParameterNames.has(parameter.name) ? {...parameter, sensitive: true} : parameter),
+    [isCreating, selectedTestCase, activeTestCaseParameterSeedKey, canViewAutomationCode, caseDraft.title, caseDraft.description, caseDraft.authoring_mode, caseDraft.gherkin_document, displaySteps, linkedDataSet, linkedDataSetSensitiveParameterNames, mergedScopedParameterValues, testCaseParameterValues, selectedTestCaseId, stepDrafts, privateCaseParameterDraft, caseParameterPrivacyScope]
   );
   const isCaseWorkspaceOpen = Boolean(selectedTestCaseId) || isCreating;
   const stepCountLabel = `${mainSteps.length} step${mainSteps.length === 1 ? "" : "s"}`;
@@ -9052,10 +9213,10 @@ export function TestCasesPage() {
     },
     ...(canUseAutomationWorkspace ? [{
       key: "automated",
-      label: "Automated",
+      label: "Automation coverage",
       width: 104,
       minWidth: 88,
-      render: (testCase: TestCase) => (testCase.automated === "yes" ? "Yes" : "No")
+      render: (testCase: TestCase) => hasAutomationCoverage(testCase) ? "Linked" : "Not linked"
     }] : []),
     {
       key: "priority",
@@ -11887,18 +12048,32 @@ export function TestCasesPage() {
                     <div className="test-case-automation-cases-header">
                       <div className="detail-summary">
                         <strong>Automation cases</strong>
-                        <span>Dedicated automation records preserve traceability to this manual case and open in the complete Automation workspace.</span>
+                        <span>Automation cases have independent AT IDs. Link them to this manual case to track automation coverage and its execution outcomes.</span>
                       </div>
-                      <button className="primary-button" onClick={() => navigate(`/automation?create=1&manual=${encodeURIComponent(selectedTestCase.id)}`)} type="button">
+                      <button className="primary-button" disabled={isOpeningLinkedAutomation} onClick={() => void handleCreateLinkedAutomation()} type="button">
                         <AutomationCodeIcon />
-                        <span>Create automation case</span>
+                        <span>{isOpeningLinkedAutomation ? "Preparing automation…" : "Create automation case"}</span>
                       </button>
                     </div>
+                    {canViewExecutionInsights && selectedTestCase.automation_coverage ? (
+                      <section className="detail-summary automation-link-summary" aria-label="Automation coverage outcome">
+                        <strong>Automation coverage outcome</strong>
+                        <StatusBadge value={selectedTestCase.automation_coverage.status || "not_run"} />
+                        <span>{selectedTestCase.automation_coverage.latest_result
+                          ? `Latest linked automation outcome from ${selectedTestCase.automation_coverage.latest_result.source_display_id || "an automation case"}. Manual execution evidence remains available in History.`
+                          : `${selectedTestCase.automation_coverage.linked_case_count} linked automation case${selectedTestCase.automation_coverage.linked_case_count === 1 ? "" : "s"}; no execution outcome yet.`}</span>
+                        {selectedTestCase.automation_coverage.latest_result ? <button className="ghost-button compact" type="button" onClick={() => {
+                          const result = selectedTestCase.automation_coverage!.latest_result!;
+                          navigate(`/executions?${new URLSearchParams({ view: "suite-runs", execution: result.execution_id, testCase: result.source_test_case_id || result.test_case_id })}`);
+                        }}><OpenIcon size={16} />Open automation evidence</button> : null}
+                      </section>
+                    ) : null}
+                    {automationCaseLinksQuery.isError ? <div className="empty-state compact" role="alert">Linked automation cases could not be loaded. <button className="ghost-button compact" type="button" onClick={() => void automationCaseLinksQuery.refetch()}>Retry linked cases</button></div> : null}
                     {automationCaseLinksQuery.isLoading ? <TileCardSkeletonGrid count={3} /> : null}
                     {!automationCaseLinksQuery.isLoading && linkedAutomationCases.length ? (
                       <div className="tile-browser-grid test-case-linked-automation-grid">
                         {linkedAutomationCases.map((automationCase) => {
-                          const recentHistory = (historyByCaseId[automationCase.id] || []).slice(0, 10);
+                          const recentHistory = ((automationCase as TestCaseCatalogRow).recent_results || historyByCaseId[automationCase.id] || []).slice(0, 10);
                           const passedRuns = recentHistory.filter((result) => result.status === "passed").length;
                           const passRate = recentHistory.length ? Math.round((passedRuns / recentHistory.length) * 100) : 0;
                           return (
@@ -11947,7 +12122,7 @@ export function TestCasesPage() {
                         })}
                       </div>
                     ) : null}
-                    {!automationCaseLinksQuery.isLoading && !linkedAutomationCases.length ? (
+                    {!automationCaseLinksQuery.isLoading && !automationCaseLinksQuery.isError && !linkedAutomationCases.length ? (
                       <div className="empty-state compact test-case-automation-empty-state">
                         <AutomationCodeIcon />
                         <strong>No automation case is linked yet.</strong>
@@ -12135,17 +12310,19 @@ export function TestCasesPage() {
         />
       ) : null}
 
+      {parameterReviewDialog}
       {isCaseParameterDialogOpen ? (
         <StepParameterDialog
+          key={isCreating ? createCaseParameterDraftScopeKey : selectedTestCaseId}
+          allowSensitiveValueOverrides
           defaultValues={linkedDataSetDefaultParameterValues}
-          getInputState={(parameter) => parameter.sensitive
-            ? { disabled: true, hint: "Hidden by the linked Data Set. The value is never inserted into visible step text." }
-            : resolveScopedParameterInputState(parameter.scope)}
+          inheritedParameterNames={linkedDataSetParameterDefinitions.map(parameter => parameter.name)}
+          getInputState={(parameter) => resolveScopedParameterInputState(parameter.scope)}
           onChange={handleScopedParameterValueChange}
           onClose={() => setIsCaseParameterDialogOpen(false)}
           onRefreshPreviews={refreshParameterPreviews}
           onReset={resetTestCaseParameterOverride}
-          overrideValues={visibleTestCaseParameterValues}
+          overrideValues={testCaseParameterValues}
           parameters={detectedStepParameters}
           previewValues={resolvedScopedParameterValues}
           subtitle="Review inherited Data Set columns and edit only this Test Case's parameter overrides."
@@ -12695,6 +12872,16 @@ export function TestCasesPage() {
         </div>
       ) : null}
 
+      {automationCloneSource ? createPortal(<ResourceModalShell title="Review cloned automation Start URL" closeDisabled={automationCloneSubmitting} onClose={() => { if (!automationCloneSubmitting) { setAutomationCloneSource(null); setAutomationCloneStartUrl(""); } }}>
+        <form className="resource-form" onSubmit={event => { event.preventDefault(); void handleCloneCase(automationCloneSource, automationCloneStartUrl); }}>
+          <div className="resource-form-body stack-list">
+            <p>Enter the application URL for “{automationCloneSource.title} (Copy)”. The source case has no valid saved Start URL.</p>
+            <label className="form-field"><span>Start URL (required)</span><input aria-label="Cloned automation start URL" type="url" required disabled={automationCloneSubmitting} value={automationCloneStartUrl} onChange={event => setAutomationCloneStartUrl(event.target.value)} placeholder="https://your-application.example.com" />{automationCloneStartUrl.trim() && automationStartUrlError(automationCloneStartUrl, true) ? <small role="alert">{automationStartUrlError(automationCloneStartUrl, true)}</small> : null}</label>
+          </div>
+          <div className="resource-form-footer"><button className="ghost-button" disabled={automationCloneSubmitting} type="button" onClick={() => { setAutomationCloneSource(null); setAutomationCloneStartUrl(""); }}>Cancel</button><button className="primary-button" disabled={automationCloneSubmitting || Boolean(automationStartUrlError(automationCloneStartUrl, true))} type="submit">{automationCloneSubmitting ? "Cloning…" : "Clone automation case"}</button></div>
+        </form>
+      </ResourceModalShell>, document.body) : null}
+
       {isAiCaseAuthoringOpen && canUseTestCaseAi ? (
         <AiCaseAuthoringModal
           additionalContext={aiCaseAuthoringAdditionalContext}
@@ -12821,6 +13008,10 @@ export function TestCasesPage() {
           }}
           onPreview={(authoringMode) => void handlePreviewDesignedCases(authoringMode)}
           onPreviewCaseChange={(clientId, next) => setAiPreviewCases((current) => current.map((candidate) => candidate.client_id === clientId ? next : candidate))}
+          onPreviewCasesReorder={(orderedClientIds) => setAiPreviewCases((current) => {
+            const byId = new Map(current.map(candidate => [candidate.client_id, candidate]));
+            return [...new Set(orderedClientIds)].flatMap(id => byId.has(id) ? [byId.get(id)!] : []).concat(current.filter(candidate => !orderedClientIds.includes(candidate.client_id)));
+          })}
           onSchedule={(authoringMode) => void handleScheduleDesignedCases(authoringMode)}
           onRemoveImage={(imageUrl) => {
             setAiReferenceImages((current) => current.filter((image) => image.url !== imageUrl));

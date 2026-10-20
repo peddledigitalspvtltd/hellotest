@@ -12,6 +12,6 @@ export const featureSourceConfig = {
     alias: uiRoots.map(source => ({ find: `/${source}`, replacement: directory(`../../../${source}`) }))
   },
   fs: {
-    allow: [directory("."), ...uiRoots.map(source => directory(`../../../${source}`))]
+    allow: [directory("."), ...uiRoots.map(source => directory(`../../../${source}`)), directory("../../automation/shared")]
   }
 };

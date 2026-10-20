@@ -32,6 +32,7 @@ import { DisplayIdBadge } from "@hellotest/platform/frontend/src/shared/componen
 import "./LinkedTestCaseModal.css";
 import { StatusBadge } from "@hellotest/platform/frontend/src/shared/components/StatusBadge";
 import { StepParameterDialog } from "./StepParameterDialog";
+import { casePrivateParameterNames, collectPrivateParameterNames } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
 import { StepParameterizedText } from "./StepParameterizedText";
 import { AutomationCodeIcon, CodePreviewDialog } from "@hellotest/automation/frontend/components/StepAutomationEditor";
 import { RichTextContent } from "@hellotest/platform/frontend/src/platform/components/RichTextEditor";
@@ -164,8 +165,10 @@ export function LinkedTestCaseModal({
     [linkedDataSet]
   );
   const linkedDataSetSensitiveParameterNames = useMemo(
-    () => new Set(collectSensitiveDataSetParameterNames(linkedDataSet)),
-    [linkedDataSet]
+    () => collectPrivateParameterNames([normalizeCaseParameterPreviewValues(resolvedTestCase.parameter_values), linkedDataSetDefaultParameterValues, normalizeSuiteParameterPreviewValues(selectedSuite?.parameter_values)], [
+      ...collectSensitiveDataSetParameterNames(linkedDataSet), ...casePrivateParameterNames(resolvedTestCase)
+    ]),
+    [linkedDataSet, linkedDataSetDefaultParameterValues, resolvedTestCase.parameter_values, resolvedTestCase.test_data_options?.private_parameter_names, resolvedTestCase.effective_private_parameter_names, selectedSuite?.parameter_values]
   );
   const caseParameterOverrides = useMemo(
     () => excludeSensitiveStepParameterValues(
@@ -199,14 +202,14 @@ export function LinkedTestCaseModal({
       buildStepParameterDefinitionsFromValues(caseParameterOverrides),
       buildStepParameterDefinitionsFromValues(normalizeSuiteParameterPreviewValues(selectedSuite?.parameter_values)),
       buildStepParameterDefinitionsFromValues(parameterValues)
-    ),
-    [canViewAutomationCode, hasGherkinDocument, linkedDataSetParameterDefinitions, caseParameterOverrides, selectedSuite?.parameter_values, parameterValues, resolvedTestCase.gherkin_document, resolvedTestCase.id, steps]
+    ).map(parameter => linkedDataSetSensitiveParameterNames.has(parameter.name) ? {...parameter, sensitive: true} : parameter),
+    [canViewAutomationCode, hasGherkinDocument, linkedDataSetParameterDefinitions, linkedDataSetSensitiveParameterNames, caseParameterOverrides, selectedSuite?.parameter_values, parameterValues, resolvedTestCase.gherkin_document, resolvedTestCase.id, steps]
   );
   const resolvedParameterValues = useMemo(() => {
     const cache = parameterPreviewCacheRef.current;
     const scopeKey = `${resolvedTestCase.id}\u0000${linkedDataSetId || "no-data-set"}`;
     const activeCacheKeys = new Set<string>();
-    const resolved = Object.entries(parameterValues).reduce<Record<string, string>>((next, [name, value]) => {
+    const resolved = Object.entries(excludeSensitiveStepParameterValues(parameterValues, linkedDataSetSensitiveParameterNames)).reduce<Record<string, string>>((next, [name, value]) => {
       if (!hasTestDataGeneratorTemplate(value)) {
         next[name] = value;
         return next;
@@ -226,7 +229,7 @@ export function LinkedTestCaseModal({
     });
 
     return resolved;
-  }, [linkedDataSetId, parameterPreviewRevision, parameterValues, resolvedTestCase.id]);
+  }, [linkedDataSetId, linkedDataSetSensitiveParameterNames, parameterPreviewRevision, parameterValues, resolvedTestCase.id]);
   const refreshParameterPreviews = () => {
     parameterPreviewCacheRef.current.clear();
     setParameterPreviewRevision((current) => current + 1);

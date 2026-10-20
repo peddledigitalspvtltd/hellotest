@@ -3,7 +3,7 @@ const {randomUUID}=require('node:crypto');
 const {createServer}=require('node:http');
 const {pathToFileURL}=require('node:url');
 const path=require('node:path');
-exports.run=async({db,obsDb,user,projectId,appTypeId,modelReview=false})=>{
+exports.run=async({db,obsDb,user,projectId,appTypeId,modelReview=false,instructionRepair=false})=>{
   const service=require('../../backend/services/automationRepair.service');
   const executions=require('@hellotest/testing/backend/services/execution.service');
   const dispatch=require('../../../automation/backend/services/testEngineDispatch.service');
@@ -23,7 +23,7 @@ exports.run=async({db,obsDb,user,projectId,appTypeId,modelReview=false})=>{
     await db.prepare("INSERT INTO execution_results(id,execution_id,test_case_id,app_type_id,status,logs) VALUES(?,?,?,?,'failed',?)").run(randomUUID(),original.id,caseId,appTypeId,JSON.stringify({stepStatuses:{[snapshot[0].snapshot_step_id]:'passed',[snapshot[1].snapshot_step_id]:'failed'}}));
     const prepared=await service.prepare({projectId,appTypeId,user,input:{test_case_id:caseId,execution_id:original.id}});
     assert.equal(prepared.status,'eligible',prepared.detail);
-    const patch=service.validatePatch(prepared.base,{kind:'replace_locator',step_id:ids[1],new_locator:'#new',rationale:'The supplied fixture uses the new submit button identifier.'});
+    const patch=service.validatePatch(prepared.base,instructionRepair?{kind:'replace_instructions',step_id:ids[1],automation_code:'await web.click("#new");',rationale:'The observed fixture has the new submit control; retain the complete section action and protected assertions.'}:{kind:'replace_locator',step_id:ids[1],new_locator:'#new',rationale:'The supplied fixture uses the new submit button identifier.'});
     const saved=modelReview?(await require('../../../agentic/backend/services/agenticAssistant.service').respond({project_id:projectId,app_type_id:appTypeId,user,agent_id:'automation-repair',mode:'agent',inputs:{test_case_id:caseId,execution_id:original.id},prompt:'Propose a typed locator repair from the supplied captured fixture evidence.'})).result.automation_repair:await service.save(projectId,user,randomUUID(),prepared,patch);
     assert.equal(saved.status,'proposal',JSON.stringify(saved));
     await assert.rejects(service.apply(projectId,saved.id,user),{statusCode:409});

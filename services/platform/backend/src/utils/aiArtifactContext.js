@@ -80,7 +80,7 @@ function testCaseAiSnapshot(testCase = {}, { stepLimit = 30, itemLimit = 500 } =
   const snapshot = {
     id: text(testCase.id, 255), title: text(testCase.title, 500), description: text(testCase.description, 4000),
     priority: Number.isFinite(Number(testCase.priority)) && testCase.priority != null ? Math.max(1, Math.min(5, Number(testCase.priority))) : null, status: text(testCase.status, 100),
-    test_case_type: text(testCase.test_case_type, 100), automated: text(testCase.automated, 30),
+    test_case_type: text(testCase.test_case_type, 120), automated: text(testCase.automated, 30),
     automation_status: text(testCase.automation_status, 100),
     reviewer_id: text(testCase.reviewer_id, 255), review_status: text(testCase.review_status, 100),
     test_data_set_ids: list(testCase.test_data_set_ids, 10, 255),

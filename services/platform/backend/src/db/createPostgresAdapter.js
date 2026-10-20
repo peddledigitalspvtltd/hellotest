@@ -197,10 +197,16 @@ function createPostgresAdapter({
     return compiled;
   };
 
-  const getExecutor = () => transactionContext.getStore()?.client || pool;
+  // Timers and durable workers inherit AsyncLocalStorage even after their
+  // creator has committed. Only the callback's live transaction owns a client.
+  const getActiveTransaction = () => {
+    const store = transactionContext.getStore();
+    return store?.active ? store : null;
+  };
+  const getExecutor = () => getActiveTransaction()?.client || pool;
 
   const execute = (text, params = [], name) => {
-    const connectionError = transactionContext.getStore()?.connectionError;
+    const connectionError = getActiveTransaction()?.connectionError;
     if (connectionError) return Promise.reject(connectionError);
     const values = params.map(serializeParam);
     return name
@@ -252,7 +258,7 @@ function createPostgresAdapter({
   };
 
   const transaction = (callback) => async (...args) => {
-    const activeTransaction = transactionContext.getStore();
+    const activeTransaction = getActiveTransaction();
     if (activeTransaction?.client) {
       return runNestedTransaction(activeTransaction, callback, args);
     }
@@ -261,7 +267,7 @@ function createPostgresAdapter({
     let transactionStarted = false;
     let commitAttempted = false;
     let destroyClient = false;
-    const store = { client, savepointCounter: 0, connectionError: null };
+    const store = { client, savepointCounter: 0, connectionError: null, active: true };
     // pg forwards idle connection errors to the pool, but a checked-out client
     // emits its own error while application code awaits work between queries.
     const onClientError = error => {
@@ -277,11 +283,13 @@ function createPostgresAdapter({
         store,
         () => callback(...args)
       );
+      store.active = false;
       if (store.connectionError) throw store.connectionError;
       commitAttempted = true;
       await client.query("COMMIT");
       return result;
     } catch (error) {
+      store.active = false;
       if (commitAttempted) {
         attachCleanupError(error, "transactionOutcomeUnknown", true);
       }
@@ -297,6 +305,7 @@ function createPostgresAdapter({
       }
       throw error;
     } finally {
+      store.active = false;
       try { client.release(destroyClient); }
       finally { client.removeListener?.("error", onClientError); }
     }

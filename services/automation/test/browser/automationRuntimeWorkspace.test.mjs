@@ -33,7 +33,7 @@ test('actual automation workspace presents runtime-specific authoring and record
     await expect(page.getByRole('dialog',{name:'Add section',exact:true}).getByLabel('New step type',{exact:true})).toHaveValue(runtime);
     await page.keyboard.press('Escape');
     if(runtime==='api'){
-      await page.getByRole('button',{name:'Source',exact:true}).click();
+      await page.getByRole('tab',{name:'Source',exact:true}).click();await expect(page.locator('.automation-source-section').first()).toContainText('https://app.test/status');await page.getByRole('tab',{name:'Instructions',exact:true}).click();
       const section=page.locator('.automation-program-section').first();
       await section.getByRole('button',{name:'Edit',exact:true}).click();
       const editor=page.getByRole('dialog',{name:'Edit section',exact:true});
@@ -46,7 +46,7 @@ test('actual automation workspace presents runtime-specific authoring and record
       await page.keyboard.press('Escape');
     }
     await page.getByRole('tab',{name:/Build tools/}).click();
-    await expect(page.getByRole('button',{name:'Build step plan',exact:true})).toBeEnabled();
+    await expect(page.getByRole('button',{name:'Build plan',exact:true})).toBeEnabled();
     await expect(page.getByLabel('Build instructions (optional)')).toHaveValue('');
     if(runtime==='api')assert.equal(await page.getByRole('button',{name:/Record & playback/}).count(),0);
     else {

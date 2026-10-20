@@ -27,6 +27,7 @@ export type ImportedTestCaseRow = {
   test_case_type?: string;
   gherkin_document?: string;
   automation_status?: string;
+  automation_start_url?: string;
   action?: string;
   expected_result?: string;
   requirements?: string;
@@ -64,6 +65,7 @@ const HEADER_ALIASES: Record<keyof ImportedTestCaseRow, string[]> = {
   test_case_type: ["testcasetype", "casetype"],
   gherkin_document: ["gherkindocument", "gherkin"],
   automation_status: ["automationstatus"],
+  automation_start_url: ["automationstarturl", "starturl"],
   title: ["title", "testcasetitle", "testcase", "testcasename", "name"],
   action: ["action", "actions", "step", "teststep", "teststeps"],
   expected_result: ["expectedresult", "expectedresults", "expected", "result", "outcome"],
@@ -176,8 +178,8 @@ export function parseTestCaseCsv(text: string): ParsedCsv {
       } else if (key === "test_data_options") {
         const parsed = json();
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
-          || Object.entries(parsed).some(([name, entry]) => !["override_lower_scopes", "override_shared_steps"].includes(name) || typeof entry !== "boolean")) {
-          invalid("Test Data Options must be a JSON object with boolean override_shared_steps or override_lower_scopes values.");
+          || Object.entries(parsed).some(([name, entry]) => name === "shared_data_kind" ? !["steps", "sections"].includes(String(entry)) : ["parameter_overrides", "private_parameter_names"].includes(name) ? !Array.isArray(entry)||entry.length>256||entry.some(key=>typeof key!=="string"||!key.trim()||key.length>220||/[\u0000-\u001f\u007f]/.test(key)) : !["override_lower_scopes", "override_shared_steps", "override_shared_sections", "override_test_case_data", "override_suite_data"].includes(name) || typeof entry !== "boolean")) {
+          invalid("Test Data Options must contain supported boolean override flags, bounded parameter name lists, and an optional shared_data_kind of steps or sections.");
         }
         row.test_data_options = parsed as TestDataOptions;
       } else if (key === "parameter_values") {
@@ -212,7 +214,7 @@ export function buildTestCaseImportTemplate(): Array<Record<string, unknown>> {
   return [{
     Title: "Verify sign-in with a valid account", Description: "A registered user can access the application using valid credentials.",
     Status: "draft", Priority: 2, "Test Case Type": "functional", Author: "", Reviewer: "", Labels: "smoke|authentication",
-    "Authoring Mode": "structured", "Gherkin Document": "", Automated: "no", "Automation Status": "not_automated", "External References": "",
+    "Authoring Mode": "structured", "Gherkin Document": "", Automated: "no", "Automation Status": "not_automated", "Automation Start URL": "", "External References": "",
     Stories: "", Suites: "", Modules: "", "Test Data References": "",
     "Test Data Options": { override_shared_steps: true },
     "Parameter Values": { base_url: "https://example.test", username: "sample-user", password: "sample-password" },

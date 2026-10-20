@@ -99,6 +99,14 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
   execution.emit("RETRIEVAL_PLANNING", "completed", { query_count: queries.length });
   while (queries.length && budget.canContinue()) {
     const liveEnabled = (!Array.isArray(filters.requested_scopes) || array(route.live_scopes).length > 0) && !rounds.length && (!pinned || scopedLive) && !filters.as_of && budget.remaining().tool_calls >= 2;
+    // Reserve part of the candidate budget for current native facts. Previously
+    // indexed queries could consume every slot before the failed run or pinned
+    // Story was added, silently losing the very evidence the user selected.
+    const remainingCandidates = Math.max(0, budget.limits.max_candidates - candidateCount);
+    const liveCandidateBudget = liveEnabled
+      ? Math.min(Math.max(1, array(route.live_scopes).length), Math.max(1, Math.floor(remainingCandidates / 2)), remainingCandidates)
+      : 0;
+    const indexedCandidateBudget = remainingCandidates - liveCandidateBudget;
     if (!budget.consumeRound(queries.length, liveEnabled ? 2 : 1)) break;
     queries.forEach((query) => seen.add(query.toLowerCase()));
     const before = new Set(hits.map(identity));
@@ -109,10 +117,21 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
     try {
       const searchTimeoutMs = stageTime(5_000, authorizationReserveMs * 2);
       const liveTimeoutMs = Math.min(2_500, searchTimeoutMs);
-      const jobs = [indexedSelectionConflict ? Promise.resolve({results:[],errors:[]}) : stage((signal) => search({ queries, mode: searchMode, projectId: request.project_id, filters: effectiveFilters, integrationId: integration?.id, user, signal, timeoutMs: Math.max(1, searchTimeoutMs - Math.min(50, Math.floor(searchTimeoutMs / 10))), maxCandidates: Math.max(0, budget.limits.max_candidates - candidateCount) }), "INDEXED_SEARCH_TIMEOUT", searchTimeoutMs)];
+      const readIndexed = (maxCandidates, timeoutMs) => stage((signal) => search({ queries, mode: searchMode,
+        projectId: request.project_id, filters: effectiveFilters, integrationId: integration?.id, user, signal,
+        timeoutMs: Math.max(1, timeoutMs - Math.min(50, Math.floor(timeoutMs / 10))), maxCandidates
+      }), "INDEXED_SEARCH_TIMEOUT", timeoutMs);
+      const jobs = [indexedSelectionConflict || !indexedCandidateBudget ? Promise.resolve({results:[],errors:[]}) : readIndexed(indexedCandidateBudget, searchTimeoutMs)];
       if (liveEnabled) jobs.push(stage((signal) => liveEvidence({ projectId: request.project_id, appTypeId: filters.app_type_id, prompt: request.query, user, route, sourceKinds: scopedLive ? nativeSourceKinds : effectiveFilters.source_kinds, evidenceScope: filters.evidence_scope, signal, timeoutMs: liveTimeoutMs }), "LIVE_CONTEXT_TIMEOUT", liveTimeoutMs));
       const settled = await Promise.allSettled(jobs);
       execution.assertActive();
+      // A one-candidate request tries its explicitly selected live fact first.
+      // If that fact is absent/unavailable, spend the same reserved slot on an
+      // allowed KB lookup; do not return empty context solely due to reservation.
+      if (!indexedCandidateBudget && !indexedSelectionConflict && remainingCandidates > 0
+        && !(settled[1]?.status === "fulfilled" && array(settled[1].value?.hits).length) && stageTime(5_000) > 0) {
+        [settled[0]] = await Promise.allSettled([readIndexed(remainingCandidates, stageTime(5_000))]);
+      }
       for (const [index, entry] of settled.entries()) {
         if (entry.status === "rejected") {
           if (entry.reason?.name === "AbortError") throw entry.reason;
@@ -122,6 +141,12 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
         }
         if (index === 1) {
           live = entry.value;
+          // Snapshot builders can return several scopes. The model context is
+          // bounded by the caller's candidate limit even for live evidence.
+          const indexedWork = results.filter(item => !item.counted).reduce((count, item) => count
+            + Math.max(array(item.result?.results).length, Number(item.result?.retrieval?.candidate_count || 0)), 0);
+          const unusedIndexedBudget = Math.max(0, indexedCandidateBudget - indexedWork);
+          live.hits = array(live.hits).slice(0, liveCandidateBudget + unusedIndexedBudget);
           results.push({ query: "authoritative live project context", result: { results: live.hits, retrieval: { mode: "live_project", result_count: live.hits.length } } });
         } else {
           results.push(...array(entry.value.results));
@@ -131,8 +156,11 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
           degraded ||= array(entry.value.errors).length > 0;
         }
       }
+      const reservedLiveCandidates = results.filter(entry => !entry.counted && entry.result.retrieval?.mode === "live_project")
+        .reduce((count, entry) => count + array(entry.result.results).length, 0);
       for (const entry of results) {
-        const available = Math.max(0, budget.limits.max_candidates - candidateCount);
+        const available = Math.max(0, budget.limits.max_candidates - candidateCount
+          - (entry.result.retrieval?.mode === "live_project" ? 0 : reservedLiveCandidates));
         if (entry.counted) continue;
         entry.result.results = array(entry.result.results).slice(0, available);
         candidateCount += Math.min(available, Math.max(entry.result.results.length, Number(entry.result.retrieval?.candidate_count || 0)));

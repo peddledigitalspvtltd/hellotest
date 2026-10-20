@@ -1,0 +1,10 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
+function queryService(){const calls=[],module={exports:{}};new Function('require','module',fs.readFileSync(require.resolve('../../backend/services/llmTraceQuery.service'),'utf8'))(()=>({pool:{query:async query=>{calls.push(query);return {rows:query.text.includes('COUNT(*)')?[{calls:0}]:[]};}}}),module);return {service:module.exports,calls};}
+test('generation trace filters bind project, activity, case, attempt and actual source IDs without SQL interpolation',async()=>{
+ const {service,calls}=queryService();const input={session_id:'activity',test_case_id:"case' OR true --",completion_attempt:2,trace_ids:JSON.stringify(['actual-call','actual-call'])};
+ await service.list('project',input);assert.equal(calls.length,2);
+ for(const query of calls){assert.ok(query.text.includes('project_id = $1'));assert.ok(query.text.includes('session_id = $3'));assert.match(query.text,/capture->>'test_case_id'/);assert.match(query.text,/capture->>'completion_attempt'/);assert.match(query.text,/e\.transaction_id=llm_request_traces\.session_id/);assert.match(query.text,/t\.project_id=\$1/);assert.match(query.text,/e\.details->>'call_id'=llm_request_traces\.id::text/);assert.match(query.text,/id::text = ANY/);assert.ok(query.values.includes(input.test_case_id));assert.ok(!query.text.includes(input.test_case_id));assert.deepEqual(query.values.at(-1),['actual-call']);}
+});
+test('invalid or unscoped generation filters fail before querying trace storage',async()=>{
+ for(const input of [{test_case_id:'case'},{session_id:'job',completion_attempt:1},{session_id:'job',test_case_id:'case',completion_attempt:0},{session_id:'job',test_case_id:'case',completion_attempt:'1 OR true'},{session_id:'job',test_case_id:'case',trace_ids:'[]'},{session_id:'job',test_case_id:'case',trace_ids:'["../other"]'},{session_id:'job',test_case_id:'case',trace_ids:JSON.stringify(Array.from({length:21},(_,i)=>'call-'+i))}]){const {service,calls}=queryService();await assert.rejects(service.list('project',input),error=>error.statusCode===400);assert.equal(calls.length,0);}
+});

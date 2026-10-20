@@ -126,7 +126,7 @@ function readiness(workflow, targetNodeId = "") {
     if (data.onError === "errorOutput" && !outgoing.some(edge => nodes.some(next => next.id === edge.target && kindOf(next) === "errorHandler"))) add(node, "Connect an Error handler before routing failures.");
     for (const message of operations.validate(node)) add(node, message);
     if (data.mergeMode && data.mergeMode !== "waitAllAppend") add(node, "Review execution collects every connected result. Choose Wait for all, append items.");
-    const maxTimeout = kind === "repositoryAgent" ? MAX_DURATION_MS : 70_000;
+    const maxTimeout = kind === "repositoryAgent" ? MAX_DURATION_MS : kind === "agent" || kind === "customAI" ? 150_000 : 70_000;
     if (data.timeoutMs != null && (!Number.isFinite(Number(data.timeoutMs)) || Number(data.timeoutMs) < 1_000 || Number(data.timeoutMs) > maxTimeout)) add(node, `Choose a step timeout between 1,000 and ${maxTimeout.toLocaleString("en-US")} milliseconds.`);
     if (data.retryCount != null && (!Number.isInteger(Number(data.retryCount)) || Number(data.retryCount) < 0 || Number(data.retryCount) > 2)) add(node, "Review steps support zero, one or two retries within their timeout.");
     if (data.retryDelayMs != null && (!Number.isFinite(Number(data.retryDelayMs)) || Number(data.retryDelayMs) < 0 || Number(data.retryDelayMs) > 10_000)) add(node, "Choose a retry delay between 0 and 10,000 milliseconds.");
@@ -340,7 +340,7 @@ async function executeNodeTask(run, node, user, signal, onAttempt, onProgress, o
       if (current && ["queued", "running"].includes(current.status)) await repositoryAgents.cancelRun(job.id, user).catch(() => {});
     }
   }
-  const deadline = Date.now() + (Number(data.timeoutMs) || 70_000);
+  const deadline = Date.now() + (Number(data.timeoutMs) || 150_000);
   const retries = kind === "loop" && data.loopAction === "customAI" ? 0 : Number(data.retryCount) || 0;
   const policy = specialistPolicy(data);
   // One ledger spans transport retries, JSON compatibility and output repairs for this node.

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
+import * as acorn from "acorn";
 import { collectStepParameters, resolveStepParameterText } from "../../../platform/frontend/src/shared/lib/stepParameters.ts";
 import { normalizeGherkinParameterReferences, resolveGherkinParameterText } from "../../frontend/lib/gherkin.ts";
 
@@ -12,10 +13,31 @@ function load(name) {
   const exports = modules[name] = {};
   const source = readFileSync(sourceFile(`${name}.ts`, "lib"), "utf8");
   const script = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
-  new Function("require", "exports", script)((id) => load(id.replace(/^\.\//, "")), exports);
+  new Function("require", "exports", script)((id) => id === "acorn" ? acorn : load(id.replace(/^\.\//, "")), exports);
   return exports;
 }
 const { buildParameterCsvTemplate, resolveExecutionParameterContext } = load("executionParameterContext");
+
+test('durable opaque privacy metadata stays protected when the original private resource is absent', () => {
+  const result=resolveExecutionParameterContext({execution:null,caseSnapshot:{parameter_values:{'t.public':'Visible'},test_data_options:{private_parameter_names:['@R.opaque_input','blank']}}});
+  assert.equal(result.values['t.public'],'Visible');
+  for(const name of ['r.opaque_input','t.blank']){
+    const entry=result.entries.find(row=>row.name===name);
+    assert.equal(entry?.sensitive,true);assert.equal(entry.value,null);assert.equal(entry.resolved,true);
+  }
+  assert.deepEqual(result.unresolved,[]);
+});
+
+test('reviewed case values and explicit blanks retain backend and engine source priority',()=>{
+ const policy={version:2,case:{parameter_overrides:['t.name','r.empty']},suite:{},run:{}};
+ const caseSnapshot={parameter_values:{'t.name':'Reviewed Person','r.empty':''},test_data_options:{runtime_policy:policy},
+  test_data_set_snapshot:{mode:'table',rows:[{'t.name':'Dataset Person','r.empty':'dataset default'}],parameter_data_layers:{case:{rows:[{'t.name':'Dataset Person','r.empty':'dataset default'}]}}}};
+ const execution={test_configuration:{snapshot:{variables:[{key:'t.name',value:'Configuration Person'},{key:'r.empty',value:'configuration default'}]}}};
+ const result=resolveExecutionParameterContext({caseSnapshot,execution});
+ assert.equal(result.values['t.name'],'Reviewed Person');assert.equal(result.values['r.empty'],'');
+ assert.equal(resolveExecutionParameterContext({caseSnapshot,execution:{...execution,parameter_values:{'t.name':'Explicit Run'}}}).values['t.name'],'Explicit Run');
+ assert.equal(resolveExecutionParameterContext({caseSnapshot,execution,capturedValues:{'t.name':'Captured'}}).values['t.name'],'Captured');
+});
 
 test("case, suite, run and selected row share canonical namespaces and explicit empty precedence", () => {
   const input = {

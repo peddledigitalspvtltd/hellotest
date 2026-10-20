@@ -90,6 +90,41 @@ test("transaction cleanup failures preserve the original error and evict a broke
   assert.deepEqual(adapter.pool.releaseArguments, [true]);
 });
 
+for (const outcome of ['commit', 'rollback']) {
+  test(`detached work after ${outcome} opens a fresh transaction instead of reusing a released client`, async () => {
+    const adapter = createPostgresAdapter({ poolConfig: { max: 5 }, PoolClass: FakePool });
+    let resume;
+    const gate = new Promise(resolve => { resume = resolve; });
+    let detached;
+    const outer = adapter.transaction(async () => {
+      detached = (async () => {
+        await gate;
+        await adapter.transaction(async () => adapter.query("SELECT 'later worker'"))();
+      })();
+      if (outcome === 'rollback') throw new Error('outer failed');
+    });
+    if (outcome === 'rollback') await assert.rejects(outer(), /outer failed/);
+    else await outer();
+    resume();
+    await detached;
+    assert.deepEqual(adapter.pool.queries, ['BEGIN', outcome === 'commit' ? 'COMMIT' : 'ROLLBACK', 'BEGIN', "SELECT 'later worker'", 'COMMIT']);
+    assert.deepEqual(adapter.pool.releaseArguments, [false, false]);
+  });
+}
+
+test('a detached plain query uses the pool after its parent transaction finishes', async () => {
+  const adapter = createPostgresAdapter({ poolConfig: { max: 5 }, PoolClass: FakePool });
+  let resume, detached, pooled = 0;
+  const gate = new Promise(resolve => { resume = resolve; });
+  const query = adapter.pool.query.bind(adapter.pool);
+  adapter.pool.query = async (...args) => { pooled += 1; return query(...args); };
+  await adapter.transaction(async () => {
+    detached = (async () => { await gate; await adapter.query("SELECT 'detached query'"); })();
+  })();
+  resume(); await detached;
+  assert.equal(pooled, 1, 'The expired async context must never query its released transaction client');
+});
+
 test("pool errors are captured, saturation is observable, and shutdown is idempotent", async () => {
   const errors = [];
   const adapter = createPostgresAdapter({

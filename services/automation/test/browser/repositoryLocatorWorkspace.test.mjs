@@ -13,13 +13,14 @@ test('repository has a quiet toolbar, stable field selection and an editable DOM
   fixture=fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';", "import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';");
   fixture=fixture.replace('element:<TestCasesPage/>','element:<AutomationPage initialView="repository"/>');
   const dom='<form data-testid="login"><input id="email" name="email" aria-label="Email" type="email"><button id="submit">Sign in</button></form>';
-  const row={id:'email',project_id:'p',app_type_id:'a',test_case_id:'case1',page_key:'Login',page_url:'https://app.example.test/login',locator_intent:'Email',locator:'input[name="email"]',locator_kind:'css',confidence:.8,metadata:{screen_name:'Login',object_name:'Email',object_role:'input / textbox',screen_dom_compressed:dom,dom_structure:'<input id="email" name="email" aria-label="Email" type="email">'}};
-  fixture=fixture.replace('const client=new QueryClient',`const entries=[${JSON.stringify(row)},${JSON.stringify({...row,id:'password',locator_intent:'Password',locator:'#password',metadata:{...row.metadata,object_name:'Password'}})},${JSON.stringify({...row,id:'address',page_key:'Checkout',locator_intent:'Address',locator:'#address',metadata:{...row.metadata,screen_name:'Checkout',object_name:'Address'}})}];
+  const row={id:'email',project_id:'p',app_type_id:'a',test_case_id:'case1',page_key:'Login',page_url:'https://app.example.test/login',locator_intent:'Email',locator:'input[name="email"]',locator_kind:'css',confidence:.8,metadata:{screen_name:'Login',object_name:'Email',object_role:'input / textbox',source_owners:[{entry_id:'legacy-email',source:'legacy'}],screen_dom_compressed:dom,dom_structure:'<input id="email" name="email" aria-label="Email" type="email">'}};
+  fixture=fixture.replace('const client=new QueryClient',`const entries=[${JSON.stringify(row)},${JSON.stringify({...row,id:'password',locator_intent:'Password',locator:'#password',metadata:{...row.metadata,source_owners:[],object_name:'Password'}})},${JSON.stringify({...row,id:'address',page_key:'Checkout',locator_intent:'Address',locator:'#address',metadata:{...row.metadata,source_owners:[],screen_name:'Checkout',object_name:'Address'}})}];
 api.testCases.learningCache=async()=>structuredClone(entries);
 window.applies=[];
 api.testCases.improveLearningCacheEntry=async id=>({entry:structuredClone(entries.find(item=>item.id===id)),suggestion:{locator:'#reviewed-'+id,strategy:'css',confidence:.85},fallback_used:true,generation_mode:'deterministic',request_id:'preview-'+id});
 api.testCases.applyLearningCacheImprovement=async(id,input)=>{window.applies.push({id,input});const entry=entries.find(item=>item.id===id);entry.locator=input.locator;entry.updated_at=new Date().toISOString();return {entry:structuredClone(entry),applied:true}};
 api.repositoryInspection.capabilities=async()=>({remote:{available:false},local:{available:true}});\nconst client=new QueryClient`);
+  fixture=fixture.replace("initialEntries:['/test-cases?case=case1']","initialEntries:['/test-cases?repository=legacy-email']");
   const name=`repository-locators-${randomUUID()}`;const html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);
   let browser,page;
   try{
@@ -27,6 +28,8 @@ api.repositoryInspection.capabilities=async()=>({remote:{available:false},local:
     browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});page=await browser.newPage({viewport:{width:1600,height:1050}});const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('**/api/**',route=>{errors.push(`Unexpected API ${route.request().url()}`);return route.abort();});
     await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html`);
     await page.locator('.repository-agent-status').waitFor();
+    await page.getByLabel('Object configuration',{exact:true}).getByText('Element Configuration: Email',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Close object configuration',exact:true}).click();
     const positions=await page.locator('.page-header').evaluate(element=>({right:element.getBoundingClientRect().right-parseFloat(getComputedStyle(element).paddingRight),status:element.querySelector('.repository-agent-status').getBoundingClientRect().right}));assert.ok(Math.abs(positions.right-positions.status)<4, JSON.stringify(positions));
     assert.equal(await page.getByRole('button',{name:/AI Suggestions/}).count(),0);
     assert.equal(await page.getByRole('button',{name:'Inspect evidence',exact:true}).count(),0);

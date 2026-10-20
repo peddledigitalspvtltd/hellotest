@@ -1,0 +1,8 @@
+.shared-automation-sections-editor > .automation-plan-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.shared-automation-sections-editor .automation-plan-summary { min-width: 0; }
+
+@media (max-width: 640px) {
+  .shared-automation-sections-editor .automation-plan-summary { flex-wrap: wrap; }
+  .shared-automation-sections-editor .automation-plan-summary > button { flex-basis: calc(100% - 32px); }
+  .shared-automation-sections-editor .automation-section-tools { flex: 1 0 100%; }
+}

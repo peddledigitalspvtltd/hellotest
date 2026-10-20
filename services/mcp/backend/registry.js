@@ -10,9 +10,13 @@ function register(options) {
   if(['HEAD','OPTIONS'].includes(method))continue;
   const permission=ROUTE_PERMISSIONS.get(`${method} ${options.url}`);
   const id=createHash('sha256').update(`${method} ${options.url}`).digest('hex').slice(0,16);
-  const read=!/\/agentic-quality\/(?:runs\/.*\/(?:artifacts|baseline)|baselines\/.*\/artifact)/.test(options.url)&&['GET'].includes(method)&&managed.test(options.url)&&!excluded.test(options.url)&&!options.url.includes('*')&&Boolean(permission);
+  // A GET route is not necessarily a bounded JSON read. Download/render routes
+  // can allocate a whole report or attachment before invokeOperation can inspect
+  // Content-Type. ALM reads also need a wrapper that pins the external project.
+  const wrapperReason=/\.(?:pdf|html|csv)(?:\/|$)|\/(?:file|artifact)(?:\/|$)|\/artifacts(?:\/|$)/i.test(options.url)?'Binary, report and artifact reads require a bounded typed evidence wrapper.':/\/alm(?:\/|$)/.test(options.url)?'External ALM reads require an integration and remote-project-scoped wrapper.':null;
+  const read=!wrapperReason&&!/\/agentic-quality\/(?:runs\/.*\/(?:artifacts|baseline)|baselines\/.*\/artifact)/.test(options.url)&&['GET'].includes(method)&&managed.test(options.url)&&!excluded.test(options.url)&&!options.url.includes('*')&&Boolean(permission);
   const prepare=method==='POST'&&['/test-cases','/executions','/agentic-quality/runs'].includes(options.url)&&Boolean(permission);
-  routes.set(id,{id,method,path:options.url,permission,read,prepare,exposure:!permission||excluded.test(options.url)?'nondelegable':read?'read':prepare?'planned_action':'requires_domain_wrapper',reason:read||prepare?null:'Requires an audited domain wrapper, or is a privileged/internal/streaming operation.',input_schema:options.schema || contracts.schemas[`${method} ${options.url}`] || null,path_parameters:[...options.url.matchAll(/:([A-Za-z_][\w]*)/g)].map(m=>m[1])});
+  routes.set(id,{id,method,path:options.url,permission,read,prepare,exposure:!permission||excluded.test(options.url)?'nondelegable':read?'read':prepare?'planned_action':'requires_domain_wrapper',reason:read||prepare?null:wrapperReason||'Requires an audited domain wrapper, or is a privileged/internal/streaming operation.',input_schema:options.schema || contracts.schemas[`${method} ${options.url}`] || null,path_parameters:[...options.url.matchAll(/:([A-Za-z_][\w]*)/g)].map(m=>m[1])});
  }
 }
 const all=()=>[...routes.values()].sort((a,b)=>a.path.localeCompare(b.path)||a.method.localeCompare(b.method));

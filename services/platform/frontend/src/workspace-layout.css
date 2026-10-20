@@ -91,3 +91,6 @@
     min-width: 0;
   }
 }
+
+:root .app-shell.app-layout > .workspace-main > .page-content--record-focus { display: flex; flex-direction: column; overflow: auto; padding: 12px !important; }
+:root .app-shell.app-layout > .workspace-main > .page-content--record-focus > .workspace-master-detail { flex: 1; min-height: 0; }

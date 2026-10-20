@@ -148,7 +148,7 @@ const materializeVariableSnapshot = (snapshot, now = new Date()) => {
   };
 };
 
-const freezeReferencedParameterGenerators = (snapshot, steps = [], now = new Date()) => {
+const referencedParameterGeneratorTemplates = (snapshot, steps = []) => {
   const existing = normalizeParameterLayer(snapshot.parameter_values);
   const templates = {};
   const sources = [snapshot.test_case_title, ...steps.flatMap((step) => [step.action, step.expected_result, step.automation_code, JSON.stringify(step.api_request || {})])];
@@ -159,6 +159,11 @@ const freezeReferencedParameterGenerators = (snapshot, steps = [], now = new Dat
       if (!Object.hasOwn(existing, key)) templates[key] = GENERATOR_ALIAS_TEMPLATES[alias];
     }
   }
+  return templates;
+};
+
+const freezeReferencedParameterGenerators = (snapshot, steps = [], now = new Date()) => {
+  const templates = referencedParameterGeneratorTemplates(snapshot, steps);
   return {
     parameter_template_values: { ...snapshot.parameter_template_values, ...templates },
     parameter_values: { ...snapshot.parameter_values, ...materializeParameterValues(templates, now) }
@@ -226,5 +231,6 @@ module.exports = {
   materializeParameterValues,
   materializeVariableSnapshot,
   freezeReferencedParameterGenerators,
+  referencedParameterGeneratorTemplates,
   materializeTemplateValue
 };

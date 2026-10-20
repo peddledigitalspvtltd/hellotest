@@ -319,6 +319,11 @@ const OPTIONAL_FEATURE_DEPENDENCIES = {
 const PERMISSION_FEATURE_MAP = Object.fromEntries(PERMISSIONS.map(permission => [permission.code, PERMISSION_FEATURES[permission.code] || []]));
 
 const ROUTE_FEATURES = new Map([
+  ["GET /test-cases/automation/agent-activities", ["hellotest.automation.builder"]],
+  ["GET /test-cases/automation/jobs/:transactionId/screenshots/:artifactId", ["hellotest.automation.builder"]],
+  ["GET /test-cases/automation/jobs/:transactionId/previews/:artifactId", ["hellotest.automation.builder"]],
+  ["GET /test-cases/automation/jobs/:transactionId/evidence/:artifactId", ["hellotest.automation.builder"]],
+  ["POST /test-cases/automation/bulk-delete", ["hellotest.automation.builder"]],
   ["GET /test-cases/automation/learning-cache", ["hellotest.automation.object_repository"]],
   ["GET /test-cases/automation/repository-context", ["hellotest.automation.object_repository"]],
   ["GET /test-cases/automation/learning-cache/:id/usage", ["hellotest.automation.object_repository"]],

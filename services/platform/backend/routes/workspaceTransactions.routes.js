@@ -89,6 +89,26 @@ module.exports = async function (fastify) {
       throw createError("Artifact does not belong to this transaction.", 404);
     }
 
+    const protectedAutomationContent = [
+      "application/vnd.hellotest.automation-section-preview+json",
+      "application/vnd.hellotest.automation-browser-evidence+json",
+      "application/vnd.hellotest.automation-browser-diagnostic+json",
+      "application/vnd.hellotest.automation-build-data+json",
+      "application/vnd.hellotest.automation-used-objects+json"
+    ].includes(artifact.mime_type)
+      || (transaction.category === "automation_build" && transaction.metadata?.agent_activity === true);
+    if (protectedAutomationContent) {
+      if (transaction.category !== "automation_build" || !transaction.project_id) {
+        throw createError("Automation activity content is unavailable.", 404);
+      }
+      for (const code of ["automation.build", "automation.view", "automation.code.view", "automation.ai"]) {
+        await requireTransactionPermission(fastify, req, transaction, code);
+      }
+    }
+    if (artifact.mime_type === "application/vnd.hellotest.automation-build-data+json") {
+      await requireTransactionPermission(fastify, req, transaction, "data.view");
+    }
+
     const content = artifact.content || "";
     const dataUrlMatch = typeof content === "string"
       ? content.match(/^data:([^;,]+)?(?:;[^,]*)?;base64,(.*)$/s)

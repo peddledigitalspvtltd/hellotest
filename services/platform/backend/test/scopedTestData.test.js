@@ -43,7 +43,7 @@ test('frozen composed templates preserve protected and inherited columns when re
 });
 
 test('options reject non-boolean policy values and preserve defaults', () => {
-  assert.deepEqual(normalizeDataOptions({}), { override_lower_scopes: true, override_shared_steps: true, override_test_case_data: true, override_suite_data: true });
+  assert.deepEqual(normalizeDataOptions({}), { override_lower_scopes: true, override_shared_steps: true, override_shared_sections: true, override_test_case_data: true, override_suite_data: true });
   assert.throws(() => normalizeDataOptions({ override_lower_scopes: 'false' }), error => error.statusCode === 400);
 });
 

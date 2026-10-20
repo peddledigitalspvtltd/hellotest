@@ -30,7 +30,8 @@
     "./ui": "./frontend/entry.ts",
     "./frontend/workflows/WorkflowConnectionSettings": "./frontend/workflows/WorkflowConnectionSettings.tsx",
     "./frontend/pages/McpServersPage": "./frontend/pages/McpServersPage.tsx",
-    "./backend/workflows/mcpClient": "./backend/workflows/mcpClient.js"
+    "./backend/workflows/mcpClient": "./backend/workflows/mcpClient.js",
+    "./frontend/components/AgentEvidenceScope": "./frontend/components/AgentEvidenceScope.tsx"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs agentic",

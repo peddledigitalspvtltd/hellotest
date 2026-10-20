@@ -71,6 +71,22 @@ test("a persisted legacy queue job resumes with the same test-local values in AP
     assert.equal(apiHook['t.token'], 'saved session', 'Captured setup values override source defaults.');
     for (const key of ['t.email', 't.shared', 't.token']) assert.equal(apiHook[key], native.values[key], key);
   }
+
+  const sourceContext={case_parameters:{'t.email':'source authored','t.blank':''},suite_parameters:{'s.region':'source suite'},
+    data_policy:{version:2,case:{parameter_overrides:['t.blank']},suite:{},run:{}},
+    data_set:{mode:'table',rows:[{'t.email':'source dataset','t.blank':'dataset must lose'}],parameter_data_layers:{case:{rows:[{'t.email':'source dataset','t.blank':'dataset must lose'}]}}}};
+  const sourceStep={...hook,source_case_parameters:{'t.email':'legacy value must lose'},source_case_context:sourceContext};
+  const mainEnvelope={...job.payload,case_parameters:{'t.email':'wrong main case','t.unrelated':'main only'},suite_parameters:{'s.region':'wrong main suite'},
+    data_policy:{version:2,case:{},suite:{},run:{}},data_set:{mode:'table',rows:[{'t.email':'wrong main dataset'}],parameter_data_layers:{case:{rows:[{'t.email':'wrong main dataset'}]}}},
+    environment:{variables:[{key:'r.environment',value:'shared environment'}]}};
+  const sourceBefore=structuredClone(sourceStep),mainBefore=structuredClone(mainEnvelope);
+  const sourceNative=buildInitialContext(mainEnvelope,{'r.captured':'setup output'},sourceStep).values;
+  const sourceApi=apiParameters(mainEnvelope,{'r.captured':'setup output'},sourceStep);
+  for(const values of [sourceNative,sourceApi]){
+    assert.equal(values['t.email'],'source dataset');assert.equal(values['s.region'],'source suite');assert.equal(values['t.blank'],'');
+    assert.equal(values['r.environment'],'shared environment');assert.equal(values['r.captured'],'setup output');assert.equal(values['t.unrelated'],undefined);
+  }
+  assert.deepEqual(sourceStep,sourceBefore);assert.deepEqual(mainEnvelope,mainBefore);
 });
 
 test("capture compatibility never changes selected dataset identity or row matching", () => {

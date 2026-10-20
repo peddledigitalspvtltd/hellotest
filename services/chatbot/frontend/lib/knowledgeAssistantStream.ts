@@ -275,12 +275,17 @@ export async function resumePendingKnowledgeTurn(request: () => Promise<Knowledg
   signal?: AbortSignal;
   onPending?: (response: KnowledgeAssistantMessageResponse) => void;
   maxPendingRetries?: number;
+  maxPendingWaitMs?: number;
   retryDelayMs?: number;
   maxConnectionRetries?: number;
   connectionRetryDelayMs?: number;
   onReconnecting?: () => void;
 } = {}): Promise<KnowledgeAssistantMessageResponse> {
-  const maximum = options.maxPendingRetries ?? 5;
+  // A server turn has up to two minutes to retrieve and validate its answer.
+  // Recovery must remain attached long enough to receive that original turn.
+  const pendingWaitMs = Math.max(0, Math.min(180_000, options.maxPendingWaitMs ?? 150_000));
+  const deadlineAt = Date.now() + pendingWaitMs;
+  const maximum = options.maxPendingRetries ?? 50;
   let connectionRetries = 0;
   for (let attempt = 0; ; attempt += 1) {
     if (options.signal?.aborted) throw new DOMException("Answer stopped", "AbortError");
@@ -298,8 +303,8 @@ export async function resumePendingKnowledgeTurn(request: () => Promise<Knowledg
     }
     if (!response.pending) return response;
     options.onPending?.(response);
-    if (attempt >= maximum) throw new KnowledgeStreamError("This turn is still processing. Check for its answer shortly.", "TURN_PENDING");
+    if (attempt >= maximum || Date.now() >= deadlineAt) throw new KnowledgeStreamError("This turn is still processing. Check for its answer shortly.", "TURN_PENDING");
     const delay = options.retryDelayMs ?? Math.min(10, Math.max(1, Number(response.retry_after_seconds) || 3)) * 1000;
-    await waitForRetry(delay, options.signal);
+    await waitForRetry(Math.min(delay, Math.max(0, deadlineAt - Date.now())), options.signal);
   }
 }

@@ -1,11 +1,13 @@
 const { compactEvidenceText } = require('@hellotest/platform/backend/src/utils/llmContextFallback');
 function minimalContext(payload) {
   const entries = Object.entries(payload.bounded_workspace_context || {}).flatMap(([scope,items]) => (items || []).map(item => ({scope,item})));
-  const selected = entries.sort((a,b) => Number(b.item.source_kind === 'live_project') - Number(a.item.source_kind === 'live_project')).slice(0,3);
+  const selected = entries.sort((a,b) => Number(b.scope === 'automation_repair') - Number(a.scope === 'automation_repair')
+    || Number(b.item.source_kind === 'live_project') - Number(a.item.source_kind === 'live_project')).slice(0,3);
   const context = {}, ids = new Set();
   for(const {scope,item} of selected) {
     const id = item.citation?.id || item.id; if(id) ids.add(id);
-    (context[scope] ||= []).push({...item,content:compactEvidenceText(item.content,1200),excerpt_truncated:true});
+    (context[scope] ||= []).push(scope === 'automation_repair' ? {...item}
+      : {...item,content:compactEvidenceText(item.content,1200),excerpt_truncated:true});
   }
   const output = {...payload,bounded_workspace_context:context,citation_contract:(payload.citation_contract || []).filter(citation=>ids.has(citation.id)),
     context_reduction:{reason:'Provider rejected the context size.',limitations:['Only the included excerpts support claims; omitted fields and sources are unknown.'],retained_evidence_count:ids.size}};

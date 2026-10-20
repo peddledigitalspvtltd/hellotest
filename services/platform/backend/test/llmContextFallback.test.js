@@ -10,7 +10,7 @@ const { compactEvidenceText } = require('../src/utils/llmContextFallback');
 
 const fullBody = () => JSON.stringify({ model: 'selected-model', temperature: .2, response_format: { type: 'json_object' }, messages: [
   { role: 'system', content: 'Return the required JSON contract. Never invent evidence.' },
-  { role: 'user', content: [{ type: 'text', text: `Story: secure login\n${'long description '.repeat(4000)}` }, { type: 'image_url', image_url: { url: 'data:image/png;base64,oversized' } }] }
+  { role: 'user', content: `Story: secure login\n${'long description '.repeat(4000)}` }
 ] });
 
 test('context-size classification excludes authentication, throttling, malformed schemas and network failures', () => {
@@ -91,6 +91,7 @@ test('Story case generation retains acceptance criteria, user guidance and exact
     exports: exported,
     require: id => {
       if (id === '@hellotest/testing/backend/services/testCase.service') return {};
+      if (id === '@hellotest/platform/backend/services/dropdownCatalog.service') return {getField:async()=>({default_value:'functional',options:[{value:'functional',active:true}]})};
       if (id === '@hellotest/knowledge/backend/services/aiKnowledge.service') return { buildKnowledgeContextPackage: async () => ({ knowledge: [{ title: 'Private Context', content: 'KNOWLEDGE DETAIL' }] }) };
       if (id === '@hellotest/integration/backend/services/aiLlmSelection.service') return { resolveLlmIntegrationForUsage: async () => integration };
       if (id === '@hellotest/platform/backend/src/utils/llmHttpClient') return { fetchLlmWithRetry: async (_url, init, options) => {
@@ -101,7 +102,7 @@ test('Story case generation retains acceptance criteria, user guidance and exact
       return require(sourceFile(id, "services"));
     }
   });
-  const result = await exported.previewRequirementsTestCases({ requirements: [{ id: 'story-internal-id', title: 'Secure sign in', description: 'LONG DESCRIPTION', additional_fields: { acceptance_criteria: ['User sees the account home'] }, project_id: 'project' }], appType: { id: 'app', name: 'Web', type: 'web' }, max_cases: 3, additional_context: 'EXTRA CONTEXT', images: [{ name: 'wireframe', url: 'data:image/png;base64,large' }], authoring_mode: 'structured' });
+  const result = await exported.previewRequirementsTestCases({ requirements: [{ id: 'story-internal-id', title: 'Secure sign in', description: 'LONG DESCRIPTION', additional_fields: { acceptance_criteria: ['User sees the account home'] }, project_id: 'project' }], appType: { id: 'app', name: 'Web', type: 'web' }, max_cases: 3, additional_context: 'EXTRA CONTEXT', images: [{ name: 'wireframe', url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==' }], authoring_mode: 'structured' });
   assert.match(JSON.stringify(observed.body), /LONG DESCRIPTION/);
   assert.match(JSON.stringify(observed.body), /User sees the account home/);
   assert.match(observed.fallback, /Secure sign in/);

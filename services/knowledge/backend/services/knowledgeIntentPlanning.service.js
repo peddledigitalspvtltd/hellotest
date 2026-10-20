@@ -18,18 +18,28 @@ function normalizePlan(candidate, question) {
   return { queries, source_kinds, information_needs, stop_if_sufficient: candidate.stop_if_sufficient !== false };
 }
 
-async function resolveIntegration({ projectId, user, integrationId, integration }) {
-  const selected = integration || await selection.resolveLlmIntegrationForUsage({
-    projectId, userId: user?.id, integrationId, usageKey: "ai.knowledge.assistant", fallback: "project-then-global", allowMissing: true
-  });
-  require("./knowledgeIntegrationScope.service").assertLlmIntegrationProjectScope(selected, projectId);
-  return selected;
+async function resolveIntegration({ projectId, user, integrationId, integration, signal, timeoutMs = 1_500 }) {
+  try {
+    return await execution.bounded(async () => {
+      const selected = integration || await selection.resolveLlmIntegrationForUsage({
+        projectId, userId: user?.id, integrationId, usageKey: "ai.knowledge.assistant", fallback: "project-then-global", allowMissing: true
+      });
+      require("./knowledgeIntegrationScope.service").assertLlmIntegrationProjectScope(selected, projectId);
+      return selected;
+    }, { timeoutMs, signal });
+  } catch (error) {
+    if (error.code === "DEADLINE_EXCEEDED") throw Object.assign(new Error("Knowledge model configuration lookup exceeded its time budget."), {
+      code: "INTENT_CONFIGURATION_TIMEOUT", statusCode: 504
+    });
+    throw error;
+  }
 }
 
 async function planIntent({ request, user, integration, integrationId, history = [], signal }) {
   execution.emit("INTENT_ANALYSIS", "started", { message: "Understanding the intent before retrieving authorized evidence." });
   try {
-    const model = await resolveIntegration({ projectId: request.project_id, user, integrationId, integration });
+    const model = await resolveIntegration({ projectId: request.project_id, user, integrationId, integration, signal,
+      timeoutMs: Math.min(1_500, Math.max(1, Math.floor(request.budgets.deadline_ms / 6))) });
     if (!model) {
       execution.emit("INTENT_ANALYSIS", "completed", { message: "No LLM is configured; using standard bounded retrieval." });
       return { plan: null, mode: "standard", reason: "LLM_INTEGRATION_MISSING" };

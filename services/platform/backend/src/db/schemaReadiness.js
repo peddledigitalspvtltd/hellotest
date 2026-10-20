@@ -1,7 +1,7 @@
 // Compatibility receipts are written only after a complete migration commits.
 // Versions are minimum additive-schema versions; destructive changes require a
 // separately reviewed compatibility/rolling-deployment plan.
-const REQUIRED_SCHEMA_VERSION = 6;
+const REQUIRED_SCHEMA_VERSION = 10;
 const requiredVersion = component => component === "main" ? REQUIRED_SCHEMA_VERSION : 2;
 const missing = component => Object.assign(new Error(`The ${component} database needs migration. Run npm --prefix services/platform/backend run migrate before starting API profiles.`), { code: "SCHEMA_MIGRATION_REQUIRED", statusCode: 503 });
 async function verifySchema(db, component) {

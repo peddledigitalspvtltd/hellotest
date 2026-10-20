@@ -8,6 +8,7 @@ const aiLlmSelectionService = require("@hellotest/integration/backend/services/a
 const { createLlmProviderError } = require("@hellotest/platform/backend/src/utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llmHttpClient");
 const { resolveSessionSecret } = require("@hellotest/platform/backend/src/security/runtimeSecrets");
+const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 
 const DIRECT_CASE_SUITE_ID = "direct-impact";
 const DIRECT_CASE_SUITE_NAME = "Direct impacted scope";
@@ -361,7 +362,7 @@ const readPlanningResponseContent = (payload) => {
   return content;
 };
 
-const requestChatCompletion = async ({ integration, content }) => {
+const requestChatCompletion = async ({ integration, content, images = [] }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
   const response = await fetchLlmWithRetry(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -381,7 +382,7 @@ const requestChatCompletion = async ({ integration, content }) => {
         },
         {
           role: "user",
-          content
+          content: imageUserContent(content, images)
         }
       ]
     })
@@ -921,7 +922,8 @@ const requestSmartExecutionPlan = async ({
   promptGuidance,
   selectedRequirementTitles,
   executionContext,
-  scopedCases
+  scopedCases,
+  images = []
 }) => {
   let lastSizeError = null;
 
@@ -946,7 +948,7 @@ const requestSmartExecutionPlan = async ({
     });
 
     try {
-      const content = await requestChatCompletion({ integration, content: prompt });
+      const content = await requestChatCompletion({ integration, content: prompt, images });
       return { content, promptCaseIds: promptCases.map((testCase) => testCase.id) };
     } catch (error) {
       if (!isPromptTooLargeError(error)) {
@@ -1141,8 +1143,10 @@ exports.previewSmartExecution = async ({
   impacted_requirement_ids,
   test_environment_id,
   test_configuration_id,
-  test_data_set_id
+  test_data_set_id,
+  images
 }) => {
+  const referenceImages = normalizeReferenceImages(images);
   const deliveryScope = {
     release: normalizeText(release),
     sprint: normalizeText(sprint),
@@ -1343,6 +1347,7 @@ exports.previewSmartExecution = async ({
   const caseMap = new Map(deterministicCases.map((testCase) => [testCase.id, testCase]));
   let modelExplanations = new Map();
   let providerFailed = false;
+  if(referenceImages.length&&!integration)throw Object.assign(new Error('Reference screenshots require a configured vision-capable model. Select an integration or remove the images to use recorded-field ranking.'),{code:'AI_MODEL_REQUIRED',statusCode:422});
 
   if (integration && deterministicCases.length) {
     try {
@@ -1355,11 +1360,14 @@ exports.previewSmartExecution = async ({
         promptGuidance,
         selectedRequirementTitles: selectedRequirements.map((requirement) => requirement.title),
         executionContext,
-        scopedCases: deterministicCases
+        scopedCases: deterministicCases,
+        images: referenceImages
       });
       const suppliedCaseMap = new Map(promptCaseIds.map((id) => [id, caseMap.get(id)]));
       modelExplanations = normalizeModelExplanations(extractJsonPayload(content), suppliedCaseMap);
-    } catch {
+    } catch (error) {
+      if (error?.code === 'AI_VISION_UNSUPPORTED' || (referenceImages.length && isPromptTooLargeError(error))) throw error;
+      if(referenceImages.length)throw Object.assign(new Error('The model could not review the supplied screenshots. No image-based run explanation was accepted. Retry with a vision-capable integration or remove the images.'),{code:'AI_IMAGE_REVIEW_FAILED',statusCode:502});
       providerFailed = true;
     }
   }
@@ -1525,6 +1533,7 @@ exports.previewSmartExecution = async ({
     delivery_scope: deliveryScope,
     scope_description: scopeDescription,
     additional_context: additionalContext,
+    reference_images: referenceImages.map(({ name, content_hash }) => ({ name, content_hash })),
     prompt_guidance: promptGuidance || null,
     impacted_requirement_ids: impactedRequirementIds,
     execution_context: [selectedEnvironment, selectedConfiguration, selectedDataSet]

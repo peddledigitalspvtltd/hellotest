@@ -21,6 +21,7 @@ const canonicalStore = (context) => {
   const state = { active: false, revision: "revision-1", embeddingWrites: 0, vectors: [], model: "hellotest-hash-v1", provider: "postgresql" };
   context.mock.method(db, "transaction", (task) => async () => task());
   context.mock.method(db, "prepare", (sql) => ({
+    all: async () => [],
     get: async (...args) => {
       if (sql.includes("pg_extension")) return { available: false };
       if (sql.includes("ai_knowledge_sources")) return { id: "source-1", revision_token: state.revision };
@@ -91,6 +92,9 @@ test("late provider enrichment cannot write embeddings after a source revision c
 
 test("all embedding batches share a single deadline and return complete local fallback vectors", async (context) => {
   context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
+  // Configuration discovery is not the subject of this transport deadline test.
+  // Keep its reads deterministic before advancing the mocked request clock.
+  context.mock.method(db, "prepare", () => ({ get: async () => undefined, all: async () => [], run: async () => ({ changes: 1 }) }));
   resetServiceResilienceState();
   let calls = 0, aborted = false;
   context.mock.method(globalThis, "fetch", async (_url, init) => {

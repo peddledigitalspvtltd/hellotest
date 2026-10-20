@@ -391,7 +391,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         {field("summary", "Description", true)}
         <details>
           <summary>Execution settings</summary>
-          <label><span>Timeout (ms)</span><input type="number" min={1000} max={kind === "repositoryAgent" ? 180000 : 70000} step={1000} value={String(node.data.timeoutMs ?? "")} onChange={event => props.onChange({ timeoutMs: event.target.value })} /></label>
+          <label><span>Timeout (ms)</span><input type="number" min={1000} max={kind === "repositoryAgent" ? 180000 : kind === "agent" || kind === "customAI" ? 150000 : 70000} step={1000} value={String(node.data.timeoutMs ?? "")} onChange={event => props.onChange({ timeoutMs: event.target.value })} /></label>
           <label>
             <span>On error</span>
             <select

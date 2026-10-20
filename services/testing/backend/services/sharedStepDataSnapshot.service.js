@@ -2,6 +2,7 @@ const db = require('@hellotest/platform/backend/src/db');
 const { normalizeParameterLayer, dataSetParameterValues, normalizeParameterKey } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const { materializeParameterValues } = require('@hellotest/platform/backend/src/utils/testDataGenerators');
 const { placeholdersFor } = require('@hellotest/platform/backend/src/utils/batchHydration');
+const { sharedSensitiveParameterNames } = require('../domain/sharedStepParameters');
 
 const parsed = (value, fallback) => typeof value === 'string' ? JSON.parse(value) : value || fallback;
 
@@ -24,7 +25,7 @@ async function freezeSharedStepData(steps, { materialize = true } = {}) {
       app_type_id: group.app_type_id,
       shared_parameter_values: materialize ? materializeParameterValues(templates) : templates,
       shared_parameter_template_values: templates,
-      shared_parameter_sensitive_names: group.mode === 'key_value' ? rows.filter(row => row.is_secret).map(row => normalizeParameterKey(row.key)).filter(Boolean) : []
+      shared_parameter_sensitive_names: sharedSensitiveParameterNames({ mode: group.mode, rows }, parsed(group.parameter_values, {}))
     }];
   }));
   return steps.map(step => {

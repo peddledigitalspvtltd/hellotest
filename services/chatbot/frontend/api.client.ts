@@ -28,7 +28,7 @@ async function requestKnowledgeStream(path: string, input: unknown, options: { s
     const error = await parseApiError(response);
     if (response.status === 401 && token && isSessionAuthFailure(scopedPath, error.message) && readRequestSession().revision === requestSession.revision) {
       sessionStorage.clear();
-      window.location.assign("/auth");
+      window.location.assign("/login");
     }
     throw new KnowledgeStreamError(error.message, `HTTP_${response.status}`, response.status === 429 || response.status >= 500);
   }

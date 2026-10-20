@@ -54,7 +54,7 @@ test('run and suite CSV setup preserves descendant scope, exact cells, retries, 
     const url=`${process.env.VITE_TEST_URL||'http://127.0.0.1:5179'}/${name}.html`;
     await page.goto(url);await page.getByRole('region',{name:'Run test data setup'}).waitFor();
     await page.getByText('4 cases × 2 rows = 8 execution instances',{exact:true}).waitFor();
-    assert.equal(await page.getByRole('checkbox').count(),3);
+    assert.equal(await page.getByRole('checkbox').count(),4);
     await page.getByRole('button',{name:'Link Data Set',exact:true}).click();
     await page.getByRole('option',{name:/Incomplete data/}).click();
     await page.getByRole('alert').filter({hasText:'missing required parameters'}).waitFor();
@@ -74,10 +74,10 @@ test('run and suite CSV setup preserves descendant scope, exact cells, retries, 
     await page.getByRole('status').filter({hasText:'6 parameter columns from 4 cases and 3 suites downloaded'}).waitFor();
     await page.getByRole('checkbox',{name:'Test Case Params Data',exact:true}).uncheck();
     await page.waitForFunction(()=>window.__runData.plans.at(-1).test_data_options?.override_test_case_data===false);
-    await page.getByRole('checkbox',{name:'Shared Group Params Data',exact:true}).uncheck();
+    await page.getByRole('checkbox',{name:'Override Shared Groups Test Data',exact:true}).uncheck();
     await page.waitForFunction(()=>window.__runData.plans.at(-1).test_data_options?.override_shared_steps===false);
     await page.getByRole('checkbox',{name:'Test Case Params Data',exact:true}).check();
-    await page.getByRole('checkbox',{name:'Shared Group Params Data',exact:true}).check();
+    await page.getByRole('checkbox',{name:'Override Shared Groups Test Data',exact:true}).check();
     await page.getByRole('button',{name:'Create Data Set',exact:true}).click();
     await page.getByRole('textbox',{name:'Row 1 r.base_url',exact:true}).fill('https://example.test');
     await page.getByRole('button',{name:'Add Row',exact:true}).click();
@@ -110,7 +110,7 @@ test('run and suite CSV setup preserves descendant scope, exact cells, retries, 
     await page.waitForFunction(()=>window.__runData.created===2);await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     assert.equal(await page.getByTestId('selected').textContent(),'','old A response cannot select after A→B→A');assert.equal(await page.evaluate(()=>window.__runData.changes.length),changesBefore);
     await page.evaluate(()=>{window.__runData.holdPlan=true;});const before=downloads.length;await page.getByRole('button',{name:'Download parameter template',exact:true}).click();await page.getByRole('button',{name:'Preparing parameter template…'}).waitFor();
-    await page.evaluate(()=>window.__runData.setSelected(false));await page.getByRole('button',{name:'Download parameter template',exact:true}).waitFor();await page.evaluate(()=>window.__runData.releasePlan());await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));assert.equal(downloads.length,before,'stale parameter plan does not download');
+    await page.evaluate(()=>window.__runData.setSelected(false));await page.locator('.run-parameter-template-control').waitFor({state:'hidden'});await page.evaluate(()=>window.__runData.releasePlan());await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));assert.equal(downloads.length,before,'stale parameter plan does not download');
     // A late File.text completion cannot restore stale imported data after a new file or scope.
     await page.evaluate(()=>{window.__runData.setSelected(true);window.__runData.holdFile=true;});
     await upload(page,completeCsv,'old-pending.csv');await page.waitForFunction(()=>window.__runData.fileResolvers.length===1);
@@ -142,7 +142,7 @@ test('run and suite CSV setup preserves descendant scope, exact cells, retries, 
     await page.evaluate(()=>{window.__runData.select('existing');window.__runData.setMode(true);});await page.getByText('9 execution instances across 3 cases',{exact:true}).waitFor();
     assert.match(await page.locator('.run-data-linked').textContent(),/Customer personas1 row/);
     await page.evaluate(()=>window.__runData.setPermissions(['testcase.view','suite.view','run.view']));
-    await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Link Data Set')?.disabled);
+    await page.getByRole('button',{name:'Link Data Set',exact:true}).waitFor({state:'hidden'});
     assert.doesNotMatch(await page.locator('.run-data-linked').textContent(),/Customer personas|1 row/,'revoked data access hides cached names and row counts');
     assert.equal(await visibleCount(page),'9 execution instances across 3 cases','run permission still allows its frozen aggregate');
     for(const permission of ['run.view']){

@@ -107,6 +107,7 @@ services:
     environment:
       APP_MODE: ${APP_MODE:-local}
       API_STARTUP_TIMEOUT_MS: ${API_STARTUP_TIMEOUT_MS:-180000}
+      HELLOTEST_SCHEMA_MODE: ${HELLOTEST_SCHEMA_MODE:-migrate}
       HELLOTEST_INSTANCE_SETUP_MODULES: ${HELLOTEST_INSTANCE_SETUP_MODULES:-}
       HELLOTEST_ENABLED_CAPABILITIES: ${HELLOTEST_ENABLED_CAPABILITIES:-all}
       DATABASE_URL: ${DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
@@ -196,6 +197,7 @@ services:
       retries: 10
 
   testengine-api-worker:
+    init: true
     build:
       context: ../testengine/backend
       dockerfile: Dockerfile
@@ -232,6 +234,7 @@ services:
       replicas: ${TESTENGINE_API_REPLICAS:-1}
 
   testengine-web-worker:
+    init: true
     build:
       context: ../testengine/backend
       dockerfile: Dockerfile
@@ -243,6 +246,7 @@ services:
       ENGINE_NAME: hellotest-local-testengine-web-worker
       RECORDER_MAX_INSPECTION_SESSIONS: ${RECORDER_MAX_INSPECTION_SESSIONS:-6}
       RECORDER_ALLOWED_PRIVATE_HOSTS: ${RECORDER_ALLOWED_PRIVATE_HOSTS:-}
+      RECORDER_TARGET_ORIGIN_ALIASES: ${RECORDER_TARGET_ORIGIN_ALIASES:-}
       TESTENGINE_WORKER_CLASS: web
       ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:4301}
       HELLOTEST_API_BASE_URL: ${HELLOTEST_WORKER_API_BASE_URL:-http://api:3000}
@@ -270,6 +274,7 @@ services:
       replicas: ${TESTENGINE_WEB_REPLICAS:-1}
 
   testengine-quality-worker:
+    init: true
     build:
       context: ../testengine/backend
       dockerfile: Dockerfile
@@ -302,6 +307,7 @@ services:
       replicas: 1
 
   testengine-android-worker:
+    init: true
     build:
       context: ../testengine/backend
       dockerfile: Dockerfile

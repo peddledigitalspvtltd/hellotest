@@ -4,8 +4,9 @@ export interface LlmTrace {
   status: string; started_at: string; duration_ms: number | null; http_status: number | null;
   request_id: string | null; trace_id: string | null; run_id: string | null; node_id: string | null; session_id: string | null;
   attempt: number; correction_of: string | null; error_code: string | null; provider_request_id: string | null;
-  usage: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number } | null;
-  capture: { request_truncated?: boolean; response_truncated?: boolean; redacted?: boolean; body_available?: boolean };
+  usage: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number; input_tokens?: number; output_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number }; input_tokens_details?: { cached_tokens?: number }; cached_input_tokens?: number } | null;
+  capture: { request_truncated?: boolean; response_truncated?: boolean; redacted?: boolean; body_available?: boolean; request_stage?: string; test_case_id?: string; completion_attempt?: number; section_attempt?: number; generation_scope?: 'case_attempt' | 'section_attempt' | 'section_semantic_review' | 'case_metadata' | 'flow_plan'; generation_section_ids?: string[]; generation_section_count?: number; generation_section_ids_truncated?: boolean };
   content_access?: boolean; request_payload?: unknown; response_payload?: unknown; request_hash?: string;
 }
 export interface LlmTracePage {

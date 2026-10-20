@@ -19,6 +19,8 @@ import { createWebRunSession } from "./webEngine.js";
 import { buildInitialContext, interpolateText, registerContextValue } from "./runtimeContext.js";
 import { executeApiStepInEngine } from "./apiEngine.js";
 import { createMobileRunSession } from "./mobileEngine.js";
+import { automationStepOptions, optionalStepFailureNote } from "./automationStepOptions.js";
+import { createExecutionOutputRedactor } from "./executionOutputRedaction.js";
 
 type Logger = {
   info: (message: unknown, ...args: unknown[]) => void;
@@ -67,7 +69,7 @@ type ExecutedEngineStepResult = {
 };
 
 type EngineCaseLogsPayload = {
-  stepStatuses: Record<string, "passed" | "failed" | "blocked">;
+  stepStatuses: Record<string, EngineStepOutcomeStatus>;
   stepNotes: Record<string, string>;
   stepEvidence: Record<string, { dataUrl: string; fileName?: string; mimeType?: string }>;
   stepApiDetails: Record<string, ApiStepExecutionResult["summary"]>;
@@ -139,9 +141,10 @@ const writeArtifactFile = async (relativePath: string | null | undefined, conten
   return fullPath;
 };
 
-const emitCallback = deliverRunCallback;
+const emitCallback = (envelope: EngineRunEnvelope, payload: EngineCallbackPayload) =>
+  deliverRunCallback(envelope, createExecutionOutputRedactor(envelope)(payload));
 
-const persistRunSummary = async (
+const writeRunSummary = async (
   run: EngineRunRecord,
   summary: {
     execution: {
@@ -176,7 +179,7 @@ const buildLogsPayload = (
 ) =>
   stepOutcomes.reduce<EngineCaseLogsPayload>(
     (accumulator, outcome) => {
-      if (outcome.status === "passed" || outcome.status === "failed" || outcome.status === "blocked") {
+      if (outcome.status === "passed" || outcome.status === "failed" || outcome.status === "blocked" || outcome.status === "skipped") {
         accumulator.stepStatuses[outcome.step_id] = outcome.status;
       }
 
@@ -380,7 +383,7 @@ const executeWebStep = async ({
   };
 };
 
-const markRunState = (
+const writeRunState = (
   runId: string,
   nextState: EngineRunState,
   summary: string,
@@ -517,7 +520,7 @@ const executeUnsupportedRun = async ({
   logger: Logger;
   reason: string;
 }) => {
-  const next = markRunState(run.id, "incident", reason);
+  const next = writeRunState(run.id, "incident", reason);
 
   if (!next) {
     return;
@@ -557,8 +560,8 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
     return;
   }
 
-  const hasWebSteps = allSteps.some((step) => step.step_type === "web");
-  const running = markRunState(
+  const hasWebSteps = allSteps.some((step) => step.step_type === "web" && !automationStepOptions(step).skip);
+  const running = writeRunState(
     run.id,
     "running",
     hasWebSteps
@@ -582,6 +585,15 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
   const preHookSteps = normalizeHooks(envelope, "pre");
   const postHookSteps = normalizeHooks(envelope, "post");
   const webRunSession = hasWebSteps ? createWebRunSession(envelope, context.values) : null;
+  const redactOutput = createExecutionOutputRedactor(envelope, () => [context, webRunSession?.context]);
+  const markRunState: typeof writeRunState = (id, state, summary, extra) => writeRunState(id, state, redactOutput(summary), extra);
+  const originalLogger = logger;
+  logger = {
+    info: (message, ...args) => originalLogger.info(redactOutput(message), ...args.map(value => redactOutput(value))),
+    error: (message, ...args) => originalLogger.error(redactOutput(message), ...args.map(value => redactOutput(value)))
+  };
+  const emitCallback = (target: EngineRunEnvelope, payload: EngineCallbackPayload) => deliverRunCallback(target, redactOutput(payload));
+  const persistRunSummary = (target: EngineRunRecord, payload: Parameters<typeof writeRunSummary>[1]) => writeRunSummary(target, redactOutput(payload));
   let healingAttempted = false;
   let healingSucceeded = false;
   let webRunSessionStopped = false;
@@ -601,7 +613,14 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
     }
   };
   const executeEngineStep = async (step: EngineRunEnvelope["steps"][number]) => {
+    const options = automationStepOptions(step);
+    if (options.skip) return {
+      outcome: { step_id: step.id, status: "skipped" as const, note: "Section skipped by its saved execution options.", ended_at: nowIso() },
+      captures: {}, automation_detail: buildStepAutomationDetail({ step, status: "skipped" }),
+      recovery_attempted: false, recovery_succeeded: false
+    };
     let result: ExecutedEngineStepResult;
+    try {
     if (step.step_type === "api") result = await executeApiStep({ envelope, run: running, step, context: buildInitialContext(envelope, context.capturedValues, step) });
     else if (step.step_type === "web" && webRunSession) result = await executeWebStep({ step, webRunSession });
     else if (step.step_type === "android" || step.step_type === "ios") {
@@ -614,6 +633,16 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
         recovery_attempted: false, recovery_succeeded: false
       };
     } else throw new Error(`Unable to execute step ${step.order}.`);
+    } catch (error) {
+      if (!options.optional) throw error;
+      const note = stringifyError(error, "Automation section failed.");
+      result = { outcome: { step_id: step.id, status: "failed", note, ended_at: nowIso() }, captures: {},
+        automation_detail: buildStepAutomationDetail({ step, status: "failed", errorMessage: note }),
+        recovery_attempted: false, recovery_succeeded: false };
+    }
+    if (options.optional && result.outcome.status === "failed") {
+      result = { ...result, outcome: { ...result.outcome, status: "skipped", note: optionalStepFailureNote(result.outcome.note) }, captures: {} };
+    }
 
     syncCapturedValues(context, result.captures);
 
@@ -661,7 +690,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
       recordStepResult(result);
       currentStep = null;
 
-      if (result.outcome.status !== "passed" && entry.hook.fail_behavior !== "continue") {
+      if (result.outcome.status !== "passed" && result.outcome.status !== "skipped" && entry.hook.fail_behavior !== "continue") {
         const behavior = entry.hook.fail_behavior || "fail-run";
         if (behavior === "mark-blocked") {
           result.outcome.status = "blocked";
@@ -781,7 +810,8 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
 
     await runPostHooks();
 
-    const finalStatus: "passed" | "blocked" = stepOutcomes.some((outcome) => outcome.status === "blocked") ? "blocked" : "passed";
+    const hasPassedSection = orderedSteps.some((step) => stepOutcomes.some((outcome) => outcome.step_id === step.id && outcome.status === "passed"));
+    const finalStatus: "passed" | "blocked" = !hasPassedSection || stepOutcomes.some((outcome) => outcome.status === "blocked") ? "blocked" : "passed";
     const artifactBundle = mergeArtifactBundle(running.artifact_bundle, await stopWebRunSession(finalStatus));
     const completedRun = markRunState(
       run.id,

@@ -35,6 +35,7 @@ const permissionSeedValues = PERMISSIONS
   .join(",\n      ");
 
 const statements = [
+  `DROP VIEW IF EXISTS test_case_effective_results`,
   ...require("@hellotest/mcp/backend/schema"),
   ...require("../obsDb/llmTraceSchema"),
   ...require('@hellotest/agentic/backend/agents/schema'),
@@ -990,6 +991,7 @@ const statements = [
   `ALTER TABLE executions DROP CONSTRAINT IF EXISTS executions_planned_date_range_check`,
   `ALTER TABLE executions ADD CONSTRAINT executions_planned_date_range_check CHECK (end_date >= start_date)`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS execution_hooks JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  ...require('./caseExecutionHooksSchema'),
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS source_idempotency_key TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS parallel_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS parallel_count INTEGER NOT NULL DEFAULT 1`,
@@ -2586,7 +2588,10 @@ const statements = [
   ...require('./releaseRelationsSchema'),
   ...require('./sharedStepMetricsSchema'),
   ...require('./sharedStepDataSchema'),
-  ...require('@hellotest/knowledge/backend/refreshSchema')
+  ...require('@hellotest/knowledge/backend/refreshSchema'),
+  ...require('./automationCaseIdentitySchema'),
+  ...require('./automationCaseDeletionSchema'),
+  ...require('./automationStartUrlSchema')
 ];
 
 const executeStatements = () => db.transaction(async () => {

@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "contract_version": "hellotest_browser_assert_v1",
+  "sha256": "48113e611a6e6093bf77ec30b1a0433708e98e567b2e6b709eb08ebb3bf38182",
+  "tool": {
+    "name": "browser_assert",
+    "description": "Read-only, bounded retrying check of an expected browser condition. visible/hidden/checked/unchecked/enabled/disabled/valid/invalid/field_valid require locator and forbid value. Text/value/count checks require both locator and value. URL/title checks require value and forbid locator. Use observed unique locators; hidden permits an absent element, count permits multiple matches. text/text_contains compare whitespace-normalized visible innerText, including descendant text such as a Dismiss button; ARIA labels alone are not innerText. Exact text checks the whole selected container. For an authored required message fragment, use text_contains or a uniquely observed message child when this preserves the requirement; retain explicit whole-container equality. Snapshot text is a textContent excerpt and can differ from innerText through hidden descendants or truncation. Do not copy volatile support references or IDs into expectations unless the authored requirement demands them. text_content modes preserve native Playwright textContent string assertions, including hidden child text. valid/invalid read only the selected native input/textarea/select control's validity.valid when willValidate is true; barred controls and noncontrols are unsupported. They do not dispatch validation events, submit a form, establish server/business success or prove that all application errors are absent. field_valid checks one visible native value-entry input/textarea/select: native constraints valid, aria-invalid absent/false and no visible nonempty associated aria-errormessage or aria-describedby role=alert. Missing aria-describedby hints are ignored; every explicit aria-errormessage ID must resolve, and all resolved associations must be unique within the same DOM root (at most 32 IDs, each at most 256 characters). Duplicate IDs and malformed associations are unsupported. It proves only the selected field has no declared validation error, never form/business success or all application errors. title_normalized preserves native title whitespace matching; value, URL and title compare exact strings. url_contains checks a literal substring of the current same-origin URL, never regex. A satisfied condition is browser evidence, never a passed test run. No actual or expected values are echoed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "assertion": {
+          "type": "string",
+          "enum": [
+            "visible",
+            "hidden",
+            "text",
+            "text_contains",
+            "text_content",
+            "text_content_contains",
+            "value",
+            "valid",
+            "invalid",
+            "field_valid",
+            "checked",
+            "unchecked",
+            "enabled",
+            "disabled",
+            "count",
+            "url",
+            "url_contains",
+            "title",
+            "title_normalized"
+          ]
+        },
+        "locator": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "assertion"
+      ],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "assertion": {
+              "enum": [
+                "visible",
+                "hidden",
+                "valid",
+                "invalid",
+                "field_valid",
+                "checked",
+                "unchecked",
+                "enabled",
+                "disabled"
+              ]
+            }
+          },
+          "required": [
+            "locator"
+          ],
+          "not": {
+            "required": [
+              "value"
+            ]
+          }
+        },
+        {
+          "properties": {
+            "assertion": {
+              "enum": [
+                "text",
+                "text_contains",
+                "text_content",
+                "text_content_contains",
+                "value",
+                "count"
+              ]
+            }
+          },
+          "required": [
+            "locator",
+            "value"
+          ]
+        },
+        {
+          "properties": {
+            "assertion": {
+              "enum": [
+                "url",
+                "url_contains",
+                "title",
+                "title_normalized"
+              ]
+            }
+          },
+          "required": [
+            "value"
+          ],
+          "not": {
+            "required": [
+              "locator"
+            ]
+          }
+        }
+      ]
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true
+    }
+  }
+}

@@ -6,11 +6,9 @@ export function compactAiRequestBody(body: string): string | null {
   let input: Record<string, unknown>;
   try { input = JSON.parse(body) as Record<string, unknown>; } catch { return null; }
   if (!input || Array.isArray(input) || typeof input !== "object") return null;
+  if ((Array.isArray(input.images) && input.images.length) || (Array.isArray(input.reference_photos) && input.reference_photos.length)) return null;
   const compact = { ...input };
-  delete compact.images;
   delete compact.external_links;
-  delete compact.requirement_context;
-  if (typeof compact.additional_context === "string") compact.additional_context = compact.additional_context.slice(0, 2000);
   // The existing authored artifact is mandatory evidence for improvement.
   // Dropping its steps, Examples or data declarations changes the task into
   // generation from a title and can cause a reviewed replacement to lose work.
@@ -33,7 +31,7 @@ export async function requestAiWithShorterContext<T extends object>(
     return {
       ...response,
       context_reduced: true,
-      context_reduction_reason: "The request exceeded the size limit. Optional images and linked context were omitted, and additional instructions were shortened. The original authored content was preserved. Review against the original Story before accepting."
+      context_reduction_reason: "The request exceeded the size limit. Optional external URL pointers were omitted. Your instructions and original authored content were preserved. Review against the original context before accepting."
     };
   }
 }

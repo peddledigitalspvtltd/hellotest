@@ -14,8 +14,8 @@ export function validateAgentDefinition(definition: AgentDefinition): AgentDefin
   if (definition.acceptance.require_evidence && !definition.allowed_tools.length && !definition.required_inputs.length) issues.push({ tab: 'skills', message: 'Enable an evidence tool or declare task inputs for evidence-based completion.' });
   const fields = [
     [definition.acceptance.minimum_findings, 0, 8, 'Minimum findings'],
-    [definition.limits.timeout_ms, 10000, 70000, 'Time limit (10–70 seconds)'],
-    [definition.limits.max_model_calls, 1, 2, 'Model calls (1–2)'],
+    [definition.limits.timeout_ms, 10000, 150000, 'Time limit (10–150 seconds)'],
+    [definition.limits.max_model_calls, 1, 4, 'Model calls (1–4)'],
     [definition.limits.max_output_tokens, 256, 8000, 'Output tokens (256–8,000)'],
   ] as const;
   for (const [value, min, max, label] of fields) {

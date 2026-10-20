@@ -71,18 +71,31 @@ exports.sendMail = async ({ to, subject, text, html, attachments }) => {
     }
   });
 
-  await transporter.sendMail({
-    from: {
-      address: config.sender_email || "support@qualipal.in",
-      name: normalizeSenderName(config.sender_name)
-    },
-    replyTo: config.sender_email || "support@qualipal.in",
-    to,
-    subject,
-    text,
-    html,
-    ...(Array.isArray(attachments) && attachments.length ? { attachments } : {})
-  });
+  try {
+    await transporter.sendMail({
+      from: {
+        address: config.sender_email || "support@qualipal.in",
+        name: normalizeSenderName(config.sender_name)
+      },
+      replyTo: config.sender_email || "support@qualipal.in",
+      to,
+      subject,
+      text,
+      html,
+      ...(Array.isArray(attachments) && attachments.length ? { attachments } : {})
+    });
+  } catch (failure) {
+    // SMTP credentials belong to the configured sender, not the person signing
+    // up. Do not present provider "Invalid login" text as an account failure or
+    // expose its raw response/credentials in a public authentication screen.
+    if (failure?.code === "EAUTH") {
+      throw Object.assign(createError(
+        "Email delivery failed because Email Sender authentication was rejected. Ask an administrator to update and test the Email Sender integration.",
+        503
+      ), { code: "EMAIL_SENDER_AUTHENTICATION_FAILED" });
+    }
+    throw failure;
+  }
 
   return { sent: true };
 };

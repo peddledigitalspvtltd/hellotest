@@ -1,4 +1,4 @@
-const { normalizeSharedSteps } = require("../domain/sharedStepDefinition");
+const { normalizeSharedSteps, sharedStepsWithIds, sharedStepsFromReference } = require("../domain/sharedStepDefinition");
 const db = require("@hellotest/platform/backend/src/db");
 const { randomUUID: uuid } = require("crypto");
 const {
@@ -6,16 +6,18 @@ const {
 } = require("@hellotest/platform/backend/src/utils/testStepAutomation");
 
 const selectSharedStepGroup = db.prepare(`
-  SELECT id, name, steps
+  SELECT id, app_type_id, name, steps
   FROM shared_step_groups
-  WHERE id = ?
+  WHERE id = ? FOR UPDATE
 `);
 
 const selectSharedReferenceSteps = db.prepare(`
-  SELECT *
-  FROM test_steps
-  WHERE reusable_group_id = ?
-  ORDER BY test_case_id ASC, group_id ASC, step_order ASC, id ASC
+  SELECT step.*
+  FROM test_steps step
+  JOIN test_cases test_case ON test_case.id = step.test_case_id
+  JOIN shared_step_groups shared_group ON shared_group.id = step.reusable_group_id AND shared_group.app_type_id = test_case.app_type_id
+  WHERE step.reusable_group_id = ?
+  ORDER BY step.test_case_id ASC, step.group_id ASC, step.step_order ASC, step.id ASC
 `);
 
 const selectSharedReferenceInstance = db.prepare(`
@@ -108,46 +110,39 @@ const buildReferenceInstances = (rows = []) =>
     return instances;
   }, []);
 
-const syncReferenceInstance = async ({ sharedGroupId, sharedGroupName, instanceSteps, canonicalSteps }) => {
+const syncReferenceInstance = async ({ sharedGroupId, sharedGroupName, instanceSteps, canonicalSteps, previousSteps }) => {
   if (!instanceSteps.length) {
     return;
   }
 
   const testCaseId = instanceSteps[0].test_case_id;
+  if (instanceSteps.some((step, index) => index > 0 && Number(step.step_order) !== Number(instanceSteps[index - 1].step_order) + 1)) {
+    throw Object.assign(new Error("A linked Shared Section Group is split by other sections. Restore a continuous section group before updating its shared definition."), { statusCode: 409, code: "SHARED_GROUP_REFERENCE_SPLIT" });
+  }
   const groupId = instanceSteps[0].group_id;
   const startOrder = Number(instanceSteps[0].step_order) || 1;
   const existingCount = instanceSteps.length;
   const lastExistingOrder = Number(instanceSteps[instanceSteps.length - 1]?.step_order) || startOrder;
   const nextStepOrder = lastExistingOrder + 1;
   const nextCount = canonicalSteps.length;
-  const overlapCount = Math.min(existingCount, nextCount);
   const stepCountDelta = nextCount - existingCount;
+  const existingBySection = new Map(previousSteps.map((step, index) => [step.id, instanceSteps[index]]));
+  const retainedIds = new Set();
 
   if (stepCountDelta > 0) {
     await shiftCaseStepOrders.run(stepCountDelta, testCaseId, nextStepOrder);
   }
 
-  for (let index = 0; index < overlapCount; index += 1) {
-    const currentStep = instanceSteps[index];
-    const nextStep = canonicalSteps[index];
-
-    await updateReferenceStep.run(
-      startOrder + index,
-      nextStep.action,
-      nextStep.expected_result,
-      nextStep.step_type || "web",
-      nextStep.automation_code,
-      nextStep.api_request,
-      sharedGroupName,
-      sharedGroupId,
-      currentStep.id
-    );
-  }
-
-  if (nextCount > existingCount) {
-    for (let index = existingCount; index < nextCount; index += 1) {
-      const nextStep = canonicalSteps[index];
-
+  for (const [index, nextStep] of canonicalSteps.entries()) {
+    const currentStep = existingBySection.get(nextStep.id);
+    if (currentStep) {
+      retainedIds.add(currentStep.id);
+      await updateReferenceStep.run(
+        startOrder + index, nextStep.action, nextStep.expected_result,
+        nextStep.step_type || "web", nextStep.automation_code, nextStep.api_request,
+        sharedGroupName, sharedGroupId, currentStep.id
+      );
+    } else {
       await insertReferenceStep.run(
         uuid(),
         testCaseId,
@@ -163,74 +158,87 @@ const syncReferenceInstance = async ({ sharedGroupId, sharedGroupName, instanceS
         sharedGroupId
       );
     }
-  } else if (existingCount > nextCount) {
-    for (const extraStep of instanceSteps.slice(nextCount)) {
-      await deleteReferenceStep.run(extraStep.id);
-    }
+  }
+  for (const extraStep of instanceSteps.filter(step => !retainedIds.has(step.id))) await deleteReferenceStep.run(extraStep.id);
 
+  if (stepCountDelta < 0) {
     await shiftCaseStepOrders.run(stepCountDelta, testCaseId, nextStepOrder);
   }
 };
 
-const syncSharedGroupReferencesWithinTransaction = async (sharedGroupId, canonicalSteps, sharedGroupName) => {
+const syncSharedGroupReferencesWithinTransaction = async (sharedGroupId, canonicalSteps, sharedGroupName, previousSteps, sourceInstance) => {
   const referenceSteps = await selectSharedReferenceSteps.all(sharedGroupId);
   const referenceInstances = buildReferenceInstances(referenceSteps);
 
   for (const instance of referenceInstances) {
+    // The source instance is already the desired definition. Rewriting it by
+    // positional correspondence would discard its stable case-section IDs.
+    if (sourceInstance && instance.test_case_id === sourceInstance.testCaseId && instance.group_id === sourceInstance.groupId) continue;
+    // Earlier instances in the same case may have shifted this one's order.
+    // Read its current rows before applying the next size/order change.
+    const instanceSteps = await selectSharedReferenceInstance.all(sharedGroupId, instance.test_case_id, instance.group_id);
     await syncReferenceInstance({
       sharedGroupId,
       sharedGroupName,
-      instanceSteps: instance.steps,
-      canonicalSteps
+      instanceSteps,
+      canonicalSteps,
+      previousSteps
     });
   }
 };
 
 exports.normalizeSharedSteps = normalizeSharedSteps;
 
-exports.syncSharedGroupReferences = async (sharedGroupId) => {
+exports.syncSharedGroupReferences = async (sharedGroupId, options = {}) => {
+  const transaction = db.transaction(async () => {
+    const sharedGroup = await selectSharedStepGroup.get(sharedGroupId);
+
+    if (!sharedGroup) {
+      throw new Error("Shared Step Group not found");
+    }
+
+    const canonicalSteps = sharedStepsWithIds(parseJsonValue(sharedGroup.steps, []), sharedGroup.id);
+    const previousSteps = sharedStepsWithIds(options.previousSteps || canonicalSteps, sharedGroup.id);
+    await syncSharedGroupReferencesWithinTransaction(sharedGroup.id, canonicalSteps, sharedGroup.name, previousSteps);
+    return { updated: true, step_count: canonicalSteps.length };
+  });
+
+  return transaction();
+};
+
+exports.syncSharedGroupFromReference = async (sharedGroupId, testCaseId, groupId, options = {}) => db.transaction(async () => {
   const sharedGroup = await selectSharedStepGroup.get(sharedGroupId);
 
   if (!sharedGroup) {
     throw new Error("Shared Step Group not found");
   }
 
-  const canonicalSteps = normalizeSharedSteps(parseJsonValue(sharedGroup.steps, []));
-  const transaction = db.transaction(async () => {
-    await syncSharedGroupReferencesWithinTransaction(sharedGroup.id, canonicalSteps, sharedGroup.name);
-  });
-
-  await transaction();
-  return { updated: true, step_count: canonicalSteps.length };
-};
-
-exports.syncSharedGroupFromReference = async (sharedGroupId, testCaseId, groupId) => {
-  const sharedGroup = await selectSharedStepGroup.get(sharedGroupId);
-
-  if (!sharedGroup) {
-    throw new Error("Shared Step Group not found");
+  const sourceCase = await db.prepare("SELECT id, app_type_id FROM test_cases WHERE id = ?").get(testCaseId);
+  if (!sourceCase || sourceCase.app_type_id !== sharedGroup.app_type_id) {
+    throw Object.assign(new Error("A Shared Section Group reference must belong to the same application."), { statusCode: 409, code: "SHARED_GROUP_REFERENCE_SCOPE" });
   }
 
   const sourceSteps = await selectSharedReferenceInstance.all(sharedGroup.id, testCaseId, groupId);
-  const canonicalSteps = normalizeSharedSteps(
+  if (sourceSteps.some((step, index) => index > 0 && Number(step.step_order) !== Number(sourceSteps[index - 1].step_order) + 1)) {
+    throw Object.assign(new Error("Keep the Shared Section Group continuous before saving its definition."), { statusCode: 409, code: "SHARED_GROUP_REFERENCE_SPLIT" });
+  }
+  const previousSteps = sharedStepsWithIds(parseJsonValue(sharedGroup.steps, []), sharedGroup.id);
+  const canonicalSteps = sharedStepsFromReference(
     sourceSteps.map((step, index) => ({
+      id: step.id,
       step_order: index + 1,
       action: step.action,
       expected_result: step.expected_result,
       step_type: step.step_type,
       automation_code: step.automation_code,
       api_request: parseJsonValue(step.api_request, null)
-    }))
+    })), previousSteps, sharedGroup.id, options.previousReferenceSteps
   );
 
-  const transaction = db.transaction(async () => {
-    await updateSharedGroupSteps.run(canonicalSteps, sharedGroup.id);
-    await syncSharedGroupReferencesWithinTransaction(sharedGroup.id, canonicalSteps, sharedGroup.name);
-  });
-
-  await transaction();
+  await updateSharedGroupSteps.run(canonicalSteps, sharedGroup.id);
+  await syncSharedGroupReferencesWithinTransaction(sharedGroup.id, canonicalSteps, sharedGroup.name, previousSteps, { testCaseId, groupId });
   return { updated: true, step_count: canonicalSteps.length };
-};
+})();
 
 exports.unlinkSharedGroupReferences = async (sharedGroupId) => {
   await unlinkSharedReferenceSteps.run(sharedGroupId);

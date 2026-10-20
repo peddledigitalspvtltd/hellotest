@@ -107,12 +107,16 @@ export async function leaseNextQueuedJob(workerId: string, engineClass?: string 
 }
 
 export async function startQueuedJob(jobId: string, workerId: string) {
-  return request<{ job_id: string; status: string; execution_result_id?: string | null }>(`/testengine/internal/jobs/${jobId}/start`, {
+  const acknowledgement = await request<{ job_id: string; status: string; execution_result_id?: string | null }>(`/testengine/internal/jobs/${jobId}/start`, {
     method: "POST",
     body: JSON.stringify({
       worker_id: workerId
     })
   });
+  if (acknowledgement.status !== "running") {
+    throw new Error("The queued execution start was not authorized. No sections or hooks will execute.");
+  }
+  return acknowledgement;
 }
 
 export async function executeQueuedApiStep(jobId: string, stepId: string) {
@@ -132,7 +136,7 @@ export async function reportQueuedStep(
   jobId: string,
   stepId: string,
   payload: {
-    status: "passed" | "failed" | "blocked";
+    status: "passed" | "failed" | "blocked" | "skipped";
     note?: string;
     evidence?: {
       dataUrl: string;
@@ -150,7 +154,7 @@ export async function reportQueuedStep(
   return request<{
     job_id: string;
     step_id: string;
-    status: "passed" | "failed" | "blocked";
+    status: "passed" | "failed" | "blocked" | "skipped";
     case_status: "running" | "passed" | "failed" | "blocked";
     execution_result_id?: string | null;
     captures?: Record<string, string>;

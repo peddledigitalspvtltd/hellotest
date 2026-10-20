@@ -46,7 +46,8 @@ function registerFeedbackRoutes(fastify, basePath) {
       issue_ids: { required: true, type: "array", items: "string", maxItems: aiBugTriageService.MAX_TRIAGE_ITEMS },
       integration_id: { required: false, type: "string" },
       prompt_guidance: { required: false, type: "string", maxLength: 4_000 },
-      smart_context: { required: false, type: "object" }
+      smart_context: { required: false, type: "object" },
+      images: { required: false, type: "array", maxItems: 6 }
     }, req.body || {});
     if (!await featureFlagService.isEnabled("hellotest.ai.bug_triage", { user: req.user })) {
       const error = new Error("AI-assisted Defect drafting and triage are disabled for the workspace.");
@@ -61,7 +62,8 @@ function registerFeedbackRoutes(fastify, basePath) {
       user: req.user,
       integrationId: req.body.integration_id,
       promptGuidance: req.body.prompt_guidance,
-      smartContext: req.body.smart_context
+      smartContext: req.body.smart_context,
+      images: req.body.images
     });
   });
 
@@ -125,6 +127,9 @@ function registerFeedbackRoutes(fastify, basePath) {
       project_id: { type: "string" }, issue_id: { type: "string" },
       intent: { type: "string", minLength: 2, maxLength: 4000 },
       evidence: { type: "string", maxLength: 12000 },
+      additional_context: { type: "string", maxLength: 12000 },
+      external_links: { type: "array", maxItems: 12, items: {type:'string',maxLength:2048} },
+      reference_photos: { type: "array", maxItems: 6 },
       linked_test_case_ids: { type: "array", minItems: 1, maxItems: 10, items: { type: "string" } },
       integration_id: { type: "string" }, prompt_guidance: { type: "string", maxLength: 4000 }
     }
@@ -143,6 +148,8 @@ function registerFeedbackRoutes(fastify, basePath) {
     return aiBugDraftService.preview({
       user: req.user, project_id: req.body.project_id,
       intent: req.body.intent, evidence: req.body.evidence,
+      additional_context: req.body.additional_context, external_links: req.body.external_links,
+      reference_photos: req.body.reference_photos,
       linked_test_case_ids: req.body.linked_test_case_ids, require_case_context: true,
       integration_id: req.body.integration_id,
       prompt_guidance: aiInstructionBlock("ai.bug.draft", "aiBugDraft.improveExisting") + (req.body.prompt_guidance || "")

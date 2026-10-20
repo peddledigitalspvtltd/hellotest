@@ -13,7 +13,7 @@ const isLegacyDataUrl = (value?: string) => /^data:(image|video)\/[a-z0-9.+-]+;b
 
 export function CaseRunAttachmentPanel({
   resultId, executionId, testCaseId, iterationKey = "default", canView, canUpload, canDelete,
-  ensureResult, onEvidenceChange, legacyEvidence = {}
+  ensureResult, onEvidenceChange, legacyEvidence = {}, live = false, refreshVersion
 }: {
   resultId?: string | null;
   executionId: string;
@@ -25,6 +25,8 @@ export function CaseRunAttachmentPanel({
   ensureResult: () => Promise<{ id: string; revision?: number }>;
   onEvidenceChange?: () => void | Promise<void>;
   legacyEvidence?: Record<string, ExecutionStepEvidence>;
+  live?: boolean;
+  refreshVersion?: string | number;
 }) {
   const queryClient = useQueryClient();
   const scopeKey = `${executionId}/${testCaseId}/${iterationKey}`;
@@ -42,8 +44,13 @@ export function CaseRunAttachmentPanel({
     queryKey: ["execution-result-attachments", activeResultId],
     queryFn: () => testingApi.executionResultAttachments.list(activeResultId),
     enabled: Boolean(canView && activeResultId),
-    staleTime: 15_000
+    staleTime: 15_000,
+    refetchInterval: live ? 3000 : false,
+    refetchIntervalInBackground: false
   });
+  useEffect(() => {
+    if (canView && activeResultId && refreshVersion !== undefined) void queryClient.invalidateQueries({ queryKey: ["execution-result-attachments", activeResultId] });
+  }, [activeResultId, canView, refreshVersion, queryClient]);
   const refresh = async (id: string) => {
     await queryClient.invalidateQueries({ queryKey: ["execution-result-attachments", id] });
     await onEvidenceChange?.();

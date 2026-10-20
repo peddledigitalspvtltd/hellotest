@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const test = require("node:test");
-const { streamAssistant, answerDeliveryEvents } = require("../../backend/http/assistantStream");
+const { streamAssistant, answerDeliveryEvents, runConnectedAssistant } = require("../../backend/http/assistantStream");
 
 function fixture() {
   const raw = new EventEmitter();
@@ -79,6 +79,24 @@ test("a slow reader is awaited before more answer data is written", async () => 
 
 test('verified delivery preserves paragraph boundaries and Markdown across small chunks',()=>{
  const content="First paragraph.\n\nSecond paragraph with **evidence**.\n\n- First outcome\n- Second outcome";
- const events=[...answerDeliveryEvents({assistant_message:{...saved.assistant_message,content}},{chunkSize:7})];
+ const events=[...answerDeliveryEvents({assistant_message:{...saved.assistant_message,content}},7)];
  assert.equal(events.map(event=>event.text).join(''),content);
+});
+
+test('JSON responses cancel the same active task on disconnect and release connection listeners',async()=>{
+ const run=fixture();run.req.raw=new EventEmitter();let signal;
+ const pending=runConnectedAssistant(run.req,run.reply,async connection=>{
+  signal=connection.signal;
+  return new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
+ });
+ run.req.raw.emit('aborted');
+ await assert.rejects(pending,{name:'AbortError'});
+ assert.equal(signal.aborted,true);assert.equal(run.req.raw.listenerCount('aborted'),0);assert.equal(run.raw.listenerCount('close'),0);
+});
+
+test('closed connections never begin JSON or streamed model work',async()=>{
+ const run=fixture();run.req.raw={aborted:true};let calls=0;
+ await assert.rejects(runConnectedAssistant({...run.req,raw:Object.assign(new EventEmitter(),{aborted:true})},run.reply,()=>{calls++;}),{name:'AbortError'});
+ await streamAssistant(run.req,run.reply,()=>{calls++;});
+ assert.equal(calls,0);assert.equal(run.frames.length,0);
 });

@@ -156,6 +156,9 @@ export const registerContextValue = (
 };
 
 export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues: Record<string, string> = {}, step?: EngineRunStep) => {
+  // A setup/teardown case keeps its own authored values, dataset and suite
+  // policy. Shared run environment and captured outputs still flow through.
+  if (step?.source_case_context) envelope = {...envelope,...step.source_case_context,manual_spec:{...envelope.manual_spec,test_data:{}}};
   const context: RuntimeExecutionContext = { values: {} };
   const apply = (values: Record<string, unknown> | undefined, scope: "t" | "s" | "r") => {
     for (const [key, value] of Object.entries(values || {})) {
@@ -186,6 +189,13 @@ export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues:
     applyLayer(caseLayer, policy.case, "case");
     applyLayer(suiteLayer, policy.suite, "suite");
     applyLayer(runLayer, policy.run, "run");
+    const authored=normalize(envelope.case_parameters),explicitRun=normalize(envelope.run_parameters);
+    for(const name of policy.case?.parameter_overrides||[]){
+      const key=normalizeScopedParameterKey(name,"t");
+      if(!Object.hasOwn(authored,key)||isShared&&policy.case?.override_shared_steps===false&&Object.hasOwn(shared,key))continue;
+      apply({[key]:authored[key]},"r");
+      if(Object.hasOwn(explicitRun,key)&&!(policy.run?.override_test_case_data===false&&(key.startsWith("t.")||Object.hasOwn(caseLayer,key)))&&!(policy.run?.override_suite_data===false&&(key.startsWith("s.")||suiteKeys.has(key))))apply({[key]:explicitRun[key]},"r");
+    }
   } else {
   apply(step?.shared_parameter_values, "r");
   apply(envelope.manual_spec?.test_data, "r");
@@ -200,7 +210,7 @@ export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues:
     ? Object.fromEntries(rows.filter((row) => row?.key).map((row) => [row.key, row.value]))
     : rows[0], "r");
   }
-  apply(step?.source_case_parameters, "t");
+  if (!step?.source_case_context) apply(step?.source_case_parameters, "t");
   Object.entries(capturedValues).forEach(([key, value]) => registerContextValue(context, key, value));
   for (const [key, template] of Object.entries(GENERATED_CONTEXT_ALIASES)) {
     if (/^[tr]\./.test(key) && !Object.hasOwn(context.values, key)) context.values[key] = materializeTemplateValue(template);
@@ -254,7 +264,8 @@ export const interpolateText = (
   String(value || "").replace(STEP_PARAMETER_PATTERN, (token, scope, referenceName, offset, source) => {
     if (!scope && /^[tsr]$/i.test(referenceName) && source[offset + token.length] === ".") return token;
     const rawName = referenceName.startsWith("[") ? decodeParameterColumnName(referenceName.slice(1, -1)) : referenceName;
-    const normalizedKey = `${scope ? String(scope).toLowerCase() : "r"}.${String(rawName).toLowerCase()}`;
+    let normalizedKey = `${scope ? String(scope).toLowerCase() : "r"}.${String(rawName).toLowerCase()}`;
+    if(!scope&&!Object.hasOwn(context.values,normalizedKey)&&Object.hasOwn(context.values,`t.${String(rawName).toLowerCase()}`))normalizedKey=`t.${String(rawName).toLowerCase()}`;
 
     return resolveContextValue(context, normalizedKey, scope ? String(scope).toLowerCase() : "r");
   });

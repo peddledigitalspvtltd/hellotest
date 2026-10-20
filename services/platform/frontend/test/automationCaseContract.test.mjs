@@ -15,7 +15,7 @@ test("automation authoring is a dedicated case workflow with complete build surf
     "Record flow",
     "Author steps",
     "AutomationOverlay",
-    "Generate from your saved behavior",
+    "Turn manual cases or prompts into automation",
     "Complete automation code",
     "Insert Shared Section Group",
     "Edit instructions"

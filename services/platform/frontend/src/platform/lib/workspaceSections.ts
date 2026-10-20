@@ -31,8 +31,8 @@ export type WorkspaceSectionItem = {
 
 export const DASHBOARD_SECTION_ITEMS: WorkspaceSectionItem[] = [
   { to: "/?view=analytics", label: "Quality Analytics", shortLabel: "Analytics", icon: "analytics" },
-  { to: "/?view=readiness", label: "Release readiness", shortLabel: "Readiness", icon: "analytics" },
-  { to: "/?view=custom", label: "Custom dashboards", shortLabel: "Custom", icon: "dashboard" }
+  { to: "/?view=readiness", label: "Release Readiness", shortLabel: "Readiness", icon: "analytics" },
+  { to: "/?view=custom", label: "Custom Dashboards", shortLabel: "Custom", icon: "dashboard" }
 ];
 
 export const PRODUCT_MANAGEMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [

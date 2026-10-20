@@ -5,7 +5,7 @@ const columns = `id, project_id, actor_id, request_id, trace_id, run_id, node_id
   started_at, completed_at, duration_ms, http_status, provider_request_id, usage, capture, error_code`;
 
 function filters(projectId, input = {}) {
-  for (const key of ['since','status','run_id','node_id','session_id','request_id','search','cursor']) {
+  for (const key of ['since','status','run_id','node_id','session_id','request_id','search','cursor','test_case_id']) {
     if (input[key] != null && (typeof input[key] !== 'string' || input[key].length > (key === 'cursor' ? 1024 : 255))) throw fail(`Invalid ${key.replaceAll('_',' ')} filter.`);
   }
   if (input.status && !['running','succeeded','failed','invalid','cancelled'].includes(input.status)) throw fail('Choose a supported model call outcome.');
@@ -15,6 +15,32 @@ function filters(projectId, input = {}) {
   values.push(since); conditions.push(`started_at >= $${values.length}`);
   for (const key of ['status', 'run_id', 'node_id', 'session_id', 'request_id']) {
     if (input[key]) { values.push(String(input[key]).slice(0, 255)); conditions.push(`${key} = $${values.length}`); }
+  }
+  if (input.completion_attempt != null && (!/^[1-9][0-9]?$|^100$/.test(String(input.completion_attempt)) || !['string','number'].includes(typeof input.completion_attempt))) throw fail('Choose a valid generation attempt.');
+  if ((input.test_case_id || input.completion_attempt != null || input.trace_ids != null) && (!input.session_id || !input.test_case_id)) throw fail('A case and activity are required for scoped model calls.');
+  if (input.test_case_id) {
+    values.push(input.test_case_id); const caseParameter = `$${values.length}`;
+    let attempt = '', legacyAttempt = '';
+    if (input.completion_attempt != null) {
+      values.push(String(input.completion_attempt));
+      attempt = ` AND capture->>'completion_attempt' = $${values.length}`;
+      legacyAttempt = ` AND e.details->>'completion_attempt' = $${values.length}`;
+    }
+    // Older captures have no case metadata. Only a trusted event for this exact
+    // call, activity, project and case may supply the missing correlation.
+    conditions.push(`((capture->>'test_case_id' = ${caseParameter}${attempt}) OR
+      (COALESCE(capture->>'test_case_id','') = '' AND EXISTS (
+        SELECT 1 FROM workspace_transaction_events e JOIN workspace_transactions t ON t.id=e.transaction_id
+        WHERE e.transaction_id=llm_request_traces.session_id AND t.project_id=$1 AND t.category='automation_build'
+        AND e.phase='model.call' AND (e.details->>'call_id'=llm_request_traces.id::text OR e.details->>'trace_id'=llm_request_traces.id::text)
+        AND e.details->>'test_case_id' = ${caseParameter}${legacyAttempt}
+      )))`);
+  }
+  if (input.trace_ids != null) {
+    let ids;
+    try { ids = typeof input.trace_ids === 'string' && input.trace_ids.length <= 5000 ? JSON.parse(input.trace_ids) : null; } catch {}
+    if (!Array.isArray(ids) || !ids.length || ids.length > 20 || ids.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(id))) throw fail('Choose valid retained model call references.');
+    values.push([...new Set(ids)]);conditions.push(`id::text = ANY($${values.length}::text[])`);
   }
   if (input.search?.trim()) {
     values.push(`%${String(input.search).trim().slice(0, 150).replace(/[\\%_]/g, '\\$&')}%`);

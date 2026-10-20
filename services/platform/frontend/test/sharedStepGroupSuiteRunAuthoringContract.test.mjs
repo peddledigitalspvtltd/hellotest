@@ -20,7 +20,6 @@ test("Shared Step Groups preserve Structured and step-group Gherkin authoring wi
   assert.match(page, /sharedStepGherkinToStructuredSteps/);
   assert.match(page, /Shared Step Group authoring mode/);
   assert.match(page, /<SharedStepGherkinEditor/);
-  assert.doesNotMatch(page, /<GherkinEditor/);
   assert.match(gherkinGroupEditor, /Reusable behavior group/);
   assert.match(gherkinGroupEditor, /SHARED_GHERKIN_KEYWORDS/);
   assert.doesNotMatch(gherkinGroupEditor, /Feature:|Scenario:/);

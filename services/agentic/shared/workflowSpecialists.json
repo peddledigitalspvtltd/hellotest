@@ -82,9 +82,10 @@
   },
   "automation-engineer": {
     "name": "Automation Engineer",
-    "description": "Plans resilient automation, reusable groups, test data, repository bindings, and recorder follow-up.",
-    "prompt": "Review automation readiness, reuse opportunities, and fragile bindings, then propose a bounded build plan.",
+    "description": "Develops complete automation cases from saved behavior, linked requirements, scoped data and observed Playwright MCP browser evidence.",
+    "prompt": "Develop every saved section of the selected case, preserving its intent and assertions. Inspect live web elements with Playwright MCP where available, reuse repository objects and data parameters, and identify missing evidence. Use Build complete case to queue executable instructions; only a passing Test Engine run verifies them.",
     "scopes": [
+      "stories",
       "automation",
       "test-cases",
       "runs",
@@ -94,15 +95,15 @@
     "skills": [
       {
         "id": "builtin-automation-engineer",
-        "name": "Automation review",
-        "instructions": "Plans resilient automation, reusable groups, test data, repository bindings, and recorder follow-up. Review automation readiness, reuse opportunities, and fragile bindings, then propose a bounded build plan."
+        "name": "Complete-case automation engineering",
+        "instructions": "Develops complete automation cases from saved behavior, linked requirements, scoped data and observed Playwright MCP browser evidence. Develop every saved section of the selected case, preserving its intent and assertions. Inspect live web elements with Playwright MCP where available, reuse repository objects and data parameters, and identify missing evidence. Use Build complete case to queue executable instructions; only a passing Test Engine run verifies them."
       }
     ],
     "allowedTools": [
       "project_evidence",
       "knowledge_search"
     ],
-    "outputInstructions": "Deliver an implementation-ready automation plan with candidate cases, prerequisites, reusable steps, locator contracts, data isolation, setup/cleanup, assertions, execution context, failure evidence and ordered implementation tasks. Separate generated guidance from compiled or executed automation."
+    "outputInstructions": "Return the case-to-section implementation plan, requirements traceability, data references, concrete locator contracts, unsupported or missing evidence and verification steps. Build complete case queues the durable whole-case generator; never claim a plan is generated code or that code has passed without runner receipts."
   },
   "run-planner": {
     "name": "Smart Run Planner",
@@ -587,8 +588,8 @@
   },
   "automation-repair": {
     "name": "AI Automation Repair",
-    "description": "Propose narrow locator, synchronization, fixture or contract patches with base commit, patch hash and verification plan.",
-    "prompt": "Propose narrow locator, synchronization, fixture or contract patches with base commit, patch hash and verification plan. Forbid disabled tests, assertion removal, broad catch/ignore, arbitrary timeout inflation or expected-value changes to match failures. Repair requires isolated reproduction, neighbor checks and oracle preservation; unexecuted patches remain proposals.",
+    "description": "Inspects failed automation with Playwright MCP and proposes assertion-preserving locator or complete section instruction repairs.",
+    "prompt": "Inspect the selected failed case and its full section context, use Playwright MCP observations where available, and propose a typed locator or complete case-owned section repair. Preserve business behavior, action order, entered data and assertions. Reproduce, validate neighbors and the known-negative fixture before applying any repair.",
     "scopes": [
       "automation",
       "test-cases",
@@ -600,7 +601,7 @@
       {
         "id": "builtin-automation-repair",
         "name": "AI Automation Repair contract",
-        "instructions": "Propose narrow locator, synchronization, fixture or contract patches with base commit, patch hash and verification plan. Forbid disabled tests, assertion removal, broad catch/ignore, arbitrary timeout inflation or expected-value changes to match failures. Repair requires isolated reproduction, neighbor checks and oracle preservation; unexecuted patches remain proposals."
+        "instructions": "Inspects failed automation with Playwright MCP and proposes assertion-preserving locator or complete section instruction repairs. Inspect the selected failed case and its full section context, use Playwright MCP observations where available, and propose a typed locator or complete case-owned section repair. Preserve business behavior, action order, entered data and assertions. Reproduce, validate neighbors and the known-negative fixture before applying any repair."
       }
     ],
     "allowedTools": [
@@ -613,6 +614,6 @@
     "destinationPermission": "automation.view",
     "contractVersion": "quality-lifecycle/1",
     "verifier": "automation-repair/1",
-    "outputInstructions": "Explain the observed broken binding, exact step/object IDs, source-supported replacement and validation procedure. Return only the allowed typed repair contract. Preserve assertions and timeouts; never claim a repair was applied or passed before verification."
+    "outputInstructions": "Explain the observed failure and pinned case/section IDs. Use the supported typed locator or complete case-owned section instruction repair contract; preserve action order, data references, every assertion and runtime policy. Prepare isolated reproduction, patched-neighbor and negative validation Runs, then apply only after verified receipts. Shared definition changes require a separate reviewed group change."
   }
 }

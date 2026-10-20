@@ -5,6 +5,8 @@ import test from "node:test";
 
 
 import ts from "typescript";
+import * as instructions from "../../frontend/lib/automationInstructions.ts";
+import {readableAutomation} from "../helpers/readableAutomationLoader.mjs";
 
 const require = createRequire(new URL('../../../platform/frontend/package.json', import.meta.url));
 const { createElement } = require("react");
@@ -14,7 +16,7 @@ const source = readFileSync(new URL("../../frontend/components/AutomationInstruc
 const compiled = ts.transpileModule(source, { compilerOptions: {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX
 } }).outputText;
-new Function("require", "exports", compiled)(require, exports);
+new Function("require", "exports", compiled)(specifier => specifier === "../lib/automationInstructions" ? instructions : specifier === "../lib/automationReadableInstructions" ? readableAutomation : require(specifier), exports);
 const render = (props) => renderToStaticMarkup(createElement(exports.AutomationInstructionPreview, {
   sectionName: "Sign in", code: "", ...props
 }));
@@ -43,11 +45,18 @@ test("instruction preview escapes code content and does not expose editable cont
 });
 
 test("structured API and empty programs render useful compact states", () => {
-  const request = render({ apiRequest: { method: "POST", url: "https://api.example.test/orders?name=@t.name" } });
+  const apiRequest = { method: "POST", url: "https://api.example.test/orders?name=@t.name", validations: [{kind:"status",expected:"201"}], captures: [{parameter:"@r.order",path:"$.id"}] };
+  const request = render({ apiRequest, view: "instructions" });
   assert.match(request, /POST/);
   assert.match(request, /orders\?name=@t.name/);
   assert.match(request, /aria-label="Sign in API request"/);
-  assert.equal((request.match(/class="automation-instruction-line"/g) || []).length, 1);
+  assert.equal((request.match(/class="automation-instruction-line"/g) || []).length, 3);
+  const source = render({apiRequest,view:"source"});
+  assert.match(source, /validations/);
+  assert.match(source, /201/);
+  assert.match(source, /captures/);
+  assert.match(source, /@r.order/);
+  assert.equal((source.match(/class="automation-instruction-line"/g) || []).length, JSON.stringify(apiRequest,null,2).split("\n").length);
   assert.match(render({ code: " \n " }), /No instructions yet/);
 });
 
@@ -59,4 +68,13 @@ test("an executable API override takes precedence over the stored request previe
   assert.match(html, /current-orders/);
   assert.doesNotMatch(html, /previous-request/);
   assert.match(html, /aria-label="Sign in implementation"/);
+});
+
+
+test("multiple commands on one physical line render as separate readable instructions", () => {
+  const html = render({code:'await web.goto("/login"); await web.fill("#email", "user");',view:"instructions"});
+  assert.equal((html.match(/class="automation-instruction-line"/g)||[]).length,2);
+  assert.ok(html.indexOf("Open URL")<html.indexOf("Type"));
+  const source=render({code:'await web.goto("/login"); await web.fill("#email", "user");',view:"source"});
+  assert.equal((source.match(/class="automation-instruction-line"/g)||[]).length,2);
 });

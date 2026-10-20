@@ -1,15 +1,27 @@
 const { normalizeParameterLayer, normalizeParameterKey } = require('./stepParameterResolution');
 const { collectCaseParameterNames } = require('./parameterNames');
 
-function normalizeDataOptions(value = {}) {
+function normalizeDataOptions(value = {}, sharedKind) {
   if (typeof value === 'string') { try { value = JSON.parse(value); } catch { value = {}; } }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Object.assign(new Error('Test data options must be an object.'), { statusCode: 400 });
   const result = {};
-  for (const key of ['override_lower_scopes', 'override_shared_steps', 'override_test_case_data', 'override_suite_data']) {
+  for (const key of ['override_lower_scopes', 'override_shared_steps', 'override_shared_sections', 'override_test_case_data', 'override_suite_data']) {
     if (value[key] !== undefined && typeof value[key] !== 'boolean') throw Object.assign(new Error(`Test data option ${key} must be true or false.`), { statusCode: 400 });
     result[key] = value[key] === undefined && ['override_test_case_data', 'override_suite_data'].includes(key) ? value.override_lower_scopes !== false : value[key] !== false;
   }
+  if (value.override_shared_sections === undefined) result.override_shared_sections = result.override_shared_steps;
+  for(const key of ['parameter_overrides','private_parameter_names'])if(value[key]!==undefined){
+    if(!Array.isArray(value[key])||value[key].length>256||value[key].some(name=>typeof name!=='string'||!name.trim()||name.length>220||/[\u0000-\u001f\u007f]/.test(name)))throw Object.assign(new Error('Parameter metadata must be a bounded list of parameter names.'),{statusCode:400});
+    const names=[...new Set(value[key].map(name=>normalizeParameterKey(name,'t')).filter(Boolean))].sort();
+    if(names.length)result[key]=names;
+  }
+  const kind = sharedKind || value.shared_data_kind;
+  if (kind === 'steps' || kind === 'sections') result.shared_data_kind = kind;
+  if (kind === 'sections') result.override_shared_steps = result.override_shared_sections;
   return result;
+}
+function dataOptionsForCase(value, caseOptions) {
+  return normalizeDataOptions(value, normalizeDataOptions(caseOptions).shared_data_kind);
 }
 
 function sharedParameterNames(steps = []) {
@@ -93,8 +105,10 @@ function composeLegacyTestData({ caseData, suiteData, runData, caseOptions, suit
 // New runs freeze every supplying layer. This preserves absent lower columns,
 // independent overrides, and group-specific defaults without a Cartesian product.
 function composeScopedTestData(input) {
-  const { caseData, suiteData, runData, caseOptions, suiteOptions, runOptions, sharedNames = new Set() } = input;
-  if (!input.hierarchical) return composeLegacyTestData(input);
+  const { caseData, suiteData, runData, caseOptions, sharedNames = new Set() } = input;
+  const suiteOptions = dataOptionsForCase(input.suiteOptions, caseOptions);
+  const runOptions = dataOptionsForCase(input.runOptions, caseOptions);
+  if (!input.hierarchical) return composeLegacyTestData({ ...input, suiteOptions, runOptions });
   const sources = [caseData, suiteData, runData];
   const selectedIndex = sources.findLastIndex(Boolean);
   if (selectedIndex < 0) return { snapshot: null, source: null };
@@ -138,4 +152,4 @@ function composeScopedTestData(input) {
     sensitive_names: [...new Set(Object.values(layers).flatMap(item => item?.sensitive_names || []))] }, source: ['test_case', 'suite', 'run'][selectedIndex] };
 }
 
-module.exports = { normalizeDataOptions, sharedParameterNames, allowsDataParameter, composeScopedTestData, dataRows };
+module.exports = { normalizeDataOptions, dataOptionsForCase, sharedParameterNames, allowsDataParameter, composeScopedTestData, dataRows };

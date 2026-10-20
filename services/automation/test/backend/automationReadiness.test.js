@@ -48,3 +48,17 @@ test('dispatch planning never allocates eligible jobs for malformed frozen autom
   assert.ok(result.warnings.some(warning => /missing.*instructions are missing/.test(warning)));
   assert.ok(result.warnings.some(warning => /syntax.*invalid JavaScript/.test(warning)));
 });
+
+test('dispatch readiness accepts the same plain JS and canonical Playwright wrappers as the engine',()=>{
+  for(const source of [
+    'import {test,expect} from "@playwright/test"; test("flow",async({page})=>{await expect(page.locator("h1")).toHaveText("Ready");});',
+    '// @hellotest-options optional\nexport default async function ({page}) { await page.locator("button").click(); }',
+    'module.exports = async ({page}) => { await page.locator("button").click(); };',
+    'async function ({page}) { await page.locator("button").click(); }',
+    'function helper(){return "Ready";} await expect(page.locator("h1")).toHaveText(helper());',
+    'await test.step("flow",async()=>{await page.locator("button").click();});'
+  ]) assert.deepEqual(inspectExecutablePlan([{id:'s',order:1,step_type:'web',automation_code:source}]),[],source);
+  for(const source of ['page.locator("button").click();','expect(page.locator("h1")).toHaveText("Ready");','Promise.all([page.locator("button").click()]);'])
+    assert.match(inspectExecutablePlan([{id:'s',order:1,step_type:'web',automation_code:source}])[0],/detached|promise/);
+  assert.match(inspectExecutablePlan([{id:'s',order:1,step_type:'web',automation_code:'test.beforeEach(async({page})=>{await page.goto("/");});'}])[0],/hooks|workspace/);
+});

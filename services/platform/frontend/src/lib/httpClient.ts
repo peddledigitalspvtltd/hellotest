@@ -183,7 +183,7 @@ export async function request<T>(path: string, init?: RequestInit, timeoutMs = g
         const apiError = await parseApiError(response);
         if (response.status === 401 && token && isSessionAuthFailure(scopedPath, apiError.message) && readRequestSession().revision === requestSession.revision) {
           sessionStorage.clear();
-          if (!scopedPath.startsWith("/auth/")) window.location.assign("/auth");
+          if (!scopedPath.startsWith("/auth/")) window.location.assign("/login");
         }
         throw apiError;
       }

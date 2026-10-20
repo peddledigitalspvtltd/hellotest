@@ -2,6 +2,7 @@ import { sourceFile } from "./helpers/sourceFile.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import ts from "typescript";
+import * as acorn from "acorn";
 import { readFileSync } from "node:fs";
 
 const modules = {};
@@ -9,7 +10,7 @@ function load(name) {
   if (modules[name]) return modules[name];
   const exports = modules[name] = {};
   const source = readFileSync(sourceFile(`${name}.ts`, "lib"), "utf8");
-  new Function("require", "exports", ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText)(id => load(id.replace(/^\.\//, "")), exports);
+  new Function("require", "exports", ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText)(id => id === "acorn" ? acorn : load(id.replace(/^\.\//, "")), exports);
   return exports;
 }
 const { parseRunDataCsv, expandSelectedSuiteIds } = load("runDataTemplate");

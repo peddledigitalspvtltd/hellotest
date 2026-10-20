@@ -117,7 +117,7 @@ const normalizeAssistantFilters = async ({ projectId, appTypeId, base, override 
 const buildDeterministicRetrievalQueries = (question) => {
   const input = normalizeText(question, 4_000);
   if (!input) return [];
-  const identifiers = [...new Set(input.match(/\b(?:BUG|TC|TS|STORY|RUN|REQ)-?[A-Z0-9_-]+\b/gi) || [])].slice(0, 4);
+  const identifiers = [...new Set(input.match(/\b(?:AT[_-][0-9]+|(?:BUG|TC|TS|STORY|RUN|REQ)-?[A-Z0-9_-]+)\b/gi) || [])].slice(0, 4);
   const domainTerms = [
     [/\b(?:fail|failed|failure|error|blocked|flaky)\b/i, "failure symptoms error messages affected runs root cause"],
     [/\b(?:bug|defect|issue|regression)\b/i, "defect defect regression severity status impacted tests"],

@@ -176,6 +176,7 @@ services:
       retries: 10
 
   testengine-api-worker:
+    init: true
     image: ${HELLOTEST_TESTENGINE_IMAGE:-jayarajumetta/hellotest-testengine:latest}
     expose:
       - "4301"
@@ -207,6 +208,7 @@ services:
       replicas: ${TESTENGINE_API_REPLICAS:-0}
 
   testengine-web-worker:
+    init: true
     image: ${HELLOTEST_TESTENGINE_IMAGE:-jayarajumetta/hellotest-testengine:latest}
     expose:
       - "4301"
@@ -240,6 +242,7 @@ services:
       replicas: ${TESTENGINE_WEB_REPLICAS:-1}
 
   testengine-quality-worker:
+    init: true
     image: ${HELLOTEST_TESTENGINE_IMAGE:-jayarajumetta/hellotest-testengine:latest}
     expose:
       - "4301"
@@ -268,6 +271,7 @@ services:
       replicas: 1
 
   testengine-android-worker:
+    init: true
     image: ${HELLOTEST_TESTENGINE_IMAGE:-jayarajumetta/hellotest-testengine:latest}
     expose:
       - "4301"

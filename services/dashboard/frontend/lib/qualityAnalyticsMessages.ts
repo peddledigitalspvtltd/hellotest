@@ -36,7 +36,7 @@ const copy = {
     "Understand coverage, follow execution trends and focus the next improvement.",
     "Entiende la cobertura, sigue las ejecuciones y prioriza la próxima mejora.",
   ],
-  readiness: ["Release readiness", "Preparación de la versión"],
+  readiness: ["Release Readiness", "Preparación de la versión"],
   refresh: ["Refresh", "Actualizar"],
   refreshing: ["Refreshing…", "Actualizando…"],
   export: ["Export snapshot", "Exportar resumen"],

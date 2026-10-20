@@ -186,6 +186,11 @@ export const AGENT_CONTEXT_OPTIONS = [
 ] as const;
 
 type AgenticCommandComposerProps = {
+  allowEmptyPrompt?: boolean;
+  submitLabel?: string;
+  promptLabel?: string;
+  identityDescription?: string;
+  optionsContent?: ReactNode;
   appTypeId?: string;
   agents?: HelloTestAgent[];
   agentId: string;
@@ -201,14 +206,17 @@ type AgenticCommandComposerProps = {
   onSubmit: () => void;
   projectId?: string;
   disabled?: boolean;
+  submitDisabled?: boolean;
   running?: boolean;
   scopeLabel?: string;
   smartContext?: SmartContextSelection | null;
   evidenceScopeControl?: ReactNode;
+  evidenceScope?: Record<string, unknown>;
 };
 
 export function AgenticCommandComposer({
-  evidenceScopeControl,
+  allowEmptyPrompt = false, submitLabel = "Start review", promptLabel = "Ask or delegate to HelloTest AI", identityDescription = "Structured evidence review", optionsContent,
+  evidenceScopeControl, evidenceScope,
   appTypeId,
   agents = HELLOTEST_AGENT_CATALOG,
   agentId,
@@ -224,6 +232,7 @@ export function AgenticCommandComposer({
   onSubmit,
   projectId,
   disabled = false,
+  submitDisabled = false,
   running = false,
   scopeLabel = "Current project",
   smartContext = null
@@ -242,7 +251,7 @@ export function AgenticCommandComposer({
   }, []);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!disabled && !running && prompt.trim()) onSubmit();
+    if (!disabled && !submitDisabled && !running && (allowEmptyPrompt || prompt.trim())) onSubmit();
   };
 
   const toggleScope = (scope: string) => {
@@ -257,19 +266,19 @@ export function AgenticCommandComposer({
         <span><IconBrain aria-hidden="true" size={18} stroke={1.9} /></span>
         <div>
           <strong>{selectedAgent?.name || "HelloTest Agent"}</strong>
-          <small>Structured evidence review</small>
+          <small>{identityDescription}</small>
         </div>
         <span className="agent-command-composer__governed"><IconShieldCheck size={15} stroke={1.9} />Review before apply</span>
       </div>
       {contextScopes.length ? <div className="agent-command-attached-context" aria-label="Included context sources">{contextScopes.map(scope => <button aria-label={`Remove ${AGENT_CONTEXT_OPTIONS.find(option => option.id === scope)?.label || scope} context`} disabled={disabled || running} key={scope} onClick={() => toggleScope(scope)} type="button"><IconDatabase size={12} aria-hidden="true" />{AGENT_CONTEXT_OPTIONS.find(option => option.id === scope)?.label || scope}<span aria-hidden="true">×</span></button>)}</div> : null}
       <textarea
-        aria-label="Ask or delegate to HelloTest AI"
+        aria-label={promptLabel}
         disabled={disabled || running}
         onChange={(event) => onPromptChange(event.target.value)}
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();
-            if (!disabled && !running && prompt.trim()) onSubmit();
+            if (!disabled && !submitDisabled && !running && (allowEmptyPrompt || prompt.trim())) onSubmit();
           }
         }}
         placeholder="What outcome do you want? Add the constraints that matter."
@@ -303,7 +312,8 @@ export function AgenticCommandComposer({
               appTypeId={appTypeId}
               buttonClassName="agent-command-smart-context"
               buttonLabel={smartContext?.resultCount ? `Smart Context · ${smartContext.resultCount}` : "Smart Context"}
-              disabled={disabled || running}
+              disabled={disabled || running || !contextScopes.length}
+              agentId={agentId} contextScopes={contextScopes} evidenceScope={evidenceScope}
               initialQuery={prompt}
               onApply={onSmartContextChange}
               preferredSourceKinds={smartContextKindsForScopes(contextScopes)}
@@ -337,13 +347,14 @@ export function AgenticCommandComposer({
             </label>
           ) : <span className="agent-command-auto"><IconRobot size={15} stroke={1.9} />Auto</span>}
 
+              {optionsContent}
               <small>Applied to the next request.</small>
             </div>
           </details>
           <span className="agent-command-divider" aria-hidden="true" />
-          <button aria-label={running ? "Review in progress" : "Start review"} className="agent-command-send" disabled={disabled || running || !prompt.trim()} type="submit">
+          <button aria-label={running ? "Review in progress" : submitLabel} className="agent-command-send" disabled={disabled || submitDisabled || running || (!allowEmptyPrompt && !prompt.trim())} type="submit">
             {running ? <IconLoader2 aria-hidden="true" className="agent-inline-spinner" size={18} /> : <IconSend size={19} stroke={1.9} />}
-            <span>{running ? "Reviewing…" : "Start review"}</span>
+            <span>{running ? "Working…" : submitLabel}</span>
           </button>
         </div>
       </div>
@@ -1029,7 +1040,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
     findings.length ? `## Findings\n${findings.map(item => `### ${item.title}\n${item.detail}${item.citation_ids?.length ? `\nSources: ${item.citation_ids.join(", ")}` : "\nEvidence requires verification."}`).join("\n\n")}` : "",
     deliverables.length ? `## Deliverables\n${deliverables.map(item => `### ${item.title}\n${item.detail}${item.citation_ids?.length ? `\nSources: ${item.citation_ids.join(", ")}` : ""}`).join("\n\n")}` : "",
     result.readiness?.limitations?.length ? `## Review limitations\n${result.readiness.limitations.map(item => `- ${item}`).join("\n")}` : "",
-    selectedRecommendationIndexes.length ? `## Next actions\n${selectedRecommendationIndexes.map(index => `- ${draftRecommendations[index]}`).join("\n")}` : "",
+    selectedRecommendationIndexes.length ? `## Review considerations\n${selectedRecommendationIndexes.map(index => `- ${draftRecommendations[index]}`).join("\n")}` : "",
     result.artifacts?.length ? `## Structured proposals\n${JSON.stringify(result.artifacts, null, 2)}` : "",
     result.assumptions.length ? `## Assumptions\n${result.assumptions.map(item => `- ${item}`).join("\n")}` : "",
     evidenceGaps.length ? `## Evidence gaps\n${evidenceGaps.map(item => `- ${item}`).join("\n")}` : "",
@@ -1049,7 +1060,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         ...(findings.length ? [{ id: "findings", label: "Findings", count: findings.length }] : []),
         ...(deliverables.length ? [{ id: "deliverables", label: "Artifacts", count: deliverables.length }] : []),
         { id: "details", label: "Full brief", count: undefined },
-        { id: "actions", label: "Next items", count: result.artifacts?.length || draftRecommendations.length || undefined }, { id: "calls", label: "Model calls", count: result.model_call_records?.length || result.agent_chain?.filter(call => call.trace_id).length || undefined }
+        { id: "actions", label: "Review & approve", count: result.artifacts?.length || draftRecommendations.length || undefined }, { id: "calls", label: "Model calls", count: result.model_call_records?.length || result.agent_chain?.filter(call => call.trace_id).length || undefined }
       ].map((section, index, sections) => <button aria-controls={`${surfaceId}-${section.id}`} aria-selected={activeSection === section.id} id={`${surfaceId}-tab-${section.id}`} key={section.id} onClick={() => setActiveSection(section.id)} onKeyDown={event => {
         const next = event.key === "ArrowRight" ? (index + 1) % sections.length : event.key === "ArrowLeft" ? (index + sections.length - 1) % sections.length : event.key === "Home" ? 0 : event.key === "End" ? sections.length - 1 : -1;
         if (next >= 0) { event.preventDefault(); setActiveSection(sections[next].id); event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus(); }
@@ -1062,7 +1073,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
       {exportNotice && <p className="agent-brief-export-notice" role="status">{exportNotice}</p>}
       {result.readiness?.limitations?.length ? <div className="agent-brief-limitations"><strong>Review limitations</strong><ul>{result.readiness.limitations.map(item => <li key={item}>{item}</li>)}</ul></div> : null}
       <section aria-labelledby={`${surfaceId}-tab-summary`} className="agent-outcome-executive-summary" hidden={activeSection !== "summary"} id={`${surfaceId}-summary`} role="tabpanel">
-        <span>Decision summary</span><p>{result.executive_summary || draftResponse}</p>
+        <span>Decision summary</span><FormattedText text={result.executive_summary || draftResponse} />
       </section>
       {findings.length ? (
         <section aria-labelledby={`${surfaceId}-tab-findings`} className="agent-outcome-findings" aria-label="Agent findings" hidden={activeSection !== "findings"} id={`${surfaceId}-findings`} role="tabpanel">
@@ -1070,11 +1081,11 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
           <div>{findings.map((finding, index) => (
             <article data-priority={finding.priority || "info"} key={`${finding.title}:${index}`}>
               <header><strong>{finding.title}</strong><span>{finding.priority || "info"}</span></header>
-              <p>{finding.detail}</p>
+              <FormattedText text={finding.detail} />
               {(finding.observation || finding.gap || finding.proposed_action) && <dl className="agent-finding-facts">{[
                 ['Observed evidence', finding.observation], ['Coverage / quality gap', finding.gap], ['Impact', finding.impact],
                 ['Proposed change', finding.proposed_action], ['Acceptance check', finding.acceptance_check],
-              ].filter(([,value]) => value).map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
+              ].filter(([,value]) => value).map(([label,value]) => <div key={label}><dt>{label}</dt><dd><FormattedText text={value!} /></dd></div>)}</dl>}
               {finding.citation_ids?.length ? <small>{finding.citation_ids.length} supporting reference{finding.citation_ids.length === 1 ? "" : "s"}</small> : <small>Evidence gap · verify before use</small>}
             </article>
           ))}</div>
@@ -1097,7 +1108,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         <div aria-label="Complete specialist output" className="agent-brief-body" role="region" tabIndex={0}><FormattedText text={draftResponse} /></div>
       </div>
         <div aria-labelledby={`${surfaceId}-tab-actions`} className="agent-outcome-section agent-outcome-recommendation-review" hidden={activeSection !== "actions"} id={`${surfaceId}-actions`} role="tabpanel">
-          <header className="agent-next-actions-heading"><div><h3>Next items</h3><p>{result.artifacts?.length ? 'The applicable specialists prepared these outcomes from the primary review. Review and accept or decline each draft.' : 'Follow-up work is shown only when the findings support it.'}</p></div><div className="agent-brief-icon-actions"><AiEvidenceButton label="Sources" onClick={() => setIsEvidenceOpen(true)} /><button className="ghost-button compact" type="button" aria-label="Copy brief" title="Copy brief" onClick={async () => { try { await navigator.clipboard.writeText(briefText()); setExportNotice("Brief copied."); } catch { setExportNotice("Copy is unavailable. Download the brief instead."); } }}><IconCopy size={17} /></button><button className="ghost-button compact" type="button" aria-label="Download brief" title="Download brief" onClick={() => { const url = URL.createObjectURL(new Blob([briefText()], { type: "text/markdown;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "specialist-review.md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setExportNotice("Review brief downloaded."); }}><IconDownload size={17} /></button></div></header>
+          <header className="agent-next-actions-heading"><div><h3>Improved outcomes · human approval</h3><p>{result.artifacts?.length ? 'These drafts build on the evidence-backed assessment. Review the specialist handoffs and proposed fields, then accept a draft to save it in its destination module.' : 'No saveable draft was prepared. Review the assessment, unresolved handoffs and recommendations below. Recommendations do not save records.'}</p></div><div className="agent-brief-icon-actions"><AiEvidenceButton label="Sources" onClick={() => setIsEvidenceOpen(true)} /><button className="ghost-button compact" type="button" aria-label="Copy brief" title="Copy brief" onClick={async () => { try { await navigator.clipboard.writeText(briefText()); setExportNotice("Brief copied."); } catch { setExportNotice("Copy is unavailable. Download the brief instead."); } }}><IconCopy size={17} /></button><button className="ghost-button compact" type="button" aria-label="Download brief" title="Download brief" onClick={() => { const url = URL.createObjectURL(new Blob([briefText()], { type: "text/markdown;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "specialist-review.md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setExportNotice("Review brief downloaded."); }}><IconDownload size={17} /></button></div></header>
           {(result.agent_chain?.length || 0) > 1 && <ol className="agent-handoff-list" aria-label="Agent handoffs">{result.agent_chain!.slice(1).map((step, index) => <li key={`${step.agent_id}-${index}`} data-status={step.status}><div><strong>{step.name}</strong><span>{step.status === 'completed' ? `${step.artifact_count || 'Structured'} proposal${step.artifact_count === 1 ? '' : 's'} ready` : 'Needs follow-up'}</span></div><p>{step.reason || 'Prepared proposals from the review findings.'}</p>{step.detail && <p>{step.detail}</p>}</li>)}</ol>}
           {result.artifacts?.length ? <AgentArtifactReview artifacts={result.artifacts} chain={result.agent_chain || []} sessionId={sessionId} /> : null}
           {draftRecommendations.length > 0 && <h4>Remaining review considerations</h4>}

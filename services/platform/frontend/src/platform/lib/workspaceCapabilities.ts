@@ -6,8 +6,8 @@ export type WorkspaceCapability = { id: string; to: string; name: string; group:
 export const WORKSPACE_CAPABILITIES: WorkspaceCapability[] = [
   { id: "shared-section-groups", to: "/shared-steps?view=automation", name: "Shared Section Groups", group: "automate", description: "Create reusable automation sections with native platform instructions and reviewed group conversions.", requiresProject: true, flags: ["hellotest.automation.workspace", "hellotest.manual.suites"] },
   { id: "analytics", to: "/?view=analytics", name: "Quality Analytics", group: "investigate", description: "Track coverage, execution trends and quality signals." },
-  { id: "readiness", to: "/?view=readiness", name: "Release readiness", group: "investigate", description: "Assess release evidence and unresolved risk." },
-  { id: "dashboards", to: "/?view=custom", name: "Custom dashboards", group: "investigate", description: "Build executive, product and QA views with reusable widgets.", keywords: "metrics leadership", requiresProject: true },
+  { id: "readiness", to: "/?view=readiness", name: "Release Readiness", group: "investigate", description: "Assess release evidence and unresolved risk." },
+  { id: "dashboards", to: "/?view=custom", name: "Custom Dashboards", group: "investigate", description: "Build executive, product and QA views with reusable widgets.", keywords: "metrics leadership", requiresProject: true },
   { id: "stories", to: "/stories", name: "Stories", group: "plan", description: "Connect acceptance criteria to test coverage.", requiresProject: true },
   { id: "backlog", to: "/backlog", name: "Backlog", group: "plan", description: "Prioritize upcoming product work.", requiresProject: true },
   { id: "sprints", to: "/sprints", name: "Sprints", group: "plan", description: "Organize delivery and track iteration progress.", requiresProject: true },

@@ -1,9 +1,12 @@
 const db = require("@hellotest/platform/backend/src/db");
 const { normalizeScheduledAt } = require("@hellotest/platform/backend/src/utils/automationSchedule");
+const { normalizeAutomationStartUrl, requiresAutomationStartUrl } = require("@hellotest/platform/backend/src/utils/automationStartUrl");
+const { captureStartUrlReview, assertQueuedStartUrlReview } = require('@hellotest/automation/backend/services/automationQueuedStartUrl.service');
 const obsDb = require("@hellotest/platform/backend/src/obsDb");
 const { randomUUID: uuid, createHash } = require("crypto");
 const workspaceTransactionService = require("@hellotest/platform/backend/services/workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("@hellotest/platform/backend/src/utils/externalReferences");
+const {createBatchJobLease}=require('./batchJobLease');
 
 const QUEUED_BATCH_LIMIT = Math.max(1, Number(process.env.BATCH_PROCESS_CONCURRENCY || 1));
 const DEFAULT_MAX_ATTEMPTS = Math.max(1, Number(process.env.BATCH_PROCESS_MAX_ATTEMPTS || 5));
@@ -64,8 +67,10 @@ const markJobRetryQueued = obsDb.prepare(`
       lease_expires_at = NULL,
       last_error = ?,
       updated_at = CURRENT_TIMESTAMP
-  WHERE id = ?
+  WHERE id = ? AND status='running' AND lease_owner=?
 `);
+const renewJobLease=obsDb.prepare(`UPDATE batch_process_jobs SET lease_expires_at=?,updated_at=CURRENT_TIMESTAMP
+ WHERE id=? AND status='running' AND lease_owner=? AND lease_expires_at>CURRENT_TIMESTAMP`);
 
 const markJobCompleted = obsDb.prepare(`
   UPDATE batch_process_jobs
@@ -75,7 +80,7 @@ const markJobCompleted = obsDb.prepare(`
       lease_expires_at = NULL,
       completed_at = CURRENT_TIMESTAMP,
       updated_at = CURRENT_TIMESTAMP
-  WHERE id = ?
+  WHERE id = ? AND status='running' AND lease_owner=?
 `);
 
 const markJobFailed = obsDb.prepare(`
@@ -87,7 +92,7 @@ const markJobFailed = obsDb.prepare(`
       lease_expires_at = NULL,
       completed_at = CURRENT_TIMESTAMP,
       updated_at = CURRENT_TIMESTAMP
-  WHERE id = ?
+  WHERE id = ? AND status='running' AND lease_owner=?
 `);
 
 const selectCasesForExport = db.prepare(`
@@ -121,7 +126,7 @@ const selectSuiteNamesForExport = db.prepare(`
 `);
 
 const selectAppType = db.prepare(`
-  SELECT id, project_id, name
+  SELECT id, project_id, name, type
   FROM app_types
   WHERE id = ?
 `);
@@ -156,6 +161,7 @@ const normalizePayload = (value) => {
 };
 
 const isRetryableBatchError = (error) => {
+  if(error?.nonRetryable||error?.retryable===false||['AI_INSTRUCTION_MISSING','AI_FEATURE_UNMAPPED','AI_CONFIGURATION_INVALID','LLM_QUOTA_EXCEEDED','LLM_RATE_LIMIT_REQUEST_TOO_LARGE'].includes(error?.code))return false;
   const statusCode = Number(error?.statusCode || error?.status || 0);
 
   if ([408, 409, 425, 429, 500, 502, 503, 504].includes(statusCode)) {
@@ -166,8 +172,6 @@ const isRetryableBatchError = (error) => {
   return [
     "rate limit",
     "too many requests",
-    "token",
-    "quota",
     "temporarily",
     "timeout",
     "timed out",
@@ -178,22 +182,17 @@ const isRetryableBatchError = (error) => {
 };
 
 const isAiCapacityError = (error) => {
-  const statusCode = Number(error?.statusCode || error?.status || 0);
-  const message = String(error?.message || error || "").toLowerCase();
-  return statusCode === 429
-    || message.includes("rate limit")
-    || message.includes("too many requests")
-    || message.includes("token")
-    || message.includes("quota");
+  const statusCode = Number(error?.upstreamStatusCode || error?.upstreamStatus || error?.statusCode || error?.status || 0);
+  return error?.nonRetryable !== true && error?.retryable !== false && statusCode === 429;
 };
 
 const resolveRetryDelayMs = (error, attempt) => {
-  const retryAfterMs = Number(error?.retryAfterMs || 0);
+  const retryAfterMs = error?.retryAfterMs == null ? null : Number(error.retryAfterMs);
 
-  if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
-    return isAiCapacityError(error)
-      ? Math.min(Math.max(retryAfterMs, AI_RECOVERY_DELAY_MS), MAX_RETRY_DELAY_MS)
-      : Math.min(retryAfterMs, MAX_RETRY_DELAY_MS);
+  if (retryAfterMs !== null && Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
+    // A provider reset is a lower bound, not a reason to wait an hour or to
+    // retry earlier when its explicit delay exceeds our usual backoff cap.
+    return Math.max(1_000, retryAfterMs);
   }
 
   if (isAiCapacityError(error)) {
@@ -498,26 +497,108 @@ exports.queueTestCaseExport = async ({ app_type_id, test_case_ids = [], created_
   });
 };
 
-exports.queueAutomationBuild = async ({
+exports.queueAutomationBuild = db.transaction(async ({
   app_type_id,
   test_case_ids = [],
   integration_id,
   allow_browser_actions = false,
+  verification_mode = "generate_only",
+  browser_driver = "mcp",
+  verification_driver = "native",
   start_url,
   test_environment_id,
   test_configuration_id,
+  test_suite_id,
+  test_suite_ids_by_case = {},
   test_data_set_id,
+  parameter_values_by_case = {},
+  parameter_plan_keys_by_case = {},
   failure_threshold,
   additional_context,
+  agent_context,
+  ai_feature,
   scheduled_at,
   created_by
 } = {}) => {
+  const selectedFeature = require("@hellotest/automation/backend/services/aiAutomationBuilder.service").buildFeature(ai_feature);
+  ({ verification_mode, browser_driver, verification_driver } = require('@hellotest/automation/backend/lib/automationBuildPipelineOptions').normalizeBuildPipelineOptions({ verification_mode, browser_driver, verification_driver, allow_browser_actions }));
   const appType = app_type_id ? await selectAppType.get(app_type_id) : null;
 
   if (!appType) {
     throw new Error("App type not found");
   }
 
+  await require('@hellotest/automation/backend/lib/automationBuildPipelineOptions').assertBuildVerificationAccess({mode:verification_mode,createdBy:created_by,projectId:appType.project_id});
+  const caseIdentityAliases=new Map();
+  test_case_ids=await Promise.all((Array.isArray(test_case_ids)?test_case_ids:[]).map(async id=>{
+    if(!/^(?:AT[_-][0-9]+|TC[_-]?[0-9]+)$/i.test(id))return id;
+    const resolved=(await require('@hellotest/platform/backend/services/entityScope.service').resolveEntityScope({entityType:'test_case',entityId:id,projectId:appType.project_id,appTypeId:app_type_id,allowDisplayId:true})).entityId;
+    caseIdentityAliases.set(id,resolved);return resolved;
+  }));
+  const encodedIds=JSON.stringify(test_case_ids);
+  const observedTargets=await db.prepare(`SELECT id FROM test_cases WHERE app_type_id=? AND automated='yes' AND
+    (id IN(SELECT jsonb_array_elements_text(?::jsonb)) OR source_idempotency_key IN(SELECT 'automation-builder:'||jsonb_array_elements_text(?::jsonb))
+      OR (?::boolean AND source_idempotency_key LIKE 'automation-builder:%')) ORDER BY id`).all(app_type_id,encodedIds,encodedIds,test_case_ids.length===0);
+  await db.prepare("SELECT pg_advisory_xact_lock(hashtext('hellotest.automation-build'),hashtext(?))").get(app_type_id);
+  const remainingTargets=observedTargets.length?await db.prepare('SELECT id FROM test_cases WHERE id IN(SELECT jsonb_array_elements_text(?::jsonb)) FOR SHARE').all(JSON.stringify(observedTargets.map(row=>row.id))):[];
+  if(remainingTargets.length!==observedTargets.length)throw Object.assign(new Error('An automation target changed while this batch was being queued. Refresh the selection before starting a new build.'),{statusCode:409,code:'AUTOMATION_TARGET_CHANGED'});
+  const explicitStartUrl = start_url !== undefined;
+  const normalizedStartUrl = normalizeAutomationStartUrl(start_url);
+  const selectedCases = await db.prepare(`SELECT source.id, source.automated, source.automation_start_url,
+      target.id AS linked_automation_test_case_id, target.automation_start_url AS linked_automation_start_url
+    FROM test_cases source
+    LEFT JOIN test_cases target ON target.app_type_id=source.app_type_id
+      AND target.source_idempotency_key='automation-builder:'||source.id AND target.automated='yes'
+    WHERE source.app_type_id=? AND (
+      source.id IN(SELECT jsonb_array_elements_text(?::jsonb)) OR
+      (?::boolean AND COALESCE(source.automated,'no') <> 'yes' AND ? IN ('api','web','android','ios','unified'))
+    ) ORDER BY COALESCE(source.updated_at,source.created_at) DESC,source.created_at DESC,source.id DESC
+    FOR SHARE OF source`).all(app_type_id, encodedIds, test_case_ids.length === 0, appType.type);
+  if (!selectedCases.length || test_case_ids.length && selectedCases.length !== new Set(test_case_ids).size) {
+    throw Object.assign(new Error('Select existing cases in this application before building automation.'), { statusCode: 400, code: 'AUTOMATION_SELECTION_CHANGED' });
+  }
+  const selectedIds=new Set(selectedCases.map(row=>row.id));
+  const scopedChoices=input=>{
+    if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length>2000)throw Object.assign(new Error('Build choices must be keyed by selected test case IDs.'),{statusCode:400,code:'AUTOMATION_BUILD_PARAMETERS_INVALID'});
+    const mapped={};
+    for(const [name,value]of Object.entries(input)){
+      const id=caseIdentityAliases.get(name)||name;
+      if(!selectedIds.has(id)||Object.hasOwn(mapped,id))throw Object.assign(new Error('Build choices must refer once to a selected case in this application.'),{statusCode:400,code:'AUTOMATION_BUILD_PARAMETERS_INVALID'});
+      mapped[id]=value;
+    }
+    return mapped;
+  };
+  parameter_values_by_case=scopedChoices(parameter_values_by_case);
+  parameter_plan_keys_by_case=scopedChoices(parameter_plan_keys_by_case);
+  test_suite_ids_by_case=scopedChoices(test_suite_ids_by_case);
+  if(test_suite_id!=null&&(typeof test_suite_id!=='string'||!test_suite_id.trim()))throw Object.assign(new Error('Select a valid Test Suite for this build.'),{statusCode:400,code:'AUTOMATION_BUILD_SUITE_INVALID'});
+  for(const value of Object.values(test_suite_ids_by_case))if(value!==null&&(typeof value!=='string'||!value.trim()))throw Object.assign(new Error('Suite selections must contain a suite ID or an explicit empty selection per case.'),{statusCode:400,code:'AUTOMATION_BUILD_SUITE_INVALID'});
+  const valuesByCase={},planKeysByCase={},suitesByCase={};
+  for(const row of selectedCases){
+    const values=require('@hellotest/automation/backend/services/automationBuildParameterPlan.service').buildParameterValues(parameter_values_by_case?.[row.id]||{});
+    const expectedKey=parameter_plan_keys_by_case?.[row.id];
+    const hasSuiteChoice=Object.hasOwn(test_suite_ids_by_case,row.id);
+    const suiteId=hasSuiteChoice?test_suite_ids_by_case[row.id]:test_suite_id;
+    if(hasSuiteChoice||suiteId!=null||expectedKey!=null||Object.keys(values).length){
+      const plan=await require('@hellotest/automation/backend/services/automationBuildParameterPlan.service').load({caseId:row.id,projectId:appType.project_id,userId:created_by,test_environment_id,test_configuration_id,test_suite_id:suiteId,test_data_set_id,parameter_values:values,expectedKey});
+      planKeysByCase[row.id]=plan.parameter_plan_key;
+      suitesByCase[row.id]=Object.hasOwn(plan,'test_suite_id')?plan.test_suite_id:suiteId??null;
+    }
+    if(Object.keys(values).length)valuesByCase[row.id]=values;
+  }
+  const steps = await db.prepare(`SELECT test_case_id,step_type FROM test_steps
+    WHERE test_case_id IN(SELECT jsonb_array_elements_text(?::jsonb)) FOR SHARE`).all(JSON.stringify(selectedCases.map(row => row.id)));
+  const startUrlsByCaseId = Object.fromEntries(selectedCases.map(testCase => [testCase.id,
+    normalizeAutomationStartUrl(explicitStartUrl ? normalizedStartUrl : testCase.automation_start_url || testCase.linked_automation_start_url, {
+      required: requiresAutomationStartUrl({ appTypeKind: appType.type, steps: steps.filter(step => step.test_case_id === testCase.id) })
+    })
+  ]));
+  const startUrlReviewsByCaseId = Object.fromEntries(selectedCases.map(testCase => [testCase.id, captureStartUrlReview(testCase,
+    testCase.linked_automation_test_case_id ? { id: testCase.linked_automation_test_case_id, automation_start_url: testCase.linked_automation_start_url } : null
+  )]));
+  // Freeze the reviewed selection and each target for delayed jobs. A later
+  // case edit must not redirect a scheduled build or add cases to its scope.
+  if (!test_case_ids.length) test_case_ids = selectedCases.map(row => row.id);
   const selectedCaseCount = Array.isArray(test_case_ids) ? test_case_ids.length : 0;
 
   return exports.queueBatchJob({
@@ -530,6 +611,12 @@ exports.queueAutomationBuild = async ({
       ? `Queued ${selectedCaseCount} selected manual case${selectedCaseCount === 1 ? "" : "s"} to build with the automation agent.`
       : "Queued manual cases to build with the automation agent.",
     metadata: {
+      agent_activity: true,
+      input_test_case_ids: test_case_ids,
+      verification_status: "unverified",
+      verification_mode,
+      browser_driver,
+      verification_driver,
       selected_case_count: selectedCaseCount,
       total_items: selectedCaseCount,
       current_phase: "queued"
@@ -542,16 +629,27 @@ exports.queueAutomationBuild = async ({
       test_case_ids,
       integration_id,
       allow_browser_actions: allow_browser_actions === true,
-      start_url,
+      verification_mode,
+      browser_driver,
+      verification_driver,
+      start_url: explicitStartUrl ? normalizedStartUrl : undefined,
+      start_urls_by_case_id: startUrlsByCaseId,
+      start_url_reviews_by_case_id: startUrlReviewsByCaseId,
       test_environment_id,
       test_configuration_id,
+      test_suite_id,
+      test_suite_ids_by_case:suitesByCase,
       test_data_set_id,
+      parameter_values_by_case:valuesByCase,
+      parameter_plan_keys_by_case:planKeysByCase,
       failure_threshold,
       additional_context,
+      agent_context,
+      ai_feature: selectedFeature,
       created_by
     }
   });
-};
+});
 
 async function runUserImport(job) {
   const userService = require("@hellotest/platform/backend/services/user.service");
@@ -748,12 +846,26 @@ async function runTestCaseExport(job) {
   };
 }
 
-async function runAutomationBuild(job) {
+async function runAutomationBuild(job,executionGuard) {
   const aiAutomationBuilderService = require("@hellotest/automation/backend/services/aiAutomationBuilder.service");
   const payload = parseJsonValue(job.payload, {});
+  const ids = Array.isArray(payload.test_case_ids) ? payload.test_case_ids : [];
+  const targets = await db.prepare(`SELECT source.id,app_types.type AS app_type_kind
+    FROM test_cases source JOIN app_types ON app_types.id=source.app_type_id
+    WHERE source.app_type_id=? AND (source.id IN(SELECT jsonb_array_elements_text(?::jsonb))
+      OR (?::boolean AND COALESCE(source.automated,'no') <> 'yes' AND app_types.type IN('api','web','android','ios','unified')))
+    ORDER BY source.id`).all(payload.app_type_id, JSON.stringify(ids), ids.length === 0);
+  for (const target of targets) {
+    await executionGuard?.ensureOwnership();
+    const steps = await db.prepare('SELECT step_type FROM test_steps WHERE test_case_id=? ORDER BY step_order,id').all(target.id);
+    const required = requiresAutomationStartUrl({ appTypeKind: target.app_type_kind, steps });
+    const desiredStartUrl = normalizeAutomationStartUrl(payload.start_urls_by_case_id?.[target.id] ?? payload.start_url, { required });
+    await assertQueuedStartUrlReview({ sourceCaseId: target.id, appTypeId: payload.app_type_id, review: payload.start_url_reviews_by_case_id?.[target.id], desiredStartUrl, required });
+  }
 
   return aiAutomationBuilderService.buildAutomationBatch({
     ...payload,
+    execution_guard: executionGuard,
     transaction_id: job.transaction_id
   });
 }
@@ -785,15 +897,14 @@ exports.processQueuedJobs = async () => {
     for (const job of jobs) {
       const operation = normalizeText(job.operation);
       const handler = operation ? JOB_HANDLERS[operation] : null;
+      let executionGuard;
 
       try {
-        if (!handler) {
-          throw new Error(`Unsupported batch operation: ${operation || "unknown"}`);
-        }
-
         const leaseExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
         const claim = await markJobRunning.run(workerId, leaseExpiresAt, job.id);
         if (claim.changes !== 1) continue;
+        executionGuard=createBatchJobLease({renew:()=>renewJobLease.run(new Date(Date.now()+10*60*1000).toISOString(),job.id,workerId)});
+        if (!handler) throw new Error(`Unsupported batch operation: ${operation || "unknown"}`);
         await workspaceTransactionService.updateTransaction(job.transaction_id, {
           status: "running",
           started_at: new Date().toISOString(),
@@ -801,15 +912,19 @@ exports.processQueuedJobs = async () => {
             current_phase: "running"
           }
         });
-        const result = await handler(job);
-        await markJobCompleted.run(result || {}, job.id);
+        const result = await handler(job,executionGuard);
+        await executionGuard.ensureOwnership();
+        const completed=await markJobCompleted.run(result || {}, job.id,workerId);
+        if(completed.changes!==1)throw Object.assign(new Error("The job lease changed before completion."),{code:"BATCH_JOB_LEASE_LOST"});
         const completedTransaction = await workspaceTransactionService.getTransaction(job.transaction_id);
         await workspaceTransactionService.createTransactionNotification(job.transaction_id, {
           type: "batch_process.completed",
           title: completedTransaction.title,
-          message: `${completedTransaction.title} completed. Open the batch process for details and artifacts.`
+          message: completedTransaction.metadata?.agent_activity ? `${completedTransaction.title}: ${completedTransaction.metadata.phase_message || completedTransaction.description || "Review the agent activity in Automation."}` : `${completedTransaction.title} completed. Open the batch process for details and artifacts.`
         });
       } catch (error) {
+        if(executionGuard?.signal.aborted||error.code==='BATCH_JOB_LEASE_LOST')continue;
+        if(executionGuard)try{await executionGuard.ensureOwnership();}catch{continue;}
         const message = error instanceof Error ? error.message : "Batch process failed";
         const nextAttempt = Number(job.attempts || 0) + 1;
         const maxAttempts = resolveJobMaxAttempts(job);
@@ -819,7 +934,8 @@ exports.processQueuedJobs = async () => {
           const retryDelayMs = resolveRetryDelayMs(error, nextAttempt);
           const nextRunAt = new Date(Date.now() + retryDelayMs).toISOString();
 
-          await markJobRetryQueued.run(nextRunAt, message, job.id);
+          const requeued=await markJobRetryQueued.run(nextRunAt, message, job.id,workerId);
+          if(requeued.changes!==1)continue;
           await workspaceTransactionService.updateTransaction(job.transaction_id, {
             status: "queued",
             description: isAiCapacityError(error)
@@ -859,7 +975,8 @@ exports.processQueuedJobs = async () => {
           max_attempts: maxAttempts
         };
 
-        await markJobFailed.run(result, message, job.id);
+        const failed=await markJobFailed.run(result, message, job.id,workerId);
+        if(failed.changes!==1)continue;
         await workspaceTransactionService.updateTransaction(job.transaction_id, {
           status: "failed",
           description: message,
@@ -886,7 +1003,7 @@ exports.processQueuedJobs = async () => {
           title: "Batch process failed",
           message: message || "Batch process failed. Open the process for details."
         });
-      }
+      } finally {executionGuard?.stop();}
     }
   } finally {
     isProcessing = false;

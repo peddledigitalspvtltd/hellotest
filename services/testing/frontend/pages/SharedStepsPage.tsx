@@ -1,10 +1,14 @@
+import { buildAutomationGherkin } from "@hellotest/automation/frontend/lib/automationGherkin";
+import { AutomationSourceSections, automationSectionSource } from "@hellotest/automation/frontend/components/AutomationSourceSections";
+import { SharedAutomationSectionsEditor, type SharedAutomationSectionChange } from "@hellotest/automation/frontend/components/SharedAutomationSectionsEditor";
+import { GherkinEditor } from "../components/GherkinEditor";
 import { collectRepositoryPages } from "@hellotest/automation/frontend/lib/repositoryEntries";
 import { downloadParameterCsvTemplate } from "../lib/executionParameterContext";
 import { Fragment, FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
-import { AddIcon, CollapseExpandIcon, LayersIcon, OpenIcon, SelectionToggleIcon, SparkIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
+import { AddIcon, CopyIcon, CollapseExpandIcon, LayersIcon, OpenIcon, SelectionToggleIcon, SparkIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { CatalogActionMenu } from "@hellotest/platform/frontend/src/shared/components/CatalogActionMenu";
 import { CatalogSelectionControls } from "@hellotest/platform/frontend/src/shared/components/CatalogSelectionControls";
 import { CatalogSearchFilter } from "@hellotest/platform/frontend/src/shared/components/CatalogSearchFilter";
@@ -54,6 +58,7 @@ import {
   normalizeStepType
 } from "@hellotest/automation/frontend/lib/stepAutomation";
 import { buildDataSetParameterValues, collectSensitiveDataSetParameterNames, collectStepParameters, excludeSensitiveStepParameterValues, filterStepParameterValues, normalizeStepParameterValues, type StepParameterDefinition } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
+import { isPrivateParameterName } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
 import { buildDataSetPayload, buildEmptyDataSetDraft, DataSetForm, ResourceModalShell, type DataSetDraft } from "./TestEnvironmentPage";
 import type { AutomationLearningCacheEntry, SharedStepGroup, TestCase, TestDataSet, TestStep, User } from "@hellotest/platform/frontend/src/types";
 
@@ -79,6 +84,14 @@ type SharedGroupDraft = {
 };
 
 type SharedGroupStepInput = Pick<SharedGroupDraftStep, "action" | "expected_result" | "step_type" | "automation_code" | "api_request">;
+
+const sharedSectionInput = (input: SharedAutomationSectionChange): SharedGroupStepInput => ({
+  action: input.action || "",
+  expected_result: input.expected_result || "",
+  step_type: normalizeStepType(input.step_type),
+  automation_code: input.automation_code || "",
+  api_request: input.api_request || null
+});
 
 type SharedGroupStepActionMenuAction = {
   label: string;
@@ -130,7 +143,8 @@ const cloneSharedGroupStep = (
   api_request: step.api_request ? structuredClone(step.api_request) : null
 });
 
-const draftFromGroup = (group: SharedStepGroup): SharedGroupDraft => ({
+const draftFromGroup = (group: SharedStepGroup, automation = false): SharedGroupDraft => {
+  const draft: SharedGroupDraft = {
   name: group.name,
   description: group.description || "",
   authoring_mode: group.authoring_mode === "gherkin" ? "gherkin" : "structured",
@@ -145,7 +159,13 @@ const draftFromGroup = (group: SharedStepGroup): SharedGroupDraft => ({
     automation_code: step.automation_code || "",
     api_request: step.api_request ? structuredClone(step.api_request) : null
   }))
-});
+  };
+  if (automation && draft.authoring_mode === "gherkin") {
+    draft.steps = mergeGherkinStepMetadata(sharedStepGherkinToStructuredSteps(draft.gherkin_document, { normalizeParameters: true }), draft.steps, createEmptyDraftStep);
+    draft.authoring_mode = "structured";
+  }
+  return draft;
+};
 
 const normalizeGroupSteps = (steps: SharedGroupDraftStep[]) =>
   steps
@@ -187,7 +207,9 @@ export function SharedStepsPage() {
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const { can } = useCapabilityAccess(projectId);
   const [instructionStepId, setInstructionStepId] = useState("");
+  const [automationSectionView, setAutomationSectionView] = useState<"instructions" | "source" | "gherkin">("instructions");
   const canEditSectionInstructions = isAutomationLibrary && can("automation.build") && can("automation.code.view");
+  const canViewSectionCode = can("automation.code.view");
   const canManageSharedStepGroups = can("shared_step.manage");
   const canUseSharedStepAi = canManageSharedStepGroups && can("testcase.ai");
   const canViewTestCases = can("testcase.view");
@@ -216,7 +238,7 @@ export function SharedStepsPage() {
     steps: true,
     dataSets: true
   });
-  const sectionObjects = useQuery({ queryKey: ["automation-learning-cache", "shared-sections", projectId, appTypeId], queryFn: ({ signal }) => collectRepositoryPages<AutomationLearningCacheEntry>(page => api.testCases.learningCache({ app_type_id: appTypeId, ...page }, { signal }), { signal }), enabled: Boolean(canEditSectionInstructions && appTypeId && can("automation.view")) });
+  const sectionObjects = useQuery({ queryKey: ["automation-learning-cache", "shared-sections", projectId, appTypeId], queryFn: ({ signal }) => collectRepositoryPages<AutomationLearningCacheEntry>(page => api.testCases.learningCache({ app_type_id: appTypeId, ...page }, { signal }), { signal }), enabled: Boolean(isAutomationLibrary && canViewSectionCode && appTypeId && can("automation.view")) });
   const [groupDraft, setGroupDraft] = useState<SharedGroupDraft>(EMPTY_GROUP_DRAFT);
   const [stepInsertIndex, setStepInsertIndex] = useState<number | null>(null);
   const [newStepDraft, setNewStepDraft] = useState<SharedGroupStepInput>(EMPTY_SHARED_GROUP_STEP_INPUT);
@@ -238,6 +260,16 @@ export function SharedStepsPage() {
   const [isImprovingSteps, setIsImprovingSteps] = useState(false);
   const [isVisualBuilderActive, setIsVisualBuilderActive] = useState(false);
   const closingWorkspaceRef = useRef(false);
+
+  useEffect(() => {
+    setInstructionStepId("");
+    setAutomationSectionView("instructions");
+  }, [appTypeId, selectedGroupId, isAutomationLibrary]);
+
+  useEffect(() => {
+    if (!canEditSectionInstructions || !canManageSharedStepGroups) setInstructionStepId("");
+    if (!canViewSectionCode) setAutomationSectionView(current => current === "source" ? "instructions" : current);
+  }, [canEditSectionInstructions, canManageSharedStepGroups, canViewSectionCode]);
 
   const projectsQuery = useQuery({
     queryKey: ["projects", "workspace-scopes", JSON.stringify([session?.user.id, session?.user.role, session?.user.role_id, session?.user.status, session?.user.permissions, session?.user.workspace_permissions, session?.user.project_permissions])],
@@ -400,7 +432,11 @@ export function SharedStepsPage() {
     ? { ...linkedDataSet, rows: linkedDataSet.rows.slice(groupDraft.test_data_row_index, groupDraft.test_data_row_index + 1) }
     : linkedDataSet;
   const linkedDataParameterValues = buildDataSetParameterValues(linkedDataRow);
-  const sensitiveDataParameterNames = collectSensitiveDataSetParameterNames(linkedDataRow);
+  const sensitiveDataParameterNames = [...new Set([
+    ...collectSensitiveDataSetParameterNames(linkedDataRow),
+    ...(selectedGroup?.parameter_sensitive_names || []),
+    ...Object.keys(sharedParameterValues).filter(isPrivateParameterName)
+  ])];
   const resolvedSharedParameterValues = excludeSensitiveStepParameterValues(
     { ...sharedParameterValues, ...linkedDataParameterValues }, sensitiveDataParameterNames
   );
@@ -421,6 +457,14 @@ export function SharedStepsPage() {
     if (groupDraft.authoring_mode !== "gherkin") return structuredSharedSteps;
     return mergeGherkinStepMetadata(sharedStepGherkinToStructuredSteps(groupDraft.gherkin_document, { normalizeParameters: true }), groupDraft.steps, createEmptyDraftStep);
   }, [groupDraft.authoring_mode, groupDraft.gherkin_document, groupDraft.steps, structuredSharedSteps]);
+
+  const automationSections = useMemo<TestStep[]>(() => authoredSharedSteps.map((step, index) => ({
+    ...step,
+    test_case_id: selectedGroupId || "shared-section-group-draft",
+    step_order: index + 1,
+    automation_code: canViewSectionCode ? step.automation_code : null,
+    api_request: canViewSectionCode ? step.api_request : null
+  })), [authoredSharedSteps, selectedGroupId, canViewSectionCode]);
 
   const visualSharedSteps = useMemo<TestStep[]>(
     () =>
@@ -486,13 +530,12 @@ export function SharedStepsPage() {
     () =>
       collectStepParameters(
         [...authoredSharedSteps.map((step) => {
-          const savedStep = selectedGroup?.steps.find((item) => item.id === step.id);
           return {
             id: step.id,
             action: groupDraft.authoring_mode === "gherkin" ? normalizeGherkinParameterReferences(step.action) : step.action,
             expected_result: groupDraft.authoring_mode === "gherkin" ? normalizeGherkinParameterReferences(step.expected_result) : step.expected_result,
-            automation_code: step.automation_code || savedStep?.automation_code || "",
-            api_request: step.api_request || savedStep?.api_request || null
+            automation_code: step.automation_code,
+            api_request: step.api_request
           };
         }), ...(groupDraft.authoring_mode === "gherkin" ? [{
           id: "shared-group-gherkin",
@@ -502,7 +545,7 @@ export function SharedStepsPage() {
           api_request: null
         }] : [])]
       ),
-    [authoredSharedSteps, groupDraft.authoring_mode, groupDraft.gherkin_document, selectedGroup]
+    [authoredSharedSteps, groupDraft.authoring_mode, groupDraft.gherkin_document]
   );
 
   useEffect(() => {
@@ -540,7 +583,7 @@ export function SharedStepsPage() {
     }
 
     if (selectedGroup) {
-      setGroupDraft(draftFromGroup(selectedGroup));
+      setGroupDraft(draftFromGroup(selectedGroup, isAutomationLibrary));
       setSharedParameterValues(normalizeStepParameterValues(selectedGroup.parameter_values || {}));
       resetStepComposer();
       return;
@@ -553,7 +596,7 @@ export function SharedStepsPage() {
     setSelectedGroupId("");
     setGroupDraft(EMPTY_GROUP_DRAFT);
     resetStepComposer();
-  }, [isCreating, selectedGroup, selectedGroupId, sharedGroupsQuery.isFetched, sharedGroupsQuery.isError, sharedGroupsQuery.isFetching, sharedGroupsQuery.isLoading]);
+  }, [isCreating, selectedGroup, selectedGroupId, isAutomationLibrary, sharedGroupsQuery.isFetched, sharedGroupsQuery.isError, sharedGroupsQuery.isFetching, sharedGroupsQuery.isLoading]);
 
   const filteredGroups = useMemo(() => {
     const search = deferredSearchTerm.trim().toLowerCase();
@@ -965,9 +1008,10 @@ export function SharedStepsPage() {
 
     setGroupDraft((current) => {
       const filteredSteps = cutStepIds.length ? current.steps.filter((step) => !cutStepIds.includes(step.id)) : current.steps;
-      const insertIndex = Math.max(0, Math.min(index, filteredSteps.length));
+      const removedBeforeInsertion = current.steps.slice(0, index).filter(step => cutStepIds.includes(step.id)).length;
+      const insertIndex = Math.max(0, Math.min(index - removedBeforeInsertion, filteredSteps.length));
       const nextSteps = [...filteredSteps];
-      nextSteps.splice(insertIndex, 0, ...copiedSteps.map((step) => cloneSharedGroupStep(step)));
+      nextSteps.splice(insertIndex, 0, ...copiedSteps.map(step => cutStepIds.includes(step.id) ? structuredClone(step) : cloneSharedGroupStep(step)));
 
       return {
         ...current,
@@ -1085,7 +1129,8 @@ export function SharedStepsPage() {
       return;
     }
 
-    const steps = normalizeGroupSteps(authoredSharedSteps);
+    const steps = canViewSectionCode ? normalizeGroupSteps(authoredSharedSteps)
+      : authoredSharedSteps.map((step, index) => ({ id: step.id, step_order: index + 1, action: step.action.trim(), expected_result: step.expected_result.trim(), step_type: normalizeStepType(step.step_type) }));
     const parameterValues = filterStepParameterValues(normalizeStepParameterValues(sharedParameterValues), detectedSharedParameters);
     const gherkinDocument = groupDraft.authoring_mode === "gherkin"
       ? composeSharedStepGherkin(parseSharedStepGherkin(groupDraft.gherkin_document))
@@ -1112,7 +1157,7 @@ export function SharedStepsPage() {
         syncSharedGroupSearchParams(getRoutableId(createdGroup) || createdGroup.id);
         setSelectedGroupId(createdGroup.id);
         setIsCreating(false);
-        setGroupDraft(draftFromGroup(createdGroup));
+        setGroupDraft(draftFromGroup(createdGroup, isAutomationLibrary));
         showSuccess(groupCopy("Shared Step Group created."));
       } else if (selectedGroup) {
         await updateSharedGroup.mutateAsync({
@@ -1134,7 +1179,7 @@ export function SharedStepsPage() {
         savedGroupId = refreshedGroup.id;
         syncSharedGroupSearchParams(getRoutableId(refreshedGroup) || refreshedGroup.id);
         setSelectedGroupId(refreshedGroup.id);
-        setGroupDraft(draftFromGroup(refreshedGroup));
+        setGroupDraft(draftFromGroup(refreshedGroup, isAutomationLibrary));
 
         showSuccess(
           selectedGroup.usage_count
@@ -1228,7 +1273,7 @@ export function SharedStepsPage() {
   const sharedStepPreview = richTextToPlainText(authoredSharedSteps[0]?.action || authoredSharedSteps[0]?.expected_result || "");
   const sharedStepSectionSummary = sharedStepPreview
     ? `Starts with: ${sharedStepPreview}`
-    : "No steps yet. Add at least one step so this group is useful across cases.";
+    : isAutomationLibrary ? "Add a named section and its executable instructions." : "No steps yet. Add at least one step so this group is useful across cases.";
   const openTestCaseWorkspace = (testCaseId: string) => {
     setIsUsageDialogOpen(false);
     setLinkedPreviewCaseId(testCaseId);
@@ -1303,9 +1348,10 @@ export function SharedStepsPage() {
     }
   ];
 
-  const improveSharedGroupSteps = async () => {
+  const improveSharedGroupSteps = async (stepIds = selectedStepIds) => {
     if (!canUseSharedStepAi || !appTypeId || !groupDraft.steps.length || isImprovingSteps) return;
-    const selected = new Set(selectedStepIds);
+    const selected = new Set(stepIds);
+    const scope = dataSetScopeRef.current;
     const targetSteps = selected.size ? groupDraft.steps.filter((step) => selected.has(step.id)) : groupDraft.steps;
 
     setIsImprovingSteps(true);
@@ -1315,12 +1361,12 @@ export function SharedStepsPage() {
         const response = await api.testCases.rephraseStep({
           app_type_id: appTypeId,
           additional_context: [
-            groupCopy("Improve this reusable Shared Step Group step. Keep related steps consistent, preserve @t parameters, remove ambiguity and needless repetition, and keep the result focused on manual action and expected-result authoring.")
+            isAutomationLibrary ? "Improve only this reusable automation section name and expected result. Preserve all parameter references and authored intent; do not add or remove execution requirements. Instructions, platform, requests and checks remain unchanged." : "Improve this reusable Shared Step Group step. Keep related steps consistent, preserve @t parameters, remove ambiguity and needless repetition, and keep the result focused on manual action and expected-result authoring."
           ].filter(Boolean).join("\n\n"),
           test_case: {
             title: groupDraft.name || groupCopy("Shared Step Group"),
             description: groupDraft.description,
-            parameter_values: sharedParameterValues
+            parameter_values: resolvedSharedParameterValues
           },
           step: {
             step_order: groupDraft.steps.findIndex((candidate) => candidate.id === step.id) + 1 || index + 1,
@@ -1329,6 +1375,7 @@ export function SharedStepsPage() {
             expected_result: step.expected_result
           }
         });
+        if (dataSetScopeRef.current !== scope) return;
         improvedById.set(step.id, {
           ...step,
           action: response.step.action || step.action,
@@ -1340,7 +1387,12 @@ export function SharedStepsPage() {
       }
       setGroupDraft((current) => ({
         ...current,
-        steps: current.steps.map((step) => improvedById.get(step.id) || step)
+        steps: current.steps.map((step) => {
+          const improved = improvedById.get(step.id);
+          const original = targetSteps.find(item => item.id === step.id);
+          return improved && original && step.action === original.action && step.expected_result === original.expected_result
+            ? { ...step, action: improved.action, expected_result: improved.expected_result } : step;
+        })
       }));
       setExpandedStepIds((current) => [...new Set([...current, ...targetSteps.map((step) => step.id)])]);
       showSuccess(`${targetSteps.length} step${targetSteps.length === 1 ? "" : "s"} improved in the draft. Review the changes, then save the group.`);
@@ -1360,7 +1412,7 @@ export function SharedStepsPage() {
         className={isSharedGroupWorkspaceOpen ? "page-header--workspace-context" : ""}
         eyebrow={isAutomationLibrary ? "Automation assets" : "Test Authoring"}
         title={groupCopy("Shared Step Groups")}
-        description="Curate reusable Structured or Gherkin step blocks once, preserve linked parameters, and apply consistent behavior across every connected Test Case."
+        description={isAutomationLibrary ? "Build reusable automation sections with executable instructions, source, behavior and shared parameter defaults." : "Curate reusable Structured or Gherkin step blocks once, preserve linked parameters, and apply consistent behavior across every connected Test Case."}
         meta={[
           { label: "Groups", value: coverageMeta.total },
           { label: "Reusable steps", value: coverageMeta.totalSteps },
@@ -1611,7 +1663,7 @@ export function SharedStepsPage() {
         detailView={(
           <Panel
             title={groupCopy("Shared Step Group workspace")}
-            subtitle={selectedGroupId || isCreating ? groupCopy("Edit the Shared Step Group and keep its step sequence ready for test case insertion.") : groupCopy("Select a Shared Step Group or create a new one.")}
+            subtitle={selectedGroupId || isCreating ? isAutomationLibrary ? "Edit reusable sections and instructions for insertion into automation cases." : "Edit the Shared Step Group and keep its step sequence ready for test case insertion." : groupCopy("Select a Shared Step Group or create a new one.")}
           >
             {selectedGroupId || isCreating ? (
               <form className="detail-stack shared-step-workspace-form" onSubmit={(event) => void handleSaveGroup(event)}>
@@ -1628,7 +1680,7 @@ export function SharedStepsPage() {
                         <span>{selectedGroup.usage_count ? `Linked cases · ${selectedGroup.usage_count}` : "Linked cases"}</span>
                       </button>
                     ) : null}
-                    <button
+                    {!isAutomationLibrary ? <button
                       aria-pressed={isVisualBuilderActive}
                       className="ghost-button compact"
                       disabled={groupDraft.authoring_mode === "gherkin"}
@@ -1637,17 +1689,35 @@ export function SharedStepsPage() {
                     >
                       <LayersIcon />
                       <span>{isVisualBuilderActive ? "Step list" : "Visual builder"}</span>
-                    </button>
+                    </button> : null}
                     {canUseSharedStepAi ? (
                       <button className="ghost-button compact" disabled={groupDraft.authoring_mode === "gherkin" || !groupDraft.steps.length || isImprovingSteps} onClick={() => void improveSharedGroupSteps()} title={groupDraft.authoring_mode === "gherkin" ? "Switch to Structured to improve individual steps" : undefined} type="button">
                         <SparkIcon size={16} />
-                        <span>{isImprovingSteps ? "Improving…" : selectedStepIds.length ? `AI Improve · ${selectedStepIds.length}` : "AI Improve Steps"}</span>
+                        <span>{isImprovingSteps ? "Improving…" : selectedStepIds.length ? `AI Improve · ${selectedStepIds.length}` : isAutomationLibrary ? "AI Improve Sections" : "AI Improve Steps"}</span>
                       </button>
                     ) : null}
                   </div>
                 </div>
                 <div aria-label={groupCopy("Shared Step Group authoring format")} className="test-authoring-mode-card shared-step-authoring-mode-card">
-                  <div className="test-authoring-mode-toggle" role="tablist" aria-label={groupCopy("Shared Step Group authoring mode")}>
+                  {isAutomationLibrary ? <div className="test-authoring-mode-toggle" role="tablist" aria-label="Shared Section Group authoring mode">
+                    {(["instructions", "source", "gherkin"] as const).filter(view => view !== "source" || canViewSectionCode).map(view => (
+                      <button key={view} id={`shared-sections-${view}-tab`} type="button" role="tab"
+                        aria-selected={automationSectionView === view} aria-controls="shared-step-group-authoring-panel"
+                        tabIndex={automationSectionView === view ? 0 : -1}
+                        className={automationSectionView === view ? "is-active" : ""}
+                        onClick={() => setAutomationSectionView(view)}
+                        onKeyDown={event => {
+                          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                          event.preventDefault();
+                          const modes = (["instructions", "source", "gherkin"] as const).filter(mode => mode !== "source" || canViewSectionCode);
+                          const index = modes.indexOf(view);
+                          const next = event.key === "Home" ? modes[0] : event.key === "End" ? modes[modes.length - 1] : modes[(index + (event.key === "ArrowRight" ? 1 : -1) + modes.length) % modes.length];
+                          setAutomationSectionView(next);
+                          requestAnimationFrame(() => document.getElementById(`shared-sections-${next}-tab`)?.focus());
+                        }}
+                      >{view === "instructions" ? "Instructions" : view === "source" ? "Source" : "Gherkin"}</button>
+                    ))}
+                  </div> : (                  <div className="test-authoring-mode-toggle" role="tablist" aria-label={groupCopy("Shared Step Group authoring mode")}>
                     <button
                       aria-controls="shared-step-group-authoring-panel"
                       aria-selected={groupDraft.authoring_mode === "structured"}
@@ -1666,9 +1736,9 @@ export function SharedStepsPage() {
                       tabIndex={groupDraft.authoring_mode === "gherkin" ? 0 : -1}
                       type="button"
                     >Gherkin</button>
-                  </div>
+                  </div>) }
                 </div>
-                <div id="shared-step-group-authoring-panel" role="tabpanel">
+                <div id="shared-step-group-authoring-panel" role="tabpanel" aria-labelledby={isAutomationLibrary ? `shared-sections-${automationSectionView}-tab` : undefined}>
                 <div className="editor-accordion">
                   <SharedStepAccordionSection
                     countLabel={groupDraft.name.trim() ? "Ready" : "Draft"}
@@ -1676,7 +1746,7 @@ export function SharedStepsPage() {
                     onToggle={() =>
                       setExpandedWorkspaceSections((current) => ({ ...current, details: !current.details }))
                     }
-                    summary={groupCopy("Set the Shared Step Group name and description before curating the linked reusable steps.")}
+                    summary={isAutomationLibrary ? "Set the group name and description before curating reusable automation sections." : "Set the Shared Step Group name and description before curating the linked reusable steps."}
                     title={groupCopy("Shared Step Group details")}
                   >
                     <div className="form-grid">
@@ -1703,15 +1773,46 @@ export function SharedStepsPage() {
                   </SharedStepAccordionSection>
 
                   <SharedStepAccordionSection
-                    countLabel={`${authoredSharedSteps.length} step${authoredSharedSteps.length === 1 ? "" : "s"}`}
+                    countLabel={`${authoredSharedSteps.length} ${isAutomationLibrary ? "section" : "step"}${authoredSharedSteps.length === 1 ? "" : "s"}`}
                     isExpanded={expandedWorkspaceSections.steps}
                     onToggle={() =>
                       setExpandedWorkspaceSections((current) => ({ ...current, steps: !current.steps }))
                     }
                     summary={sharedStepSectionSummary}
-                    title="Steps"
+                    title={isAutomationLibrary ? "Sections" : "Steps"}
                   >
-                    {groupDraft.authoring_mode === "gherkin" ? (
+                    {isAutomationLibrary ? automationSectionView === "gherkin" ? (
+                      <GherkinEditor
+                        value={buildAutomationGherkin(groupDraft.name, automationSections, linkedDataRow || undefined, { repository: asArray<AutomationLearningCacheEntry>(sectionObjects.data), parameterValues: resolvedSharedParameterValues })}
+                        featureTitle={groupDraft.name} readOnly minimalBehaviorEditor onChange={() => undefined}
+                        parameterValues={resolvedSharedParameterValues} availableParameters={detectedSharedParameters}
+                      />
+                    ) : automationSectionView === "source" && canViewSectionCode ? (
+                      <section className="automation-full-source" aria-label="Shared Section Group source">
+                        <div className="automation-source-toolbar">
+                          <button className="ghost-button compact" type="button" onClick={() => { void navigator.clipboard?.writeText(automationSections.map(automationSectionSource).join("\n\n")).catch(error => showError(error, "Unable to copy section source.")); }}><CopyIcon size={15} />Copy full source</button>
+                        </div>
+                        <AutomationSourceSections steps={automationSections} onCopy={source => { void navigator.clipboard?.writeText(source).catch(error => showError(error, "Unable to copy section source.")); }} />
+                      </section>
+                    ) : (
+                      <SharedAutomationSectionsEditor
+                        key={`${projectId}:${appTypeId}:${selectedGroupId || "new"}`}
+                        sections={automationSections} view="instructions"
+                        canEdit={canManageSharedStepGroups && canEditSectionInstructions}
+                        canViewCode={canViewSectionCode}
+                        parameters={detectedSharedParameters} values={resolvedSharedParameterValues}
+                        repository={asArray<AutomationLearningCacheEntry>(sectionObjects.data)}
+                        onUpdate={(id, input) => updateDraftStep(id, sharedSectionInput(input))}
+                        onInsert={(index, input) => insertDraftStepAt(index, sharedSectionInput(input))}
+                        onMove={moveDraftStep} onCopy={copyDraftSteps} onCut={cutDraftSteps}
+                        onPaste={pasteDraftStepsAt} onRemove={deleteDraftSteps}
+                        onEditInstructions={id => setInstructionStepId(id)}
+                        onImprove={canUseSharedStepAi && !isImprovingSteps ? id => { void improveSharedGroupSteps([id]); } : undefined}
+                        canPaste={Boolean(copiedSteps.length)} selectedIds={selectedStepIds}
+                        onSelect={toggleDraftStepSelected}
+                        onSelectAll={checked => setSelectedStepIds(checked ? groupDraft.steps.map(step => step.id) : [])}
+                      />
+                    ) : groupDraft.authoring_mode === "gherkin" ? (
                       <SharedStepGherkinEditor
                         availableParameters={detectedSharedParameters}
                         groupName={groupDraft.name}
@@ -1855,7 +1956,7 @@ export function SharedStepsPage() {
                     countLabel={groupDraft.test_data_set_id ? "1 iteration" : "None"}
                     isExpanded={expandedWorkspaceSections.dataSets}
                     onToggle={() => setExpandedWorkspaceSections((current) => ({ ...current, dataSets: !current.dataSets }))}
-                    summary="One data row supplies the same defaults to every linked test case in either authoring format."
+                    summary={isAutomationLibrary ? "One data row supplies defaults to every automation case that uses this group." : "One data row supplies the same defaults to every linked test case in either authoring format."}
                     title="Data Sets"
                   >
                     <AuthoringDataSetPanel
@@ -1976,10 +2077,12 @@ export function SharedStepsPage() {
           }
           onClose={() => setIsParameterDialogOpen(false)}
           parameters={detectedSharedParameters.map((parameter) => sensitiveDataParameterNames.includes(parameter.name) ? { ...parameter, sensitive: true } : parameter)}
+          allowSensitiveValueOverrides
+          inheritedParameterNames={sensitiveDataParameterNames}
           getInputState={(parameter) => ({
-            disabled: !canManageSharedStepGroups || parameter.sensitive,
-            hint: parameter.sensitive ? "Hidden by the linked Data Set." : Object.prototype.hasOwnProperty.call(linkedDataParameterValues, parameter.name)
-              ? "The selected data row supplies this parameter during execution. This field stores the fallback group default." : undefined
+            disabled: !canManageSharedStepGroups,
+            hint: Object.prototype.hasOwnProperty.call(linkedDataParameterValues, parameter.name) || sensitiveDataParameterNames.includes(parameter.name)
+              ? "This field edits the fallback group default. A linked data row takes precedence while linked; private values stay hidden." : undefined
           })}
           previewValues={resolvedSharedParameterValues}
           scopeLabels={{ t: groupCopy("Shared Step Group") }}

@@ -1,0 +1,23 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const transactions=require('@hellotest/platform/backend/services/workspaceTransaction.service');
+const data=require('../../backend/services/automationBuildData.service');
+const db=require('@hellotest/platform/backend/src/db'),obs=require('@hellotest/platform/backend/src/obsDb');
+test.after(()=>Promise.all([db.close(),obs.close()]));
+test('resolved data is a bounded immutable artifact pinned to its exact case and activity',async t=>{
+ let saved;
+ t.mock.method(transactions,'createTransactionArtifact',async(transaction_id,input)=>{saved={id:'artifact',transaction_id,...input};return saved;});
+ t.mock.method(transactions,'getTransactionArtifact',async()=>saved);
+ const input={test_case_id:'case',steps:[{step_id:'one',action:'Enter actual@example.test',expected_result:'Saved'}],manual_steps:[{manual_test_case_id:'manual',manual_step_id:'m1',action:'Enter actual@example.test',expected_result:'Saved'}],parameter_values:{'t.email':'actual@example.test','t.password':'not-stored'},parameter_references:['t.email','t.password'],private_parameter_references:['t.password'],missing_parameter_references:['r.name','r.name','']};
+ const before=JSON.stringify(input);assert.deepEqual(await data.create('activity',input),{build_data_artifact_id:'artifact'});
+ assert.equal(JSON.stringify(input),before);assert.doesNotMatch(saved.content,/not-stored/);
+ const activity={id:'activity',metadata:{input_test_case_ids:['case'],build_data_artifacts:{case:'artifact'}}};
+ const result=await data.read(activity,'artifact');assert.equal(result.manual_steps[0].action,input.manual_steps[0].action);
+ assert.deepEqual(result.parameter_references,['t.email','t.password']);assert.deepEqual(result.private_parameter_references,['t.password']);
+ assert.deepEqual(result.missing_parameter_references,['r.name']);
+ await assert.rejects(data.read({...activity,id:'another'},'artifact'),error=>error.statusCode===404);
+ await assert.rejects(data.read({...activity,metadata:{...activity.metadata,build_data_artifacts:{case:'other'}}},'artifact'),error=>error.statusCode===404);
+ saved={...saved,content:saved.content.replace('"test_case_id":"case"','"test_case_id":"foreign"')};
+ await assert.rejects(data.read(activity,'artifact'),error=>error.statusCode===404);
+ assert.throws(()=>data.snapshot({...input,steps:[{step_id:'one',action:'x'.repeat(20001)}]}));
+ assert.throws(()=>data.snapshot({...input,steps:[{step_id:''}]}));
+});

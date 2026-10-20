@@ -42,3 +42,17 @@ test("repository selection lists usable fields with screen identities and resolv
   assert.equal(resolveAutomationRepositoryTarget("#manual", repository), "#manual");
   assert.deepEqual(repository, original);
 });
+
+test("merged screen references resolve historical names without listing redirects or overriding canonical names", () => {
+  const repository = [
+    {id:"email",page_key:"Account",locator_intent:"Email",locator:"#email",metadata:{reference_aliases:["Login.Email",null,"Login.Email"],object_name:"Email"}},
+    {id:"redirect",page_key:"Login",locator_intent:"Email",locator:"#retired",metadata:{merged_into_entry_id:"email"}},
+    {id:"canonical",page_key:"Login",locator_intent:"Submit",locator:"#primary",metadata:{}},
+    {id:"secondary",page_key:"Account",locator_intent:"Submit",locator:"#secondary",metadata:{reference_aliases:["Login.Submit","Old.Submit"]}},
+    {id:"conflict",page_key:"Other",locator_intent:"Submit",locator:"#other",metadata:{reference_aliases:["Old.Submit"]}}
+  ];
+  assert.deepEqual(buildAutomationRepositoryFields(repository).map(field=>field.reference),["Account.Email","Login.Submit","Account.Submit","Other.Submit"]);
+  assert.equal(resolveAutomationRepositoryTarget("Login.Email",repository),"#email");
+  assert.equal(resolveAutomationRepositoryTarget("Login.Submit",repository),"#primary");
+  assert.equal(resolveAutomationRepositoryTarget("Old.Submit",repository),"Old.Submit","Ambiguous history must not choose an arbitrary field.");
+});

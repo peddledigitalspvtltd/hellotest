@@ -35,7 +35,7 @@ function normalize(input = {}) {
     source_ids: list(input.source_ids, 'Knowledge sources'), source_kinds: list(input.source_kinds, 'Source kinds', 20),
     required_inputs: list(input.required_inputs, 'Required inputs', 20),
     acceptance: { require_evidence: input.acceptance?.require_evidence ?? true, no_evidence_gaps: input.acceptance?.no_evidence_gaps ?? false, minimum_findings: integer(input.acceptance?.minimum_findings, 0, 0, 8, 'Minimum findings') },
-    limits: { timeout_ms: integer(input.limits?.timeout_ms, 70000, 10000, 70000, 'Time limit'), max_model_calls: integer(input.limits?.max_model_calls, 2, 1, 2, 'Model calls'), max_output_tokens: integer(input.limits?.max_output_tokens, 4000, 256, 8000, 'Output tokens') }
+    limits: { timeout_ms: integer(input.limits?.timeout_ms, 150000, 10000, 150000, 'Time limit'), max_model_calls: integer(input.limits?.max_model_calls, 2, 1, 4, 'Model calls'), max_output_tokens: integer(input.limits?.max_output_tokens, 4000, 256, 8000, 'Output tokens') }
   };
   if (result.feature_id && !Object.values(require('../../shared/workflowSpecialists.json')).some(profile => profile.featureId === result.feature_id)) throw fail('Choose a supported quality capability.');
   if (!Array.isArray(result.context_scopes) || result.context_scopes.some(scope => typeof scope !== 'string')) throw fail('Select evidence scopes.');

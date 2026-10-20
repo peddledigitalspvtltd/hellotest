@@ -1,0 +1,141 @@
+.automation-agent-activity-list { container: engineer-activity / inline-size; }
+.automation-engineer-workspace { display: grid; grid-template-columns: minmax(220px, .28fr) minmax(0, .72fr); gap: 16px; min-width: 0; align-items: start; }
+.automation-engineer-workspace :is(h3, p, figure) { margin: 0; }
+.automation-engineer-workspace h3 { font-size: 14px; font-weight: 650; line-height: 1.5; }
+.automation-engineer-commands, .automation-engineer-application, .automation-engineer-implementation { min-width: 0; overflow: hidden; border: 1px solid var(--app-border); border-radius: 11px; background: var(--app-surface); }
+.automation-engineer-commands > header, .automation-engineer-application > header, .automation-engineer-implementation > header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--app-border); }
+.automation-engineer-commands > header > div { display: grid; gap: 3px; min-width: 0; }
+.automation-engineer-case-name { padding: 14px 16px; color: var(--app-text); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.automation-engineer-case-select { display: grid; gap: 5px; margin: 12px 16px 0; color: var(--app-text-muted); font-size: 11px; }
+.automation-engineer-case-select select { width: 100%; min-width: 0; padding: 7px 9px; font-size: 12px; }
+.automation-engineer-step-count { padding: 8px 16px 12px; color: var(--app-text-muted); font-size: 11px; }
+.automation-engineer-data-state { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:0 16px 12px; color:var(--app-text-muted); font-size:10px; line-height:1.6; }
+.automation-engineer-data-state > button { font-size:10px; }
+.automation-engineer-command-list { display: grid; gap: 8px; max-height: 700px; min-width: 0; margin: 0; padding: 0 10px 12px; overflow: auto; list-style: none; }
+.automation-engineer-command-list > li { min-width: 0; }
+.automation-engineer-command-list > li > button { display: grid; grid-template-columns: 26px minmax(0, 1fr) 14px; align-items: start; gap: 9px; width: 100%; padding: 12px 10px; border: 1px solid transparent; border-radius: 8px; color: var(--app-text); background: var(--app-surface-muted); font: inherit; text-align: left; cursor: pointer; }
+.automation-engineer-command-list > li > button[aria-current="step"] { border-color: var(--app-accent, #087e82); background: var(--app-accent-soft, #edf7f6); }
+.automation-engineer-command-list > li[data-agent-current="true"] > button { box-shadow: inset 3px 0 0 var(--app-accent, #087e82); }
+.automation-engineer-command-list > li > button:focus-visible { outline: 2px solid var(--app-accent, #087e82); outline-offset: -3px; }
+.automation-engineer-command-number { display: grid; place-items: center; width: 24px; min-height: 24px; border: 1px solid var(--app-border); border-radius: 50%; color: var(--app-text-muted); font-size: 11px; background: var(--app-surface); }
+.automation-engineer-command-list > li[data-status="saved"] .automation-engineer-command-number { color: var(--app-accent, #087e82); }
+.automation-engineer-command-copy { display: grid; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.automation-engineer-command-copy > strong { font-size: 12px; font-weight: 600; line-height: 1.6; white-space: pre-wrap; }
+.automation-engineer-command-expected { display: grid; gap: 3px; color: var(--app-text-muted); font-size: 12px; font-weight: 400; line-height: 1.6; white-space: pre-wrap; }
+.automation-engineer-command-expected b { font-size: 10px; font-weight: 600; }
+.automation-engineer-command-copy > small { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; color: var(--app-text-muted); font-size: 10px; line-height: 1.5; }
+.automation-engineer-command-state { font-weight: 600; }
+.automation-engineer-command-list [data-status="working"] .automation-engineer-command-state { color: var(--app-accent, #087e82); }
+.automation-engineer-command-list [data-status="attention"] .automation-engineer-command-state { color: var(--app-danger, #b42318); }
+.automation-engineer-command-arrow { margin-top: 5px; color: var(--app-text-muted); }
+.automation-engineer-queued-placeholder { display:grid; gap:10px; align-content:center; min-height:91px; padding:4px 0; }
+.automation-engineer-wave { display:block; height:10px; border-radius:5px; background:linear-gradient(90deg,var(--app-border) 0%,var(--app-surface-muted) 48%,var(--app-border) 100%); background-size:220% 100%; animation:automation-engineer-wave 1.8s ease-in-out infinite; opacity:.7; }
+.automation-engineer-wave.is-title { width:84%; height:12px; }
+.automation-engineer-wave.is-detail { width:96%; }
+.automation-engineer-wave.is-status { width:52%; height:8px; }
+@keyframes automation-engineer-wave { from { background-position:120% 0; } to { background-position:-120% 0; } }
+.automation-engineer-planning-label { padding:12px 16px 0; color:var(--app-text-muted); font-size:12px; }
+.automation-engineer-workspace[data-progress-paused="true"] .automation-engineer-wave { animation:none; }
+@media (prefers-reduced-motion:reduce) { .automation-engineer-wave { animation:none; } }
+.automation-engineer-output { display: grid; min-width: 0; gap: 14px; }
+.automation-engineer-application > header > div, .automation-engineer-implementation > header > div { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.automation-engineer-application > header > span, .automation-engineer-implementation > header > span { color: var(--app-text-muted); font-size: 10px; white-space: nowrap; }
+.automation-engineer-implementation h3 { overflow-wrap: anywhere; }
+.automation-engineer-browser-address { display: flex; align-items: center; gap: 8px; padding: 10px 14px; min-width: 0; border-bottom: 1px solid var(--app-border); background: var(--app-surface-muted); color: var(--app-text-muted); }
+.automation-engineer-browser-address > span { font-size: 8px; }
+.automation-engineer-browser-address code { min-width: 0; flex: 1; overflow: hidden; font-family: inherit; font-size:11px; line-height:1.5; text-overflow: ellipsis; white-space: nowrap; }
+.automation-engineer-browser-address time { font-size: 10px; white-space: nowrap; }
+.automation-engineer-page-title { padding: 8px 14px 0; color: var(--app-text-muted); font-size: 11px; overflow-wrap: anywhere; }
+.automation-engineer-evidence-tabs, .automation-engineer-code-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--app-border); }
+.automation-engineer-evidence-tabs > button, .automation-engineer-code-tabs > button { display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; min-height: 34px; padding: 6px 10px; border: 1px solid transparent; border-radius: 6px; color: var(--app-text-muted); background: transparent; font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.automation-engineer-evidence-tabs > button[aria-selected="true"], .automation-engineer-code-tabs > button[aria-selected="true"] { border-color: var(--app-border); color: var(--app-accent, #087e82); background: var(--app-accent-soft, #edf7f6); }
+.automation-engineer-evidence-tabs > button:disabled { opacity: .45; cursor: default; }
+.automation-engineer-application-view { display: grid; place-items: center; min-width: 0; min-height: 235px; max-height: 370px; overflow: auto; background: var(--app-surface-muted); }
+.automation-engineer-application-view > img { display: block; width: 100%; height: auto; max-height: 370px; object-fit: contain; }
+.automation-engineer-application-view > p, .automation-engineer-code-view > p { padding: 24px; color: var(--app-text-muted); font-size: 12px; line-height: 1.6; }
+.automation-engineer-application-view > pre { box-sizing: border-box; align-self: stretch; justify-self: stretch; margin: 0; padding: 14px; min-width: 0; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--app-text); font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.automation-engineer-partial-note { padding: 9px 14px; border-top: 1px solid var(--app-border); color: var(--app-text-muted); font-size: 10px; line-height: 1.6; }
+.automation-engineer-interaction-mode { padding:8px 14px 0; color:var(--app-text-muted); font-size:11px; line-height:1.6; }
+.automation-engineer-browser-actions { display:grid; gap:5px; margin:8px 14px; padding:0; list-style:none; font-size:11px; }
+.automation-engineer-browser-actions > li { display:flex; justify-content:space-between; gap:12px; color:var(--app-text-muted); }
+.automation-engineer-browser-actions strong { font-weight:500; color:var(--app-text); }
+.automation-engineer-browser-actions > li[data-status="unknown"] strong, .automation-engineer-browser-actions > li[data-status="failed"] strong { color:var(--app-danger,#b42318); }
+.automation-engineer-evidence-elements { align-self:stretch; justify-self:stretch; display:grid; gap:10px; min-width:0; margin:0; padding:14px 24px; }
+.automation-engineer-evidence-elements > li { display:grid; gap:4px; color:var(--app-text); font-size:12px; overflow-wrap:anywhere; }
+.automation-engineer-evidence-elements code { color:var(--app-text-muted); font-size:10px; }
+.automation-engineer-placeholder { display: grid; justify-items: center; align-content: center; gap: 10px; min-height: 175px; box-sizing: border-box; padding: 24px; color: var(--app-text-muted); text-align: center; }
+.automation-engineer-placeholder > svg { color: var(--app-accent, #087e82); }
+.automation-engineer-placeholder > strong { color: var(--app-text); font-size: 13px; font-weight: 600; }
+.automation-engineer-placeholder > p { max-width: 370px; font-size: 12px; line-height: 1.7; }
+.automation-engineer-code-view { min-width: 0; min-height: 280px; overflow: auto; }
+.automation-engineer-code-tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding-right:12px; border-bottom:1px solid var(--app-border); }
+.automation-engineer-code-tools .automation-engineer-code-tabs { flex:1 1 680px; min-width:0; border-bottom:0; }
+.automation-engineer-code-tools > button { flex:0 0 auto; margin-left:auto; margin-bottom:8px; font-size:11px; }
+.automation-engineer-error-count { display:inline-grid; place-items:center; min-width:17px; height:17px; padding:0 4px; box-sizing:border-box; border-radius:9px; color:var(--app-danger,#b42318); background:color-mix(in srgb,var(--app-danger,#b42318) 10%,var(--app-surface)); font-size:10px; font-weight:650; }
+.automation-engineer-error-count[data-resolved="true"] { color:var(--app-text-muted); background:var(--app-surface-muted); }
+.automation-engineer-command-error { display:inline-flex; align-items:center; gap:4px; color:var(--app-danger,#b42318); }
+.automation-engineer-command-error[data-resolved="true"] { color:var(--app-text-muted); }
+.automation-engineer-build-errors { padding:16px; font-size:12px; line-height:1.7; }
+.automation-engineer-build-errors h4 { margin:0 0 4px; font-size:13px; color:var(--app-text); }
+.automation-engineer-build-errors header > p { color:var(--app-text-muted); }
+.automation-engineer-build-errors > ol { display:grid; gap:12px; margin:14px 0 0; padding:0; list-style:none; }
+.automation-engineer-build-errors > ol > li { min-width:0; padding:12px; border:1px solid var(--app-border); border-left:3px solid var(--app-danger,#b42318); border-radius:7px; background:var(--app-surface); }
+.automation-engineer-build-errors > ol > li[data-resolved="true"] { border-left-color:var(--app-border); }
+.automation-engineer-build-errors li > div:first-child { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; }
+.automation-engineer-build-errors li > div:first-child > :is(span,time) { font-size:10px; color:var(--app-text-muted); }
+.automation-engineer-build-errors li > p { margin-top:7px; color:var(--app-text); white-space:pre-wrap; overflow-wrap:anywhere; }
+.automation-engineer-build-errors li > small { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; margin-top:8px; color:var(--app-text-muted); }
+.automation-engineer-build-errors code { max-width:100%; padding:2px 5px; border:1px solid var(--app-border); border-radius:4px; font:10px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap:anywhere; }
+.automation-engineer-error-context { display:flex; flex-wrap:wrap; align-items:center; gap:5px 8px; margin-top:10px; color:var(--app-text-muted); }
+.automation-engineer-error-context > b { font-size:10px; font-weight:600; }
+.automation-engineer-error-context > ul { width:100%; margin:0; padding-left:18px; overflow-wrap:anywhere; }
+.automation-engineer-semantic-issues { display:grid; gap:10px; margin:10px 0 0; padding-left:18px; overflow-wrap:anywhere; }
+.automation-engineer-semantic-issues li > div { display:grid; gap:3px; margin-top:5px; color:var(--app-text-muted); }
+.automation-engineer-semantic-issues b { font-size:10px; font-weight:600; }
+.automation-engineer-semantic-issues p { white-space:pre-wrap; }
+.automation-engineer-parameter-status { padding:10px 14px; border-bottom:1px solid var(--app-border); color:var(--app-text-muted); font-size:11px; line-height:1.7; }
+.automation-engineer-parameter-status > p { display:flex; flex-wrap:wrap; gap:4px 7px; }
+.automation-engineer-parameter-status > p + p { margin-top:7px; }
+.automation-engineer-parameter-status strong { color:var(--app-text); }
+.automation-engineer-parameter-status p > span { flex-basis:100%; }
+.automation-engineer-parameter-status code { font-size:10px; overflow-wrap:anywhere; }
+.automation-engineer-copy-notice { padding:8px 14px; color:var(--app-text-muted); font-size:11px; }
+.automation-engineer-code-view > pre { box-sizing: border-box; min-width: 0; margin: 0; padding: 16px; color: var(--app-text); font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.automation-engineer-code-view > div:has(> [role="alert"]) { padding: 16px; font-size: 12px; line-height: 1.6; }
+.automation-engineer-code-view .automation-instruction-line { display: grid; grid-template-columns: 30px minmax(0, 1fr); min-width: 0; }
+.automation-engineer-code-view .automation-line-number { padding: 7px 6px; color: var(--app-text-muted); font-size: 10px; text-align: right; }
+.automation-engineer-code-view .automation-instruction-readable { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; padding: 6px 12px; min-width: 0; color: var(--app-text); font-family: inherit; font-size:12px; line-height:1.7; overflow-wrap: anywhere; }
+.automation-engineer-code-view .automation-instruction-readable > strong { color: var(--app-accent, #087e82); font-weight: 600; }
+.automation-engineer-code-view .automation-instruction-explanation { width: 100%; color: var(--app-text-muted); font-size: 11px; }
+.automation-engineer-object-references { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--app-border); color: var(--app-text-muted); font-size: 10px; }
+.automation-engineer-object-references > code { max-width: 100%; padding: 2px 5px; border: 1px solid var(--app-border); border-radius: 4px; font-size: 10px; overflow-wrap: anywhere; }
+html .automation-engineer-workspace .automation-engineer-browser-address > code,
+html .automation-engineer-workspace .automation-engineer-code-view > pre,
+html .automation-engineer-workspace .automation-engineer-code-view > pre > code,
+html .automation-engineer-workspace .automation-engineer-application-view > pre,
+html .automation-engineer-workspace .automation-engineer-code-view .automation-instruction-readable { background:transparent !important; color:var(--app-text) !important; font-weight:400; }
+@container engineer-activity (max-width: 760px) {
+  .automation-engineer-workspace { grid-template-columns: minmax(0, 1fr); }
+  .automation-engineer-command-list { max-height: 350px; }
+  .automation-engineer-application-view { min-height: 180px; max-height: 300px; }
+}
+@media (max-width: 640px) {
+  .automation-engineer-workspace { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .automation-engineer-command-list { max-height: 350px; }
+  .automation-engineer-commands > header, .automation-engineer-application > header, .automation-engineer-implementation > header { padding: 12px; }
+  .automation-engineer-application-view { min-height: 180px; max-height: 300px; }
+}
+.automation-engineer-command-list > li > button:disabled { opacity:1; cursor:default; background:var(--app-surface); border-color:var(--app-border); }
+.automation-engineer-command-list > li > button:disabled .automation-engineer-command-copy > strong { color:var(--app-text-muted); font-weight:500; }
+.automation-engineer-command-list > li[data-status="validated"] .automation-engineer-command-number { color:var(--app-accent, #087e82); }
+.automation-engineer-command-list > li > button:disabled .automation-engineer-command-arrow { visibility:hidden; }
+.automation-engineer-command-state { display:inline-flex; align-items:center; gap:5px; }
+.automation-engineer-step-loader { width:9px; height:9px; border:1.5px solid var(--app-border); border-top-color:var(--app-accent,#087e82); border-radius:50%; animation:automation-engineer-loading 1s linear infinite; }
+@keyframes automation-engineer-loading { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .automation-engineer-step-loader { animation:none; } }
+@media (max-width:640px) { .automation-engineer-code-tools { flex-wrap:wrap; padding:0 10px 8px; } .automation-engineer-code-tools .automation-engineer-code-tabs { width:100%; padding:8px 0 0; } .automation-engineer-code-tools > button { margin-left:auto; } }
+.automation-engineer-browser-activity { min-height:185px; padding:8px 0 14px; }
+.automation-engineer-browser-activity .automation-engineer-browser-actions { gap:8px; margin-top:14px; }
+.automation-engineer-browser-activity .automation-engineer-browser-actions > li { padding:10px 12px; border:1px solid var(--app-border); border-radius:6px; background:var(--app-surface-muted); overflow-wrap:anywhere; }
+.automation-engineer-generation-version { display: grid; gap: .25rem; margin: .75rem 1rem 0; padding: .65rem .8rem; border: 1px solid var(--app-border); border-radius: .5rem; font-size: .8rem; }
+.automation-engineer-generation-version span { color: var(--app-text-muted); }

@@ -67,6 +67,10 @@ function fixture(overrides = {}) {
       };
     }
   };
+  const hooksModule = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../backend/services/caseExecutionHooks.service.js'), 'utf8'), {
+    module: hooksModule, require: dependency => dependencyName(dependency) === 'db' ? db : require(dependency)
+  });
   const service = {};
   const noop = async () => {};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../backend/services/testCase.service.js'), 'utf8'), {
@@ -79,6 +83,7 @@ function fixture(overrides = {}) {
       if (dependencyName(dependency) === "dropdownCatalog.service") return { getDefaultValue: async () => 'functional', validateValue: async (_, value) => value };
       if (dependencyName(dependency) === "mobileFeature.service") return { assertAuthoringMobileFeatureEnabled: noop };
       if (dependencyName(dependency) === "notification.service") return { createNotification: async item => state.notifications.push(item) };
+      if (dependencyName(dependency) === "caseExecutionHooks.service") return hooksModule.exports;
       if (dependencyName(dependency) === "sharedStepSync.service") return {
         syncSharedGroupFromReference: async (...args) => state.sharedGroupSyncs.push(args)
       };

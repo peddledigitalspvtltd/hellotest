@@ -1,3 +1,4 @@
+import { buildApiValidationAssertionCode as sharedValidationCode } from "../../shared/apiValidation.mjs";
 import type { AutomationLearningCacheEntry, SharedStepGroupStep, StepApiRequest, StepApiResponseCapture, StepApiValidation, TestStep, TestStepType } from "@hellotest/platform/frontend/src/types";
 
 export const STEP_TYPE_OPTIONS: Array<{ value: TestStepType; label: string; shortLabel: string }> = [
@@ -180,28 +181,7 @@ function toJsAssertionLiteral(value?: string | null) {
 }
 
 export function buildApiValidationAssertionCode(validation: StepApiValidation, responseVar: string) {
-  const target = normalizeRichText(validation.target);
-  const expected = normalizeRichText(validation.expected);
-
-  switch (normalizeValidationKind(validation.kind)) {
-    case "header_present":
-      return `expect(${responseVar}.headers[${quoteJsString(target || "content-type")}]).toBeDefined();`;
-    case "header":
-      return `expect(${responseVar}.headers[${quoteJsString(target || "content-type")}]).toBe(${quoteJsString(expected || "")});`;
-    case "body_not_contains":
-      return `expect(String(${responseVar}.body)).not.toContain(${quoteJsString(expected || "")});`;
-    case "body_contains":
-      return `expect(String(${responseVar}.body)).toContain(${quoteJsString(expected || "")});`;
-    case "json_schema":
-      return `expect(validateJsonSchema(${responseVar}.body, ${toJsAssertionLiteral(expected || target)})).toEqual({ valid: true });`;
-    case "response_time":
-      return `expect(${responseVar}.durationMs).toBeLessThanOrEqual(${Number(expected || target) || 2000});`;
-    case "json_path":
-      return `expect(readJsonPath(${responseVar}.body, ${quoteJsString(target || "$")})).toEqual(${toJsAssertionLiteral(expected)});`;
-    case "status":
-    default:
-      return `expect(${responseVar}.status).toBe(${Number(expected) || 200});`;
-  }
+  return sharedValidationCode(validation, responseVar);
 }
 
 function buildApiRequestLiteral(request: StepApiRequest) {
@@ -407,8 +387,14 @@ function unquoteCallArgument(value: string) {
 
 function resolveObjectForLocator(locator: string, repository: AutomationLearningCacheEntry[] = []) {
   const normalized = locator.trim();
-  return repository.find((entry) => entry.locator === normalized)
-    || repository.find((entry) => entry.locator && normalized.includes(entry.locator));
+  if (!normalized) return undefined;
+  // A shared selector alone cannot identify a screen/route. Preserve the raw
+  // target when several current objects match; substring similarity is never
+  // evidence that two instructions use the same field.
+  const matches = repository.filter(entry => !entry.metadata?.merged_into_entry_id
+    && entry.locator_intent !== '__screen__' && entry.metadata?.record_kind !== 'screen'
+    && entry.locator?.trim() === normalized);
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 function readRepositoryText(entry: AutomationLearningCacheEntry | undefined, key: string) {

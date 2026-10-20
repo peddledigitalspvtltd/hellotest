@@ -78,7 +78,7 @@ const classifyQuery = (query, { hasMedia = false } = {}) => {
   const text = compactText(query, 8000);
   if (hasMedia || /\b(?:image|screenshot|diagram|video|audio|recording|visual|ocr)\b/i.test(text))
     return QUERY_CLASSES.MULTIMODAL;
-  if (/\b[A-Z][A-Z0-9_]{1,30}-[0-9]+\b/i.test(text) || /\b(?:BUG|TC|TS|STORY|RUN|REQ)-?[A-Z0-9_-]+\b/i.test(text) || /\b(?:id|key)\s*[:=#]\s*[A-Z0-9_-]+\b/i.test(text))
+  if (/\b[A-Z][A-Z0-9_]{1,30}-[0-9]+\b/i.test(text) || /\b(?:AT[_-][0-9]+|(?:BUG|TC|TS|STORY|RUN|REQ)-?[A-Z0-9_-]+)\b/i.test(text) || /\b(?:id|key)\s*[:=#]\s*[A-Z0-9_-]+\b/i.test(text))
     return QUERY_CLASSES.LOOKUP;
   if (/\b(?:root cause|why did|why is|investigate|correlat|timeline|regression|failure chain|what changed|contribut)\b/i.test(text))
     return QUERY_CLASSES.INVESTIGATIVE;

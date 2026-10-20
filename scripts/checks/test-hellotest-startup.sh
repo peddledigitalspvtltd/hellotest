@@ -202,9 +202,9 @@ export MOCK_PULL_STATUS=17
 assert_trace 'up -d --build --force-recreate api
 ps' 'deployment honors skip-image-pull'
 
-printf 'MINIO_IMAGE=registry.example.test/minio:custom\nAPI_STARTUP_TIMEOUT_MS=240000\nHELLOTEST_INSTANCE_SETUP_MODULES=workspace,planning\n' > "$TEST_DIR/override.env"
+printf 'MINIO_IMAGE=registry.example.test/minio:custom\nAPI_STARTUP_TIMEOUT_MS=240000\nHELLOTEST_SCHEMA_MODE=verify\nHELLOTEST_INSTANCE_SETUP_MODULES=workspace,planning\n' > "$TEST_DIR/override.env"
 (
-  unset MINIO_IMAGE API_STARTUP_TIMEOUT_MS HELLOTEST_INSTANCE_SETUP_MODULES
+  unset MINIO_IMAGE API_STARTUP_TIMEOUT_MS HELLOTEST_INSTANCE_SETUP_MODULES HELLOTEST_SCHEMA_MODE
   "$ROOT_DIR/hellotest.sh" config --stack local --config "$TEST_DIR/override.env" > "$TEST_DIR/output"
 )
 grep -Fx 'MINIO_IMAGE=registry.example.test/minio:custom' "$HELLOTEST_ENV_DIR/local.env" >/dev/null \
@@ -216,6 +216,13 @@ printf 'PASS: custom API startup timeout reaches the generated Compose environme
 grep -Fx 'HELLOTEST_INSTANCE_SETUP_MODULES=workspace,planning' "$HELLOTEST_ENV_DIR/local.env" >/dev/null \
   || fail 'instance setup selection must reach the generated Compose environment'
 printf 'PASS: instance setup selection reaches the generated Compose environment\n'
+grep -Fx 'HELLOTEST_SCHEMA_MODE=verify' "$HELLOTEST_ENV_DIR/local.env" >/dev/null || fail 'schema verification mode must reach Compose'
+(unset HELLOTEST_SCHEMA_MODE; "$ROOT_DIR/hellotest.sh" config --stack local > "$TEST_DIR/output")
+grep -Fx 'HELLOTEST_SCHEMA_MODE=verify' "$HELLOTEST_ENV_DIR/local.env" >/dev/null || fail 'schema mode must persist across ordinary restarts'
+if HELLOTEST_SCHEMA_MODE=skip "$ROOT_DIR/hellotest.sh" config --stack local > "$TEST_DIR/output" 2>&1; then fail 'invalid schema modes must fail closed'; fi
+printf 'PASS: schema mode is validated, propagated and preserved across restarts\n'
+
+
 
 reset_case
 unset HELLOTEST_OPS_ENABLED

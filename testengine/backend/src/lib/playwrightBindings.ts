@@ -13,12 +13,19 @@ export function createPlaywrightCodeBindings(page: Page, options: {
   const proxies = new WeakMap<object, object>();
   const interpolateMethods = new Set(["getByRole", "getByText", "getByLabel", "getByPlaceholder", "getByTestId", "getByTitle", "getByAltText", "fill", "type", "press", "pressSequentially", "selectOption", "filter"]);
   const selectorMethods = new Set(["click", "dblclick", "fill", "type", "press", "check", "uncheck", "selectOption", "setInputFiles", "hover", "focus", "textContent", "innerText", "inputValue", "getAttribute", "waitForSelector"]);
+  const semanticSelector = (value: string) => /^(?:page\.)?(?:getBy\w+|locator)\s*\(|^(?:role|label|placeholder|text|testid|data-testid|title|alt|alttext)=/.test(value);
   const transform = (value: unknown, interpolate = false): any => {
     if (typeof value === "string") return interpolate ? options.interpolate(value) : value;
     if (!value || typeof value !== "object") return value;
     if (originals.has(value)) return originals.get(value);
-    if (Array.isArray(value)) return value.map((entry) => transform(entry, interpolate));
-    if (Object.getPrototypeOf(value) === Object.prototype) return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, transform(entry, interpolate)]));
+    if (Array.isArray(value)) {
+      const entries = value.map((entry) => transform(entry, interpolate));
+      return entries.every((entry, index) => entry === value[index]) ? value : entries;
+    }
+    if (Object.getPrototypeOf(value) === Object.prototype) {
+      const entries = Object.entries(value).map(([key, entry]) => [key, transform(entry, interpolate)] as const);
+      return entries.every(([key, entry]) => entry === (value as Record<string, unknown>)[key]) ? value : Object.fromEntries(entries);
+    }
     return value;
   };
   const wrap = (target: any): any => {
@@ -38,12 +45,24 @@ export function createPlaywrightCodeBindings(page: Page, options: {
           const args = input.map((arg) => transform(arg, interpolateMethods.has(name)));
           if (name === "locator" && typeof args[0] === "string") {
             args[0] = options.resolveLocator(options.interpolate(args[0]));
-            if (isPageOrFrame && /^(?:page\.)?(?:getBy\w+|locator)\s*\(|^(?:role|label|placeholder|text|testid|data-testid)=/.test(args[0])) {
+            if (isPageOrFrame && semanticSelector(args[0])) {
               const locator = resolveRepositoryLocator(native as Page, args[0]);
               return wrap(args[1] ? locator.filter(args[1]) : locator);
             }
           }
-          if (isPageOrFrame && selectorMethods.has(name) && typeof args[0] === "string") args[0] = options.resolveLocator(options.interpolate(args[0]));
+          if (isPageOrFrame && selectorMethods.has(name) && typeof args[0] === "string") {
+            args[0] = options.resolveLocator(options.interpolate(args[0]));
+            if (semanticSelector(args[0])) {
+              const locator = resolveRepositoryLocator(native as Page, args[0]);
+              if (name === "waitForSelector") {
+                const settings = args[1] || {};
+                return locator.waitFor(settings).then(() => ["hidden", "detached"].includes(settings.state) ? null : locator.elementHandle());
+              }
+              const method = (locator as any)[name];
+              const result = method.apply(locator, args.slice(1));
+              return result && typeof result.then === "function" ? result.then(wrap) : wrap(result);
+            }
+          }
           if (isPageOrFrame && name === "goto" && typeof args[0] === "string") args[0] = options.resolveUrl(options.interpolate(args[0]));
           const result = value.apply(native, args);
           return result && typeof result.then === "function" ? result.then(wrap) : wrap(result);
@@ -55,8 +74,25 @@ export function createPlaywrightCodeBindings(page: Page, options: {
     return proxy;
   };
   const nativeExpect = playwrightExpect.configure({ timeout: options.assertionTimeout });
-  const expect = new Proxy(nativeExpect, {
-    apply(target, receiver, args) { return Reflect.apply(target, receiver, args.map((arg) => transform(arg))); }
+  const wrapMatchers = (target: any): any => new Proxy(target, {
+    get(native, key) {
+      const value = Reflect.get(native, key, native);
+      if (typeof value === "function") return (...args: unknown[]) => Reflect.apply(value, native, args.map(arg => transform(arg, true)));
+      return value && typeof value === "object" ? wrapMatchers(value) : value;
+    }
   });
+  const wrapExpect = (target: typeof nativeExpect): typeof nativeExpect => new Proxy(target, {
+    apply(native, receiver, args) { return wrapMatchers(Reflect.apply(native, receiver, args.map(arg => transform(arg)))); },
+    get(native, key) {
+      const value = Reflect.get(native, key, native);
+      if (key === "soft" || key === "poll") return (...args: unknown[]) => wrapMatchers(Reflect.apply(value, native, args.map(arg => transform(arg))));
+      if (key === "configure" || key === "extend") return (...args: unknown[]) => wrapExpect(Reflect.apply(value, native, args));
+      // Static asymmetric matchers also accept expected values. Other native
+      // helpers retain their original return types, including functions.
+      if (key === "not") return wrapMatchers(value);
+      return typeof value === "function" ? (...args: unknown[]) => Reflect.apply(value, native, args.map(arg => transform(arg, true))) : value;
+    }
+  });
+  const expect = wrapExpect(nativeExpect);
   return { page: wrap(page) as Page, expect };
 }

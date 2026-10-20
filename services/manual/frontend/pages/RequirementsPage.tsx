@@ -1,4 +1,6 @@
 import { takeAgentProposal } from "@hellotest/platform/frontend/src/lib/agentProposalDraft";
+import { platformApi } from '@hellotest/platform/frontend/api.client';
+import { uploadStoryPromptFiles, validateStoryPromptFiles, type PendingStoryAttachments } from '../lib/storyPromptAttachments';
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
 const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
 const AiDesignStudioModal = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiDesignStudioModal")["AiDesignStudioModal"]> & {}>("ai", "AiDesignStudioModal", () => import("@hellotest/ai/frontend/components/AiDesignStudioModal"), "ai");
@@ -869,6 +871,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const [optimizeContext, setOptimizeContext] = useState("");
   const [optimizeExternalLinksText, setOptimizeExternalLinksText] = useState("");
   const [optimizeReferenceImages, setOptimizeReferenceImages] = useState<AiDesignImageInput[]>([]);
+  const [storyContextFiles, setStoryContextFiles] = useState<File[]>([]);
+  const storyOriginalImagesRef = useRef(new Map<string, File[]>());
+  const [pendingStoryAttachments, setPendingStoryAttachments] = useState<PendingStoryAttachments[]>([]);
+  const [isAttachingStoryFiles, setIsAttachingStoryFiles] = useState(false);
+  const storyAcceptanceBusyRef = useRef(false);
   const agentProposalRevisionRef = useRef<{ id: string; revision: number } | null>(null);
   const [optimizationSuggestion, setOptimizationSuggestion] = useState<RequirementOptimizationSuggestion | null>(null);
   const [requirementCreationDrafts, setRequirementCreationDrafts] = useState<RequirementCreationSuggestion[]>([]);
@@ -4365,6 +4372,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setOptimizeContext("");
     setOptimizeExternalLinksText("");
     setOptimizeReferenceImages([]);
+    setStoryContextFiles([]);
+    storyOriginalImagesRef.current.clear();
+    setPendingStoryAttachments([]);
     setIsRequirementAiContextBusy(false);
     setIsRequirementAiReferenceBusy(false);
   }, [storyAiScope, canUseRequirementAi]);
@@ -4372,6 +4382,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   useEffect(() => () => { storyAiRequestRef.current.active = false; }, []);
 
   const handleAddOptimizeReferenceImages = async (files: FileList | null) => {
+    const originals=Array.from(files||[]);
     let request = storyAiRequestRef.current;
     setIsRequirementAiReferenceBusy(true);
     try {
@@ -4382,6 +4393,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       let budgetMessage = "";
       setOptimizeReferenceImages((current) => {
         const result = mergeAiReferenceImagesWithinBudget(current, images);
+        if(!result.message)images.forEach((image,index)=>{
+          const file=originals[index];if(!file)return;
+          const previous=storyOriginalImagesRef.current.get(image.url)||[];
+          if(!previous.includes(file))storyOriginalImagesRef.current.set(image.url,[...previous,file]);
+        });
         budgetMessage = result.message;
         return result.images;
       });
@@ -4468,6 +4484,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             title: item.title,
             description: item.description,
             priority: item.priority,
+            test_case_type: item.test_case_type,
             requirement_ids: item.requirement_ids,
             authoring_mode: item.authoring_mode,
             gherkin_document: item.gherkin_document,
@@ -4521,6 +4538,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setOptimizeContext("");
     setOptimizeExternalLinksText("");
     setOptimizeReferenceImages([]);
+    setStoryContextFiles([]);
+    storyOriginalImagesRef.current.clear();
     setOptimizationSuggestion(null);
     setRequirementCreationDrafts([]);
     setStoryAiHumanEditedFieldsByDraftId({});
@@ -4580,6 +4599,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setOptimizeContext("");
     setOptimizeExternalLinksText("");
     setOptimizeReferenceImages([]);
+    setStoryContextFiles([]);
+    storyOriginalImagesRef.current.clear();
     setOptimizationSuggestion(null);
     setRequirementCreationDrafts([]);
     setStoryAiHumanEditedFieldsByDraftId({});
@@ -4598,6 +4619,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   };
 
   const isStoryAiBlockingClose = createRequirement.isPending
+    || isAttachingStoryFiles
     || appendRequirementReleaseScope.isPending
     || updateRequirement.isPending
     || isRequirementAiContextBusy
@@ -4612,6 +4634,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }
 
     invalidateRequirementAiDraft(false);
+    setStoryContextFiles([]);
+    storyOriginalImagesRef.current.clear();
     setIsOptimizeModalOpen(false);
     setCreateRequirementReleaseId("");
     setOptimizeRequirementIds([]);
@@ -4844,13 +4868,28 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }
   };
 
-	  const handleApplyRequirementOptimization = async () => {
+  const handleApplyRequirementOptimization = async () => {
+	    if(storyAcceptanceBusyRef.current)return;
 	    if (requirementAiMode === "create" ? !canCreateRequirements : !canUpdateRequirements) {
 	      setPreviewTone("error");
 	      setPreviewMessage(requirementAiMode === "create" ? "Permission required to create Stories." : "Permission required to update Stories.");
 	      return;
 	    }
-
+    storyAcceptanceBusyRef.current=true;
+    setIsAttachingStoryFiles(true);
+    const attachmentScope=storyAiScopeRef.current;
+    try {
+    const promptFiles=[...new Set([...storyContextFiles,...optimizeReferenceImages.flatMap(image=>storyOriginalImagesRef.current.get(image.url)||[])])];
+    if(promptFiles.length&&!canCreateAttachments)throw new Error('Attachment upload permission is required to save these prompt files on the accepted Story.');
+    const attachmentMeta=promptFiles.length?await platformApi.attachments.meta():{enabled:true,uploadLimit:0};
+    validateStoryPromptFiles(promptFiles,attachmentMeta);
+    const failedAttachments:PendingStoryAttachments[]=[];
+    const attachToAcceptedStory=async(storyId:string,storyTitle:string)=>{
+      if(!promptFiles.length)return;
+      const pending=await uploadStoryPromptFiles({projectId,storyId,storyTitle,files:promptFiles},{upload:platformApi.attachments.upload,uploadLimit:attachmentMeta.uploadLimit});
+      await queryClient.invalidateQueries({queryKey:['hellotest-attachments',projectId,'requirement',storyId]});
+      if(pending){failedAttachments.push(pending);if(attachmentScope===storyAiScopeRef.current)setPendingStoryAttachments(current=>[...current.filter(item=>item.storyId!==storyId||item.projectId!==projectId),pending]);}
+    };
     if (requirementAiMode === "create") {
       if (!requirementCreationDrafts.length) {
         setPreviewTone("error");
@@ -4953,6 +4992,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           });
           createdIds.push(response.id);
           createdDraftIds.push(draftId);
+          await attachToAcceptedStory(response.id,candidate.title);
           if (targetIteration) {
             // Record each successful Jira create before starting the next draft.
             // A later partial-batch failure must not make completed Stories
@@ -4984,12 +5024,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           setSelectedRequirementId(firstCreatedId);
           setAiRequirementId(firstCreatedId);
         }
-        setIsOptimizeModalOpen(false);
+        setIsOptimizeModalOpen(failedAttachments.length>0);
         setOptimizationSuggestion(null);
         setRequirementCreationDrafts([]);
         setSelectedRequirementCreationDraftIds([]);
         setExpandedRequirementCreationDraftIds([]);
         setCreateRequirementReleaseId("");
+        if(failedAttachments.length){setPreviewTone('error');setPreviewMessage(`${createdIds.length} Stories were saved. Some original prompt files could not be attached. Retry the files below; the saved Stories will not be recreated.`);}
         showSuccess(`${createdIds.length} AI-assisted ${createdIds.length === 1 ? "Story" : "Stories"} created.${statusWarningCount ? ` HelloTest kept workflow status on ${statusWarningCount} item${statusWarningCount === 1 ? "" : "s"} because the requested AI draft status was not transitionable.` : ""} Review the saved ${createdIds.length === 1 ? "Story" : "Stories"} before using ${createdIds.length === 1 ? "it" : "them"} in downstream workflows.`);
         await refresh();
       } catch (error) {
@@ -5104,11 +5145,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           expected_revision: fullRequirement.revision
         }
       });
+      await attachToAcceptedStory(activeOptimizeRequirement!.id,nextDraft.title);
       if (activeOptimizeRequirement!.id === selectedRequirement?.id) {
         setDraft(nextDraft);
       }
       setOptimizationSuggestion(null);
-      setPreviewMessage("");
+      setPreviewMessage(failedAttachments.length?'Story changes were saved, but some original prompt files could not be attached. Retry the files below without applying the changes again.':'');
+      setPreviewTone(failedAttachments.length?'error':'success');
       setIsOptimizeModalOpen(false);
       setOptimizeRequirementIds([]);
         setDeleteSelectedRequirementIds((current) => current.filter((id) => id !== activeOptimizeRequirement!.id));
@@ -5118,7 +5161,36 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       setPreviewTone("error");
       setPreviewMessage(error instanceof Error ? error.message : "Unable to apply AI Story changes");
     }
+    } catch(error){setPreviewTone('error');setPreviewMessage(error instanceof Error?error.message:'Unable to save Story prompt files.');}
+    finally{storyAcceptanceBusyRef.current=false;setIsAttachingStoryFiles(false);}
   };
+
+  const retryStoryPromptAttachments=async()=>{
+    if(storyAcceptanceBusyRef.current)return;
+    storyAcceptanceBusyRef.current=true;setIsAttachingStoryFiles(true);
+    const attachmentScope=storyAiScopeRef.current;
+    try{
+      if(!canCreateAttachments)throw new Error('Attachment upload permission is required to retry these files.');
+      const meta=await platformApi.attachments.meta();
+      const pending:PendingStoryAttachments[]=[];
+      for(const target of pendingStoryAttachments){
+        validateStoryPromptFiles(target.files,meta);
+        const remaining=await uploadStoryPromptFiles(target,{upload:platformApi.attachments.upload,uploadLimit:meta.uploadLimit});
+        if(remaining)pending.push(remaining);
+        await queryClient.invalidateQueries({queryKey:['hellotest-attachments',target.projectId,'requirement',target.storyId]});
+      }
+      if(attachmentScope!==storyAiScopeRef.current)return;
+      setPendingStoryAttachments(pending);
+      if(!pending.length){setPreviewTone('success');setPreviewMessage('All original prompt files are attached to the saved Stories.');showSuccess('Original prompt files attached to the saved Stories.');}
+    }catch(error){setPreviewTone('error');setPreviewMessage(error instanceof Error?error.message:'Unable to attach the remaining Story files.');}
+    finally{storyAcceptanceBusyRef.current=false;setIsAttachingStoryFiles(false);}
+  };
+  const storyAttachmentRetryNotice=pendingStoryAttachments.length?<section aria-label="Story attachment uploads" className="inline-message error-message story-prompt-attachment-retry" role="alert">
+    <strong>Stories are saved; some prompt files still need to be attached.</strong>
+    <p>Retry uploads to the saved Stories. This does not create Stories or apply AI changes again.</p>
+    {pendingStoryAttachments.map(target=><div key={`${target.projectId}:${target.storyId}`}><strong>{target.storyTitle}</strong><ul>{target.errors.map((error,index)=><li key={index}>{error}</li>)}</ul></div>)}
+    <button className="ghost-button compact" disabled={isAttachingStoryFiles||!canCreateAttachments} onClick={()=>void retryStoryPromptAttachments()} type="button">{isAttachingStoryFiles?'Attaching files…':'Retry attachments'}</button>
+  </section>:null;
 
   const selectedRequirementCreationDrafts = useMemo(
     () => requirementCreationDrafts.filter((candidate, index) =>
@@ -5547,7 +5619,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   ];
 
   return (
-    <div className="page-content page-content--library-full">
+    <div className={`page-content page-content--library-full${selectedRequirementId ? " page-content--workspace-focus page-content--record-focus" : ""}`}>
       {confirmationDialog}
       <PageHeader
         className={isRequirementWorkspaceOpen ? "page-header--workspace-context" : ""}
@@ -7434,6 +7506,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         </div>
       ) : null}
 
+      {!isOptimizeModalOpen?storyAttachmentRetryNotice:null}
       {isOptimizeModalOpen && (requirementAiMode === "create" || activeOptimizeRequirement) ? (
         <div
           className="modal-backdrop story-ai-workbench-backdrop"
@@ -7581,7 +7654,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   }}
                   showGherkin={includeGherkin}
                   showProperties
-                  statusContent={aiCompleteRequirementDetailQuery.isError && requirementAiMode === "improve" ? (
+                  statusContent={pendingStoryAttachments.length?storyAttachmentRetryNotice:aiCompleteRequirementDetailQuery.isError && requirementAiMode === "improve" ? (
                     <div className="story-studio-state-message is-error" role="alert">HelloTest could not load this Story’s full connected-workspace context. Refresh before completing or applying changes.</div>
                   ) : aiCompleteRequirementDetailQuery.isLoading && requirementAiMode === "improve" ? (
                     <LoadingState label="Loading the selected Story’s full connected-workspace context" />
@@ -7698,6 +7771,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       includeArtifactContextInPack={requirementAiMode !== "improve"}
                       artifactIds={requirementAiMode === "improve" && aiCompleteRequirementId ? [aiCompleteRequirementId] : []}
                       additionalContext={optimizeContext}
+                      contextFiles={storyContextFiles}
+                      onContextFilesChange={(files)=>{setStoryContextFiles(files);invalidateRequirementAiDraft();}}
                       appTypeId={appTypeId}
                       disabled={isStoryAiGenerateBusy}
                       externalLinksText={optimizeExternalLinksText}
@@ -7712,6 +7787,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       }}
                       onBusyChange={setIsRequirementAiContextBusy}
                       onRemoveImage={(imageUrl) => {
+                        storyOriginalImagesRef.current.delete(imageUrl);
                         setOptimizeReferenceImages((current) => current.filter((image) => image.url !== imageUrl));
                         invalidateRequirementAiDraft();
                       }}
@@ -7943,6 +8019,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       includeArtifactContextInPack={requirementAiMode !== "improve"}
                       artifactIds={requirementAiMode === "improve" && aiCompleteRequirementId ? [aiCompleteRequirementId] : []}
                     additionalContext={optimizeContext}
+                    contextFiles={storyContextFiles}
+                    onContextFilesChange={(files)=>{setStoryContextFiles(files);invalidateRequirementAiDraft();}}
                     appTypeId={appTypeId}
                     disabled={isStoryAiGenerateBusy}
                     externalLinksText={optimizeExternalLinksText}
@@ -7956,6 +8034,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       invalidateRequirementAiDraft();
                     }}
                     onRemoveImage={(imageUrl) => {
+                      storyOriginalImagesRef.current.delete(imageUrl);
                       setOptimizeReferenceImages((current) => current.filter((image) => image.url !== imageUrl));
                       invalidateRequirementAiDraft();
                     }}
@@ -8431,6 +8510,12 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           }}
           onPreview={(authoringMode) => void handlePreviewDesignedCases(authoringMode)}
           onPreviewCaseChange={(clientId, next) => setPreviewCases((current) => current.map((candidate) => candidate.client_id === clientId ? next : candidate))}
+          onPreviewCasesReorder={(orderedClientIds)=>setPreviewCases(current=>{
+            const remaining=new Map(current.map(item=>[item.client_id,item]));
+            const ordered:AiDesignedTestCaseCandidate[]=[];
+            for(const id of orderedClientIds){const item=remaining.get(id);if(item){ordered.push(item);remaining.delete(id);}}
+            return [...ordered,...remaining.values()];
+          })}
           onRemoveImage={(imageUrl) => {
             setAiReferenceImages((current) => current.filter((image) => image.url !== imageUrl));
             setPreviewCases([]);

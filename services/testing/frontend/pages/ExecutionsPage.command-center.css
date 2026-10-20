@@ -1892,3 +1892,18 @@ button.execution-command-tree-row:hover,
 .execution-case-card .tile-card-title-group > strong,
 .execution-case-list-copy > strong { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .execution-case-list-copy { min-width: 0; max-width: 100%; }
+
+/* Full-screen run review owns its scroll area because the shell is fixed. */
+:root .app-shell.app-layout > .workspace-main > .page-content--workspace-focus.page-content--execution-command-center {
+  display: block !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior-y: contain;
+}
+:root .app-shell.app-layout > .workspace-main > .page-content--workspace-focus.page-content--execution-command-center > .workspace-master-detail,
+:root .app-shell.app-layout > .workspace-main > .page-content--workspace-focus.page-content--execution-command-center > .workspace-master-detail > .workspace-master-detail-panel {
+  height: auto;
+  min-height: 100%;
+}

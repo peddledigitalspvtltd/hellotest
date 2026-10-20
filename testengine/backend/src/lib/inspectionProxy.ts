@@ -1,6 +1,6 @@
 import http from "node:http";
 import net, { type Socket } from "node:net";
-import { resolveRemoteInspectionTarget } from "./inspectionSecurity.js";
+import { resolveRemoteInspectionEndpoint } from "./inspectionSecurity.js";
 
 /** Browser egress is pinned to the address we checked, including redirects and
  * WebSocket tunnels. A page cannot re-resolve an allowed hostname to an internal
@@ -9,6 +9,12 @@ export async function createInspectionProxy() {
   let closed = false;
   const sockets = new Set<Socket>();
   const track = (socket: Socket) => {
+    if (sockets.has(socket)) {
+      // The HTTP keepalive pool may shorten an idle socket's timeout. Rearm
+      // the active request budget without registering the callbacks again.
+      socket.setTimeout(60_000);
+      return socket;
+    }
     sockets.add(socket);
     socket.once("close", () => sockets.delete(socket));
     socket.setTimeout(60_000, () => socket.destroy());
@@ -18,12 +24,12 @@ export async function createInspectionProxy() {
     try {
       const url = new URL(request.url || "");
       if (url.protocol !== "http:") throw new Error("HTTP proxy requires an absolute HTTP URL.");
-      const address = await resolveRemoteInspectionTarget(url.href);
+      const endpoint = await resolveRemoteInspectionEndpoint(url.href);
       if (closed || reply.destroyed) return;
       const headers: http.OutgoingHttpHeaders = { ...request.headers, host: url.host };
       delete headers["proxy-authorization"];
       delete headers["proxy-connection"];
-      const upstream = http.request({ hostname: address, port: url.port || 80, method: request.method, path: `${url.pathname}${url.search}`, headers }, response => {
+      const upstream = http.request({ hostname: endpoint.address, port: endpoint.port, method: request.method, path: `${url.pathname}${url.search}`, headers }, response => {
         reply.writeHead(response.statusCode || 502, response.headers);
         response.pipe(reply);
       });
@@ -41,9 +47,9 @@ export async function createInspectionProxy() {
     try {
       const url = new URL(connect ? `https://${request.url}` : String(request.url || ""));
       if (!connect && url.protocol !== "ws:" && url.protocol !== "http:") throw new Error("Invalid WebSocket target.");
-      const address = await resolveRemoteInspectionTarget(url.href.replace(/^ws:/, "http:"));
+      const endpoint = await resolveRemoteInspectionEndpoint(url.href.replace(/^ws:/, "http:"));
       if (closed || incoming.destroyed) return;
-      const upstream = track(net.connect({ host: address, port: Number(url.port || (connect ? 443 : 80)) }));
+      const upstream = track(net.connect({ host: endpoint.address, port: endpoint.port }));
       upstream.once("connect", () => {
         if (connect) incoming.write("HTTP/1.1 200 Connection Established\r\n\r\n");
         else {

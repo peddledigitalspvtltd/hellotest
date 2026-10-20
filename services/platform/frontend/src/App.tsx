@@ -62,7 +62,7 @@ const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   "/test-data": { key: "page.testData", fallback: "Test Data" },
   "/test-configurations": { key: "page.testConfigurations", fallback: "Test Configurations" },
   "/knowledge-repo": { key: "page.knowledgeRepo", fallback: "Knowledge Repo" },
-  "/auth": { fallback: "Sign In" },
+  "/login": { fallback: "Sign In" },
   "/signup": { fallback: "Sign Up" }
 };
 
@@ -129,7 +129,7 @@ function ProtectedLayout() {
 
   if (!session) {
     rememberAuthRedirectRoute(getRouteFromLocation(location));
-    return <Navigate to="/auth" replace />;
+    return <Navigate to="/login" replace />;
   }
 
   return (
@@ -155,9 +155,14 @@ function AuthRoute({ initialMode = "login" }: { initialMode?: "login" | "signup"
   return (
     <>
       <PageTitleUpdater />
-      <AuthPage initialMode={initialMode} />
+      <AuthPage key={initialMode} initialMode={initialMode} />
     </>
   );
+}
+
+function LegacyAuthRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/login${location.search}${location.hash}`} replace />;
 }
 
 function WorkspaceRouteError() {
@@ -178,6 +183,10 @@ function WorkspaceRouteError() {
 const router = createBrowserRouter([
   {
     path: "/auth",
+    element: <LegacyAuthRedirect />
+  },
+  {
+    path: "/login",
     element: <AuthRoute />
   },
   {

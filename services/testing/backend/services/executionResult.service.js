@@ -186,7 +186,7 @@ exports.getExecutionResults = async ({ project_id, execution_id, test_case_id, a
     "app_type_id", "status", "duration_ms", "error", "test_data_set_id", "test_data_set_name",
     "data_set_iteration_index", "data_set_iteration_key", "external_references", "defects",
     "case_defects", "step_defects", "executed_by", "created_at", "started_at",
-    "timer_started_at", "ended_at", "revision"
+    "timer_started_at", "ended_at", "revision", "updated_at", "effective_at", "result_origin", "derived", "source_result_id", "source_test_case_id", "source_display_id", "covers_entire_case", "source_results", "source_duration_ms"
   ];
   const selectedColumns = projection === "summary"
     ? summaryColumns.map(column => `execution_results.${column}`).join(", ")
@@ -194,7 +194,7 @@ exports.getExecutionResults = async ({ project_id, execution_id, test_case_id, a
 
   let query = `
     SELECT ${selectedColumns}
-    FROM execution_results
+    FROM test_case_effective_results AS execution_results
     ${project_id ? "JOIN executions ON executions.id = execution_results.execution_id" : ""}
     WHERE 1=1
   `;
@@ -206,7 +206,7 @@ exports.getExecutionResults = async ({ project_id, execution_id, test_case_id, a
   }
 
   if (execution_id) {
-    query += ` AND execution_results.execution_id = ?`;
+    query += ` AND execution_results.execution_id = ? AND (NOT execution_results.derived OR EXISTS (SELECT 1 FROM execution_case_snapshots selected_case WHERE selected_case.execution_id=execution_results.execution_id AND selected_case.test_case_id=execution_results.test_case_id))`;
     params.push(execution_id);
   }
 
@@ -243,7 +243,7 @@ exports.getExecutionResults = async ({ project_id, execution_id, test_case_id, a
     params.push(...recentRunParams, run_limit);
   }
 
-  query += ` ORDER BY execution_results.created_at DESC, execution_results.id DESC`;
+  query += ` ORDER BY execution_results.effective_at DESC, execution_results.derived ASC, execution_results.id DESC`;
 
   if (limit) {
     query += ` LIMIT ?`;
@@ -251,7 +251,8 @@ exports.getExecutionResults = async ({ project_id, execution_id, test_case_id, a
   }
 
   const rows = await db.prepare(query).all(...params);
-  return rows.map(row => projection === "summary"
+  const covered=new Set(rows.filter(row=>row.derived&&row.covers_entire_case).map(row=>`${row.execution_id}:${row.test_case_id}`));
+  return rows.filter(row=>row.derived||row.status!=="pending"||!covered.has(`${row.execution_id}:${row.test_case_id}`)).map(row => projection === "summary"
     ? { ...shapeResult(row), logs: null, detail_complete: false }
     : shapeResult(row));
 };
@@ -259,6 +260,12 @@ exports.getExecutionResults = async ({ project_id, execution_id, test_case_id, a
 
 // Get Single Result
 exports.getExecutionResult = async (id) => {
+  if (String(id).startsWith("linked:")) {
+    const identity=String(id).match(/^linked:([^:]+):([^:]+)$/);
+    const projection = identity ? await db.prepare("SELECT * FROM test_case_effective_results WHERE test_case_id=? AND execution_id=? AND derived=TRUE").get(identity[1],identity[2]) : null;
+    if (!projection) throw Object.assign(new Error("Linked automation coverage is no longer available."), {statusCode:404});
+    return {...shapeResult(projection),read_only:true};
+  }
 
   const result = await db.prepare(`
     SELECT * FROM execution_results WHERE id = ?
@@ -298,6 +305,7 @@ exports.stopExecutionCaseTimers = async (executionId, actorId) => {
 
 // Update Result (only limited fields)
 exports.updateExecutionResult = async (id, data) => {
+  if (String(id).startsWith("linked:")) throw Object.assign(new Error("Linked automation coverage is read-only. Open its source automation result to review evidence."), {statusCode:409,code:"LINKED_RESULT_READ_ONLY"});
   const transaction = db.transaction(async () => {
     const identity = await db.prepare(`SELECT execution_id FROM execution_results WHERE id = ?`).get(id);
     if (!identity) throw new Error("Execution result not found");
@@ -461,6 +469,7 @@ exports.upsertExecutionResult = async (data) => {
 
 // Delete Result
 exports.deleteExecutionResult = async (id) => {
+  if (String(id).startsWith("linked:")) throw Object.assign(new Error("Linked automation coverage is read-only. Open its source automation result to review evidence."), {statusCode:409,code:"LINKED_RESULT_READ_ONLY"});
 
   const existing = await exports.getExecutionResult(id);
 

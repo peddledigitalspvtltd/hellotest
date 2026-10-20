@@ -104,6 +104,8 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     fastify.validate({ project_id: { required: true, type: "string" }, app_type_id: { required: false, type: "string" }, requirement_id: { required: false, type: "string" }, test_case_id: { required: false, type: "string" }, page_size: { required: false, type: "string" } }, req.query || {});
     await projectService.getProject(req.query.project_id, req.user.id);
+    await fastify.requirePermission("run.view", {projectId:req.query.project_id})(req);
+    await fastify.requirePermission("result.view", {projectId:req.query.project_id})(req);
     return executionHistoryService.list({
       projectId: req.query.project_id,
       appTypeId: req.query.app_type_id,
@@ -127,6 +129,7 @@ module.exports = async function (fastify) {
       release_scope: { required: false, type: "string", maxLength: 4_000 },
       additional_context: { required: false, type: "string", maxLength: 4_000 },
       prompt_guidance: { required: false, type: "string", maxLength: 4_000 },
+      images: { required: false, type: "array", maxItems: 6 },
       impacted_requirement_ids: { required: false, type: "array", items: "string", maxItems: 100 },
       test_environment_id: { required: false, type: "string", maxLength: 255 },
       test_configuration_id: { required: false, type: "string", maxLength: 255 },
@@ -154,6 +157,7 @@ module.exports = async function (fastify) {
       release_scope: req.body.release_scope,
       additional_context: req.body.additional_context,
       prompt_guidance: req.body.prompt_guidance,
+      images: req.body.images,
       impacted_requirement_ids: req.body.impacted_requirement_ids,
       test_environment_id: req.body.test_environment_id,
       test_configuration_id: req.body.test_configuration_id,
@@ -475,7 +479,7 @@ module.exports = async function (fastify) {
     if (req.body.parallel_enabled || Number(req.body.parallel_count || 1) > 1) await requireFeaturePermission(fastify, req, "automation.run.parallel", execution.project_id);
     await requireSelectedTestDataAccess(fastify, req, execution.project_id, req.body.test_data_set_id);
 
-    return service.updateExecution(req.params.id, req.body);
+    return service.updateExecution(req.params.id, {...req.body, updated_by:req.user.id});
   });
 
   fastify.put("/executions/:id/cases/:testCaseId/assignment", async (req) => {

@@ -2011,7 +2011,7 @@ export function IssuesPage() {
               : "Project context";
 
   return (
-    <div className="page-content issues-page">
+    <div className={`page-content issues-page${selectedIssueId || isCreating ? " page-content--workspace-focus page-content--record-focus" : ""}`}>
       {isBugImportOpen && canCreateBugs && projectId ? <IssueImportDialog key={projectId} projectId={projectId} people={assigneeLabelById} canViewBatchProcess={can("transaction.view")} onQueued={id => setPendingBugImport({ id, projectId })} onClose={() => setIsBugImportOpen(false)} /> : null}
       {confirmationDialog}
       {!isCreating && searchParams.get("create") !== "1" && isAiBugTriageOpen && canUseAiBugTriage && projectId ? <DefectTriageDialog

@@ -27,7 +27,7 @@ async function enrichDocument({ projectId, source, chunks, signal }) {
   const fallback = reason => ({ mode: "standard", reason, source_hash: sourceHash, sections: [] });
   if (!source.created_by) return fallback("SOURCE_ACTOR_UNAVAILABLE");
   try {
-    const integration = await resolveIntegration({ projectId, user: { id: source.created_by } });
+    const integration = await resolveIntegration({ projectId, user: { id: source.created_by }, signal });
     if (!integration) return fallback("LLM_INTEGRATION_MISSING");
     const sampled = (chunks.length <= 8 ? chunks : Array.from({ length: 8 }, (_, index) => chunks[Math.round(index * (chunks.length - 1) / 7)])).map(chunk => ({ chunk_index: chunk.index, heading: chunk.heading, content: chunk.content }));
     const candidate = await modelGateway.request({ integration, operation: "knowledge.ingestion.enrich", signal,

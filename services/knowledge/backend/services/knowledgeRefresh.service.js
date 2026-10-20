@@ -79,6 +79,7 @@ const RECORDS_SQL = `WITH records AS (
   SELECT 'requirement' AS kind, id, project_id FROM requirements
   UNION ALL SELECT 'test_case', c.id, a.project_id FROM test_cases c JOIN app_types a ON a.id = c.app_type_id
   UNION ALL SELECT 'bug', id, project_id FROM feedback
+  UNION ALL SELECT 'execution', id, project_id FROM executions
 ) SELECT kind, id, kind || ':' || id AS cursor FROM records
  WHERE project_id = ? AND kind || ':' || id > ? ORDER BY kind, id LIMIT ?`;
 async function processDue() {
@@ -134,6 +135,7 @@ async function processDue() {
           requirement: "requirement.view",
           test_case: "testcase.view",
           bug: "feedback.view",
+          execution: "run.view",
         }[record.kind];
         access[permission] ??=
           (await permissions.hasPermission(user, permission, row.project_id)) &&

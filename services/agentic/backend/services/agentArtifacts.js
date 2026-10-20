@@ -44,27 +44,33 @@ function planFollowups(agentId, scopes, result) {
  if (agentId === 'repository-curator' || agentId.startsWith('browser-')) return [];
  const scope = new Set(scopes);
  const supported = new Set(result.citation_ids || []);
- const findings = (result.findings || []).filter(f => (f.citation_ids || []).some(id => supported.has(id)) && !/^(?:no (?:gaps?|changes?|issues?|defects?|bugs?|failures?|missing)|complete(?:d)? (?:coverage|story)|all .* (?:covered|satisfied)|.*needs no (?:changes?|follow.up))/i.test(`${f.title || ''} ${f.detail || ''}`));
+ const findingText = f => [f.title, f.detail, f.observation, f.gap, f.proposed_action].filter(Boolean).join(' ');
+ const findings = (result.findings || []).filter(f => (f.citation_ids || []).some(id => supported.has(id)) && !/^(?:no (?:gaps?|changes?|issues?|defects?|bugs?|failures?|missing)|complete(?:d)? (?:coverage|story)|all .* (?:covered|satisfied)|.*needs no (?:changes?|follow.up))/i.test(findingText(f)));
  if (!findings.length) return [];
- const text = [...findings.map(f => `${f.title} ${f.detail}`), ...(result.recommendations || [])].join(' ');
- const actionable = /missing|gap|omit|ambig|incomplete|improv|clarif|add|fix|fail|defect|bug|inadequate|untested|insufficient|recommend|need/i.test(text);
- if (!actionable) return [];
+ // A recommendation alone is not evidence for a new work item. Each handoff
+ // carries only the cited findings that support that domain's proposed change.
+ const actionable = findings.filter(f => /missing|gap|omit|ambig|incomplete|improv|clarif|add|fix|fail|defect|bug|inadequate|untested|insufficient|recommend|need|select|plan|prepare|create|prioriti[sz]e/i.test(findingText(f)));
  const planned = [];
- const add = (id, reason) => {
+ const add = (id, reason, matching) => {
   const kind = AUTHOR_KINDS[id];
-  if (!kind || planned.some(p => p.kind === kind) || result.artifacts?.some(a => a.kind === kind)) return;
-  planned.push({ agent_id: id, kind, reason, citation_ids: [...new Set(findings.flatMap(f => f.citation_ids || []))] });
+  if (!matching.length || !kind || planned.some(p => p.kind === kind) || result.artifacts?.some(a => a.kind === kind)) return;
+  planned.push({ agent_id: id, kind, reason, citation_ids: [...new Set(matching.flatMap(f => (f.citation_ids || []).filter(id => supported.has(id))))] });
  };
- const storyGap = /story|stories|acceptance|requirement|ambigu/i.test(text);
- const testGap = /test|coverage|scenario|assertion|untested/i.test(text);
- const defectGap = /defect|bug|failure|failed|reproduc/i.test(text);
- if (scope.has('stories') && (storyGap || ['story-assurance', 'story-grooming'].includes(agentId)))
-  add('story-completion', 'Complete the Story using the acceptance gaps and findings from this review.');
- if (scope.has('test-cases') && testGap)
-  add('test-designer', 'Prepare complete Test Cases for the uncovered behaviors and assertions.');
- if (scope.has('bugs') && defectGap)
-  add('bug-reporter', 'Prepare a Defect proposal using the observed failure evidence and reproduction details.');
- if (scope.has('runs') && scope.has('test-cases') && /(?:select|plan|prepare|create|prioriti[sz]e).{0,60}(?:run|regression|execution)|run (?:selection|plan)/i.test(text)) add('run-planner', 'Prepare a manual Run draft with evidenced case selection and explicit exit criteria.');
+ if (scope.has('stories'))
+  add('story-completion', 'Complete the Story using the cited acceptance gaps; keep unsupported product behavior as a question.', actionable.filter(f => /story|stories|acceptance|requirement|ambigu/i.test(findingText(f))));
+ if (scope.has('test-cases'))
+  add('test-designer', 'Prepare complete Test Cases for the cited uncovered behaviors and assertions.', actionable.filter(f => /test|coverage|scenario|assertion|untested/i.test(findingText(f))));
+ if (scope.has('bugs'))
+  add('bug-reporter', 'Prepare a Defect proposal using the observed failure evidence and reproduction details.', actionable.filter(f => {
+   const detail = findingText(f);
+   if (!/defect|bug|failure|failed|reproduc/i.test(detail)) return false;
+   if (/\b(?:missing|unknown|unverified|without|no)\b.{0,35}\b(?:reproduction|expected (?:result|behavior)|oracle|failure evidence|product evidence)\b/i.test(detail)) return false;
+   const observed = /\b(?:observed|reproducible|confirmed|recorded|actual)\b/i.test(detail);
+   if (/\b(?:hypothesis|suspected|unconfirmed|possible|may|might)\b/i.test(detail) && !observed) return false;
+   if (/\b(?:automation|environment|fixture|infrastructure|test data)\b.{0,35}\b(?:failure|issue)\b/i.test(detail) && !/\b(?:product|application)\b.{0,25}\b(?:defect|bug|failure)\b/i.test(detail)) return false;
+   return observed || /\b(?:create|record|prepare|report|file|needs?)\b.{0,35}\b(?:defect|bug)\b/i.test(detail);
+  }));
+ if (scope.has('runs') && scope.has('test-cases')) add('run-planner', 'Prepare a manual Run draft with evidenced case selection and explicit exit criteria.', actionable.filter(f => /(?:select|plan|prepare|create|prioriti[sz]e).{0,60}(?:run|regression|execution)|run (?:selection|plan)/i.test(findingText(f))));
  return planned.slice(0, 3);
 }
 function remainingRecommendations(original, authored, completedKinds) {

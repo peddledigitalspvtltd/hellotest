@@ -36,3 +36,12 @@ test('routing metadata preserves selected sources without injecting hardcoded ta
  assert.doesNotMatch(JSON.stringify(payload),/Obsolete/);
  assert.equal(payload.citation_contract.length,task.citations.length);
 });
+test('large structured evidence stays valid JSON and pinned automation context precedes broad search hits',()=>{
+ const f=fixture();
+ const record={sections:Array.from({length:10},(_,i)=>({id:'step-'+i,action:'Open page '+i,expected_result:'Expected '+i,existing_automation_code:'await web.click("target");'}))};
+ const context={live_project:[{id:'broad',content:'x'.repeat(9000)}],automation_case:[{id:'pinned',content:JSON.stringify(record),citation:{id:'pinned'}}],knowledge:[{id:'large',content:JSON.stringify({records:Array.from({length:30},()=>({text:'x'.repeat(1000)}))}),citation:{id:'large'}}]};
+ const packed=JSON.parse(f.buildBoundedAgentPromptPayload({mode:'agent',prompt:'Automate the complete pinned case',context,citations:[],contextRoute:{}}));
+ assert.equal(Object.keys(packed.bounded_workspace_context)[0],'automation_case');
+ assert.equal(JSON.parse(packed.bounded_workspace_context.automation_case[0].content).sections.length,10);
+ const large=packed.bounded_workspace_context.knowledge[0];assert.doesNotThrow(()=>JSON.parse(large.content));assert.equal(large.excerpt_truncated,true);
+});

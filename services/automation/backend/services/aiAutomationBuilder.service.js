@@ -1,9 +1,17 @@
+const {normalizeAgentContext,retrieveAgentContext}=require("../lib/automationAgentContext");
 const { buildFeature } = require('./aiAutomationFeaturePolicy');
+exports.buildFeature = buildFeature;
 const { resilientHttpRequest } = require('@hellotest/platform/backend/src/utils/resilientHttpClient');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { getOptionalEvidenceAccess } = require("@hellotest/platform/backend/services/optionalEvidenceAccess.service");
-const { connectAutomationBrowser, runAutomationBrowserAgent } = require("../lib/automationBrowserAgent");
-const { loadAutomationStoryContext } = require("../lib/automationBuildContext");
+const { connectAutomationBrowser, runAutomationBrowserAgent, remainingBrowserCalls } = require("../lib/automationBrowserAgent");
+const { completeAutomationBuild } = require("../lib/automationBuildCompletion");
+const {canonicalizeRepositoryRows,canonicalPageUrl,repositoryInputMetadata}=require("../lib/repositoryScreenIdentity");
+const {sameRecordedLocator}=require("../lib/automationLocatorIdentity");
+const {normalizeGeneratedProgram,preserveGeneratedAssertions}=require("../lib/automationGeneratedProgram");
+const {navigationOrigins,validateNavigationGrounding,scopeRepositoryToTarget,buildNavigationOrigins}=require('../lib/automationGenerationGrounding');
+const {normalizeAutomationStartUrl,requiresAutomationStartUrl}=require('@hellotest/platform/backend/src/utils/automationStartUrl');
+const { loadAutomationStoryContext, loadAutomationManualContext, manualContextKey, automationPromptParameters, loadAutomationParameterContext, resolveAutomationStartUrl } = require("../lib/automationBuildContext");
 const { resolveMobileRecorderPlatform } = require("../domain/mobileRecorderPlan");
 const { persistMobileRecorderPlan } = require("./mobileRecorderPersistence.service");
 const db = require("@hellotest/platform/backend/src/db");
@@ -28,6 +36,7 @@ const {
   parseJsonValue
 } = require("@hellotest/platform/backend/src/utils/testStepAutomation");
 const { createLlmProviderError } = require("@hellotest/platform/backend/src/utils/upstreamLlmError");
+const { retryLlmCapacity } = require("@hellotest/platform/backend/src/utils/llmCapacityRetry");
 const { isMobileAppType, isMobileRecorderTarget } = require("@hellotest/platform/backend/src/utils/mobileFeature");
 const { resolveMobileEngineSecret } = require("@hellotest/platform/backend/src/security/runtimeSecrets");
 
@@ -43,6 +52,7 @@ const MOBILE_ENGINE_SECRET_HEADER = "x-hellotest-mobile-engine-secret";
 const selectCaseWithScope = db.prepare(`
   SELECT
     test_cases.*,
+    COALESCE((SELECT MAX(version.revision) FROM test_case_versions version WHERE version.test_case_id=test_cases.id),0)+1 AS revision,
     app_types.name AS app_type_name,
     app_types.type AS app_type_kind,
     app_types.project_id,
@@ -81,7 +91,7 @@ const selectStaleRecorderTransactions = obsDb.prepare(`
   LIMIT ?
 `);
 
-const upsertLearningCache = obsDb.prepare(`
+const upsertLearningCacheRecord = obsDb.prepare(`
   INSERT INTO automation_learning_cache (
     id,
     project_id,
@@ -110,6 +120,7 @@ const upsertLearningCache = obsDb.prepare(`
     hit_count = automation_learning_cache.hit_count + 1,
     updated_at = CURRENT_TIMESTAMP
 `);
+const upsertLearningCache={run:(...args)=>persistCanonicalRepositoryRow(args)};
 
 const selectLearningCacheEntry = obsDb.prepare(`
   SELECT *
@@ -268,17 +279,44 @@ const listLearningCacheRows = async ({ projectId, appTypeId, limit = MAX_CACHE_R
     params.push(appTypeId);
   }
 
-  query += ` ORDER BY hit_count DESC, updated_at DESC, id ASC LIMIT ? OFFSET ?`;
-  params.push(Math.max(1, Math.min(200, Number(limit) || MAX_CACHE_ROWS)));
-  params.push(Math.max(0, Number(offset) || 0));
+  query += ` ORDER BY hit_count DESC, updated_at DESC, id ASC`;
 
   const rows = await obsDb.prepare(query).all(...params);
-  return rows.map(normalizeLearningCacheRow).filter(Boolean);
+  const canonical=await canonicalRepositoryProjection(rows);
+  const start=Math.max(0,Number(offset)||0);
+  return canonical.rows.slice(start,start+Math.max(1,Math.min(200,Number(limit)||MAX_CACHE_ROWS)));
 };
 
-const listLearningCacheScreenRows = async ({ appTypeId, projectId, screenName } = {}) =>
-  (await selectLearningCacheScreenEntries.all(normalizeText(appTypeId) || null, normalizeText(screenName), appTypeId ? null : normalizeText(projectId), appTypeId ? null : normalizeText(projectId)))
-    .map(normalizeLearningCacheRow);
+const canonicalRepositoryProjection=async rows=>{
+  const normalized=rows.map(normalizeLearningCacheRow).filter(Boolean);
+  const projects=new Map();
+  for(const row of normalized)if(!row.project_id&&row.app_type_id){if(!projects.has(row.app_type_id))projects.set(row.app_type_id,(await db.prepare('SELECT id, project_id FROM app_types WHERE id = ?').get(row.app_type_id))?.project_id||null);row.project_id=projects.get(row.app_type_id);}
+  return canonicalizeRepositoryRows(normalized);
+};
+const readRepositoryScope=async({appTypeId,projectId})=>(await obsDb.prepare(`/* repository canonical scope */ SELECT * FROM automation_learning_cache WHERE app_type_id IS NOT DISTINCT FROM ? AND (project_id IS NOT DISTINCT FROM ? OR (?::text IS NOT NULL AND project_id IS NULL)) ORDER BY created_at, id`).all(appTypeId||null,projectId||null,appTypeId||null)).map(normalizeLearningCacheRow);
+const lockRepositoryScope=({appTypeId,projectId})=>obsDb.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get('repository-screen:'+JSON.stringify([projectId||null,appTypeId||null]));
+const saveRepositoryProjection=async projection=>{
+  for(const row of projection.all)if(!row._pending)await obsDb.prepare('UPDATE automation_learning_cache SET metadata = ? WHERE id = ? AND metadata IS DISTINCT FROM ?::jsonb').run(row.metadata,row.id,row.metadata);
+};
+const reconcileRepositoryScope=async scope=>{const projection=await canonicalRepositoryProjection(await readRepositoryScope(scope));await saveRepositoryProjection(projection);return projection;};
+const persistCanonicalRepositoryRow=args=>obsDb.transaction(async()=>{
+  const [id,projectId,appTypeId,testCaseId,pageUrl,pageKey,intent,locator,kind,confidence,source,metadata]=args;
+  const scope={appTypeId,projectId};await lockRepositoryScope(scope);
+  const rows=await readRepositoryScope(scope);
+  const candidate={id,project_id:projectId,app_type_id:appTypeId,test_case_id:testCaseId,page_url:pageUrl,page_key:pageKey,locator_intent:intent,locator,locator_kind:kind,confidence,source,metadata:repositoryInputMetadata(metadata),_pending:true};
+  const projection=await canonicalRepositoryProjection([...rows,candidate]);
+  const proposed=projection.byId.get(id),target=projection.byId.get(proposed.metadata.merged_into_entry_id)||proposed;
+  if(target!==proposed){for(const [key,value]of Object.entries(candidate.metadata))if(value!==null&&value!==undefined&&target.metadata[key]===undefined)target.metadata[key]=value;}
+  await saveRepositoryProjection(projection);
+  if(target===proposed)await upsertLearningCacheRecord.run(id,projectId,appTypeId,testCaseId,pageUrl,target.metadata.screen_name||pageKey,intent,locator,kind,confidence,source,target.metadata);
+  return {id:target.id,changes:1};
+})();
+
+const listLearningCacheScreenRows = async ({ appTypeId, projectId, screenName } = {}) => {
+  const rows=(await canonicalRepositoryProjection(await readRepositoryScope({appTypeId:normalizeText(appTypeId),projectId:normalizeText(projectId)||(appTypeId?(await db.prepare('SELECT id, project_id FROM app_types WHERE id = ?').get(appTypeId))?.project_id:null)}))).rows;
+  const exact=rows.filter(row=>(row.metadata.screen_name||row.page_key)===normalizeText(screenName));
+  return exact.length?exact:rows.filter(row=>row.metadata.screen_aliases?.includes(normalizeText(screenName)));
+};
 
 const listAllLearningCacheRows = async ({ appTypeId } = {}) => {
   const appType = normalizeText(appTypeId);
@@ -294,7 +332,7 @@ const listAllLearningCacheRows = async ({ appTypeId } = {}) => {
     ORDER BY COALESCE(metadata->>'screen_name', page_key, page_url, ''), locator_intent, updated_at DESC
   `).all(appType);
 
-  return rows.map(normalizeLearningCacheRow);
+  return (await canonicalRepositoryProjection(rows)).rows;
 };
 
 const normalizeRepositoryPatch = (existing, patch = {}) => {
@@ -367,7 +405,7 @@ const summarizeVariables = (variables = []) =>
   (Array.isArray(variables) ? variables : [])
     .map((entry) => ({
       key: normalizeText(entry?.key),
-      value: entry?.is_secret ? "[secret]" : String(entry?.value ?? ""),
+      value: entry?.is_secret || /password|secret|token|credential|api.?key|passcode|otp|verification.?code|one.?time.?code/i.test(String(entry?.key || "")) ? "[secret]" : String(entry?.value ?? ""),
       is_secret: Boolean(entry?.is_secret)
     }))
     .filter((entry) => entry.key);
@@ -384,7 +422,7 @@ const summarizeDataSetRows = (rows = []) =>
           return accumulator;
         }
 
-        accumulator[normalizedKey] = String(value ?? "");
+        accumulator[normalizedKey] = (normalizedKey === "value" && (row.is_secret || /password|secret|token|credential|api.?key|passcode|otp|verification.?code|one.?time.?code/i.test(String(row.key || "")))) || /password|secret|token|credential|api.?key|passcode|otp|verification.?code|one.?time.?code/i.test(normalizedKey) && normalizedKey !== "is_secret" ? "[private parameter reference]" : String(value ?? "");
         return accumulator;
       }, {})
     );
@@ -449,7 +487,8 @@ const resolveBuildContext = async ({
           mode: scopedDataSet.mode,
           columns: Array.isArray(scopedDataSet.columns) ? scopedDataSet.columns : [],
           rows: summarizeDataSetRows(scopedDataSet.rows),
-          row_count: Array.isArray(scopedDataSet.rows) ? scopedDataSet.rows.length : 0
+          row_count: Array.isArray(scopedDataSet.rows) ? scopedDataSet.rows.length : 0,
+          sample_only: Array.isArray(scopedDataSet.rows) && scopedDataSet.rows.length > 5
         }
       : null
   };
@@ -459,7 +498,7 @@ const extractJsonPayload = (content) => {
   const trimmed = String(content || "").trim();
 
   if (!trimmed) {
-    throw new Error("LLM response was empty");
+    throw Object.assign(new Error("LLM response was empty"),{code:"AI_INVALID_JSON"});
   }
 
   const withoutFence = trimmed.startsWith("```")
@@ -475,12 +514,12 @@ const extractJsonPayload = (content) => {
   try {
     return JSON.parse(jsonCandidate);
   } catch {
-    throw new Error("Unable to parse JSON from the LLM response");
+    throw Object.assign(new Error("Unable to parse JSON from the LLM response"),{code:"AI_INVALID_JSON"});
   }
 };
 
-const fetchWithTimeout = async (url, init = {}, timeoutMs = LLM_TIMEOUT_MS, integration, featureKey) => {
-  return fetchLlmWithRetry(url, init, { integration, featureKey, timeoutMs, operation: "automation.generate" });
+const fetchWithTimeout = async (url, init = {}, timeoutMs = LLM_TIMEOUT_MS, integration, featureKey, maxAttempts) => {
+  return fetchLlmWithRetry(url, init, { integration, featureKey, timeoutMs, maxAttempts, operation: "automation.generate" });
 };
 
 const resolveLlmIntegration = async (integrationId, { allowFallback = true, userId, usageKey, projectId } = {}) => {
@@ -512,10 +551,16 @@ const resolveLlmIntegration = async (integrationId, { allowFallback = true, user
   return integration;
 };
 
-const requestChatCompletion = async ({ integration, prompt, content, featureKey, timeoutMs = LLM_TIMEOUT_MS }) => {
+const requestChatCompletion = async ({ integration, prompt, content, featureKey, signal, timeoutMs = LLM_TIMEOUT_MS, maxAttempts, onCapacityWait, activeGoal, beforeDispatch }) => retryLlmCapacity(async ({timeoutMs: remainingMs}) => {
+  const accessCheckStarted=Date.now();
+  await beforeDispatch?.();
+  signal?.throwIfAborted();
+  remainingMs-=Date.now()-accessCheckStarted;
+  if(remainingMs<=0)throw Object.assign(new Error('The model request deadline elapsed before dispatch.'),{code:'DEADLINE_EXCEEDED',statusCode:504});
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
   const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
+    signal,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${integration.api_key}`
@@ -525,17 +570,19 @@ const requestChatCompletion = async ({ integration, prompt, content, featureKey,
 
       response_format: { type: "json_object" },
       messages: [
+        ...(activeGoal && typeof activeGoal.action === 'string' && typeof activeGoal.expected_result === 'string'
+          && activeGoal.action.length + activeGoal.expected_result.length <= 2000 ? [{role:'system',content:'The host selected ONLY this current manual section: '+JSON.stringify({action:activeGoal.action,expected_result:activeGoal.expected_result})+'. Complete this action and every listed outcome using current evidence. The broader case brief remains constraints and context; later actions are not requested in this call. Tools excluded by the current action policy are unnecessary for this section, not a missing prerequisite for later actions.'}] : []),
         {
           role: "user",
           content: content || prompt
         }
       ]
     })
-  }, timeoutMs, integration, featureKey);
+  }, remainingMs, integration, featureKey, maxAttempts);
 
   if (!response.ok) {
     const raw = await response.text();
-    throw createLlmProviderError({ status: response.status, detail: raw });
+    throw createLlmProviderError({ status: response.status, detail: raw, headers: response.headers });
   }
 
   const payload = await response.json();
@@ -546,7 +593,7 @@ const requestChatCompletion = async ({ integration, prompt, content, featureKey,
   }
 
   return messageContent;
-};
+}, { timeoutMs, signal, maxAttempts: maxAttempts === 1 ? 1 : 3, onWait: onCapacityWait });
 
 const normalizeUrlKey = (value) => {
   const normalized = normalizeText(value);
@@ -1246,15 +1293,7 @@ const summarizeScreenCatalog = (rows = []) => {
 };
 
 const summarizeKnowledge = (rows = []) =>
-  (Array.isArray(rows) ? rows : [])
-    .map((row) => ({
-      title: row.title,
-      description: row.description || "",
-      content_type: row.content_type || "text",
-      content: (normalizeRichText(row.content) || "").slice(0, 4000),
-      source_uri: row.source_uri || null
-    }))
-    .filter((row) => row.title || row.content);
+  require('../lib/automationKnowledgeContext').summarizeAutomationKnowledge(rows, { normalizeContent: normalizeRichText });
 
 const normalizeCapturedActions = (actions = []) =>
   (Array.isArray(actions) ? actions : [])
@@ -2097,6 +2136,9 @@ const buildPrompt = ({
   startUrl,
   additionalContext
 }) => {
+  // Shared native request templates belong to keyword generation. The model
+  // boundary still applies the active specialist's prompt, model and policies,
+  // and any matching published specialist block overrides these source blocks.
   const prompt = [
     aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.44"),
     "",
@@ -2348,12 +2390,19 @@ const normalizeStepCandidate = (candidate, stepsById, stepsByOrder) => {
     for (const key of ["headers", "validations", "captures"]) {
       if (request[key] != null && !Array.isArray(request[key])) throw new Error(`Step ${step.step_order} API ${key} must be an array.`);
     }
+    if(request.headers?.some(header=>!isPlainObject(header)||!normalizeText(header.key)||typeof header.value!=="string"))throw new Error(`Step ${step.step_order} contains an invalid API header. Preserve each header name and string value.`);
     if (request.validations?.some((validation) => !["status", "header", "body_contains", "json_path"].includes(validation?.kind || validation?.type)
       || typeof (validation.expected ?? validation.value) !== "string"
       || (["header", "json_path"].includes(validation.kind || validation.type) && !normalizeText(validation.target || validation.path)))) {
       throw new Error(`Step ${step.step_order} contains an invalid API assertion. Provide a supported kind, target when required, and string expected value.`);
     }
     if (request.captures?.some((capture) => !normalizeText(capture?.path) || !normalizeText(capture?.parameter))) throw new Error(`Step ${step.step_order} contains an incomplete API capture.`);
+    const normalized=normalizeApiRequest(request);
+    if(['headers','validations','captures'].some(key=>(request[key]?.length||0)!==(normalized?.[key]?.length||0)))throw new Error(`Step ${step.step_order} contains API fields that would be discarded. Provide complete headers, assertions and captures.`);
+    if(request.body && (bodyMode==='none'||['GET','HEAD'].includes(method)))throw new Error(`Step ${step.step_order} supplies an API body that this method or body mode would discard.`);
+    if(request.timeout_ms!==undefined&&Number(request.timeout_ms)!==normalized?.timeout_ms)throw new Error(`Step ${step.step_order} API timeout must fit the supported runtime range without normalization.`);
+    const existing=normalizeApiRequest(step.api_request);
+    for(const key of ['validations','captures'])if(existing?.[key]?.some(item=>!normalized?.[key]?.some(next=>JSON.stringify(next)===JSON.stringify(item))))throw new Error(`Step ${step.step_order} removed or changed an existing API ${key==='validations'?'assertion':'capture'}. Preserve the saved behavior and expected values.`);
   }
 
   return {
@@ -2364,7 +2413,7 @@ const normalizeStepCandidate = (candidate, stepsById, stepsByOrder) => {
   };
 };
 
-const normalizeLlmBuild = (payload, steps, cacheRows, startUrl) => {
+const normalizeLlmBuild = (payload, steps, cacheRows, startUrl, grounding) => {
   const stepsById = new Map(steps.map((step) => [step.id, step]));
   const stepsByOrder = new Map(steps.map((step) => [Number(step.step_order || 0), step]));
   const candidates = Array.isArray(payload?.steps) ? payload.steps : [];
@@ -2381,9 +2430,11 @@ const normalizeLlmBuild = (payload, steps, cacheRows, startUrl) => {
   const updates = steps.map((step) => {
     const candidate = byStepId.get(step.id);
     const stepType = candidate?.step_type || normalizeTestStepType(step.step_type, "web");
-    const automationCode = candidate?.automation_code;
-    if (stepType !== "api" && (!automationCode || /\b(?:TODO|FIXME)\b|test\.(?:describe|beforeEach|afterEach|beforeAll|afterAll)|^\s*(?:(?:import|export)\s|(?:test|it)\s*\()/m.test(automationCode))) throw new Error(`Step ${step.step_order} needs executable statements, without test-file wrappers or placeholders.`);
+    let automationCode = candidate?.automation_code;
     if (stepType !== "api") {
+      try {automationCode=normalizeGeneratedProgram(automationCode,{runtime:stepType});if(stepType==='web')preserveGeneratedAssertions(step.automation_code,automationCode,{parameters:grounding?.parameters,resolveParameter:grounding?.resolveAssertionParameter});}
+      catch(error){throw Object.assign(new Error(`Step ${step.step_order}: ${error.message}`),error.code==='AUTOMATION_GENERATED_ASSERTION_NOT_PRESERVED'?{code:error.code}:{});}
+      if(stepType==='web'&&grounding)validateNavigationGrounding(automationCode,grounding.origins,{parameters:grounding.parameters,resolveText:grounding.resolveText});
       const runtimeNames = stepType === "web" ? ["page", "expect", "web", "params", "capture", "playwrightPage"] : ["android", "ios", "mobile", "driver", "browser", "$", "params", "capture"];
       try { new (Object.getPrototypeOf(async function () {}).constructor)(...runtimeNames, automationCode); }
       catch { throw new Error(`Step ${step.step_order} contains invalid JavaScript. Retry generation.`); }
@@ -2408,7 +2459,8 @@ const normalizeLlmBuild = (payload, steps, cacheRows, startUrl) => {
       confidence: Math.max(0, Math.min(1, clampNumber(item?.confidence, 0.5))),
       metadata: normalizeObject(item?.metadata)
     }))
-    .filter((item) => item.page_key && item.locator_intent && item.locator);
+    .filter((item) => item.page_key && item.locator_intent && item.locator)
+    .filter(item=>!startUrl||!grounding||scopeRepositoryToTarget([item],startUrl).length>0);
 
   return {
     summary: normalizeRichText(payload?.summary) || "Automation generated for the manual test case.",
@@ -2435,25 +2487,7 @@ const updateTransaction = async (transactionId, patch) => {
   return workspaceTransactionService.updateTransaction(transactionId, patch);
 };
 
-const createArtifactContent = ({ testCase, updates }) => {
-  const lines = [
-    `// HelloTest generated automation artifact`,
-    `// Test case: ${testCase.title}`,
-    `// Test case id: ${testCase.id}`,
-    ""
-  ];
-
-  updates.forEach((update) => {
-    lines.push(`// Step ${update.step.step_order}: ${update.step.action || "No action recorded"}`);
-    if (update.api_request) {
-      lines.push(`// API request: ${JSON.stringify(update.api_request)}`);
-    }
-    lines.push(update.automation_code || "// API request is stored structurally on the HelloTest step.");
-    lines.push("");
-  });
-
-  return lines.join("\n");
-};
+const createArtifactContent = input => require('../lib/automationPortableArtifact').createPortableAutomationArtifact(input);
 
 const persistLearning = async ({
   testCase,
@@ -2583,35 +2617,81 @@ const persistLearning = async ({
   return persisted;
 };
 
-const applyBuild = async ({ build }) => db.transaction(async () => {
-  const updated = [];
-  const caseId = build.updates[0]?.step.test_case_id;
-  if (caseId) {
-    const current = await db.prepare("SELECT * FROM test_steps WHERE test_case_id = ? ORDER BY step_order ASC, id ASC FOR UPDATE").all(caseId);
-    const fields = ["action", "expected_result", "automation_code", "step_type", "step_order", "group_id", "group_kind", "reusable_group_id", "api_request"];
-    if (current.length !== build.updates.length || build.updates.some(({ step }) => {
-      const latest = current.find((row) => row.id === step.id);
-      return !latest || fields.some((key) => JSON.stringify(latest[key] ?? null) !== JSON.stringify(step[key] ?? null));
-    })) throw new Error("The case changed while the agent was building. Existing edits were preserved; retry using the latest case.");
-  }
+const applyBuild = async ({ build, executionGuard, createdBy, progressiveState, partial = false }) => {
+  if (partial && !progressiveState) throw Object.assign(new Error('Progressive saves require the complete original case baseline.'), { code: 'AUTOMATION_BUILD_BASELINE_REQUIRED' });
+  const committed = await db.transaction(async () => {
+    await executionGuard?.ensureOwnership();
+    const updated = [];
+    const caseId = build.updates[0]?.step.test_case_id;
+    const baseline = progressiveState ? progressiveState.steps : build.updates.map(update => update.step);
+    const parameterKey = progressiveState ? progressiveState.parameter_context_key : build.parameter_context_key;
+    const inputContext = progressiveState ? progressiveState.input_context : build.input_context;
+    const dataSnapshot = progressiveState ? progressiveState.data_snapshot : build.data_snapshot;
+    const caseSql = 'SELECT tc.id,tc.display_id,tc.suite_id,tc.automated,tc.parameter_values,tc.test_data_options,tc.automation_start_url,tc.app_type_id,app.project_id FROM test_cases tc JOIN app_types app ON app.id=tc.app_type_id WHERE tc.id = ? FOR UPDATE OF tc FOR SHARE OF app';
+    const stepsSql = 'SELECT * FROM test_steps WHERE test_case_id = ? ORDER BY step_order ASC, id ASC FOR UPDATE';
+    let current = [];
+    if (caseId) {
+      const currentCase = await db.prepare(caseSql).get(caseId);
+      if (build.app_type_id !== undefined && (!currentCase || currentCase.app_type_id !== build.app_type_id || currentCase.project_id !== build.project_id)) throw Object.assign(new Error('The automation case application or project changed while the agent was building. Existing instructions were retained; refresh before building again.'), { statusCode: 409, code: 'AUTOMATION_TARGET_CHANGED' });
+      if (build.case_start_url !== undefined && (currentCase.automation_start_url || null) !== build.case_start_url) throw Object.assign(new Error('Start URL changed while the agent was building. Existing instructions were retained; retry using the reviewed target.'), { statusCode: 409, code: 'AUTOMATION_START_URL_CHANGED' });
+      if (build.manual_context) {
+        const links = await db.prepare('SELECT manual_test_case_id FROM automation_case_links WHERE automation_test_case_id = ? ORDER BY manual_test_case_id').all(caseId);
+        if (JSON.stringify(links.map(row => row.manual_test_case_id)) !== JSON.stringify(build.manual_link_ids)) throw new Error('Linked manual cases changed while the agent was building. Existing instructions were retained; retry using the current linked cases.');
+        for (const row of links) await db.prepare('SELECT id FROM test_cases WHERE id = ? FOR UPDATE').get(row.manual_test_case_id);
+        const currentManual = await loadAutomationManualContext({ caseId, projectId: build.project_id, userId: createdBy, lock: true });
+        if (manualContextKey(currentManual) !== manualContextKey(build.manual_context)) throw new Error('A linked manual case or its steps changed while the agent was building. Existing instructions were retained; retry using the current specification.');
+      }
+      if (parameterKey != null || inputContext) {
+        const currentParameters = await loadAutomationParameterContext({ testCase: currentCase, projectId: build.project_id, userId: createdBy, lock: true });
+        if (parameterKey != null && currentParameters.source_key !== parameterKey) throw Object.assign(new Error('Linked manual or automation test parameters changed while the agent was building. Existing instructions were retained; retry with the current parameters.'), { statusCode: 409, code: 'AUTOMATION_PARAMETERS_CHANGED' });
+        if(inputContext){
+          const currentInputs=await require('../lib/automationBrowserParameters').loadBrowserParameterResolver({testCase:currentCase,projectId:build.project_id,userId:createdBy,caseValues:currentParameters.runtime_parameter_values,privateParameterNames:currentParameters.private_parameter_names,parameterOverrides:currentParameters.parameter_overrides,...inputContext.selection,materialize:false,lock:true});
+          if(currentInputs.inputSourceKey!==inputContext.source_key)throw Object.assign(new Error('Selected test data, environment, configuration or case data changed while the agent was building. Existing instructions were retained; review the current inputs before rebuilding.'),{statusCode:409,code:'AUTOMATION_PARAMETERS_CHANGED'});
+        }
+      }
+      current = await db.prepare(stepsSql).all(caseId);
+      const fields = ['action', 'expected_result', 'automation_code', 'step_type', 'step_order', 'group_id', 'group_name', 'group_kind', 'reusable_group_id', 'api_request'];
+      if (!Array.isArray(baseline) || current.length !== baseline.length || baseline.some(step => {
+        const latest = current.find(row => row.id === step.id);
+        return !latest || fields.some(key => JSON.stringify(latest[key] ?? null) !== JSON.stringify(step[key] ?? null));
+      }) || new Set(build.updates.map(update => update.step.id)).size !== build.updates.length || build.updates.some(update => !current.some(row => row.id === update.step.id))) {
+        throw new Error('The case changed while the agent was building. Existing edits were preserved; retry using the latest case.');
+      }
+      if (dataSnapshot) await require('../lib/automationBuildDataSnapshot').persistBuildDataSnapshot({ testCase: currentCase, projectId: build.project_id, userId: createdBy, snapshot: dataSnapshot });
+    }
 
-  for (const update of build.updates) {
-    await testStepService.updateTestStep(update.step.id, {
-      step_type: update.step_type,
-      automation_code: update.automation_code,
-      api_request: update.api_request
-    }, { syncSharedGroup: false });
-    updated.push({
-      step_id: update.step.id,
-      step_order: update.step.step_order,
-      step_type: update.step_type,
-      has_code: Boolean(update.automation_code),
-      has_api_request: Boolean(update.api_request)
-    });
-  }
-
-  return updated;
-})();
+    for (const update of build.updates) {
+      const latest = current.find(row => row.id === update.step.id);
+      if (!latest || ['step_type', 'automation_code', 'api_request'].some(key => JSON.stringify(latest[key] ?? null) !== JSON.stringify(update[key] ?? null))) {
+        await testStepService.updateTestStep(update.step.id, {
+          step_type: update.step_type,
+          automation_code: update.automation_code,
+          api_request: update.api_request
+        }, { syncSharedGroup: false });
+      }
+      updated.push({ step_id: update.step.id, step_order: update.step.step_order, step_type: update.step_type,
+        has_code: Boolean(update.automation_code), has_api_request: Boolean(update.api_request) });
+    }
+    if (caseId && updated.length) {
+      if (partial) await markTestCaseAutomationIncomplete.run(caseId);
+      else await markTestCaseAutomationReady.run(normalizeText(createdBy), caseId);
+    }
+    let nextState;
+    if (caseId && progressiveState) {
+      // Both reads are still protected by this transaction's source/target
+      // locks. Only our own committed writes become the next save baseline.
+      const nextCase = await db.prepare(caseSql).get(caseId);
+      const nextParameters = await loadAutomationParameterContext({ testCase: nextCase, projectId: build.project_id, userId: createdBy, lock: true });
+      const nextInputs=inputContext?await require('../lib/automationBrowserParameters').loadBrowserParameterResolver({testCase:nextCase,projectId:build.project_id,userId:createdBy,caseValues:nextParameters.runtime_parameter_values,privateParameterNames:nextParameters.private_parameter_names,parameterOverrides:nextParameters.parameter_overrides,...inputContext.selection,materialize:false,lock:true}):null;
+      nextState = { steps: JSON.parse(JSON.stringify(await db.prepare(stepsSql).all(caseId))),
+        parameter_context_key: nextParameters.source_key, input_context:inputContext?{...inputContext,source_key:nextInputs.inputSourceKey}:undefined, data_snapshot: null };
+    }
+    return { updated, nextState };
+  })();
+  // A failed transaction or COMMIT must never advance the in-memory baseline.
+  if (progressiveState && committed.nextState) Object.assign(progressiveState, committed.nextState);
+  return committed.updated;
+};
 
 const buildCaseCore = async ({
   test_case_id,
@@ -2619,15 +2699,26 @@ const buildCaseCore = async ({
   ai_feature,
   created_by,
   start_url,
+  start_url_review,
   allow_browser_actions = false,
+  verification_mode = "generate_only",
+  browser_driver = "mcp",
+  verification_driver = "native",
   test_environment_id,
   test_configuration_id,
   test_data_set_id,
+  test_suite_id,
+  parameter_values,
+  parameter_plan_key,
   captured_actions = [],
   captured_network = [],
   additional_context,
+  agent_context,
+  execution_guard,
   transaction_id
 }) => {
+  const pipelineOptions=require("../lib/automationBuildPipelineOptions").normalizeBuildPipelineOptions({verification_mode,browser_driver,verification_driver,allow_browser_actions});
+  await execution_guard?.ensureOwnership();
   let testCase = await selectCaseWithScope.get(test_case_id);
 
   if (!testCase) {
@@ -2637,11 +2728,17 @@ const buildCaseCore = async ({
   const access = await getOptionalEvidenceAccess({ id: created_by }, testCase.project_id, ["automation.ai", "automation.build"]);
   if (!access["automation.ai"] || !access["automation.build"]) throw Object.assign(new Error("Automation AI is disabled or your build permission is no longer available."), { statusCode: 403 });
 
-  let steps = await selectStepsForCase.all(test_case_id);
-
-  if (!steps.length) {
-    throw new Error("Add manual steps before building automation");
+  if(pipelineOptions.verification_mode!=="generate_only"){
+    const runAccess=await getOptionalEvidenceAccess({id:created_by},testCase.project_id,["automation.run.local","run.create"]);
+    if(!runAccess["automation.run.local"]||!runAccess["run.create"])throw Object.assign(new Error("Isolated verification requires local automation execution and run creation permissions."),{statusCode:403,code:"AUTOMATION_VERIFICATION_ACCESS_REQUIRED"});
   }
+  const resourcePermissions=[...(test_environment_id?["environment.view"]:[]),...(test_configuration_id?["configuration.view"]:[]),...(test_data_set_id?["data.view"]:[]),...(test_suite_id?["suite.view"]:[])];
+  const resourceAccess=await getOptionalEvidenceAccess({id:created_by},testCase.project_id,resourcePermissions);
+  if(resourcePermissions.some(key=>!resourceAccess[key]))throw Object.assign(new Error("Selected execution context access is no longer available."),{statusCode:403});
+  const buildParameterValues=require('../lib/automationBuildParameterPlan').buildParameterValues(parameter_values||{});
+  const reviewedParameterState=await require('./automationBuildParameterPlan.service').loadState({testCase,userId:created_by,test_environment_id,test_configuration_id,test_data_set_id,test_suite_id,parameter_values:buildParameterValues,expectedKey:parameter_plan_key});
+  test_suite_id ??= reviewedParameterState.plan.test_suite_id;
+  let steps = await selectStepsForCase.all(test_case_id);
 
   if (isMobileAppType(testCase.app_type_kind) || steps.some((step) => ["android", "ios"].includes(step.step_type))) {
     await mobileFeatureService.assertMobileFeatureEnabled();
@@ -2649,25 +2746,39 @@ const buildCaseCore = async ({
     if (!mobileAccess["mobile.manage"]) throw Object.assign(new Error("Mobile management permission is required to build native automation."), { statusCode: 403 });
   }
 
-  const preparedTarget = await automationCasePreparationService.prepareAutomationTarget({ testCaseId: test_case_id, createdBy: created_by, aiGenerated: true });
+  const browserBuild=requiresAutomationStartUrl({appTypeKind:testCase.app_type_kind,steps});
+  const selectedStartUrl=normalizeAutomationStartUrl(start_url!=null?start_url:testCase.automation_start_url,{required:browserBuild});
+  const preparedTarget = await automationCasePreparationService.prepareAutomationTarget({ testCaseId: test_case_id, createdBy: created_by, aiGenerated: true, startUrl:selectedStartUrl });
   if (preparedTarget.test_case_id !== test_case_id) {
     test_case_id = preparedTarget.test_case_id;
     testCase = await selectCaseWithScope.get(test_case_id);
     steps = await selectStepsForCase.all(test_case_id);
   }
+  const reviewedNavigation = await require('../lib/automationBuildStartUrl').resolveBuildStartUrl({testCase,steps,startUrl:selectedStartUrl,userId:created_by,startUrlReview:start_url_review});
+  testCase=await selectCaseWithScope.get(test_case_id);
+  if((testCase.automation_start_url||null)!==reviewedNavigation.savedStartUrl)throw Object.assign(new Error('Start URL changed before generation started. Submit a new build with the current target.'),{statusCode:409,code:'AUTOMATION_START_URL_CHANGED'});
+  const needsFlowPlanning=!steps.length;
+  if(needsFlowPlanning)require('../lib/automationFlowPlanning').assertFlowPlanningFeature(buildFeature(ai_feature));
+  const flowBrief=normalizeRichText(additional_context)||normalizeRichText(testCase.description);
+  if(needsFlowPlanning&&!flowBrief)throw Object.assign(new Error('Describe the intended flow and expected outcome in Agent brief before building an empty automation case.'),{code:'AUTOMATION_FLOW_BRIEF_REQUIRED',statusCode:422,nonRetryable:true});
+  await require('./automationBuildTargets.service').registerTarget(transaction_id,test_case_id);
+  const progress=async event=>{await execution_guard?.ensureOwnership();return require('./automationAgentActivity.service').recordProgress(transaction_id,{...event,details:{test_case_id,...event.details},metadata:{current_phase:event.phase,phase_message:event.message}});};
+  const progressionPolicy=allow_browser_actions===true&&browserBuild?'performed_generated_saved':'generated_saved';
+  await progress({phase:'automation.agent.plan',message:needsFlowPlanning?'Preparing a manual flow from the agent brief.':`Queued ${steps.length} saved sections for generation.`,details:{progression_policy:progressionPolicy,flow_source:needsFlowPlanning?'agent_brief':'saved_sections',steps:steps.map(step=>({step_id:step.id,step_order:step.step_order,step_type:step.step_type,action:step.action,expected_result:step.expected_result})),manual_steps:[]}});
 
-  const cacheRows = await listLearningCacheRows({
+  const cacheRows = scopeRepositoryToTarget(await listLearningCacheRows({
     projectId: testCase.project_id || null,
     appTypeId: testCase.app_type_id || null,
     limit: MAX_CACHE_ROWS
-  });
-  const knowledgeRows = await aiKnowledgeService.buildKnowledgeContextPackage(testCase.project_id || null, {
-    app_type_id: testCase.app_type_id || null,
-    query: testCase.title || null,
-    module_name: testCase.module_name || null,
-    feature_name: testCase.feature_name || null,
-    user: created_by ? { id: created_by } : undefined
-  });
+  }),browserBuild?selectedStartUrl:null);
+  const contextSelection = normalizeAgentContext(agent_context);
+  const featureProfile=await require("@hellotest/platform/backend/services/aiConfiguration.service").resolve(buildFeature(ai_feature));
+  const featureConfiguration=featureProfile.config;
+  const contextPolicy=featureConfiguration.context;
+  const knowledgeRows = await retrieveAgentContext({testCase,userId:created_by,selection:contextSelection,prompt:additional_context,policy:contextPolicy,signal:execution_guard?.signal});
+  if(!test_data_set_id && (await getOptionalEvidenceAccess({id:created_by},testCase.project_id,["data.view"]))["data.view"]) {
+    test_data_set_id=(await db.prepare("SELECT test_data_set_id FROM test_case_data_sets WHERE test_case_id = ? ORDER BY sort_order, test_data_set_id LIMIT 1").get(test_case_id))?.test_data_set_id;
+  }
   const capturedActions = normalizeCapturedActions(captured_actions);
   const capturedNetwork = normalizeCapturedNetwork(captured_network);
   const buildContext = await resolveBuildContext({
@@ -2676,8 +2787,14 @@ const buildCaseCore = async ({
     test_configuration_id,
     test_data_set_id
   });
-  buildContext.story_context = await loadAutomationStoryContext({ caseId: test_case_id, projectId: testCase.project_id, userId: created_by });
-  const startUrl = normalizeText(start_url) || buildContext.environment?.base_url || null;
+  buildContext.linked_manual_cases = await loadAutomationManualContext({caseId:test_case_id,projectId:testCase.project_id,userId:created_by});
+  const manualLinkIds=(await db.prepare('SELECT manual_test_case_id FROM automation_case_links WHERE automation_test_case_id = ? ORDER BY manual_test_case_id').all(test_case_id)).map(row=>row.manual_test_case_id);
+  buildContext.story_context = contextPolicy.mode !== "none" && contextSelection.context_scopes.includes("stories") ? await loadAutomationStoryContext({ caseId: test_case_id, projectId: testCase.project_id, userId: created_by }) : {stories:[],related_stories:[]};
+  buildContext.retrieval = {transport:knowledgeRows.context_transport,scopes:contextSelection.context_scopes,limitations:knowledgeRows.limitations,coverage:knowledgeRows.coverage,reviewed_context:knowledgeRows.reviewed_context,supplemental_limitations:knowledgeRows.supplemental_limitations};
+  buildContext.case_metadata = {id:testCase.id,title:testCase.title,description:testCase.description,authoring_mode:testCase.authoring_mode,gherkin_document:testCase.gherkin_document,preconditions:testCase.preconditions,priority:testCase.priority,labels:safeJson(testCase.labels,[])};
+  let navigation = resolveAutomationStartUrl({startUrl:selectedStartUrl,caseUrl:testCase.automation_start_url,environmentUrl:buildContext.environment?.base_url,steps,required:browserBuild});
+  let startUrl = navigation.url;
+  buildContext.browser_policy={transport:'playwright_mcp',interaction_mode:startUrl?(allow_browser_actions===true?'interactive':'read_only'):'not_configured',entry_url:startUrl,entry_origin:startUrl?new URL(startUrl).origin:null,target_source:navigation.source,entry_url_is_authoritative:browserBuild,verification_status:'unverified'};
   let integration = null;
   let fallbackReason = null;
   let build = null;
@@ -2694,7 +2811,9 @@ const buildCaseCore = async ({
       captured_network: capturedNetwork.length,
       test_environment_id: buildContext.environment?.id || null,
       test_configuration_id: buildContext.configuration?.id || null,
-      test_data_set_id: buildContext.data_set?.id || null
+      test_data_set_id: buildContext.data_set?.id || null,
+      browser_entry_source:navigation.source,browser_entry_step_id:navigation.step_id||null,
+      browser_interaction_mode:buildContext.browser_policy.interaction_mode
     }
   });
 
@@ -2709,54 +2828,362 @@ const buildCaseCore = async ({
   }
 
   if (!integration) throw new Error("No active LLM integration is configured. Select a model and retry the automation build.");
-  const prompt = buildPrompt({ testCase, steps, cacheRows, knowledgeRows, capturedActions, capturedNetwork, buildContext, startUrl, additionalContext: normalizeRichText(additional_context) });
+  const parameterContext=await loadAutomationParameterContext({testCase,projectId:testCase.project_id,userId:created_by});
+  const browserParameters=await require('../lib/automationBrowserParameters').loadBrowserParameterResolver({testCase,projectId:testCase.project_id,userId:created_by,caseValues:parameterContext.runtime_parameter_values,privateParameterNames:parameterContext.private_parameter_names,parameterOverrides:parameterContext.parameter_overrides,steps:[...steps,...buildContext.linked_manual_cases.flatMap(item=>item.steps)],test_environment_id,test_configuration_id,test_data_set_id,test_suite_id,buildParameterValues,defaultMissingInputs:true});
+  if(reviewedParameterState&&reviewedParameterState.inputSourceKey!==browserParameters.inputSourceKey)throw Object.assign(new Error('Reviewed build parameters changed before generation started. Review the current inputs before rebuilding.'),{statusCode:409,code:'AUTOMATION_PARAMETER_PLAN_CHANGED',nonRetryable:true,failure_stage:'context',automation_stage:'context',generation_provider_requests:0,browser_actions:0});
+  if(reviewedParameterState){
+    const plans=require('../lib/automationBuildParameterPlan');
+    if(reviewedParameterState.plan.resolved_test_case_id===testCase.id){
+      const reviewedCase=reviewedParameterState.dataAccess?testCase:{id:testCase.id,app_type_id:testCase.app_type_id,project_id:testCase.project_id};
+      plans.assertParameterPlanKey(reviewedParameterState.plan.parameter_plan_key,plans.parameterPlanKey({testCase:reviewedCase,steps,manualCases:buildContext.linked_manual_cases,parameterSourceKey:parameterContext.source_key,inputSourceKey:browserParameters.inputSourceKey}));
+    }else{
+      const linkedSource=buildContext.linked_manual_cases.find(item=>item.id===reviewedParameterState.plan.resolved_test_case_id);
+      const goals=source=>JSON.stringify(source.map(({id,step_order,action,expected_result,step_type})=>({id,step_order,action,expected_result,step_type})));
+      if(!linkedSource||goals(linkedSource.steps)!==goals(reviewedParameterState.sourceSteps))throw Object.assign(new Error('The reviewed manual steps changed before their automation target was prepared. Review the current inputs before rebuilding.'),{statusCode:409,code:'AUTOMATION_PARAMETER_PLAN_CHANGED',nonRetryable:true,failure_stage:'context',generation_provider_requests:0,browser_actions:0});
+    }
+  }
+  let dataSnapshot=await require('../lib/automationBuildDataSnapshot').prepareBuildDataSnapshot({testCase,projectId:testCase.project_id,userId:created_by,generatedValues:browserParameters.generatedCaseValues,authoredValues:browserParameters.reviewedCaseValues,defaultedValues:browserParameters.defaultedCaseValues,parameterOverrides:parameterContext.parameter_overrides,privateNames:browserParameters.privateParameterNames});
+  const inputContext={selection:{test_environment_id,test_configuration_id,test_data_set_id,test_suite_id},source_key:browserParameters.inputSourceKey};
+  const progressiveState={steps:structuredClone(steps),parameter_context_key:parameterContext.source_key,input_context:inputContext,data_snapshot:dataSnapshot};
+  const buildIdentity={manual_context:buildContext.linked_manual_cases,manual_link_ids:manualLinkIds,parameter_context_key:parameterContext.source_key,input_context:inputContext,data_snapshot:dataSnapshot,project_id:testCase.project_id,app_type_id:testCase.app_type_id,case_start_url:reviewedNavigation.savedStartUrl};
+  const promptCase=browserParameters.projectCase(testCase);
+  let promptSteps=browserParameters.projectSteps(steps);
+  navigation=resolveAutomationStartUrl({startUrl:selectedStartUrl,caseUrl:testCase.automation_start_url,environmentUrl:browserParameters.projectText(buildContext.environment?.base_url),steps:promptSteps,required:browserBuild});
+  startUrl=navigation.url;
+  buildContext.browser_policy={...buildContext.browser_policy,interaction_mode:startUrl?(allow_browser_actions===true?'interactive':'read_only'):'not_configured',entry_url:startUrl,entry_origin:startUrl?new URL(startUrl).origin:null};
+  const promptBuildContext=browserParameters.projectBuildContext(buildContext);
+  if(transaction_id)try{
+    const artifact=await require('./automationAgentActivity.service').createBuildData(transaction_id,browserParameters.buildData({testCaseId:test_case_id,steps,manualCases:buildContext.linked_manual_cases}));
+    await progress({phase:'automation.agent.data',message:'Prepared the linked case data for this build.',details:artifact});
+  }catch(error){
+    if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;
+    await appendEvent(transaction_id,{phase:'automation.agent.data.unavailable',level:'warning',message:'The optional resolved-data display could not be stored. Generation continues with the same configured data.'}).catch(()=>{});
+  }
+  let prompt = buildPrompt({ featureKey:buildFeature(ai_feature), testCase:promptCase, steps:promptSteps, cacheRows, knowledgeRows, capturedActions, capturedNetwork, buildContext:promptBuildContext, startUrl, additionalContext: browserParameters.projectText(normalizeRichText(additional_context)) });
   let browser;
+  const browserObservations=[];
+  const savedSectionIds=new Set();
+  const annotateBuildFailure=error=>{
+    error.automation_test_case_id=test_case_id;
+    error.source_test_case_id=preparedTarget.source_test_case_id;
+    error.saved_step_ids=[...savedSectionIds];
+    error.saved_sections=savedSectionIds.size;
+    if(completionActiveStepId){error.active_step_id=completionActiveStepId;error.active_manual_step_ids=completionActiveManualStepIds;}
+    // Requeueing the whole case after a provider/storage failure could repeat
+    // an already performed submission. A new user-reviewed build is separate.
+    if(browserObservations.some(item=>['browser_click','browser_fill','browser_press_key','browser_select_option','browser_check','browser_uncheck','browser_hover'].includes(item.tool)&&!item.result?.isError))error.nonRetryable=true;
+    return error;
+  };
+  const generationEvidence=new Map();
+  const generationModelCalls=new Map();
+  let generationRequested=false;
+  let completionAttempt=1;
+  let completionActiveStepId=null;
+  let completionActiveManualStepIds=[];
+  let completionSectionAttempt=null;
+  let completionSectionIds=[];
+  const generationProvenance=new Map();
+  const generationContracts=new Map();
+  const usedObjectManifests=new Map();
+  const usedObjectRowsByAttempt=new Map();
+  let confirmedObjectsSaved=0;
+  let planningFlow=needsFlowPlanning;
+  const caseBudgetMs=Math.max(240_000,Math.min(1_800_000,Number(process.env.AUTOMATION_BUILDER_CASE_TIMEOUT_MS)||Math.max(240_000,steps.length*120_000)));
+  const callsPerSection=Math.max(6,Math.min(30,Number(process.env.AUTOMATION_BUILDER_BROWSER_CALLS_PER_SECTION)||12));
+  let browserCallBudget=Math.min(400,Math.max(callsPerSection,steps.filter(step=>normalizeTestStepType(step.step_type,'web')==='web').length*callsPerSection));
+  const buildStartedAt=Date.now();
+  let completionDeadline=buildStartedAt+caseBudgetMs;
+  const assertBuildContextAccess=async()=>{
+    await execution_guard?.ensureOwnership();
+    const permissions=[...new Set(['automation.ai','automation.build',...browserParameters.required_permissions,...(browserParameters.availableParameterNames.length?['data.view']:[])])];
+    const access=await getOptionalEvidenceAccess({id:created_by},testCase.project_id,permissions);
+    if(permissions.some(permission=>!access[permission]))throw Object.assign(new Error('Automation build or test context access changed. Existing instructions were retained.'),{statusCode:403});
+  };
+  const completeBuild=async(input,remainingMs=LLM_TIMEOUT_MS,traceOptions={})=>{await assertBuildContextAccess();const attempt=completionAttempt;if(!planningFlow&&!generationModelCalls.has(attempt))generationModelCalls.set(attempt,[]);return require("@hellotest/platform/backend/src/utils/llmTraceContext").run({project_id:testCase.project_id,actor_id:created_by,session_id:transaction_id,completion_attempt:attempt,test_case_id,generation_scope:traceOptions.generationScope||(planningFlow?'flow_plan':completionActiveStepId?'section_attempt':'case_attempt'),generation_section_ids:completionSectionIds,section_attempt:completionSectionAttempt,
+    on_llm_trace:transaction_id?record=>{
+      // Bind previews to the actual response being consumed, before the optional
+      // event sink. One case-level response can develop several sections.
+      if(!planningFlow&&record.status==="succeeded"&&record.dispatched&&typeof record.call_id==="string")generationModelCalls.set(attempt,[...new Set([...(generationModelCalls.get(attempt)||[]),record.call_id])]);
+      return appendEvent(transaction_id,require("@hellotest/platform/backend/src/utils/agentModelTrace").modelTraceEvent(record,{name:"Automation engineer",caseId:test_case_id}));
+    }:undefined,
+    automation_case_generation:true,automation_actor_phase:traceOptions.browserActor===true,automation_browser_loop:Boolean(browser)||planningFlow,mcp_context_depth:1,mcp_context:knowledgeRows.knowledge.length?"retrieved":knowledgeRows.context_transport === "not_required"?"not_required":"unavailable"},()=>{generationRequested=true;return requestChatCompletion({integration,featureKey:buildFeature(ai_feature),prompt:input,signal:execution_guard?.signal,timeoutMs:Math.min(LLM_TIMEOUT_MS,remainingMs),maxAttempts:traceOptions.generationScope==='verification_repair'?1:undefined,beforeDispatch:assertBuildContextAccess,activeGoal:traceOptions.browserActor===true?promptSteps.find(step=>step.id===completionActiveStepId):undefined,onCapacityWait:details=>progress({phase:'automation.agent.model.capacity.wait',message:'The model provider requested a short wait. Retaining the current browser and completed actions before retrying the rejected request.',details:{...details,active_step_id:completionActiveStepId}})});} );};
   try {
-    let payload;
-    if (startUrl && steps.some((step) => normalizeTestStepType(step.step_type, "web") === "web")) {
+    if(allow_browser_actions===true&&browserBuild&&!needsFlowPlanning){
+      try {
+        const resumed=await require('./automationUsedObjects.service').resume({testCase,userId:created_by,assertAccess:assertBuildContextAccess,executionGuard:execution_guard});
+        confirmedObjectsSaved+=resumed.synced||0;
+      } catch(error) {
+        if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;
+        await progress({phase:'automation.agent.objects.pending',level:'warning',message:'Previously confirmed object bindings remain pending. Browser work will not be replayed to synchronize objects.',details:{error_code:error.code||'AUTOMATION_OBJECT_SYNC_UNAVAILABLE'}});
+      }
+      try{require('../lib/automationBuildInputPreflight').assertBuildInputs(steps,browserParameters);}
+      catch(error){completionActiveStepId=error.active_step_id;await progress({phase:'automation.agent.dependencies',level:'warning',message:error.message,details:{blocked_steps:error.blocked_steps,active_step_id:error.active_step_id,generation_provider_requests:0,browser_actions:0}});throw error;}
+    }
+    if (startUrl && (needsFlowPlanning&&browserBuild||steps.some((step) => normalizeTestStepType(step.step_type, "web") === "web"))) {
       const engine = await resolveTestEngineIntegration(testCase);
-      browser = await connectAutomationBrowser({ integration: engine, startUrl, allowBrowserActions: allow_browser_actions === true });
-      payload = await runAutomationBrowserAgent({ prompt, browser, startUrl, complete: (input, remainingMs) => requestChatCompletion({ integration, featureKey: buildFeature(ai_feature), prompt: input, timeoutMs: Math.min(LLM_TIMEOUT_MS, remainingMs) }), parse: extractJsonPayload, onProgress: (event) => appendEvent(transaction_id, { ...event, metadata: { current_phase: event.phase, phase_message: event.message } }) });
+      browser = await connectAutomationBrowser({ integration: engine, startUrl, allowBrowserActions: allow_browser_actions === true, signal:execution_guard?.signal });
+      const callBrowser=browser.call;
+      // Tool values resolve only when the complete argument is a parameter
+      // reference. Already-rendered prose and token-looking literals retain
+      // their exact meaning while private material remains projected.
+      browser.projectPromptText=value=>require('../lib/automationBrowserParameters').referenceKey(value)?browserParameters.projectText(value):browserParameters.projectPrivateText(value);
+      browser.projectPrivateText=browserParameters.projectPrivateText;
+      browser.canonicalizeParameterArguments=browserParameters.canonicalArguments;
+      browser.call=async(name,args)=>{
+        // Materialized public inputs can also be literal model tool arguments.
+        // Recheck their source access even when no parameter token remains.
+        await assertBuildContextAccess();
+        try{return browserParameters.redactResult(await callBrowser(name,browserParameters.resolve(name,args)));}catch(error){throw browserParameters.redactError(error);}
+      };
     } else {
       await appendEvent(transaction_id, { phase: "automation.agent.context", message: "Generating from the supplied case and repository context. No live web inspection was requested." });
-      payload = extractJsonPayload(await requestChatCompletion({ integration, prompt, featureKey: buildFeature(ai_feature) }));
     }
-    build = normalizeLlmBuild(payload, steps, cacheRows, startUrl);
+    if(needsFlowPlanning){
+      const allowedTypes=testCase.app_type_kind==='unified'?['web','api','android','ios']:[normalizeTestStepType(testCase.app_type_kind,'web')];
+      const flowPlanning=require('../lib/automationFlowPlanning');
+      const planningCase={...promptCase};
+      for(const field of ['title','description','gherkin_document','preconditions'])if(typeof testCase[field]==='string')planningCase[field]=flowPlanning.projectFlowPlanningBrief(testCase[field],browserParameters);
+      const draftFlow=await flowPlanning.planAutomationFlow({featureKey:buildFeature(ai_feature),allowedTypes,browser,startUrl,complete:completeBuild,parse:extractJsonPayload,observations:browserObservations,deadlineMs:completionDeadline,onProgress:progress,
+        requiredParameterNames:browserParameters.referencedParameterNames([{action:flowBrief,expected_result:''}]),referencedParameterNames:browserParameters.referencedParameterNames,
+        context:require('../lib/automationActorPrompt').projectAutomationActorTask({user_request:flowPlanning.projectFlowPlanningBrief(flowBrief,browserParameters),case:planningCase,build_context:promptBuildContext,repository:summarizeCache(cacheRows),knowledge:summarizeKnowledge(knowledgeRows.knowledge)}),
+        onObservation:async observation=>{
+          await assertBuildContextAccess();browserObservations.push(observation);
+          try{const evidence=await require('./automationAgentActivity.service').createBrowserEvidence(transaction_id,{observation,testCaseId:test_case_id,attempt:1,interactionMode:'read_only'});if(evidence)await progress({phase:'automation.agent.observation',message:'Read application evidence for the proposed manual flow.',details:evidence});}
+          catch(error){if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;}
+        }});
+      try{steps=await require('./automationFlowPlan.service').saveFlowPlan({testCase,steps:draftFlow,userId:created_by,executionGuard:execution_guard,assertSources:async()=>{
+        const currentManual=await loadAutomationManualContext({caseId:test_case_id,projectId:testCase.project_id,userId:created_by,lock:true});
+        const currentParameters=await loadAutomationParameterContext({testCase,projectId:testCase.project_id,userId:created_by,lock:true});
+        if(manualContextKey(currentManual)!==manualContextKey(buildContext.linked_manual_cases)||currentParameters.source_key!==parameterContext.source_key)throw Object.assign(new Error('Linked case context or test parameters changed while the manual flow was being planned.'),{code:'AUTOMATION_FLOW_BASELINE_CHANGED',statusCode:409,nonRetryable:true});
+      }});}catch(error){error.automation_stage='save';throw error;}
+      const firstWebSection=steps.find(step=>normalizeTestStepType(step.step_type,'web')==='web');
+      const adoptedNavigation=firstWebSection?require('../lib/automationBrowserRecording').adoptPlanningNavigation(browserObservations,firstWebSection.id):0;
+      if(adoptedNavigation)await progress({phase:'automation.agent.flow.navigation.reused',message:'Retained confirmed planning navigation as the first browser section’s setup. No browser action was replayed.',details:{active_step_id:firstWebSection.id,confirmed_navigation_count:adoptedNavigation,evidence_source:'protected_planning_operations'}});
+      browserParameters.registerStepReferences?.(steps);
+      promptSteps=browserParameters.projectSteps(steps);
+      dataSnapshot=await require('../lib/automationBuildDataSnapshot').prepareBuildDataSnapshot({testCase,projectId:testCase.project_id,userId:created_by,generatedValues:browserParameters.generatedCaseValues,authoredValues:browserParameters.reviewedCaseValues,defaultedValues:browserParameters.defaultedCaseValues,parameterOverrides:parameterContext.parameter_overrides,privateNames:browserParameters.privateParameterNames});
+      Object.assign(progressiveState,{steps:structuredClone(steps),data_snapshot:dataSnapshot});buildIdentity.data_snapshot=dataSnapshot;
+      prompt=buildPrompt({featureKey:buildFeature(ai_feature),testCase:promptCase,steps:promptSteps,cacheRows,knowledgeRows,capturedActions,capturedNetwork,buildContext:promptBuildContext,startUrl,additionalContext:browserParameters.projectText(normalizeRichText(additional_context))});
+      browserCallBudget=Math.min(400,Math.max(callsPerSection,steps.filter(step=>step.step_type==='web').length*callsPerSection));
+      if(!process.env.AUTOMATION_BUILDER_CASE_TIMEOUT_MS)completionDeadline=buildStartedAt+Math.min(1_800_000,Math.max(caseBudgetMs,steps.length*120_000));
+      planningFlow=false;
+      if(transaction_id)try{const artifact=await require('./automationAgentActivity.service').createBuildData(transaction_id,browserParameters.buildData({testCaseId:test_case_id,steps,manualCases:buildContext.linked_manual_cases}));await progress({phase:'automation.agent.data',message:'Prepared the same fixed test data for the newly planned sections.',details:artifact});}
+      catch(error){if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;await appendEvent(transaction_id,{phase:'automation.agent.data.unavailable',level:'warning',message:'The optional planned-data display could not be stored. Generation continues with the same fixed values.'}).catch(()=>{});}
+      await progress({phase:'automation.agent.flow.planned',message:`Prepared ${steps.length} draft manual actions. Each will be performed, generated and saved in order.`,details:{flow_source:'agent_brief',total_sections:steps.length,verification_status:'unverified'}});
+    }
+    build = await completeAutomationBuild({steps,manualSteps:buildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),displaySteps:promptSteps,displayManualSteps:promptBuildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),sequential:browserBuild||buildContext.linked_manual_cases.length>0,progressionPolicy,availableParameters:browserParameters.availableParameterNames,feedbackInstruction:aiInstructionBlock(buildFeature(ai_feature),"automationBuild.completionFeedback"),
+      validate:(payload,requiredSteps)=>normalizeLlmBuild(payload,requiredSteps,cacheRows,startUrl,{origins:buildNavigationOrigins({startUrl,additionalContext:additional_context,observations:browserObservations}),parameters:browserParameters.promptValues,resolveText:browserParameters.projectText,
+        resolveAssertionParameter:key=>browserParameters.resolve('browser_assert',{value:require('../lib/automationBrowserParameters').parameterReference(key)}).value}),
+      validateOutcome:payload=>require('@hellotest/platform/backend/src/utils/aiFeatureRuntime').validateValue(payload,featureProfile),
+      onProgress:async event=>{await execution_guard?.ensureOwnership();return progress(event);},
+      onBeforeSaveSection:async({step,normalized,attempt})=>{
+        await execution_guard?.ensureOwnership();
+        const recordedContract=generationContracts.get(attempt);
+        if(!recordedContract)return;
+        const update=normalized.updates.find(item=>item.step.id===step.id);
+        const manualSpecification=buildContext.linked_manual_cases.flatMap(item=>item.steps.map(source=>({...source,manual_test_case_id:item.id,manual_step_id:source.id})));
+        require('../lib/automationRecordedContract').recordedContractMetadata(recordedContract,{stepId:step.id,source:update.automation_code,section:step,manualSpecification});
+        const manifest=await require('./automationUsedObjects.service').stage({testCase,step,source:update.automation_code,sourceContext:{caseStartUrl:buildIdentity.case_start_url,steps:progressiveState.steps},seal:recordedContract,manualSpecification,browserObservations,transactionId:transaction_id,userId:created_by,assertAccess:assertBuildContextAccess,executionGuard:execution_guard});
+        if(manifest)usedObjectManifests.set(attempt,manifest);
+      },
+      onSaveSection:async({step,normalized,attempt})=>{
+        try {
+          await assertBuildContextAccess();
+          await applyBuild({build:{...normalized,...buildIdentity},executionGuard:execution_guard,createdBy:created_by,progressiveState,partial:true});
+          savedSectionIds.add(step.id);
+          const receipt={instruction_status:'saved',development_status:'completed',saved_at:new Date().toISOString()};
+          const manifest=usedObjectManifests.get(attempt);
+          if(manifest){
+            try {
+              const objects=await require('./automationUsedObjects.service').sync({artifactId:manifest.artifact_id,testCase,userId:created_by,assertAccess:assertBuildContextAccess,executionGuard:execution_guard});
+              receipt.object_status=objects.status;receipt.objects_saved=objects.status==='synced'?objects.object_count:0;
+              confirmedObjectsSaved+=receipt.objects_saved;
+              if(objects.status==='synced'&&Array.isArray(objects.repository_rows))usedObjectRowsByAttempt.set(attempt,objects.repository_rows);
+              await progress({phase:'automation.agent.objects.saved',level:objects.status==='synced'?'info':'warning',message:objects.status==='synced'?'Saved the repository objects actually used by this section.':'Instructions are saved; confirmed object bindings remain pending synchronization.',details:{active_step_id:step.id,object_status:objects.status,objects_saved:receipt.objects_saved,error_code:objects.error_code}});
+            } catch(error) {
+              if(error.code==='AUTOMATION_OBJECT_SYNC_PERMISSION_REQUIRED')await assertBuildContextAccess();
+              else if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;
+              receipt.object_status='pending';receipt.objects_saved=0;
+              await progress({phase:'automation.agent.objects.pending',level:'warning',message:'Instructions are saved. Their confirmed objects remain queued for synchronization; no browser action needs to run again.',details:{active_step_id:step.id,error_code:error.code||'AUTOMATION_OBJECT_SYNC_UNAVAILABLE'}}).catch(()=>{});
+            }
+          }
+          try{await progress({phase:'automation.agent.section.saved',message:`Saved section ${step.step_order} instructions to Plan. The case remains incomplete until every section is finished.`,details:{...receipt,attempt,step_id:step.id,step_ids:[step.id],verification_status:'unverified'}});}
+          catch(error){if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;}
+          return receipt;
+        } catch(error) { error.automation_stage='save'; throw error; }
+      },
+      onValidatedSection:async({step,normalized,attempt,manualCoverage})=>{
+        await execution_guard?.ensureOwnership();
+        const update=normalized.updates.find(item=>item.step.id===step.id);
+        const recordedContract=generationContracts.get(attempt);
+        const manualSpecification=buildContext.linked_manual_cases.flatMap(item=>item.steps.map(source=>({...source,manual_test_case_id:item.id,manual_step_id:source.id})));
+        const previewRows=[...new Map([...cacheRows,...(usedObjectRowsByAttempt.get(attempt)||[])].map(row=>[row.id,row])).values()];
+        return require('./automationAgentActivity.service').createSectionPreview(transaction_id,{testCaseId:test_case_id,step,update,attempt,manualCoverage,repositoryRows:previewRows,confirmedRepositoryIds:(usedObjectRowsByAttempt.get(attempt)||[]).map(row=>row.id),evidence:generationEvidence.get(attempt),modelCallIds:generationModelCalls.get(attempt)||[],modelCallScope:completionActiveStepId?'section_attempt':'case_attempt',generationProvenance:generationProvenance.get(attempt),recordedContract,manualSpecification});
+      },
+      generate:async({attempt,sectionAttempt,activeStepId,activeManualStepIds=[],completionOnly=false,feedback,feedbackInstruction,onPartial})=>{
+        completionAttempt=attempt;
+        completionActiveStepId=activeStepId||null;
+        completionActiveManualStepIds=activeManualStepIds;
+        completionSectionAttempt=sectionAttempt||null;
+        completionSectionIds=(feedback.required_sections||[]).map(step=>step.step_id);
+        if(Date.now()>=completionDeadline)throw Object.assign(new Error("Automation agent reached its completion deadline. Existing instructions were retained."),{code:"AUTOMATION_BUILD_DEADLINE",statusCode:422});
+        if(completionOnly||!(feedback.required_sections||[]).length){
+          // Coverage and final metadata repair cannot reopen an already saved
+          // browser section or replay its actions. The completion helper owns
+          // the immutable accepted instructions and validates every mapping.
+          const metadataPrompt=[aiInstructionBlock(buildFeature(ai_feature),'automationBuild.metadataCompletion'),feedbackInstruction,
+            JSON.stringify({phase:'metadata_completion',case:{id:promptCase.id,title:promptCase.title},feedback})].filter(Boolean).join('\n\n');
+          return completeBuild(metadataPrompt,completionDeadline-Date.now(),{generationScope:'case_metadata'});
+        }
+        const requestedSectionIds=new Set((feedback.required_sections||[]).map(step=>step.step_id));
+        const currentSection=promptSteps.find(step=>step.id===activeStepId);
+        const interactiveActor=Boolean(browser&&allow_browser_actions===true&&normalizeTestStepType(currentSection?.step_type,'web')==='web');
+        const obligations=interactiveActor?require('../lib/automationGoalObligations').buildAutomationGoalObligations({section:currentSection,manualCases:promptBuildContext.linked_manual_cases,activeManualStepIds,requiredManualSteps:feedback.required_manual_steps}):undefined;
+        const sourceObligations=interactiveActor?require('../lib/automationGoalObligations').goalSourceObligations({section:steps.find(step=>step.id===activeStepId),manualCases:buildContext.linked_manual_cases,obligations}):undefined;
+        const navigationParameterReferences=interactiveActor?browserParameters.referencedParameterNames(sourceObligations):undefined;
+        if(interactiveActor)require('../lib/automationBuildInputPreflight').assertCurrentBuildInputs({stepId:activeStepId,parameterReferences:navigationParameterReferences},browserParameters);
+        generationProvenance.set(attempt,{source_origin:interactiveActor?'unknown':'model_generated',compiler:interactiveActor?'unknown':'normalized_runtime_v1',review_status:'not_performed'});
+        const obligationParameterBindings=interactiveActor?require('../lib/automationParameterBindings').buildAutomationParameterBindings({obligations:sourceObligations,referencedParameterNames:browserParameters.referencedParameterNames}):undefined;
+        const inputParameterBinding=interactiveActor?require('../lib/automationInputParameterBinding').createAutomationInputParameterBinding({stepId:activeStepId,obligations:sourceObligations,bindings:obligationParameterBindings,
+          parameterValues:browserParameters.promptValues,privateParameterNames:browserParameters.privateParameterNames}):null;
+        const retainedAssertionContract=interactiveActor?require('../lib/automationRetainedAssertions').createRetainedAssertionContract({step:steps.find(step=>step.id===activeStepId)}):undefined;
+        const caseJourney=interactiveActor?require('../lib/automationCaseJourney').createAutomationCaseJourney({testCase,steps,activeStepId,completedStepIds:[...savedSectionIds].filter(id=>steps.findIndex(step=>step.id===id)<steps.findIndex(step=>step.id===activeStepId)),projectText:browserParameters.projectPrivateText}):undefined;
+        const taskContext=interactiveActor
+          ?require('../lib/automationActorContext').createAutomationActorContext({canonicalGoals:true,projectText:browserParameters.projectPrivateText,obligations,
+            parameterBindings:obligationParameterBindings,caseJourney,task:{start_url:startUrl,case:promptCase,current_section:currentSection,
+            user_request:browserParameters.projectText(normalizeRichText(additional_context)),build_context:{...promptBuildContext,generation_scope:{mode:'sequential',active_step_id:activeStepId,active_manual_step_ids:activeManualStepIds}},
+            repository:summarizeCache(cacheRows),knowledge:summarizeKnowledge(knowledgeRows.knowledge),captured_actions:capturedActions,captured_network:capturedNetwork}})
+          :null;
+        if(taskContext)await progress({phase:'automation.agent.context.packed',message:'Selected the current manual requirements and retained additional authorized context for bounded lookup.',details:{active_step_id:activeStepId,...taskContext.measurements}});
+        const requestPrompt=taskContext?taskContext.prompt:feedback.generation_mode==='sequential'
+          ?buildPrompt({featureKey:buildFeature(ai_feature),testCase:promptCase,steps:promptSteps.filter(step=>requestedSectionIds.has(step.id)),cacheRows,knowledgeRows,capturedActions,capturedNetwork,
+            buildContext:{...promptBuildContext,generation_scope:{mode:'sequential',active_step_id:activeStepId,active_manual_step_ids:activeManualStepIds}},startUrl,additionalContext:browserParameters.projectText(normalizeRichText(additional_context))})
+          :prompt;
+        const attemptPrompt=[requestPrompt,interactiveActor?'':feedbackInstruction,JSON.stringify(interactiveActor?require('../lib/automationActorPrompt').projectAutomationActorFeedback(feedback):feedback)].filter(Boolean).join("\n\n");
+        if(!browser)return completeBuild(attemptPrompt,completionDeadline-Date.now());
+        return runAutomationBrowserAgent({featureKey:buildFeature(ai_feature),prompt:attemptPrompt,browser,startUrl:attempt===1&&!needsFlowPlanning?startUrl:undefined,complete:completeBuild,parse:extractJsonPayload,generationMode:feedback.generation_mode,
+          execution:{required:allow_browser_actions===true&&normalizeTestStepType(currentSection?.step_type,'web')==='web',step_id:activeStepId,action:currentSection?.action||'',expected_result:currentSection?.expected_result||'',
+            retained_assertion_contract:retainedAssertionContract,
+            case_journey:caseJourney,
+            semantic_review_required:interactiveActor,obligations,source_obligations:sourceObligations,navigation_parameter_references:navigationParameterReferences,
+            future_actions:interactiveActor?steps.slice(steps.findIndex(step=>step.id===activeStepId)+1).filter(step=>normalizeTestStepType(step.step_type,'web')==='web').slice(0,200).map(step=>({step_id:step.id,action:step.action||''})):undefined},actorMode:interactiveActor,
+          onPartialBuild:onPartial,onRecordedContract:seal=>{generationContracts.set(attempt,seal);},taskContext,inputParameterBinding,
+          deadlineMs:completionDeadline,initialObservations:browserObservations,maxCalls:Math.min(callsPerSection,remainingBrowserCalls(browserObservations,browserCallBudget)),onObservation:async observation=>{
+            await execution_guard?.ensureOwnership();
+            browserObservations.push(observation);
+            if(!transaction_id)return;
+            try{
+              const evidence=await require('./automationAgentActivity.service').createBrowserEvidence(transaction_id,{observation,testCaseId:test_case_id,attempt,active_step_id:activeStepId,active_manual_step_ids:activeManualStepIds,interactionMode:buildContext.browser_policy.interaction_mode});
+              if(!evidence)return;
+              generationEvidence.set(attempt,{...generationEvidence.get(attempt),...evidence});
+              await progress({phase:'automation.agent.observation',message:'Captured application evidence from Playwright MCP. Generated instructions and case execution remain unverified.',details:{...evidence,active_step_id:activeStepId,active_manual_step_ids:activeManualStepIds}});
+              if(evidence.screenshot_unavailable)await appendEvent(transaction_id,{phase:'automation.agent.screenshot.unavailable',level:'warning',message:'The optional screenshot was unavailable. Actual accessibility evidence was retained.',details:{test_case_id,attempt}}).catch(()=>{});
+              if(evidence.screenshot_artifact_id)await appendEvent(transaction_id,{phase:'automation.agent.screenshot',message:'Optional browser screenshot captured as supporting evidence. Execution remains unverified.',details:{test_case_id,artifact_id:evidence.screenshot_artifact_id,observed_at:evidence.observed_at,attempt}});
+            }catch(error){
+              if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;
+              await appendEvent(transaction_id,{phase:'automation.agent.evidence.unavailable',level:'warning',message:'Optional application evidence could not be retained. Generation continues with available browser observations.',details:{test_case_id,attempt}}).catch(()=>{});
+            }
+          },
+          onProgress:event=>{
+            if(event.phase==='automation.agent.semantic.accepted')generationProvenance.set(attempt,{...generationProvenance.get(attempt),review_status:'accepted'});
+            if(event.phase==='automation.agent.source.compiled')generationProvenance.set(attempt,{...generationProvenance.get(attempt),source_origin:'confirmed_browser_operations',compiler:'recorded_playwright_v1'});
+            return progress({...event,details:{...event.details,attempt,active_step_id:activeStepId,active_manual_step_ids:activeManualStepIds}});
+          }});
+      },parse:value=>typeof value==="string"?extractJsonPayload(value):value});
+    Object.assign(build,buildIdentity);
     await appendEvent(transaction_id, { phase: "automation.llm.completed", message: `Generated ${build.updates.length} complete step mappings. Run the case to verify behavior.`, details: { generated_steps: build.updates.length } });
   } catch (error) {
-    await appendEvent(transaction_id, { level: "error", phase: "automation.llm.failed", message: "Automation build failed. Existing step code has been retained; retry after resolving the reported issue." });
+    if(execution_guard?.signal.aborted)throw execution_guard.signal.reason;
+    if(error.code==='AUTOMATION_PARAMETER_MISSING'&&completionActiveStepId){
+      error.code='AUTOMATION_DEPENDENCY_MISSING';
+      error.blocked_steps=[{step_id:completionActiveStepId,dependency_type:'parameter',reason:'A required browser input has no configured value.',required_context:[],required_parameters:error.parameter_reference?[error.parameter_reference]:[]}];
+      await progress({level:'warning',phase:'automation.agent.dependencies',message:error.message,details:{blocked_steps:error.blocked_steps,saved_sections:savedSectionIds.size,saved_step_ids:[...savedSectionIds]}});
+    }
+    annotateBuildFailure(error);
+    await require('../lib/automationBrowserDiagnosticArtifact').retainBrowserDiagnostic({error,transactionId:transaction_id,
+      assertAccess:assertBuildContextAccess,createArtifact:workspaceTransactionService.createTransactionArtifact,appendEvent});
+    const failureProgress=require('../lib/automationBuildFailureProgress').buildFailureProgress(error,{modelStarted:generationRequested||generationModelCalls.size>0});
+    error.failure_stage=failureProgress.details.failure_stage;
+    await progress(failureProgress);
     throw error;
   } finally { await browser?.close(); }
 
-  const stepUpdates = await applyBuild({
-    build
+  let stepUpdates;
+  try{await assertBuildContextAccess();stepUpdates=await applyBuild({build,executionGuard:execution_guard,createdBy:created_by,progressiveState});}
+  catch(error){if(execution_guard?.signal.aborted)throw execution_guard.signal.reason;error.automation_stage='save';error.failure_stage='save';annotateBuildFailure(error);await progress({phase:'automation.agent.save.failed',level:'error',message:'Final completion could not be saved. Previously saved sections remain in Plan; current edits were preserved.',details:{error_code:error.code||null,failure_stage:'save'}}).catch(()=>{});throw error;}
+  const warnings=[];
+  const verification = await require('./automationSavedBuildVerification.service').verifySavedBuild({
+    options: pipelineOptions, testCase, startUrl, state: progressiveState, activityId: transaction_id,
+    parameterResolver: browserParameters, manualLinkIds, manualContext: buildIdentity.manual_context,
+    signal: execution_guard?.signal
+  }, {
+    assertAccess: async () => {
+      await assertBuildContextAccess();
+      const permissions = await getOptionalEvidenceAccess({id: created_by}, testCase.project_id, ['automation.run.local', 'run.create']);
+      if (!permissions['automation.run.local'] || !permissions['run.create']) {
+        throw Object.assign(new Error('Verification access changed.'), {statusCode: 403});
+      }
+    },
+    readCase: id => selectCaseWithScope.get(id),
+    readSteps: id => selectStepsForCase.all(id),
+    readManualLinkIds: async id => (await db.prepare('SELECT manual_test_case_id FROM automation_case_links WHERE automation_test_case_id = ? ORDER BY manual_test_case_id').all(id)).map(row => row.manual_test_case_id),
+    readManualContext: id => loadAutomationManualContext({caseId: id, projectId: testCase.project_id, userId: created_by}),
+    manualContextKey,
+    readParameters: currentCase => loadAutomationParameterContext({testCase: currentCase, projectId: testCase.project_id, userId: created_by}),
+    readInputs: (currentCase, params, selection) => require('../lib/automationBrowserParameters').loadBrowserParameterResolver({
+      testCase: currentCase, projectId: testCase.project_id, userId: created_by,
+      caseValues: params.runtime_parameter_values, privateParameterNames: params.private_parameter_names,
+      parameterOverrides: params.parameter_overrides, ...selection, materialize: false
+    }),
+    prepareRun: async () => {
+      const integration = await resolveTestEngineIntegration(testCase);
+      return request => require('../lib/automationVerificationClient').verifyRecordedAutomation({
+        integration, request, signal: execution_guard?.signal
+      });
+    },
+    onProgress: summary => progress({phase: 'automation.agent.verification', message: summary.message, details: {verification: summary}}),
+    diagnose: async ({sections, failure, snapshot}) => {
+      const section = sections.find(row => row.step_id === failure.step_id);
+      const packet = {requirement: {step_id: section.step_id, action: section.action, expected_result: section.expected_result}, failed_operation: section.operations[failure.operation_index - 1], failure, snapshot};
+      const projected = JSON.parse(browserParameters.redactResult({content: [{type: 'text', text: JSON.stringify(packet)}]}).content[0].text);
+      const repairContext = require('../lib/automationVerificationRepairContext').createVerificationRepairContext({requirement: projected.requirement, failedOperation: projected.failed_operation, failure: projected.failure, snapshot: projected.snapshot});
+      if (!repairContext.packet.current_snapshot.targets.length) return {};
+      const prompt = [aiInstructionBlock(buildFeature(ai_feature), 'automationBrowserAgent.verificationRepair'), JSON.stringify(repairContext.packet)].join('\n\n');
+      const response = await completeBuild(prompt, 30_000, {generationScope: 'verification_repair'});
+      return repairContext.resolveProposal(extractJsonPayload(response));
+    },
+    commitRepair: async ({before, after}) => {
+      const sources = new Map(after.map(row => [row.step_id, row.automation_code]));
+      const repaired = {...build, updates: build.updates.map(update => ({...update, automation_code: sources.get(update.step.id) || update.automation_code}))};
+      stepUpdates = await applyBuild({build: repaired, executionGuard: execution_guard, createdBy: created_by, progressiveState});
+      const replaced = new Set();
+      for (let section = 0; section < before.length; section++) {
+        for (let index = 0; index < before[section].operations.length; index++) {
+          if (before[section].operations[index].arguments.locator !== after[section].operations[index].arguments.locator) {
+            replaced.add(before[section].operations[index].arguments.locator);
+          }
+        }
+      }
+      repaired.learned_locators = (repaired.learned_locators || []).filter(row => !replaced.has(row.locator));
+      build = repaired;
+      return progressiveState;
+    }
   });
-  if (stepUpdates.length) {
-    await markTestCaseAutomationReady.run(normalizeText(created_by), testCase.id);
-  }
-  const learnedCount = await persistLearning({
-    testCase,
-    learnedLocators: build.learned_locators,
-    capturedActions,
-    capturedNetwork,
-    transactionId: transaction_id,
-    integrationId: integration_id
-  });
-  const artifactContent = createArtifactContent({
-    testCase,
-    updates: build.updates
-  });
+  let learnedCount=confirmedObjectsSaved;
+  try {learnedCount+=await persistLearning({testCase,learnedLocators:allow_browser_actions===true&&browserBuild?[]:build.learned_locators,capturedActions:allow_browser_actions===true&&browserBuild?[]:capturedActions,capturedNetwork,transactionId:transaction_id,integrationId:integration_id});}
+  catch {warnings.push("Instructions were saved, but locator learning could not be saved.");}
   let artifact = null;
 
   if (transaction_id) {
-    artifact = await workspaceTransactionService.createTransactionArtifact(transaction_id, {
-      file_name: `${String(testCase.display_id || testCase.id).replace(/[^A-Za-z0-9_-]+/g, "-")}-automation.spec.js`,
-      mime_type: "text/javascript; charset=utf-8",
-      content: artifactContent
-    });
+    try {artifact = await workspaceTransactionService.createTransactionArtifact(transaction_id, {
+      file_name: `${String(testCase.display_id || testCase.id).replace(/[^A-Za-z0-9_-]+/g, "-")}-automation.spec.ts`,
+      mime_type: "text/typescript; charset=utf-8",
+      content: await createArtifactContent({testCase,updates:build.updates,repositoryRows:cacheRows,values:browserParameters.exportParameterValues,sensitiveNames:browserParameters.privateParameterNames,baseURL:startUrl})
+    });}catch{warnings.push("Instructions were saved, but the downloadable source artifact could not be created. Source remains available in the case.");}
   }
+  for(const message of warnings)await appendEvent(transaction_id,{level:"warning",phase:"automation.agent.saved.warning",message,details:{test_case_id}}).catch(()=>{});
 
-  await appendEvent(transaction_id, {
+  await progress({
     level: stepUpdates.length ? "success" : "warning",
     phase: "automation.case.updated",
     message: stepUpdates.length
@@ -2765,18 +3192,24 @@ const buildCaseCore = async ({
     details: {
       test_case_id,
       updated_steps: stepUpdates.length,
+      step_ids:build.updates.map(update=>update.step.id),
+      manual_coverage:build.manual_coverage,
       learned_locator_count: learnedCount,
       artifact_id: artifact?.id || null
     }
-  });
+  }).catch(()=>{});
 
   return {
     test_case_id,
     source_test_case_id: preparedTarget.source_test_case_id,
     title: testCase.title,
     automated: stepUpdates.length ? "yes" : testCase.automated || "no",
-    automation_status: stepUpdates.length ? (await selectCaseWithScope.get(testCase.id))?.automation_status || "incomplete" : testCase.automation_status || "not_automated",
+    automation_status: stepUpdates.length ? "ready" : testCase.automation_status || "not_automated",
     generated_step_count: stepUpdates.length,
+    completion_attempts: build.completion_attempts,
+    verification_status: verification.status==='passed'?'verified':'unverified',
+    verification,
+    warnings,
     learned_locator_count: learnedCount,
     cache_hits: cacheRows.length,
     fallback_used: Boolean(fallbackReason),
@@ -2991,10 +3424,11 @@ const finalizeRecorderBuild = async ({
 
   if (transactionId && appliedSteps.length) {
     artifact = await workspaceTransactionService.createTransactionArtifact(transactionId, {
-      file_name: `${String(testCase.display_id || testCase.id).replace(/[^A-Za-z0-9_-]+/g, "-")}-recorder-keywords.spec.js`,
-      mime_type: "text/javascript; charset=utf-8",
-      content: createArtifactContent({
+      file_name: `${String(testCase.display_id || testCase.id).replace(/[^A-Za-z0-9_-]+/g, "-")}-recorder-keywords.spec.ts`,
+      mime_type: "text/typescript; charset=utf-8",
+      content: await createArtifactContent({
         testCase,
+        repositoryRows: await listLearningCacheRows({projectId:testCase.project_id,appTypeId:testCase.app_type_id,limit:MAX_CACHE_ROWS}),
         updates: appliedSteps.map((step) => ({
           step: {
             id: step.step_id,
@@ -3089,13 +3523,22 @@ exports.buildAutomationForCase = async ({
   ai_feature,
   created_by,
   start_url,
+  start_url_review,
   allow_browser_actions = false,
+  verification_mode = "generate_only",
+  browser_driver = "mcp",
+  verification_driver = "native",
   test_environment_id,
   test_configuration_id,
   test_data_set_id,
+  test_suite_id,
+  parameter_values,
+  parameter_plan_key,
   captured_actions,
   captured_network,
   additional_context,
+  agent_context,
+  execution_guard,
   transaction_id,
   transaction_action,
   transaction_title,
@@ -3125,6 +3568,9 @@ exports.buildAutomationForCase = async ({
         title: normalizeText(transaction_title) || `AI automation for ${testCase.title}`,
         description: normalizeText(transaction_description) || "Building automation from manual steps, expected results and application context.",
         metadata: {
+          agent_activity: true,
+          input_test_case_ids: [normalizedCaseId],
+          verification_status: "unverified",
           current_phase: "automation.context",
           progress_percent: 10,
           total_items: 1,
@@ -3145,6 +3591,9 @@ exports.buildAutomationForCase = async ({
         title: normalizeText(transaction_title) || `AI automation for ${testCase.title}`,
         description: normalizeText(transaction_description) || "Building automation from manual steps, expected results and application context.",
         metadata: {
+          agent_activity: true,
+          input_test_case_ids: [normalizedCaseId],
+          verification_status: "unverified",
           current_phase: "automation.context",
           progress_percent: 10,
           total_items: 1,
@@ -3165,15 +3614,22 @@ exports.buildAutomationForCase = async ({
       test_case_id: normalizedCaseId,
       integration_id,
       ai_feature: selectedFeature,
+      execution_guard,
       created_by,
       start_url,
+      start_url_review,
       allow_browser_actions,
+      verification_mode, browser_driver, verification_driver,
       test_environment_id,
       test_configuration_id,
       test_data_set_id,
+      test_suite_id,
+      parameter_values,
+      parameter_plan_key,
       captured_actions,
       captured_network,
       additional_context,
+  agent_context,
       transaction_id: transaction.id
     });
 
@@ -3184,10 +3640,18 @@ exports.buildAutomationForCase = async ({
       related_kind: "test_case",
       related_id: result.test_case_id,
       description: result.generated_step_count
-        ? `Generated automation for ${result.generated_step_count} step${result.generated_step_count === 1 ? "" : "s"} and associated it with the manual case.`
+        ? `Generated instructions for ${result.generated_step_count} sections. ${result.verification_status==='verified'?'The saved source passed isolated verification.':'Isolated verification has not passed.'}`
         : "Automation builder did not produce any step updates.",
       metadata: {
         current_phase: "completed",
+        outcome_status: "generated",
+        verification_status:result.verification_status,
+        phase_message: `Instructions saved for ${result.generated_step_count} sections. ${result.verification_status==='verified'?'Isolated verification passed.':'Review the verification result before execution.'}`,
+        generated: 1,
+        failed: 0,
+        output_test_case_ids: [result.test_case_id],
+        retry_test_case_ids: [],
+        case_outcomes: [{test_case_id:result.test_case_id,title:result.title,status:"generated",generated_step_count:result.generated_step_count,completion_attempts:result.completion_attempts,verification_status:result.verification_status,verification:result.verification}],
         progress_percent: 100,
         total_items: 1,
         processed_items: 1,
@@ -3206,12 +3670,17 @@ exports.buildAutomationForCase = async ({
       transaction_id: transaction.id
     };
   } catch (error) {
+    if(execution_guard?.signal.aborted||error.code==="BATCH_JOB_LEASE_LOST")throw execution_guard?.signal.reason||error;
     const message = error instanceof Error ? error.message : "Automation build failed";
     await workspaceTransactionService.updateTransaction(transaction.id, {
       status: "failed",
       description: message,
       metadata: {
         current_phase: "failed",
+        outcome_status: "incomplete",
+        failed: 1,
+        retry_test_case_ids: [normalizedCaseId],
+        case_outcomes: [{test_case_id:error.automation_test_case_id||normalizedCaseId,source_test_case_id:error.source_test_case_id,title:testCase.title,status:["AUTOMATION_BUILD_INCOMPLETE","AUTOMATION_DEPENDENCY_MISSING"].includes(error.code)?"incomplete":"failed",message,error:message,code:error.code,error_code:error.code||null,failure_stage:error.failure_stage||null,...(error.code==='AUTOMATION_BROWSER_NAVIGATION_HTTP_ERROR'&&Number.isInteger(error.http_status)&&error.http_status>=400&&error.http_status<=599?{http_status:error.http_status}:{}),active_step_id:error.active_step_id,failed_step_id:error.active_step_id,active_manual_step_ids:error.active_manual_step_ids,changes_saved:Boolean(error.saved_sections),saved_sections:error.saved_sections||0,saved_step_ids:error.saved_step_ids||[],completed_sections:error.completed_sections,total_sections:error.total_sections,pending_step_ids:error.pending_step_ids,blocked_steps:error.blocked_steps}],
         progress_percent: 100,
         error: message
       },
@@ -3222,7 +3691,7 @@ exports.buildAutomationForCase = async ({
       phase: "automation.failed",
       message,
       details: {
-        test_case_id: normalizedCaseId
+        test_case_id: normalizedCaseId,active_step_id:error.active_step_id,active_manual_step_ids:error.active_manual_step_ids,error_code:error.code||null
       }
     });
     throw error;
@@ -3235,14 +3704,27 @@ exports.buildAutomationBatch = async ({
   integration_id,
   created_by,
   start_url,
+  start_urls_by_case_id,
+  start_url_reviews_by_case_id,
   allow_browser_actions = false,
+  verification_mode = "generate_only",
+  browser_driver = "mcp",
+  verification_driver = "native",
   test_environment_id,
   test_configuration_id,
   test_data_set_id,
+  test_suite_id,
+  test_suite_ids_by_case,
+  parameter_values_by_case,
+  parameter_plan_keys_by_case,
   failure_threshold,
   additional_context,
+  agent_context,
+  ai_feature,
+  execution_guard,
   transaction_id
 } = {}) => {
+  const selectedFeature = buildFeature(ai_feature);
   const appTypeId = normalizeText(app_type_id);
 
   if (!appTypeId) {
@@ -3270,9 +3752,12 @@ exports.buildAutomationBatch = async ({
       category: "automation_build",
       action: "batch_case_automation_build",
       status: "running",
-      title: "Batch AI automation",
-      description: `Building automation for ${targetIds.length} manual case${targetIds.length === 1 ? "" : "s"}.`,
+      title: "Automation engineer activity",
+      description: `Developing ${targetIds.length} automation case${targetIds.length === 1 ? "" : "s"}.`,
       metadata: {
+        agent_activity: true,
+        input_test_case_ids: targetIds,
+        verification_status: "unverified",
         current_phase: "queued",
         total_items: targetIds.length,
         processed_items: 0,
@@ -3287,9 +3772,12 @@ exports.buildAutomationBatch = async ({
 
   const created = [];
   const errors = [];
+  const caseOutcomes=[];
+  const retryableErrors=[];
   let stoppedByThreshold = false;
 
   for (const [index, testCaseId] of targetIds.entries()) {
+    await execution_guard?.ensureOwnership();
     if (errors.length >= failureThreshold) {
       stoppedByThreshold = true;
       await appendEvent(transactionId, {
@@ -3317,25 +3805,54 @@ exports.buildAutomationBatch = async ({
     try {
       const scopedCase = await selectCaseWithScope.get(testCaseId);
       if (!scopedCase || scopedCase.app_type_id !== appTypeId) throw new Error("Every selected automation case must belong to the batch application.");
+      const pinnedStartUrl=start_urls_by_case_id?.[testCaseId]??start_url;
+      if(transactionId){
+        const savedSteps=await selectStepsForCase.all(testCaseId);
+        normalizeAutomationStartUrl(pinnedStartUrl,{required:requiresAutomationStartUrl({appTypeKind:scopedCase.app_type_kind,steps:savedSteps})});
+      }
       const result = await buildCaseCore({
         test_case_id: testCaseId,
         integration_id,
+        ai_feature: selectedFeature,
+        execution_guard,
         created_by,
-        start_url,
+        start_url:pinnedStartUrl,
+        start_url_review:start_url_reviews_by_case_id?.[testCaseId],
         allow_browser_actions,
+        verification_mode, browser_driver, verification_driver,
         test_environment_id,
         test_configuration_id,
         test_data_set_id,
+        test_suite_id:test_suite_ids_by_case&&Object.hasOwn(test_suite_ids_by_case,testCaseId)?test_suite_ids_by_case[testCaseId]:test_suite_id,
+        parameter_values:parameter_values_by_case?.[testCaseId],
+        parameter_plan_key:parameter_plan_keys_by_case?.[testCaseId],
         additional_context,
+  agent_context,
         transaction_id: transactionId
       });
       if (!result.generated_step_count) throw new Error("Automation builder did not produce any executable step updates.");
       created.push(result);
+      caseOutcomes.push({test_case_id:result.test_case_id,source_test_case_id:result.source_test_case_id,title:result.title,status:"generated",generated_step_count:result.generated_step_count,completion_attempts:result.completion_attempts,verification_status:result.verification_status,verification:result.verification});
     } catch (error) {
+      if(execution_guard?.signal.aborted||error.code==="BATCH_JOB_LEASE_LOST")throw execution_guard?.signal.reason||error;
+      if(!error.nonRetryable&&!["AI_INSTRUCTION_MISSING","AI_FEATURE_UNMAPPED","AI_CONFIGURATION_INVALID"].includes(error.code)&&[408,425,429,500,502,503,504].includes(Number(error.statusCode||error.status)))retryableErrors.push(error);
       errors.push({
-        test_case_id: testCaseId,
-        message: error instanceof Error ? error.message : "Automation build failed"
+        test_case_id: error.automation_test_case_id||testCaseId,
+        source_test_case_id:error.source_test_case_id,
+        message: error instanceof Error ? error.message : "Automation build failed",
+        code: error.code || null,
+        error_code: error.code || null,
+        failure_stage: error.failure_stage || null,
+        ...(error.code==='AUTOMATION_BROWSER_NAVIGATION_HTTP_ERROR'&&Number.isInteger(error.http_status)&&error.http_status>=400&&error.http_status<=599?{http_status:error.http_status}:{}),
+        active_step_id:error.active_step_id,failed_step_id:error.active_step_id,active_manual_step_ids:error.active_manual_step_ids,
+        completed_sections: error.completed_sections,
+        saved_sections:error.saved_sections||0,
+        saved_step_ids:error.saved_step_ids||[],
+        total_sections: error.total_sections,
+        pending_step_ids: error.pending_step_ids,
+        blocked_steps:error.blocked_steps
       });
+      caseOutcomes.push({...errors[errors.length-1],status:["AUTOMATION_BUILD_INCOMPLETE","AUTOMATION_DEPENDENCY_MISSING"].includes(error.code)?"incomplete":"failed",changes_saved:Boolean(error.saved_sections)});
       await appendEvent(transactionId, {
         level: "error",
         phase: "automation.case.failed",
@@ -3353,6 +3870,7 @@ exports.buildAutomationBatch = async ({
         processed_items: processed,
         generated: created.length,
         failed: errors.length,
+        case_outcomes: caseOutcomes,
         failure_threshold: failureThreshold,
         progress_percent: Math.round((processed / targetIds.length) * 100)
       }
@@ -3361,14 +3879,26 @@ exports.buildAutomationBatch = async ({
 
   const processedCount = created.length + errors.length;
   const skippedCount = stoppedByThreshold ? Math.max(0, targetIds.length - processedCount) : 0;
+  if(!created.length&&errors.length&&retryableErrors.length===errors.length) {
+    await updateTransaction(transactionId,{metadata:{case_outcomes:caseOutcomes,retry_test_case_ids:targetIds,current_phase:"automation.agent.retry",phase_message:"A temporary provider or context service failure interrupted generation. The durable agent worker will apply its bounded retry policy."}});
+    throw retryableErrors[0];
+  }
+  const outcomeStatus=!created.length?"incomplete":errors.length||skippedCount?"partial":"generated";
+  const verifiedCount=created.filter(result=>result.verification_status==='verified').length;
+  const outcomeMessage=`Generated instructions for ${created.length} of ${targetIds.length} cases; ${errors.length} failed and ${skippedCount} skipped. ${verifiedCount} saved source(s) passed isolated verification.`;
+  const registeredTargets=transactionId?(await workspaceTransactionService.getTransaction(transactionId)).metadata?.output_test_case_ids||[]:[];
 
   await updateTransaction(transactionId, {
     status: created.length ? "completed" : "failed",
     description: created.length
-      ? `Associated generated automation with ${created.length} manual case${created.length === 1 ? "" : "s"}.`
-      : "Batch automation build completed without updating a case.",
+      ? outcomeMessage
+      : "The agent did not complete any case. Existing instructions were retained.",
     metadata: {
-      current_phase: "completed",
+      current_phase: "automation.agent."+outcomeStatus,
+      phase_message: outcomeMessage,
+      outcome_status: outcomeStatus,
+      verification_status: verifiedCount===targetIds.length?"verified":"unverified",
+      case_outcomes: caseOutcomes,
       total_items: targetIds.length,
       processed_items: processedCount,
       generated: created.length,
@@ -3377,16 +3907,16 @@ exports.buildAutomationBatch = async ({
       failure_threshold: failureThreshold,
       stopped_by_failure_threshold: stoppedByThreshold,
       progress_percent: 100,
-      output_test_case_ids: created.map((result) => result.test_case_id),
+      output_test_case_ids: require('./automationBuildTargets.service').mergeTargets(registeredTargets,created.map(result=>result.test_case_id)),
       retry_test_case_ids: targetIds.filter(id => !created.some(result => result.test_case_id === id)),
       sample_errors: errors.slice(0, 10)
     },
     completed_at: new Date().toISOString()
   });
   await appendEvent(transactionId, {
-    level: created.length ? "success" : "error",
-    phase: "automation.batch.completed",
-    message: `Batch automation build completed with ${created.length} generated, ${errors.length} failed, and ${skippedCount} skipped.`,
+    level: !created.length ? "error" : errors.length||skippedCount ? "warning" : "success",
+    phase: "automation.agent.finished",
+    message: outcomeMessage,
     details: {
       generated: created.length,
       failed: errors.length,
@@ -3535,12 +4065,17 @@ exports.exportLearningCacheCsv = async ({ app_type_id } = {}) => {
 };
 
 exports.getLearningCacheEntry = async (id) => {
-  const entry = normalizeLearningCacheRow(await selectLearningCacheEntry.get(normalizeText(id)));
+  let entry = normalizeLearningCacheRow(await selectLearningCacheEntry.get(normalizeText(id)));
 
   if (!entry) {
     throw new Error("Object repository entry not found");
   }
 
+  const projectId=entry.project_id||(entry.app_type_id?(await db.prepare('SELECT id, project_id FROM app_types WHERE id = ?').get(entry.app_type_id))?.project_id:null);
+  const projection=await canonicalRepositoryProjection(await readRepositoryScope({appTypeId:entry.app_type_id,projectId}));
+  entry=projection.byId.get(entry.id)||entry;
+  const seen=new Set();
+  while(entry.metadata?.merged_into_entry_id){if(seen.has(entry.id))throw new Error('Repository redirect is invalid.');seen.add(entry.id);const target=projection.byId.get(entry.metadata.merged_into_entry_id);if(!target)throw new Error('Repository redirect target is unavailable.');entry=target;}
   return entry;
 };
 
@@ -3579,13 +4114,26 @@ const migrateRepositoryMemberReference = async ({ appTypeId, from, to } = {}) =>
   return result.changes || 0;
 };
 
-exports.updateLearningCacheEntry = async (id, patch = {}) => {
-  const existing = await exports.getLearningCacheEntry(id);
+exports.updateLearningCacheEntry = async (id, patch = {}, internal = {}) => {
+  return obsDb.transaction(async()=>{
+  let existing = await exports.getLearningCacheEntry(id);
+  const scope={appTypeId:existing.app_type_id,projectId:existing.project_id};await lockRepositoryScope(scope);
+  existing=await exports.getLearningCacheEntry(id);
   patch = await resolveRepositoryScreenBinding({
     ...patch,
-    metadata: { ...normalizeObject(existing.metadata), ...normalizeObject(patch.metadata) }
+    metadata: { ...normalizeObject(existing.metadata), ...repositoryInputMetadata(patch.metadata), ...Object.fromEntries(Object.entries(internal.identityMetadata||{}).filter(([,value])=>value!==undefined)) }
   }, existing);
   const next = normalizeRepositoryPatch(existing, patch);
+  // Capture the projected family before writing. Legacy rows may still carry
+  // an old screen name and no parent ID until this first authorized write.
+  const screenFamilyIds=isRepositoryScreenRecord(existing)&&next.page_url!==existing.page_url
+    ?(await canonicalRepositoryProjection(await readRepositoryScope(scope))).all.filter(row=>(row.metadata.screen_name||row.page_key)===(existing.metadata.screen_name||existing.page_key)).map(row=>row.id)
+    :[];
+  // Physical legacy keys stay stable; canonical names and historical bindings
+  // live in metadata, avoiding unique-key collisions with retained redirects.
+  next.page_key=existing.page_key;
+  const previousReference=getRepositoryMemberReference(existing);
+  if(previousReference&&!isRepositoryScreenRecord(existing))next.metadata.reference_aliases=[...new Set([...(existing.metadata.reference_aliases||[]),previousReference,...(next.metadata.reference_aliases||[])])];
   const duplicate = await exports.findDuplicateLearningCacheEntry({
     app_type_id: existing.app_type_id,
     project_id: existing.project_id,
@@ -3594,8 +4142,14 @@ exports.updateLearningCacheEntry = async (id, patch = {}) => {
     exclude_id: existing.id
   });
 
-  if (duplicate) {
+  if (duplicate && !canonicalPageUrl(next.page_url)) {
     throw new Error("Another object repository field on this screen already uses the same locator.");
+  }
+  if(duplicate&&!isRepositoryScreenRecord(existing)&&canonicalPageUrl(next.page_url)===canonicalPageUrl(duplicate.page_url)){
+    const metadata={...next.metadata,merged_into_entry_id:duplicate.id};
+    await obsDb.prepare('UPDATE automation_learning_cache SET metadata = ? WHERE id = ? AND metadata IS DISTINCT FROM ?::jsonb').run(metadata,existing.id,metadata);
+    await reconcileRepositoryScope(scope);
+    return {...await exports.getLearningCacheEntry(existing.id),updated_step_references:0};
   }
 
   await updateLearningCacheEntry.run(
@@ -3609,86 +4163,30 @@ exports.updateLearningCacheEntry = async (id, patch = {}) => {
     next.metadata,
     existing.id
   );
-
+  for(const memberId of screenFamilyIds)if(memberId!==existing.id)await obsDb.prepare('UPDATE automation_learning_cache SET page_url = ? WHERE id = ?').run(next.page_url,memberId);
+  await reconcileRepositoryScope(scope);
   const updated = await exports.getLearningCacheEntry(existing.id);
-  const updatedStepReferences = await migrateRepositoryMemberReference({
-    appTypeId: existing.app_type_id,
-    from: getRepositoryMemberReference(existing),
-    to: getRepositoryMemberReference(updated)
-  });
 
   return {
     ...updated,
-    updated_step_references: updatedStepReferences
+    updated_step_references: 0
   };
+  })();
 };
 
-exports.renameLearningCacheScreen = async ({ app_type_id, screen_name, new_name } = {}) => {
-  const appTypeId = normalizeText(app_type_id);
-  const screenName = normalizeText(screen_name);
-  const newName = normalizeText(new_name);
-
-  if (!screenName || !newName) {
-    throw new Error("Current and new screen names are required");
-  }
-
-  if (screenName === newName) {
-    return { renamed: true, screen_name: newName, updated_fields: 0, updated_step_references: 0 };
-  }
-
-  const selectedRows = await listLearningCacheScreenRows({ appTypeId, screenName });
-
-  if (!selectedRows.length) {
-    throw new Error("Object repository screen not found");
-  }
-
-  const destinationLocators = new Set(
-    (await listLearningCacheScreenRows({ appTypeId, screenName: newName }))
-      .map((entry) => normalizeText(entry.locator))
-      .filter(Boolean)
-  );
-
-  if (selectedRows.some((entry) => destinationLocators.has(normalizeText(entry.locator)))) {
-    throw new Error("The destination screen already has a field with the same locator.");
-  }
-
-  const result = await renameLearningCacheScreen.run(
-    screenName,
-    newName,
-    JSON.stringify({
-      screen_name: newName,
-      last_curated_at: new Date().toISOString()
-    }),
-    appTypeId || null,
-    screenName
-  );
-  let updatedStepReferences = 0;
-
-  for (const entry of selectedRows.filter((entry) => !isRepositoryScreenRecord(entry))) {
-    const rawObjectName = normalizeText(entry.metadata?.object_name || entry.locator_intent);
-    const objectName = getRepositoryObjectName(entry, screenName);
-    if (objectName) {
-      updatedStepReferences += await migrateRepositoryMemberReference({
-        appTypeId,
-        from: `${screenName}.${objectName}`,
-        to: `${newName}.${objectName}`
-      });
-    }
-    if (rawObjectName && rawObjectName !== objectName) {
-      await exports.updateLearningCacheEntry(entry.id, {
-        object_name: objectName,
-        locator_intent: objectName
-      });
-    }
-  }
-
-  return {
-    renamed: true,
-    screen_name: newName,
-    updated_fields: result.changes || selectedRows.length,
-    updated_step_references: updatedStepReferences
-  };
-};
+exports.renameLearningCacheScreen = async ({ app_type_id, project_id, screen_name, new_name } = {}) => obsDb.transaction(async()=>{
+  const appTypeId=normalizeText(app_type_id),screenName=normalizeText(screen_name),newName=normalizeText(new_name);
+  if(!screenName||!newName)throw new Error("Current and new screen names are required");
+  const projectId=normalizeText(project_id)||(appTypeId?(await db.prepare('SELECT id, project_id FROM app_types WHERE id = ?').get(appTypeId))?.project_id:null);
+  const scope={appTypeId,projectId};await lockRepositoryScope(scope);
+  const projection=await canonicalRepositoryProjection(await readRepositoryScope(scope));
+  const selected=projection.all.filter(row=>(row.metadata.screen_name||row.page_key)===screenName);
+  if(!selected.length)throw new Error("Object repository screen not found");
+  for(const row of selected){const reference=getRepositoryMemberReference(row);row.metadata={...row.metadata,screen_name:newName,screen_aliases:[...new Set([...(row.metadata.screen_aliases||[]),screenName,newName])],...(!isRepositoryScreenRecord(row)&&reference?{reference_aliases:[...new Set([...(row.metadata.reference_aliases||[]),reference])]}:{}),last_curated_at:new Date().toISOString()};}
+  await saveRepositoryProjection(projection);
+  await reconcileRepositoryScope(scope);
+  return {renamed:true,screen_name:newName,updated_fields:selected.length,updated_step_references:0};
+})();
 
 // A selected field belongs to the screen confirmed by the save operation.
 // Browser navigation and stale client metadata must not silently move it to a
@@ -3697,7 +4195,7 @@ const resolveRepositoryScreenBinding = async (input, existing = null) => {
   const metadata = normalizeObject(input.metadata);
   const screenId = normalizeText(metadata.screen_entry_id);
   if (!screenId) return input;
-  const screen = normalizeLearningCacheRow(await selectLearningCacheEntry.get(screenId));
+  let screen;try{screen=await exports.getLearningCacheEntry(screenId);}catch{screen=null;}
   if (!screen || !isRepositoryScreenRecord(screen)) {
     throw new Error("The selected repository screen no longer exists. Reopen the screen before saving its fields.");
   }
@@ -3717,6 +4215,7 @@ const resolveRepositoryScreenBinding = async (input, existing = null) => {
     project_id: screen.project_id || requestedProject || null,
     app_type_id: screen.app_type_id || null,
     page_key: screenName,
+    page_url: screen.page_url || input.page_url || null,
     screen_name: screenName,
     metadata: { ...metadata, screen_entry_id: screen.id, screen_name: screenName, record_kind: "field" }
   };
@@ -3752,12 +4251,12 @@ exports.createLearningCacheEntry = async (input = {}) => {
     // Inspect can retry after a partial save or a stale repository reload.
     // The confirmed parent and locator identify the same field durably.
     if (metadata.screen_entry_id && !isRepositoryScreenRecord(duplicate)) {
-      return exports.updateLearningCacheEntry(duplicate.id, input);
+      return exports.updateLearningCacheEntry(duplicate.id, {...input,locator:duplicate.locator});
     }
-    throw new Error("Another object repository field on this screen already uses the same locator.");
+    if(!canonicalPageUrl(input.page_url))throw new Error("Another object repository field on this screen already uses the same locator.");
   }
 
-  await upsertLearningCache.run(
+  const persisted=await upsertLearningCache.run(
     uuid(),
     projectId,
     appTypeId,
@@ -3783,16 +4282,7 @@ exports.createLearningCacheEntry = async (input = {}) => {
     }
   );
 
-  const rows = await listLearningCacheScreenRows({
-    appTypeId,
-    projectId,
-    screenName
-  });
-  const saved = rows.find((row) =>
-    row.locator === locator && (row.metadata?.screen_name || row.page_key) === screenName
-  );
-  if (!saved) throw new Error("The repository entry could not be confirmed after saving. Retry the save.");
-  return saved;
+  return exports.getLearningCacheEntry(persisted.id);
 };
 
 exports.findDuplicateLearningCacheEntry = async ({ app_type_id, project_id, screen_name, locator, exclude_id } = {}) => {
@@ -3806,7 +4296,7 @@ exports.findDuplicateLearningCacheEntry = async ({ app_type_id, project_id, scre
   const rows = await listLearningCacheScreenRows({ appTypeId: normalizeText(app_type_id), projectId: normalizeText(project_id), screenName: normalizedScreen });
   return rows.find((entry) =>
     entry.id !== exclude_id
-    && normalizeText(entry.locator) === normalizedLocator
+    && ((entry.metadata?.platform||'web')==='web'?sameRecordedLocator(normalizeText(entry.locator),normalizedLocator):normalizeText(entry.locator)===normalizedLocator)
     && normalizeText(entry.metadata?.screen_name || entry.page_key || entry.page_url) === normalizedScreen
   ) || null;
 };
@@ -3876,7 +4366,8 @@ exports.importLearningCacheEntries = async ({ project_id, app_type_id, entries, 
         screen_screenshot_url: normalizeText(raw.screen_screenshot_url || rawMetadata.screen_screenshot_url),
         metadata
       };
-      const screenRows = await listLearningCacheScreenRows({ appTypeId, screenName });
+      let screenRows = await listLearningCacheScreenRows({ appTypeId, projectId,screenName });
+      if(canonicalPageUrl(input.page_url))screenRows=screenRows.filter(entry=>canonicalPageUrl(entry.page_url)===canonicalPageUrl(input.page_url));
       const normalizedObjectName = String(objectName).toLowerCase();
       const existing = screenRecord
         ? screenRows.find(isRepositoryScreenRecord)
@@ -3885,7 +4376,13 @@ exports.importLearningCacheEntries = async ({ project_id, app_type_id, entries, 
           || screenRows.find((entry) => !isRepositoryScreenRecord(entry) && normalizeText(entry.locator) === locator);
 
       if (existing) {
-        await exports.updateLearningCacheEntry(existing.id, input);
+        if(canonicalPageUrl(input.page_url)&&canonicalPageUrl(input.page_url)===canonicalPageUrl(existing.page_url)){
+          input.metadata.screen_aliases=[...new Set([...(existing.metadata.screen_aliases||[]),screenName])];
+          if(!screenRecord)input.metadata.reference_aliases=[...new Set([...(existing.metadata.reference_aliases||[]),`${screenName}.${objectName}`])];
+          input.screen_name=existing.metadata.screen_name||existing.page_key;input.page_key=existing.page_key;input.metadata.screen_name=input.screen_name;
+          if(!screenRecord){input.object_name=getRepositoryObjectName(existing);input.locator_intent=existing.locator_intent;input.metadata.object_name=input.object_name;}
+        }
+        await exports.updateLearningCacheEntry(existing.id, input,{identityMetadata:{screen_aliases:input.metadata.screen_aliases,reference_aliases:input.metadata.reference_aliases}});
         result.updated += 1;
       } else {
         await exports.createLearningCacheEntry(input);
@@ -3917,6 +4414,7 @@ const buildRepositoryUsageNeedles = (entry) => {
     objectName,
     screenName && objectName ? `${screenName}.${objectName}` : null,
     entry.locator_intent
+    ,...(Array.isArray(entry.metadata?.reference_aliases)?entry.metadata.reference_aliases:[])
   ].map(normalizeText).filter(Boolean);
 };
 
@@ -3956,7 +4454,7 @@ exports.findLearningCacheUsage = async (entryOrEntries) => {
   return obsDb.prepare(query).all(...params);
 };
 
-exports.findLearningCacheScreenUsage = async ({ app_type_id, screen_name } = {}) => {
+exports.findLearningCacheScreenUsage = async ({ app_type_id, project_id, screen_name } = {}) => {
   const screenName = normalizeText(screen_name);
   const appTypeId = normalizeText(app_type_id);
 
@@ -3964,7 +4462,7 @@ exports.findLearningCacheScreenUsage = async ({ app_type_id, screen_name } = {})
     throw new Error("Screen name is required");
   }
 
-  const rows = await listLearningCacheScreenRows({ appTypeId, screenName });
+  const rows = await listLearningCacheScreenRows({ appTypeId, projectId:normalizeText(project_id), screenName });
 
   return exports.findLearningCacheUsage(rows);
 };
@@ -3986,20 +4484,23 @@ const invalidateRepositoryUsage = async (usage = []) => {
   return affected;
 };
 
-exports.deleteLearningCacheEntry = async (id, { confirmed = false } = {}) => {
-  const existing = await exports.getLearningCacheEntry(id);
+exports.deleteLearningCacheEntry = async (id, { confirmed = false } = {}) => obsDb.transaction(async()=>{
+  let existing = await exports.getLearningCacheEntry(id);
+  const scope={appTypeId:existing.app_type_id,projectId:existing.project_id};await lockRepositoryScope(scope);
+  existing=await exports.getLearningCacheEntry(id);
   const usage = await exports.findLearningCacheUsage(existing);
 
   if (usage.length && !confirmed) {
     return { deleted: false, requires_confirmation: true, usage, invalidated_cases: [] };
   }
 
-  await deleteLearningCacheEntry.run(existing.id);
+  const projection=await canonicalRepositoryProjection(await readRepositoryScope(scope));
+  for(const row of projection.all)if(row.id===existing.id||row.metadata.merged_into_entry_id===existing.id)await deleteLearningCacheEntry.run(row.id);
   const invalidatedCases = await invalidateRepositoryUsage(usage);
   return { deleted: true, requires_confirmation: false, usage, invalidated_cases: invalidatedCases };
-};
+})();
 
-exports.deleteLearningCacheScreen = async ({ app_type_id, screen_name, confirmed = false } = {}) => {
+exports.deleteLearningCacheScreen = async ({ app_type_id, project_id, screen_name, confirmed = false } = {}) => obsDb.transaction(async()=>{
   const screenName = normalizeText(screen_name);
   const appTypeId = normalizeText(app_type_id);
 
@@ -4007,17 +4508,21 @@ exports.deleteLearningCacheScreen = async ({ app_type_id, screen_name, confirmed
     throw new Error("Screen name is required");
   }
 
-  const rows = await listLearningCacheScreenRows({ appTypeId, screenName });
+  const projectId=normalizeText(project_id)||(appTypeId?(await db.prepare('SELECT id, project_id FROM app_types WHERE id = ?').get(appTypeId))?.project_id:null);
+  const scope={appTypeId,projectId};await lockRepositoryScope(scope);
+  const rows = await listLearningCacheScreenRows({ appTypeId, projectId, screenName });
   const usage = await exports.findLearningCacheUsage(rows);
 
   if (usage.length && !confirmed) {
     return { deleted: false, requires_confirmation: true, usage, invalidated_cases: [] };
   }
 
-  await deleteLearningCacheScreen.run(appTypeId || null, screenName);
+  const names=new Set(rows.map(row=>row.metadata.screen_name||row.page_key));
+  const projection=await canonicalRepositoryProjection(await readRepositoryScope(scope));
+  for(const row of projection.all)if(names.has(row.metadata.screen_name||row.page_key))await deleteLearningCacheEntry.run(row.id);
   const invalidatedCases = await invalidateRepositoryUsage(usage);
   return { deleted: true, requires_confirmation: false, usage, invalidated_cases: invalidatedCases };
-};
+})();
 
 exports.improveLearningCacheEntry = async ({ id, integration_id, user_id, guidance } = {}) => {
   const existing = await exports.getLearningCacheEntry(id);
@@ -4084,8 +4589,10 @@ exports.applyLearningCacheImprovement = async ({ id, confirmed, locator, strateg
   if (!locator || !strategy || locator.length > 8192 || strategy.length > 100) throw invalid("A valid locator and strategy are required.");
   if (confidence !== undefined && (typeof confidence !== "number" || !Number.isFinite(confidence) || confidence < 0 || confidence > 1)) throw invalid("Confidence must be between 0 and 1.");
   return obsDb.transaction(async () => {
-    await obsDb.prepare("SELECT id FROM automation_learning_cache WHERE id = ? FOR UPDATE").get(id);
-    const existing = await exports.getLearningCacheEntry(id);
+    let existing = await exports.getLearningCacheEntry(id);
+    await lockRepositoryScope({appTypeId:existing.app_type_id,projectId:existing.project_id});
+    await obsDb.prepare("SELECT id FROM automation_learning_cache WHERE id = ? FOR UPDATE").get(existing.id);
+    existing = await exports.getLearningCacheEntry(id);
     if (isRepositoryScreenRecord(existing)) throw invalid("Select a repository field to improve.");
     if (typeof expected_locator !== "string" || existing.locator !== expected_locator) {
       throw Object.assign(new Error("This field changed since the proposal was generated. Refresh and generate a new proposal."), { statusCode: 409 });
@@ -4494,7 +5001,7 @@ exports.startRecorderSession = async ({
       : resolveRecorderPublicBaseUrl(integration, baseUrl, recorderMode)
     || baseUrl
   ).replace(/\/+$/, "");
-  const resolvedStartUrl = normalizeText(start_url) || buildContext.environment?.base_url || null;
+  const resolvedStartUrl = normalizeText(start_url) || testCase.automation_start_url || buildContext.environment?.base_url || null;
   const sessionEndpoint = recorderTarget === "mobile"
     ? `${mobileBaseUrl}/api/v1/mobile/recorder/sessions`
     : `${baseUrl}/api/v1/recorder/sessions`;
@@ -4600,6 +5107,7 @@ exports.finishRecorderSession = async ({
   transaction_id,
   integration_id,
   additional_context,
+  agent_context,
   recorder_mode,
   recorder_target,
   engine_base_url,
@@ -4663,7 +5171,7 @@ exports.finishRecorderSession = async ({
   const capturedActions = selectedActionIndices ? allCapturedActions.filter((action) => selectedActionIndices.has(action.index)) : allCapturedActions;
   const capturedNetwork = normalizeCapturedNetwork(session.network || []);
   const preparedTarget = capturedActions.length
-    ? await automationCasePreparationService.prepareAutomationTarget({ testCaseId, createdBy: created_by, targetStepId })
+    ? await automationCasePreparationService.prepareAutomationTarget({ testCaseId, createdBy: created_by, targetStepId, startUrl:session.start_url||metadata.start_url||null })
     : { test_case_id: testCaseId, source_test_case_id: null, target_step_id: targetStepId };
   if (preparedTarget.test_case_id !== testCaseId) {
     testCase = await selectCaseWithScope.get(preparedTarget.test_case_id);
@@ -4778,4 +5286,41 @@ exports.finishRecorderSession = async ({
       network_count: capturedNetwork.length
     }
   };
+};
+
+exports.connectCaseBrowser = async ({projectId,appTypeId,user,caseId,environmentId,startUrl,allowBrowserActions=false,signal}) => {
+  const testCase=await selectCaseWithScope.get(caseId);
+  if(!testCase || testCase.project_id!==projectId || appTypeId && testCase.app_type_id!==appTypeId)throw Object.assign(new Error("The automation case is unavailable in this application."),{statusCode:404});
+  const permissions=["automation.view","automation.code.view","automation.ai","testcase.view",...(allowBrowserActions?["automation.build"]:[]),...(environmentId?["environment.view"]:[])];
+  const access=await getOptionalEvidenceAccess(user,projectId,permissions);
+  if(permissions.some(key=>!access[key]))throw Object.assign(new Error("Automation browser evidence requires case, code, AI and selected environment access; browser interactions also require build permission."),{statusCode:403});
+  const steps=await selectStepsForCase.all(caseId);
+  if(!steps.some(step=>normalizeTestStepType(step.step_type,"web")==="web"))throw Object.assign(new Error("Playwright MCP supports web sections; API-only or native mobile cases use their own runtime."),{statusCode:422});
+  const buildContext=await resolveBuildContext({testCase,test_environment_id:environmentId});
+  const url=resolveAutomationStartUrl({startUrl,caseUrl:testCase.automation_start_url,steps,required:true}).url;
+  if(!url)throw Object.assign(new Error("Select an environment with a start URL for live Playwright MCP inspection."),{statusCode:422});
+  const engine=await resolveTestEngineIntegration(testCase);
+  const parameterContext=await loadAutomationParameterContext({testCase,projectId,userId:user.id});
+  const browserParameters=await require('../lib/automationBrowserParameters').loadBrowserParameterResolver({testCase,projectId,userId:user.id,caseValues:parameterContext.runtime_parameter_values,privateParameterNames:parameterContext.private_parameter_names,parameterOverrides:parameterContext.parameter_overrides,test_environment_id:environmentId});
+  const browser=await connectAutomationBrowser({integration:engine,startUrl:url,allowBrowserActions,signal});
+  const call=browser.call;
+  browser.call=async(name,args)=>{const current=await getOptionalEvidenceAccess(user,projectId,[...permissions,'data.view']);if(permissions.some(key=>!current[key])||browserParameters.requiresDataAccess(name,args)&&!current['data.view'])throw Object.assign(new Error("Automation browser access changed."),{statusCode:403});try{return browserParameters.redactResult(await call(name,browserParameters.resolve(name,args)));}catch(error){throw browserParameters.redactError(error);}};
+  return {browser,startUrl:url};
+};
+
+exports.loadAutomationAgentCaseContext = async ({projectId,appTypeId,user,caseId}) => {
+  const testCase=await selectCaseWithScope.get(caseId);
+  const permissions=["testcase.view","automation.view","automation.code.view"];
+  const access=await getOptionalEvidenceAccess(user,projectId,[...permissions,"data.view"]);
+  if(permissions.some(key=>!access[key]))throw Object.assign(new Error("Case and automation code access are required."),{statusCode:403});
+  if(!testCase||testCase.project_id!==projectId||appTypeId&&testCase.app_type_id!==appTypeId)throw Object.assign(new Error("The case is unavailable in this application."),{statusCode:404});
+  const parameters=await loadAutomationParameterContext({testCase,projectId,userId:user.id});
+  const manual=await loadAutomationManualContext({caseId,projectId,userId:user.id}),sections=(await selectStepsForCase.all(caseId)).map(summarizeStep);
+  // Preview resolves static authorized values only. Random generators are
+  // materialized once by the actual build, then shown from its pinned artifact.
+  const resolver=await require('../lib/automationBrowserParameters').loadBrowserParameterResolver({testCase,projectId,userId:user.id,
+    caseValues:parameters.runtime_parameter_values,privateParameterNames:parameters.private_parameter_names,parameterOverrides:parameters.parameter_overrides,steps:[...sections,...manual.flatMap(item=>item.steps)],materialize:false,allowUnselectedSuite:true});
+  return {linked_manual_cases:resolver.projectManualCases(manual),case:{...resolver.projectCase({id:testCase.id,title:testCase.title,description:testCase.description,gherkin_document:testCase.gherkin_document,priority:testCase.priority,labels:safeJson(testCase.labels,[])}),parameter_values:resolver.publicParameterValues},
+    sections:resolver.projectSteps(sections),deferred_parameter_references:resolver.deferredParameterNames,private_parameter_references:resolver.privateParameterNames,suite_selection_required:resolver.suite_selection_required===true,
+    stories:await loadAutomationStoryContext({caseId,projectId,userId:user.id})};
 };

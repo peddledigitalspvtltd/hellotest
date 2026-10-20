@@ -32,6 +32,7 @@ const prepareChatRequest = (init, options = {}) => {
   let payload;
   try { payload = JSON.parse(init.body); } catch { return { init }; }
   if (!payload || !Array.isArray(payload.messages)) return { init };
+  payload = require('./aiReferenceImages').applyReferenceImagePolicy(payload, { integration: options.integration, policy: options.referenceImagePolicy });
   const maximum = Math.min(16_384, positiveInteger(options.maxOutputTokens) || OUTPUT_LIMITS[options.operation] || 4096);
   const requested = positiveInteger(payload.max_completion_tokens) || positiveInteger(payload.max_tokens) || maximum;
   const field = payload.max_completion_tokens !== undefined || isReasoningModel(payload.model) ? 'max_completion_tokens' : 'max_tokens';

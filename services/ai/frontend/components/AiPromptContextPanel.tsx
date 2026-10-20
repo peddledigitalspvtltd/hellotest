@@ -63,6 +63,8 @@ export function AiPromptContextPanel({
   onTemplateApply,
   onExternalLinksTextChange,
   onBusyChange,
+  contextFiles: providedContextFiles,
+  onContextFilesChange,
   onRemoveImage,
   promptScope = "test_case_generation",
   projectId,
@@ -83,6 +85,8 @@ export function AiPromptContextPanel({
   onTemplateApply?: (prompt: string, template: AiPromptTemplate) => void;
   onExternalLinksTextChange: (value: string) => void;
   onBusyChange?: (busy: boolean) => void;
+  contextFiles?: File[];
+  onContextFilesChange?: (files: File[]) => void;
   onRemoveImage: (imageUrl: string) => void;
   promptScope?: AiPromptScope;
   projectId?: string;
@@ -92,7 +96,13 @@ export function AiPromptContextPanel({
   showPromptEditor?: boolean;
 }) {
   const tabIdPrefix = useId();
-  const [contextFiles, setContextFiles] = useState<File[]>([]);
+  const [localContextFiles, setLocalContextFiles] = useState<File[]>([]);
+  const contextFiles = providedContextFiles ?? localContextFiles;
+  const setContextFiles = (update: File[] | ((current: File[]) => File[])) => {
+    const next = typeof update === 'function' ? update(contextFiles) : update;
+    if(providedContextFiles === undefined)setLocalContextFiles(next);
+    onContextFilesChange?.(next);
+  };
   const [isBuildingContext, setIsBuildingContext] = useState(false);
   const [contextMessage, setContextMessage] = useState("");
   const [contextMessageTone, setContextMessageTone] = useState<"info" | "warning">("info");
@@ -224,6 +234,7 @@ export function AiPromptContextPanel({
           />
         </div>
       </div>
+      {providedContextFiles!==undefined&&promptScope.startsWith('requirement_')?<p className="ai-prompt-context-empty">Original files and images are attached only to Stories you accept or apply changes to.</p>:null}
 
       {!showPromptEditor && (hasReviewedContext || hasTemplateContext) ? <div className="ai-context-pack-summary" aria-label="Included context packs">
         <span>{hasReviewedContext ? "Reviewed evidence included" : "Template included"}</span>
@@ -359,7 +370,7 @@ export function AiPromptContextPanel({
       >
         <FormField
           className="ai-reference-photos-field"
-          hint="Images are analyzed only by supported models; an unsupported provider will show a fallback or error."
+          hint="Compressed screenshots are sent to the selected vision-capable model. Unsupported image input stops with an explanation."
           hintVisible
           label="Reference images"
         >

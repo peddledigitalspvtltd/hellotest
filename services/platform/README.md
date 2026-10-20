@@ -22,4 +22,6 @@ npm run build --workspace @hellotest/platform
 
 Run `npm run setup` first. Development uses the shared shell; the API requires configured foundation infrastructure. Cross-owner imports use declared `@hellotest/...` exports. This private workspace still depends on repository runtime adapters and the shared schema.
 
+The workspace sign-in page is `/login`; account creation is `/signup`. The form switches navigate between those routes, and `/auth` redirects to `/login` for existing links. Protected destinations retain their query and fragment through sign-in. Authentication API endpoints remain under `/auth/`.
+
 Read [CONTRIBUTING](../../CONTRIBUTING.md) for setup/debugging and [capability packaging](../../docs/architecture/capability-packaging.md) for selection, flags, permissions and release compatibility.

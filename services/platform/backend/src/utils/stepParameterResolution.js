@@ -64,6 +64,16 @@ function resolveHierarchicalLayers({ caseValues, suiteValues, environmentVariabl
   apply(caseLayer, policy.case, 'case');
   apply(suiteLayer, policy.suite, 'suite');
   apply(runLayer, policy.run, 'run');
+  // Reviewed automation inputs are authored case overrides, not copies of
+  // inherited defaults. Keep their exact values against selected source data.
+  // A later explicit run input or captured output remains authoritative.
+  const authored=normalizeParameterLayer(caseValues),explicitRun=normalizeParameterLayer(runValues);
+  for(const name of policy.case?.parameter_overrides||[]){
+    const key=normalizeParameterKey(name,'t');
+    if(!Object.hasOwn(authored,key)||isSharedStep&&policy.case?.override_shared_steps===false&&sharedKeys.has(key))continue;
+    result[key]=authored[key];
+    if(Object.hasOwn(explicitRun,key)&&!(policy.run?.override_test_case_data===false&&(key.startsWith('t.')||caseKeys.has(key)))&&!(policy.run?.override_suite_data===false&&(key.startsWith('s.')||suiteKeys.has(key))))result[key]=explicitRun[key];
+  }
   return { ...result, ...normalizeParameterLayer(capturedValues) };
 }
 

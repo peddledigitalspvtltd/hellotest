@@ -14,6 +14,7 @@ function load(name, overrides = {}, directory = "services") {
   new Function("require", "module", "exports", fs.readFileSync(filename, "utf8"))(
     id => {
       const key = Object.keys(overrides).find(candidate => candidate.split('/').pop() === id.split('/').pop());
+      if (key === undefined && id.endsWith('/dropdownCatalog.service')) return {getField:async()=>({default_value:'functional',options:[{value:'functional',active:true},{value:'regression',active:true}]})};
       return key === undefined ? localRequire(id) : overrides[key];
     }, module, module.exports
   );
@@ -410,3 +411,60 @@ test("Defect improvement rejects missing or foreign Test Case context before cal
    assert.deepEqual(input.stories, []);
    assert.equal(input.application_contract.output_schema.properties.testCases.items.properties.requirement_refs.maxItems, 0);
  });
+
+const referenceScreenshot={name:'Sign-in.png',url:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=='};
+function assertScreenshotRequest(call){
+ const content=call.body.messages.find(message=>message.role==='user').content;
+ assert.ok(Array.isArray(content));assert.equal(content.filter(part=>part.type==='image_url').length,1);assert.equal(content.find(part=>part.type==='image_url').image_url.url,referenceScreenshot.url);
+ assert.equal(content.find(part=>part.type==='image_url').image_url.detail,'low');
+ assert.equal(JSON.stringify(content.filter(part=>part.type==='text')).includes(referenceScreenshot.url),false,'Image bytes are not copied into prompt text');
+}
+test('Story create and complete pass the selected screenshot as actual bounded vision content',async()=>{
+ const creation=providerFixture({requirements:[{title:'Approve invoice',description:'Reviewers approve invoices.',acceptance_criteria:['Approval records the reviewer.'],priority:2,field_evidence:{title:['user-guidance:story-brief'],description:['user-guidance:story-brief'],acceptance_criteria:['user-guidance:story-brief']}}]});
+ const create=load('requirement.service',{...creation.overrides,'../db':{prepare:()=>({})},'./aiKnowledge.service':{buildKnowledgeContextPackage:async()=>({knowledge:[]})}});
+ await create.previewRequirementCreation({project_id:'project',additional_context:'Reviewers approve invoices. Approval records the reviewer.',images:[referenceScreenshot]});assertScreenshotRequest(creation.calls[0]);
+ const completion=providerFixture({...story,field_evidence:{title:['story:story'],description:['story:story'],acceptance_criteria:['story:story']}});
+ const complete=load('requirement.service',{...completion.overrides,'../db':{prepare:()=>({get:async()=>story})},'./optionalEvidenceAccess.service':{getOptionalEvidenceAccess:async()=>({'testcase.view':false})},'./aiKnowledge.service':{buildKnowledgeContextPackage:async()=>({knowledge:[]})}});
+ await complete.previewRequirementOptimization({id:story.id,user,images:[referenceScreenshot]});assertScreenshotRequest(completion.calls[0]);
+});
+test('Test Case generation and improvement retain screenshots, configured type and priority through preview and acceptance',async()=>{
+ const candidate={...validCase,test_case_type:'regression',parameter_values:{amount:'100'},steps:[{action:'Approve invoice for @t.amount',expected_result:'Approval is recorded'}]};
+ const improveFixture=providerFixture(candidate),improve=load('aiCaseAuthoring.service',improveFixture.overrides);
+ const improvement=await improve.previewCaseAuthoring({appType,test_case:{title:'Approval',priority:3,test_case_type:'functional'},images:[referenceScreenshot]});
+ assertScreenshotRequest(improveFixture.calls[0]);assert.equal(improvement.case.test_case_type,'regression');assert.equal(improvement.case.priority,2);assert.equal(improvement.case.parameter_values.amount,'100');
+ const writes=[],designFixture=providerFixture({testCases:[candidate]}),design=load('requirementDesign.service',{...designFixture.overrides,'./aiKnowledge.service':{buildKnowledgeContextPackage:async()=>({knowledge:[]})},'./testCase.service':{createTestCase:async input=>{writes.push(input);return{id:'new-case'};}}});
+ const generated=await design.previewRequirementsTestCases({appType,requirements:[story],images:[referenceScreenshot],max_cases:1});assertScreenshotRequest(designFixture.calls[0]);assert.equal(generated.cases[0].test_case_type,'regression');
+ await design.acceptGeneratedTestCases({appType,requirements:[story],cases:generated.cases,created_by:user.id});assert.equal(writes[0].test_case_type,'regression');assert.equal(writes[0].priority,2);assert.equal(writes[0].parameter_values.amount,'100');
+ assert.deepEqual(designFixture.calls[0].policy.nativeArtifactTestCaseTypes,['functional','regression']);
+});
+test('unsupported screenshot input stops Test Case design without a text-only second model call',async()=>{
+ const fixture=providerFixture(Object.assign(new Error('Select a vision-capable integration.'),{code:'AI_VISION_UNSUPPORTED',statusCode:422}));
+ const design=load('requirementDesign.service',{...fixture.overrides,'./aiKnowledge.service':{buildKnowledgeContextPackage:async()=>({knowledge:[]})}});
+ await assert.rejects(design.previewRequirementsTestCases({appType,requirements:[story],images:[referenceScreenshot]}),{code:'AI_VISION_UNSUPPORTED'});assert.equal(fixture.calls.length,1);
+});
+test('Defect creation and Test Case grounded improvement pass screenshots to the same protected draft path',async()=>{
+ for(const require_case_context of [false,true]){
+  const fixture=providerFixture({draft:{title:'Invoice approval fails'},field_evidence:{title:['reporter:intent']}});
+  const service=load('aiBugDraft.service',{...fixture.overrides,'../db':{prepare(sql){return{get:async()=>/FROM test_cases/.test(sql)?{id:'case',title:'Approve invoice',description:'Approve an invoice',priority:2}:{id:'project'}};}}});
+  await service.preview({user,project_id:'project',intent:'Invoice approval fails',linked_test_case_ids:require_case_context?['case']:[],require_case_context,reference_photos:[referenceScreenshot]});assertScreenshotRequest(fixture.calls[0]);
+ }
+});
+test('Defect triage receives vision content while priority and record identity remain host-owned',async()=>{
+ const issue={id:'issue',project_id:'project',title:'Approval fails',message:'Save displays an error',severity:'high',priority:'High',steps_to_reproduce:'Select Save',expected_result:'Saved',actual_result:'Error'};
+ const fixture=providerFixture({recommendations:[{issue_id:'issue',category:'Functional defect',category_explanation:'The recorded Save operation produces an error.',category_evidence_refs:['issue:issue:message']}]});
+ const service=load('aiBugTriage.service',{...fixture.overrides,'./issues.service':{getIssueItem:async()=>issue}});
+ const result=await service.preview({project:{id:'project'},user,issueIds:['issue'],images:[referenceScreenshot]});assertScreenshotRequest(fixture.calls[0]);assert.equal(result.triage[0].issue_id,'issue');assert.equal(result.triage[0].recommended_priority,'High');assert.equal(result.generation_mode,'hybrid');
+ assert.match(fixture.calls[0].body.messages[1].content[0].text,/Do not assume a screenshot belongs to a particular Defect/);
+});
+test('Smart Run uses multimodal content through its real request path and keeps whole candidate rows',async()=>{
+ const fixture=providerFixture({cases:[{test_case_id:'case',reason:'The saved case covers the recorded change.',evidence_refs:['test-case:case']}]});
+ const service=load('executionPlanning.service',fixture.overrides);
+ await service.__smartExecutionInternals.requestSmartExecutionPlan({integration,appType,deliveryScope:{},scopeDescription:'Approval change',additionalContext:'Review error handling',promptGuidance:'',selectedRequirementTitles:[],executionContext:[],scopedCases:[{id:'case',title:'Approval',description:'Review a submitted invoice',evidence_refs:['test-case:case']}],images:[referenceScreenshot]});
+ assertScreenshotRequest(fixture.calls[0]);assert.equal(fixture.calls[0].policy.contextFallback,false);assert.equal(fixture.calls.length,1);
+});
+test('AI improvement preserves the full administrator type code through current context, enum contract and output',async()=>{
+ const type='regression_'+ 'x'.repeat(100),fixture=providerFixture({...validCase,test_case_type:type,parameter_values:{}});
+ const service=load('aiCaseAuthoring.service',{...fixture.overrides,'./dropdownCatalog.service':{getField:async()=>({default_value:type,options:[{value:type,active:true}]})}});
+ const result=await service.previewCaseAuthoring({appType,test_case:{title:'Approval',test_case_type:type}});
+ assert.equal(result.case.test_case_type,type);const prompt=JSON.parse(fixture.calls[0].body.messages[1].content);assert.equal(prompt.current_case.test_case_type,type);assert.deepEqual(prompt.application_contract.output_schema.properties.test_case_type.enum,[type]);
+});

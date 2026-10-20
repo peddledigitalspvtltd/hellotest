@@ -32,6 +32,9 @@ export type SmartContextSelection = {
 
 type SmartContextWorkbenchProps = {
   appTypeId?: string | null;
+  agentId?: string;
+  contextScopes?: string[];
+  evidenceScope?: Record<string, unknown>;
   buttonClassName?: string;
   buttonLabel?: string;
   disabled?: boolean;
@@ -46,7 +49,7 @@ type SmartContextWorkbenchProps = {
 };
 
 export function SmartContextWorkbench({
-  appTypeId,
+  appTypeId, agentId, contextScopes, evidenceScope,
   buttonClassName = "ghost-button compact smart-context-trigger",
   buttonLabel = "Smart Context",
   disabled = false,
@@ -132,6 +135,9 @@ export function SmartContextWorkbench({
         limit: 16,
         filters: {
           app_type_id: appTypeId || null,
+          agent_id: agentId,
+          requested_scopes: contextScopes,
+          evidence_scope: evidenceScope,
           source_kinds: preferredSourceKinds?.length ? preferredSourceKinds : undefined
         }
       }, { signal: controller.signal });

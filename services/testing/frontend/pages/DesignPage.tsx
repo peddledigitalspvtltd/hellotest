@@ -3,7 +3,7 @@ import type { TestDataOptions } from "@hellotest/platform/frontend/src/types";
 import { RunDataSetup } from "../components/RunDataSetup";
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
 import { AddIcon, CollapseExpandIcon, EyeIcon, LayersIcon, ModuleIcon, TestCaseIcon, TestDataIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { CatalogSelectionControls } from "@hellotest/platform/frontend/src/shared/components/CatalogSelectionControls";
@@ -51,6 +51,7 @@ import { useCapabilityAccess } from "@hellotest/platform/frontend/src/platform/h
 import { optionalQueryView } from "@hellotest/platform/frontend/src/shared/lib/optionalQueryView";
 import { api } from "@hellotest/platform/frontend/src/lib/api";
 import { resolveTestCasePickerScope } from "../lib/testCasePickerPages";
+import { hasAutomationCoverage } from "../lib/caseIdentity";
 import { buildDeliveryScopeOptions, type DeliveryScopeOption } from "@hellotest/manual/frontend/lib/deliveryScopeOptions";
 import { canViewAutomationCode as resolveCanViewAutomationCode } from "@hellotest/automation/frontend/lib/automationAccess";
 import { asArray } from "@hellotest/platform/frontend/src/shared/lib/collectionGuards";
@@ -283,6 +284,8 @@ export function DesignPage() {
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.parallel_execution"]);
   const { confirmAction, confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
+  const suiteLocation = useLocation();
+  const closingSuiteRouteRef = useRef<string | null>(null);
   const [selectedSuiteId, setSelectedSuiteId] = useState("");
   const [selectedSuiteActionIds, setSelectedSuiteActionIds] = useState<string[]>([]);
   const [selectedTestCaseId, setSelectedTestCaseId] = useState("");
@@ -803,6 +806,7 @@ export function DesignPage() {
   }, [allTestCases, requirements, sharedGroups, suites, testCaseModules]);
   const selectedSuite = suites.find((suite) => suite.id === selectedSuiteId) || null;
   const syncSuiteSearchParams = (suiteId?: string | null) => {
+    if (suiteId) closingSuiteRouteRef.current = null;
     const currentSuiteId = searchParams.get("suite") || "";
     const targetSuiteId = suiteId || "";
 
@@ -1112,6 +1116,8 @@ export function DesignPage() {
     }
 
     const requestedSuiteId = searchParams.get("suite");
+    if (requestedSuiteId && closingSuiteRouteRef.current === `${suiteLocation.key}:${requestedSuiteId}`) return;
+    if (!requestedSuiteId) closingSuiteRouteRef.current = null;
     const requestedSuite = findByRoutableId(suites, requestedSuiteId);
 
     if (requestedSuite) {
@@ -1153,7 +1159,7 @@ export function DesignPage() {
       setIsCreatingCase(false);
       setIsTestCaseEditorModalOpen(false);
     }
-  }, [appTypeId, appTypes, appTypesQuery.isPending, deepLinkSuitesQuery.data, deepLinkSuitesQuery.isFetching, deepLinkSuitesQuery.isPending, projectId, searchParams, selectedSuiteId, setAppTypeId, setSearchParams, suites, suitesQuery.isFetching, suitesQuery.isLoading]);
+  }, [appTypeId, appTypes, appTypesQuery.isPending, deepLinkSuitesQuery.data, deepLinkSuitesQuery.isFetching, deepLinkSuitesQuery.isPending, projectId, searchParams, selectedSuiteId, setAppTypeId, setSearchParams, suites, suitesQuery.isFetching, suitesQuery.isLoading, suiteLocation.key]);
 
   useEffect(() => {
     setSelectedSuiteActionIds((current) => current.filter((suiteId) => suites.some((suite) => suite.id === suiteId)));
@@ -1541,6 +1547,7 @@ export function DesignPage() {
   };
 
   const closeSuiteWorkspace = () => {
+    closingSuiteRouteRef.current = `${suiteLocation.key}:${searchParams.get("suite") || ""}`;
     syncSuiteSearchParams(null);
     setSelectedSuiteId("");
     setSelectedTestCaseId("");
@@ -2837,7 +2844,7 @@ function TestCaseList({
     name,
     cases: moduleCases,
     count: moduleCases.length,
-    automated: moduleCases.filter((testCase) => testCase.automated === "yes").length,
+    automated: moduleCases.filter(hasAutomationCoverage).length,
     withRequirements: moduleCases.filter((testCase) => Boolean(testCase.requirement_ids?.length || testCase.requirement_id)).length
   })), [cases, moduleLabelByCaseId]);
 
@@ -3598,12 +3605,11 @@ function SuiteCaseEditorModal({
                       ))}
                     </select>
                   </FormField>
-                  <FormField label="Automated">
-                    <select value={caseDraft.automated} onChange={(event) => onCaseDraftChange({ ...caseDraft, automated: event.target.value as "yes" | "no" })}>
-                      {testCaseAutomatedOptions.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
+                  <FormField label="Case type">
+                    {isCreatingCase ? <select aria-label="Case type" value={caseDraft.automated} onChange={(event) => onCaseDraftChange({ ...caseDraft, automated: event.target.value as "yes" | "no" })}>
+                      <option value="no">Manual case · TC</option>
+                      <option value="yes">Automation case · AT</option>
+                    </select> : <span>{selectedTestCase?.automated === "yes" ? "Automation case · AT" : "Manual case · TC"}</span>}
                   </FormField>
                   <FormField className="form-field--compact-enum form-field--compact-number" label="Priority">
                     <input

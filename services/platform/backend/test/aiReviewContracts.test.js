@@ -82,7 +82,7 @@ test('assurance repairs a usable review whose first response omitted citation fi
   assert.equal(result.response_repaired, true);
   assert.deepEqual(result.assurance_review.dimensions[0].evidence, ['draft:story:story']);
   assert.equal(calls.length, 2);
-  assert.match(calls[1].body.messages[1].content, /Allowed evidence refs/);
+  assert.match(require('./helpers/managedInstructions').expandManagedInstructions(calls[1].body.messages[1].content), /Allowed evidence refs/);
   assert.ok(calls[1].policy.timeoutMs > 0 && calls[1].policy.timeoutMs <= calls[0].policy.timeoutMs);
   assert.ok(calls.every(call => call.policy.maxAttempts === 1 && call.policy.compatibility === false));
 });

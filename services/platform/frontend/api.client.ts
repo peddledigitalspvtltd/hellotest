@@ -35,12 +35,13 @@ attachments: {
       const scope = normalizeEntityScope(scopeInput);
       return request<JiraAttachment[]>(`/attachments${toQueryString(scope)}`);
     },
-    upload: async (scopeInput: HelloTestEntityScope | string, file: File) => {
+    upload: async (scopeInput: HelloTestEntityScope | string, file: File, options?: { checksumSha256?: string }) => {
       const scope = normalizeEntityScope(scopeInput);
       const formData = new FormData();
       formData.append("project_id", scope.project_id);
       formData.append("entity_type", scope.entity_type);
       formData.append("entity_id", scope.entity_id);
+      if(options?.checksumSha256)formData.append('checksum_sha256',options.checksumSha256);
       formData.append("file", file, file.name);
       return requestForm<JiraAttachment>("/attachments", formData);
     },
@@ -310,4 +311,3 @@ workspaceTransactions: {
       request<{ deleted: boolean }>(`/workspace-transactions/${id}`, { method: "DELETE" })
   }
 };
-

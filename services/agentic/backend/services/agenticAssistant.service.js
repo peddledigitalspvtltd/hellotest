@@ -18,9 +18,9 @@ const { getCompletionContent: completionContent } = require("@hellotest/platform
 const { sanitizeAiText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
 const execution = require("@hellotest/knowledge/backend/services/knowledgeExecution.service");
 
-const SESSION_TIMEOUT_MS = 70_000;
-const CONTEXT_TIMEOUT_MS = 12_000;
-const MODEL_TIMEOUT_MS = 45_000;
+const SESSION_TIMEOUT_MS = 150_000;
+const CONTEXT_TIMEOUT_MS = 20_000;
+const MODEL_TIMEOUT_MS = 120_000;
 const agentError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode, publicMessage: message });
 
 const specialistProfiles = require("../../shared/workflowSpecialists.json");
@@ -77,7 +77,7 @@ const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt, smar
       source_ids: smartContext.source_ids,
       source_kinds: smartContext.source_kinds,
       user
-    }), { timeoutMs: 12_000 });
+    }), { timeoutMs: CONTEXT_TIMEOUT_MS });
     const primaryKnowledge = (packageResult.access_restricted ? [] : packageResult.knowledge || []).map((item) => ({
       id: item.metadata?.chunk_id || item.id,
       title: item.title,
@@ -425,10 +425,12 @@ const buildBoundedAgentPromptPayload = ({ mode, prompt, context, citations, cont
     bounded_workspace_context: {}
   };
   const orderedScopes = [
+    "automation_repair",
+    "automation_case",
     "quality_checks",
     "live_project",
     "reviewed_context",
-    ...Object.keys(context || {}).filter((scope) => !["quality_checks", "live_project", "reviewed_context"].includes(scope))
+    ...Object.keys(context || {}).filter((scope) => !["automation_repair", "automation_case", "quality_checks", "live_project", "reviewed_context"].includes(scope))
   ];
   const contextItems = orderedScopes.flatMap((scope) => {
     const values = Array.isArray(context?.[scope]) ? context[scope] : [];
@@ -443,13 +445,18 @@ const buildBoundedAgentPromptPayload = ({ mode, prompt, context, citations, cont
       score: Number.isFinite(Number(item?.score)) ? Number(item.score) : null,
       risk_flags: Array.isArray(item?.risk_flags) ? item.risk_flags.slice(0, 8) : [],
       citation: item?.citation ? compactCitation({ ...item.citation, scope }) : null,
-      content: normalizeText(item?.content || item?.description, scope === "quality_checks" ? 12_000 : scope === "reviewed_context" ? 3_000 : scope === "live_project" ? 9_000 : 5_000)
+      content: scope === "automation_repair" ? String(item?.content || item?.description || "")
+        : require('@hellotest/platform/backend/src/utils/llmContextFallback').compactEvidenceText(
+          String(item?.content || item?.description || ""), scope === "automation_case" ? 36_000 : scope === "quality_checks" ? 12_000 : scope === "reviewed_context" ? 3_000 : scope === "live_project" ? 9_000 : 5_000)
     };
+    if(scope === "automation_repair" && compact.content.length > 24_000) throw agentContract.fail("The exact repair contract exceeds its context budget. No incomplete failed section was sent.", "AGENT_CONTEXT_BUDGET");
     if (!compact.content) continue;
+    if(compact.content !== String(item?.content || item?.description || "")) compact.excerpt_truncated = true;
     const currentScope = payload.bounded_workspace_context[scope] || [];
     payload.bounded_workspace_context[scope] = [...currentScope, compact];
     payload.context_manifest.selected_context_items += 1;
     if (JSON.stringify(payload).length > maxChars) {
+      if(scope === "automation_repair") throw agentContract.fail("The exact repair contract does not fit the selected model context budget. No incomplete repair was sent.", "AGENT_CONTEXT_BUDGET");
       payload.bounded_workspace_context[scope].pop();
       payload.context_manifest.selected_context_items -= 1;
       payload.context_manifest.omitted_context_items += 1;
@@ -476,6 +483,7 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
         artifacts.CONTRACT,
         aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.11"),
         ...(context.automation_repair ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.38")] : []),
+        ...(context.automation_repair ? ["Host-enforced automation repair contract: " + JSON.stringify(require("@hellotest/ai/backend/services/automationRepair.service").modelContract)] : []),
         aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.12"),
         ...(repair ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.43")] : []),
         aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.14")
@@ -525,12 +533,13 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
       // This request already carries the MCP packet selected for this agent.
       // Automatic enrichment must not widen user-selected sources or tool scopes.
       mcpContextHandled: { evidence_count: citations.filter(item => item.source_id).length },
-      traceContext: { mcp_context_depth: 1, mcp_context: citations.some(item => item.source_id) ? 'retrieved' : 'unavailable' },
+      traceContext: { mcp_context_depth: 1, mcp_context: citations.some(item => item.source_id) ? 'retrieved' : 'unavailable',
+        on_llm_trace:require("@hellotest/platform/backend/src/utils/llmTraceContext").current().session_id?record=>appendEvent(require("@hellotest/platform/backend/src/utils/llmTraceContext").current().session_id,require("@hellotest/platform/backend/src/utils/agentModelTrace").modelTraceEvent(record,{name:agent.name})):undefined },
       compatibility: false,
       contextFallback: false,
       operation: jsonMode ? "agentic-assistant.respond" : "agentic-assistant.respond.json-mode-compatibility",
       timeoutMs: remaining,
-      attemptTimeoutMs: Math.min(22_000, remaining),
+      attemptTimeoutMs: remaining,
       maxAttempts: 1,
       // Read-only generation still incurs provider work and cost; do not replay on transport failures.
       idempotent: false,
@@ -570,9 +579,12 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
   return candidate;
 };
 
-const appendEvent = (transactionId, input) => {
+const appendEvent = async (transactionId, input) => {
   execution.assertActive();
-  return workspaceTransactionService.appendTransactionEvent(transactionId, input);
+  const saved = await workspaceTransactionService.appendTransactionEvent(transactionId, input);
+  execution.current()?.onProgress?.({contract_type:"AgentProgress",contract_version:"1.0",session_id:transactionId,
+    phase:input.phase,message:input.message,progress:input.details?.progress ?? input.metadata?.progress});
+  return saved;
 };
 
 exports.AGENT_CATALOG = AGENT_CATALOG;
@@ -679,6 +691,13 @@ exports.getSession = async (id, user) => {
   };
 };
 
+const resolveCaseEvidenceInput = async ({inputs,user,projectId,appTypeId}) => {
+  if(!/^(?:AT[_-][0-9]+|TC[_-]?[0-9]+)$/i.test(inputs.test_case_id||''))return inputs;
+  const access=await getOptionalEvidenceAccess(user,projectId,['testcase.view']);
+  if(!access['testcase.view'])throw agentError('Test Case evidence access is required to resolve this case reference.',403);
+  const scoped=await require('@hellotest/platform/backend/services/entityScope.service').resolveEntityScope({entityType:'test_case',entityId:inputs.test_case_id,projectId,appTypeId,allowDisplayId:true});
+  return {...inputs,test_case_id:scoped.entityId};
+};
 const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, context_scopes, smart_context, integration_id, history, workflow_policy, agent_version, inputs } = {}) => {
   const startedAt = Date.now();
   const projectId = normalizeText(project_id, 255);
@@ -693,7 +712,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
   if (agent_id && !registered && !AGENT_CATALOG[agent_id]) throw agentError("Choose a supported workspace specialist.");
   const normalizedAgentId = agent_id || "quality-orchestrator";
   const definition = registered?.definition;
-  const runtimeInputs = { ...toPlainRecord(workflow_policy?.connected_input?.request), ...toPlainRecord(workflow_policy?.connected_input?.input), ...toPlainRecord(inputs) };
+  const runtimeInputs = await resolveCaseEvidenceInput({inputs:{ ...toPlainRecord(workflow_policy?.connected_input?.request), ...toPlainRecord(workflow_policy?.connected_input?.input), ...toPlainRecord(inputs) },user,projectId,appTypeId});
   if (definition) agentContract.validateInputs(definition, runtimeInputs);
   return execution.bounded(async () => {
   if (definition && !workflow_policy) workflow_policy = { ...specialistPolicy(agentContract.toNodeData(definition)), custom_task: true,
@@ -770,6 +789,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     started_at: new Date().toISOString()
   });
   const transactionId = transaction.id;
+  let automationBrowser = null;
   require("@hellotest/platform/backend/src/utils/llmTraceContext").update({ session_id: transactionId });
 
   try {
@@ -871,6 +891,35 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     const repairContext = repairService ? policy.allowed_tools.includes("project_evidence") && requestedScopes.includes("automation") && requestedScopes.includes("test-cases") && requestedScopes.includes("runs")
       ? await repairService.prepare({projectId,appTypeId,user,input:runtimeInputs}) : {status:"needs_evidence",detail:"Enable Automation, Test Cases and Runs as evidence scopes."} : null;
     if (repairContext) context.automation_repair = [{id:"K-automation-repair",title:"Pinned automation repair contract",content:JSON.stringify(repairContext.projection || repairContext),citation:{id:"K-automation-repair",label:"Pinned automation repair contract",source_kind:"authoritative_live_automation"}}];
+    const isAutomationSpecialist = normalizedAgentId === "automation-engineer" || featureProfile?.featureId === "F18";
+    if (governedContext.mode !== "none" && isAutomationSpecialist && runtimeInputs.test_case_id && requestedScopes.includes("automation") && requestedScopes.includes("test-cases")) {
+      const builder=require("@hellotest/automation/backend/services/aiAutomationBuilder.service");
+      const pinned=await builder.loadAutomationAgentCaseContext({projectId,appTypeId,user,caseId:runtimeInputs.test_case_id});
+      if(!requestedScopes.includes("stories"))delete pinned.stories;
+      // The repair projection already pins every section's complete intent
+      // and the one failed source. Repeating all saved programs here wastes
+      // context and can displace the actual failed section on small models.
+      if(repairContext?.status === "eligible") delete pinned.sections;
+      context.automation_case=[{id:"K-automation-case",title:"Complete pinned automation case and sections",content:JSON.stringify(pinned),citation:{id:"K-automation-case",label:"Complete pinned automation case and sections",source_kind:"authoritative_live_automation"}}];
+      try {
+        const session=await builder.connectCaseBrowser({projectId,appTypeId,user,caseId:runtimeInputs.test_case_id,environmentId:repairContext?.base?.environment_id || runtimeInputs.environment_id,
+          startUrl:runtimeInputs.start_url,allowBrowserActions:runtimeInputs.allow_browser_actions === true,signal:execution.current()?.signal});
+        automationBrowser=session.browser;
+        const observations=[];
+        for(const [name,args] of [["browser_navigate",{url:session.startUrl}],["browser_snapshot",{}]]) {
+          execution.assertActive();const observed=await automationBrowser.call(name,args);
+          if(observed.isError)throw new Error("Playwright MCP could not inspect the selected application.");
+          observations.push({tool:name,arguments:args,result:observed});
+        }
+        automationBrowser.initialObservations=observations;
+        context.playwright_browser=[{id:"K-playwright-browser",title:"Live Playwright MCP observations",content:JSON.stringify(observations),citation:{id:"K-playwright-browser",label:"Live Playwright MCP observations",source_kind:"observed_browser_evidence"}}];
+        await appendEvent(transactionId,{phase:"automation.mcp.ready",message:"Connected Playwright MCP and observed the selected application. Browser evidence is not a runner verification.",details:{server:"hellotest-playwright",tool_count:automationBrowser.tools.length}});
+      } catch(error) {
+        await automationBrowser?.close();automationBrowser=null;
+        contextLimitations.push(`Playwright MCP inspection is unavailable (${error.code || error.statusCode || "connection failed"}). No live browser verification is claimed.`);
+        await appendEvent(transactionId,{phase:"automation.mcp.unavailable",level:"warning",message:error.publicMessage || error.message || "Playwright MCP inspection is unavailable."});
+      }
+    }
     const captureSourcePermissions = sourceContext => {
       const approved = new Set(['requirement.view','testcase.view','run.view','result.view','feedback.view','automation.view','knowledge.view','suite.view','shared_step.view','comment.view','attachment.view','environment.view','configuration.view','quality_gate.view']);
       for (const item of Object.values(sourceContext).flat()) {
@@ -933,9 +982,13 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     while (budget.used < budget.max && Date.now() < deadline) {
       const repair = budget.used > 0;
       try {
-        const candidate = await requestLlmResult({ user, projectId, integration, agent, mode: normalizedMode, prompt: normalizedPrompt, context,
+        const complete = toolPrompt => requestLlmResult({ user, projectId, integration, agent, mode: normalizedMode, prompt: normalizedPrompt, context,
           citations: suppliedCitations, history: Array.isArray(history) ? history : [], contextRoute, knowledgeRetrieval,
-          promptPayload: JSON.stringify(boundedPayload), deadline, repair, budget });
+          promptPayload: toolPrompt || JSON.stringify(boundedPayload), deadline, repair, budget });
+        const candidate = automationBrowser ? await require("@hellotest/automation/backend/lib/automationBrowserAgent").runAutomationBrowserAgent({
+          featureKey:agent.configurationKey,prompt:JSON.stringify(boundedPayload),browser:automationBrowser,parse:value=>value,complete,maxTurns:Math.max(1,budget.max-budget.used),deadlineMs:deadline,
+          initialObservations:automationBrowser.initialObservations,maxCalls:Math.max(0,10-Math.max(0,automationBrowser.initialObservations.length-2)),onObservation:observation=>automationBrowser.initialObservations.push(observation),onProgress:event=>appendEvent(transactionId,event)
+        }) : await complete();
         const validatedRepair = repairContext?.status === "eligible" ? require("@hellotest/ai/backend/services/automationRepair.service").validatePatch(repairContext.base,candidate.automation_repair) : null;
         const explicitAbstention = !candidate.findings?.length && !candidate.deliverables?.length && candidate.evidence_gaps?.length > 0;
         result = normalizeResult(candidate, baseline, candidate._suppliedEvidenceIds ? suppliedCitations.filter(citation => candidate._suppliedEvidenceIds.has(citation.id)) : suppliedCitations, { allowUncited: explicitAbstention || agent.acceptance.require_evidence === false, artifactTargets });
@@ -1106,17 +1159,18 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       metadata: { progress: 100, failure: true, error_code: error.code || "AGENT_EXECUTION_FAILED", error_message: error.publicMessage || "The model review failed.", cancelled: Boolean(execution.current()?.signal?.aborted) }
     }).catch(() => null);
     throw error;
-  }
+  } finally { await automationBrowser?.close(); }
   }, { timeoutMs: (definition?.limits.timeout_ms || SESSION_TIMEOUT_MS) - (Date.now() - startedAt) });
 };
 
-exports.respond = (input = {}) => execution.bounded(() => require("@hellotest/platform/backend/src/utils/llmTraceContext").run(
+exports.respond = (input = {}) => execution.run({onProgress: typeof input.onProgress === "function" ? input.onProgress : undefined}, () => execution.bounded(() => require("@hellotest/platform/backend/src/utils/llmTraceContext").run(
   { project_id: input.project_id, actor_id: input.user?.id }, () => respond(input)), { timeoutMs: SESSION_TIMEOUT_MS, signal: input.signal }).catch((error) => {
   if (error?.code === "DEADLINE_EXCEEDED") throw agentContract.fail("The review reached its configured time limit. Retry with a narrower scope or check the model connection.", "AGENT_DEADLINE", 504);
   throw error;
-});
+}));
 
 exports._internals = {
+  resolveCaseEvidenceInput,
   buildBoundedAgentPromptPayload,
   buildFallbackResult,
   buildCitations,

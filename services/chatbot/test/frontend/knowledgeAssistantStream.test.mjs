@@ -63,6 +63,15 @@ test("pending turns automatically resume through the same request and stop after
   assert.equal(calls, 3);
 });
 
+test('same-turn recovery remains attached beyond the former five-poll cutoff and obeys its elapsed deadline',async()=>{
+ let calls=0;
+ const response=await resumePendingKnowledgeTurn(async()=>++calls<9?{pending:true,retry_after_seconds:3}:result,{retryDelayMs:0});
+ assert.equal(response,result);assert.equal(calls,9);
+ calls=0;
+ await assert.rejects(resumePendingKnowledgeTurn(async()=>{calls++;return {pending:true};},{maxPendingWaitMs:0,retryDelayMs:0}),{code:'TURN_PENDING'});
+ assert.equal(calls,1);
+});
+
 test("Stop interrupts pending retry delay without issuing another request", async () => {
   const controller = new AbortController();
   let calls = 0;

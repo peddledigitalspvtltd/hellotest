@@ -28,6 +28,7 @@ test('JSONPath captures preserve richer prototype selections without evaluating 
 test('queued and direct API runs share JSONPath assertions, captures, and authored timeouts', async (t) => {
   const responseBody = { users: [{ token: 'kept-token' }], 'release.name': 'R1', list: [1, 2] };
   const timeouts = [];
+  const visited = [];
   t.mock.method(AbortSignal, 'timeout', (milliseconds) => { timeouts.push(milliseconds); return new AbortController().signal; });
   let callback;
   t.mock.method(globalThis, 'fetch', async (url, options) => {
@@ -36,6 +37,7 @@ test('queued and direct API runs share JSONPath assertions, captures, and author
       return new Response('{}');
     }
     assert.ok(options.signal instanceof AbortSignal);
+    visited.push(String(url));
     return Response.json(responseBody);
   });
   const step = { id: 'step-1', order: 1, step_type: 'api', api_request: {
@@ -47,19 +49,30 @@ test('queued and direct API runs share JSONPath assertions, captures, and author
     ],
     captures: [{ path: '$.users[*].token', parameter: 'token' }]
   } };
+  const successor = {id:'step-2',order:2,step_type:'api',api_request:{url:'http://app.test/use/@r.token',timeout_ms:45000,
+    validations:[{kind:'json_path',target:"$['release.name']",expected:'R1'}]}};
   const envelope = {
     engine_run_id: 'api-parity', hellotest_run_id: 'run-1', hellotest_test_case_id: 'case-1',
-    hellotest_test_case_title: 'API parity', steps: [step], artifact_policy: { video_mode: 'off' },
+    hellotest_test_case_title: 'API parity', steps: [step,successor], artifact_policy: { video_mode: 'off' },
     callback: { url: 'http://callback.test/result', signing_secret: 'fixture-secret' }
   };
   const queued = await executeApiStepInEngine(envelope, step);
   assert.equal(queued.status, 'passed');
   assert.deepEqual(queued.captures, { token: 'kept-token' });
+  const queuedSuccessor = await executeApiStepInEngine(envelope, successor, queued.captures);
+  assert.equal(queuedSuccessor.status,'passed');
   const run = saveAcceptedRun(envelope, buildAcceptedRun(envelope));
   await queueRunExecution(envelope, run, { info() {}, error() {} });
   assert.equal(callback.case_result.status, 'passed');
-  assert.deepEqual(callback.case_result.logs.stepCaptures['step-1'], queued.captures);
-  assert.deepEqual(timeouts, [45000, 45000]);
+  assert.deepEqual(callback.case_result.logs.stepCaptures['step-1'], {token:'[REDACTED]'});
+  assert.equal(callback.case_result.logs.stepStatuses['step-2'],'passed','direct execution keeps raw captures for the successor');
+  assert.equal(visited.filter(url=>url==='http://app.test/use/kept-token').length,2,'queued and direct successors both used the real capture');
+  const secretPaths=[];
+  const inspect=(value,path='')=>{if(typeof value==='string'&&value.includes('kept-token'))secretPaths.push(path);else if(value&&typeof value==='object')for(const[key,entry]of Object.entries(value))inspect(entry,path?`${path}.${key}`:key);};
+  inspect(callback);
+  assert.deepEqual(secretPaths,[],'only public diagnostic copies are masked');
+  assert.deepEqual(queued.captures, { token: 'kept-token' }, 'public redaction cannot mutate raw queued captures');
+  assert.deepEqual(timeouts, [45000, 45000, 45000, 45000]);
 });
 
 test('API timeout remains attached while the response body is being read', async (t) => {

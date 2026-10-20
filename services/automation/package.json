@@ -6,15 +6,20 @@
   "files": [
     "backend",
     "frontend",
+    "shared",
     "dist/ui",
     "package.json",
     "README.md"
   ],
   "exports": {
+    "./shared/playwrightArtifact": "./shared/playwrightArtifact.mjs",
     "./backend": "./backend/service.manifest.js",
     "./backend/services/aiAutomationBuilder.service": "./backend/services/aiAutomationBuilder.service.js",
     "./backend/services/apiRequestExecution.service": "./backend/services/apiRequestExecution.service.js",
     "./backend/services/automationGenerator.service": "./backend/services/automationGenerator.service.js",
+    "./backend/services/automationBuildParameterPlan.service": "./backend/services/automationBuildParameterPlan.service.js",
+    "./backend/services/automationQueuedStartUrl.service": "./backend/services/automationQueuedStartUrl.service.js",
+    "./backend/services/automationAgentActivity.service": "./backend/services/automationAgentActivity.service.js",
     "./backend/services/testEngineDispatch.service": "./backend/services/testEngineDispatch.service.js",
     "./backend/workers": "./backend/workers.js",
     "./client": "./frontend/api.client.ts",
@@ -24,7 +29,10 @@
     "./frontend/components/StepAutomationEditor": "./frontend/components/StepAutomationEditor.tsx",
     "./frontend/components/VisualTestBuilder": "./frontend/components/VisualTestBuilder.tsx",
     "./frontend/index": "./frontend/index.ts",
+    "./frontend/hooks/useAutomationBuildParameters": "./frontend/hooks/useAutomationBuildParameters.tsx",
     "./frontend/lib/automationAccess": "./frontend/lib/automationAccess.ts",
+    "./frontend/lib/automationRuntime": "./frontend/lib/automationRuntime.ts",
+    "./frontend/lib/automationStartUrl": "./frontend/lib/automationStartUrl.ts",
     "./frontend/lib/junitImport": "./frontend/lib/junitImport.ts",
     "./frontend/lib/postmanImport": "./frontend/lib/postmanImport.ts",
     "./frontend/lib/stepAutomation": "./frontend/lib/stepAutomation.ts",
@@ -32,7 +40,15 @@
     "./frontend/pages/AutomationPage": "./frontend/pages/AutomationPage.tsx",
     "./package.json": "./package.json",
     "./ui": "./frontend/entry.ts",
-    "./frontend/lib/repositoryEntries": "./frontend/lib/repositoryEntries.ts"
+    "./frontend/lib/repositoryEntries": "./frontend/lib/repositoryEntries.ts",
+    "./frontend/lib/automationGherkin": "./frontend/lib/automationGherkin.ts",
+    "./backend/lib/automationBrowserAgent": "./backend/lib/automationBrowserAgent.js",
+    "./backend/lib/automationObjectSourceContext": "./backend/lib/automationObjectSourceContext.js",
+    "./frontend/components/AgentAutomationBuildAction": "./frontend/components/AgentAutomationBuildAction.tsx",
+    "./backend/lib/automationBuildPipelineOptions": "./backend/lib/automationBuildPipelineOptions.js",
+    "./backend/lib/automationRepairProgramContract": "./backend/lib/automationRepairProgramContract.js",
+    "./frontend/components/AutomationSourceSections": "./frontend/components/AutomationSourceSections.tsx",
+    "./frontend/components/SharedAutomationSectionsEditor": "./frontend/components/SharedAutomationSectionsEditor.tsx"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs automation",
@@ -65,10 +81,14 @@
   "dependencies": {
     "@hellotest/agentic": "^1.0.0",
     "@hellotest/ai": "^1.0.0",
+    "@hellotest/dashboard": "^1.0.0",
     "@hellotest/integration": "^1.0.0",
     "@hellotest/knowledge": "^1.0.0",
     "@hellotest/platform": "^1.0.0",
     "@hellotest/testing": "^1.0.0",
-    "@hellotest/trace": "^1.0.0"
+    "@hellotest/trace": "^1.0.0",
+    "@hellotest/manual": "^1.0.0",
+    "@hellotest/mcp": "^1.0.0",
+    "acorn": "8.18.0"
   }
 }

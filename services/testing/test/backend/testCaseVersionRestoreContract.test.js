@@ -88,11 +88,13 @@ test("test case restore preserves review history, dataset limits, revision check
     title: "Restored checkout",
     test_data_set_ids: ["dataset-1"],
     test_data_options: {},
+    execution_hooks: [],
     expected_revision: 7,
     reviewer_id: "assigned-reviewer",
     review_status: "pending",
     updated_by: "user-1"
   }, {
+    preserveLegacyAutomationStartUrl: true,
     reviewHistoryEntry: {
       id: "review-restore-1",
       status: "pending",

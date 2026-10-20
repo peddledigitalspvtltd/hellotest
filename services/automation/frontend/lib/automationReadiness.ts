@@ -10,11 +10,14 @@ export type AutomationReadiness = {
 };
 
 /** Checks durable plans, not catalog summary badges or unsaved editor source. */
-export function assessAutomationReadiness(testCase: TestCase, steps: TestStep[], intent: "build" | "run" = "run", unsavedStepIds: string[] = [], verifySource = true): AutomationReadiness {
+export function assessAutomationReadiness(testCase: TestCase, steps: TestStep[], intent: "build" | "run" = "run", unsavedStepIds: string[] = [], verifySource = true, buildInstructions = ""): AutomationReadiness {
   const issues: AutomationReadinessIssue[] = [];
   if (testCase.automated !== "yes") issues.push({ severity: "blocker", message: "This case is no longer an automation case." });
   if (String(testCase.status).toLowerCase() === "retired") issues.push({ severity: "blocker", message: "This case is retired. Restore it before continuing." });
-  if (!steps.length) issues.push({ severity: "blocker", message: "Add a behavior plan before continuing." });
+  if (!steps.length) {
+    const canPlan = intent === "build" && Boolean(buildInstructions.trim() || String(testCase.description || "").replace(/<[^>]*>/g, "").trim());
+    issues.push(canPlan ? { severity: "warning", message: "The agent will create the behavior plan from your instructions and case description." } : { severity: "blocker", message: "Add a behavior plan or describe the requested flow before continuing." });
+  }
   if (intent === "run" && !verifySource) {
     if (testCase.automation_status !== "ready") issues.push({ severity: "blocker", message: "The saved automation is incomplete. Ask an author to review its instructions." });
     issues.push({ severity: "warning", message: "Executable source is hidden by your role. The engine validates it before dispatch." });
@@ -23,7 +26,7 @@ export function assessAutomationReadiness(testCase: TestCase, steps: TestStep[],
   let runnableCount = 0;
   for (const step of steps) {
     const runtime = step.step_type || (step.api_request ? "api" : "web");
-    const flags = String(step.automation_code || step.action || "").match(/@hellotest-options\s+([^\n]+)/i)?.[1].split(/\s+/) || [];
+    const flags = String(step.automation_code || step.action || "").match(/^\s*\/\/\s*@hellotest-options\s+([^\n]+)/i)?.[1].split(/\s+/) || [];
     const skipped = flags.includes("skip");
     const issue = (message: string, severity: AutomationReadinessIssue["severity"] = "blocker") => issues.push({ stepId: step.id, order: step.step_order, message, severity });
     if (unsavedStepIds.includes(step.id)) issue("Save or discard this section’s changes before continuing.");
@@ -45,7 +48,7 @@ export function assessAutomationReadiness(testCase: TestCase, steps: TestStep[],
 }
 
 type Reader = { getCase: (id: string, signal?: AbortSignal) => Promise<TestCase>; getSteps: (id: string, signal?: AbortSignal) => Promise<TestStep[]> };
-export async function inspectAutomationTargets(ids: string[], appTypeId: string, reader: Reader, intent: "build" | "run" = "run", unsavedStepIds: string[] = [], signal?: AbortSignal, verifySource = true): Promise<AutomationReadiness[]> {
+export async function inspectAutomationTargets(ids: string[], appTypeId: string, reader: Reader, intent: "build" | "run" = "run", unsavedStepIds: string[] = [], signal?: AbortSignal, verifySource = true, buildInstructions = ""): Promise<AutomationReadiness[]> {
   const targets = [...new Set(ids)];
   if (!targets.length) throw new Error("Select at least one automation case.");
   const results: AutomationReadiness[] = new Array(targets.length);
@@ -56,7 +59,7 @@ export async function inspectAutomationTargets(ids: string[], appTypeId: string,
       if (signal?.aborted) throw new DOMException("Readiness check cancelled", "AbortError");
       const [testCase, steps] = await Promise.all([reader.getCase(id, signal), reader.getSteps(id, signal)]);
       if (testCase.id !== id || testCase.app_type_id !== appTypeId || steps.some(step => step.test_case_id !== id)) throw new Error("The selected case is outside this application. Refresh your selection.");
-      results[index] = assessAutomationReadiness(testCase, steps, intent, unsavedStepIds, verifySource);
+      results[index] = assessAutomationReadiness(testCase, steps, intent, unsavedStepIds, verifySource, buildInstructions);
     }
   };
   await Promise.all(Array.from({ length: Math.min(4, targets.length) }, worker));

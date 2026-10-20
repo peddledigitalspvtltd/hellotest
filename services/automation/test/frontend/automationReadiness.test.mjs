@@ -19,6 +19,8 @@ test('run readiness uses saved executable plans, treats skips explicitly, and pr
   assert.equal(lib.assessAutomationReadiness(item, [{ ...step, automation_code: '' }], 'build').ready, true);
   assert.equal(lib.assessAutomationReadiness(item, [step], 'run', ['s1']).ready, false);
   assert.equal(lib.assessAutomationReadiness(item, [{ ...step, automation_code: '// @hellotest-options skip' }]).ready, false);
+  const quoted = lib.assessAutomationReadiness(item, [{ ...step, automation_code: 'const sample = "// @hellotest-options skip example";\nawait web.click("#save");' }]);
+  assert.equal(quoted.ready, true); assert.equal(quoted.skippedCount, 0); assert.equal(quoted.runnableCount, 1);
   assert.equal(lib.assessAutomationReadiness(item, [{ ...step, automation_code: '' }], 'run', [], false).ready, true);
   assert.equal(lib.assessAutomationReadiness({ ...item, automation_status: 'incomplete' }, [step], 'run', [], false).ready, false);
   assert.equal(lib.assessAutomationReadiness(item, []).ready, false);
@@ -30,6 +32,20 @@ test('request readiness rejects malformed API requests and detects source change
   assert.equal(lib.assessAutomationReadiness(item, [api]).ready, false);
   assert.notEqual(lib.assessAutomationReadiness(item, [step]).planSignature, lib.assessAutomationReadiness(item, [{ ...step, automation_code: 'await page.reload();' }]).planSignature);
   assert.throws(() => lib.requireReadyAutomation([lib.assessAutomationReadiness(item, [api])]), /Checkout/);
+});
+
+test('prompt-only AI planning is allowed without inventing a saved step and execution remains blocked', async () => {
+  const described = { ...item, description: '<p>Register a new user and verify the account page.</p>' };
+  const prompt = 'Open checkout and verify the basket total.';
+  assert.equal(lib.assessAutomationReadiness(item, [], 'build').ready, false);
+  assert.equal(lib.assessAutomationReadiness(described, [], 'build').ready, true);
+  assert.equal(lib.assessAutomationReadiness(item, [], 'build', [], true, prompt).ready, true);
+  assert.equal(lib.assessAutomationReadiness(described, [], 'run').ready, false);
+  assert.equal(lib.assessAutomationReadiness({ ...item, description: '<p> </p>' }, [], 'build').ready, false);
+  const results = await lib.inspectAutomationTargets(['one'], 'app', { getCase: async () => item, getSteps: async () => [] }, 'build', [], undefined, true, prompt);
+  assert.equal(results[0].ready, true);
+  assert.equal(results[0].stepCount, 0);
+  assert.equal(results[0].issues[0].severity, 'warning');
 });
 
 test('preflight checks exact deduplicated targets and enforces application and step scope with bounded requests', async () => {

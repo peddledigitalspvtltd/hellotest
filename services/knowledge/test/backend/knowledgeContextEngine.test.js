@@ -262,3 +262,48 @@ test('Smart Context source kinds cannot widen an agent’s explicit domain scope
  const result=await execution.run({},()=>engine.retrieve({request,user:{id:'user-1'},dependencies:fixtures({search:async()=>assert.fail('Conflicting source kinds must not be searched'),liveEvidence:async()=>assert.fail('Pinned sources without native entity scope must not be widened')})}));
  assert.deepEqual(result.packet.evidence,[]);
 });
+
+test('tight candidate budgets retain selected live evidence alongside indexed Knowledge passages', async () => {
+  let indexedBudget;
+  const request = contracts.buildRetrievalRequest({ projectId: 'project-1', query: 'Why did the checkout run fail?',
+    filters: { requested_scopes: ['runs', 'knowledge'], evidence_scope: { execution_id: 'run-selected' } },
+    budgets: { max_candidates: 2 } });
+  const live = { ...hit('selected-run'), source_kind: 'live_project', source_id: 'live-project-project-1-runs', content: 'The selected checkout run failed on the payment assertion.' };
+  const result = await execution.run({}, () => engine.retrieve({ request, user: { id: 'user-1' }, dependencies: fixtures({
+    planContext: () => ({ indexed_source_kinds: ['text'], live_scopes: ['runs'] }),
+    search: async input => {
+      indexedBudget = input.maxCandidates;
+      // Even an over-producing search adapter cannot evict pinned live facts.
+      return { results: [{ query: input.queries[0], result: { results: [hit('kb-1'), hit('kb-2')], retrieval: { candidate_count: 2 } } }], errors: [] };
+    },
+    liveEvidence: async () => ({ hits: [live], counts: { runs: 1 } })
+  }) }));
+  assert.equal(indexedBudget, 1);
+  assert.deepEqual(result.hits.map(item => item.chunk_id), ['kb-1', 'selected-run']);
+  assert.equal(result.retrieval.candidate_count, 2);
+  assert.equal(result.retrieval.live_context_count, 1);
+});
+
+test('a single candidate slot prioritizes explicitly selected native evidence without an unbounded zero-budget KB search', async () => {
+  const request = contracts.buildRetrievalRequest({ projectId: 'project-1', query: 'Inspect the selected Story',
+    filters: { requested_scopes: ['stories', 'knowledge'], evidence_scope: { story_id: 'story-selected' } }, budgets: { max_candidates: 1 } });
+  const result = await execution.run({}, () => engine.retrieve({ request, user: { id: 'user-1' }, dependencies: fixtures({
+    search: async () => assert.fail('A zero-candidate search must never run'),
+    liveEvidence: async () => ({ hits: [hit('story-selected')], counts: {} })
+  }) }));
+  assert.deepEqual(result.hits.map(item => item.chunk_id), ['story-selected']);
+  assert.equal(result.retrieval.candidate_count, 1);
+});
+
+test('a missing selected live fact releases its single candidate slot for permitted Knowledge fallback', async () => {
+  const request = contracts.buildRetrievalRequest({ projectId: 'project-1', query: 'Inspect the selected Story',
+    filters: { requested_scopes: ['stories', 'knowledge'], evidence_scope: { story_id: 'story-selected' } }, budgets: { max_candidates: 1 } });
+  let searches = 0;
+  const result = await execution.run({}, () => engine.retrieve({ request, user: { id: 'user-1' }, dependencies: fixtures({
+    search: async input => { searches++; assert.equal(input.maxCandidates, 1); return { results: [{ query: input.queries[0], result: { results: [hit('supporting-passage')] } }], errors: [] }; },
+    liveEvidence: async () => ({ hits: [], counts: {} })
+  }) }));
+  assert.equal(searches, 1);
+  assert.deepEqual(result.hits.map(item => item.chunk_id), ['supporting-passage']);
+  assert.equal(result.retrieval.candidate_count, 1);
+});

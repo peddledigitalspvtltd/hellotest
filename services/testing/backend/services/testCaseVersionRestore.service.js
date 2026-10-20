@@ -18,6 +18,7 @@ const createRestoreVersion = ({
   await testCases.updateTestCase(testCaseId, {
     ...version.content,
     test_data_options: version.content?.test_data_options || {},
+    execution_hooks: version.content?.execution_hooks || [],
     test_data_set_ids: Array.isArray(version.content?.test_data_set_ids)
       ? version.content.test_data_set_ids.slice(0, 1)
       : [],
@@ -26,6 +27,7 @@ const createRestoreVersion = ({
     review_status: "pending",
     updated_by: userId
   }, {
+    preserveLegacyAutomationStartUrl: true,
     reviewHistoryEntry: {
         id: createId(),
         status: "pending",

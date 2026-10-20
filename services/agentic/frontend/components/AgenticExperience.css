@@ -1551,6 +1551,10 @@ html body .agent-outcome-panel { min-width: 0; padding: 24px; border: 1px solid 
 .agent-outcome-panel [role="tabpanel"][hidden] { display: none !important; }
 .agent-outcome-panel .agent-outcome-executive-summary { padding: 20px 0; border: 0; background: transparent; }
 .agent-outcome-panel .agent-outcome-executive-summary > p { margin: 8px 0 0; font-size: 15px; line-height: 1.7; white-space: pre-wrap; }
+.agent-outcome-panel .agent-outcome-executive-summary > .knowledge-formatted-text { margin-top: 8px; font-size: 15px; line-height: 1.7; }
+.agent-outcome-panel .agent-outcome-findings .knowledge-formatted-text { min-width: 0; overflow-wrap: anywhere; }
+.agent-outcome-panel .agent-finding-facts .knowledge-formatted-text > :first-child { margin-top: 0; }
+.agent-outcome-panel .agent-finding-facts .knowledge-formatted-text > :last-child { margin-bottom: 0; }
 .agent-outcome-panel .agent-outcome-findings > div,
 .agent-outcome-panel .agent-outcome-deliverables > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .agent-outcome-panel :is(.agent-outcome-findings, .agent-outcome-deliverables) article { border-color: var(--app-border, #dce5e4); border-radius: 12px; background: var(--app-surface-muted, #f5f8f7); }
@@ -1632,3 +1636,6 @@ html body .agent-outcome-panel { min-width: 0; padding: 24px; border: 1px solid 
 .agent-command-composer__controls .agent-command-context > summary > svg,
 .agent-command-composer__controls .agent-command-smart-context > svg { flex-shrink: 0; }
 @media (max-width: 500px) { .agent-command-composer__controls .ai-llm-select { flex-basis: 100%; } }
+
+.agent-automation-browser-options { display: grid; gap: 12px; }
+.agent-automation-browser-options input[type=url] { width: 100%; min-width: 0; }

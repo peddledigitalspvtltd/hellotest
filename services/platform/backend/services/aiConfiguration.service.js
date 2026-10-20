@@ -31,6 +31,12 @@ function validate(input, id) {
     if (typeof value[field] !== 'number' || !Number.isFinite(value[field]) || value[field] < min || value[field] > max || (integer && !Number.isSafeInteger(value[field]))) throw fail(`Invalid ${field}.`);
   }
   if (value.integration_id != null && (typeof value.integration_id !== 'string' || !value.integration_id.trim() || value.integration_id.length > 128)) throw fail('Invalid model integration.');
+  if (item.defaults.reference_images) {
+    const images = value.reference_images;
+    if (!images || typeof images !== 'object' || Array.isArray(images) || Object.keys(images).some(key => !['max_images','max_total_chars','detail'].includes(key))
+      || !Number.isSafeInteger(images.max_images) || images.max_images < 1 || images.max_images > item.defaults.reference_images.max_images
+      || !Number.isSafeInteger(images.max_total_chars) || images.max_total_chars < 10000 || images.max_total_chars > 950000 || !['low','auto','high'].includes(images.detail)) throw fail('Invalid reference image policy.');
+  }
   const c = value.context;
   if (!c || typeof c !== 'object' || Array.isArray(c) || Object.keys(c).some(key => !['mode','token_budget','max_items','required','focus'].includes(key)) || !['mcp','none'].includes(c.mode)
       || !Number.isSafeInteger(c.token_budget) || c.token_budget < 256 || c.token_budget > 8000 || !Number.isSafeInteger(c.max_items) || c.max_items < 1 || c.max_items > 40
@@ -84,6 +90,9 @@ function adaptStored(item, stored, inheritedBlocks=item.defaults.instruction_blo
       return [key,fragments.map(fragment=>typeof previous[fragment.key]==='string'?previous[fragment.key]:fragment.default).join('\n')];
     }
     if(key.startsWith('template.') && item.legacy_instruction_blocks?.[key]===previous[key])return [key,value];
+    // Upgrade only recognized stock guidance. A reviewed custom block must
+    // remain intact in published versions, drafts and rollback views.
+    if(item.instruction_default_migrations?.[key]?.includes(previous[key]))return [key,value];
     return [key,typeof previous[key]==='string'?previous[key]:inheritedBlocks[key] ?? value];
   }));
   if(format<3 && item.legacy_instruction_blocks) {
@@ -115,8 +124,8 @@ function effective(item, record, legacy={}, parent=null, instructionSources=[]) 
     draft:record?.draft?{...record.draft,config:adaptStored(item,record.draft.config,base.instruction_blocks)}:null, history:record?.history || [], fingerprint:hash(config) };
 }
 function publicFeature(profile) {
-  const {instruction_block_migrations,legacy_instruction_blocks,legacy_instruction_block_migrations,instruction_layout_migrations,guardrail_migration,prompt_default_migrations,...result}=profile;
-  return result;
+  const {instruction_block_migrations,instruction_default_migrations,legacy_instruction_blocks,legacy_instruction_block_migrations,instruction_layout_migrations,guardrail_migration,prompt_default_migrations,...result}=profile;
+  return { ...result, native_output_contract: require('../src/utils/aiGenerationContracts').nativeArtifactContract(profile.id) };
 }
 async function list() {
   const [rows,legacy] = await Promise.all([db.prepare('SELECT key,value FROM app_settings WHERE key LIKE ?').all(KEY+'%'),legacyOverrides()]);

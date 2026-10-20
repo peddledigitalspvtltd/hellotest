@@ -7,9 +7,9 @@ type LinkedDataSet = Pick<TestDataSet, "id" | "name" | "description" | "mode" | 
 
 /** One authoring layout for test cases and shared groups, in either editor mode. */
 export function AuthoringDataSetPanel({ dataSet, gherkin = false, singleIteration = false,
-  selectedRowIndex = 0, canView, canLink, canCreate, onCreate, onLink, onUnlink,
+  selectedRowIndex = 0, canView, canLink, canUnlink = canLink, canCreate, onCreate, onLink, onUnlink,
   isLoading = false, linkedDataSetId, error, onRetry,
-  onManageParameters, onDownloadTemplate, hasParameters, overrideSharedSteps, onOverrideSharedStepsChange
+  onManageParameters, onDownloadTemplate, hasParameters, sharedGroupKind = "steps", overrideSharedSteps, onOverrideSharedStepsChange
 }: {
   dataSet?: LinkedDataSet | null;
   gherkin?: boolean;
@@ -21,6 +21,7 @@ export function AuthoringDataSetPanel({ dataSet, gherkin = false, singleIteratio
   onRetry?: () => void;
   canView: boolean;
   canLink: boolean;
+  canUnlink?: boolean;
   canCreate: boolean;
   onCreate: () => void;
   onLink: () => void;
@@ -28,6 +29,7 @@ export function AuthoringDataSetPanel({ dataSet, gherkin = false, singleIteratio
   onManageParameters: () => void;
   onDownloadTemplate: () => void;
   hasParameters: boolean;
+  sharedGroupKind?: "steps" | "sections";
   overrideSharedSteps?: boolean;
   onOverrideSharedStepsChange?: (checked: boolean) => void;
 }) {
@@ -56,13 +58,13 @@ export function AuthoringDataSetPanel({ dataSet, gherkin = false, singleIteratio
         <div className="test-case-data-set-actions">
           <span className="test-case-iteration-badge">{iterations} {iterations === 1 ? "iteration" : "iterations"}</span>
           {canLink && onOverrideSharedStepsChange ? <label className="authoring-data-set-override"
-            title="When selected, this test case's data set can replace values supplied by linked Shared Step Groups.">
+            title={`When selected, this case data set can replace values supplied by linked Shared ${sharedGroupKind === "sections" ? "Section" : "Step"} Groups.`}>
             <input type="checkbox" checked={overrideSharedSteps !== false} disabled={!canLink}
               onChange={(event) => onOverrideSharedStepsChange(event.target.checked)} />
-            <span>Override Shared Groups Test Data</span>
+            <span>{sharedGroupKind === "sections" ? "Override Shared Sections Test Data" : "Override Shared Groups Test Data"}</span>
           </label> : null}
           {canLink ? (<button className="link-button" disabled={!canLink} onClick={onLink} type="button">Change</button>) : null}
-          {canLink ? (<button aria-label={`Unlink ${dataSet.name}`} className="link-button danger" disabled={!canLink} onClick={onUnlink} type="button">Unlink</button>) : null}
+          {canLink && canUnlink ? (<button aria-label={`Unlink ${dataSet.name}`} className="link-button danger" disabled={!canLink} onClick={onUnlink} type="button">Unlink</button>) : null}
         </div>
       </header>
       {dataSet.description ? <div className="authoring-data-set-description"><RichTextContent value={dataSet.description} /></div> : null}

@@ -44,3 +44,44 @@ test('unpersisted evidence prevents a passing queue completion',async(t)=>{
  await executeQueuedJob({id:'report-failure',test_case_title:'API case',payload:{engine_run_id:'report-failure',hellotest_test_case_id:'case',artifact_policy:{video_mode:'off'},steps:[{id:'api',step_type:'api',order:1,api_request:{url:'http://app.test/check'}}]}},'worker',{info(){},error(){}});
  assert.notEqual(completion?.status,'passed');
 });
+
+test('native skip and optional boundaries preserve the driver and never execute skipped sections', async t => {
+ const blocks=[], keys=[], reports=[];let completion;
+ t.mock.method(globalThis,'fetch',async(input,options={})=>{
+  const url=new URL(String(input)),body=options.body?JSON.parse(options.body):{};
+  if(url.hostname==='mobile.test') {
+   if(options.method==='DELETE')return json({});
+   const ids=body.steps.map(step=>step.id);blocks.push(ids);keys.push(body.execution_session_key);
+   assert.equal(body.parameter_values['t.bad_capture'],undefined);
+   return json({status:ids[0]==='optional'?'failed':'passed',results:ids.map(id=>({step_id:id,status:id==='optional'?'failed':'passed',note:id==='optional'?'Optional native assertion failed':'Native step passed',captures:id==='optional'?{'t.bad_capture':'must not propagate'}:{}}))});
+  }
+  if(url.pathname.endsWith('/report'))reports.push({id:url.pathname.split('/').at(-2),...body});
+  if(url.pathname.endsWith('/complete'))completion=body;
+  return json({status:'running',captures:body.captures||{}});
+ });
+ const step=(id,flags='')=>({id,order:{first:1,skip:2,optional:3,last:4}[id],step_type:'ios',automation_code:(flags?`// @hellotest-options ${flags}\n`:'')+'await ios.tap("~save");'});
+ const payload={engine_run_id:'native-options',hellotest_test_case_id:'case',artifact_policy:{video_mode:'off'},steps:[step('first'),step('skip','skip'),step('optional','optional'),step('last')]};
+ await executeQueuedJob({id:'native-options',test_case_title:'Native execution options',payload,runtime_state:{}},'worker',{info(){},error(){}});
+ assert.deepEqual(blocks,[['first'],['optional'],['last']]);
+ assert.equal(new Set(keys).size,1);
+ assert.deepEqual(reports.map(item=>[item.id,item.status]),[['first','passed'],['skip','skipped'],['optional','skipped'],['last','passed']]);
+ assert.match(reports[2].note,/Optional section failed/);
+ assert.equal(reports[2].automation_detail.status,'failed');
+ assert.equal(completion.status,'passed');
+});
+
+for (const response of ['terminal-receipt', 'conflict']) test(`a ${response} start cannot execute sections or teardown hooks`, async t => {
+ const calls=[];
+ t.mock.method(globalThis,'fetch',async(input)=>{
+  const url=new URL(String(input));calls.push(url.pathname);
+  if(url.pathname.endsWith('/start')) return response==='conflict' ? new Response('{}',{status:409}) : json({status:'passed',execution_result_id:'finished'});
+  throw new Error('No browser, API, native, report, completion or teardown request is allowed after rejected start.');
+ });
+ const payload={engine_run_id:'stale-'+response,hellotest_test_case_id:'case',environment:{base_url:'http://app.test/should-not-open'},artifact_policy:{video_mode:'off'},steps:[
+  {id:'api',order:1,step_type:'api',api_request:{url:'http://app.test/side-effect'}},
+  {id:'web',order:2,step_type:'web',automation_code:'await web.click("#purchase");'},
+  {id:'ios',order:3,step_type:'ios',automation_code:'await ios.tap("~purchase");'}
+ ],hooks:[{id:'teardown',name:'Must not execute',scope:'test',phase:'post',steps:[{id:'cleanup',order:1,step_type:'api',api_request:{url:'http://app.test/teardown-side-effect'}}]}]};
+ await executeQueuedJob({id:'stale-'+response,test_case_title:'Finished case',payload,runtime_state:{}},'stale-worker',{info(){},error(){}});
+ assert.deepEqual(calls,[`/testengine/internal/jobs/stale-${response}/start`]);
+});

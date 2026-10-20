@@ -3,7 +3,10 @@ const sharedStepGroupService = require("../services/sharedStepGroup.service");
 const mobileFeatureService = require("@hellotest/platform/backend/services/mobileFeature.service");
 const { TEST_STEP_GROUP_KIND_VALUES, TEST_STEP_TYPE_VALUES } = require("@hellotest/platform/backend/src/domain/catalog");
 const { resolveEntityScope } = require("@hellotest/platform/backend/services/entityScope.service");
+const { getOptionalEvidenceAccess } = require("@hellotest/platform/backend/services/optionalEvidenceAccess.service");
 const { containsMobileStepPayload } = require("@hellotest/platform/backend/src/utils/mobileFeature");
+const { createHash } = require('node:crypto');
+const {automationObjectSourceContexts}=require('@hellotest/automation/backend/lib/automationObjectSourceContext');
 
 const requireCasePermission = async (fastify, req, permissionCode, testCaseId) => {
   const scope = await resolveEntityScope({ entityType: "test_case", entityId: testCaseId });
@@ -15,6 +18,23 @@ const requireStepPermission = async (fastify, req, permissionCode, stepId) => {
   const step = await service.getTestStep(stepId);
   const scope = await requireCasePermission(fastify, req, permissionCode, step.test_case_id);
   return { step, scope };
+};
+
+const projectTestStepRead = (step, canViewAutomationCode, sourceContext) => canViewAutomationCode ? { ...step,
+  automation_source_sha256:typeof step.automation_code==='string'&&step.automation_code.trim()?createHash('sha256').update(step.automation_code,'utf8').digest('hex'):null,
+  automation_context_sha256:sourceContext?.get(step.id)||null
+} : {
+  ...step,
+  automation_code: "",
+  api_request: null,
+  automation_source_sha256: null,
+  automation_context_sha256: null,
+  automation_source_hidden: true
+};
+
+const canReadStepAutomation = async (req, scope) => {
+  const access = await getOptionalEvidenceAccess(req.user, scope.projectId, ["automation.code.view"]);
+  return access["automation.code.view"] === true;
 };
 
 const requireMobileStepWrite = async (fastify, req, scope, payload, existing = null) => {
@@ -76,7 +96,11 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const { test_case_id } = req.query;
     if (test_case_id) {
-      await requireCasePermission(fastify, req, "testcase.view", test_case_id);
+      const scope = await requireCasePermission(fastify, req, "testcase.view", test_case_id);
+      const canViewAutomationCode = await canReadStepAutomation(req, scope);
+      const steps = await service.getTestSteps({ test_case_id });
+      const sourceContext=canViewAutomationCode?automationObjectSourceContexts({steps,caseStartUrl:await service.getTestCaseAutomationStartUrl(test_case_id)}):null;
+      return steps.map(step => projectTestStepRead(step, canViewAutomationCode,sourceContext));
     } else if (req.user.role !== "admin") {
       const error = new Error("test_case_id is required when listing Test Steps");
       error.statusCode = 400;
@@ -96,8 +120,10 @@ module.exports = async function (fastify) {
 
   fastify.get("/test-steps/:id", async (req) => {
     await fastify.authenticate(req);
-    const { step } = await requireStepPermission(fastify, req, "testcase.view", req.params.id);
-    return step;
+    const { step, scope } = await requireStepPermission(fastify, req, "testcase.view", req.params.id);
+    const canViewAutomationCode=await canReadStepAutomation(req,scope);
+    const sourceContext=canViewAutomationCode?automationObjectSourceContexts({steps:await service.getTestSteps({test_case_id:step.test_case_id}),caseStartUrl:await service.getTestCaseAutomationStartUrl(step.test_case_id)}):null;
+    return projectTestStepRead(step,canViewAutomationCode,sourceContext);
   });
 
   fastify.put("/test-steps/:id", async (req) => {
@@ -148,12 +174,19 @@ module.exports = async function (fastify) {
     fastify.validate({
       test_case_id: { required: true, type: "string" },
       step_ids: { required: true, type: "array", items: "string" },
+      source_test_case_id: { required: false, type: "string" },
+      as_standalone: { required: false, type: "boolean" },
       insert_after_step_id: { required: false, type: "string" }
     }, req.body);
 
     const scope = await requireCasePermission(fastify, req, "step.manage", req.body.test_case_id);
+    if (req.body.source_test_case_id) {
+      const sourceScope = await requireCasePermission(fastify, req, "testcase.view", req.body.source_test_case_id);
+      if (sourceScope.projectId !== scope.projectId) throw Object.assign(new Error("Copy within the same project."), { statusCode: 403 });
+    }
     const selectedSteps = await Promise.all(req.body.step_ids.map((stepId) => service.getTestStep(stepId)));
     await requireMobileStepWrite(fastify, req, scope, selectedSteps);
+    if (!req.body.as_standalone && selectedSteps.some(step => step.reusable_group_id)) await fastify.requirePermission("shared_step.view", { projectId: scope.projectId })(req);
 
     return service.duplicateTestSteps(req.body);
   });

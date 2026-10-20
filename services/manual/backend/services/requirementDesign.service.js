@@ -1,3 +1,5 @@
+const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
+const dropdownCatalog = require('@hellotest/platform/backend/services/dropdownCatalog.service');
 const { splitGenerationContext, generationRetrievalQuery } = require('@hellotest/platform/backend/src/utils/aiGenerationContext');
 const { caseOutputSchema } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
@@ -42,27 +44,7 @@ const normalizeParameterValues = (values = {}) => {
   }, {});
 };
 
-const normalizeImageAssets = (images = []) => {
-  if (!Array.isArray(images)) {
-    return [];
-  }
-
-  if (images.length > 4) throw Object.assign(new Error("Provide at most four reference images per Test Case preview."), { statusCode: 400 });
-  let totalChars = 0;
-  return images
-    .map((item, index) => ({
-      name: normalizeText(item?.name) || `Reference image ${index + 1}`,
-      url: normalizeText(item?.url)
-    }))
-    .filter((item) => item.url)
-    .map(item => {
-      totalChars += item.url.length;
-      if (!/^data:image\/(?:png|jpe?g|webp);base64,[a-z0-9+/=\s]+$/i.test(item.url) || totalChars > 950000) {
-        throw Object.assign(new Error("Reference images must be compressed PNG, JPEG, or WebP data URLs within the 950,000-character budget."), { statusCode: 400 });
-      }
-      return { ...item, name: item.name.slice(0, 255) };
-    });
-};
+const normalizeImageAssets = images => normalizeReferenceImages(images, { max_images: 4 });
 
 const buildRequirementReferenceMap = (requirements = []) =>
   uniqueById(requirements).map((requirement, index) => ({
@@ -211,6 +193,7 @@ const normalizeCaseDraft = (item, index, {
     title,
     description: normalizeText(item?.description),
     priority: Number.isFinite(Number(item?.priority)) ? Math.round(Math.max(1, Math.min(5, Number(item.priority)))) : 3,
+    test_case_type: normalizeText(item?.test_case_type) || undefined,
     applicable_domain: normalizeText(item?.applicable_domain || item?.applicableDomain || item?.domain) || applicableDomain,
     requirement_ids: resolvedRequirements.map((requirement) => requirement.id),
     requirement_titles: resolvedRequirements.map((requirement) => requirement.title),
@@ -249,11 +232,11 @@ const normalizeGeneratedCases = (payload, maxCases, requirements, authoringMode)
   });
 };
 
-const buildPrompt = ({ requirements, appType, maxCases, additionalContext, externalLinks, images, knowledge, authoringMode }) => {
+const buildPrompt = ({ requirements, appType, maxCases, additionalContext, externalLinks, images, knowledge, authoringMode, testCaseTypes }) => {
   const stories=buildRequirementReferenceMap(requirements);
   const items=Array.isArray(knowledge)?knowledge:Array.isArray(knowledge?.knowledge)?knowledge.knowledge:[];
   return JSON.stringify({
-    application_contract:{output_schema:caseOutputSchema(authoringMode,{count:maxCases,refs:stories.map(item=>item.ref)}),max_cases:maxCases,authoring_mode:authoringMode},
+    application_contract:{output_schema:caseOutputSchema(authoringMode,{count:maxCases,refs:stories.map(item=>item.ref),testCaseTypes}),max_cases:maxCases,authoring_mode:authoringMode},
     generation_request:splitGenerationContext(additionalContext),
     application:{id:appType.id,name:appType.name,type:appType.type},
     stories,
@@ -287,7 +270,7 @@ const resolveIntegration = async (integration_id, { userId, projectId, usageKey 
   return integration;
 };
 
-const requestChatCompletion = async ({ integration, content, fallbackContent, contextState, authoringMode="structured", recovery=false }) => {
+const requestChatCompletion = async ({ integration, content, fallbackContent, contextState, testCaseTypes, authoringMode="structured", recovery=false }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/+$/, "");
   const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
   const response = await fetchLlmWithRetry(url, {
@@ -311,7 +294,7 @@ const requestChatCompletion = async ({ integration, content, fallbackContent, co
         }
       ]
     })
-  }, { integration, operation: "requirement-design.generate", contextRetrievalQuery:generationRetrievalQuery(content), contextFallbackContent: fallbackContent, contextFallbackInstructions: aiInstructionBlock("ai.test_case.design","recovery.context_size"), onContextFallback: () => { if (contextState) contextState.reduced = true; } });
+  }, { integration, operation: "requirement-design.generate", nativeArtifactTestCaseTypes:testCaseTypes, contextRetrievalQuery:generationRetrievalQuery(content), contextFallbackContent: fallbackContent, contextFallbackInstructions: aiInstructionBlock("ai.test_case.design","recovery.context_size"), onContextFallback: () => { if (contextState) contextState.reduced = true; } });
 
   if (!response.ok) {
     const raw = await response.text();
@@ -343,6 +326,7 @@ const requestGeneratedCases = async ({
   images,
   knowledge,
   authoringMode,
+  testCaseTypes,
   contextState
 }) => {
   const prompt = buildPrompt({
@@ -354,6 +338,7 @@ const requestGeneratedCases = async ({
     images,
     knowledge,
     authoringMode,
+    testCaseTypes,
     contextState
   });
 
@@ -361,14 +346,14 @@ const requestGeneratedCases = async ({
     requirements: requirements.map(story => storyAiSnapshot(story, { textLimit: 600, itemLimit: 200, listLimit: 4 })),
     appType: { name: "Selected application", type: appType.type }, maxCases,
     additionalContext,
-    externalLinks: [], images: [], knowledge: null, authoringMode
+    externalLinks: [], images: [], knowledge: null, authoringMode, testCaseTypes
   });
   try {
     const content = images.length
       ? await requestChatCompletion({
           integration,
           fallbackContent,
-          contextState, authoringMode,
+          contextState, authoringMode, testCaseTypes,
           content: [
             { type: "text", text: prompt },
             ...images.map((image) => ({
@@ -379,18 +364,11 @@ const requestGeneratedCases = async ({
             }))
           ]
         })
-      : await requestChatCompletion({ integration, content: prompt, fallbackContent, contextState, authoringMode });
+      : await requestChatCompletion({ integration, content: prompt, fallbackContent, contextState, authoringMode, testCaseTypes });
 
     return normalizeGeneratedCases(extractJsonPayload(content), maxCases, requirements, authoringMode);
   } catch (error) {
-    if (contextState?.reduced || isContextSizeRejection(error?.upstreamStatusCode || error?.statusCode, error?.message)
-      || !images.length || ![400, 415, 422].includes(Number(error?.statusCode || 0))) {
-      throw error;
-    }
-
-    const fallbackPrompt = buildPrompt({requirements,appType,maxCases,additionalContext,externalLinks,images,knowledge,authoringMode});
-    const content = await requestChatCompletion({ integration, content: fallbackPrompt, fallbackContent, contextState, authoringMode, recovery:true });
-    return normalizeGeneratedCases(extractJsonPayload(content), maxCases, requirements, authoringMode);
+    throw error;
   }
 };
 
@@ -429,6 +407,8 @@ exports.previewRequirementsTestCases = async ({
   const externalLinks = boundedList(external_links, 10, 500);
   const normalizedImages = normalizeImageAssets(images);
   const authoringMode = normalizeAuthoringMode(authoring_mode);
+  const typeField = await dropdownCatalog.getField('test_cases.types');
+  const testCaseTypes = typeField.options.filter(option=>option.active!==false).map(option=>option.value);
   const integration = await resolveIntegration(integration_id, {
     userId: user_id,
     projectId: appType.project_id || scopedRequirements[0]?.project_id,
@@ -453,8 +433,13 @@ exports.previewRequirementsTestCases = async ({
     images: normalizedImages,
     knowledge,
     authoringMode,
+    testCaseTypes,
     contextState
   });
+  for (const candidate of generatedCases) {
+    candidate.test_case_type ||= typeField.default_value;
+    if (!testCaseTypes.includes(candidate.test_case_type)) throw Object.assign(new Error('Generated Test Case uses an unavailable type configured by the administrator.'),{statusCode:502,code:'AI_NATIVE_CONTRACT_INVALID'});
+  }
 
   return {
     integration: {
@@ -537,6 +522,7 @@ exports.acceptGeneratedTestCases = async ({
       description: candidate.description || undefined,
       external_references: externalReferences,
       priority: candidate.priority,
+      test_case_type: candidate.test_case_type,
       status,
       requirement_ids: candidate.requirement_ids,
       authoring_mode: candidate.authoring_mode,

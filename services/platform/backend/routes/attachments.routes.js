@@ -32,7 +32,8 @@ module.exports = async function (fastify) {
       projectId: fieldValue("project_id"),
       fileName: part.filename,
       mimeType: part.mimetype,
-      stream: part.file
+      stream: part.file,
+      expectedSha256: fieldValue('checksum_sha256') || undefined
     });
   });
 

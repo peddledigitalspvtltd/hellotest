@@ -54,7 +54,7 @@ test("history summaries keep scope, ordering and timer/attempt identity without 
   assert.doesNotMatch(query, /execution_results\.\*|\.logs\b|\.data_set_row_snapshot\b|\.lifecycle_history\b/);
   assert.match(query, /executions\.project_id = \?/);
   assert.match(query, /execution_results\.app_type_id = \?/);
-  assert.match(query, /ORDER BY execution_results\.created_at DESC, execution_results\.id DESC/);
+  assert.match(query, /ORDER BY execution_results\.effective_at DESC, execution_results\.derived ASC, execution_results\.id DESC/);
   assert.deepEqual(parameters, ["project", "app", 50]);
   assert.equal(summary[0].data_set_iteration_index, 2);
   assert.equal(summary[0].elapsed_duration_ms, 4200);

@@ -229,3 +229,17 @@
     grid-column: 1 / -1;
   }
 }
+.automation-code-lines { display: grid; gap: 8px; min-width: 0; }
+.automation-code-line { display: grid; grid-template-columns: auto 24px minmax(0,1fr) auto; align-items: start; gap: 6px; min-width: 0; }
+.automation-code-line > input, .automation-code-line-number { margin-top: 10px; }
+.automation-code-line-number { color: var(--text-secondary); text-align: center; font-size: 12px; user-select: none; }
+.automation-code-line textarea { width: 100%; min-width: 0; box-sizing: border-box; min-height: 34px; font: 12px/1.6 ui-monospace, monospace; resize: vertical; white-space: pre; }
+.automation-code-line-actions { display: flex; align-items: center; gap: 2px; padding-top: 3px; }
+.automation-code-line-actions button { display: inline-flex; align-items: center; justify-content: center; width: 28px; min-height: 28px; padding: 4px; border: 0; border-radius: 5px; background: transparent; color: inherit; }
+.automation-code-line-actions button:hover:not(:disabled) { background: var(--surface-soft); color: var(--primary); }
+.automation-code-line-actions button:disabled { opacity: .4; }
+.automation-instruction-editor { gap: 12px; }
+.automation-instruction-editor > .automation-plan-actions { flex-wrap: wrap; }
+.automation-instruction-draft-note { margin: 0; font-size: 12px; }
+@media(max-width:700px) { .automation-code-line { grid-template-columns:auto 20px minmax(0,1fr); } .automation-code-line-actions { grid-column: 3; justify-self: end; padding-top: 0; } }
+.automation-keyword-map-pane[hidden] { display: none !important; }

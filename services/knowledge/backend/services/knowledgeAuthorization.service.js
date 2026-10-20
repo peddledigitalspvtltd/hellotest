@@ -4,6 +4,15 @@ const { randomUUID: uuid } = require("crypto");
 const { assertRetrievalActive, boundedRetrievalStage, retrievalTimeout } = require("@hellotest/platform/backend/src/utils/knowledgeRetrievalTiming");
 
 const error = (message, statusCode = 403) => Object.assign(new Error(message), { statusCode });
+const APPLICATION_CONTEXT_PROFILE = "source-permission-boundary-v1";
+// Older application snapshots mixed test-data values and run result/configuration
+// details into passages guarded only by testcase.view or run.view. They must be
+// refreshed before being reused as model context. Check the immutable revision,
+// rather than the current source metadata, so historic rich versions stay gated.
+const applicationContextPredicate = ({ source = "sources", document = "documents" } = {}) => {
+  for (const alias of [source, document]) if (!/^[a-z_]+$/i.test(alias)) throw new Error("Invalid knowledge authorization SQL alias");
+  return `(${source}.source_kind NOT IN ('test_case', 'execution') OR ${document}.metadata->'source_snapshot'->>'context_permission_profile' = '${APPLICATION_CONTEXT_PROFILE}')`;
+};
 const precedence = (binding) => (binding.inherited ? 0 : 2) + (binding.effect === "DENY" ? 2 : 1);
 const principalsFor = (user, projectId, roleIds = []) => [
   { type: "PROJECT", id: String(projectId) },
@@ -122,6 +131,7 @@ const getEvidenceAccess = async ({ projectId, user, evidence = [], asOf, signal,
       JOIN ai_knowledge_index_states indexes ON indexes.document_id = documents.id
       WHERE sources.project_id = ? AND chunks.project_id = ? AND documents.project_id = ?
         AND sources.extraction_status = 'ready' AND indexes.required_indexes_ready = TRUE
+        AND ${applicationContextPredicate()}
         ${asOf ? "AND documents.effective_from <= ?::timestamptz AND (documents.effective_to IS NULL OR documents.effective_to > ?::timestamptz)" : "AND documents.is_active = TRUE"}
         AND chunks.id IN (${ids.map(() => "?").join(",")}) AND ${acl.sql}`
     ).all(projectId, projectId, projectId, ...(asOf ? [asOf, asOf] : []), ...ids, ...acl.params), {
@@ -146,4 +156,4 @@ const getEvidenceAccess = async ({ projectId, user, evidence = [], asOf, signal,
   return { allowed, denied_ids: deniedIds, partial: allowed.length !== items.length || evidence.length > 1_000 };
 };
 
-module.exports = { assertHistoricalAccess, canRead, getEvidenceAccess, predicate, principalsFor, replaceBindings };
+module.exports = { APPLICATION_CONTEXT_PROFILE, applicationContextPredicate, assertHistoricalAccess, canRead, getEvidenceAccess, predicate, principalsFor, replaceBindings };

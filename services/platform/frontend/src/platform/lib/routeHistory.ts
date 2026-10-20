@@ -8,7 +8,9 @@ export function getRouteFromLocation(location: Pick<Location, "pathname" | "sear
 }
 
 export function isRestorableWorkspaceRoute(route: string | null | undefined) {
-  return Boolean(route && route.startsWith("/") && !route.startsWith("/auth"));
+  if (!route?.startsWith("/") || route.startsWith("//") || /[\\\\\s]/.test(route)) return false;
+  const pathname = route.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
+  return !["/auth", "/login", "/signup"].some(path => pathname === path || pathname.startsWith(`${path}/`));
 }
 
 function readRoute(key: string) {

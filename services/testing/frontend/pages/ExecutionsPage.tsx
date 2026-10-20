@@ -1,6 +1,8 @@
+import type { AiDesignImageInput } from '@hellotest/platform/frontend/src/types';
 import { ExecutionHookResults } from "../components/ExecutionHookResults";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
 const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
+const AiReferenceImages = capabilityView<import('react').ComponentProps<typeof import('@hellotest/ai/frontend/components/AiReferenceImages')['AiReferenceImages']>>('ai', 'AiReferenceImages', () => import('@hellotest/ai/frontend/components/AiReferenceImages'), 'Reference screenshots');
 const AiAssurancePanel = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiAssurancePanel")["AiAssurancePanel"]> & {}>("ai", "AiAssurancePanel", () => import("@hellotest/ai/frontend/components/AiAssurancePanel"), "ai");
 const AiInsightPreviewDialog = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiInsightPreviewDialog")["AiInsightPreviewDialog"]> & {}>("ai", "AiInsightPreviewDialog", () => import("@hellotest/ai/frontend/components/AiInsightPreviewDialog"), "ai");
 import { StepKindIconBadge } from "../components/StepKindIconBadge";
@@ -389,6 +391,7 @@ function executionResultMatchesCaseInstance(
   if (result.test_case_id !== instance.test_case_id) {
     return false;
   }
+  if (result.derived && result.covers_entire_case) return true;
 
   if (
     Number.isInteger(result.data_set_iteration_index)
@@ -1409,6 +1412,7 @@ export function ExecutionsPage() {
   const [editingScheduleId, setEditingScheduleId] = useState("");
   const [selectedExecutionId, setSelectedExecutionId] = useState("");
   const dismissedExecutionRouteRef = useRef("");
+  const dismissedScheduleRouteRef = useRef("");
   const dismissedCaseRouteRef = useRef("");
   const [selectedScheduleId, setSelectedScheduleId] = useState("");
   const processedCreateExecutionDeepLinkRef = useRef("");
@@ -1466,6 +1470,8 @@ export function ExecutionsPage() {
   const [smartExecutionIntegrationId, setSmartExecutionIntegrationId] = useState("");
   const [smartExecutionReleaseScope, setSmartExecutionReleaseScope] = useState("");
   const [smartExecutionAdditionalContext, setSmartExecutionAdditionalContext] = useState("");
+  const [smartExecutionImages, setSmartExecutionImages] = useState<AiDesignImageInput[]>([]);
+  const [smartExecutionImagesBusy, setSmartExecutionImagesBusy] = useState(false);
   const [selectedSmartRequirementIds, setSelectedSmartRequirementIds] = useState<string[]>([]);
   const [smartExecutionRequirementSearch, setSmartExecutionRequirementSearch] = useState("");
   const [smartExecutionPreview, setSmartExecutionPreview] = useState<SmartExecutionPreviewResponse | null>(null);
@@ -1986,6 +1992,8 @@ export function ExecutionsPage() {
     }
 
     const requestedScheduleId = searchParams.get("schedule") || "";
+    if (requestedScheduleId && dismissedScheduleRouteRef.current === `${location.key}:${requestedScheduleId}`) return;
+    if (!requestedScheduleId) dismissedScheduleRouteRef.current = "";
     if (
       requestedScheduleId
       && requestedScheduleId !== selectedScheduleId
@@ -1993,7 +2001,7 @@ export function ExecutionsPage() {
     ) {
       setSelectedScheduleId(requestedScheduleId);
     }
-  }, [executionSchedules, searchParams, selectedScheduleId, testRunsView]);
+  }, [executionSchedules, searchParams, selectedScheduleId, testRunsView, location.key]);
 
   useEffect(() => {
     const validRequirementIds = new Set(smartExecutionRequirementOptions.map((requirement) => requirement.id));
@@ -2028,6 +2036,7 @@ export function ExecutionsPage() {
     build: executionBuild.trim(),
     scope_description: smartExecutionReleaseScope.trim(),
     additional_context: smartExecutionAdditionalContext,
+    reference_images: smartExecutionImages.map(image=>image.url),
     impacted_requirement_ids: [...selectedSmartRequirementIds].sort(),
     test_environment_id: selectedExecutionEnvironmentId,
     test_configuration_id: selectedExecutionConfigurationId,
@@ -2080,6 +2089,8 @@ export function ExecutionsPage() {
     setSmartExecutionIntegrationId("");
     setSmartExecutionReleaseScope("");
     setSmartExecutionAdditionalContext("");
+    setSmartExecutionImages([]);
+    setSmartExecutionImagesBusy(false);
     setSelectedSmartRequirementIds([]);
     setSmartExecutionRequirementSearch("");
     resetSmartExecutionPreview();
@@ -2193,6 +2204,8 @@ export function ExecutionsPage() {
   };
 
   const handleExecutionProjectChange = (value: string) => {
+    setSmartExecutionImages([]);
+    setSmartExecutionImagesBusy(false);
     navigationRunScopeRef.current = null;
     setPendingNavigationDelivery(null);
     setProjectId(value);
@@ -2207,6 +2220,8 @@ export function ExecutionsPage() {
   };
 
   const handleExecutionAppTypeChange = (value: string) => {
+    setSmartExecutionImages([]);
+    setSmartExecutionImagesBusy(false);
     navigationRunScopeRef.current = null;
     setPendingNavigationDelivery(null);
     setAppTypeId(value);
@@ -2520,6 +2535,7 @@ export function ExecutionsPage() {
   };
 
   const focusExecutionSchedule = (scheduleId: string) => {
+    dismissedScheduleRouteRef.current = "";
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("view", "scheduled-runs");
     nextParams.set("schedule", scheduleId);
@@ -2535,6 +2551,7 @@ export function ExecutionsPage() {
   };
 
   const closeExecutionScheduleDetail = () => {
+    dismissedScheduleRouteRef.current = `${location.key}:${searchParams.get("schedule") || ""}`;
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("schedule");
     setSelectedScheduleId("");
@@ -3057,6 +3074,8 @@ export function ExecutionsPage() {
           instance.data_set_iteration_index,
           null
         )]
+        || (resultByCaseId[instance.test_case_id]?.derived && resultByCaseId[instance.test_case_id]?.covers_entire_case
+          ? resultByCaseId[instance.test_case_id] : null)
         || null
       : null;
 
@@ -3557,6 +3576,7 @@ export function ExecutionsPage() {
     if (!selectedExecution || !selectedExecutionCase || !selectedExecutionCaseInstance || !selectedExecution.app_type_id) {
       return;
     }
+    if (isSelectedResultDerived) return;
     if (!canManageRunResults) {
       showError(new Error("Permission required: result.manage"), "Unable to update case traceability");
       return;
@@ -3662,6 +3682,7 @@ export function ExecutionsPage() {
   };
 
   const handlePreviewSmartExecution = async () => {
+    if(smartExecutionImagesBusy)return;
     if (!projectId || !appTypeId) {
       setSmartExecutionPreviewTone("error");
       setSmartExecutionPreviewMessage("Choose a project and app type before generating an AI smart run.");
@@ -3707,6 +3728,7 @@ export function ExecutionsPage() {
         build: executionBuild.trim() || undefined,
         scope_description: smartExecutionReleaseScope.trim() || undefined,
         additional_context: smartExecutionAdditionalContext || undefined,
+        images: smartExecutionImages,
         prompt_guidance: getPrompt("ai.execution.smart_plan") || undefined,
         impacted_requirement_ids: selectedSmartRequirementIds.length ? selectedSmartRequirementIds : undefined,
         test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
@@ -4414,6 +4436,7 @@ export function ExecutionsPage() {
       queryClient.getQueryData<ExecutionResult[]>(["execution-results", selectedExecution.id]) || executionResults;
     const existing = selectLatestExecutionResultInstances(fresh)
       .find((item) => executionResultMatchesCaseInstance(item, targetInstance));
+    if (existing?.derived) throw new Error("Linked automation coverage is read-only. Open the source automation result to manage its evidence.");
     const prev = parseExecutionLogs(existing?.logs || null);
     const mergedStatuses = { ...(prev.stepStatuses || {}), ...(patches.stepStatusesPatch || {}) };
     const mergedNotes = { ...(prev.stepNotes || {}), ...(patches.stepNotesPatch || {}) };
@@ -4530,7 +4553,7 @@ export function ExecutionsPage() {
   };
 
   const handleStepDefectsChange = async (step: TestStep, defectIds: string[]) => {
-    if (!selectedExecution || !selectedTestCaseId || isExecutionLocked) {
+    if (!selectedExecution || !selectedTestCaseId || isExecutionLocked || isSelectedResultDerived) {
       return;
     }
     if (!canManageRunResults) {
@@ -4763,8 +4786,9 @@ export function ExecutionsPage() {
   const selectedExecutionResult = selectedExecutionCase
     ? resultForCaseInstance(selectedExecutionCaseInstance)
     : null;
+  const isSelectedResultDerived = selectedExecutionResult?.derived === true;
   const isSelectedCaseTimerActive = selectedExecutionResult?.status === "running" && Boolean(selectedExecutionResult.timer_started_at);
-  const canRecordSelectedCase = selectedExecutionResult?.status === "running" && Boolean(selectedExecutionResult.started_at || selectedExecutionStartMode !== "manual");
+  const canRecordSelectedCase = !isSelectedResultDerived && selectedExecutionResult?.status === "running" && Boolean(selectedExecutionResult.started_at || selectedExecutionStartMode !== "manual");
   const selectedExecutionCaseEffectiveUser = selectedExecutionCase?.assigned_user || selectedExecution?.assigned_user || null;
   const selectedExecutionCaseExplicitAssigneeId = selectedExecutionCase?.assignment_source === "case" ? selectedExecutionCase.assigned_to || "" : "";
   const selectedExecutionCaseReadableTitle = selectedExecutionCase
@@ -4788,6 +4812,10 @@ export function ExecutionsPage() {
 
   const handleCaseLifecycle = async (action: ExecutionCaseLifecycleAction) => {
     if (!selectedExecution || !selectedExecutionCaseInstance || caseLifecycleAction) return;
+    if (isSelectedResultDerived) {
+      showError(new Error("Open the linked automation result to inspect its evidence, or create a separate manual run."), "This outcome comes from automation");
+      return;
+    }
     const executionId = selectedExecution.id;
     setCaseLifecycleAction(action);
     try {
@@ -7761,7 +7789,7 @@ export function ExecutionsPage() {
       className={[
         "page-content",
         "page-content--executions-full",
-        activeExecutionStage === "case" ? "page-content--workspace-focus" : "",
+        selectedExecution || activeExecutionStage === "case" ? "page-content--workspace-focus" : "",
         (selectedExecution && activeExecutionStage !== "case") || selectedSchedule ? "page-content--execution-command-center" : ""
       ].filter(Boolean).join(" ")}
     >
@@ -8457,18 +8485,22 @@ export function ExecutionsPage() {
                   <div className="execution-case-lifecycle" data-status={selectedCaseStatusLabel} aria-label="Case execution controls">
                     <div className="execution-case-clock" aria-label="Current attempt active time" title="Active time for this attempt. Earlier attempts remain included in the run total."><IconClock size={19} aria-hidden="true" /><span className="execution-case-clock-label">Active time</span><strong>{formatDuration(selectedCaseDurationMs, "0s")}</strong><StatusBadge value={selectedCaseStatusLabel === "running" ? "in_progress" : selectedCaseStatusLabel === "queued" ? "pending" : selectedCaseStatusLabel} /></div>
                     <div className="execution-case-lifecycle-actions">
-                      {canExecuteRuns && canManageRunResults ? (<button className="execution-case-run-button is-primary" disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || Boolean(caseLifecycleAction)} onClick={() => void handleCaseLifecycle(isSelectedCaseTimerActive ? "pause" : selectedCaseStatusLabel === "paused" ? "resume" : "start")} type="button">
+                      {canExecuteRuns && canManageRunResults && !isSelectedResultDerived ? (<button className="execution-case-run-button is-primary" disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || Boolean(caseLifecycleAction)} onClick={() => void handleCaseLifecycle(isSelectedCaseTimerActive ? "pause" : selectedCaseStatusLabel === "paused" ? "resume" : "start")} type="button">
                         {isSelectedCaseTimerActive ? <IconPlayerPause size={17} /> : <IconPlayerPlay size={17} />}
                         <span>{caseLifecycleAction ? "Saving…" : isSelectedCaseTimerActive ? "Pause case" : selectedCaseStatusLabel === "paused" ? "Resume case" : ["queued", "pending", "running"].includes(selectedCaseStatusLabel) ? "Start case" : "Start new attempt"}</span>
                       </button>) : null}
                       <label className="execution-case-outcome-control"><span className="sr-only">Set case outcome</span>
-                        <select aria-label="Set case outcome" value="" disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || Boolean(caseLifecycleAction)} onChange={(event) => { if (event.target.value) void handleCaseLifecycle(event.target.value as ExecutionCaseLifecycleAction); }}>
+                        <select aria-label="Set case outcome" value="" disabled={isSelectedResultDerived || !canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || Boolean(caseLifecycleAction)} onChange={(event) => { if (event.target.value) void handleCaseLifecycle(event.target.value as ExecutionCaseLifecycleAction); }}>
                           <option value="" disabled>Set outcome…</option>
                           <option value="block">Blocked</option><option value="skip">N/A</option><option value="abort">Aborted</option><option value="reset">Unexecuted</option>
                         </select>
                       </label>
                     </div>
                   </div>
+
+                  {isSelectedResultDerived ? <section className="execution-case-context" aria-label="Linked automation outcome"><div className="execution-case-context-heading"><strong>Outcome from {selectedExecutionResult?.source_display_id || "linked automation"}</strong><span>This manual case is covered by an automation result. Evidence and instructions belong to the source automation case.</span></div><button className="ghost-button compact" type="button" onClick={() => {
+                    if (selectedExecutionResult?.source_test_case_id) focusExecutionCase(selectedExecutionResult.source_test_case_id, selectedExecutionResult.execution_id);
+                  }}>Open automation evidence<OpenIcon size={16} /></button></section> : null}
 
                   <section className="execution-case-context" aria-label="Case run context">
                     <div className="execution-case-context-heading"><strong>Run context</strong><span>Values frozen for this run</span></div>
@@ -8838,8 +8870,10 @@ export function ExecutionsPage() {
                             testCaseId={selectedExecutionCase.id}
                             iterationKey={selectedExecutionCaseInstance?.instance_key}
                             canView={canViewRunEvidence}
-                            canUpload={canCreateRunEvidence}
-                            canDelete={canDeleteRunEvidence}
+                            canUpload={canCreateRunEvidence && !isSelectedResultDerived}
+                            canDelete={canDeleteRunEvidence && !isSelectedResultDerived}
+                            live={selectedExecutionResult?.status === "running" || ["queued", "running", "retrying"].includes(selectedExecution.status || "")}
+                            refreshVersion={selectedExecutionResult ? `${selectedExecutionResult.revision || 0}:${selectedExecutionResult.updated_at || ""}` : undefined}
                             ensureResult={ensureSelectedCaseResult}
                             onEvidenceChange={() => refreshExecutionScope(selectedExecution.id)}
                             legacyEvidence={stepEvidence}
@@ -8985,7 +9019,7 @@ export function ExecutionsPage() {
                         <div className="execution-case-run-inspector-content">
                           <ExternalReferencesField
                             className="execution-case-run-reference-field"
-                            disabled={!canManageRunResults || updateResult.isPending || createResult.isPending}
+                            disabled={isSelectedResultDerived || !canManageRunResults || updateResult.isPending || createResult.isPending}
                             placeholder="Paste work-item links, docs, or IDs..."
                             value={caseReferenceDraft}
                             onChange={setCaseReferenceDraft}
@@ -8996,14 +9030,14 @@ export function ExecutionsPage() {
                             labelIcon={<IconBug aria-hidden="true" size={15} stroke={1.9} />}
                           >
                             <textarea
-                              disabled={!canManageRunResults || updateResult.isPending || createResult.isPending}
+                              disabled={isSelectedResultDerived || !canManageRunResults || updateResult.isPending || createResult.isPending}
                               onChange={(event) => setCaseDefectDraft(event.target.value)}
                               placeholder="One Defect key or ID per line"
                               rows={3}
                               value={caseDefectDraft}
                             />
                           </FormField>
-                          {canManageRunResults ? (<button
+                          {canManageRunResults && !isSelectedResultDerived ? (<button
                             className="execution-case-run-button is-primary is-full-width"
                             disabled={!canManageRunResults || !hasCaseReferenceChange || updateResult.isPending || createResult.isPending}
                             onClick={() => void handleSaveCaseReferences()}
@@ -9853,7 +9887,7 @@ export function ExecutionsPage() {
           executionEndDate={executionEndDate}
           integrations={integrations}
           executionHookDraft={executionHookDraft}
-          isPreviewingSmartExecution={previewSmartExecution.isPending}
+          isPreviewingSmartExecution={previewSmartExecution.isPending || smartExecutionImagesBusy}
           isSubmitting={createExecution.isPending}
           isResolvingCases={isResolvingSmartRunCases}
           isPreparingDeliveryOptions={Boolean(pendingNavigationDelivery)}
@@ -9925,6 +9959,9 @@ export function ExecutionsPage() {
           onDirectCaseResolutionChange={setDirectCaseResolution}
           selectedSmartExecutionCaseIds={selectedSmartExecutionCaseIds}
           smartExecutionAdditionalContext={smartExecutionAdditionalContext}
+          smartExecutionImages={smartExecutionImages}
+          onSmartExecutionImagesBusyChange={setSmartExecutionImagesBusy}
+          onSmartExecutionImagesChange={images=>{setSmartExecutionImages(images);resetSmartExecutionPreview();}}
           smartExecutionIntegrationId={smartExecutionIntegrationId}
           smartExecutionPreview={smartExecutionPreview}
           smartExecutionPreviewMessage={smartExecutionPreviewMessage}
@@ -12371,6 +12408,9 @@ export function ExecutionCreateModal({
   smartExecutionIntegrationId,
   smartExecutionReleaseScope,
   smartExecutionAdditionalContext,
+  smartExecutionImages = [],
+  onSmartExecutionImagesChange,
+  onSmartExecutionImagesBusyChange,
   smartExecutionRequirementOptions,
   smartExecutionRequirementSearch,
   smartExecutionPreview,
@@ -12460,6 +12500,9 @@ export function ExecutionCreateModal({
   smartExecutionIntegrationId: string;
   smartExecutionReleaseScope: string;
   smartExecutionAdditionalContext: string;
+  smartExecutionImages?: AiDesignImageInput[];
+  onSmartExecutionImagesChange?: (images:AiDesignImageInput[])=>void;
+  onSmartExecutionImagesBusyChange?: (busy:boolean)=>void;
   smartExecutionRequirementOptions: SmartExecutionRequirementOption[];
   smartExecutionRequirementSearch: string;
   smartExecutionPreview: SmartExecutionPreviewResponse | null;
@@ -12746,6 +12789,7 @@ export function ExecutionCreateModal({
                       />
                     </FormField>
 
+                    {onSmartExecutionImagesChange?<AiReferenceImages key={`${projectId}:${appTypeId}`} images={smartExecutionImages} onChange={onSmartExecutionImagesChange} onBusyChange={onSmartExecutionImagesBusyChange} disabled={isPreviewingSmartExecution}/>:null}
                     <FormField composite inputId="smart-run-impacted-story-filter" label="Impacted stories">
                       <div aria-label="Impacted stories" className="execution-smart-requirements-panel" role="group">
                         <div className="execution-smart-requirement-toolbar">

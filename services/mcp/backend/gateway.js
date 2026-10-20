@@ -17,12 +17,19 @@ function verifyPacket(packet,projectId){
  return packet;
 }
 function retrievalTimeout(input) {
- const configured=Number(input.request?.budgets?.deadline_ms);
- const retrievalMs=Number.isFinite(configured)&&configured>0?Math.min(60000,configured):30000;
+ const configured=Number((input.request?.budgets||input.budgets)?.deadline_ms);
+ const retrievalMs=Number.isFinite(configured)&&configured>=0?Math.min(60000,configured):30000;
  const callerMs=Number(input.timeoutMs);
  // The principal/protocol exchange shares the turn budget, with a small
  // assembly allowance; a normalized 60s retrieval must not hit a 30s bridge.
  return Math.max(1,Math.min(retrievalMs+2000,Number.isFinite(callerMs)?callerMs:62000));
+}
+function packetArguments(input){
+ const selected=input.filters||{};
+ if(input.appTypeId&&selected.app_type_id&&input.appTypeId!==selected.app_type_id)throw Object.assign(new Error('MCP application selectors do not match.'),{code:'MCP_CONTEXT_SCOPE_MISMATCH',statusCode:403});
+ const filters=Object.fromEntries(['requested_scopes','evidence_scope','collection_ids','source_ids','source_kinds','agent_id','as_of'].filter(key=>selected[key]!==undefined).map(key=>[key,selected[key]]));
+ return {question:input.query,app_type_id:input.appTypeId||selected.app_type_id,integration_id:input.integrationId||input.integration?.id,filters,
+  ...(input.budgets?{budgets:require('./contextRequest').packetBudgets(input.budgets),token_budget:Math.max(256,Math.min(32000,input.budgets.max_context_tokens??6000))}:{})};
 }
 async function retrieveContext(input){
  const result=await contextCall({userId:input.user.id,projectId:input.request.project_id,args:{question:input.request.query},signal:input.signal,timeoutMs:retrievalTimeout(input),privateInput:{retrievalInput:input}});
@@ -30,7 +37,8 @@ async function retrieveContext(input){
  traces.update({mcp_context:'retrieved'});context.retrieval={...context.retrieval,context_transport:'mcp'};return context;
 }
 async function retrievePacket(input){
- const result=await contextCall({userId:input.user.id,projectId:input.projectId,args:{question:input.query},signal:input.signal,privateInput:{packetInput:input}});
+ const result=await contextCall({userId:input.user.id,projectId:input.projectId,args:packetArguments(input),signal:input.signal,timeoutMs:retrievalTimeout(input),
+  ...(!process.env.HELLOTEST_MCP_INTERNAL_URL?{privateInput:{packetInput:input}}:{})});
  const packet=verifyPacket(result.packet,input.projectId);
  traces.update({mcp_context:'retrieved'});return {...packet,retrieval:{...packet.retrieval,context_transport:'mcp'}};
 }
@@ -53,8 +61,10 @@ async function enrichChatRequest(init,options={}){
   const taskQuestion=options.contextRetrievalQuery||question;
   const focus=policy?.focus?`Context focus: ${policy.focus.slice(0,400)}\n`:'';
   const scopedQuestion=(`Task: ${trace.feature || options.operation || 'project assistance'}\n${focus}${taskQuestion}`).slice(0,4000);
-  const result=await contextCall({userId:trace.actor_id,projectId:trace.project_id,args:{question:scopedQuestion,integration_id:options.integration?.id,token_budget:policy?.token_budget||2000},signal,timeoutMs,
-    ...(options.mcpContextFilters ? {privateInput:{packetInput:{projectId:trace.project_id,appTypeId:options.mcpContextFilters.app_type_id,query:scopedQuestion,filters:options.mcpContextFilters,integrationId:options.integration?.id}}} : {})});
+  const packetInput={projectId:trace.project_id,appTypeId:options.mcpContextFilters?.app_type_id,query:scopedQuestion,filters:options.mcpContextFilters,integrationId:options.integration?.id,
+   budgets:{max_context_tokens:policy?.token_budget||2000,max_evidence_items:policy?.max_items||12,deadline_ms:Math.max(0,timeoutMs-500)}};
+  const result=await contextCall({userId:trace.actor_id,projectId:trace.project_id,args:packetArguments(packetInput),signal,timeoutMs,
+    ...(options.mcpContextFilters&&!process.env.HELLOTEST_MCP_INTERNAL_URL?{privateInput:{packetInput}}:{})});
   const packet=verifyPacket(result.packet,trace.project_id);
   const evidence=packet.evidence;
   if(policy?.required && !evidence.length)throw Object.assign(new Error('Required evidence is missing.'),{code:'MCP_CONTEXT_EMPTY'});
@@ -85,4 +95,4 @@ async function enrichChatRequest(init,options={}){
   return {...init,body:JSON.stringify({...body,messages})};
  }
 }
-module.exports={retrievalTimeout,installTransport,contextCall,retrieveContext,retrievePacket,enrichChatRequest};
+module.exports={retrievalTimeout,packetArguments,installTransport,contextCall,retrieveContext,retrievePacket,enrichChatRequest};

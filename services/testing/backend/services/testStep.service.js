@@ -1,4 +1,5 @@
 const { normalizeSharedSteps } = require("../domain/sharedStepDefinition");
+const { sharedDefaultsFromCase } = require("../domain/sharedStepParameters");
 const db = require("@hellotest/platform/backend/src/db");
 const { randomUUID: uuid } = require("crypto");
 const sharedStepSyncService = require("./sharedStepSync.service");
@@ -13,7 +14,7 @@ const {
 } = require("@hellotest/platform/backend/src/utils/testStepAutomation");
 
 const selectTestCase = db.prepare(`
-  SELECT id, app_type_id
+  SELECT id, app_type_id, authoring_mode, parameter_values, test_data_options
   FROM test_cases
   WHERE id = ?
 `);
@@ -177,7 +178,7 @@ const listStepsForCase = async (testCaseId) => {
   return selectStepsForCase.all(testCaseId);
 };
 
-const syncSharedGroupFromStep = async (step) => {
+const syncSharedGroupFromStep = async (step, previousSteps) => {
   if (!step?.reusable_group_id || !step?.group_id) {
     return;
   }
@@ -185,7 +186,8 @@ const syncSharedGroupFromStep = async (step) => {
   await sharedStepSyncService.syncSharedGroupFromReference(
     step.reusable_group_id,
     step.test_case_id,
-    step.group_id
+    step.group_id,
+    { previousReferenceSteps: previousSteps?.filter(row => row.reusable_group_id === step.reusable_group_id && row.group_id === step.group_id) }
   );
 };
 
@@ -216,8 +218,10 @@ exports.createTestStep = async ({
   await assertMobileStepMutationEnabled(test_case_id, { step_type });
 
   const id = uuid();
+  let previousSteps;
   const transaction = db.transaction(async () => {
     const existingSteps = await listStepsForCase(test_case_id);
+    previousSteps = existingSteps;
     const targetOrder = normalizeStepOrder(step_order, existingSteps.length + 1);
     const boundedOrder = Math.min(targetOrder, existingSteps.length + 1);
 
@@ -243,7 +247,7 @@ exports.createTestStep = async ({
     test_case_id,
     group_id: normalizeText(group_id),
     reusable_group_id: normalizeText(reusable_group_id)
-  });
+  }, previousSteps);
   return { id };
 };
 
@@ -285,7 +289,7 @@ exports.createTestSteps = async ({ test_case_id, insertion_index = 0, steps = []
     if (step.reusable_group_id && step.group_id) sharedGroups.set(`${step.reusable_group_id}:${step.group_id}`, step);
   });
   for (const step of sharedGroups.values()) {
-    await syncSharedGroupFromStep({ ...step, test_case_id });
+    await syncSharedGroupFromStep({ ...step, test_case_id }, existingSteps);
   }
   return { ids, created: ids.length };
 };
@@ -303,7 +307,9 @@ exports.deleteTestSteps = async ({ test_case_id, step_ids = [] } = {}) => {
     throw error;
   }
 
+  let previousSteps;
   const transaction = db.transaction(async () => {
+    previousSteps = await listStepsForCase(test_case_id);
     await db.prepare(`DELETE FROM test_steps WHERE test_case_id = ? AND id IN (${placeholders})`).run(test_case_id, ...ids);
     const remaining = await listStepsForCase(test_case_id);
     for (const [index, step] of remaining.entries()) {
@@ -315,7 +321,7 @@ exports.deleteTestSteps = async ({ test_case_id, step_ids = [] } = {}) => {
   selected.forEach((step) => {
     if (step.reusable_group_id && step.group_id) sharedGroups.set(`${step.reusable_group_id}:${step.group_id}`, step);
   });
-  for (const step of sharedGroups.values()) await syncSharedGroupFromStep(step);
+  for (const step of sharedGroups.values()) await syncSharedGroupFromStep(step, previousSteps);
   return { deleted: ids.length };
 };
 
@@ -337,12 +343,18 @@ exports.getTestStep = async (id) => {
   return ensureStep(id);
 };
 
+exports.getTestCaseAutomationStartUrl = async (id) => {
+  const row=await db.prepare('SELECT automation_start_url FROM test_cases WHERE id = ?').get(id);
+  return row?.automation_start_url??null;
+};
+
 exports.runApiRequestPreview = async (input) => {
   return apiRequestExecutionService.runApiRequestPreview(input);
 };
 
 exports.updateTestStep = async (id, data = {}, options = {}) => {
   const existing = await ensureStep(id);
+  const previousSteps = existing.reusable_group_id ? await listStepsForCase(existing.test_case_id) : undefined;
   const nextTestCaseId = data.test_case_id ?? existing.test_case_id;
   const nextStepOrder = data.step_order !== undefined ? normalizeStepOrder(data.step_order, existing.step_order) : existing.step_order;
   const sourceTestCase = await ensureTestCase(existing.test_case_id);
@@ -403,7 +415,7 @@ exports.updateTestStep = async (id, data = {}, options = {}) => {
   });
 
   await transaction();
-  if (options.syncSharedGroup !== false) await syncSharedGroupFromStep(await ensureStep(id));
+  if (options.syncSharedGroup !== false) await syncSharedGroupFromStep(await ensureStep(id), previousSteps);
   return { updated: true };
 };
 
@@ -419,6 +431,7 @@ exports.moveTestStepAutomation = async ({ source_step_id, target_step_id } = {})
     throw new Error("Automation can only move between steps in the same test case");
   }
   await assertMobileStepMutationEnabled(source.test_case_id, [source, target]);
+  const previousSteps = await listStepsForCase(source.test_case_id);
 
   const transaction = db.transaction(async () => {
     await updateStepAutomation.run(
@@ -436,8 +449,8 @@ exports.moveTestStepAutomation = async ({ source_step_id, target_step_id } = {})
   });
 
   await transaction();
-  await syncSharedGroupFromStep(await ensureStep(source.id));
-  await syncSharedGroupFromStep(await ensureStep(target.id));
+  await syncSharedGroupFromStep(await ensureStep(source.id), previousSteps);
+  if (source.reusable_group_id !== target.reusable_group_id || source.group_id !== target.group_id) await syncSharedGroupFromStep(await ensureStep(target.id), previousSteps);
   return { moved: true, source_step_id, target_step_id };
 };
 
@@ -471,7 +484,8 @@ exports.reorderTestSteps = async (testCaseId, stepIds = []) => {
         key,
         reusable_group_id: step.reusable_group_id,
         test_case_id: step.test_case_id,
-        group_id: step.group_id
+        group_id: step.group_id,
+        previousReferenceSteps: existingSteps.filter(item => item.reusable_group_id === step.reusable_group_id && item.group_id === step.group_id)
       });
       return targets;
     }, []);
@@ -486,6 +500,18 @@ exports.reorderTestSteps = async (testCaseId, stepIds = []) => {
   if (existingIds.length !== proposedIds.length || existingIds.some((item, index) => item !== proposedIds[index])) {
     throw new Error("step_ids must match the steps belonging to the test case");
   }
+  const positions = new Map(stepIds.map((id, index) => [id, index]));
+  const reusableInstances = new Map();
+  for (const step of existingSteps.filter(step => step.reusable_group_id && step.group_id)) {
+    if (!reusableInstances.has(step.group_id)) reusableInstances.set(step.group_id, []);
+    reusableInstances.get(step.group_id).push(positions.get(step.id));
+  }
+  for (const indexes of reusableInstances.values()) {
+    indexes.sort((left, right) => left - right);
+    if (indexes.some((position, index) => index > 0 && position !== indexes[index - 1] + 1)) {
+      throw Object.assign(new Error("Keep every Shared Section Group continuous when reordering sections."), { statusCode: 409, code: "SHARED_GROUP_REORDER_SPLIT" });
+    }
+  }
 
   const transaction = db.transaction(async () => {
     for (const [index, stepId] of stepIds.entries()) {
@@ -498,66 +524,39 @@ exports.reorderTestSteps = async (testCaseId, stepIds = []) => {
     await sharedStepSyncService.syncSharedGroupFromReference(
       target.reusable_group_id,
       target.test_case_id,
-      target.group_id
+      target.group_id,
+      { previousReferenceSteps: target.previousReferenceSteps }
     );
   }
   return { reordered: true };
 };
 
-exports.duplicateTestSteps = async ({ test_case_id, step_ids = [], insert_after_step_id }) => {
-  if (!test_case_id || !Array.isArray(step_ids) || !step_ids.length) {
-    throw new Error("test_case_id and step_ids are required");
-  }
-
-  await ensureTestCase(test_case_id);
-  const uniqueStepIds = [...new Set(step_ids)];
-  const existingSteps = await listStepsForCase(test_case_id);
-  const selectedSteps = existingSteps.filter((step) => uniqueStepIds.includes(step.id));
-
-  if (selectedSteps.length !== uniqueStepIds.length) {
-    throw new Error("All duplicated steps must belong to the selected test case");
-  }
-  await assertMobileStepMutationEnabled(test_case_id, selectedSteps);
-
-  const transaction = db.transaction(async () => {
-    const insertAfterStep = insert_after_step_id
-      ? existingSteps.find((step) => step.id === insert_after_step_id)
-      : selectedSteps[selectedSteps.length - 1];
-
-    if (!insertAfterStep) {
-      throw new Error("Unable to determine where to duplicate the selected steps");
-    }
-
-    const insertionOrder = insertAfterStep.step_order + 1;
-    const nextGroupIds = new Map();
-
-    selectedSteps.forEach((step) => {
-      if (step.group_id && !nextGroupIds.has(step.group_id)) {
-        nextGroupIds.set(step.group_id, uuid());
-      }
-    });
-
+exports.duplicateTestSteps = async ({ test_case_id, source_test_case_id = test_case_id, step_ids = [], insert_after_step_id, as_standalone = false }) => {
+  const copyError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
+  if (!test_case_id || !Array.isArray(step_ids) || !step_ids.length) throw copyError("test_case_id and step_ids are required");
+  const source = await ensureTestCase(source_test_case_id);
+  const target = await ensureTestCase(test_case_id);
+  if (source.app_type_id !== target.app_type_id) throw copyError("Copy sections within the same application scope.",403);
+  await db.transaction(async () => {
+    for (const id of [...new Set([test_case_id, source_test_case_id])].sort()) await db.prepare('SELECT id FROM test_cases WHERE id = ? FOR UPDATE').get(id);
+    const existingSteps = await listStepsForCase(test_case_id);
+    const sourceSteps = source_test_case_id === test_case_id ? existingSteps : await listStepsForCase(source_test_case_id);
+    const ids = new Set(step_ids);
+    const selectedSteps = sourceSteps.filter(step => ids.has(step.id));
+    if (selectedSteps.length !== ids.size) throw copyError("All copied sections must belong to the source case.");
+    await assertMobileStepMutationEnabled(test_case_id, selectedSteps);
+    if (!as_standalone && selectedSteps.some(step => step.group_id && sourceSteps.some(other => other.group_id === step.group_id && !ids.has(other.id)))) throw copyError("Copy the complete group, or copy a section as a standalone section.");
+    const anchor = insert_after_step_id ? existingSteps.find(step => step.id === insert_after_step_id) : source_test_case_id === test_case_id ? selectedSteps.at(-1) : existingSteps.at(-1);
+    if (insert_after_step_id && !anchor) throw copyError("Paste target no longer exists.",409);
+    if (anchor?.group_id && existingSteps.some(step => step.group_id === anchor.group_id && step.step_order > anchor.step_order)) throw copyError("Paste after the complete group to preserve group continuity.");
+    const insertionOrder = (anchor?.step_order || 0) + 1;
+    const groupIds = new Map();
     await shiftStepOrdersForward.run(selectedSteps.length, test_case_id, insertionOrder);
-
     for (const [index, step] of selectedSteps.entries()) {
-      await insertStep.run(
-        uuid(),
-        test_case_id,
-        insertionOrder + index,
-        step.action,
-        step.expected_result,
-        step.step_type || "web",
-        step.automation_code,
-        parseJsonValue(step.api_request, null),
-        step.group_id ? nextGroupIds.get(step.group_id) : null,
-        step.group_name,
-        step.group_kind,
-        step.reusable_group_id
-      );
+      if (step.group_id && !groupIds.has(step.group_id)) groupIds.set(step.group_id, uuid());
+      await insertStep.run(uuid(), test_case_id, insertionOrder + index, step.action, step.expected_result, step.step_type || "web", step.automation_code, parseJsonValue(step.api_request, null), as_standalone ? null : step.group_id ? groupIds.get(step.group_id) : null, as_standalone ? null : step.group_name, as_standalone ? null : step.group_kind, as_standalone ? null : step.reusable_group_id);
     }
-  });
-
-  await transaction();
+  })();
   return { duplicated: true };
 };
 
@@ -586,6 +585,7 @@ exports.groupTestSteps = async ({ test_case_id, step_ids = [], name, kind = "loc
   if (create_shared_group) {
     const shared = await require('./sharedStepGroup.service').createSharedStepGroup({ app_type_id: testCase.app_type_id, name: resolvedName,
       description: "Reusable automation sections created from a reviewed case selection.", created_by,
+      parameter_values: sharedDefaultsFromCase(testCase, selectedSteps),
       steps: selectedSteps.map((step, index) => ({ step_order: index + 1, action: step.action, expected_result: step.expected_result,
         step_type: step.step_type, automation_code: step.automation_code, api_request: step.api_request })) });
     sharedId = shared.id;
@@ -611,25 +611,26 @@ exports.insertSharedStepGroup = async ({ test_case_id, shared_step_group_id, ins
     throw new Error("test_case_id and shared_step_group_id are required");
   }
 
-  const testCase = await ensureTestCase(test_case_id);
-  const sharedGroup = await selectSharedStepGroup.get(shared_step_group_id);
+  return db.transaction(async () => {
+    const sharedGroup = await db.prepare("SELECT id, app_type_id, name, steps FROM shared_step_groups WHERE id = ? FOR UPDATE").get(shared_step_group_id);
+    await db.prepare("SELECT id FROM test_cases WHERE id = ? FOR UPDATE").get(test_case_id);
+    const testCase = await ensureTestCase(test_case_id);
 
-  if (!sharedGroup) {
-    throw new Error("Shared Step Group not found");
-  }
+    if (!sharedGroup) {
+      throw new Error("Shared Step Group not found");
+    }
 
-  if (testCase.app_type_id && sharedGroup.app_type_id !== testCase.app_type_id) {
-    throw new Error("Shared Step Group must belong to the same app type");
-  }
+    if (testCase.app_type_id && sharedGroup.app_type_id !== testCase.app_type_id) {
+      throw new Error("Shared Step Group must belong to the same app type");
+    }
 
-  const sharedSteps = normalizeSharedSteps(parseJsonValue(sharedGroup.steps, []));
+    const sharedSteps = normalizeSharedSteps(parseJsonValue(sharedGroup.steps, []));
 
-  if (!sharedSteps.length) {
-    throw new Error("Shared Step Group does not contain any steps");
-  }
-  await assertMobileStepMutationEnabled(test_case_id, sharedSteps);
+    if (!sharedSteps.length) {
+      throw new Error("Shared Step Group does not contain any steps");
+    }
+    await assertMobileStepMutationEnabled(test_case_id, sharedSteps);
 
-  const transaction = db.transaction(async () => {
     const existingSteps = await listStepsForCase(test_case_id);
     const insertAfterStep = insert_after_step_id
       ? existingSteps.find((step) => step.id === insert_after_step_id)
@@ -637,6 +638,9 @@ exports.insertSharedStepGroup = async ({ test_case_id, shared_step_group_id, ins
 
     if (insert_after_step_id && !insertAfterStep) {
       throw new Error("Insert target step was not found in the selected test case");
+    }
+    if (insertAfterStep?.group_id && existingSteps.some(step => step.group_id === insertAfterStep.group_id && step.step_order > insertAfterStep.step_order)) {
+      throw Object.assign(new Error("Insert after the complete section group to preserve its section order."), { statusCode: 409, code: "SHARED_GROUP_INSERT_TARGET_SPLIT" });
     }
 
     const insertionOrder = insertAfterStep ? insertAfterStep.step_order + 1 : 1;
@@ -660,14 +664,13 @@ exports.insertSharedStepGroup = async ({ test_case_id, shared_step_group_id, ins
         sharedGroup.id
       );
     }
-  });
-
-  await transaction();
-  return { inserted: true };
+    return { inserted: true };
+  })();
 };
 
 exports.deleteTestStep = async (id) => {
   const step = await ensureStep(id);
+  const previousSteps = step.reusable_group_id ? await listStepsForCase(step.test_case_id) : undefined;
 
   const transaction = db.transaction(async () => {
     await deleteStep.run(id);
@@ -675,6 +678,6 @@ exports.deleteTestStep = async (id) => {
   });
 
   await transaction();
-  await syncSharedGroupFromStep(step);
+  await syncSharedGroupFromStep(step, previousSteps);
   return { deleted: true };
 };

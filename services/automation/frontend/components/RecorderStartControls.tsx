@@ -1,3 +1,4 @@
+import { IconSettings } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MoreHorizontalIcon, MousePointerIcon, PlugIcon, RecordIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
@@ -253,7 +254,38 @@ export function RecorderStartControls({
           <span>{isStarting ? "Starting..." : remoteLabel}</span>
         </button>
         {primaryAction}
-        <div className="recorder-more-menu">
+            {localAvailable ? (
+              <>
+                <button
+                  className="ghost-button compact"
+                  disabled={disabled || isStarting || hasSession || checkState === "checking"}
+                  onClick={() => {
+                    setIsMoreOpen(false);
+                    void handleCheckSetup();
+                  }}
+
+                  type="button"
+                >
+                  <PlugIcon size={16} />
+                  <span>{checkState === "checking" ? "Checking..." : checkState === "ready" ? "Local ready" : "Check local"}</span>
+                </button>
+                {moreActions}
+                <button
+                  className="ghost-button compact"
+                  disabled={disabled || isStarting || hasSession}
+                  onClick={() => {
+                    setIsMoreOpen(false);
+                    setIsSetupOpen(true);
+                  }}
+
+                  type="button"
+                >
+                  <IconSettings size={16} />
+                  <span>Settings</span>
+                </button>
+              </>
+            ) : null}
+        <div className="recorder-more-menu" hidden={platform !== "unified" || !mobileAppiumEnabled}>
           <button
             aria-expanded={isMoreOpen}
             aria-haspopup="menu"
@@ -267,37 +299,6 @@ export function RecorderStartControls({
           </button>
           {isMoreOpen && overlayRoot ? createPortal(
             <div className="recorder-more-menu-popover" ref={moreMenuRef} role="menu" style={moreMenuStyle}>
-            {localAvailable ? (
-              <>
-                <button
-                  className="ghost-button"
-                  disabled={disabled || isStarting || hasSession || checkState === "checking"}
-                  onClick={() => {
-                    setIsMoreOpen(false);
-                    void handleCheckSetup();
-                  }}
-                  role="menuitem"
-                  type="button"
-                >
-                  <PlugIcon size={16} />
-                  <span>{checkState === "checking" ? "Checking..." : checkState === "ready" ? "Local ready" : "Check local"}</span>
-                </button>
-                {moreActions}
-                <button
-                  className="ghost-button"
-                  disabled={disabled || isStarting || hasSession}
-                  onClick={() => {
-                    setIsMoreOpen(false);
-                    setIsSetupOpen(true);
-                  }}
-                  role="menuitem"
-                  type="button"
-                >
-                  <PlugIcon size={16} />
-                  <span>Settings</span>
-                </button>
-              </>
-            ) : null}
             {platform === "unified" && mobileAppiumEnabled ? (
               <button
                 className="ghost-button"

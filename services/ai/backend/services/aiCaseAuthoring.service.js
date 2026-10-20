@@ -1,3 +1,4 @@
+const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const { splitGenerationContext, generationRetrievalQuery } = require('@hellotest/platform/backend/src/utils/aiGenerationContext');
 const { caseOutputSchema, stepOutputSchema } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
@@ -8,6 +9,7 @@ const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llm
 const { getCompletionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
 const { parseAiJson } = require("@hellotest/platform/backend/src/utils/aiJsonResponse");
 const { storyAiSnapshot, testCaseAiSnapshot } = require("@hellotest/platform/backend/src/utils/aiArtifactContext");
+const dropdownCatalog = require('@hellotest/platform/backend/services/dropdownCatalog.service');
 
 const DEFAULT_STEP_TYPE_BY_APP_TYPE = {
   api: "api",
@@ -17,9 +19,6 @@ const DEFAULT_STEP_TYPE_BY_APP_TYPE = {
   web: "web"
 };
 
-const TEST_CASE_AI_REFERENCE_IMAGE_LIMIT = 6;
-const TEST_CASE_AI_REFERENCE_IMAGE_TOTAL_CHARS = 950_000;
-const TEST_CASE_AI_REFERENCE_IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp);base64,[a-z0-9+/=\s]+$/i;
 
 const normalizeText = (value) => {
   if (typeof value !== "string") {
@@ -37,37 +36,8 @@ const normalizeTextList = (values = [], limit = 20, itemLimit = 2000) =>
     .slice(0, limit)
     .map((value) => value.slice(0, itemLimit));
 
-const invalidAiReferenceImage = (message) => Object.assign(new Error(message), {
-  statusCode: 400,
-  code: "INVALID_AI_REFERENCE_IMAGE"
-});
 
-const normalizeAiReferenceImages = (images) => {
-  const collection = Array.isArray(images) ? images : [];
-
-  if (collection.length > TEST_CASE_AI_REFERENCE_IMAGE_LIMIT) {
-    throw invalidAiReferenceImage(`Reference images are limited to ${TEST_CASE_AI_REFERENCE_IMAGE_LIMIT}.`);
-  }
-
-  let totalChars = 0;
-  return collection.map((image, index) => {
-    const url = normalizeText(image?.url);
-
-    if (!url || !TEST_CASE_AI_REFERENCE_IMAGE_DATA_URL.test(url)) {
-      throw invalidAiReferenceImage(`Reference image ${index + 1} must be a PNG, JPEG, or WebP data URL.`);
-    }
-
-    totalChars += url.length;
-    if (totalChars > TEST_CASE_AI_REFERENCE_IMAGE_TOTAL_CHARS) {
-      throw invalidAiReferenceImage("Reference images exceed the supported compressed image budget.");
-    }
-
-    return {
-      name: (normalizeText(image?.name) || `Reference image ${index + 1}`).slice(0, 255),
-      url
-    };
-  });
-};
+const normalizeAiReferenceImages = images => normalizeReferenceImages(images);
 
 const isPlainObject = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -168,7 +138,7 @@ const resolveChatCompletionsUrl = (baseUrl) => {
   return `${normalizedBaseUrl.replace(/\/+$/, "")}/chat/completions`;
 };
 
-const requestChatCompletion = async ({ integration, prompt, images = [], fallbackContent, contextState, featureKey = "ai.case_authoring.full_case", authoringMode = "structured", operation = "case-authoring.generate" }) => {
+const requestChatCompletion = async ({ integration, prompt, images = [], fallbackContent, contextState, testCaseTypes, featureKey = "ai.case_authoring.full_case", authoringMode = "structured", operation = "case-authoring.generate" }) => {
   const headers = {
     "Content-Type": "application/json"
   };
@@ -178,18 +148,7 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
     headers.Authorization = `Bearer ${apiKey}`;
   }
 
-  const userContent = images.length
-    ? [
-        { type: "text", text: prompt },
-        ...images.map((image) => ({
-          type: "image_url",
-          image_url: {
-            url: image.url,
-            detail: "low"
-          }
-        }))
-      ]
-    : prompt;
+  const userContent = imageUserContent(prompt, images);
 
   let response;
 
@@ -212,7 +171,7 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
           }
         ]
       })
-    }, { integration, operation, featureKey, contextRetrievalQuery:generationRetrievalQuery(userContent), contextFallbackContent: fallbackContent, contextFallbackInstructions: aiInstructionBlock(featureKey,"recovery.context_size"), onContextFallback: () => { if (contextState) contextState.reduced = true; } });
+    }, { integration, operation, featureKey, nativeArtifactTestCaseTypes:testCaseTypes, contextRetrievalQuery:generationRetrievalQuery(userContent), contextFallbackContent: fallbackContent, contextFallbackInstructions: aiInstructionBlock(featureKey,"recovery.context_size"), onContextFallback: () => { if (contextState) contextState.reduced = true; } });
   } catch (error) {
     if (error?.name === "AbortError") {
       throw Object.assign(new Error("AI authoring timed out while waiting for the LLM provider"), { statusCode: 504 });
@@ -237,8 +196,8 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
   return messageContent;
 };
 
-const buildPrompt = ({ requirement, appType, currentCase, authoringMode, additionalContext, externalLinks, images }) => JSON.stringify({
-  application_contract:{output_schema:caseOutputSchema(authoringMode),authoring_mode:authoringMode},
+const buildPrompt = ({ requirement, appType, currentCase, authoringMode, additionalContext, externalLinks, images, testCaseTypes }) => JSON.stringify({
+  application_contract:{output_schema:caseOutputSchema(authoringMode,{testCaseTypes}),authoring_mode:authoringMode},
   generation_request:splitGenerationContext(additionalContext),
   application:{id:appType.id,name:appType.name,type:appType.type},
   story:requirement ? storyAiSnapshot(requirement) : null,
@@ -281,6 +240,8 @@ const normalizePreview = (payload, currentCase, fallbackStepType, authoringMode 
     return {
       summary: normalizeRichText(payload?.summary),
       title,
+      priority: payload?.priority ?? currentCase.priority ?? 3,
+      test_case_type: payload?.test_case_type ?? currentCase.test_case_type,
       description: normalizeRichText(payload?.description),
       authoring_mode: "gherkin",
       gherkin_document,
@@ -300,6 +261,8 @@ const normalizePreview = (payload, currentCase, fallbackStepType, authoringMode 
   return {
     summary: normalizeRichText(payload?.summary),
     title,
+    priority: payload?.priority ?? currentCase.priority ?? 3,
+    test_case_type: payload?.test_case_type ?? currentCase.test_case_type,
     description: normalizeRichText(payload?.description),
     authoring_mode: "structured",
     gherkin_document: null,
@@ -357,6 +320,8 @@ exports.previewCaseAuthoring = async ({
   if (additionalContext?.length > 18_000) throw Object.assign(new Error("Shorten the authoring context to 18,000 characters before generating."), { statusCode: 422, code: "AI_INPUT_BUDGET_EXCEEDED" });
   const externalLinks = normalizeTextList(external_links, 10, 500);
   const safeImages = normalizeAiReferenceImages(images);
+  const typeField = await dropdownCatalog.getField('test_cases.types');
+  const testCaseTypes = [...new Set([...typeField.options.filter(option=>option.active!==false).map(option=>option.value), ...(currentCase.test_case_type?[currentCase.test_case_type]:[])])];
   const integration = await resolveIntegration(integration_id, {
     userId: user_id,
     projectId: appType.project_id || requirement?.project_id,
@@ -369,7 +334,8 @@ exports.previewCaseAuthoring = async ({
     authoringMode,
     additionalContext,
     externalLinks,
-    images: safeImages
+    images: safeImages,
+    testCaseTypes
   });
   const contextState = { reduced: false };
   // A rejected optional-evidence budget may be reduced. The linked Story and
@@ -380,10 +346,13 @@ exports.previewCaseAuthoring = async ({
     appType,
     currentCase,
     authoringMode, additionalContext,
-    externalLinks: [], images: []
+    externalLinks: [], images: [], testCaseTypes
   });
-  const content = await requestChatCompletion({ integration, prompt, authoringMode, images: safeImages, fallbackContent, contextState });
+  const content = await requestChatCompletion({ integration, prompt, authoringMode, images: safeImages, fallbackContent, contextState, testCaseTypes });
   const preview = normalizePreview(extractJsonPayload(content), currentCase, fallbackStepType, authoringMode);
+  preview.test_case_type ||= currentCase.test_case_type || typeField.default_value;
+  if (!testCaseTypes.includes(preview.test_case_type)) throw Object.assign(new Error('AI authoring selected an unavailable Test Case type. Choose an active type configured by an administrator.'),{statusCode:502,code:'AI_NATIVE_CONTRACT_INVALID'});
+  if (!Number.isSafeInteger(preview.priority)||preview.priority<1||preview.priority>5) throw Object.assign(new Error('AI authoring returned an invalid priority.'),{statusCode:502,code:'AI_NATIVE_CONTRACT_INVALID'});
 
   return {
     integration: {

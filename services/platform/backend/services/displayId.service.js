@@ -16,6 +16,11 @@ const DISPLAY_ID_CONFIG = {
     prefix: "TC_",
     minDigits: 1
   },
+  automation_case: {
+    table: "test_cases",
+    prefix: "AT_",
+    minDigits: 1
+  },
   test_suite: {
     table: "test_suites",
     prefix: "TS-",
@@ -53,6 +58,18 @@ exports.createDisplayId = async (kind) => {
 
   if (!config) {
     throw new Error(`Unsupported display id kind: ${kind}`);
+  }
+
+  if (kind === "test_case" || kind === "automation_case") {
+    // Reserve the identifier atomically; parallel case creation cannot obtain
+    // the same number even though its authoring transaction commits later.
+    const row = await db.prepare(`INSERT INTO record_display_sequences(kind,value)
+      SELECT ?,COALESCE(MAX(SUBSTRING(reference FROM ?)::bigint),0)+1 FROM (
+        SELECT display_id AS reference FROM test_cases UNION ALL SELECT jsonb_array_elements_text(legacy_display_ids) FROM test_cases
+      ) reserved
+      ON CONFLICT(kind) DO UPDATE SET value=GREATEST(record_display_sequences.value+1,EXCLUDED.value)
+      RETURNING value`).get(kind, kind === "automation_case" ? '^AT_([0-9]+)$' : '^TC_([0-9]+)$');
+    return `${config.prefix}${row.value}`;
   }
 
   const row = await db.prepare(`

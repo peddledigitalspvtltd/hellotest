@@ -1,3 +1,4 @@
+const { normalizeReferenceImages } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const db = require("@hellotest/platform/backend/src/db");
 const { createHash, randomUUID: uuid } = require("crypto");
 const { hostname } = require("os");
@@ -229,18 +230,7 @@ const startJobHeartbeat = (jobId, workerId) => {
   };
 };
 
-const normalizeImageAssets = (images = []) => {
-  if (!Array.isArray(images)) {
-    return [];
-  }
-
-  return images
-    .map((image, index) => ({
-      name: normalizeText(image?.name) || `Reference image ${index + 1}`,
-      url: normalizeText(image?.url)
-    }))
-    .filter((image) => image.url);
-};
+const normalizeImageAssets = images => normalizeReferenceImages(images, { max_images: 4 });
 
 const parseJsonValue = (value, fallback) => {
   if (value === null || value === undefined || value === "") {
@@ -444,6 +434,7 @@ async function generateCasesForRequirement({
       description: candidate.description || undefined,
       external_references: normalizeStoredReferenceList(requirement.external_references),
       priority: candidate.priority,
+      test_case_type: candidate.test_case_type,
       status: "draft",
       requirement_ids: candidate.requirement_ids?.length ? candidate.requirement_ids : [requirement.id],
       authoring_mode: candidate.authoring_mode || job.authoring_mode || "structured",

@@ -61,8 +61,11 @@
     "./backend/services/automationRepair.service": "./backend/services/automationRepair.service.js",
     "./frontend/components/AutomationRepairReview": "./frontend/components/AutomationRepairReview.tsx",
     "./frontend/components/AiTestCaseStepTable": "./frontend/components/AiTestCaseStepTable.tsx",
+    "./frontend/components/AgenticAuthoringCanvas.css": "./frontend/components/AgenticAuthoringCanvas.css",
     "./frontend/components/AiTestCaseDraftFields": "./frontend/components/AiTestCaseDraftFields.tsx",
-    "./frontend/lib/draftReadiness": "./frontend/lib/draftReadiness.ts"
+    "./frontend/lib/draftReadiness": "./frontend/lib/draftReadiness.ts",
+    "./frontend/components/AutomationAgentSetup": "./frontend/components/AutomationAgentSetup.tsx",
+    "./frontend/components/AiReferenceImages": "./frontend/components/AiReferenceImages.tsx"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs ai",
@@ -96,6 +99,9 @@
     "@hellotest/knowledge": "^1.0.0",
     "@hellotest/manual": "^1.0.0",
     "@hellotest/platform": "^1.0.0",
-    "@hellotest/testing": "^1.0.0"
+    "@hellotest/testing": "^1.0.0",
+    "acorn": "8.18.0",
+    "@hellotest/trace": "^1.0.0",
+    "@hellotest/automation": "^1.0.0"
   }
 }

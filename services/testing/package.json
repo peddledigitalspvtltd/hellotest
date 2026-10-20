@@ -13,10 +13,14 @@
   "exports": {
     "./backend": "./backend/service.manifest.js",
     "./backend/services/batchProcess.service": "./backend/services/batchProcess.service.js",
+    "./backend/services/batchJobLease": "./backend/services/batchJobLease.js",
     "./backend/services/execution.service": "./backend/services/execution.service.js",
     "./backend/services/executionResult.service": "./backend/services/executionResult.service.js",
     "./backend/services/issues.service": "./backend/services/issues.service.js",
     "./backend/services/testCase.service": "./backend/services/testCase.service.js",
+    "./backend/services/linkedManualParameters.service": "./backend/services/linkedManualParameters.service.js",
+    "./backend/services/effectiveCaseDataSets.service": "./backend/services/effectiveCaseDataSets.service.js",
+    "./backend/services/suiteExecutionContext.service": "./backend/services/suiteExecutionContext.service.js",
     "./backend/services/testCaseModule.service": "./backend/services/testCaseModule.service.js",
     "./backend/services/testCaseScope.service": "./backend/services/testCaseScope.service.js",
     "./backend/services/testConfiguration.service": "./backend/services/testConfiguration.service.js",
@@ -54,7 +58,12 @@
     "./frontend/pages/TestCasesPage": "./frontend/pages/TestCasesPage.tsx",
     "./frontend/pages/TestEnvironmentPage": "./frontend/pages/TestEnvironmentPage.tsx",
     "./package.json": "./package.json",
-    "./ui": "./frontend/entry.ts"
+    "./ui": "./frontend/entry.ts",
+    "./frontend/components/TestDataSetPickerDialog": "./frontend/components/TestDataSetPickerDialog.tsx",
+    "./frontend/lib/executionParameterContext": "./frontend/lib/executionParameterContext.ts",
+    "./frontend/lib/testDataGenerators": "./frontend/lib/testDataGenerators.ts",
+    "./frontend/lib/gherkinBehavior": "./frontend/lib/gherkinBehavior.ts",
+    "./frontend/lib/dataSetValidation": "./frontend/lib/dataSetValidation.ts"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs testing",

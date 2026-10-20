@@ -4,11 +4,15 @@ const assistant = require("../../../chatbot/backend/services/knowledgeAssistant.
 const contracts = require("../../../knowledge/backend/services/knowledgeContracts.service");
 const gateway = require("../../../knowledge/backend/services/knowledgeModelGateway.service");
 const execution = require("../../../knowledge/backend/services/knowledgeExecution.service");
+const { expandManagedInstructions } = require('./helpers/managedInstructions');
 const integration = { id: "fixture", model: "fixture-model", config: { protocol: "fixture" } };
+// These mocks intercept above the HTTP boundary that expands managed markers.
+// Observe the actual default block text while retaining the original contracts.
+const observedRequest = input => ({ ...input, messages: input.messages.map(message => ({ ...message, content: expandManagedInstructions(message.content) })) });
 
 test("retrieval planning receives a bounded packet even when the first raw evidence is oversized", async (context) => {
   let sent;
-  context.mock.method(gateway, "request", async (input) => { sent = input; return { search_queries: [] }; });
+  context.mock.method(gateway, "request", async (input) => { sent = observedRequest(input); return { search_queries: [] }; });
   await execution.run({ modelBudget: { ...contracts.DEFAULT_BUDGETS, max_context_tokens: 1600, max_evidence_items: 1 } }, () => assistant._internals.requestRetrievalPlan({
     integration, question: "What is the onboarding decision?", projectScope: { project_id: "project", filters: {} }, history: [{ role: "assistant", content: "Previously restricted content" }],
     hits: [{ source_id: "source", citation: { id: "e1" }, content: `${"Authorized context. ".repeat(10000)}TAIL_MUST_NOT_REACH_MODEL` }]
@@ -25,7 +29,7 @@ test("retrieval planning receives a bounded packet even when the first raw evide
 test("synthesis uses the authorized packet once and enforces the model-candidate schema", async (context) => {
   let sent;
   context.mock.method(gateway, "request", async (input) => {
-    sent = input;
+    sent = observedRequest(input);
     return { status: "answered", executive_summary: "Done [e1]", supported_claims: [{ statement: "Onboarding is Done.", citation_ids: ["e1"] }] };
   });
   const packet = contracts.buildContextPacket({ retrievalRequest: contracts.buildRetrievalRequest({ projectId: "project", query: "What changed?" }), authorization: { enforced: true }, evidence: [{ source_id: "source", citation: { id: "e1" }, content: "Onboarding is Done.", is_current: true }] });

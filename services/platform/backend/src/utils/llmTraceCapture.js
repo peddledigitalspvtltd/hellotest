@@ -3,7 +3,8 @@ const context = require('./llmTraceContext');
 const { redactSensitiveData } = require('../security/aiTextPolicy');
 
 const MAX_CHARS = 96_000;
-const SECRET = /^(?:authorization|cookie|set-cookie|password|passwd|secret|client_secret|secret_key|private_key|credential|connection_string|api[_-]?key|access[_-]?token|refresh[_-]?token|reasoning_content|reasoning|thinking)$/i;
+const SECRET = /^(?:authorization|cookie|set-cookie|password|passwd|secret|client_secret|secret_key|private_key|credential|connection_string|token|api[_-]?key|access[_-]?token|refresh[_-]?token|reasoning_content|reasoning|thinking)$/i;
+const SENSITIVE_QUERY=/([?&](?:token|key|api[_-]?key|access[_-]?token|refresh[_-]?token|signature|x-amz-signature|x-amz-credential|x-goog-signature)=)[^&#\s"'<>]+/gi;
 function sanitize(value) {
   let remaining = MAX_CHARS, entries = 3000, truncated = false, redacted = false;
   function visit(item, depth = 0) {
@@ -16,8 +17,9 @@ function sanitize(value) {
         .replace(/(["']?(?:password|passwd|secret|client_secret|api[_-]?key|access[_-]?token)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)/gi, '$1[REDACTED]')
         .replace(/\b(https?|postgres(?:ql)?):\/\/[^\s/@]+:[^\s/@]+@/gi, '$1://[REDACTED]@')
         .replace(/\bsk-[A-Za-z0-9_-]{12,}/g, '[REDACTED_KEY]');
-      redacted ||= safe !== item;
-      const result = safe.slice(0, remaining); truncated ||= result.length < safe.length; remaining -= result.length;
+      const safeUrl=safe.replace(SENSITIVE_QUERY,'$1[REDACTED]');
+      redacted ||= safeUrl !== item;
+      const result = safeUrl.slice(0, remaining); truncated ||= result.length < safeUrl.length; remaining -= result.length;
       return result;
     }
     if (Array.isArray(item)) {
@@ -31,11 +33,12 @@ function sanitize(value) {
     }
     if (item && typeof item === 'object') {
       const output = [], input = Object.entries(item);
+      const privateEntry=item.is_secret===true||SECRET.test(String(item.key||item.name||'').replace(/^x[-_]/i,''));
       for (const [key,val] of input.slice(0,200)) {
         if (remaining <= 0 || entries <= 0) { truncated = true; break; }
         const boundedKey = key.slice(0,Math.min(255,remaining)); remaining -= boundedKey.length;
         truncated ||= boundedKey !== key;
-        if (SECRET.test(key)) { redacted = true; output.push([boundedKey,'[REDACTED]']); }
+        if (SECRET.test(key)||(privateEntry&&key==='value')) { redacted = true; output.push([boundedKey,'[REDACTED]']); }
         else output.push([boundedKey,visit(val,depth+1)]);
       }
       truncated ||= output.length < input.length;
@@ -48,6 +51,26 @@ function sanitize(value) {
 }
 const parse = value => { try { return JSON.parse(value); } catch { return { text: String(value || '') }; } };
 const origin = url => { try { return new URL(url).origin; } catch { return null; } };
+function generationCorrelation(scope) {
+  const bounded = value => typeof value === 'string' && value.length > 0 && value.length <= 200 ? value : null;
+  const result = {};
+  if (bounded(scope.test_case_id)) result.test_case_id = scope.test_case_id;
+  if (Number.isSafeInteger(scope.completion_attempt) && scope.completion_attempt > 0 && scope.completion_attempt <= 100) result.completion_attempt = scope.completion_attempt;
+  if (['case_attempt','section_attempt','section_semantic_review','section_prerequisite_review','case_metadata','flow_plan'].includes(scope.generation_scope) && result.test_case_id) {
+    result.generation_scope = scope.generation_scope;
+    if (['section_attempt','section_semantic_review','section_prerequisite_review'].includes(scope.generation_scope) && Number.isSafeInteger(scope.section_attempt) && scope.section_attempt > 0 && scope.section_attempt <= 3) result.section_attempt = scope.section_attempt;
+    const sections = [...new Set((Array.isArray(scope.generation_section_ids) ? scope.generation_section_ids : []).filter(bounded))];
+    result.generation_section_ids = sections.slice(0, 500);
+    result.generation_section_count = sections.length;
+    result.generation_section_ids_truncated = sections.length > 500;
+  }
+  return result;
+}
+async function notify(trace,record){
+ if(typeof trace.scope.on_llm_trace!=='function')return;
+ let timer;
+ try{await Promise.race([Promise.resolve().then(()=>trace.scope.on_llm_trace({trace_id:trace.id,call_id:trace.id,feature:trace.scope.feature,model:trace.model,stage:trace.profileCapture.request_stage,dispatched:trace.profileCapture.request_stage==='provider_dispatch',...generationCorrelation(trace.scope),...record})),new Promise(resolve=>{timer=setTimeout(resolve,500);})]);}catch{/* Activity logging cannot replay or discard a generation. */}finally{clearTimeout(timer);}
+}
 let failures = 0;
 const write = async (text, values) => {
   // Bounded database calls; tracing must never replay or discard a generation.
@@ -64,12 +87,13 @@ const write = async (text, values) => {
 
 async function begin({ url, init, options, correctionOf }) {
   const scope = { ...context.current(options.integration), ...options.traceContext };
+  scope.feature ||= options.featureKey || null;
   if (!scope.project_id && !scope.actor_id) return null;
   const raw = typeof init.body === 'string' ? init.body : '';
   const parsed = parse(raw);
   const request = sanitize(parsed);
-  const profileCapture = { scope: scope.project_id ? "project" : "instance", configuration_version: scope.configuration_version ?? null, configuration_hash: scope.configuration_hash || null, feature_group: scope.feature_group || null, instruction_versions:scope.instruction_versions||null, mcp_context: scope.mcp_context || options.mcpContextStatus || null };
-  const trace = { profileCapture, id: randomUUID(), started: Date.now(), request, scope };
+  const profileCapture = { scope: scope.project_id ? "project" : "instance", request_stage:options.traceStage||'provider_dispatch',request_utf8_bytes:Buffer.byteLength(raw,'utf8'),configuration_version: scope.configuration_version ?? null, configuration_hash: scope.configuration_hash || null, feature_group: scope.feature_group || null, instruction_versions:scope.instruction_versions||null, mcp_context: scope.mcp_context || options.mcpContextStatus || null, ...generationCorrelation(scope) };
+  const trace = { profileCapture, id: randomUUID(), started: Date.now(), request, scope,model:parsed.model||options.integration?.model||null };
   trace.saved = await write(`INSERT INTO llm_request_traces
     (id, project_id, actor_id, request_id, trace_id, run_id, node_id, session_id, operation, feature,
      integration_id, integration_name, provider_origin, requested_model, status, started_at, request_payload, request_hash, capture, correction_of)
@@ -78,7 +102,17 @@ async function begin({ url, init, options, correctionOf }) {
     options.operation || 'llm.request', scope.feature, options.integration?.id || null, options.integration?.name || null, origin(url), parsed.model || null,
     new Date(trace.started), request.payload, createHash('sha256').update(raw).digest('hex'), { ...profileCapture, request_truncated: request.truncated, redacted: request.redacted }, correctionOf || null]);
   trace.dispatched = Date.now();
+  await notify(trace,{status:'running',attempt:1,trace_capture:trace.saved?'recorded':'unavailable'});
   return trace;
+}
+
+// Called synchronously at the actual fetch boundary. Trace storage and activity
+// logging can consume the deadline without ever dispatching a provider request.
+function dispatch(trace,attempt=1) {
+  if(!trace)return;
+  trace.profileCapture.request_stage='provider_dispatch';
+  trace.dispatched=Date.now();
+  void notify(trace,{status:'running',attempt,trace_capture:trace.saved?'recorded':'unavailable'});
 }
 
 async function finish(trace, { response, error, invalid = false, attempts = 1 } = {}) {
@@ -91,6 +125,12 @@ async function finish(trace, { response, error, invalid = false, attempts = 1 } 
   const code = error?.code || error?.name || (response && !response.ok ? `HTTP_${response.status}` : null);
   const status = invalid ? 'invalid' : error ? (/ABORT|CANCEL/i.test(code) ? 'cancelled' : 'failed') : response?.ok ? 'succeeded' : 'failed';
   let usage = raw?.usage && typeof raw.usage === 'object' ? Object.fromEntries(['prompt_tokens', 'completion_tokens', 'total_tokens', 'input_tokens', 'output_tokens'].filter(key => Number.isSafeInteger(raw.usage[key]) && raw.usage[key]>=0).map(key => [key, raw.usage[key]])) : null;
+  if(usage){
+    const input=usage.prompt_tokens??usage.input_tokens;
+    const cached=raw.usage.cached_input_tokens??raw.usage.prompt_tokens_details?.cached_tokens??raw.usage.input_tokens_details?.cached_tokens;
+    // Cached input is a reported subset, never an extra contribution to total.
+    if(Number.isSafeInteger(input)&&Number.isSafeInteger(cached)&&cached>=0&&cached<=input)usage.cached_input_tokens=cached;
+  }
   if (usage && usage.total_tokens == null) {
     const input = usage.prompt_tokens ?? usage.input_tokens, output = usage.completion_tokens ?? usage.output_tokens;
     if (input != null && output != null && Number.isSafeInteger(input+output)) usage.total_tokens=input+output;
@@ -105,5 +145,6 @@ async function finish(trace, { response, error, invalid = false, attempts = 1 } 
     response.headers.set('x-hellotest-llm-trace-id', trace.id);
     response.headers.set('x-hellotest-llm-trace-status', trace.saved && saved ? 'recorded' : 'unavailable');
   }
+  await notify(trace,{status,attempt:attempts,http_status:response?.status||null,duration_ms:Math.max(0,(trace.received||Date.now())-(trace.dispatched||trace.started)),usage,error_code:code?.slice(0,100)||null,trace_capture:trace.saved&&saved?'recorded':'unavailable'});
 }
-module.exports = { begin, finish, sanitize, diagnostics: () => ({ failed_writes: failures }) };
+module.exports = { begin, dispatch, finish, sanitize, diagnostics: () => ({ failed_writes: failures }) };

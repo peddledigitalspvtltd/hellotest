@@ -1,4 +1,9 @@
+import { buildAutomationRepositoryFields as sharedRepositoryFields } from "../../shared/automationRepository.mjs";
 import type { AutomationLearningCacheEntry } from "@hellotest/platform/frontend/src/types";
+
+/** Locator presentation also accepts protected preview projections without learning metrics. */
+export type AutomationRepositoryReference = Pick<AutomationLearningCacheEntry,
+  "id" | "page_key" | "locator_intent" | "locator" | "metadata" | "page_url" | "locator_kind">;
 
 export type AutomationKeywordInputSpec = {
   target: "repository" | "text" | "none";
@@ -61,19 +66,16 @@ export function getAutomationKeywordInputSpec(keywordId: string, platform = "web
   return spec("repository", "Object Repository field");
 }
 
-export function buildAutomationRepositoryFields(objectRepository: AutomationLearningCacheEntry[]) {
-  return objectRepository.filter((entry) => Boolean(entry.locator) && entry.locator !== "__screen__" && entry.locator_intent !== "__screen__" && entry.metadata?.record_kind !== "screen" && entry.metadata?.object_name !== "__screen__")
-    .map((entry) => {
-      const metadata = entry.metadata || {};
-      const screenName = String(metadata.screen_name || entry.page_key || "Screen").trim();
-      const rawName = String(metadata.object_name || entry.locator_intent || entry.locator || "Field").trim();
-      const objectName = rawName.startsWith(`${screenName}.`) ? rawName.slice(screenName.length + 1) || rawName : rawName;
-      return { id: entry.id, reference: `${screenName}.${objectName}`, locator: entry.locator, screenName, objectName, htmlTag: String(metadata.object_role || entry.locator_kind || "locator"), pageUrl: String(metadata.page_url || metadata.url_pattern || entry.page_url || entry.page_key || "") };
-    });
+export function buildAutomationRepositoryFields(objectRepository: AutomationRepositoryReference[]) {
+  return sharedRepositoryFields(objectRepository);
 }
 
-export function resolveAutomationRepositoryTarget(target: string, objectRepository: AutomationLearningCacheEntry[]) {
-  return buildAutomationRepositoryFields(objectRepository).find((field) => field.reference === target)?.locator || target;
+export function resolveAutomationRepositoryTarget(target: string, objectRepository: AutomationRepositoryReference[]) {
+  const fields = buildAutomationRepositoryFields(objectRepository);
+  const canonical = fields.find(field => field.reference === target);
+  if (canonical) return canonical.locator;
+  const aliases = fields.filter(field => field.aliases.includes(target));
+  return new Set(aliases.map(field => field.locator)).size === 1 ? aliases[0].locator : target;
 }
 
 /** Keep numeric parameter references executable instead of replacing them with a default. */

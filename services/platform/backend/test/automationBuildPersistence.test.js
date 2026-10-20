@@ -29,7 +29,7 @@ test("manual automation clones retain prose, preconditions, capabilities and sco
   assert.deepEqual(result.requirement_ids, source.requirement_ids);
   assert.deepEqual(result.suite_ids, source.suite_ids);
   assert.deepEqual(result.test_data_set_ids, source.test_data_set_ids);
-  assert.deepEqual(result.parameter_values, source.parameter_values);
+  assert.deepEqual(result.parameter_values, {}, 'linked manual parameters stay live defaults instead of becoming sticky automation overrides');
   assert.deepEqual(result.steps.map((step) => [step.action, step.expected_result]), sourceSteps.map((step) => [step.action, step.expected_result]));
   assert.equal(result.steps[0].group_name, "Preconditions");
   assert.deepEqual(result.steps[0].api_request, sourceSteps[0].api_request);
@@ -56,6 +56,7 @@ const loadBuilderTestFunctions = (records) => {
     if (dependencyName(id) === "db" || dependencyName(id) === "obsDb") return dbStub;
     if (id === "crypto") return require("crypto");
     if (dependencyName(id) === "testStepAutomation") return automationUtils;
+    if (dependencyName(id) === "automationGeneratedProgram") return require("../../../automation/backend/lib/automationGeneratedProgram");
     if (dependencyName(id) === "testStep.service") return { updateTestStep: async (id, update, options) => { assert.equal(options.syncSharedGroup, false); return Object.assign(records.get(id), update); } };
     return {};
   } };
@@ -81,12 +82,19 @@ test("complete AI mappings preserve API/native capabilities and never overwrite 
     assert.equal(records.get(step.id).group_id, step.group_id);
   }
 });
+test("an agent that lost its durable lease cannot apply validated instructions",async()=>{
+ const original={id:"step",test_case_id:"case",step_order:1,action:"Submit",expected_result:"Saved",step_type:"web",automation_code:'await web.click("#old");'};
+ const records=new Map([[original.id,{...original}]]),{normalizeLlmBuild,applyBuild}=loadBuilderTestFunctions(records);
+ const build=normalizeLlmBuild({steps:[{step_id:original.id,automation_code:'await web.click("#new");'}]},[original],[],null);
+ await assert.rejects(applyBuild({build,executionGuard:{ensureOwnership:async()=>{throw Object.assign(new Error("Lease ownership changed"),{code:"BATCH_JOB_LEASE_LOST"});}}}),{code:"BATCH_JOB_LEASE_LOST"});
+ assert.equal(records.get(original.id).automation_code,original.automation_code);
+});
 
 const loadService = (relativeFile, overrides) => {
   const file = path.join(__dirname, relativeFile);
   const exported = {};
   const sandbox = { module: { exports: exported }, exports: exported, process, URL, Buffer, setTimeout: () => 0, clearTimeout: () => {}, console,
-    require: (id) => overrides[Object.keys(overrides).find(key => key.split('/').pop() === id.split('/').pop())] || (id === "crypto" ? require("crypto") : dependencyName(id) === "automationSchedule" ? { normalizeScheduledAt } : dependencyName(id) === "automationCaseBlueprint" ? { buildAutomationCaseBlueprint } : {}) };
+    require: (id) => overrides[Object.keys(overrides).find(key => key.split('/').pop() === id.split('/').pop())] || (id === "crypto" ? require("crypto") : dependencyName(id) === "automationSchedule" ? { normalizeScheduledAt } : dependencyName(id) === "automationStartUrl" ? require('../src/utils/automationStartUrl') : dependencyName(id) === "automationQueuedStartUrl.service" ? require('../../../automation/backend/services/automationQueuedStartUrl.service') : dependencyName(id) === "automationCaseBlueprint" ? { buildAutomationCaseBlueprint } : {}) };
   vm.runInNewContext(fs.readFileSync(file, "utf8"), sandbox, { filename: file });
   return sandbox.module.exports;
 };
@@ -95,17 +103,17 @@ test("both automation queues persist the future due time at their scheduling bou
   const future = "2099-01-02T03:04:05.000Z";
   const writes = [];
   const transactions = [];
-  const database = { transaction: callback => callback, prepare: (sql) => ({ get: async () => ({ ...source, project_id: "project" }), run: async (...values) => { writes.push({ sql, values }); return { changes: 1 }; }, all: async () => [] }) };
+  const database = { transaction: callback => callback, prepare: (sql) => ({ get: async () => ({ ...source, project_id: "project", type: 'web' }), run: async (...values) => { writes.push({ sql, values }); return { changes: 1 }; }, all: async () => /SELECT source.id, source.automated, source.automation_start_url/.test(sql) ? [{ id: source.id, automated: source.automated }] : /FROM test_steps/.test(sql) ? sourceSteps.map(step => ({ ...step, test_case_id: source.id })) : [] }) };
   const workspace = {
     createTransaction: async (input) => { transactions.push(input); return { id: "transaction" }; },
     getTransaction: async () => ({ id: "transaction", title: "Automation build" }),
     appendTransactionEvent: async () => {}, createTransactionNotification: async () => {}
   };
-  const overrides = { "./aiAutomationFeaturePolicy": require('../../../automation/backend/services/aiAutomationFeaturePolicy'), "@hellotest/platform/backend/src/db": database, "@hellotest/platform/backend/src/obsDb": database, "@hellotest/platform/backend/services/workspaceTransaction.service": workspace };
+  const overrides = { "./aiAutomationFeaturePolicy": require('../../../automation/backend/services/aiAutomationFeaturePolicy'), "@hellotest/automation/backend/services/aiAutomationBuilder.service": {buildFeature:require('../../../automation/backend/services/aiAutomationFeaturePolicy').buildFeature}, "../lib/automationAgentContext":require('../../../automation/backend/lib/automationAgentContext'), "@hellotest/platform/backend/src/db": database, "@hellotest/platform/backend/src/obsDb": database, "@hellotest/platform/backend/services/workspaceTransaction.service": workspace };
   const batch = loadService("../../../testing/backend/services/batchProcess.service.js", overrides);
   const generator = loadService("../../../automation/backend/services/automationGenerator.service.js", overrides);
-  const batchResult = await batch.queueAutomationBuild({ app_type_id: "app", test_case_ids: ["manual"], scheduled_at: future, created_by: "author" });
-  const generatorResult = await generator.queueGeneratorJob({ test_case_id: "manual", scheduled_at: future, created_by: "author", ai_feature: 'ai.automation.review' });
+  const batchResult = await batch.queueAutomationBuild({ app_type_id: "app", test_case_ids: ["manual"], start_url: 'https://app.example.test/', scheduled_at: future, created_by: "author" });
+  const generatorResult = await generator.queueGeneratorJob({ test_case_id: "manual", start_url: 'https://app.example.test/', scheduled_at: future, created_by: "author", ai_feature: 'ai.automation.review' });
   assert.equal(batchResult.scheduled_at, future);
   assert.equal(generatorResult.scheduled_at, future);
   assert.equal(writes.find((write) => write.sql.includes("INSERT INTO batch_process_jobs")).values[4], future);
@@ -182,6 +190,7 @@ test("automation status endpoint authorizes the transaction project and reports 
   const checks = [];
   const register = loadService("../../../testing/backend/routes/testCases.routes.js", {
     "@hellotest/platform/backend/services/workspaceTransaction.service": { getTransaction: async () => transaction },
+    "@hellotest/automation/backend/services/automationAgentActivity.service": {activity:async row=>({...row,events:[{id:"section-event",message:"Validated section instructions"}],events_has_more:false})},
     "@hellotest/platform/backend/public/projectAccess": { getProject: async (projectId, userId) => { checks.push(["project", projectId, userId]); } }
   });
   const routes = new Map();
@@ -194,7 +203,8 @@ test("automation status endpoint authorizes the transaction project and reports 
   const response = await handler({ params: { transactionId: "build" }, user: { id: "author" } });
   assert.equal(response.status, "running");
   assert.equal(response.metadata.progress_percent, 45);
-  assert.deepEqual(checks, [["authenticate"], ["project", "project", "author"], ["automation.build", "project"]]);
+  assert.equal(response.events[0].id,"section-event");
+  assert.deepEqual(checks, [["authenticate"], ["project", "project", "author"], ["automation.build", "project"],["automation.view","project"],["automation.code.view","project"],["automation.ai","project"]]);
   transaction = { ...transaction, category: "unrelated" };
   await assert.rejects(() => handler({ params: { transactionId: "build" }, user: { id: "author" } }), (error) => error.statusCode === 404);
 });

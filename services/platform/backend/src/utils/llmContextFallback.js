@@ -69,6 +69,9 @@ const buildContextFallbackBody = (body, content, recoveryInstructions) => {
   try { payload = JSON.parse(body); } catch { return null; }
   // Replaying a tool conversation with dropped calls/results is unsafe.
   if (!Array.isArray(payload.messages) || payload.messages.some((message) => message.role === 'tool' || message.tool_calls)) return null;
+  // Image citations and field grounding were built from this exact evidence.
+  // A text-only replay cannot claim to have reviewed the omitted screenshots.
+  if (payload.messages.some(message => Array.isArray(message.content) && message.content.some(part => part?.type === 'image_url'))) return null;
   const users = payload.messages.filter((message) => message.role === 'user');
   if (!users.length) return null;
   const lastUser = users.at(-1);
