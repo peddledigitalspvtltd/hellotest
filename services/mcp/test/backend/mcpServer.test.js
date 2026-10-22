@@ -9,14 +9,16 @@ const actor={user:{id:'user-a',role:'member'},projectId:'project-a',clientId:'ho
 const permit=async(a)=>{if(a.projectId!=='project-a')throw Object.assign(new Error('Denied'),{statusCode:403,code:'DENIED'});};
 const fakeDb={prepare:()=>({run:async()=>{},get:async()=>undefined,all:async()=>[]})};
 const backplane={catalog:async a=>({owner:a.user.id,project:a.projectId}),describe:async()=>({}),read:async()=>({}),context:async a=>({packet:{evidence:[]},owner:a.user.id}),graph:async()=>({}),prepare:async()=>({state:'requires_authorization'}),execute:async()=>({state:'requires_authorization'}),status:async()=>({state:'requires_authorization'}),bounded:value=>value,auditFailure:()=>{}};
-const server=load('mcpServer',{'./backplane':backplane,'./projections':{entities:{projects:{}},schema:async()=>({}),query:async()=>({})},'./auth':{permit,fail:(message,statusCode=403,code='DENIED')=>Object.assign(new Error(message),{statusCode,code,publicMessage:message})},'@hellotest/platform/backend/src/db':fakeDb});
+const promptConfiguration={config:{role:'Configured investigator',domain:'Test results',task:'Investigate',prompt:'Follow published investigation guidance',guardrails:'Retain source ACLs',instruction_blocks:{'template.investigate_failure':'Published exact failure investigation'}},published_version:3};
+const server=load('mcpServer',{'./backplane':backplane,'./projections':{entities:{projects:{}},schema:async()=>({}),query:async()=>({})},'./auth':{permit,fail:(message,statusCode=403,code='DENIED')=>Object.assign(new Error(message),{statusCode,code,publicMessage:message})},'@hellotest/platform/backend/src/db':fakeDb,
+ '@hellotest/platform/backend/services/aiConfiguration.service':{resolve:async id=>{assert.equal(id,'ai.mcp.investigate_failure');return promptConfiguration;}}});
 const meta={'io.modelcontextprotocol/protocolVersion':'2026-07-28','io.modelcontextprotocol/clientCapabilities':{}};
 function request(body,headers={}){return new Request('http://localhost/mcp',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json, text/event-stream',...headers},body:JSON.stringify(body)});}
 const auth={authInfo:{token:'test',clientId:'host',scopes:[],extra:{actor}}};
 test.after(()=>server.handler.close());
 test('real SDK serves the modern stateless tool catalog and caller-bound results',async()=>{
  const response=await server.handler.fetch(request({jsonrpc:'2.0',id:1,method:'tools/list',params:{_meta:meta}},{'MCP-Protocol-Version':'2026-07-28','Mcp-Method':'tools/list'}),auth);
- assert.equal(response.status,200);const catalog=await response.json();assert.equal(catalog.result.tools.length,16);assert.ok(catalog.result.tools.every(tool=>tool.inputSchema.additionalProperties===false));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_prepare'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_status'));
+ assert.equal(response.status,200);const catalog=await response.json();assert.equal(catalog.result.tools.length,17);assert.ok(catalog.result.tools.every(tool=>tool.inputSchema.additionalProperties===false));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_prepare'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_status'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_graph_resolve'));
  const result=await server.callLocal(actor,'hellotest_capabilities',{});assert.equal(result.owner,'user-a');assert.equal(result.project,'project-a');
 });
 test('legacy initialize remains compatible without protocol session authority',async()=>{
@@ -33,7 +35,7 @@ test('each advertised legacy revision supports notifications, tools, resources a
   const list=await decode(await server.handler.fetch(request({jsonrpc:'2.0',id:3,method:'tools/list'},headers),auth));assert.ok(list.result.tools.some(tool=>tool.name==='hellotest_graph_context'),version);
   const call=await decode(await server.handler.fetch(request({jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'hellotest_capabilities',arguments:{}}},headers),auth));assert.equal(call.result.structuredContent.scope.project_id,'project-a',version);
   const resource=await decode(await server.handler.fetch(request({jsonrpc:'2.0',id:5,method:'resources/read',params:{uri:'hellotest://schema'}},headers),auth));assert.equal(JSON.parse(resource.result.contents[0].text).scope.subject,'user-a',version);
-  const prompt=await decode(await server.handler.fetch(request({jsonrpc:'2.0',id:6,method:'prompts/get',params:{name:'investigate_failure',arguments:{question:'the observed failed case'}}},headers),auth));assert.match(prompt.result.messages[0].content.text,/observed failed case/,version);
+  const prompt=await decode(await server.handler.fetch(request({jsonrpc:'2.0',id:6,method:'prompts/get',params:{name:'investigate_failure',arguments:{question:'the observed failed case'}}},headers),auth));assert.equal(JSON.parse(prompt.result.messages[0].content.text).instructions,'Published exact failure investigation',version);assert.match(prompt.result.messages[1].content.text,/observed failed case/,version);
  }
 });
 test('tool schemas reject model-supplied identity, approval and raw SQL',async()=>{

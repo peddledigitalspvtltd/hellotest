@@ -45,6 +45,7 @@ test("real server exposes split health, protects run APIs, enforces CORS, and ex
       ARTIFACT_ROOT: artifactRoot,
       HELLOTEST_API_BASE_URL: "",
       TESTENGINE_QUEUE_REQUIRED: "false",
+      TESTENGINE_LIVE_PEER_HOST: "",
       TESTENGINE_SHARED_SECRET: SHARED_SECRET,
       OPS_TELEMETRY_ENVIRONMENT: "local",
       OPS_TELEMETRY_STORE_PATH: path.join(artifactRoot, "ops.ndjson"),
@@ -68,6 +69,17 @@ test("real server exposes split health, protects run APIs, enforces CORS, and ex
     const readyPayload = await ready.json();
     assert.equal(readyPayload.status, "ready");
     assert.equal(readyPayload.checks.queue_worker.status, "disabled");
+    const compatibilityHealth = await (await fetch(`${baseUrl}/health`)).json();
+    assert.equal(compatibilityHealth.ready, true);
+    assert.equal(compatibilityHealth.capabilities.local_execution, true);
+    for (const route of ["/api/v1/live-session", "/api/v1/live-session/screenshot"]) {
+      const unscoped = await fetch(`${baseUrl}${route}`);
+      assert.equal(unscoped.status, 400);
+      assert.equal((await unscoped.json()).code, "LIVE_VIEW_RUN_REQUIRED");
+    }
+    assert.equal((await fetch(`${baseUrl}/api/v1/live-session/screenshot?run_id=missing-case`)).status, 204);
+    assert.equal((await fetch(`${baseUrl}/api/v1/live-session/screenshot?run_id=missing-case&local_only=1`)).status, 401);
+    assert.equal((await fetch(`${baseUrl}/api/v1/live-session/screenshot?run_id=missing-case&local_only=1`, { headers: { "x-hellotest-testengine-secret": SHARED_SECRET } })).status, 204);
 
     for (const request of [
       { url: `${baseUrl}/api/v1/runs`, options: {} },

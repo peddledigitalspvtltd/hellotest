@@ -1,3 +1,4 @@
+const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { createHash } = require('node:crypto');
 const { parse } = require('acorn');
 const { prepareVerificationSections } = require('./automationVerificationPipeline');
@@ -162,11 +163,11 @@ function pendingFinalAssertions({ contract, operations = [], refreshFinalAsserti
  * Expected literals can contain historical secrets unknown to today's data
  * resolver, so none are exposed. Whole bindings are symbolic names only: do
  * not pass them to a projector that could materialize a public input value. */
-function retainedFinalAssertionHints(contract, { projectText } = {}) {
+function retainedFinalAssertionHints(contract, { projectText, featureKey = 'ai.agentic.automation-engineer' } = {}) {
   const retained = issued.get(contract);
   if (!retained || typeof projectText !== 'function') throw failure('AUTOMATION_RETAINED_ASSERTIONS_INVALID', 'Retained assertion hints require a genuine host contract and privacy projector.');
   const hints = { checks: [], omitted_count: retained.final.length,
-    instruction: 'Follow these retained checks in order after the current action, using current observed targets and authored expectations. Saved locators are requirements, not fresh evidence. If an omitted expectation is unavailable, leave that check and following retained checks to host preflight; never guess values or emit out-of-order substitutes.' };
+    instruction: aiInstructionBlock(featureKey, 'automationRetainedAssertions.guidance') };
   for (const entry of retained.final) {
     const args = entry.operation.arguments, descriptor = { assertion: args.assertion };
     if (Object.hasOwn(args, 'locator')) {

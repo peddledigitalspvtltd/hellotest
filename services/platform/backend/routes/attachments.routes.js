@@ -49,6 +49,30 @@ module.exports = async function (fastify) {
     return reply.send(stream);
   });
 
+  fastify.post('/attachments/:id/ai-access', async (req, reply) => {
+    reply.header('Cache-Control','no-store').header('Referrer-Policy','no-referrer');
+    await fastify.authenticate(req);
+    return require('../services/aiAttachmentAccess.service').createAccess({ user: req.user, id: req.params.id, projectId: req.body?.project_id });
+  });
+
+  // This narrowly scoped, expiring capability is intentionally independent of
+  // browser cookies so the configured model provider can retrieve the bytes.
+  fastify.get('/attachments/:id/ai-content', async (req, reply) => {
+    reply.header('Cache-Control', 'private, no-store').header('Referrer-Policy', 'no-referrer');
+    const { row, stream } = await require('../services/aiAttachmentAccess.service').download({ id: req.params.id, token: req.query?.token });
+    reply.header('Cache-Control', 'private, no-store').header('Referrer-Policy', 'no-referrer')
+      .header('X-Content-Type-Options', 'nosniff').header('Content-Security-Policy', "default-src 'none'; sandbox")
+      .header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(attachmentService.safeFileName(row.file_name))}`)
+      .type(row.mime_type || 'application/octet-stream');
+    if (Number(row.size_bytes) > 0) reply.header('Content-Length', String(Number(row.size_bytes)));
+    return reply.send(stream);
+  });
+
+  fastify.post('/attachments/:id/copy', async req => {
+    await fastify.authenticate(req);
+    return attachmentService.copyToEntity({ user: req.user, id: req.params.id, projectId: req.body?.project_id, entityType: req.body?.entity_type, entityId: req.body?.entity_id });
+  });
+
   fastify.delete("/attachments/:id", async (req) => {
     await fastify.authenticate(req);
     return attachmentService.remove({ user: req.user, id: req.params.id });

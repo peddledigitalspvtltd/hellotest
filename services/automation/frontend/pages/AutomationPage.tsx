@@ -30,7 +30,7 @@ import { casePrivateParameterNames, collectPrivateParameterNames, caseParameterS
 import { useAutomationBuildParameters } from "../hooks/useAutomationBuildParameters";
 import "../components/AutomationWorkspace.css";
 import { AutomationBuildContext } from "../components/AutomationBuildContext";
-import { AUTOMATION_RUNTIMES, getAutomationRuntimeTypes, getDefaultAutomationStepType, getRecorderPlatform } from "../lib/automationRuntime";
+import { AUTOMATION_RUNTIMES, getAutomationBuildRuntimeTypes, getDefaultAutomationStepType, getRecorderPlatform } from "../lib/automationRuntime";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
 const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
 const AiAssurancePanel = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiAssurancePanel")["AiAssurancePanel"]> & {}>("ai", "AiAssurancePanel", () => import("@hellotest/ai/frontend/components/AiAssurancePanel"), "ai");
@@ -1997,8 +1997,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     if(caseRepositoryPages.length && !caseRepositoryPages.some(page=>page.screenName===selectedScreenName)) {setSelectedScreenName(caseRepositoryPages[0].screenName);setSelectedRepositoryId("");setIsRepositoryConfigOpen(false);}
   },[view,activeAutomationWorkspaceTab,projectId,activeCase?.id,caseRepositoryPages,selectedScreenName]);
   const selectedRuntimeType = appTypes.find((item) => item.id === appTypeId)?.type || "web";
-  const automationRuntimeTypes = getAutomationRuntimeTypes(automatedSteps, selectedRuntimeType);
-  const automationCreateRuntimeTypes = getAutomationRuntimeTypes([
+  const automationRuntimeTypes = getAutomationBuildRuntimeTypes(automatedSteps, selectedRuntimeType);
+  const automationCreateRuntimeTypes = getAutomationBuildRuntimeTypes([
     ...automationCreateManualCaseIds.flatMap((id) => createSourcesQuery.data?.find((source) => source.testCase.id === id)?.steps || []),
     ...automationCreateSteps.filter((step) => step.action.trim() || step.expected_result.trim())
   ], selectedRuntimeType);

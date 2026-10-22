@@ -7,6 +7,7 @@ const { fetchLlmWithRetry } = require('../src/utils/llmHttpClient');
 const { isContextSizeRejection, buildContextFallbackBody } = require('../src/utils/llmContextFallback');
 const { MCP_CONTEXT_PREFIX } = require('../src/utils/llmContextFallback');
 const { compactEvidenceText } = require('../src/utils/llmContextFallback');
+const { compactMcpContext, retainMcpRelationships } = require('../src/utils/llmContextFallback');
 
 const fullBody = () => JSON.stringify({ model: 'selected-model', temperature: .2, response_format: { type: 'json_object' }, messages: [
   { role: 'system', content: 'Return the required JSON contract. Never invent evidence.' },
@@ -47,6 +48,19 @@ test('structured live evidence remains valid JSON when excerpts are compressed',
  const compact=compactEvidenceText(JSON.stringify({evidence_type:'authoritative_live_story_snapshot',records:Array.from({length:20},(_,i)=>({id:'story-'+i,title:'Refund',description:'Description '.repeat(200),acceptance_criteria:['Reject duplicate refunds']}))}),700);
  assert.ok(compact.length<=700);const snapshot=JSON.parse(compact);assert.equal(snapshot.evidence_type,'authoritative_live_story_snapshot');assert.equal(snapshot.context_window.bounded,true);
  assert.ok(compactEvidenceText('x'.repeat(900),500).length<=500);
+});
+
+test('provider size correction retains only delivered graph proofs and never detached or altered witness spans',()=>{
+ const content='A depends on B.',hash=require('node:crypto').createHash('sha256').update(content).digest('hex');
+ const proof={evidence_id:'proof',content,integrity:{chunk_hash:hash,evidence_hash:hash}};
+ const edge={source:'a',target:'b',type:'DEPENDS_ON',provenance_type:'HUMAN_VERIFIED',evidence_ids:['proof'],witness_span:{evidence_id:'proof',start:0,end:14,offset_basis:'source_chunk',offset_unit:'unicode_codepoint'}};
+ const source={project_id:'p',evidence:[proof],relationships:[edge]};
+ const packet=JSON.parse(compactMcpContext(MCP_CONTEXT_PREFIX+JSON.stringify(source)).slice(MCP_CONTEXT_PREFIX.length));
+ assert.equal(packet.relationships.length,1);assert.equal(packet.omitted_relationship_count,0);
+ assert.deepEqual(retainMcpRelationships([edge],[]),[]);
+ assert.deepEqual(retainMcpRelationships([edge],[{...proof,content:'Altered proof'}]),[]);
+ assert.deepEqual(retainMcpRelationships([edge],[{...proof,excerpt_truncated:true}]),[]);
+ assert.deepEqual(retainMcpRelationships([{...edge,provenance_type:'LLM_CANDIDATE'}],[proof]),[]);
 });
 
 test('provider 413 receives exactly one smaller retry; a second rejection is returned to the caller', async t => {
@@ -95,6 +109,7 @@ test('Story case generation retains acceptance criteria, user guidance and exact
       if (id === '@hellotest/knowledge/backend/services/aiKnowledge.service') return { buildKnowledgeContextPackage: async () => ({ knowledge: [{ title: 'Private Context', content: 'KNOWLEDGE DETAIL' }] }) };
       if (id === '@hellotest/integration/backend/services/aiLlmSelection.service') return { resolveLlmIntegrationForUsage: async () => integration };
       if (id === '@hellotest/platform/backend/src/utils/llmHttpClient') return { fetchLlmWithRetry: async (_url, init, options) => {
+        if(options.featureKey==='ai.authoring.request_validation')return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({decision:'accept',explanation:'Request matches Test Case authoring.',suggestions:[]})}}]}),{headers:{'content-type':'application/json'}});
         observed = { body: JSON.parse(init.body), fallback: expandManagedInstructions(options.contextFallbackContent) };
         options.onContextFallback();
         return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ testCases: [{ title: 'Valid sign in', requirement_refs: ['R1'], steps: [{ action: 'Submit credentials', expected_result: 'Dashboard opens' }] }] }) } }] }), { headers: { 'content-type': 'application/json' } });

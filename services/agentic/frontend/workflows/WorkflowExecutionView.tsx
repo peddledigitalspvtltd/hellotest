@@ -6,6 +6,7 @@ import type {
   AgenticWorkflowEdge,
   AgenticWorkflowRun,
 } from "@hellotest/platform/frontend/src/types";
+import { WorkflowSprintDrafts } from "./WorkflowSprintDrafts";
 import { WorkflowReviewSummary } from "../agents/WorkflowReviewSummary";
 import { WorkflowCanvas } from "./WorkflowCanvas";
 import { WorkflowNodeInspector } from "./WorkflowNodeInspector";
@@ -185,6 +186,7 @@ export function WorkflowExecutionView({
         <span><strong>{run.node_results.filter(item => item.status === "skipped").length}</strong>skipped</span>
       </div>
       {active && <div className="studio-run-progress"><progress aria-label="Recorded execution progress" max={Math.max(1, run.node_results.length)} value={run.summary_only || !run.node_results.length ? undefined : run.node_results.filter(item => ["completed", "failed", "skipped", "cancelled", "interrupted"].includes(String(item.status))).length} /><span>{run.status === "queued" ? "Waiting for a worker" : "Execution in progress"}</span></div>}
+      <WorkflowSprintDrafts key={run.id} run={run} />
       {tab === "logs" ? <div className="studio-run-log"><WorkflowExecutionLog logs={logs} onSelectNode={id => { setSelectedId(id); setTab("steps"); }} /></div> : tab === "summary" ? (
         <div className="studio-review-summary">
           <WorkflowReviewSummary

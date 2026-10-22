@@ -46,9 +46,9 @@ bundle; no TypeScript source files are required on the user's computer.
 The binary must start the same Test Engine HTTP server currently started by
 `node dist/server.js` and honor these environment variables:
 
-- `PORT`, default `4311`
+- `PORT`, default `4313`
 - `ENGINE_NAME`, default `hellotest-host-recorder`
-- `ENGINE_PUBLIC_URL`, default `http://localhost:4311`
+- `ENGINE_PUBLIC_URL`, default `http://localhost:4313`
 - `ARTIFACT_ROOT`, default `local-run/artifacts/host-recorder`
 - `RECORDER_HEADLESS`, default `false`
 - `PLAYWRIGHT_BROWSERS_PATH`, default `local-run/.playwright-browsers`
@@ -64,11 +64,11 @@ Recommended installer behavior:
 1. Install `hellotest-host-recorder.exe` into `local-run/bin`.
 2. Install or download Chromium into `local-run/.playwright-browsers`.
 3. Create Start Menu/Desktop shortcut to `bin/start-host-recorder.cmd`.
-4. Keep `http://localhost:4311/health` as the readiness check.
+4. Keep `http://localhost:4313/health` as the readiness check.
 
 ## Local Run Behavior
 
 After recording, HelloTest stores generated web keyword steps on the test case.
 Clicking `Run locally` creates an execution with `trigger = local`, dispatches
-it to `http://host.docker.internal:4311`, and the Test Runs page classifies that
+it to `http://host.docker.internal:4313`, and the Test Runs page classifies that
 execution under `Local Runs`.

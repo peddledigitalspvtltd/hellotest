@@ -8,7 +8,9 @@ const { normalizeReferenceList } = require("@hellotest/platform/backend/src/util
 const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llmHttpClient");
 const { getCompletionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
 const { parseAiJson } = require("@hellotest/platform/backend/src/utils/aiJsonResponse");
+const { createLlmProviderError } = require("@hellotest/platform/backend/src/utils/upstreamLlmError");
 const { object: aiObject, list: aiList } = require("@hellotest/platform/backend/src/utils/aiArtifactContext");
+const { splitGenerationContext } = require("@hellotest/platform/backend/src/utils/aiGenerationContext");
 
 const BUG_DRAFT_USAGE_KEY = "ai.bug.draft";
 const MAX_TEST_CASES = 10;
@@ -63,6 +65,26 @@ const normalizeExternalLinks = (value) => normalizeReferenceList(value)
   .filter((item) => /^https?:\/\//i.test(item))
   .slice(0, MAX_EXTERNAL_LINKS);
 const normalizeImageAssets = images => normalizeReferenceImages(images);
+const hasWrittenIncident = input => Boolean(input.intent || input.evidence || splitGenerationContext(input.additional_context).user_request);
+const defectRetrievalQuery = (input, context, images) => {
+  const additional = splitGenerationContext(input.additional_context);
+  const reviewedText = additional.reviewed_context.map(value => {
+    try {
+      const parsed = JSON.parse(value);
+      // Uploaded file identities and temporary URLs are not search topics.
+      return typeof parsed.text_excerpts === "string" ? parsed.text_excerpts : "";
+    } catch { return value; }
+  });
+  const topics = [
+    stripMarkup(input.intent, 600), stripMarkup(input.evidence, 800), stripMarkup(additional.user_request, 800),
+    ...reviewedText.map(value => stripMarkup(value, 800)),
+    context.run ? stripMarkup(context.run.name || context.run.id, 200) : "",
+    ...context.cases.map(item => stripMarkup(item.title || item.description || item.id, 200)),
+    ...context.requirements.map(item => stripMarkup(item.title || item.expected_section || item.id, 200)),
+    ...context.failures.map(item => stripMarkup(item.logs || item.defects || item.id, 300))
+  ].filter(Boolean);
+  return topics.length ? topics.join("\n").slice(0, 3_500) : images.length ? null : undefined;
+};
 
 const extractJson = parseAiJson;
 const allowedSeverity = new Set(["critical", "high", "medium", "low"]);
@@ -410,6 +432,9 @@ const requestLlmDraft = async (integration, input, context, evidenceSources, ima
   const allowedRefs = evidenceSources.map((source) => source.ref);
   const prompt = [
     aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.js.prompt.final.1"),
+    images.length && !hasWrittenIncident(input)
+      ? aiInstructionBlock("ai.bug.draft", "aiBugDraft.imageOnlyContext")
+      : "",
     input.prompt_guidance ? `Workspace editorial guidance (lower priority than the evidence rules above):\n${input.prompt_guidance}` : "",
     [aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.prompt.segment.1"),String(JSON.stringify(allowedRefs)),""].join(''),
     aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.js.prompt.final.6"),
@@ -433,10 +458,15 @@ const requestLlmDraft = async (integration, input, context, evidenceSources, ima
         { role: "user", content: userContent }
       ]
     })
-  }, { integration, operation: "bug-draft.generate" });
-  if (!response.ok) throw new Error(`LLM provider returned ${response.status}`);
-  const payload = await response.json();
-  return extractJson(getCompletionContent(payload));
+  }, { integration, operation: "bug-draft.generate", contextRetrievalQuery: defectRetrievalQuery(input, context, images) });
+  if (!response.ok) throw createLlmProviderError({ status: response.status, detail: await response.text() });
+  try {
+    const payload = await response.json();
+    return extractJson(getCompletionContent(payload));
+  } catch {
+    const message = "The model returned an incomplete or unreadable Defect proposal. Retry with a smaller scope or choose another configured model. No Defect was created.";
+    throw Object.assign(new Error(message), { statusCode: 502, code: "AI_DEFECT_RESPONSE_INVALID", publicMessage: message });
+  }
 };
 
 const buildProcessingSnapshot = ({ evidenceSources, generationMode, gaps, fallbackFields, partialSources }) => ({
@@ -455,7 +485,7 @@ const buildProcessingSnapshot = ({ evidenceSources, generationMode, gaps, fallba
 exports.preview = async ({ user, project_id, intent, evidence, additional_context, external_links, reference_photos, linked_test_run_id, linked_test_case_ids, linked_requirement_ids, integration_id, prompt_guidance, require_case_context = false } = {}) => {
   const projectId = normalizeText(project_id, 255);
   const normalizedIntent = normalizeText(intent, 4_000);
-  if (!projectId || !normalizedIntent) throw new Error("project_id and intent are required");
+  if (!projectId) throw Object.assign(new Error("project_id is required"), { statusCode: 400 });
   const project = await db.prepare("SELECT id FROM projects WHERE id = ?").get(projectId);
   if (!project) throw new Error("Project not found");
   const requestedExternalLinks = normalizeReferenceList(external_links);
@@ -474,6 +504,10 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
   };
   const rawContext = await loadEvidence({ projectId, runId: input.linked_test_run_id, testCaseIds: input.linked_test_case_ids, requirementIds: input.linked_requirement_ids });
   if (require_case_context && !rawContext.cases.length) throw Object.assign(new Error("Selected Test Case context is unavailable in this project. Choose an accessible Test Case."), { statusCode: 400 });
+  if (!input.intent && !input.evidence && !input.additional_context && !imageAssets.length && !rawContext.run && !rawContext.cases.length && !rawContext.requirements.length) {
+    const message = "Describe the observed problem, attach a screenshot, or select accessible Test Case, Story or run evidence before drafting a Defect. External links alone are reference pointers; their content is not read.";
+    throw Object.assign(new Error(message), { statusCode: 400, code: "AI_DEFECT_EVIDENCE_REQUIRED", publicMessage: message });
+  }
   rawContext.boundaries.requested.external_links = requestedExternalLinks.length;
   rawContext.boundaries.requested.reference_images = requestedReferenceImages.length;
   rawContext.boundaries.included.external_links = input.external_links.length;
@@ -502,9 +536,23 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
     integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({ integrationId: integration_id, userId: user?.id, usageKey: BUG_DRAFT_USAGE_KEY, projectId, fallback: "project-then-global", allowMissing: true });
     if (integration) normalized = normalizeCandidate(await requestLlmDraft(integration, input, context, evidenceSources, imageAssets), deterministic, evidenceSources);
   } catch (error) {
-    if (error?.code === 'AI_VISION_UNSUPPORTED') throw error;
+    if (error?.publicMessage) {
+      error.message = error.publicMessage;
+      throw error;
+    }
+    if (['AI_VISION_UNSUPPORTED', 'AI_MCP_QUERY_REQUIRED', 'LLM_AUTHENTICATION_FAILED', 'LLM_QUOTA_EXCEEDED', 'LLM_RATE_LIMITED', 'LLM_RATE_LIMIT_REQUEST_TOO_LARGE', 'LLM_REQUEST_TOO_LARGE'].includes(error?.code)) throw error;
+    if (imageAssets.length && !hasWrittenIncident(input) && error?.code === 'AI_NATIVE_CONTRACT_INVALID') {
+      const message = "The screenshot did not provide enough evidence for a valid Defect proposal. Describe what is wrong and what should happen, or attach a clearer screenshot. No Defect was created.";
+      throw Object.assign(new Error(message), { statusCode: 422, code: "AI_DEFECT_EVIDENCE_REQUIRED", publicMessage: message });
+    }
     providerError = error instanceof Error ? error.message : "LLM generation failed.";
     normalized = { ...deterministic, fallback_fields: [...DRAFT_FIELDS] };
+  }
+  if (integration && !providerError && (!normalized.draft.title || normalized.fallback_fields.length === DRAFT_FIELDS.length)) {
+    const message = imageAssets.length
+      ? "The model did not identify a Defect supported by the screenshot and selected evidence. Describe the visible problem and expected outcome, or attach a clearer screenshot. No Defect was created."
+      : "The model did not identify a Defect supported by the supplied evidence. Add an observed problem or relevant failure evidence and retry. No Defect was created.";
+    throw Object.assign(new Error(message), { statusCode: 422, code: "AI_DEFECT_EVIDENCE_REQUIRED", publicMessage: message });
   }
   requireAiAssessment({ integration, failed: Boolean(providerError), accepted: normalized.fallback_fields.length < DRAFT_FIELDS.length });
   const generationMode = !integration || providerError ? "deterministic" : normalized.fallback_fields.length ? "hybrid" : "llm";

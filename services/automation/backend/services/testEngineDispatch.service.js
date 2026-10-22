@@ -704,20 +704,16 @@ const buildStepAutomationDetail = (step, status, note = null, provider = null) =
 };
 
 const buildProviderLiveViewUrl = (integration, provider) => {
-  const configured = normalizeText(integration?.config?.live_view_url || integration?.config?.vnc_url);
+  const configured = normalizeText(integration?.config?.live_view_url);
+  try {
+    const parsed = new URL(configured);
+    if (parsed.pathname === "/api/v1/live-session") {
+      parsed.searchParams.set("provider", provider === "selenium" ? "selenium" : "playwright");
+      return parsed.toString();
+    }
+  } catch {}
 
-  if (
-    configured
-    && !(
-      provider === "playwright"
-      && (configured.includes(":7900/") || configured.toLowerCase().includes("vnc"))
-    )
-    && !(provider === "selenium" && configured.includes("/api/v1/live-session"))
-  ) {
-    return configured;
-  }
-
-  const baseUrl = normalizeText(integration?.base_url);
+  const baseUrl = normalizeText(integration?.config?.public_base_url || integration?.base_url);
 
   if (!baseUrl) {
     return null;
@@ -726,16 +722,8 @@ const buildProviderLiveViewUrl = (integration, provider) => {
   try {
     const parsed = new URL(baseUrl);
 
-    if (provider === "selenium") {
-      parsed.port = "7900";
-      parsed.pathname = "/";
-      parsed.search = "?autoconnect=1&resize=scale";
-      parsed.hash = "";
-      return parsed.toString();
-    }
-
     parsed.pathname = "/api/v1/live-session";
-    parsed.search = "?provider=playwright";
+    parsed.search = `?provider=${provider === "selenium" ? "selenium" : "playwright"}`;
     parsed.hash = "";
     return parsed.toString();
   } catch {
@@ -1587,6 +1575,8 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
           engine_run_id: item.engine_run_id,
           execution_id: plan.execution.id,
           test_case_id: item.case_snapshot.test_case_id,
+          data_set_iteration_index: item.data_set_iteration?.index ?? null,
+          data_set_iteration_key: item.data_set_iteration?.key || null,
           engine_host: normalizeEngineHostUrl(integration.base_url),
           queue_mode: "hellotest-pull",
           orchestration_class: orchestrationClass,
@@ -1718,6 +1708,8 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       engine_run_id: item.engine_run_id,
       execution_id: plan.execution.id,
       test_case_id: item.case_snapshot.test_case_id,
+      data_set_iteration_index: item.data_set_iteration?.index ?? null,
+      data_set_iteration_key: item.data_set_iteration?.key || null,
       engine_host: engineHost,
       queue_mode: "direct-local",
       orchestration_class: orchestrationClass,
@@ -1783,7 +1775,8 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
         status: "running",
         metadata: {...transactionMetadata,acknowledgement:"unknown",failure_code:"LOCAL_DISPATCH_UNCERTAIN"}
       });
-      throw Object.assign(new Error("The local runner acknowledgement was lost. Keep this run receipt and inspect incoming results before starting another run."), {code:"LOCAL_DISPATCH_UNCERTAIN",statusCode:502});
+      const message = "The local runner acknowledgement was lost. Keep this run receipt and inspect incoming results before starting another run.";
+      throw Object.assign(new Error(message), {code:"LOCAL_DISPATCH_UNCERTAIN",statusCode:502,publicMessage:message});
     }
 
     const payload = await readBoundedResponseJson(response, {
@@ -1798,6 +1791,11 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
         statusCode: response.status === 429 || response.status >= 500 ? 503 : 502,
         upstreamStatus: response.status
       });
+      failure.publicMessage = [401, 403].includes(response.status)
+        ? "The local runner rejected the HelloTest credentials. Restart the host recorder using the same HELLOTEST_TESTENGINE_SECRET as the HelloTest API, then check the runner connection."
+        : response.status === 429
+          ? "The local runner is at capacity. Wait for its current cases to finish before retrying this case."
+          : "The local runner could not start this case. Check its terminal or local-run/artifacts/host-recorder/launcher.log for startup errors, and ensure the runner matches this HelloTest version.";
       await updateQueueTransaction(transaction.id, {
         status: "failed",
         metadata: {
@@ -1911,6 +1909,8 @@ async function queueSingleStepDispatch({
       engine_run_id: engineRunId,
       execution_id: execution.id,
       test_case_id: caseSnapshot.test_case_id,
+      data_set_iteration_index: dataSetIteration?.index ?? null,
+      data_set_iteration_key: dataSetIteration?.key || null,
       step_id: step.id,
       engine_host: normalizeEngineHostUrl(integration.base_url),
       queue_mode: "hellotest-pull",
@@ -2952,17 +2952,28 @@ exports.settleExecutionIfComplete = settleExecutionIfComplete;
 // Read only public connection metadata from the dispatched, project-bound run.
 exports.getExecutionLiveSessions = async (execution) => {
   if (execution?.status !== "running") return [];
-  const rows = await obsDb.prepare(`SELECT related_id AS engine_run_id, metadata->>'live_view_url' AS url, metadata->>'active_web_engine' AS provider
+  const rows = await obsDb.prepare(`SELECT related_id AS engine_run_id, metadata->>'live_view_url' AS url, metadata->>'active_web_engine' AS provider,
+      metadata->>'test_case_id' AS test_case_id, metadata->>'data_set_iteration_index' AS data_set_iteration_index,
+      metadata->>'data_set_iteration_key' AS data_set_iteration_key
     FROM workspace_transactions WHERE project_id = ? AND action = 'testengine_run'
       AND metadata->>'execution_id' = ? AND status IN ('queued', 'running')
-    ORDER BY created_at DESC LIMIT 20`).all(execution.project_id, execution.id);
+    ORDER BY created_at DESC LIMIT 5000`).all(execution.project_id, execution.id);
   return rows.flatMap(row => {
     try {
+      if (!row.test_case_id || !row.engine_run_id) return [];
       const url = new URL(row.url);
       if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return [];
       if (["host.docker.internal", "testengine", "testengine-gateway"].includes(url.hostname)) url.hostname = "localhost";
-      if (row.provider !== "selenium") url.searchParams.set("run_id", row.engine_run_id);
-      return [{ engine_run_id: row.engine_run_id, provider: row.provider || "playwright", url: url.toString() }];
+      // A shared VNC desktop cannot identify an individual test case. Publish
+      // only the engine's run-scoped viewer for case execution.
+      if (url.pathname !== "/api/v1/live-session") return [];
+      url.searchParams.set("provider", row.provider === "selenium" ? "selenium" : "playwright");
+      url.searchParams.set("run_id", row.engine_run_id);
+      const iterationIndex = row.data_set_iteration_index == null ? null : Number(row.data_set_iteration_index);
+      return [{ engine_run_id: row.engine_run_id, test_case_id: row.test_case_id,
+        data_set_iteration_index: Number.isInteger(iterationIndex) && iterationIndex >= 0 ? iterationIndex : null,
+        data_set_iteration_key: row.data_set_iteration_key || null,
+        provider: row.provider || "playwright", url: url.toString() }];
     } catch { return []; }
   });
 };

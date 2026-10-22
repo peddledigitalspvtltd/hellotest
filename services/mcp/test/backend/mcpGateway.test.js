@@ -2,6 +2,15 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const filename=path.resolve(__dirname,'../../backend/gateway.js'),original=createRequire(filename),traces=original('@hellotest/platform/backend/src/utils/llmTraceContext');
 function gateway(callLocal){const module={exports:{}};new Function('require','module','exports',fs.readFileSync(filename,'utf8'))(id=>id==='./auth'?{principal:async(userId,projectId)=>({user:{id:userId},projectId})}:id==='./server'?{callLocal}:original(id),module,module.exports);module.exports.installTransport(callLocal);return module.exports;}
 const request=question=>({body:JSON.stringify({messages:[{role:'system',content:'Trusted system policy'},{role:'user',content:question}]})});
+test('image-only authoring skips optional text retrieval but preserves an Admin required context policy',async()=>{
+ let calls=0;const instance=gateway(async()=>{calls++;throw new Error('No text query should be dispatched');});
+ const init=request(JSON.stringify({reference_images:[{name:'Screenshot.png'}]}));
+ const options={contextRetrievalQuery:null,mcpContextPolicy:{mode:'mcp',required:false}};
+ assert.equal(await traces.run({actor_id:'author',project_id:'project'},()=>instance.enrichChatRequest(init,options)),init);
+ assert.equal(options.mcpContextStatus,'query_unavailable');assert.equal(calls,0);
+ await assert.rejects(traces.run({actor_id:'author',project_id:'project'},()=>instance.enrichChatRequest(init,{...options,mcpContextPolicy:{mode:'mcp',required:true}})),{code:'AI_MCP_QUERY_REQUIRED',statusCode:422});
+ assert.equal(calls,0);
+});
 test('shared AI gateway keeps simultaneous actor/project contexts isolated and preserves provenance',async()=>{
  const instance=gateway(async(actor,name,args)=>{assert.equal(traces.current().mcp_context_depth,1);await new Promise(resolve=>setTimeout(resolve,5));return {packet:{project_id:actor.projectId,evidence:[{evidence_id:actor.projectId,content:args.question,citation:{source_id:actor.projectId}}]},observed_at:'2026-10-06'};});
  const results=await Promise.all(['a','b'].map(id=>traces.run({actor_id:'user-'+id,project_id:'project-'+id},()=>instance.enrichChatRequest(request('Question '+id)))));
@@ -134,4 +143,14 @@ test('filtered automatic enrichment sends the configured retrieval budget throug
  assert.equal(call.args.budgets.max_evidence_items,2);assert.ok(call.args.budgets.deadline_ms<=1000);
  assert.equal(call.actor.packetInput.budgets.max_context_tokens,512);
  assert.deepEqual(call.args.filters.evidence_scope,{story_id:'story'});
+});
+
+test('shared AI delivery retains reviewed graph witnesses and removes relationships when their proof is omitted',async()=>{
+ const evidence=[{evidence_id:'proof',content:'A depends on B.'},{evidence_id:'other',content:'A separate fact'}];
+ const relationships=[{source:'a',target:'b',type:'DEPENDS_ON',provenance_type:'HUMAN_VERIFIED',evidence_ids:['proof']},
+  {source:'b',target:'c',type:'RELATED_TO',provenance_type:'SOURCE_EXPLICIT',evidence_ids:['other']}];
+ const instance=gateway(async()=>({packet:{project_id:'p',evidence,relationships}}));
+ const result=await traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(request('Trace dependency'),{mcpContextPolicy:{max_items:1,token_budget:2000}}));
+ const text=JSON.parse(result.body).messages[1].content,packet=JSON.parse(text.slice(text.indexOf('\n')+1));
+ assert.deepEqual(packet.relationships,[relationships[0]]);assert.equal(packet.omitted_relationship_count,1);assert.match(packet.limitations.join(' '),/omitted/);
 });

@@ -1,6 +1,7 @@
 import type { TestCase, TestStep } from "@hellotest/platform/frontend/src/types";
 import { parseApiRequestSource } from "./apiRequestSource";
 import { isAutomationStepMapped } from "./automationStepPersistence";
+import { inferAutomationBuildRuntime } from "./automationRuntime";
 
 export type AutomationReadinessIssue = { stepId?: string; order?: number; message: string; severity: "blocker" | "warning" };
 export type AutomationReadiness = {
@@ -25,7 +26,7 @@ export function assessAutomationReadiness(testCase: TestCase, steps: TestStep[],
   let skippedCount = 0;
   let runnableCount = 0;
   for (const step of steps) {
-    const runtime = step.step_type || (step.api_request ? "api" : "web");
+    const runtime = intent === "build" ? inferAutomationBuildRuntime(step) : step.step_type || (step.api_request ? "api" : "web");
     const flags = String(step.automation_code || step.action || "").match(/^\s*\/\/\s*@hellotest-options\s+([^\n]+)/i)?.[1].split(/\s+/) || [];
     const skipped = flags.includes("skip");
     const issue = (message: string, severity: AutomationReadinessIssue["severity"] = "blocker") => issues.push({ stepId: step.id, order: step.step_order, message, severity });
@@ -44,7 +45,7 @@ export function assessAutomationReadiness(testCase: TestCase, steps: TestStep[],
   }
   if (intent === "run" && steps.length && skippedCount === steps.length) issues.push({ severity: "blocker", message: "All steps are skipped. Enable a step before running." });
   const planSignature = JSON.stringify(steps.map(step => [step.id, step.step_order, step.step_type, step.action, step.expected_result, step.automation_code, step.api_request, step.group_id, step.reusable_group_id]));
-  return { id: testCase.id, title: testCase.title, revision: testCase.revision || 0, updatedAt: testCase.updated_at || null, stepCount: steps.length, runnableCount, skippedCount, runtimes: [...new Set(steps.map(step => step.step_type || (step.api_request ? "api" : "web")))], issues, ready: !issues.some(issue => issue.severity === "blocker"), planSignature };
+  return { id: testCase.id, title: testCase.title, revision: testCase.revision || 0, updatedAt: testCase.updated_at || null, stepCount: steps.length, runnableCount, skippedCount, runtimes: [...new Set(steps.map(step => intent === "build" ? inferAutomationBuildRuntime(step) : step.step_type || (step.api_request ? "api" : "web")))], issues, ready: !issues.some(issue => issue.severity === "blocker"), planSignature };
 }
 
 type Reader = { getCase: (id: string, signal?: AbortSignal) => Promise<TestCase>; getSteps: (id: string, signal?: AbortSignal) => Promise<TestStep[]> };

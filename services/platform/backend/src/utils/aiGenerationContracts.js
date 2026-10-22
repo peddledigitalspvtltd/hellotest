@@ -16,13 +16,13 @@ function caseOutputSchema(mode='structured',{count,refs,testCaseTypes}={}) {
 }
 function stepOutputSchema() {return {type:'object',required:['action','expected_result'],properties:{summary:string,action:{type:'string',minLength:1},expected_result:{type:'string',minLength:1}}};}
 const nativeContracts = Object.freeze({
-  'ai.requirement.creation': { collection: 'requirements', required: ['title','description','acceptance_criteria','priority'], note: 'Each Story includes a nonempty title and description, acceptance_criteria array and integer priority 1–5. Criteria must be supported by supplied evidence; when unavailable keep the array empty and state an explicit open question. Preserve exact field_evidence refs.' },
-  'ai.requirement.optimization': { required: ['title','description','acceptance_criteria','priority'], note: 'Return one complete Story proposal, preserving existing supported values. Include title, description, acceptance_criteria array, priority 1–5 and exact field_evidence refs. Empty criteria require an explicit open question; do not fabricate acceptance behavior.' },
-  'ai.case_authoring.full_case': { required: ['title','description','priority','test_case_type','parameter_values'], note: 'Return nonempty title and description, integer priority 1–5, one permitted test_case_type, parameter_values object and executable steps with action and expected_result (or the requested complete Gherkin). Preserve exact @t/@s/@r reference scope; declare only case-owned @t values.' },
-  'ai.test_case.design': { collection: 'testCases', aliases: ['test_cases'], required: ['title','description','priority','test_case_type','parameter_values'], note: 'Every generated case includes title, description, priority 1–5, permitted test_case_type, parameter_values and complete actions with observable expected_result (or complete requested Gherkin). Preserve the supplied requirement_refs and parameter scopes.' },
-  'ai.bug.draft': { object: 'draft', required: ['title','message','steps_to_reproduce','expected_result','actual_result','severity','priority'], note: 'Return draft with title, message (description), numbered steps_to_reproduce, expected_result, actual_result, severity critical|high|medium|low and priority Highest|High|Medium|Low|Lowest. Missing facts must remain empty and be identified in gaps, never invented. Preserve field_evidence refs.' },
-  'ai.bug.triage': { collection: 'recommendations', required: ['issue_id','category','category_explanation','category_evidence_refs'], note: 'Return recommendations for supplied issue IDs only, using the exact permitted categories and field citations. Priority, readiness and selected Defects are host-owned.' },
-  'ai.execution.smart_plan': { collection: 'cases', required: ['test_case_id','reason','evidence_refs'], note: 'Return cases with the supplied test_case_id, concise reason and nonempty allowed evidence_refs. Selection, risk, eligibility and run acceptance are host-owned; never invent Test Cases or claim execution.' }
+  'ai.requirement.creation': { collection: 'requirements', required: ['title','description','acceptance_criteria','priority'] },
+  'ai.requirement.optimization': { required: ['title','description','acceptance_criteria','priority'] },
+  'ai.case_authoring.full_case': { required: ['title','description','priority','test_case_type','parameter_values'] },
+  'ai.test_case.design': { collection: 'testCases', aliases: ['test_cases'], required: ['title','description','priority','test_case_type','parameter_values'] },
+  'ai.bug.draft': { object: 'draft', required: ['title','message','steps_to_reproduce','expected_result','actual_result','severity','priority'] },
+  'ai.bug.triage': { collection: 'recommendations', required: ['issue_id','category','category_explanation','category_evidence_refs'] },
+  'ai.execution.smart_plan': { collection: 'cases', required: ['test_case_id','reason','evidence_refs'] }
 });
 function nativeArtifactContract(id) { return nativeContracts[id] || null; }
 function validateNativeArtifactOutput(id, parsed, {testCaseTypes}={}) {

@@ -80,6 +80,7 @@ import { expandSelectedSuiteIds } from "../lib/runDataTemplate";
 import { RunContextLinks } from "../components/RunContextLinks";
 import { RunConfigurationDialog, type RunConfigurationResource } from "../components/RunConfigurationDialog";
 import { isRunFinished, normalizeRunCatalogView, runCatalogBucket, runStoryCounts } from "../lib/runCatalog";
+import { caseLiveViewSession } from "../lib/executionLiveView";
 import { summarizeRunScopeCompletion } from "../lib/runScopeCompletion";
 import { ExternalReferencesField } from "@hellotest/manual/frontend/components/ExternalReferencesField";
 import { InfoTooltip } from "@hellotest/platform/frontend/src/shared/components/InfoTooltip";
@@ -2743,11 +2744,6 @@ export function ExecutionsPage() {
   const selectedExecutionAppTypeKind = selectedExecution?.app_type_id
     ? appTypes.find((appType) => appType.id === selectedExecution.app_type_id)?.type || null
     : null;
-  const testEngineLiveViewUrl = selectedExecution?.live_sessions?.[0]?.url || "";
-  const isExecutionLiveViewEligible =
-    currentExecutionStatus === "running"
-    && Boolean(testEngineLiveViewUrl)
-    && (selectedExecutionAppTypeKind === "web" || selectedExecutionAppTypeKind === "unified");
   const isExecutionStarted = currentExecutionStatus === "running";
   const isExecutionLocked = selectedExecution ? isRunFinished(selectedExecution) : false;
   const snapshotCases = useMemo(
@@ -2773,6 +2769,7 @@ export function ExecutionsPage() {
     [selectedCaseInstanceKey, selectedExecutionCaseInstances]
   );
   const hasSelectedCaseTestData = Boolean(selectedExecutionCaseInstance?.test_data_set_id);
+  const selectedCaseLiveView = caseLiveViewSession(selectedExecution, selectedExecutionCaseInstance);
   const executionInputParameterValues = useMemo(
     () => buildExecutionInputParameterValues(selectedExecution, selectedExecutionCaseSnapshot, selectedExecutionCaseInstance),
     [selectedExecution, selectedExecutionCaseInstance, selectedExecutionCaseSnapshot]
@@ -6795,17 +6792,6 @@ export function ExecutionsPage() {
               <IconPlayerPlay aria-hidden="true" size={18} stroke={2} />
               <span>{primaryActionLabel}</span>
             </button>
-            {isExecutionLiveViewEligible ? (
-              <a
-                className="execution-command-button"
-                href={testEngineLiveViewUrl}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <IconExternalLink aria-hidden="true" size={18} stroke={1.9} />
-                <span>Live run</span>
-              </a>
-            ) : null}
             {canExecuteRuns ? (<button
               className="execution-command-button"
               disabled={!canExecuteRuns || rerunExecution.isPending}
@@ -8368,6 +8354,19 @@ export function ExecutionsPage() {
                     </div>
 
                     <div className="execution-case-run-header-actions" aria-label="Case run actions">
+                      {selectedCaseLiveView ? (
+                        <a className="execution-case-run-button" href={selectedCaseLiveView.url} rel="noopener noreferrer" target="_blank" title="Open the live browser for this test case and data row in a new tab">
+                          <IconExternalLink aria-hidden="true" size={18} stroke={1.9} />
+                          <span>Live Run View</span>
+                        </a>
+                      ) : (
+                        <button className="execution-case-run-button" disabled type="button" title={currentExecutionStatus === "running"
+                          ? "Waiting for an automated browser session for this test case and data row. API-only and manual cases do not have a live browser."
+                          : "Live Run View is available while this test case's automated browser is running."}>
+                          <IconExternalLink aria-hidden="true" size={18} stroke={1.9} />
+                          <span>Live Run View</span>
+                        </button>
+                      )}
                       {canReportBugs ? (<ReportBugSplitActionButton
                         canUseAi={canUseAiBugTriage}
                         className="execution-case-run-report-bug"
@@ -8422,18 +8421,6 @@ export function ExecutionsPage() {
                           <IconCode aria-hidden="true" size={18} stroke={1.9} />
                           <span>Coded steps</span>
                         </button>
-                      ) : null}
-                      {isExecutionLiveViewEligible ? (
-                        <a
-                          className="execution-case-run-button"
-                          href={testEngineLiveViewUrl}
-                          rel="noreferrer"
-                          target="_blank"
-                          title="View live browser session"
-                        >
-                          <IconExternalLink aria-hidden="true" size={18} stroke={1.9} />
-                          <span>Live run</span>
-                        </a>
                       ) : null}
                       {currentExecutionStatus === "running" ? (
                         (canExecuteRuns ? (<button

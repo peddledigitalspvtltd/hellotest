@@ -396,7 +396,7 @@ function normalizeLocalEngineBaseUrl(value) {
   return parsed.toString().replace(/\/+$/, "");
 }
 
-async function canReachLocalEngine(baseUrl) {
+async function inspectLocalEngine(baseUrl) {
   try {
     const response = await resilientHttpRequest(`${baseUrl}/health`, {
       method: "GET", redirect: "error"
@@ -411,9 +411,15 @@ async function canReachLocalEngine(baseUrl) {
       resetTimeoutMs: 5_000
     });
     const health = await readBoundedResponseJson(response, {maxBytes:256 * 1024,label:"Local Playwright health"});
-    return response.ok && health?.supported_web_engines?.includes("playwright") === true;
+    const supportsExecution = health?.supported_web_engines?.includes("playwright") === true
+      && health?.capabilities?.local_execution !== false;
+    return {
+      ready: response.ok && supportsExecution && health?.ready !== false,
+      inspectionOnly: response.ok && (health?.service === "hellotest-inspection-agent" || health?.capabilities?.local_execution === false),
+      notReady: response.ok && supportsExecution && health?.ready === false
+    };
   } catch {
-    return false;
+    return { ready: false };
   }
 }
 
@@ -446,13 +452,24 @@ async function resolveLocalEngineBaseUrl(preferredUrl) {
     throw new Error("Local execution engine URL is not configured.");
   }
 
+  const probes = [];
   for (const candidate of normalizedCandidates) {
-    if (await canReachLocalEngine(candidate)) {
+    const probe = await inspectLocalEngine(candidate);
+    probes.push(probe);
+    if (probe.ready) {
       return candidate;
     }
   }
 
-  throw Object.assign(new Error("Local Playwright agent is not connected. Start the local agent and check its connection before running."), { statusCode: 503, code: "LOCAL_AGENT_UNAVAILABLE" });
+  const code = probes.some(probe => probe.notReady) ? "LOCAL_AGENT_NOT_READY"
+    : probes.some(probe => probe.inspectionOnly) ? "LOCAL_AGENT_INSPECTION_ONLY" : "LOCAL_AGENT_UNAVAILABLE";
+  const message = code === "LOCAL_AGENT_NOT_READY"
+    ? "The local Playwright runner is starting or needs attention. Check its terminal or local-run/artifacts/host-recorder/launcher.log, and ensure its shared secret matches the HelloTest API. Check the runner connection before retrying."
+    : code === "LOCAL_AGENT_INSPECTION_ONLY"
+      ? "The browser inspection agent is connected, but local execution requires the full Playwright runner. Start ./local-run/bin/start-host-recorder.sh (Windows: local-run\\bin\\start-host-recorder.cmd) from your HelloTest folder, then check the local runner connection."
+      : "The HelloTest API cannot reach the local Playwright runner. Start ./local-run/bin/start-host-recorder.sh (Windows: local-run\\bin\\start-host-recorder.cmd) from your HelloTest folder, then check the local runner connection. Hosted HelloTest requires an administrator-configured runner address reachable from its API.";
+  // Explicitly public setup guidance must survive the global 5xx error policy.
+  throw Object.assign(new Error(message), { statusCode: 503, code, publicMessage: message });
 }
 
 function normalizeParameterValues(values = {}) {
@@ -1378,7 +1395,8 @@ exports.createExecution = async ({
   created_by,
   trigger = "manual",
   initial_status = "queued",
-  source_idempotency_key
+  source_idempotency_key,
+  expected_case_revisions
 }) => {
   if (!project_id || !created_by) {
     throw new Error("Missing required fields");
@@ -1493,6 +1511,7 @@ exports.createExecution = async ({
 
   const uniqueSuiteIds = await expandSuiteSelection(suite_ids, app_type_id);
   const uniqueTestCaseIds = [...new Set(test_case_ids)];
+  if(expected_case_revisions!==undefined&&uniqueSuiteIds.length)throw runError('Reviewed source revisions require explicit Test Cases; suite expansion must be reviewed separately.','EXECUTION_PLAN_INVALID');
 
   if ((uniqueSuiteIds.length || uniqueTestCaseIds.length) && !app_type_id) {
     throw new Error("app_type_id is required when scope is provided");
@@ -1569,6 +1588,13 @@ exports.createExecution = async ({
   const dataOptions = normalizeDataOptions(test_data_options);
   if (test_data_set_id && app_type_id) await require('./runParameterPlan.service').assertRunDataSetCompatible({ project_id, app_type_id, suite_ids: uniqueSuiteIds, test_case_ids: uniqueTestCaseIds, test_data_set_id, test_data_options: dataOptions });
   const transaction = db.transaction(async () => {
+    if(expected_case_revisions!==undefined){
+      await require('./executionPlanPreconditions.service').verify({projectId:project_id,appTypeId:app_type_id,caseIds:uniqueTestCaseIds,expected:expected_case_revisions,lock:true});
+      // Initial scope validation happens before this transaction. Reload the
+      // source facts under the same locks used for revision verification, so
+      // persisted case and step snapshots describe the reviewed source state.
+      for(let index=0;index<directCaseRows.length;index++)directCaseRows[index]={...directCaseRows[index],...await selectCaseForExecution.get(directCaseRows[index].test_case_id)};
+    }
     const frozenExecutionHooks = await snapshotExecutionHooks(execution_hooks, { projectId: project_id, appTypeId: app_type_id, userId: created_by });
     await db.prepare(`
       INSERT INTO executions

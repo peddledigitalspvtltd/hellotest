@@ -8,7 +8,8 @@
     "frontend",
     "dist/ui",
     "package.json",
-    "README.md"
+    "README.md",
+    "shared"
   ],
   "exports": {
     "./backend": "./backend/service.manifest.js",
@@ -65,7 +66,9 @@
     "./frontend/components/AiTestCaseDraftFields": "./frontend/components/AiTestCaseDraftFields.tsx",
     "./frontend/lib/draftReadiness": "./frontend/lib/draftReadiness.ts",
     "./frontend/components/AutomationAgentSetup": "./frontend/components/AutomationAgentSetup.tsx",
-    "./frontend/components/AiReferenceImages": "./frontend/components/AiReferenceImages.tsx"
+    "./frontend/components/AiReferenceImages": "./frontend/components/AiReferenceImages.tsx",
+    "./shared/artifactAssurance": "./shared/artifactAssurance.mjs",
+    "./backend/services/artifactAssurance.service": "./backend/services/artifactAssurance.service.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs ai",

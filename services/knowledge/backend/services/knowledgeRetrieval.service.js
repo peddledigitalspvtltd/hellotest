@@ -134,9 +134,17 @@ const buildDeterministicRetrievalQueries = (question) => {
 const mergeRetrievalResults = (queryResults, limit = MAX_GROUNDED_HITS) => {
   const fused = new Map();
   queryResults.forEach((entry, queryIndex) => {
+    const graphProofs = new Set(entry?.result?.retrieval?.vector_mode === "graph_witnesses"
+      ? asArray(entry.result.relationships).filter(edge => edge.endpoints_authorized === true
+        && ['DETERMINISTIC', 'SOURCE_EXPLICIT', 'HUMAN_VERIFIED'].includes(edge.provenance_type)
+        && edge.source_canonical_id && edge.target_canonical_id && edge.source_canonical_id !== edge.target_canonical_id)
+        .flatMap(edge => asArray(edge.evidence_ids)) : []);
     asArray(entry?.result?.results).forEach((hit, rank) => {
       const key = hit?.chunk_id || hit?.citation?.id;
-      if (!key || Number(hit.score || 0) < MIN_GROUNDED_SCORE) return;
+      // A permission-checked exact graph witness is evidence even though it has
+      // no lexical/vector similarity score. Keep its rank signal at zero rather
+      // than manufacturing a confidence score to get past the search threshold.
+      if (!key || Number(hit.score || 0) < MIN_GROUNDED_SCORE && !graphProofs.has(hit.citation?.id)) return;
       const current = fused.get(key) || {
         hit,
         bestScore: Number(hit.score || 0),
@@ -299,4 +307,4 @@ const retrieveSearch = async input => {
     guardrails: knowledgeRagService.ASSISTANT_GUARDRAILS };
 };
 
-module.exports = { retrieveSearch, retrieveDirect, retrieveContextDirect: retrieveContext, authorizeFreshEvidence, MAX_GROUNDED_HITS, MAX_HITS_PER_SOURCE, MIN_GROUNDED_SCORE, asArray, asObject, assessEvidenceSufficiency, buildDeterministicRetrievalQueries, createError, mergeRetrievalResults, normalizeAssistantFilters, normalizeId, retrieve, retrieveContext, runRagSearchBatch };
+module.exports = { fetchEvidence: input => require('./knowledgeEvidence.service').fetchEvidence(input), retrieveSearch, retrieveDirect, retrieveContextDirect: retrieveContext, authorizeFreshEvidence, MAX_GROUNDED_HITS, MAX_HITS_PER_SOURCE, MIN_GROUNDED_SCORE, asArray, asObject, assessEvidenceSufficiency, buildDeterministicRetrievalQueries, createError, mergeRetrievalResults, normalizeAssistantFilters, normalizeId, retrieve, retrieveContext, runRagSearchBatch };

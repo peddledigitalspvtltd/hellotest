@@ -56,7 +56,7 @@ function database(t, handler) {
   const calls = [];
   t.mock.method(db, 'prepare', sql => Object.fromEntries(['get', 'all', 'run'].map(method => [method, async (...args) => {
     const query = sql.replace(/\s+/g, ' ').trim(); calls.push({ query, method, args });
-    if (query === 'SELECT id, project_id FROM app_types WHERE id = ?') return { id: args[0], project_id: 'project-a' };
+    if (/^SELECT id, project_id(?:, type)? FROM app_types WHERE id = \?$/.test(query)) return { id: args[0], project_id: 'project-a', type:'web' };
     return handler(query, method, args);
   }])));
   t.mock.method(db, 'query', async (query, args) => { calls.push({ query, args }); return {}; });
@@ -333,8 +333,9 @@ test('worker retains saved-connection metadata after replacing GitHub source wit
 
 test('generated test payload uses supported authoring and step schemas and escapes source markup', () => {
   for (const agent_type of ['api_tests', 'component_tests']) {
-    const payload = publisher.casePayload(run({ agent_type }), finding, user, 'idempotency');
-    assert.equal(payload.authoring_mode, 'structured'); assert.equal(payload.status, 'draft'); assert.equal(payload.automated, 'no');
+    const payload = publisher.casePayload(run({ agent_type }), finding, user, 'idempotency', {automationStartUrl:'https://app.example.test/component'});
+    assert.equal(payload.authoring_mode, 'structured'); assert.equal(payload.status, 'draft'); assert.equal(payload.automated, 'yes');
+    assert.equal(payload.automation_status,'incomplete');
     assert.equal(payload.source_idempotency_key, 'idempotency');
     assert.equal(payload.reviewer_id, user.id); assert.equal(payload.review_status, 'pending');
     assert.equal(payload.ai_generation_source, 'repository'); assert.equal(payload.ai_generation_review_status, 'pending');
@@ -366,6 +367,7 @@ test('generated API drafts pass the actual Test Case service normalization and p
       return { changes: 1 };
     }
     if (method === 'run' && sql.startsWith('DELETE FROM ')) return { changes: 0 };
+    if (method === 'run' && sql.startsWith('UPDATE automation_case_links ')) return { changes: 0 };
     return unreachable(sql);
   });
   // This service prepares statements at module load. Reload only this module
@@ -378,7 +380,7 @@ test('generated API drafts pass the actual Test Case service normalization and p
   const payload = publisher.casePayload(run(), { ...finding, path: '/users/{user_id}', parameters: [{ name: 'active', in: 'query', required: true }] }, user, 'normalized-contract');
   await actualCases.createTestCase(payload);
   assert.equal(persistedCases.length, 1); assert.equal(persistedCases[0].authoring_mode, 'structured');
-  assert.equal(persistedCases[0].automated, 'no'); assert.equal(persistedCases[0].status, 'draft');
+  assert.equal(persistedCases[0].automated, 'yes'); assert.equal(persistedCases[0].automation_status,'incomplete'); assert.equal(persistedCases[0].status, 'draft');
   assert.equal(persistedCases[0].reviewer_id, user.id); assert.equal(persistedCases[0].review_status, 'pending');
   assert.equal(persistedCases[0].ai_generation_source, 'repository'); assert.equal(persistedCases[0].ai_generation_review_status, 'pending');
   const request = persistedSteps.find(step => step.step_type === 'api').api_request;
@@ -395,6 +397,48 @@ test('generated non-simple parameter names resolve through the existing API exec
   assert.deepEqual(apiRequest.validations, [], 'Do not invent a success status missing from source evidence');
   await require('../../../automation/backend/services/apiRequestExecution.service').runApiRequestPreview(apiRequest, { parameterValues: { 'r.base_url': 'https://api.example.test', 't._id': '42', 't.filter.status': 'active', 't.include-deleted': 'false' } });
   assert.deepEqual(urls, ['https://api.example.test/users/42?filter.status=active&include-deleted=false']);
+});
+
+test('source API contracts become one native request in the Automation library without browser setup or duplicate writes',async t=>{
+  const contract={...finding,method:'POST',path:'/orders',steps:[
+    {action:'Prepare an authorized account',expected_result:'The reviewed test data is available'},
+    {action:'Send POST /orders',expected_result:'The documented created response is returned'},
+    {action:'Inspect the returned order',expected_result:'The order follows the source contract'}
+  ]};
+  const row=run({result:result('api_tests',[contract])}),state=publication(t,row);
+  const receipt=await publisher.publishRun(row.id,{item_ids:[contract.id]},user);
+  const payload=state.calls[0].payload;
+  assert.equal(payload.automated,'yes');assert.equal(payload.automation_status,'incomplete');
+  assert.equal(payload.automation_start_url,null);assert.equal(payload.steps.length,1);
+  assert.equal(payload.steps[0].step_type,'api');assert.equal(payload.steps[0].api_request.method,'POST');
+  assert.match(payload.description,/Prepare an authorized account.*Inspect the returned order/s);
+  assert.match(payload.source_idempotency_key,/^repository-agent:automation-v2:/);
+  assert.equal(receipt.items[0].target_type,'automation');
+  assert.match(receipt.items[0].url,/^\/automation\?case=/);
+});
+
+test('component acceptance requires a reviewed Start URL and saves an unverified Automation draft',async t=>{
+  const row=run({agent_type:'component_tests',result:result('component_tests')}),state=publication(t,row);
+  await assert.rejects(publisher.publishRun(row.id,{item_ids:[finding.id]},user),{code:'AUTOMATION_START_URL_REQUIRED',statusCode:400});
+  await assert.rejects(publisher.publishRun(row.id,{item_ids:[finding.id],automation_start_url:'https://user:secret@app.example.test'},user),{code:'AUTOMATION_START_URL_INVALID',statusCode:400});
+  assert.equal(state.calls.length,0);
+  await publisher.publishRun(row.id,{item_ids:[finding.id],automation_start_url:'https://app.example.test/components'},user);
+  assert.equal(state.calls[0].payload.automated,'yes');assert.equal(state.calls[0].payload.automation_status,'incomplete');
+  assert.equal(state.calls[0].payload.automation_start_url,'https://app.example.test/components');
+  assert.ok(state.calls[0].payload.steps.every(step=>step.step_type==='web'&&!step.automation_code));
+  await assert.rejects(publisher.publishRun(row.id,{item_ids:[finding.id],automation_start_url:'https://other.example.test/components'},user),error=>error.statusCode===409&&/different Start URL/.test(error.message));
+  assert.equal(state.calls.length,1,'A changed target cannot silently reuse or mutate an already accepted case');
+  const second=publication(t,{...row,id:'other-run'});
+  await publisher.publishRun('other-run',{item_ids:[finding.id],automation_start_url:'https://other.example.test/components'},user);
+  assert.notEqual(second.calls[0].payload.source_idempotency_key,state.calls[0].payload.source_idempotency_key,'Separate reviewed targets have distinct idempotency keys');
+});
+
+test('source Automation acceptance rechecks current automation permissions before saving any record',async t=>{
+  for(const denied of ['automation.view','automation.code.view','automation.build']){
+    const state=publication(t,run(),{deny:denied});
+    await assert.rejects(publisher.publishRun('run-a',{item_ids:[finding.id]},user),error=>error.statusCode===403&&error.message.includes(denied));
+    assert.equal(state.calls.length,0);
+  }
 });
 
 test('API publication preserves declared body media and requires reviewed non-JSON wire content', async t => {
@@ -538,8 +582,9 @@ test('mobile publication succeeds with mobile permission and web publication doe
   for (const agent_type of ['api_tests', 'component_tests']) {
     for (const mobile of [true, false]) {
       const state = publication(t, run({ agent_type, result: result(agent_type) }), { mobile, deny: mobile ? null : 'mobile.manage' });
-      const published = await publisher.publishRun('run-a', { item_ids: [finding.id] }, user);
-      assert.equal(published.items[0].target_type, 'test_case');
+      const published = await publisher.publishRun('run-a', { item_ids: [finding.id],automation_start_url:'https://app.example.test/component' }, user);
+      assert.equal(published.items[0].target_type, 'automation');
+      assert.match(published.items[0].url,/^\/automation\?case=/);
       assert.equal(state.calls.length, 1);
       assert.equal(state.calls[0].payload.status, 'draft');
     }
@@ -581,6 +626,7 @@ test('knowledge publication permits project scope, retains revision evidence and
   const state = publication(t, row);
   const published = await publisher.publishRun(row.id, { item_ids: [item.id] }, user);
   assert.equal(published.indexing, 'queued'); assert.equal(state.calls[0].projectId, 'project-a');
+  assert.equal(published.knowledge_graph,'queued'); assert.equal(published.context_graph,'queued');
   assert.equal(state.calls[0].payload.app_type_id, null); assert.equal(state.calls[0].payload.metadata.revision, 'a'.repeat(40));
   assert.deepEqual(state.calls[0].payload.metadata.evidence, finding.evidence);
   assert.equal(state.calls[0].payload.metadata.repository_file, 'src/users.ts');

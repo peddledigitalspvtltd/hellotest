@@ -1,3 +1,4 @@
+const { expandManagedInstructions } = require('../../../platform/backend/test/helpers/managedInstructions');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createVerificationRepairContext } = require('../../backend/lib/automationVerificationRepairContext');
@@ -25,7 +26,7 @@ test('repair context exposes exact proposal identity and opaque current targets 
   const choices = context.packet.response_contract.return_one_of;
   assert.deepEqual(choices, [{ step_id: requirement.step_id, operation_index: 2, locator: 'One exact ref from current_snapshot.targets.' }, {}]);
   assert.equal(context.packet.response_contract.extra_keys, false);
-  assert.match(context.packet.response_contract.instruction, /preserve every action, parameter binding, input value and assertion/);
+  assert.match(expandManagedInstructions(context.packet.response_contract.instruction), /preserve every action, parameter binding, input value and assertion/);
   assert.doesNotMatch(JSON.stringify(context.packet.current_snapshot), /#current-name|locator_candidates|attributes|"value":/);
   assert.deepEqual(context.resolveProposal(proposal(context)), { step_id: requirement.step_id, operation_index: 2, locator: '#current-name-0' });
   assert.deepEqual(input, before);

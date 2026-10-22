@@ -83,23 +83,34 @@ const probeCandidates = async (kind, candidates) => {
     const health = await withTimeout(`${baseUrl}/health`);
     attempts.push({ base_url: baseUrl, ...health });
 
-    if (health.ok && (kind !== "playwright" || health.payload?.supported_web_engines?.includes("playwright"))) {
+    if (health.ok && (kind !== "playwright" || health.payload?.supported_web_engines?.includes("playwright") && health.payload?.ready !== false && health.payload?.capabilities?.local_execution !== false)) {
       return {
         kind,
         ready: true,
         base_url: baseUrl,
         health: health.payload,
-        attempts
+        attempts,
+        ...(kind === "playwright" ? { message: "The full local Playwright runner is reachable from the HelloTest API." } : {})
       };
     }
   }
 
+  const inspectionOnly = attempts.some(attempt => attempt.ok && (attempt.payload?.service === "hellotest-inspection-agent" || attempt.payload?.capabilities?.local_execution === false));
+  const notReady = attempts.some(attempt => attempt.ok && attempt.payload?.supported_web_engines?.includes("playwright") && attempt.payload?.ready === false);
   return {
     kind,
     ready: false,
     base_url: normalizedCandidates[0] || null,
     health: null,
-    attempts
+    attempts,
+    ...(kind === "playwright" ? {
+      code: inspectionOnly ? "LOCAL_AGENT_INSPECTION_ONLY" : notReady ? "LOCAL_AGENT_NOT_READY" : "LOCAL_AGENT_UNAVAILABLE",
+      message: inspectionOnly
+        ? "The inspection agent is connected, but it cannot execute saved cases. Start ./local-run/bin/start-host-recorder.sh (Windows: local-run\\bin\\start-host-recorder.cmd) from your HelloTest folder, then check the runner again."
+        : notReady
+          ? "The local Playwright runner is running but is not ready. Check its terminal for startup errors and ensure its shared secret matches the HelloTest API configuration."
+          : "The HelloTest API cannot reach a full local Playwright runner. Start ./local-run/bin/start-host-recorder.sh (Windows: local-run\\bin\\start-host-recorder.cmd) from your HelloTest folder. Hosted HelloTest requires an administrator-configured runner address reachable from its API; pairing the browser inspection agent alone does not connect local execution."
+    } : {})
   };
 };
 
@@ -109,7 +120,7 @@ const resolveLocalRunRoot = () =>
 const localAgentLaunchEnabled = () =>
   process.env.HELLOTEST_ALLOW_LOCAL_AGENT_LAUNCH === "true";
 
-const launchHostRecorder = () => {
+const launchHostRecorder = async () => {
   if (!localAgentLaunchEnabled()) {
     return {
       started: false,
@@ -130,18 +141,33 @@ const launchHostRecorder = () => {
     };
   }
 
-  const child = spawn(script, [], {
-    cwd: localRunRoot,
-    detached: true,
-    shell: isWindows,
-    stdio: "ignore",
-    env: {
-      ...process.env,
-      HELLOTEST_HOST_RECORDER_PORT: process.env.HELLOTEST_HOST_RECORDER_PORT || (process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL ? new URL(process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL).port : "") || "4313"
-    }
-  });
-
-  child.on("error", () => undefined);
+  const logDirectory = path.join(localRunRoot, "artifacts", "host-recorder");
+  fs.mkdirSync(logDirectory, { recursive: true, mode: 0o700 });
+  const logPath = path.join(logDirectory, "launcher.log");
+  const logFile = fs.openSync(logPath, "a", 0o600);
+  let child;
+  try {
+    child = spawn(script, [], {
+      cwd: localRunRoot,
+      detached: true,
+      shell: isWindows,
+      stdio: ["ignore", logFile, logFile],
+      env: {
+        ...process.env,
+        HELLOTEST_HOST_RECORDER_PORT: process.env.HELLOTEST_HOST_RECORDER_PORT || (process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL ? new URL(process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL).port : "") || "4313"
+      }
+    });
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+  } catch {
+    return {
+      started: false,
+      launch_supported: true,
+      message: "The local runner script could not be started. Check that Node.js and npm are installed and that local-run/bin/start-host-recorder.sh is executable, or start the script directly in a terminal."
+    };
+  } finally { fs.closeSync(logFile); }
   child.unref();
 
   return {
@@ -149,7 +175,7 @@ const launchHostRecorder = () => {
     launch_supported: true,
     pid: child.pid,
     script,
-    message: "HelloTest local runner launch requested. It will use the packaged recorder when present, otherwise it installs npm/Playwright packages and starts the local Playwright service."
+    message: "HelloTest local runner launch requested. First setup installs npm packages and Chromium and can take several minutes. Check local-run/artifacts/host-recorder/launcher.log for progress or startup errors, then check the runner connection again."
   };
 };
 

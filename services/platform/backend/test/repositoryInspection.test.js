@@ -169,7 +169,9 @@ test("setup links expire, are user bound, contain no bearer plaintext and cannot
 test("standalone installer embeds only scoped pairing and pins exact runtime dependencies", () => {
   const module = "export {};\n".repeat(20);
   const source = buildInstaller({ recorder: module, security: module, inspection_security: module, inspection_proxy: module, repository_locator: module, origin: "https://app.example.test", agent_token: "a".repeat(48) });
-  assert.match(source, /fastify: "4.29.1", playwright: "1.59.1"/);
+  const dependencies = JSON.parse(source.match(/dependencies: (\{[^\n]+?\}) \}\)/)[1]);
+  assert.deepEqual(dependencies, { acorn: "8.18.0", fastify: "4.29.1", playwright: "1.59.1" });
+  assert.match(source, /repository_inspection: true, local_execution: false/);
   assert.match(source, /host: "127.0.0.1", port: 4311/);
   assert.match(source, /TESTENGINE_CORS_ORIGINS = config.origin/);
   assert.ok(!source.includes(authorization));

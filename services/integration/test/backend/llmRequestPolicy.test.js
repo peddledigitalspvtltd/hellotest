@@ -53,7 +53,7 @@ test('oversized UTF-8 text rejects before provider invocation without cutting sc
 test('explicit parameter rejection is corrected once with bounded output and unchanged evidence', async t => {
   const { url, requests } = await provider(t, count => count === 1
     ? { status: 400, body: { error: 'Unsupported max_tokens: use max_completion_tokens' } }
-    : { body: completion() });
+    : { body: completion(JSON.stringify({ requirements:[{ title:'Login', description:'A visitor signs in to the selected workspace.', acceptance_criteria:['Valid credentials open the workspace.'], priority:3 }] })) });
   const response = await fetchLlmWithRetry(url, init(), { operation: 'requirement.generate' });
   assert.equal(response.status, 200);
   assert.equal(requests.length, 2);

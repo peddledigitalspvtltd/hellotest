@@ -16,9 +16,9 @@ test('dispatched live sessions use native PostgreSQL metadata and cannot cross p
    ['foreign-project','project-b','run-a','http://localhost:9999/api/v1/live-session'],
    ['foreign-run','project-a','run-b','http://localhost:9998/api/v1/live-session'],
    ['secret-url','project-a','run-a','https://user:private@example.test/live']
-  ]) await obs.prepare("INSERT INTO workspace_transactions(id,project_id,category,action,status,title,related_kind,related_id,metadata) VALUES (?,?,'automation','testengine_run','running',?,'testengine_run',?,?)").run(id,project,id,id,{execution_id:execution,live_view_url:url,active_web_engine:'playwright'});
+  ]) await obs.prepare("INSERT INTO workspace_transactions(id,project_id,category,action,status,title,related_kind,related_id,metadata) VALUES (?,?,'automation','testengine_run','running',?,'testengine_run',?,?)").run(id,project,id,id,{execution_id:execution,test_case_id:'case-a',live_view_url:url,active_web_engine:'playwright'});
   const sessions=await dispatch.getExecutionLiveSessions({id:'run-a',project_id:'project-a',status:'running'});
-  assert.deepEqual(sessions,[{engine_run_id:'matching',provider:'playwright',url:'http://localhost:4313/api/v1/live-session?provider=playwright&run_id=matching'}]);
+  assert.deepEqual(sessions,[{engine_run_id:'matching',test_case_id:'case-a',data_set_iteration_index:null,data_set_iteration_key:null,provider:'playwright',url:'http://localhost:4313/api/v1/live-session?provider=playwright&run_id=matching'}]);
   await obs.prepare("UPDATE workspace_transactions SET status='completed' WHERE id='matching'").run();
   assert.deepEqual(await dispatch.getExecutionLiveSessions({id:'run-a',project_id:'project-a',status:'running'}),[]);
  } finally {await Promise.all([db.close(),obs.close()]);}

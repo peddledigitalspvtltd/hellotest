@@ -9,6 +9,7 @@ import '../components/AgenticExperience.css';
 import { FormattedText } from "@hellotest/platform/frontend/src/shared/components/FormattedText";
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { automationStartUrlError } from '@hellotest/automation/frontend/lib/automationStartUrl';
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -188,6 +189,7 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [moduleId, setModuleId] = useState("");
+  const [automationStartUrl, setAutomationStartUrl] = useState("");
   const [downloading, setDownloading] = useState("");
   const [publishReceipt, setPublishReceipt] = useState<RepositoryAgentPublishResult | null>(null);
   const mounted = useRef(true);
@@ -239,8 +241,18 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
   const publishableRows = rows.filter((item) => !published.has(item.id));
   const selectedIds = publishableRows.filter((item) => selected.has(item.id)).map((item) => item.id);
   const publishPermission = effectiveGroup === "objects" ? "automation.repository.import" : effectiveGroup === "knowledge" ? "knowledge.manage" : "testcase.create";
-  const canPublish = canRun && hasPermission(session, publishPermission, projectId) && effectiveGroup === DEFAULT_GROUPS[agentType];
+  const automationPermissions = ['automation.view', 'automation.code.view', 'automation.build'];
+  const canPublish = canRun && hasPermission(session, publishPermission, projectId) && effectiveGroup === DEFAULT_GROUPS[agentType]
+    && (effectiveGroup !== 'test_cases' || automationPermissions.every(permission => hasPermission(session, permission, projectId)));
   const canPublishInScope = canPublish && (effectiveGroup === "knowledge" || Boolean(appTypeId));
+  const startUrlIssue = agentType==='component_tests' ? automationStartUrlError(automationStartUrl,true) : '';
+  const knowledgeProcessing = useQuery({
+    queryKey:['repository-agent-publication-status',projectId,runId,run?.published?.items?.length],
+    queryFn:({signal})=>agenticApi.repositoryAgents.publicationStatus(runId,{signal}),
+    enabled:Boolean(run && agentType==='repository_knowledge' && run.published?.items?.length && hasPermission(session,'knowledge.view',projectId)),
+    refetchInterval:query=>visible && query.state.data?.pending ? 2000 : false,
+    refetchIntervalInBackground:false,retry:1
+  });
   const selectablePageRows = pageRows.filter((item) => !published.has(item.id));
   const allPageSelected = selectablePageRows.length > 0 && selectablePageRows.every((item) => selected.has(item.id));
   const warnings = asArray(run?.warnings?.length ? run.warnings : run?.result?.warnings);
@@ -255,7 +267,7 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
   const requiresApplication = agentType !== "repository_knowledge";
   const canStart = canRun && Boolean(projectId) && (!requiresApplication || Boolean(appTypeId)) && catalog.data?.runtime.available === true;
 
-  useEffect(() => { setSelected(new Set()); setSearch(""); setPublicationFilter("all"); setPage(1); setModuleId(""); }, [runId, effectiveGroup]);
+  useEffect(() => { setSelected(new Set()); setSearch(""); setPublicationFilter("all"); setPage(1); setModuleId(""); setAutomationStartUrl(""); }, [runId, effectiveGroup]);
 
   const reportError = (error: unknown, area: "source" | "review" = "source") => {
     if (!mounted.current || mutationController.current.signal.aborted) return;
@@ -280,16 +292,21 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
     onSuccess: (next) => { if (!mounted.current) return; setMessage(""); refreshRuns(); onOpen(next.agent_type, next.id); }, onError: (error) => reportError(error)
   });
   const publish = useMutation({
-    mutationFn: () => agenticApi.repositoryAgents.publish(runId, { item_ids: selectedIds, module_id: effectiveGroup === "test_cases" ? moduleId || undefined : undefined }, { signal: mutationController.current.signal }),
+    mutationFn: () => agenticApi.repositoryAgents.publish(runId, { item_ids: selectedIds, module_id: effectiveGroup === "test_cases" ? moduleId || undefined : undefined, ...(agentType==='component_tests'?{automation_start_url:automationStartUrl.trim()}: {}) }, { signal: mutationController.current.signal }),
     onSuccess: (result) => {
       if (!mounted.current) return;
       setSelected(new Set()); setMessageArea("review"); setMessageTone("success"); setPublishReceipt(result);
-      setMessage(`${result.items.length} ${result.items.length === 1 ? "item" : "items"} published${result.skipped ? `; ${result.skipped} skipped` : ""}.${result.message ? ` ${result.message}` : ""}`);
+      setMessage(`${result.items.length} ${result.items.length === 1 ? "item" : "items"} accepted into ${effectiveGroup==='test_cases'?'the Automation library':effectiveGroup==='objects'?'Object Repository':'Knowledge Repo'}${result.skipped ? `; ${result.skipped} skipped` : ""}.${result.message ? ` ${result.message}` : ""}`);
       refreshRuns();
-      for (const key of ["knowledge", "knowledge-sources", "knowledge-overview", "automation-learning-cache", "automation-repository-context", "test-cases", "test-case-modules"]) void client.invalidateQueries({ queryKey: [key] });
+      for (const key of ["knowledge", "knowledge-sources", "knowledge-overview", "automation-learning-cache", "automation-repository-context", "test-cases", "test-case-modules", "repository-agent-publication-status"]) void client.invalidateQueries({ queryKey: [key] });
     }, onError: (error) => reportError(error, "review")
   });
-  const busy = start.isPending || cancel.isPending || retry.isPending || publish.isPending;
+  const knowledgeNeedsProcessing = (knowledgeProcessing.data?.items || []).filter(item=>item.indexing==='failed' || item.indexing==='pending' || item.indexing==='ready' && (item.knowledge_graph!=='ready' || item.context_graph!=='ready'));
+  const retryKnowledge = useMutation({
+    mutationFn:()=>agenticApi.repositoryAgents.processKnowledge(runId,{item_ids:knowledgeNeedsProcessing.slice(0,50).map(item=>item.finding_id)},{signal:mutationController.current.signal}),
+    onSuccess:()=>{void knowledgeProcessing.refetch();},onError:error=>reportError(error,'review')
+  });
+  const busy = start.isPending || cancel.isPending || retry.isPending || publish.isPending || retryKnowledge.isPending;
   const chooseArchive = (archive?: File) => {
     if (!archive) return;
     if (!/\.zip$/i.test(archive.name) || archive.size === 0 || archive.size > maxBytes) {
@@ -329,6 +346,7 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
     } catch (error) { reportError(error); } finally { if (mounted.current) setDownloading(""); }
   };
   const toggle = (id: string) => setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else if (next.size < 50) next.add(id); return next; });
+  const acceptanceLabel = effectiveGroup==='knowledge' ? 'Process into Knowledge Graph' : 'Accept into Library';
 
   return <div className={`repository-agents-workspace accent-${agent.accent}${runId ? " has-run" : ""}`}>
     <div className="repository-agent-workspace-heading">
@@ -413,7 +431,22 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
               {!pageRows.length ? <p className="repository-agent-empty-filter">{publicationFilter === "published" && !search ? "No findings have been published yet. Select reviewed findings to create your assets." : publicationFilter === "pending" && !search ? "Every finding in this category has been published. Open Published to continue with the created assets." : "No findings match these filters."}</p> : null}
               {pageCount > 1 ? <div className="repository-agent-pagination"><button type="button" className="ghost-button compact" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>Previous</button><span>{(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}</span><button type="button" className="ghost-button compact" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></div> : null}
               {message && messageArea === "review" ? <div className={`repository-agent-notice repository-agent-review-message is-${messageTone}`} role={messageTone === "error" ? "alert" : "status"}>{message}<button type="button" aria-label="Dismiss agent message" onClick={() => setMessage("")}>×</button></div> : null}
-              <footer className="repository-agent-publish"><div><strong>{effectiveGroup === "objects" ? "Publish to Object Repository" : effectiveGroup === "knowledge" ? "Publish to Knowledge Repo" : effectiveGroup === "components" ? "Component discovery evidence" : "Create draft test cases"}</strong><p>{effectiveGroup === "components" ? "Use these discoveries to review the generated contracts and downloadable specs." : !canPublish ? "Your role can inspect these findings. Publishing requires permission to create the target assets." : !canPublishInScope ? "Select an application before generating an analysis to publish test cases into it." : "Select the findings you have reviewed. Publishing creates assets in the current project and application."}</p></div>{canPublishInScope ? <div className="repository-agent-publish-controls">{effectiveGroup === "test_cases" && hasPermission(session, "testcase.update", projectId) ? <label>Module<select aria-label="Module" value={moduleId} disabled={busy || modules.isLoading} onChange={(event) => setModuleId(event.target.value)}><option value="">No module</option>{asArray(modules.data).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}<button type="button" className="primary-button" disabled={!selectedIds.length || busy || active} onClick={() => publish.mutate()}><IconCheck size={16} aria-hidden="true" />{publish.isPending ? "Publishing…" : `Publish selected${selectedIds.length ? ` (${selectedIds.length})` : ""}`}</button></div> : null}</footer>
+              <footer className="repository-agent-publish">
+                <div><strong>{effectiveGroup==='objects'?'Object Repository':effectiveGroup==='knowledge'?'Knowledge Repo, Knowledge Graph & context':effectiveGroup==='components'?'Component discovery evidence':'Automation Test Case library'}</strong>
+                  <p>{effectiveGroup==='components'?'Review these discoveries alongside the generated Test Cases and downloadable specs.':!canPublish?'Accepting findings requires permission to create and review the target assets.':!canPublishInScope?'Select an application before accepting automation drafts.':effectiveGroup==='test_cases'?'Reviewed findings become Automation Test Case drafts. Configure test data and verify runtime behavior before running them.':effectiveGroup==='knowledge'?'Accept reviewed documents into Knowledge Repo and process them for graph exploration and grounded AI context.':'Accept the reviewed screens and objects into Object Repository.'}</p>
+                </div>
+                {canPublishInScope?<div className="repository-agent-publish-controls">
+                  {effectiveGroup==='test_cases' && hasPermission(session,'testcase.update',projectId)?<label>Module<select aria-label="Module" value={moduleId} disabled={busy || modules.isLoading} onChange={event=>setModuleId(event.target.value)}><option value="">No module</option>{asArray(modules.data).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>:null}
+                  {agentType==='component_tests'?<label className="repository-agent-start-url">Start URL<input aria-label="Component automation Start URL" type="url" disabled={busy} value={automationStartUrl} onChange={event=>setAutomationStartUrl(event.target.value)} placeholder="https://your-app.example/component" aria-describedby="repository-component-start-url-help" /><small id="repository-component-start-url-help">{startUrlIssue || 'The reviewed application page used by these component drafts.'}</small></label>:null}
+                  <button type="button" className="primary-button" disabled={!selectedIds.length || busy || active || Boolean(startUrlIssue)} onClick={()=>publish.mutate()}><IconCheck size={16} aria-hidden="true" />{publish.isPending?'Accepting…':`${acceptanceLabel}${selectedIds.length?` (${selectedIds.length})`:''}`}</button>
+                </div>:null}
+              </footer>
+              {agentType==='repository_knowledge' && knowledgeProcessing.data?.items?.length?<section className="repository-agent-notice" aria-label="Knowledge and context graph processing" role="status">
+                <strong>Knowledge & context graph</strong><p>{knowledgeProcessing.data.ready} ready · {knowledgeProcessing.data.pending} pending · {knowledgeProcessing.data.failed} need retry. Ready documents can ground AI answers and graph exploration.</p>
+                <Link to="/knowledge-repo">Open Knowledge Repo</Link>
+                {knowledgeNeedsProcessing.length>0 && canPublish?<button type="button" className="ghost-button compact" disabled={busy} onClick={()=>retryKnowledge.mutate()}>{retryKnowledge.isPending?'Queueing…':'Retry graph processing'}</button>:null}
+              </section>:null}
+              {knowledgeProcessing.isError?<div role="alert" className="repository-agent-notice is-error">{knowledgeProcessing.error instanceof Error?knowledgeProcessing.error.message:'Knowledge processing status could not be loaded.'}<button type="button" onClick={()=>void knowledgeProcessing.refetch()}>Refresh status</button></div>:null}
             </> : <div className="repository-agent-empty-filter"><h3>No publishable findings were produced</h3><p>Review the analysis workflow and warnings for unsupported frameworks, missing routes or insufficient source evidence. You can try a different repository revision.</p></div>}
           </section> : !active ? <div className="repository-agent-empty-filter">{run.status === "cancelled" ? "This analysis was cancelled. Retry when you are ready." : "No generated findings are available for this analysis."}</div> : null}
           {(run.result?.llm_reviews?.length || run.result?.llm_review) && <section className="repository-agent-artifacts"><h3>AI source assessment & improved outcomes</h3><p>Inspect each batch's findings, evidence and proposed improvements. Accepting a model proposal requires your review and is separate from publishing the source findings above.</p>{(run.result.llm_reviews?.length ? run.result.llm_reviews : [{...run.result.llm_review!,batch:1}]).map(review => <RepositorySourceReview key={review.session_id} sessionId={review.session_id} batch={review.batch} scopeKey={`${projectId}:${appTypeId}`} />)}</section>}

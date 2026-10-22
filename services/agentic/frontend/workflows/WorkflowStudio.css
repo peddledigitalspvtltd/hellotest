@@ -1137,3 +1137,10 @@
   .studio-input-feedback { align-items: flex-start; flex-direction: column; }
   .studio-header-actions .primary-button { flex: 1; justify-content: center; }
 }
+
+.studio-sprint-drafts { padding: 20px; border-bottom: 1px solid var(--border); }
+.studio-sprint-drafts > details { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.studio-sprint-drafts summary { cursor: pointer; font-weight: 600; }
+.studio-sprint-drafts article { padding: 16px 0; border-top: 1px solid var(--border); }
+.studio-sprint-drafts pre { max-height: 400px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.studio-sprint-drafts article > button { margin-right: 8px; margin-top: 12px; }

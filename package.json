@@ -25,7 +25,7 @@
     "ops:status": "node scripts/ops/stack.mjs status",
     "ops:verify": "node scripts/ops/verify.mjs",
     "audit:modules": "node scripts/checks/audit-module-graph.mjs",
-    "test:architecture": "node scripts/checks/sync-capability-metadata.mjs --check && node --test scripts/checks/*.test.mjs",
+    "test:architecture": "node scripts/checks/sync-capability-metadata.mjs --check && node scripts/build/gherkin-runtime.mjs --check && node --test scripts/checks/*.test.mjs",
     "audit:clones": "node scripts/checks/report-function-clones.mjs",
     "services:up": "node scripts/deploy/capabilities.mjs",
     "check:boundaries": "node scripts/checks/check-service-boundaries.mjs",
@@ -37,6 +37,8 @@
     "check:mcp": "node scripts/build/mcp-contracts.mjs --check",
     "test:mcp": "npm test --workspace @hellotest/mcp",
     "test:mcp:postgres": "node scripts/checks/test-mcp-postgres.mjs",
+    "test:ai-attachments": "node scripts/checks/test-ai-attachments.mjs",
+    "test:repository-knowledge": "node scripts/checks/test-repository-knowledge.mjs",
     "test:knowledge:postgres": "node scripts/checks/test-knowledge-postgres.mjs",
     "test:product-ux": "node scripts/checks/test-product-experience.mjs",
     "check:docs": "node scripts/checks/check-docs.mjs"

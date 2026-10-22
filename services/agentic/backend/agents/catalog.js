@@ -7,5 +7,6 @@ const AGENTS = Object.freeze([
 const LIMITS = Object.freeze({ max_archive_bytes: Math.max(20 * 1024 * 1024, Number.parseInt(process.env.REPOSITORY_ARCHIVE_QUOTA_BYTES, 10) || 1024 * 1024 * 1024), max_files: 30000, max_result_bytes: 6 * 1024 * 1024, max_selected_items: 50, worker_timeout_ms: 600_000, max_concurrent: 2 });
 const FINDING_KEYS = Object.freeze({ object_repository: 'objects', api_tests: 'test_cases', repository_knowledge: 'knowledge', component_tests: 'test_cases' });
 const PUBLISH_PERMISSIONS = Object.freeze({ object_repository: 'automation.repository.import', api_tests: 'testcase.create', repository_knowledge: 'knowledge.manage', component_tests: 'testcase.create' });
+const PUBLISH_ADDITIONAL_PERMISSIONS = Object.freeze({ api_tests: ['automation.view', 'automation.code.view', 'automation.build'], component_tests: ['automation.view', 'automation.code.view', 'automation.build'] });
 const error = (message, statusCode = 400, code = 'REPOSITORY_AGENT_ERROR') => Object.assign(new Error(message), { statusCode, code, publicMessage: message });
-module.exports = { AGENTS, LIMITS, FINDING_KEYS, PUBLISH_PERMISSIONS, error };
+module.exports = { AGENTS, LIMITS, FINDING_KEYS, PUBLISH_PERMISSIONS, PUBLISH_ADDITIONAL_PERMISSIONS, error };

@@ -12,7 +12,7 @@ export function DefectAiDraftWorkspace({ hasDraft, children, emptyAction, status
   if (hasDraft) return <div className="story-studio-inspector defect-studio-inspector" ref={outputRef}>{statusContent}{children}</div>;
   return <div className="story-studio-inspector-empty">
     {statusContent}<SparkIcon /><h2>Your Defect draft will appear here</h2>
-    <p>Describe the failure, add supporting evidence, and generate a draft for review.</p>
+    <p>Add a failure description, screenshot, or supporting evidence to generate a draft for review.</p>
     {emptyAction}
   </div>;
 }

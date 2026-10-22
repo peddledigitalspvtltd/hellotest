@@ -1,7 +1,7 @@
 const traces=require('@hellotest/platform/backend/src/utils/llmTraceContext');
 const {principal}=require('./auth');
 const {withDeadline}=require('./mcpDeadline');
-const {MCP_CONTEXT_PREFIX,compactEvidenceText}=require('@hellotest/platform/backend/src/utils/llmContextFallback');
+const {MCP_CONTEXT_PREFIX,compactEvidenceText,retainMcpRelationships}=require('@hellotest/platform/backend/src/utils/llmContextFallback');
 let transport;
 const installTransport=call=>{transport=call;};
 async function contextCall({userId,projectId,args,signal,privateInput,timeoutMs=30000}){
@@ -46,6 +46,11 @@ async function enrichChatRequest(init,options={}){
  const trace={...traces.current(options.integration),...options.traceContext};
  const policy=options.mcpContextPolicy;
  if(policy?.mode==='none'){options.mcpContextStatus='not_required';return init;}
+ if(options.contextRetrievalQuery===null){
+  options.mcpContextStatus='query_unavailable';
+  if(policy?.required)throw Object.assign(new Error('This feature requires knowledge context. Add a written description or select a Story so relevant project evidence can be retrieved alongside the image.'),{statusCode:422,code:'AI_MCP_QUERY_REQUIRED'});
+  return init;
+ }
  if(trace.mcp_context_depth||String(options.operation||'').startsWith('knowledge.')){options.mcpContextStatus=trace.mcp_context||'handled_by_context_pipeline';return init;}
  if(!trace.actor_id||!trace.project_id){options.mcpContextStatus='scope_missing';if(policy?.required)throw Object.assign(new Error('Required MCP context needs a verified project and user.'),{statusCode:422,code:'AI_MCP_SCOPE_REQUIRED'});return init;}
  if(typeof init.body!=='string')return init;
@@ -68,19 +73,25 @@ async function enrichChatRequest(init,options={}){
   const packet=verifyPacket(result.packet,trace.project_id);
   const evidence=packet.evidence;
   if(policy?.required && !evidence.length)throw Object.assign(new Error('Required evidence is missing.'),{code:'MCP_CONTEXT_EMPTY'});
-  const context={project_id:trace.project_id,observed_at:result.observed_at,evidence:evidence.slice(0,policy?.max_items||12),limitations:packet.limitations,coverage:packet.coverage,evidence_quality:packet.evidence_quality,retrieval_status:packet.retrieval?.status,intent_planning_mode:packet.retrieval?.intent_planning_mode,information_needs:packet.retrieval?.model_context_plan?.information_needs,context_transport:'mcp'};
+  const context={project_id:trace.project_id,observed_at:result.observed_at,evidence:evidence.slice(0,policy?.max_items||12),relationships:[],limitations:packet.limitations,coverage:packet.coverage,evidence_quality:packet.evidence_quality,retrieval_status:packet.retrieval?.status,intent_planning_mode:packet.retrieval?.intent_planning_mode,information_needs:packet.retrieval?.model_context_plan?.information_needs,context_transport:'mcp'};
   // Bound whole evidence items, never chop JSON or discard provenance strings.
   const charBudget=Math.min(32000,(policy?.token_budget||2000)*4);
   const returnedCount=context.evidence.length;
   context.omitted_evidence_count=Math.max(0,evidence.length-returnedCount);
+  const refreshRelationships=()=>{
+    context.relationships=retainMcpRelationships(packet.relationships,context.evidence);
+    context.omitted_relationship_count=(packet.relationships?.length||0)-context.relationships.length;
+    if(context.omitted_evidence_count||context.omitted_relationship_count)context.limitations=[...(Array.isArray(packet.limitations)?packet.limitations:[]),'Additional evidence or relationship witnesses were omitted to fit the configured context budget; omitted facts are unknown.'];
+  };
+  refreshRelationships();
   if(JSON.stringify(context).length>charBudget)context.evidence=context.evidence.map(item=>{
     const compact={...item};
     const itemBudget=Math.max(500,Math.floor(charBudget/Math.max(2,Math.min(returnedCount,4))));
     for(const key of ['content','text','snippet','summary'])if(typeof compact[key]==='string'&&compact[key].length>itemBudget){compact[key]=compactEvidenceText(compact[key],itemBudget);compact.excerpt_truncated=true;}
     return compact;
   });
-  while(JSON.stringify(context).length>charBudget&&context.evidence.length){context.evidence.pop();context.omitted_evidence_count++;}
-  if(context.omitted_evidence_count)context.limitations=[...(Array.isArray(packet.limitations)?packet.limitations:[]),'Additional evidence was omitted to fit the configured context budget; omitted facts are unknown.'];
+  refreshRelationships();
+  while(JSON.stringify(context).length>charBudget&&context.evidence.length){context.evidence.pop();context.omitted_evidence_count++;refreshRelationships();}
   if(policy?.required && !context.evidence.length)throw Object.assign(new Error('Required evidence exceeds the context budget.'),{code:'MCP_CONTEXT_BUDGET'});
   const messages=[...body.messages];messages.splice(questionIndex,0,{role:'user',content:MCP_CONTEXT_PREFIX+JSON.stringify(context)});
   options.mcpContextStatus='retrieved';

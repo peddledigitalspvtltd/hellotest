@@ -6,23 +6,24 @@ project and application, then upload a ZIP or choose a GitHub repository. The
 workspace is also available at
 `/agentic-workflows?view=repository&agent=object_repository`.
 
-Analysis produces findings and downloadable artifacts. **Publish selected** is
-the action that creates application records. Opening an agent, starting analysis
-or downloading its results does not publish anything.
+Analysis produces findings and downloadable artifacts. **Accept into Library**
+creates the selected native assets; Repository Knowledge Builder uses **Process
+into Knowledge Graph** to accept documents and queue their indexing. Opening an
+agent, starting analysis or downloading results does not create library records.
 
 ## Available agents
 
 | Agent | Source evidence | Review output | Publication destination |
 | --- | --- | --- | --- |
 | Object Repository Generator | Static JSX, TSX and HTML; static markup in Vue/Svelte | Screens, locator candidates, fallback locators and source locations | Object Repository in the selected application |
-| API Test Case Generator | OpenAPI JSON/YAML, literal Express/Fastify route calls, Next.js app route function exports | Requests, parameter/body schemas, observed response statuses, positive and justified negative test drafts | Draft Test Cases, optionally assigned to a module |
-| Repository Knowledge Builder | Source files and documentation, with a repository inventory and declared API operations | Redacted source/documentation excerpts with file and line references | Knowledge Repo, followed by its normal indexing lifecycle |
-| Component Test Generator | The UI evidence used by Object Repository discovery | Component contracts, proposed visibility/count checks and a skipped Playwright scaffold | Draft Test Cases; component inventory remains review context |
+| API Test Case Generator | OpenAPI JSON/YAML, literal Express/Fastify route calls, Next.js app route function exports | Requests, parameter/body schemas, observed response statuses, positive and justified negative test drafts | Automation Test Case drafts, optionally assigned to a module |
+| Repository Knowledge Builder | Source files and documentation, with a repository inventory and declared API operations | Redacted source/documentation excerpts with file and line references | Knowledge Repo, source graph projection and permission-aware context retrieval |
+| Component Test Generator | The UI evidence used by Object Repository discovery | Component contracts, proposed visibility/count checks and a skipped Playwright scaffold | Automation Test Case drafts with a reviewed Start URL; component inventory remains review context |
 
 Each finding has an identity, source evidence, confidence in that static evidence
 and a review requirement. Confidence is not a pass rate or a claim that a
-generated test has run. This version uses deterministic analysis; an LLM
-integration is not required and no LLM is called by these four agents.
+generated test has run. Static extraction is deterministic. Configured AI source
+assessments appear separately with their model provenance and reviewable proposals.
 
 ## Provide source
 
@@ -139,15 +140,21 @@ not presented as established facts.
 
 ## Publish and revisit
 
-Select up to 50 findings and choose **Publish selected**. Test drafts may also be
-assigned to a module in the same application. A publication receipt links to the
-created records. Previously published findings remain associated with the run.
+Select up to 50 reviewed findings and choose **Accept into Library**, or **Process
+into Knowledge Graph** for repository knowledge. Automation drafts may also be
+assigned to a module in the same application. Component acceptance requires a
+complete HTTP(S) **Start URL** without embedded credentials or placeholders.
+A receipt links to each created record. Previously accepted findings remain
+associated with the run.
 
 - **Object Repository:** selected fields use the existing repository service and
   screen context. Existing matching locators or object names in a screen are
   skipped with a reason; the agent does not overwrite them. Runtime verification
   remains pending.
-- **API Test Cases:** cases are created as structured drafts. The request step
+- **API Test Cases:** cases enter the Automation library as structured drafts
+  with `automated=yes` and `automation_status=incomplete`. A source contract
+  becomes one native API request step; setup/assertion narrative remains in the
+  description and does not repeat a state-changing request. The request step
   retains the method and endpoint, uses `@r.base_url` and test parameters, and
   adds a status assertion only when the source established one. Supply typed
   test data, review authentication and finish assertions before execution.
@@ -161,25 +168,42 @@ created records. Previously published findings remain associated with the run.
   field required by a negative scenario.
   Declared JSON and `+json` content types are preserved. Supported form, XML and
   text requests use `@t.request_body` for the complete reviewed wire payload;
-  multipart/binary requests remain manual drafts requiring body setup. Swagger 2
+  multipart/binary request drafts require manual body setup before execution. Swagger 2
   honors operation-level `consumes` before the document default. A missing or
   invalid media declaration is flagged and does not silently become JSON.
-- **Component Test Cases:** proposed steps become draft cases. Component
-  contracts and assertions remain available for review and export. No generated
-  browser test is executed during publication.
+- **Component Test Cases:** proposed steps become incomplete Automation Test
+  Case drafts with the reviewed Start URL. Build and review their browser
+  instructions before running them. Component contracts and assertions remain
+  available for review and export. Acceptance does not execute a browser test.
 - **Knowledge Repo:** selected documents are created as active knowledge items
   with repository/revision metadata and source evidence. File identity, content
   hash, excerpt line range and truncation metadata are retained. Publication queues
   synchronization in the existing durable Knowledge Repo indexing outbox.
-  Successful publication does not mean indexing has already finished. Check the
-  source's processing status in Knowledge Repo before expecting Ask AI retrieval.
+  The **Knowledge & context graph** status shows ready, pending and retry
+  counts. A ready item has a current searchable document, its exact source graph
+  node and document-to-fragment projection. These source evidence nodes support
+  graph resolution and AI context; filenames and symbols do not establish
+  inter-file relationships. **Retry graph processing** requeues selected accepted
+  sources through the same durable worker. Failed processing retains immutable
+  prior document revisions.
 
 Publication uses a database transaction and a lock for the project/application.
 Repeating publication of the same finding in a run returns its existing receipt.
-Identical API/component findings across analyses reuse the existing test case
-through its source idempotency key. Knowledge uses an equivalent content-derived
-key. These keys include the finding's content and scope: changed findings can
-produce new records and do not automatically update previously published assets.
+Identical API/component findings across analyses reuse the existing Automation
+Test Case through its source idempotency key. Component identity also includes
+the normalized Start URL; changing it on an already accepted run returns a
+conflict. Knowledge uses an equivalent content-derived key. Changed findings or
+new component targets can produce new records in a new analysis and do not
+automatically update previously accepted assets.
+
+`GET /repository-agents/runs/:id/publication-status` returns each accepted
+finding's native target, source/document identities and `indexing`,
+`knowledge_graph` and `context_graph` states, plus `ready`, `pending` and `failed`
+counts. `POST /repository-agents/runs/:id/process-knowledge` accepts
+`{ "item_ids": ["published-finding-id"] }` and returns `202` after queueing.
+It accepts only findings already published by that run into its exact project
+and application; target IDs supplied as finding IDs are rejected. Status is
+derived from current native records and indexes, rather than the initial receipt.
 
 ## Background jobs, cache and cancellation
 
@@ -224,10 +248,12 @@ the permissions below. A readable run does not grant permission to publish it.
 | Start, cancel or retry analysis | `agentic_workflow.run` |
 | Use a saved GitHub connection | `integration.view`, plus matching project/repository binding |
 | Publish objects | `agentic_workflow.run` and `automation.repository.import` |
-| Publish API/component cases | `agentic_workflow.run` and `testcase.create` |
+| Accept API/component Automation cases | `agentic_workflow.run`, `testcase.create`, `automation.view`, `automation.code.view` and `automation.build` |
 | Publish API/component cases into a mobile application | Also `mobile.manage` |
 | Assign published cases to a module | Also `testcase.update` |
 | Publish knowledge | `agentic_workflow.run` and `knowledge.manage` |
+| Inspect knowledge/graph processing | `agentic_workflow.view` and `knowledge.view` |
+| Requeue accepted knowledge processing | `agentic_workflow.run` and `knowledge.manage` |
 
 Artifacts are authenticated downloads with private/no-store headers; generated
 source is served as an attachment, not executed in the application origin.
@@ -280,6 +306,11 @@ From `services/platform/backend`, run the deterministic compiler and Node contro
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s agents/semantic_compiler/tests -v
 node --test test/repositoryAgentSources.test.js test/repositoryAgentLifecycle.test.js
 ```
+
+From the repository root, `node scripts/checks/test-repository-knowledge.mjs`
+creates and removes its own local disposable PostgreSQL database. It verifies
+native knowledge acceptance, outbox processing, sanitized file/revision evidence,
+graph resolution, ContextPacket retrieval, projection repair and archive state.
 
 The opt-in PostgreSQL integration test is
 `services/platform/backend/test/integration/repositoryAgents.postgres.test.js`. It requires an

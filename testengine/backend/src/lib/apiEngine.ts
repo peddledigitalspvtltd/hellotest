@@ -6,6 +6,7 @@ import type {
   HelloTestExecutionApiAssertion,
   HelloTestExecutionStepApiDetail
 } from "../contracts/hellotest.js";
+import { compare, evaluateExtendedApiAssertion } from "./apiAssertions.js";
 import { readJsonPathValue } from "./apiJsonPath.js";
 import { apiRequestTimeoutMs } from "./apiRequestTimeout.js";
 import {
@@ -50,7 +51,7 @@ type ApiResponsePreview = {
 
 const API_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 const API_BODY_MODES = new Set(["none", "json", "text", "xml", "form"]);
-const API_VALIDATION_KINDS = new Set(["status", "header", "body_contains", "json_path"]);
+const API_VALIDATION_KINDS = new Set(["status", "header", "header_present", "body_contains", "body_not_contains", "json_path", "json_schema", "response_time"]);
 
 const ensureHttpUrl = (value: string | null | undefined) => {
   const normalized = normalizeText(value);
@@ -84,6 +85,10 @@ const normalizeApiRequest = (request: EngineApiRequest | null | undefined): Engi
 
   return {
     timeout_ms: apiRequestTimeoutMs(request.timeout_ms),
+    query_params: Array.isArray(request.query_params) ? request.query_params : [],
+    cookies: Array.isArray(request.cookies) ? request.cookies : [],
+    auth: request.auth,
+    follow_redirects: request.follow_redirects,
     method: API_METHODS.has(method) ? request.method : "GET",
     url: normalizeText(request.url) || "",
     headers: Array.isArray(request.headers)
@@ -110,11 +115,13 @@ const resolveApiRequest = (
   const context = buildInitialContext(envelope, capturedValues, step);
   const normalizedRequest = normalizeApiRequest(request);
 
-  return normalizeApiRequest({
+  const resolved=normalizeApiRequest({
     ...normalizedRequest,
     url: interpolateText(normalizedRequest.url, context),
     body: interpolateText(normalizedRequest.body, context),
     headers: Object.entries(interpolateHeaders(normalizedRequest.headers, context)).map(([key, value]) => ({ key, value })),
+    query_params: (normalizedRequest.query_params || []).map(row=>({key:interpolateText(row.key,context),value:interpolateText(row.value,context)})),
+    cookies: (normalizedRequest.cookies || []).map(row=>({key:interpolateText(row.key,context),value:interpolateText(row.value,context)})),
     validations: (normalizedRequest.validations || []).map((validation) => ({
       ...validation,
       target: interpolateText(validation.target, context),
@@ -126,6 +133,15 @@ const resolveApiRequest = (
       path: interpolateText(capture.path, context)
     }))
   });
+  const auth=resolved.auth;
+  let credential: string | undefined;
+  if(auth && auth.type!=='none'){
+    const ref=String(auth.credential_reference||'');
+    credential=interpolateText(ref.startsWith('@')?ref:`@${ref}`,context);
+    if(!ref || !credential)throw new Error('Configure the API authentication credential_reference in authorized test data before execution.');
+  }
+  if(resolved.url?.startsWith('/') && envelope.environment?.base_url)resolved.url=new URL(resolved.url,envelope.environment.base_url).href;
+  return {...resolved,resolved_credential:credential};
 };
 
 const mapResponseHeaders = (response: Response) =>
@@ -220,22 +236,6 @@ const parseAssertionExpectedValue = (value: string | null | undefined) => {
   return normalized;
 };
 
-const areAssertionValuesEqual = (left: unknown, right: unknown) => {
-  if (left === right) {
-    return true;
-  }
-
-  if (typeof left === "object" && left !== null && typeof right === "object" && right !== null) {
-    try {
-      return JSON.stringify(left) === JSON.stringify(right);
-    } catch {
-      return false;
-    }
-  }
-
-  return false;
-};
-
 const evaluateApiAssertions = (preview: ApiResponsePreview, validations: EngineApiValidation[] = []) => {
   const effectiveValidations: EngineApiValidation[] = validations.length ? validations : [{ kind: "status", expected: "200" }];
 
@@ -254,6 +254,9 @@ const evaluateApiAssertions = (preview: ApiResponsePreview, validations: EngineA
         summary: `Unsupported API assertion kind: ${kind}.`
       };
     }
+
+    const extended=evaluateExtendedApiAssertion(preview,{...validation,kind:validation.kind,target,expected});
+    if(extended)return {kind,target,expected,...extended};
 
     if (kind === "status") {
       const expectedStatus = Number(expected || "200") || 200;
@@ -274,7 +277,7 @@ const evaluateApiAssertions = (preview: ApiResponsePreview, validations: EngineA
     if (kind === "header") {
       const headerName = String(target || "content-type").toLowerCase();
       const actual = preview.response.headers[headerName] || "";
-      const passed = actual === (expected || "");
+      const passed = compare(actual,expected || "",validation.operator);
 
       return {
         kind,
@@ -317,7 +320,7 @@ const evaluateApiAssertions = (preview: ApiResponsePreview, validations: EngineA
 
     const resolved = readJsonPathValue(preview.response.body_json, target || "$");
 
-    if (!resolved.found) {
+    if (!resolved.found && validation.operator !== "exists") {
       return {
         kind,
         passed: false,
@@ -329,7 +332,9 @@ const evaluateApiAssertions = (preview: ApiResponsePreview, validations: EngineA
     }
 
     const expectedValue = parseAssertionExpectedValue(expected);
-    const passed = areAssertionValuesEqual(resolved.value, expectedValue);
+    let passed: boolean;
+    try { passed=compare(resolved.value, expectedValue, validation.operator); }
+    catch(error) { return {kind,passed:false,target,expected,actual:null,summary:error instanceof Error?error.message:'Unsupported API assertion.'}; }
 
     return {
       kind,
@@ -409,8 +414,9 @@ const buildApiEvidenceDataUrl = ({
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 };
 
-const runResolvedApiRequest = async (request: EngineApiRequest): Promise<ApiResponsePreview> => {
-  const url = ensureHttpUrl(request.url);
+const runResolvedApiRequest = async (request: EngineApiRequest & {resolved_credential?:string}): Promise<ApiResponsePreview> => {
+  const target = new URL(ensureHttpUrl(request.url));
+  for(const row of request.query_params || [])target.searchParams.append(row.key,row.value);
   const method = String(request.method || "GET").toUpperCase();
   const headers = new Headers();
 
@@ -424,6 +430,17 @@ const runResolvedApiRequest = async (request: EngineApiRequest): Promise<ApiResp
     headers.set(key, header.value || "");
   }
 
+  if(request.cookies?.length)headers.set('cookie',request.cookies.map(row=>`${row.key}=${row.value}`).join('; '));
+  const auth=request.auth;
+  if(auth && auth.type!=='none'){
+    const credential=request.resolved_credential;
+    if(!credential)throw new Error('Configure the API authentication credential_reference in authorized test data before execution.');
+    if(auth.type==='api_key'){
+      if(auth.location==='query')target.searchParams.append(auth.key_name||'api_key',credential);
+      else headers.set(auth.key_name||'Authorization',credential);
+    }else headers.set('Authorization',`${auth.type==='basic'?'Basic':'Bearer'} ${credential}`);
+  }
+  const url=target.toString();
   const startedAt = Date.now();
   let response: Response;
 
@@ -432,6 +449,7 @@ const runResolvedApiRequest = async (request: EngineApiRequest): Promise<ApiResp
       method,
       headers,
       body: method === "GET" || method === "HEAD" ? undefined : serializeApiBody(request, headers),
+      redirect: request.follow_redirects===false?"manual":"follow",
       signal: AbortSignal.timeout(apiRequestTimeoutMs(request.timeout_ms))
     });
   } catch (error) {
@@ -445,11 +463,17 @@ const runResolvedApiRequest = async (request: EngineApiRequest): Promise<ApiResp
   const bodyText = await response.text();
   const contentType = response.headers.get("content-type");
 
+  const reportedUrl=new URL(url);
+  const reportedHeaders=Object.fromEntries(headers.entries());
+  if(auth && auth.type !== 'none'){
+    if(auth.type==='api_key' && auth.location==='query')reportedUrl.searchParams.set(auth.key_name||'api_key','[credential reference]');
+    else reportedHeaders[auth.type==='api_key'?(auth.key_name||'authorization').toLowerCase():'authorization']='[credential reference]';
+  }
   return {
     request: {
       method,
-      url,
-      headers: Object.fromEntries(headers.entries()),
+      url:reportedUrl.toString(),
+      headers: reportedHeaders,
       body: request.body || null
     },
     response: {
@@ -474,6 +498,8 @@ export async function executeApiStepInEngine(
   const preview = await runResolvedApiRequest(request);
   const assertions = evaluateApiAssertions(preview, request.validations || []);
   const captures = extractCaptures(request, preview);
+  const captureSource=preview.response.body_json ?? preview.response.body_text;
+  for(const capture of request.captures || [])if(!readJsonPathValue(captureSource,capture.path||'$').found)assertions.push({kind:'json_path',passed:false,target:capture.path||'$',expected:`Capture ${capture.parameter}`,actual:null,summary:`Required response capture ${capture.parameter} was not found at ${capture.path}.`});
   const firstFailure = assertions.find((assertion) => !assertion.passed);
   const passed = assertions.every((assertion) => assertion.passed);
   const captureLines = Object.entries(captures).map(([key, value]) => `Captured ${key} = ${stringifyValue(value)}`);

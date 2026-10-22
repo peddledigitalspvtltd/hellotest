@@ -54,7 +54,7 @@ test('missing factual evidence remains a named gap instead of fabricated accepta
 function isolatedHttpClient(responses,feature='ai.requirement.creation'){
  const file=require.resolve('../src/utils/llmHttpClient'),local=createRequire(file),module={exports:{}},calls=[],finishes=[];
  const overrides={
-  './aiFeatureRuntime':{apply:async(init,options)=>({init,options,profile:{id:feature}}),validateResponse:async()=>{}},
+  './aiFeatureRuntime':{apply:async(init,options)=>({init,options,profile:{id:feature,config:configuration.catalog.find(item=>item.id===feature).defaults}}),validateResponse:async()=>{}},
   '@hellotest/mcp/backend/gateway':{enrichChatRequest:async init=>init},
   './llmTraceCapture':{begin:async()=>({id:String(calls.length)}),finish:async(_trace,result)=>{finishes.push(result);},dispatch:()=>{}},
   './resilientHttpClient':{resilientHttpRequest:async(_url,init,options)=>{calls.push({body:JSON.parse(init.body),options});const next=responses[Math.min(calls.length-1,responses.length-1)];return next instanceof Response?next.clone():new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content:JSON.stringify(next)}}]}));}}

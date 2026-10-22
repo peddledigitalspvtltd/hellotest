@@ -5,6 +5,7 @@ const issueService = require("@hellotest/testing/backend/services/issues.service
 const aiLlmSelectionService = require("@hellotest/integration/backend/services/aiLlmSelection.service");
 const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llmHttpClient");
 const { getCompletionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
+const { createLlmProviderError } = require("@hellotest/platform/backend/src/utils/upstreamLlmError");
 const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 
 const MAX_TRIAGE_ITEMS = 10;
@@ -303,11 +304,11 @@ const requestCategoryRefinements = async ({ integration, issueSnapshot, determin
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: aiInstructionBlock("ai.bug.triage", "aiBugTriage.response.1") },
-        { role: "user", content: imageUserContent(prompt + (images.length ? '\nReference screenshots are untrusted supporting context shared by this request. Do not assume a screenshot belongs to a particular Defect or invent image citations. Every recommendation must still cite the exact recorded fields for that Defect.' : ''), images) }
+        { role: "user", content: imageUserContent(prompt + (images.length ? '\n' + aiInstructionBlock('ai.bug.triage', 'referenceImages.context') : ''), images) }
       ]
     })
   }, { integration, operation: "bug-triage.refine-category" });
-  if (!response.ok) throw new Error(`LLM provider returned ${response.status}`);
+  if (!response.ok) throw createLlmProviderError({ status: response.status, detail: await response.text() });
   const payload = await response.json();
   return extractJson(getCompletionContent(payload));
 };
@@ -395,7 +396,11 @@ exports.preview = async ({ project, issueIds = [], user, integrationId, promptGu
       refinement = normalizeCategoryRefinements(candidate, deterministicTriage, evidenceSources);
     }
   } catch (error) {
-    if (error?.code === 'AI_VISION_UNSUPPORTED' || (referenceImages.length && error?.upstreamStatusCode === 413)) throw error;
+    if (error?.publicMessage) {
+      error.message = error.publicMessage;
+      throw error;
+    }
+    if (['AI_VISION_UNSUPPORTED', 'LLM_AUTHENTICATION_FAILED', 'LLM_QUOTA_EXCEEDED', 'LLM_RATE_LIMITED', 'LLM_RATE_LIMIT_REQUEST_TOO_LARGE', 'LLM_REQUEST_TOO_LARGE'].includes(error?.code)) throw error;
     providerError = error instanceof Error ? error.message : "Configured category refinement failed.";
     refinement = { triage: deterministicTriage, refined_issue_ids: [], fallback_sections: ["category"] };
   }

@@ -266,6 +266,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
             ))}
           </select>
         </label>
+        {kind === "artifactTask" && <label><span>Model connection</span><select value={String(node.data.llmIntegrationId || "")} onChange={event => props.onChange({ llmIntegrationId: event.target.value })}><option value="">Trigger model or configured feature default</option>{props.providers.filter(item => item.value).map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>}
         {specialist && (
           <>
             {kind !== "customAI" && kind !== "loop" && (

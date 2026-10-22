@@ -2507,6 +2507,71 @@ paths:
       responses:
         "200":
           description: Attachment binary
+  /attachments/{id}/ai-access:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Evidence]
+      summary: Issue a ten-minute model-readable attachment link
+      description: Requires attachment.view in the exact project. The HTTPS link is bound to the user, project, file ID and checksum; every fetch rechecks current account status and attachment access. Storage remains private. A persistent non-default SESSION_SECRET and public HTTPS API URL are required.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string }
+      responses:
+        "200":
+          description: Expiring file capability
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, url, expires_at]
+                properties:
+                  id: { type: string }
+                  url: { type: string, format: uri }
+                  expires_at: { type: string, format: date-time }
+        "403": { description: File or project access denied }
+        "503": { description: Secure public file access is not configured }
+  /attachments/{id}/ai-content:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Evidence]
+      summary: Retrieve attachment bytes through an expiring file capability
+      security: []
+      parameters:
+        - { name: token, in: query, required: true, schema: { type: string, maxLength: 2048 } }
+      description: Requires the signed capability from ai-access; login tokens are never accepted. Returns decompressed original attachment bytes with no-store and sandbox headers. Disabled accounts, permission revocation, changed checksums and expired links are rejected.
+      responses:
+        "200": { description: Authorized attachment binary }
+        "403": { description: Invalid, expired, stale or revoked file capability }
+        "404": { description: Attachment no longer exists }
+  /attachments/{id}/copy:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Evidence]
+      summary: Copy authorized reference evidence to a record in the same project
+      description: Requires attachment.view on the source and attachment.create on the target. Upload checksums make repeated copies to the same target idempotent; each record owns its own storage object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, entity_type, entity_id]
+              properties:
+                project_id: { type: string }
+                entity_type: { type: string }
+                entity_id: { type: string }
+      responses:
+        "200": { description: Copied attachment metadata }
+        "403": { description: Source or destination project access denied }
   /attachments/{id}:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -2678,19 +2743,22 @@ paths:
     post:
       tags: [Defects]
       summary: Preview improvements to an existing or unsaved Defect using selected Test Cases
-      description: Requires feedback.manage for a saved issue_id, feedback.create for an unsaved form, and testcase.view. No writes occur. Run, Story, URL and image context inputs are excluded.
+      description: Requires feedback.manage for a saved issue_id, feedback.create for an unsaved form, and testcase.view. At least one accessible Test Case is required. Reporter text is optional when screenshots or selected Test Cases supply evidence. Images are sent as vision content; external links are reference pointers only. No writes occur.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [project_id, intent, evidence, linked_test_case_ids]
+              required: [project_id, linked_test_case_ids]
               properties:
                 project_id: { type: string }
                 issue_id: { type: string }
-                intent: { type: string, minLength: 2, maxLength: 4000 }
+                intent: { type: string, maxLength: 4000 }
                 evidence: { type: string, maxLength: 12000 }
+                additional_context: { type: string, maxLength: 12000 }
+                external_links: { type: array, maxItems: 12, items: { type: string, maxLength: 2048 } }
+                reference_photos: { type: array, maxItems: 6, items: { type: object, required: [url], properties: { name: { type: string }, url: { type: string, description: "Bounded PNG, JPEG or WebP base64 data URL" } } } }
                 linked_test_case_ids: { type: array, minItems: 1, maxItems: 10, items: { type: string } }
                 integration_id: { type: string }
                 prompt_guidance: { type: string, maxLength: 4000 }
@@ -2706,12 +2774,15 @@ paths:
           application/json:
             schema:
               type: object
-              required: [project_id, intent, evidence, linked_test_case_ids]
+              required: [project_id, linked_test_case_ids]
               properties:
                 project_id: { type: string }
                 issue_id: { type: string }
-                intent: { type: string, minLength: 2, maxLength: 4000 }
+                intent: { type: string, maxLength: 4000 }
                 evidence: { type: string, maxLength: 12000 }
+                additional_context: { type: string, maxLength: 12000 }
+                external_links: { type: array, maxItems: 12, items: { type: string, maxLength: 2048 } }
+                reference_photos: { type: array, maxItems: 6, items: { type: object, required: [url], properties: { name: { type: string }, url: { type: string, description: "Bounded PNG, JPEG or WebP base64 data URL" } } } }
                 linked_test_case_ids: { type: array, minItems: 1, maxItems: 10, items: { type: string } }
                 integration_id: { type: string }
                 prompt_guidance: { type: string, maxLength: 4000 }
@@ -2721,12 +2792,37 @@ paths:
     post:
       tags: [Defects]
       summary: Create a review-only defect draft from bounded HelloTest evidence
+      description: Accepts a screenshot without a written incident brief. Requires feedback.create and view permission for each selected workspace evidence type. At least one screenshot, reporter text, or accessible linked record is required; external links alone are pointers and are not fetched. Unsupported facts remain explicit evidence gaps. No writes occur.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: &DefectDraftInput
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string }
+                intent: { type: string, maxLength: 4000 }
+                evidence: { type: string }
+                additional_context: { type: string }
+                external_links: { type: array, maxItems: 12, items: { type: string } }
+                reference_photos: { type: array, maxItems: 6, items: { type: object, required: [url], properties: { name: { type: string }, url: { type: string, description: "Bounded PNG, JPEG or WebP base64 data URL" } } } }
+                linked_test_run_id: { type: string }
+                linked_test_case_ids: { type: array, items: { type: string } }
+                linked_requirement_ids: { type: array, items: { type: string } }
+                integration_id: { type: string }
+                prompt_guidance: { type: string, maxLength: 4000 }
       responses:
         "200": { description: "Evidence-linked draft, confidence, provenance, and human-review requirement" }
   /issues/ai-draft-preview:
     post:
       tags: [Defects]
       summary: Alias for the review-only defect drafting endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: *DefectDraftInput
       responses:
         "200": { description: "Evidence-linked draft, confidence, provenance, and human-review requirement" }
   /feedback:

@@ -9,6 +9,16 @@ test('all catalog defaults validate and operation aliases are unambiguous',()=>{
  const keys=new Set();for(const item of configuration.catalog){assert.deepEqual(configuration.validate(item.defaults,item.id),item.defaults);for(const key of [item.id,...item.aliases]){assert.ok(!keys.has(key),key);keys.add(key);}}
  const published=require('../../shared/aiPromptDefaults.json');for(const item of published)assert.equal(item.value,configuration.catalog.find(feature=>feature.id===item.key).defaults.prompt);
 });
+test('API runtime instructions migrate recognized stock guidance and retain reviewed custom Admin blocks',async()=>{
+ const id='ai.automation.keyword_generation',key='aiAutomationBuilder.prompt.45',item=configuration.catalog.find(item=>item.id===id);
+ const old=item.instruction_default_migrations[key].at(-1);
+ assert.ok(old);assert.match(item.defaults.instruction_blocks[key],/json_schema/);assert.match(item.defaults.instruction_blocks[key],/credential_reference/);
+ for(const [text,expected] of [[old,item.defaults.instruction_blocks[key]],['Our reviewed API contract guidance.','Our reviewed API contract guidance.']]){
+  const config={...structuredClone(item.defaults),instruction_blocks:{...item.defaults.instruction_blocks,[key]:text}};
+  const service=load(require.resolve('../services/aiConfiguration.service'),{'../src/db':{prepare:()=>({get:async()=>({value:{published:{version:1,config}}})})}});
+  assert.equal((await service.resolve(id)).config.instruction_blocks[key],expected);
+ }
+});
 test('invalid sampling, recursive context, arbitrary config keys and unsafe schema fail before publish',()=>{
  const item=configuration.catalog[0],base=structuredClone(item.defaults);
  for(const patch of [{temperature:3},{max_output_tokens:0},{integration_id:[]},{context:{...base.context,required:true,mode:'none'}},{arbitrary_command:'exec'},{output_schema:{type:'object',properties:{value:{$ref:'https://outside.test/schema'}}}},{output_schema:{type:'object',properties:{value:{pattern:'(x+)+$'}}}}])assert.throws(()=>configuration.validate({...base,...patch},item.id),{statusCode:400});
@@ -37,6 +47,12 @@ test('retrieval queries use artifact data before managed instructions consume th
  assert.match(result.options.contextRetrievalQuery,/Refund boundaries.*Reject duplicate refunds/s);
  assert.match(result.options.contextRetrievalQuery,/Cover the partial refund/);
  assert.doesNotMatch(result.options.contextRetrievalQuery,/Scaffold|HELLOTEST_AI/);
+});
+test('image-only authoring preserves an absent semantic retrieval query through managed configuration',async()=>{
+ const id='ai.test_case.design',rt=runtime();
+ const result=await rt.apply(request([{role:'system',content:aiInstructionBlock(id,'evidence.imageOnly')},{role:'user',content:[{type:'text',text:JSON.stringify({generation_request:{user_request:''},reference_images:[{name:'Screenshot.png'}]})},{type:'image_url',image_url:{url:'data:image/png;base64,fixture'}}]}]),{featureKey:id,contextRetrievalQuery:null});
+ assert.equal(result.options.contextRetrievalQuery,null);
+ assert.match(JSON.parse(result.init.body).messages[0].content,/No written test brief/);
 });
 test('instruction block edits and fallback prompts expand from published versions without unresolved markers',async()=>{
  const id='ai.requirement.optimization',base=configuration.catalog.find(item=>item.id===id).defaults,key=Object.keys(base.instruction_blocks)[0];
@@ -180,6 +196,41 @@ test('host-bound verification repair has a narrow managed contract and a 600-tok
  const body=JSON.parse(selected.init.body),guidance=selected.profile.config.instruction_blocks[key];
  assert.equal(selected.profile.deferred_output_schema,true);assert.ok(body.messages[0].content.includes(guidance));assert.ok(!body.messages[1].content.includes(guidance));assert.ok(!body.messages[0].content.includes(selected.profile.config.prompt));assert.equal(body.max_tokens,600);
  const ordinary=await rt.apply(input,{featureKey:id});assert.equal(ordinary.profile.deferred_output_schema,undefined);
+});
+
+test('automation runtime phase instructions honor published controls and reject missing blocks',async()=>{
+ const ctx=require('../src/utils/llmTraceContext'),id='ai.agentic.automation-engineer',base=configuration.catalog.find(item=>item.id===id).defaults;
+ const key='automationRuntime.prerequisiteReview',guidance='Reviewed prerequisite assessment: inspect only the current required disclosure.';
+ const blocks={...base.instruction_blocks,[key]:guidance};
+ const selected=await ctx.run({automation_case_generation:true,generation_scope:'section_prerequisite_review'},()=>runtime({[id]:{instruction_blocks:blocks}}).apply(request([{role:'user',content:'Current prerequisite evidence'}]),{featureKey:id}));
+ const body=JSON.parse(selected.init.body);
+ assert.ok(body.messages[0].content.includes(guidance));assert.doesNotMatch(body.messages[0].content,/Role: missing UI prerequisite reviewer/);
+ assert.equal(body.max_tokens,600);
+ delete blocks[key];
+ await assert.rejects(ctx.run({automation_case_generation:true,generation_scope:'section_prerequisite_review'},()=>runtime({[id]:{instruction_blocks:blocks}}).apply(request([{role:'user',content:'Current evidence'}]),{featureKey:id})),error=>error.code==='AI_INSTRUCTION_MISSING'&&error.instruction_key===key);
+});
+
+test('admin-authored JSON packet instructions preserve quotes and newlines without changing task data',async()=>{
+ const id='ai.agentic.automation-engineer',base=configuration.catalog.find(item=>item.id===id).defaults,key='automationFlowPlanning.protocol';
+ const guidance='Reviewed guidance: preserve "empty" values.\nKeep the original requested action.';
+ const rt=runtime({[id]:{instruction_blocks:{...base.instruction_blocks,[key]:guidance}}});
+ const task={phase:'flow_plan',planning_protocol:{instructions:aiInstructionBlock(id,key)},user_request:'Do not change this task.'};
+ for(const content of [JSON.stringify(task),`Task data:\n${JSON.stringify(task)}`]){
+  const applied=await rt.apply(request([{role:'user',content}]),{featureKey:id});
+  const user=JSON.parse(applied.init.body).messages.at(-1).content;
+  const result=JSON.parse(user.replace(/^Task data:\n/,''));
+  assert.equal(result.planning_protocol.instructions,guidance);assert.equal(result.user_request,task.user_request);
+ }
+});
+
+test('the current manual goal keeps its exact structured data while published scope guidance is applied',async()=>{
+ const id='ai.agentic.automation-engineer',base=configuration.catalog.find(item=>item.id===id).defaults,key='automationBrowserAgent.activeGoal';
+ const guidance='Reviewed current-section guidance. Preserve the complete pinned action and outcomes.';
+ const rt=runtime({[id]:{instruction_blocks:{...base.instruction_blocks,[key]:guidance}}});
+ const goal={host_selected_current_manual_section:{action:'Open "Invoice" details',expected_result:'The amount and currency are visible'}};
+ const result=await rt.apply(request([{role:'system',content:aiInstructionBlock(id,key)},{role:'user',content:JSON.stringify(goal)},{role:'user',content:'Broader case context'}]),{featureKey:id});
+ const messages=JSON.parse(result.init.body).messages;
+ assert.ok(messages[0].content.includes(guidance));assert.deepEqual(JSON.parse(messages[1].content),goal);assert.equal(messages[2].content,'Broader case context');
 });
 
 test('specialist execution limits are published configuration with bounded total corrections and handoffs',()=>{

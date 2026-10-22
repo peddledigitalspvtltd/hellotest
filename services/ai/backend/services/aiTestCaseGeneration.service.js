@@ -428,7 +428,7 @@ async function generateCasesForRequirement({
 
   for (const [candidateIndex, candidate] of (preview.cases || []).entries()) {
     assertLease?.();
-    await testCaseService.createTestCase({
+    const created = await testCaseService.createTestCase({
       app_type_id: appType.id,
       title: candidate.title,
       description: candidate.description || undefined,
@@ -450,6 +450,9 @@ async function generateCasesForRequirement({
       ai_generated_at: new Date().toISOString(),
       created_by: job.created_by
     });
+    const referenceEvidence = require('@hellotest/platform/backend/services/aiAttachmentAccess.service');
+    const originals = referenceEvidence.contextReferenceIds(job.additional_context);
+    await referenceEvidence.retainReferences({ userId:job.created_by, projectId:appType.project_id, entityId:created.id, ids:originals.length?originals:candidate.reference_attachment_ids });
     createdCount += 1;
   }
 

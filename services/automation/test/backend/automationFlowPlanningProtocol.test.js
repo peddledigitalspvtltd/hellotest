@@ -1,3 +1,4 @@
+const { expandManagedInstructions } = require('../../../platform/backend/test/helpers/managedInstructions');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { FLOW_PLANNING_READ_TOOLS, createAutomationFlowPlanningProtocol } = require('../../backend/lib/automationFlowPlanningProtocol');
@@ -13,8 +14,8 @@ test('planner schema separates manual proposals from discovered read-only inspec
   assert.deepEqual(inspection.properties.tool_calls.items.properties.name.enum, ['browser_navigate', 'browser_snapshot']);
   assert.equal(inspection.properties.tool_calls.maxItems, 4);
   assert.equal(plan.additionalProperties, false); assert.equal(inspection.additionalProperties, false);
-  assert.match(protocol.instructions, /Never mix flow_steps with tool_calls/);
-  assert.match(protocol.instructions, /Do not return steps, automation_code/);
+  assert.match(expandManagedInstructions(protocol.instructions), /Never mix flow_steps with tool_calls/);
+  assert.match(expandManagedInstructions(protocol.instructions), /Do not return steps, automation_code/);
   assert.doesNotMatch(JSON.stringify(protocol.response_schema), /browser_fill|browser_click/);
   assert.ok(FLOW_PLANNING_READ_TOOLS.every(name => name !== 'browser_fill'));
 });

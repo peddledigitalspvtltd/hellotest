@@ -34,6 +34,7 @@ The direct API endpoint is `/mcp`; the browser reverse-proxy endpoint is `/api/m
 | `hellotest_database_query` | Bounded, parameterized read projections |
 | `hellotest_knowledge_fetch` | Exact indexed fragment with fresh source ACL/version/readiness checks |
 | `hellotest_graph_expand` | Authorized one-hop relationship witnesses |
+| `hellotest_graph_resolve` | Exact canonical/native IDs, titles and curated aliases, with ambiguity and visibility checks |
 | `hellotest_graph_context` | Exact typed entity seeds, bounded graph expansion and authorized source passages |
 | `hellotest_graph_trace` | Witnessed paths between two exact entities, with provenance and evidence |
 | `hellotest_graph_schema` | Native graph vocabulary, provenance and traversal limits |
@@ -45,11 +46,33 @@ The direct API endpoint is `/mcp`; the browser reverse-proxy endpoint is `/api/m
 
 The server also publishes `hellotest://schema`, project operation and graph ontology resource templates, and an `investigate_failure` prompt. Every successful tool result carries a versioned envelope with its verified project and subject. **Connect & inspect** exposes the actual tool input/output schemas, supported protocols, resource templates and manual bearer connection contract. Discovery does not grant permission to call a tool.
 
+The `investigate_failure` prompt resolves the published `ai.mcp.investigate_failure`
+Admin AI configuration on each request. Its editable guidance is returned
+separately from the caller's failure question. Retrieving the template invokes no
+model. Identity, permissions, input schemas and reviewed-action enforcement remain
+server contracts.
+
+`hellotest_knowledge_fetch` returns immutable document/version/chunk hashes and
+locations with its fragment. Supply `expected_document_id` and/or
+`expected_version_hash` from a citation to fail explicitly when a revision differs.
+Current reads reject deleted or moved native records, inactive versions and
+unready indexes. Historical reads use `as_of` and the existing `knowledge.manage`
+gate. ACLs apply again in the content query and after hydration. Redacted or
+shortened displays retain the original chunk hash and explicitly identify their
+delivery hash and original-source offset basis.
+
 ## Graph context and traceability
 
 The graph tools call the existing Knowledge backplane with the verified MCP project and user. PostgreSQL owns canonical source identities and relationship witnesses; vector search remains a derived retrieval index. The MCP package does not operate a second graph database or expose raw SQL/Cypher. The attachment's standalone Python server was reference material; its unauthenticated transport and unscoped identifiers were not adopted.
 
 Seeds use an exact `{kind, ref_id}` identity. Supported kinds are `requirement`, `test_case`, `execution`, `bug`, `knowledge_item`, `text`, `chat`, `file` and `url`; use `hellotest_graph_schema` for the native vocabulary. Similar names are not automatically merged. Application filters narrow the authorized project. The native service checks source permissions, document readiness, current versions and fragment ACLs; a relationship cannot reveal a hidden endpoint or passage.
+
+Use `hellotest_graph_resolve` when the canonical identity is unknown. It accepts
+up to 20 exact canonical or typed identifiers, an optional exact title/curated
+alias query, an application filter and a result limit of 1–30. It reports
+ambiguity, unresolved identifiers and partial results. A removed alias is not a
+historical identity grant. Resolution returns only authorized current nodes;
+an empty result is an evidence gap.
 
 `hellotest_graph_context` accepts 1–6 seeds. `hellotest_graph_trace` accepts `source` and `target` plus at most five paths. Both support 0–3 hops, fanout 1–12, up to 100 nodes/edges, up to 30 evidence items, direction and relation-type filters, a 256–8,000 token context budget (default 4,000), and a deadline up to 20 seconds. These are traversal ceilings, not completeness guarantees. Zero edge/evidence budgets remain zero. The smaller MCP node/edge ceiling avoids the generic response projection's 100-item boundary. Oversized results fail explicitly so callers can narrow their request.
 
@@ -84,15 +107,35 @@ PostgreSQL projections cover projects, applications, requirements, test cases, s
 
 Preparing persists the original arguments, user, project, client, catalog revision, expiry and digest. Plans expire in 15 minutes. The model has no approval tool and cannot approve using an MCP credential.
 
+Execution plans also capture each selected Test Case's actual history revision
+and SHA-256 of its stored case fields and ordered steps. These server-derived
+preconditions appear in the review preview and are part of the immutable digest.
+Standalone step edits are detected even when they do not advance case version
+history. Approval and execution recheck them. Native execution creation checks
+them again while holding case/step locks and reloads the case facts before
+persisting its snapshots, closing the gap between MCP claiming and domain
+execution. Legacy execution plans without reviewed revisions require a new
+preview. The ordinary execution contract is extracted from the complete request
+body; nested Smart Run acceptance validation cannot replace that contract.
+
 The signed-in original user opens the HelloTest card's action plans, expands the preview and explicitly authorizes its exact digest. The server checks ownership, current permissions, catalog and expiry. Execution locks and claims the original row before invoking the domain API. Concurrent or repeated calls return the same plan's state; they do not create another effect.
 
-A successful create requires persisted read-back. Execution submission is reported as `submitted`, never as a passing test run. An uncertain outcome remains `unknown` (or temporarily `executing`): reconcile the original plan and domain record rather than retrying or creating a replacement. Authorization, accepted execution and final receipts are audited without tokens or raw knowledge passages. A process crash between the business effect and receipt can require manual reconciliation; exactly-once claiming does not eliminate that uncertainty.
+A successful create requires persisted read-back. Execution submission is reported as `submitted`, never as a passing test run. Test Case and execution creation bind the domain's durable source idempotency key to the original plan ID. For an `unknown` receipt or stale `executing` state, status can locate that exact original record, recheck ownership/permissions and verify saved fields/scope, then persist an audited verified receipt. This reconciliation performs no replacement create. If the original effect cannot be verified, the outcome remains `unknown`; browser mission acknowledgement gaps still need original-record/operator reconciliation. Authorization, accepted execution and final receipts are audited without tokens or raw knowledge passages.
 
 ## AI and Smart Context
 
 Smart Context and the grounded chatbot use the same MCP `context_build` boundary in process through the real SDK handler. Internal use needs no saved host token or shared administrator account: the signed-in user and current project are revalidated. Invalid or mismatched context packets are rejected. Smart Context packets expose `retrieval.context_transport: "mcp"`. Existing retrieval packets, citation identities, ACL checks, historical access, hybrid search, live facts, relationships, budget accounting and progress callbacks remain owned by the knowledge engine. MCP does not replace ranking or turn knowledge text into instructions.
 
 The shared LLM HTTP client also injects bounded MCP evidence for project-bound AI calls (including the text portions of image-based authoring requests): authoring, story assistance, reviews, automation, Agent Studio, dashboard analysis, execution analysis and reports. Request-local authenticated identity and existing background integration bindings determine scope. Requests without a verified user and project are not given guessed access. Internal retrieval sets a recursion guard; knowledge planning/answering calls avoid duplicate enrichment. Retrieval failure adds an explicit evidence gap to the generation input instead of claiming unavailable context.
+
+Native graph witnesses deliberately carry zero similarity score. Fusion admits
+their exact evidence only through the authorized, reviewed graph relationship
+contract; it never invents semantic confidence to pass a lexical/vector search
+threshold. The shared AI gateway and provider size correction retain graph
+relationships together with their delivered witness evidence. Missing, altered,
+redacted or shortened witnesses remove the dependent relationship and increment
+the omission count. Citation IDs alone cannot establish a relationship whose
+assertion text was omitted.
 
 MCP redaction preserves the ContextPacket `authorization` provenance and `authorization_partial` limitation fields while stripping HTTP authorization headers and credentials. The PostgreSQL integration check validates a retrieved MCP packet through `buildModelRequest`, so a packet that cannot be consumed by synthesis fails verification. Model synthesis gets one bounded regeneration for invalid JSON or missing/invented claim citations; it never publishes an uncited answer as grounded.
 

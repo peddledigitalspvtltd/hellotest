@@ -648,7 +648,7 @@ const requestReleaseNotesNarrative = async ({ integration, release, readiness, s
         },
         {
           role: "user",
-          content: `Create release notes from this bounded evidence. Every change item and limitation must be a plain, concise sentence. Omit empty change groups. Evidence:\n${JSON.stringify(evidence)}`
+          content: `${aiInstructionBlock('ai.release.notes', 'requirementRelease.evidenceGuidance')}\n${JSON.stringify(evidence)}`
         }
       ]
     })

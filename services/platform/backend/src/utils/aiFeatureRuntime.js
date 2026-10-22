@@ -6,6 +6,11 @@ const validators = new Map();
 const ajv = new Ajv({strict:true,validateFormats:false,ownProperties:true});
 const actorInstructionKeys=['automationBrowserAgent.evidenceGuardrails','automationBrowserAgent.sectionIntent','automationBrowserAgent.goalReview','automationBrowserAgent.reviewContract','automationBrowserAgent.actor'];
 const plannerInstructionKey='automationFlowPlanning.instructions';
+function runtimeInstruction(config,key) {
+  const value=config.instruction_blocks?.[`automationRuntime.${key}`];
+  if(typeof value!=='string'||!value.trim())throw Object.assign(new Error('AI Controls is missing an automation runtime instruction.'),{code:'AI_INSTRUCTION_MISSING',statusCode:503,instruction_key:`automationRuntime.${key}`,nonRetryable:true});
+  return value;
+}
 
 function composeMessages(messages,config,{deferOutputSchema=false,phase,browserActor=false}={}) {
   const native=messages.filter(message=>['system','developer'].includes(message.role));
@@ -21,12 +26,12 @@ function composeMessages(messages,config,{deferOutputSchema=false,phase,browserA
   }
   if(deferOutputSchema&&phase==='section_prerequisite_review'){
     return [{role:'system',content:[...native.map(message=>typeof message.content==='string'?message.content:''),`Domain: ${config.domain}`,`Guardrails: ${config.guardrails}`,
-      'Role: missing UI prerequisite reviewer. Assess only whether the proposed current observed same-origin navigation or UI disclosure is necessary for the pinned current goal and whole case intent. Preserve data, expectations and authored order. Reject business submissions, later actions performed early, invented prerequisites and unrelated application state. Return only the supplied decision contract; never generate tools or source.'].filter(Boolean).join('\n\n')},...messages.filter(message=>!['system','developer'].includes(message.role))];
+      runtimeInstruction(config,'prerequisiteReview')].filter(Boolean).join('\n\n')},...messages.filter(message=>!['system','developer'].includes(message.role))];
   }
   const reviewInstructions=deferOutputSchema&&phase==='section_semantic_review'?config.instruction_blocks?.['automationBrowserAgent.semanticReview']:null;
   if(deferOutputSchema&&browserActor&&phase!=='section_semantic_review'){
     const content=[...native.map(message=>typeof message.content==='string'?message.content:''),
-      'Role: browser automation actor. Perform only unfinished pinned manual work through the supplied typed tools, then check its requested outcome. The host compiles confirmed operations; do not generate source.',
+      runtimeInstruction(config,'actorFrame'),
       `Domain: ${config.domain}`,`Guardrails: ${config.guardrails}`,
       ...actorInstructionKeys.map(key=>config.instruction_blocks?.[key])
     ].filter(Boolean).join('\n\n');
@@ -34,9 +39,9 @@ function composeMessages(messages,config,{deferOutputSchema=false,phase,browserA
   }
   if(typeof reviewInstructions==='string'&&reviewInstructions.trim()){
     const content=[...native.map(message=>typeof message.content==='string'?message.content:''),
-      'Role: browser automation outcome reviewer. This request assesses existing evidence; it does not generate code, run a test or authorize a write.',
+      runtimeInstruction(config,'reviewerFrame'),
       `Domain: ${config.domain}`,`Guardrails: ${config.guardrails}`,reviewInstructions,
-      'Return only the requested semantic verdict JSON; no tool calls or regenerated steps.'
+      runtimeInstruction(config,'reviewResponse')
     ].filter(Boolean).join('\n\n');
     return [{role:'system',content},...messages.filter(message=>!['system','developer'].includes(message.role))];
   }
@@ -45,10 +50,10 @@ function composeMessages(messages,config,{deferOutputSchema=false,phase,browserA
     `Role: ${config.role}`,`Domain: ${config.domain}`,`Task: ${config.task}`,config.prompt,
     ...(config.output_schema?[`${deferOutputSchema?'Final outcome constraint (intermediate requests follow the supplied phase contract; the assembled final outcome must satisfy this schema)':'Additional output constraint (native application schema must still be satisfied)'}: ${JSON.stringify(config.output_schema)}`]:[]),
     `Guardrails: ${config.guardrails}`,
-    ...(deferOutputSchema?['This request is one phase of the automation pipeline. Follow its explicit phase response contract; feature guidance describes the complete task and does not require final case JSON on intermediate requests.',
-      ...(phase==='section_semantic_review'?['Current phase: review the supplied confirmed operations against the pinned obligations. Return only the requested semantic verdict JSON; no tool calls or regenerated steps.']:
-        phase==='case_metadata'?['Current phase: correct only the requested case metadata or coverage for retained instructions. Return no browser actions or source rewrites.']:
-        phase==='flow_plan'?['Current phase: propose the requested ordered manual flow. Return the supplied planning schema before executable generation.']:[])]:[])
+    ...(deferOutputSchema?[runtimeInstruction(config,'intermediatePhase'),
+      ...(phase==='section_semantic_review'?[runtimeInstruction(config,'semanticReviewPhase')]:
+        phase==='case_metadata'?[runtimeInstruction(config,'metadataPhase')]:
+        phase==='flow_plan'?[runtimeInstruction(config,'flowPlanPhase')]:[])]:[])
   ].filter(Boolean).join('\n\n');
   return [{role:'system',content:instruction},...messages.filter(message=>!['system','developer'].includes(message.role))];
 }
@@ -83,7 +88,7 @@ async function apply(init, options={}) {
   const referenced=[...encoded.matchAll(/⟦HELLOTEST_AI:([^:⟧]+):([^⟧]+)⟧/g)];
   // Retrieve from task data before expanding managed scaffolding. Otherwise a
   // long schema/instruction prefix can consume the entire retrieval question.
-  if (referenced.length && Array.isArray(payload.messages)) {
+  if (referenced.length && Array.isArray(payload.messages) && options.contextRetrievalQuery !== null) {
     const explicitQuery = typeof options.contextRetrievalQuery === 'string' ? options.contextRetrievalQuery.trim() : '';
     const task = explicitQuery || payload.messages.filter(message => message.role === 'user').map(message =>
       typeof message.content === 'string' ? message.content : Array.isArray(message.content)
@@ -93,7 +98,7 @@ async function apply(init, options={}) {
   }
   if(referenced.length>1500 || new Set(referenced.map(match=>match[1])).size>8)throw Object.assign(new Error('Too many AI instruction references.'),{statusCode:422,code:'AI_INSTRUCTION_BUDGET'});
   for(const match of referenced)if(!Object.hasOwn(profile.config.instruction_blocks,match[2]) && !profiles.has(match[1]))profiles.set(match[1],await configuration.resolve(match[1]));
-  function expand(text){return typeof text!=='string'?text:text.replace(/⟦HELLOTEST_AI:([^:⟧]+):([^⟧]+)⟧/g,(_,feature,key)=>{
+  function expandText(text){return typeof text!=='string'?text:text.replace(/⟦HELLOTEST_AI:([^:⟧]+):([^⟧]+)⟧/g,(_,feature,key)=>{
     const block=profile.config.instruction_blocks?.[key] ?? profiles.get(feature)?.config.instruction_blocks?.[key];
     if(typeof block!=='string')throw Object.assign(new Error(`AI Controls is missing the request template ${feature}:${key}. Review the feature configuration before retrying.`),{statusCode:503,code:'AI_INSTRUCTION_MISSING',feature,instruction_key:key,nonRetryable:true});
     if(managedRepair&&key==='automationBrowserAgent.verificationRepair'&&block===profile.config.instruction_blocks?.[key])return '';
@@ -102,6 +107,21 @@ async function apply(init, options={}) {
     if(managedActor&&actorInstructionKeys.includes(key)&&block===profile.config.instruction_blocks?.[key])return '';
     return block;
   });}
+  function expandRecord(value) {
+    if(typeof value==='string')return expandText(value);
+    if(Array.isArray(value))return value.map(expandRecord);
+    if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,expandRecord(item)]));
+    return value;
+  }
+  function expand(text) {
+    if(typeof text!=='string')return text;
+    // Managed text can contain quotes and newlines. Expand structured task
+    // values before serialization so admin edits cannot corrupt packet JSON.
+    const structured = value => { if(!/^\s*[\[{]/.test(value))return null;try{return {value:JSON.parse(value)};}catch{return null;} };
+    const whole=structured(text);
+    if(whole)return JSON.stringify(expandRecord(whole.value));
+    return text.split('\n').map(line=>{const parsed=structured(line);return parsed?JSON.stringify(expandRecord(parsed.value)):expandText(line);}).join('\n');
+  }
   if(Array.isArray(payload.messages))payload.messages=payload.messages.map(message=>({...message,content:Array.isArray(message.content)?message.content.map(part=>part.type==='text'?{...part,text:expand(part.text)}:part):expand(message.content)}));
   if(typeof options.contextFallbackContent==='string')options={...options,contextFallbackContent:expand(options.contextFallbackContent)};
   if(typeof options.contextFallbackInstructions==='string')options={...options,contextFallbackInstructions:expand(options.contextFallbackInstructions)};
@@ -126,7 +146,11 @@ async function apply(init, options={}) {
   // Native contracts carry runtime field IDs, permitted enum values and specialist
   // schemas. They complement the managed task instructions; they never grant access.
   const artifactContract = !deferOutputSchema && require('./aiGenerationContracts').nativeArtifactContract(id);
-  if (artifactContract) payload.messages = [{ role:'system', content:`Required application artifact fields: ${artifactContract.note}` }, ...payload.messages];
+  if (artifactContract) {
+    const instruction=config.instruction_blocks?.['application.artifactContract'];
+    if(typeof instruction!=='string'||!instruction.trim())throw Object.assign(new Error('AI Controls is missing the application artifact guidance.'),{code:'AI_INSTRUCTION_MISSING',statusCode:503,feature:id,instruction_key:'application.artifactContract',nonRetryable:true});
+    payload.messages = [{ role:'system', content:instruction }, ...payload.messages];
+  }
   payload.messages=composeMessages(payload.messages,config,{deferOutputSchema,phase:scope.generation_scope,browserActor:managedActor});
   if(options.sampling!==false){payload.temperature=config.temperature;if(config.top_p!=null)payload.top_p=config.top_p;else delete payload.top_p;}
   else {delete payload.temperature;delete payload.top_p;}

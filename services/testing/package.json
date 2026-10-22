@@ -8,13 +8,15 @@
     "frontend",
     "dist/ui",
     "package.json",
-    "README.md"
+    "README.md",
+    "shared"
   ],
   "exports": {
     "./backend": "./backend/service.manifest.js",
     "./backend/services/batchProcess.service": "./backend/services/batchProcess.service.js",
     "./backend/services/batchJobLease": "./backend/services/batchJobLease.js",
     "./backend/services/execution.service": "./backend/services/execution.service.js",
+    "./backend/services/executionPlanPreconditions.service": "./backend/services/executionPlanPreconditions.service.js",
     "./backend/services/executionResult.service": "./backend/services/executionResult.service.js",
     "./backend/services/issues.service": "./backend/services/issues.service.js",
     "./backend/services/testCase.service": "./backend/services/testCase.service.js",
@@ -63,7 +65,9 @@
     "./frontend/lib/executionParameterContext": "./frontend/lib/executionParameterContext.ts",
     "./frontend/lib/testDataGenerators": "./frontend/lib/testDataGenerators.ts",
     "./frontend/lib/gherkinBehavior": "./frontend/lib/gherkinBehavior.ts",
-    "./frontend/lib/dataSetValidation": "./frontend/lib/dataSetValidation.ts"
+    "./frontend/lib/dataSetValidation": "./frontend/lib/dataSetValidation.ts",
+    "./frontend/lib/aiPromptFiles": "./frontend/lib/aiPromptFiles.ts",
+    "./shared/gherkin": "./shared/gherkin.mjs"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs testing",

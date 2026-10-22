@@ -63,7 +63,7 @@
 .repository-agent-fields { display: grid; gap: 15px; min-width: 0; }
 .repository-agent-fields > label, .repository-agent-publish-controls > label { display: grid; gap: 6px; min-width: 0; font-size: .73rem; font-weight: 650; }
 .repository-agent-fields > label > span { color: var(--text-secondary, #5d6b82); font-size: .63rem; font-weight: 400; }
-.repository-agent-fields :is(input, select), .repository-agent-publish select { width: 100%; min-width: 0; max-width: 100%; padding: 9px 10px; border: 1px solid var(--line, #dcdfe4); border-radius: 7px; background: var(--panel-strong, #fff); color: var(--text-primary, #172b4d); font: inherit; font-weight: 400; font-size: .76rem; }
+.repository-agent-fields :is(input, select), .repository-agent-publish :is(input, select) { width: 100%; min-width: 0; max-width: 100%; padding: 9px 10px; border: 1px solid var(--line, #dcdfe4); border-radius: 7px; background: var(--panel-strong, #fff); color: var(--text-primary, #172b4d); font: inherit; font-weight: 400; font-size: .76rem; }
 .repository-agent-fields small { color: var(--text-secondary, #5d6b82); font-size: .65rem; line-height: 1.6; }
 .repository-agent-scope { display: flex; gap: 9px; padding: 13px 0; border-block: 1px solid var(--line, #dcdfe4); align-items: center; color: var(--text-secondary, #5d6b82); }
 .repository-agent-scope > div { display: grid; gap: 4px; min-width: 0; }
@@ -210,6 +210,8 @@
 .repository-agent-publish p { margin: 6px 0 0; color: var(--text-secondary, #5d6b82); font-size: .66rem; line-height: 1.65; }
 .repository-agent-publish-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; max-width: 100%; }
 .repository-agent-publish-controls label { width: 150px; font-size: .65rem; }
+.repository-agent-publish-controls .repository-agent-start-url { width: 280px; }
+.repository-agent-start-url small { color: var(--text-secondary, #5d6b82); font-size: .65rem; font-weight: 400; line-height: 1.5; }
 .repository-agent-publish-controls button { font-size: .71rem; white-space: normal; }
 .repository-agent-artifacts { padding: 21px 23px; }
 .repository-agent-artifacts h3 { font-size: .8rem; margin: 0; }

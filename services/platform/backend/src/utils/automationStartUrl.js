@@ -1,4 +1,4 @@
-const { normalizeTestStepType } = require('./testStepAutomation');
+const { inferAutomationStepType } = require('./testStepAutomation');
 
 function normalizeAutomationStartUrl(value, { required = false } = {}) {
   const missing = value == null || typeof value === 'string' && !value.trim();
@@ -15,7 +15,7 @@ function normalizeAutomationStartUrl(value, { required = false } = {}) {
 }
 
 function requiresAutomationStartUrl({ appTypeKind, steps = [] } = {}) {
-  if (steps.length) return steps.some(step => normalizeTestStepType(step.step_type, 'web') === 'web');
+  if (steps.length) return steps.some(step => inferAutomationStepType(step, { appTypeKind }) === 'web');
   return !['api', 'android', 'ios', 'mobile'].includes(String(appTypeKind || '').toLowerCase());
 }
 

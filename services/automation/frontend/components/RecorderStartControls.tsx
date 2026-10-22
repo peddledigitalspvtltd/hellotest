@@ -82,6 +82,8 @@ export function RecorderStartControls({
   const [checkState, setCheckState] = useState<LocalCheckState>("idle");
   const [checkMessage, setCheckMessage] = useState("Check your local Test Engine before starting the recorder.");
   const [isLaunchingAgent, setIsLaunchingAgent] = useState(false);
+  const launchGeneration = useRef(0);
+  useEffect(() => () => { launchGeneration.current++; }, []);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [moreMenuStyle, setMoreMenuStyle] = useState<CSSProperties>({});
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -154,21 +156,42 @@ export function RecorderStartControls({
   };
 
   const handleLaunchLocalAgent = async () => {
+    const generation = ++launchGeneration.current;
     setIsLaunchingAgent(true);
+    setCheckState("checking");
     setCheckMessage("Requesting HelloTest local runner launch...");
 
     try {
       const result = await automationApi.localAgent.start({ target: "playwright" });
+      if (launchGeneration.current !== generation) return;
       setCheckMessage(result.message || "Local runner launch requested.");
-      if (result.base_url) {
-        setLocalBrowserUrl(result.base_url);
+      if (!result.started && !result.already_running) {
+        setCheckState("failed");
+        return;
       }
-      window.setTimeout(() => void handleCheckSetup(), 1600);
+      const deadline = Date.now() + 180_000;
+      while (Date.now() < deadline && launchGeneration.current === generation) {
+        const status = await automationApi.localAgent.status();
+        if (launchGeneration.current !== generation) return;
+        if (status.web.ready) {
+          setLocalBrowserUrl(status.recommended.web_public_base_url || DEFAULT_LOCAL_BROWSER_URL);
+          setLocalEngineUrl(status.web.base_url || DEFAULT_LOCAL_ENGINE_URL);
+          setCheckState("ready");
+          setCheckMessage("The local Playwright runner is ready. You can start recording or execute saved cases.");
+          return;
+        }
+        await new Promise(resolve => window.setTimeout(resolve, 2000));
+      }
+      if (launchGeneration.current === generation) {
+        setCheckState("idle");
+        setCheckMessage("The runner is still starting or needs attention. Check local-run/artifacts/host-recorder/launcher.log for installation progress and startup errors, then check the connection again.");
+      }
     } catch (error) {
+      if (launchGeneration.current !== generation) return;
       setCheckState("failed");
       setCheckMessage(error instanceof Error ? error.message : "Unable to request local runner launch.");
     } finally {
-      setIsLaunchingAgent(false);
+      if (launchGeneration.current === generation) setIsLaunchingAgent(false);
     }
   };
 
@@ -183,7 +206,7 @@ export function RecorderStartControls({
       const appiumReady = status.appium.ready;
       setLocalBrowserUrl(status.recommended.web_public_base_url || DEFAULT_LOCAL_BROWSER_URL);
       setCheckState(webReady ? "ready" : "failed");
-      setCheckMessage([
+      setCheckMessage([!webReady ? status.web.message : "",
         `Playwright ${webReady ? "ready" : "not reachable"}`,
         `Mobile engine ${mobileReady ? "ready" : "not reachable"}`,
         `Appium ${appiumReady ? "ready" : "not reachable"}`,

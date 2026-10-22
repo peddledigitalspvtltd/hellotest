@@ -16,7 +16,11 @@ function generationRetrievalQuery(content) {
     const task=JSON.parse(text);
     const stories=(task.stories||[task.story]).filter(Boolean).map(story=>({id:story.id,title:story.title,acceptance_criteria:story.acceptance_criteria,specification_content:story.specification_content}));
     const user_request=task.generation_request?.user_request;
-    return JSON.stringify({user_request,...(!user_request?.trim()?{template_focus:task.generation_request?.selected_template}:{}),stories,case_title:task.current_case?.title,selected_step:task.selected_step});
+    const template_focus=!user_request?.trim()?task.generation_request?.selected_template:undefined;
+    // Image bytes and private file metadata provide evidence to the authoring
+    // model, but do not provide a meaningful text search for the context graph.
+    if(!user_request?.trim()&&!template_focus?.length&&!stories.length&&!task.current_case?.title&&!task.selected_step)return null;
+    return JSON.stringify({user_request,...(template_focus?{template_focus}:{}),stories,case_title:task.current_case?.title,selected_step:task.selected_step});
   }catch{return undefined;}
 }
 module.exports={splitGenerationContext,generationRetrievalQuery};

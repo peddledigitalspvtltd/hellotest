@@ -25,6 +25,8 @@ type AiCaseAuthoringModalProps = {
   additionalContext: string;
   externalLinksText: string;
   referenceImages: AiDesignImageInput[];
+  contextFiles?: File[];
+  onContextFilesChange?: (files:File[]) => void;
   sourceDraft: SourceDraft;
   preview: AiAuthoredTestCasePreview | null;
   previewMessage: string;
@@ -117,6 +119,8 @@ export function AiCaseAuthoringModal(props: AiCaseAuthoringModalProps) {
     : "";
 
   return <AiDesignStudioModal
+    contextFiles={props.contextFiles}
+    onContextFilesChange={props.onContextFilesChange}
     acceptLabel={applyLabel}
     additionalContext={additionalContext}
     allowMultipleRequirements={false}

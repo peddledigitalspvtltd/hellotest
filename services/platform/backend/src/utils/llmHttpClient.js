@@ -33,6 +33,7 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     init = await require("@hellotest/mcp/backend/gateway").enrichChatRequest(init, options);
     prepared = prepareChatRequest(init, { ...options, operation });
     init = prepared.init;
+    init = await require('../../services/aiAttachmentAccess.service').prepareImages(init, options);
   } catch (error) {
     const preflight = await traces.begin({ url, init, options: { ...options, operation,traceStage:'context_preflight' } });
     await traces.finish(preflight, { error });
@@ -108,7 +109,9 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
       const remainingMs = timeoutMs - (Date.now() - startedAt);
       if (error?.code !== 'AI_NATIVE_CONTRACT_INVALID' || remainingMs < 1000 || init.signal?.aborted) throw error;
       const body = JSON.parse(init.body);
-      body.messages.push({ role:'system', content:`Format correction, once: required artifact fields were missing or invalid: ${JSON.stringify(error.validation_errors)}. Return the complete original requested artifact JSON using the same evidence and exact permitted IDs. ${nativeContract.note} Do not fabricate missing facts or add unrelated work.` });
+      const correction = managed.profile?.config?.instruction_blocks?.['application.artifactCorrection'];
+      if (typeof correction !== 'string' || !correction.trim()) throw Object.assign(new Error('AI Controls is missing the artifact correction instruction.'), { statusCode:503, code:'AI_INSTRUCTION_MISSING' });
+      body.messages.push({ role:'system', content: `${correction}\n${JSON.stringify({ validation_errors: error.validation_errors })}` });
       // This is read-only authoring, never a replay of a browser/tool action.
       correctionFailure = error;
       response = await request({ ...init, body:JSON.stringify(body) }, remainingMs);

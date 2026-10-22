@@ -23,11 +23,20 @@ function rulesSchema(rules){const properties={},required=[];for(const [name,rule
  if(rule.maxItems||rule.maxItem)field.maxItems=rule.maxItems||rule.maxItem;
  properties[name]=field;if(rule.required)required.push(name);
 }return {type:'object',properties,...(required.length?{required}:{}),additionalProperties:true};}
+function validationTarget(node){
+ if(!node)return null;
+ if(ts.isParenthesizedExpression(node))return validationTarget(node.expression);
+ if(ts.isBinaryExpression(node)&&[ts.SyntaxKind.BarBarToken,ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind))return validationTarget(node.left);
+ // A nested req.body.smart_plan schema describes that object, not the route's
+ // whole request body. It must not replace the ordinary execution contract.
+ if(ts.isPropertyAccessExpression(node)&&['body','query'].includes(node.name.text))return node.name.text==='body'?'body':'querystring';
+ return null;
+}
 function walk(node,file){
  if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&['get','post','put','patch','delete'].includes(node.expression.name.text)&&node.arguments[0]&&ts.isStringLiteral(node.arguments[0])){
   const method=node.expression.name.text.toUpperCase(),path=node.arguments[0].text,handler=node.arguments.at(-1);
   if(handler&&(ts.isArrowFunction(handler)||ts.isFunctionExpression(handler))){const options=literal(node.arguments[1]);const schema={...(options?.schema||{})};
-   function scan(child){if(ts.isCallExpression(child)&&ts.isPropertyAccessExpression(child.expression)&&child.expression.name.text==='validate'&&child.arguments[0]&&ts.isObjectLiteralExpression(child.arguments[0])){const target=child.arguments[1]?.getText(file)||'';const key=/\.body\b/.test(target)?'body':/\.query\b/.test(target)?'querystring':null;if(key)schema[key]=rulesSchema(literal(child.arguments[0]));}ts.forEachChild(child,scan);}
+   function scan(child){if(ts.isCallExpression(child)&&ts.isPropertyAccessExpression(child.expression)&&child.expression.name.text==='validate'&&child.arguments[0]&&ts.isObjectLiteralExpression(child.arguments[0])){const key=validationTarget(child.arguments[1]);if(key)schema[key]=rulesSchema(literal(child.arguments[0]));}ts.forEachChild(child,scan);}
    scan(handler);if(Object.keys(schema).length)schemas[`${method} ${path}`]=schema;
   }
  }

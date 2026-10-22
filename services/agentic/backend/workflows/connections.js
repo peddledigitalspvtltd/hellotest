@@ -267,35 +267,38 @@ async function callHttp({ projectId, data, signal }) {
     throw fail(
       "Select a server-managed connection instead of an inline credential.",
     );
-  const response = await request({
-    url,
-    connection,
-    method,
-    body: ["GET", "HEAD"].includes(method)
-      ? undefined
-      : String(data.apiBody || ""),
-    signal,
-    timeoutMs: Number(data.timeoutMs) || connection?.timeoutMs || 30000,
-  });
-  if (response.status < 200 || response.status >= 300)
-    throw fail(
-      `The endpoint returned HTTP ${response.status}. Redirects are not followed.`,
-      response.status,
-    );
-  let content;
-  try {
-    content = JSON.parse(response.body);
-  } catch {
-    content = response.body;
-  }
-  return redact(
-    {
-      status: response.status,
-      data: content,
-      content_type: response.headers["content-type"] || "",
-    },
-    connection,
-  );
+  const paginated = data.apiPagination === "cursor";
+  if (paginated && method !== "GET") throw fail("Cursor pagination is available only for HTTP GET.");
+  const items = [], cursors = new Set();
+  const maxItems = Math.min(100, Math.max(1, Number(data.apiMaxItems) || 100));
+  let pages = 0;
+  let expectedTotal = null;
+  let result;
+  do {
+    const response = await request({ url, connection, method,
+      body: ["GET", "HEAD"].includes(method) ? undefined : String(data.apiBody || ""),
+      signal, timeoutMs: Number(data.timeoutMs) || connection?.timeoutMs || 30000 });
+    if (response.status < 200 || response.status >= 300) throw fail(`The endpoint returned HTTP ${response.status}. Redirects are not followed.`, response.status);
+    let content;
+    try { content = JSON.parse(response.body); } catch { content = response.body; }
+    result = { status: response.status, data: content, content_type: response.headers["content-type"] || "" };
+    if (!paginated) return redact(result, connection);
+    if (!content || !Array.isArray(content.items) || typeof content.is_last !== "boolean") throw fail("The Stories API must return items, is_last and next_cursor. Enable include_page=true.", 502);
+    if (data.apiResource === "sprintStories" && (!Number.isInteger(content.total) || content.total < 0)) throw fail("The Stories API must return a valid total count.", 502);
+    if (Number.isInteger(content.total)) {
+      if (expectedTotal !== null && content.total !== expectedTotal) throw fail("Sprint membership changed during pagination. Retry against a stable Sprint scope.", 409);
+      expectedTotal = content.total;
+    }
+    items.push(...content.items);
+    pages += 1;
+    if (items.length > maxItems || (Number.isFinite(content.total) && content.total > maxItems)) throw fail(`This Sprint contains more than ${maxItems} Stories. Split its scope before running; no Stories were silently omitted.`, 422);
+    if (content.is_last) { if (expectedTotal !== null && items.length !== expectedTotal) throw fail("The Stories API returned an incomplete Sprint page set. Retry before generating drafts.", 502); break; }
+    if (pages >= 100 || !content.next_cursor || cursors.has(content.next_cursor) || !content.items.length) throw fail("Stories pagination stopped advancing. Retry against a stable Sprint scope.", 502);
+    cursors.add(content.next_cursor);
+    url.searchParams.set("cursor", String(content.next_cursor));
+  } while (!signal?.aborted);
+  if (signal?.aborted) throw fail("The node was cancelled.", 499);
+  return redact({ ...result, data: { items, total: items.length, is_last: true, next_cursor: null }, pagination: { pages, fetched: items.length, complete: true } }, connection);
 }
 module.exports = { builtin,
   list,

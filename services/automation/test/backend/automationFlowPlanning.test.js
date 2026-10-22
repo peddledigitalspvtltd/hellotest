@@ -1,3 +1,4 @@
+const { expandManagedInstructions } = require('../../../platform/backend/test/helpers/managedInstructions');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { normalizeFlowPlan, planAutomationFlow, projectFlowPlanningBrief } = require('../../backend/lib/automationFlowPlanning');
@@ -54,7 +55,7 @@ test('a public input materialized by the planner requires bounded correction wit
    prompts.push(prompt);turns++;
    const packet=JSON.parse(prompt.split('\n').find(line=>line.startsWith('{"generation_stage":')));
    assert.deepEqual(packet.planning_parameter_contract.required_references,['@r.email','@r.empty','@r.password']);
-   assert.match(packet.planning_parameter_contract.instruction,/public, private or empty/);
+   assert.match(expandManagedInstructions(packet.planning_parameter_contract.instruction),/public, private or empty/);
    assert.doesNotMatch(prompt,/PRIVATE_PLANNING_FIXTURE/);
    if(turns===1)return JSON.stringify({flow_steps:[{action:`Enter ${publicValue}, @r.password and @r.empty into the requested fields.`,expected_result:'The fields contain the supplied inputs',step_type:'web'}]});
    assert.equal(turns,2);assert.equal(packet.validation_feedback.code,'AUTOMATION_FLOW_PLAN_INVALID');

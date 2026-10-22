@@ -1997,6 +1997,7 @@ const createSeleniumLocatorFacade = (resolveElement: (target: string) => Promise
 class SeleniumWebSession implements WebSession {
   readonly provider: EngineWebEngineProvider = "selenium";
   private driverInstance: WebDriver | null = null;
+  private liveSessionId: string | null = null;
   private networkEntries: WebNetworkEntry[] = [];
   private readonly timeouts: ReturnType<typeof resolveTimeoutPolicy>;
 
@@ -2027,11 +2028,25 @@ class SeleniumWebSession implements WebSession {
       pageLoad: Math.min(Math.max(1_000, this.envelope.run_timeout_seconds * 1000), this.timeouts.navigation),
       script: this.timeouts.action
     });
+    this.liveSessionId = `${this.envelope.engine_run_id}:selenium`;
+    registerLiveViewSession({
+      id: this.liveSessionId,
+      provider: this.provider,
+      startedAt: new Date().toISOString(),
+      url: async () => this.driverInstance?.getCurrentUrl() || "",
+      screenshot: async () => {
+        if (!this.driverInstance) return null;
+        try { return Buffer.from(await this.driverInstance.takeScreenshot(), "base64"); }
+        catch { return null; }
+      }
+    });
   }
 
   async stop(_finalStatus?: EngineStepOutcomeStatus) {
-    await this.driverInstance?.quit();
-    this.driverInstance = null;
+    unregisterLiveViewSession(this.liveSessionId);
+    this.liveSessionId = null;
+    try { await this.driverInstance?.quit(); }
+    finally { this.driverInstance = null; }
     return {};
   }
 

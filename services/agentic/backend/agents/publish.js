@@ -3,7 +3,8 @@ const db = require('@hellotest/platform/backend/src/db');
 const agents = require('./repositoryAgents.service');
 const permissionService = require('@hellotest/platform/backend/services/permission.service');
 const mobileFeatureService = require('@hellotest/platform/backend/services/mobileFeature.service');
-const { FINDING_KEYS, PUBLISH_PERMISSIONS, LIMITS, error } = require('./catalog');
+const { FINDING_KEYS, PUBLISH_PERMISSIONS, PUBLISH_ADDITIONAL_PERMISSIONS, LIMITS, error } = require('./catalog');
+const { normalizeAutomationStartUrl } = require('@hellotest/platform/backend/src/utils/automationStartUrl');
 
 const text = (value, max = 2000) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const escapeHtml = value => String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -56,10 +57,12 @@ function apiDraftRequest(finding) {
   return { method: finding.method, url, ...body, headers,
     validations: Number.isInteger(finding.expected_status) ? [{ kind: 'status', expected: String(finding.expected_status) }] : [], captures: [] };
 }
-function casePayload(run, finding, user, key) {
+function casePayload(run, finding, user, key, { automationStartUrl } = {}) {
   const title = text(finding.title || finding.name, 500);
   if (!title) throw error('The selected test contract has no title.');
+  const sourceSteps = Array.isArray(finding.steps) ? finding.steps : [];
   const observations = [finding.description, ...(finding.assumptions || []), ...(finding.review_reasons || []),
+    ...sourceSteps.map((step, index) => `Source step ${index + 1}: ${text(step.action, 10000)}\nExpected: ${text(step.expected_result, 10000)}`),
     run.agent_type === 'api_tests' ? 'Set @r.base_url, supply typed test data, review authentication and confirm assertions before execution. Omitted expectations were not established by source evidence.' : null,
     finding.case_kind === 'authentication' ? 'Request headers are omitted from this missing-authentication draft except the declared body content type. Review noncredential header requirements while keeping authentication absent.' : null,
     finding.content_type ? `Declared request content type: ${finding.content_type}.` : null,
@@ -67,21 +70,25 @@ function casePayload(run, finding, user, key) {
     hasRequestBody(finding) && !apiBodyDraft(finding) ? 'This request body format requires manual setup. The request remains a manual draft step; configure its declared media type, file data and boundaries before execution.' : null,
     finding.body_schema ? `Request schema: ${JSON.stringify(finding.body_schema, null, 2)}` : null,
     'Generated from static repository evidence. Review before execution.', sourceNotes(finding)].filter(Boolean).map(value => text(value, 10000)).join('\n\n');
-  const steps = (Array.isArray(finding.steps) && finding.steps.length ? finding.steps : [{ action: finding.description || title, expected_result: 'Review the component contract and confirm the expected behavior in the application.' }]).slice(0, 100).map((step, index) => ({
+  let steps = (sourceSteps.length ? sourceSteps : [{ action: finding.description || title, expected_result: 'Review the component contract and confirm the expected behavior in the application.' }]).slice(0, 100).map((step, index) => ({
     action: `<p>${escapeHtml(text(step.action, 10000))}</p>`,
     expected_result: `<p>${escapeHtml(text(step.expected_result, 10000))}</p>`,
     step_type: 'web', sort_order: index + 1
   }));
   if (run.agent_type === 'api_tests') {
     const request = apiDraftRequest(finding);
-    const requestIndex = Math.max(0, (finding.steps || []).findIndex(step => /^send\b/i.test(step.action || '')));
-    if (request && steps[requestIndex]) Object.assign(steps[requestIndex], { step_type: 'api', api_request: request });
+    const requestIndex = Math.max(0, sourceSteps.findIndex(step => /^(?:send|request)\b/i.test(step.action || '')));
+    // One contract describes one HTTP operation. Setup and assertion prose is
+    // retained in the description, rather than becoming browser steps or
+    // repeating a state-changing request for every narrative step.
+    steps = [{ ...steps[requestIndex], step_type: 'api', sort_order: 1, api_request: request }];
   }
   // Preserve actionable request structure, but keep the case in draft until
   // its environment, typed data and runtime expectations have been reviewed.
   return {
     app_type_id: run.app_type_id, title, description: `<p>${escapeHtml(observations).replace(/\n/g, '<br>')}</p>`,
-    status: 'draft', automated: 'no', automation_status: 'not_automated', authoring_mode: 'structured',
+    status: 'draft', automated: 'yes', automation_status: 'incomplete', authoring_mode: 'structured',
+    automation_start_url: run.agent_type === 'component_tests' ? normalizeAutomationStartUrl(automationStartUrl, { required: true }) : null,
     test_case_type: run.agent_type === 'api_tests' ? 'integration' : 'functional',
     steps, labels: ['repository-agent', run.agent_type], source_idempotency_key: key,
     ai_generation_source: 'repository', ai_generation_review_status: 'pending',
@@ -92,6 +99,9 @@ async function publishRun(id, input, user) {
   const publicRun = await agents.getRun(id, user, 'agentic_workflow.run');
   const permission = PUBLISH_PERMISSIONS[publicRun.agent_type];
   if (!await permissionService.hasPermission(user, permission, publicRun.project_id)) throw error(`Permission required to publish: ${permission}`, 403);
+  for (const additional of PUBLISH_ADDITIONAL_PERMISSIONS[publicRun.agent_type] || []) {
+    if (!await permissionService.hasPermission(user, additional, publicRun.project_id)) throw error(`Permission required to accept Automation Test Cases: ${additional}`, 403);
+  }
   if (publicRun.agent_type !== 'repository_knowledge' && !publicRun.app_type_id) throw error('Run this agent in an application scope before publishing its results.');
   if (['api_tests', 'component_tests'].includes(publicRun.agent_type)
     && await mobileFeatureService.appTypeUsesMobile(publicRun.app_type_id)
@@ -100,6 +110,7 @@ async function publishRun(id, input, user) {
   }
   if (!Array.isArray(input.item_ids) || !input.item_ids.length || input.item_ids.length > LIMITS.max_selected_items || input.item_ids.some(id => typeof id !== 'string' || !id)) throw error('Select between 1 and 50 findings to publish.');
   if (new Set(input.item_ids).size !== input.item_ids.length) throw error('Each selected finding must appear only once.');
+  const automationStartUrl = publicRun.agent_type === 'component_tests' ? normalizeAutomationStartUrl(input.automation_start_url, { required: true }) : null;
   if (input.module_id && !['api_tests', 'component_tests'].includes(publicRun.agent_type)) throw error('Modules can only receive test case drafts.');
   if (input.module_id) {
     if (!await permissionService.hasPermission(user, 'testcase.update', publicRun.project_id)) throw error('Test Case update permission is required to assign a module.', 403);
@@ -116,9 +127,12 @@ async function publishRun(id, input, user) {
     const saved = [...(run.published?.items || [])], items = [], skippedItems = [], caseIds = [];
     for (const finding of selected) {
       const prior = saved.find(item => item.finding_id === finding.id);
-      if (prior) { items.push(prior); continue; }
-      const digest = createHash('sha256').update(JSON.stringify([run.project_id, run.app_type_id, run.agent_type, finding])).digest('hex');
-      const key = `repository-agent:${digest}`;
+      if (prior) {
+        if (run.agent_type==='component_tests' && prior.automation_start_url && prior.automation_start_url!==automationStartUrl) throw error('This finding was already accepted with a different Start URL. Open its Automation Test Case to change the URL, or review a new analysis.',409);
+        items.push(prior); continue;
+      }
+      const digest = createHash('sha256').update(JSON.stringify([run.project_id, run.app_type_id, run.agent_type, finding, ...(run.agent_type==='component_tests'?[automationStartUrl]:[])])).digest('hex');
+      const key = `repository-agent:${['api_tests', 'component_tests'].includes(run.agent_type) ? 'automation-v2:' : ''}${digest}`;
       let target;
       if (run.agent_type === 'object_repository') {
         const screen = text(finding.screen_name || finding.page_key, 500), name = text(finding.object_name || finding.locator_intent, 500), locator = text(finding.locator, 4000);
@@ -146,16 +160,16 @@ async function publishRun(id, input, user) {
         }, user.id);
         target = { target_type: 'knowledge', target_id: entry.id, url: `/knowledge-repo?item=${encodeURIComponent(entry.id)}` };
       } else {
-        const entry = await require('@hellotest/testing/backend/services/testCase.service').createTestCase(casePayload(run, finding, user, key));
+        const entry = await require('@hellotest/testing/backend/services/testCase.service').createTestCase(casePayload(run, finding, user, key, { automationStartUrl }));
         caseIds.push(entry.id);
-        target = { target_type: 'test_case', target_id: entry.id, url: `/test-cases?case=${encodeURIComponent(entry.id)}` };
+        target = { target_type: 'automation', target_id: entry.id, url: `/automation?case=${encodeURIComponent(entry.id)}` };
       }
-      const published = { finding_id: finding.id, ...target, published_by: user.id, published_at: new Date().toISOString() };
+      const published = { finding_id: finding.id, ...target, ...(run.agent_type==='component_tests'?{automation_start_url:automationStartUrl}:{}), published_by: user.id, published_at: new Date().toISOString() };
       items.push(published); saved.push(published);
     }
     if (input.module_id && caseIds.length) await require('@hellotest/testing/backend/services/testCaseModule.service').assignCases(input.module_id, caseIds, { append: true });
     await db.prepare('UPDATE repository_agent_runs SET published = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run({ items: saved }, run.id);
-    return { items, skipped: skippedItems.length, skipped_items: skippedItems, ...(run.agent_type === 'repository_knowledge' ? { indexing: 'queued', message: 'Published documents are queued for Knowledge Repo indexing.' } : {}) };
+    return { items, skipped: skippedItems.length, skipped_items: skippedItems, ...(run.agent_type === 'repository_knowledge' ? { indexing: 'queued', knowledge_graph: 'queued', context_graph: 'queued', message: 'Accepted documents are queued for versioned Knowledge Repo indexing, Knowledge Graph projection, and permission-aware context retrieval.' } : {}) };
   })();
 }
 module.exports = { publishRun, casePayload, apiDraftRequest };

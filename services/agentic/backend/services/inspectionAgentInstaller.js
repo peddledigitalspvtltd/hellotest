@@ -1,5 +1,8 @@
 // The API includes the engine's compiled recorder modules, so local setup does
 // not depend on a configured or reachable remote Test Engine.
+// The packaging check verifies every bundled module against this manifest.
+const runtimeDependencies = Object.freeze({ acorn: "8.18.0", fastify: "4.29.1", playwright: "1.59.1" });
+exports.runtimeDependencies = runtimeDependencies;
 exports.buildInstaller = ({ recorder, security, inspection_security, inspection_proxy, repository_locator, origin, agent_token }) => {
   if (![recorder, security, inspection_security, inspection_proxy, repository_locator].every(value => typeof value === "string" && value.length > 100 && value.length < 1024 * 1024)) {
     throw Object.assign(new Error("The local inspection installer is unavailable. Update the HelloTest API and try again."), { statusCode: 503 });
@@ -32,7 +35,7 @@ const run = (command, args) => new Promise((resolve, reject) => {
   child.on("error", reject);
   child.on("exit", code => code === 0 ? resolve() : reject(new Error(command + " failed with exit code " + code)));
 });
-await writeFile(join(directory, "package.json"), JSON.stringify({ private: true, type: "module", dependencies: { fastify: "4.29.1", playwright: "1.59.1" } }), { mode: 0o600 });
+await writeFile(join(directory, "package.json"), JSON.stringify({ private: true, type: "module", dependencies: ${JSON.stringify(runtimeDependencies)} }), { mode: 0o600 });
 console.log("Installing HelloTest inspection agent and Playwright Chromium…");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 await run(npm, ["install", "--omit=dev", "--no-audit", "--no-fund"]);
@@ -44,6 +47,7 @@ import { createCorsHook, resolveCorsPolicy } from "./testEngineSecurity.js";
 const app = Fastify({ logger: { level: "warn" } });
 app.addHook("onRequest", createCorsHook(resolveCorsPolicy()));
 app.options("/*", async (_req, reply) => reply.code(204).send());
+app.get("/health", async () => ({ ok: true, ready: true, service: "hellotest-inspection-agent", supported_web_engines: [], capabilities: { repository_inspection: true, local_execution: false } }));
 await registerRecorderRoutes(app);
 process.once("SIGINT", () => void app.close());
 process.once("SIGTERM", () => void app.close());

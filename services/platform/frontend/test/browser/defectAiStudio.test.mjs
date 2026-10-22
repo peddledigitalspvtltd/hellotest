@@ -25,6 +25,7 @@ const client=new QueryClient`);
   // Confirm the production API method remains the one wired to the fixture.
   fixture = fixture.replace('api.issues.previewDraft=', 'api.issues.previewAiDraft=');
   fixture += `
+bugs[0].linked_test_case_ids=['case-context'];
 const contextCase={id:'case-context',project_id:'catalog-project',app_type_id:'catalog-app',title:'Checkout confirmation',display_id:'TC-1',requirement_ids:[],steps:[]};
 api.testCases.get=async()=>contextCase;api.testCases.list=async()=>[contextCase];api.testCases.listPage=async()=>({items:[contextCase],total:1,page:1,page_size:25,has_more:false,is_last:true});
 api.issues.previewAiImprove=async(input)=>{window.calls.improve=input;const response=await api.issues.previewAiDraft(input);return {...response,draft:{...response.draft,title:'Improved checkout reproduction',message:'Improved observed failure description.'}};};
@@ -76,6 +77,9 @@ api.issues.previewAiImprove=async(input)=>{window.calls.improve=input;const resp
       await page.getByLabel('Defect Title', { exact: false }).waitFor({timeout:5000}).catch(async error=>{throw new Error(error.message+'\n'+JSON.stringify(errors)+'\n'+(await page.locator('body').innerText()).slice(0,1800))});
       assert.equal(await page.getByLabel('Defect Title', { exact: false }).inputValue(), 'Reviewed checkout failure');
       assert.equal(await page.evaluate(() => window.calls.all.some(call => call.path === 'issues.create')), false, 'Acceptance only populates the human-reviewed form');
+      await page.getByRole('button',{name:'Close Report Defect',exact:true}).click();
+      await page.locator('.issue-catalog-card').first().click();
+      await page.getByLabel('Defect Title',{exact:false}).fill('Reviewed checkout failure');
       await page.getByRole('button',{name:'AI Defect Improve',exact:true}).click();
       const improve=page.getByRole('dialog',{name:'AI Defect Improve',exact:true});await improve.waitFor();
       await improve.getByRole('button',{name:'Show context',exact:true}).click();
@@ -88,7 +92,7 @@ api.issues.previewAiImprove=async(input)=>{window.calls.improve=input;const resp
       await improve.getByRole('button',{name:'Apply selected fields',exact:true}).click();await improve.waitFor({state:'hidden'});
       assert.equal(await page.getByLabel('Defect Title',{exact:false}).inputValue(),'Reviewed checkout failure','Unselected title stays unchanged');
       assert.equal(await page.evaluate(()=>window.calls.all.some(call=>['issues.create','issues.update'].includes(call.path))),false);
-      await page.getByRole('button',{name:'Close Report Defect',exact:true}).click();
+      await page.getByRole('button',{name:'Back to defect tiles',exact:true}).click();
       await page.locator('.issue-catalog-card').first().click();
       await page.getByRole('button',{name:'AI Defect Improve',exact:true}).waitFor();await page.getByRole('button',{name:'AI Defect Triage',exact:true}).waitFor();
       const actionBoxes = await Promise.all(['AI Defect Improve','AI Defect Triage','Convert to Test Case'].map(name => page.getByRole('button',{name,exact:true}).boundingBox()));

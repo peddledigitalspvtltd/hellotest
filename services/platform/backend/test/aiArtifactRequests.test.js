@@ -71,6 +71,7 @@ function providerFixture(result, { contentBlocks = false } = {}) {
     overrides: {
       "./aiLlmSelection.service": { async resolveLlmIntegrationForUsage(args) { selections.push(args); return integration; } },
       "../utils/llmHttpClient": { async fetchLlmWithRetry(url, options, policy) {
+        if (policy.featureKey === 'ai.authoring.request_validation') return response({ decision: 'accept', explanation: 'The instructions are within Test Case authoring.', suggestions: [] });
         const body = JSON.parse(options.body);
         for (const message of body.messages || []) {
           if (typeof message.content === 'string') message.content = expandManagedInstructions(message.content);
@@ -467,4 +468,46 @@ test('AI improvement preserves the full administrator type code through current 
  const service=load('aiCaseAuthoring.service',{...fixture.overrides,'./dropdownCatalog.service':{getField:async()=>({default_value:type,options:[{value:type,active:true}]})}});
  const result=await service.previewCaseAuthoring({appType,test_case:{title:'Approval',test_case_type:type}});
  assert.equal(result.case.test_case_type,type);const prompt=JSON.parse(fixture.calls[0].body.messages[1].content);assert.equal(prompt.current_case.test_case_type,type);assert.deepEqual(prompt.application_contract.output_schema.properties.test_case_type.enum,[type]);
+});
+
+test('custom Test Case objectives are validated before generation and rejected intent cannot produce a draft',async()=>{
+ for(const mode of ['generate','improve','step']){
+  const calls=[];
+  const fixture=providerFixture(validCase);
+  const overrides={...fixture.overrides,
+   '../utils/llmHttpClient':{fetchLlmWithRetry:async(_url,_init,policy)=>{
+    calls.push(policy.featureKey);
+    assert.equal(policy.featureKey,'ai.authoring.request_validation');
+    return response({decision:'story_mismatch',explanation:'The checkout request does not describe invoice approval.',suggestions:['Choose a checkout Story or remove the Story selection.']});
+   }},'./aiKnowledge.service':{buildKnowledgeContextPackage:async()=>{assert.fail('Retrieval should follow intent validation');}}
+  };
+  const service=load(mode==='generate'?'requirementDesign.service':'aiCaseAuthoring.service',overrides);
+  const input={requirement:story,requirements:[story],appType,test_case:{title:'Invoice approval'},additional_context:'Generate checkout payment cases.',step:{action:'Approve invoice',expected_result:'Approved'}};
+  await assert.rejects(mode==='generate'?service.previewRequirementsTestCases(input):mode==='improve'?service.previewCaseAuthoring(input):service.rephraseTestStep(input),{code:'AI_AUTHORING_STORY_MISMATCH',statusCode:422});
+  assert.deepEqual(calls,['ai.authoring.request_validation']);
+ }
+});
+
+test('generation preserves explicit user guidance beyond the historical 8000-character truncation',async()=>{
+ const fixture=providerFixture({test_cases:[validCase]});
+ const service=load('requirementDesign.service',{...fixture.overrides,'./aiKnowledge.service':{buildKnowledgeContextPackage:async()=>({knowledge:[]})}});
+ const additional_context='Test guidance. '.repeat(650)+'FINAL_USER_OBJECTIVE';
+ await service.previewRequirementsTestCases({requirements:[story],appType,max_cases:1,additional_context});
+ const data=JSON.parse(fixture.calls[0].body.messages[1].content);
+ assert.equal(data.generation_request.user_request,additional_context);
+ await assert.rejects(service.previewRequirementsTestCases({requirements:[story],appType,additional_context:'x'.repeat(18001)}),{code:'AI_INPUT_BUDGET_EXCEEDED'});
+ assert.equal(fixture.calls.length,1);
+});
+
+test('native assurance and Test Case generation forward workflow cancellation to the provider transport', async () => {
+  const controller = new AbortController();
+  const reviewFixture = providerFixture({ summary: 'Review acceptance behavior.', dimensions: [{ id: 'design-maturity', explanation: 'Criteria provide observable behavior.', evidence: ['draft:story:story'] }] });
+  await load('artifactAssurance.service', reviewFixture.overrides).reviewArtifact({ artifactType:'story',savedArtifact:story,user,projectId:'project',signal:controller.signal });
+  assert.strictEqual(reviewFixture.calls[0].options.signal, controller.signal);
+  const generationFixture = providerFixture({test_cases:[validCase]});
+  const service = load('requirementDesign.service', { ...generationFixture.overrides, './aiKnowledge.service':{buildKnowledgeContextPackage:async()=>({knowledge:[]})} });
+  await service.previewRequirementsTestCases({ requirements:[story],appType,user_id:user.id,signal:controller.signal });
+  assert.strictEqual(generationFixture.calls[0].options.signal, controller.signal);
+  controller.abort();
+  await assert.rejects(service.previewRequirementsTestCases({requirements:[story],appType,user_id:user.id,signal:controller.signal}),{statusCode:499});
 });

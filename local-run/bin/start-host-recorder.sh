@@ -32,7 +32,12 @@ fi
 
 mkdir -p "$BROWSER_DIR" "$ARTIFACT_DIR"
 
-if command -v curl >/dev/null 2>&1 && curl -fsS "http://localhost:$PORT/health" >/dev/null 2>&1; then
+if ! command -v node >/dev/null 2>&1; then
+  echo "Install Node.js 20 or newer and npm, then start the local Playwright runner again."
+  exit 1
+fi
+
+if node "$LOCAL_RUN_DIR/lib/probe-runner.mjs" "http://localhost:$PORT"; then
   echo "HelloTest host recorder is already running"
   echo "  Browser URL: http://localhost:$PORT"
   echo "  API/container URL: http://host.docker.internal:$PORT"
@@ -82,11 +87,11 @@ fi
 
 cd "$ENGINE_DIR"
 
-if [ ! -d node_modules ]; then
-  npm install
-fi
+# Reconcile an existing installation too: source updates can add runtime
+# dependencies even when node_modules already exists.
+npm ci --include=dev --no-audit --no-fund
 
-PLAYWRIGHT_BROWSERS_PATH="$BROWSER_DIR" npx playwright install chromium
+PLAYWRIGHT_BROWSERS_PATH="$BROWSER_DIR" node node_modules/playwright/cli.js install chromium
 npm run build
 
 echo "Starting HelloTest host recorder"

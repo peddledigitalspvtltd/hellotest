@@ -18,6 +18,9 @@ services:
         condition: service_healthy
     environment:
       APP_MODE: docker
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-minio}
+      HELLOTEST_PUBLIC_URL: ${HELLOTEST_PUBLIC_URL:-}
+      HELLOTEST_API_PUBLIC_URL: ${HELLOTEST_API_PUBLIC_URL:-}
       DATABASE_URL: ${DATABASE_URL:-}
       OBS_DATABASE_URL: ${OBS_DATABASE_URL:-}
       POSTGRES_HOST: postgres

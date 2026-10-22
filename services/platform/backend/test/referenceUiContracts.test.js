@@ -7,8 +7,14 @@ const { requirementMetadata, issueMetadata } = require("../src/utils/nativeIssue
 const { assertExpectedRevision, normalizeExpectedRevision } = require("../src/utils/revision");
 const { ROUTE_PERMISSIONS } = require("../src/security/permissions.catalog");
 const { validateInput } = require("../src/plugins/validator");
+const aiProfiles = new Map(require("../../shared/aiFeatureCatalog.json").map(profile => [profile.id, profile.defaults]));
 
 const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
+const assertManagedInstruction = (feature, key) => {
+  const instruction = aiProfiles.get(feature)?.instruction_blocks?.[key];
+  assert.equal(typeof instruction, "string", `${feature}:${key} must be editable in Admin AI Controls`);
+  assert.ok(instruction.trim(), `${feature}:${key} must have default guidance`);
+};
 
 test("reference workspaces use bounded cursor pagination", () => {
   const first = paginate(["a", "b", "c", "d"], { page_size: "2" });
@@ -85,27 +91,17 @@ test("request contracts enforce bounded text and collection sizes", () => {
   );
 });
 
-test("Complete Story keeps external pointers and validated image context end to end", async () => {
-  const [routeSource, serviceSource] = await Promise.all([
-    readSource("../../../manual/backend/routes/requirements.routes.js"),
-    readSource("../../../manual/backend/services/requirement.service.js")
-  ]);
+test("Complete Story forwards bounded external pointers and image context with Admin evidence guidance", async () => {
+  const routeSource = await readSource("../../../manual/backend/routes/requirements.routes.js");
 
   assert.match(routeSource, /external_links: \{ required: false, type: "array", items: "string", maxItems: 20 \}/);
   assert.match(routeSource, /images: \{ required: false, type: "array", maxItems: 6 \}/);
   assert.match(routeSource, /external_links: req\.body\?\.external_links/);
   assert.match(routeSource, /images: req\.body\?\.images/);
 
-  for (const contractMarker of [
-    "(?:png|jpe?g|webp)",
-    "INVALID_AI_REFERENCE_IMAGE",
-    "REQUIREMENT_AI_REFERENCE_IMAGE_TOTAL_CHARS",
-    'type: "image_url"',
-    "External URLs are opaque pointers only. Their page contents were not fetched.",
-    "not analyzed by the deterministic fallback"
-  ]) {
-    assert.equal(serviceSource.includes(contractMarker), true, contractMarker);
-  }
+  // Image bytes and validation run through shared utilities; their actual
+  // behavior is exercised by the reference-image and artifact-request suites.
+  assertManagedInstruction("ai.requirement.optimization", "requirement.buildRequirementOptimizationPrompt.33");
 });
 
 test("Test Improve accepts pointer-only links and validated image context without widening step rephrase", async () => {
@@ -130,38 +126,17 @@ test("Test Improve accepts pointer-only links and validated image context withou
   assert.doesNotMatch(stepRoute, /external_links|images/);
   assert.doesNotMatch(stepService, /external_links|safeImages/);
 
-  for (const contractMarker of [
-    "(?:png|jpe?g|webp)",
-    "INVALID_AI_REFERENCE_IMAGE",
-    "TEST_CASE_AI_REFERENCE_IMAGE_TOTAL_CHARS",
-    'type: "image_url"',
-    "External URLs are opaque pointers only. Their page contents were not fetched.",
-    "requestChatCompletion({ integration, prompt, images: safeImages, fallbackContent, contextState })"
-  ]) {
-    assert.equal(serviceSource.includes(contractMarker), true, contractMarker);
-  }
+  assertManagedInstruction("ai.case_authoring.full_case", "evidence.imageOnly");
 });
 
-test("AI Bug drafting keeps pointer links, validated image data, and canonical Bug priorities", async () => {
-  const [routeSource, serviceSource] = await Promise.all([
-    readSource("../../../testing/backend/routes/issues.routes.js"),
-    readSource("../../../ai/backend/services/aiBugDraft.service.js")
-  ]);
+test("AI Defect drafting keeps bounded reference inputs and Admin evidence guidance", async () => {
+  const routeSource = await readSource("../../../testing/backend/routes/issues.routes.js");
 
   assert.match(routeSource, /external_links: \{ required: false, type: "array", items: "string", maxItems: 12 \}/);
   assert.match(routeSource, /reference_photos: \{ required: false, type: "array", maxItems: 6 \}/);
 
-  for (const contractMarker of [
-    "IMAGE_DATA_URL_PATTERN",
-    'type: "image_url"',
-    "External links are pointers only; their contents were not fetched.",
-    'p1: "Highest"',
-    'priority (Highest|High|Medium|Low|Lowest)',
-    "reference_photos: imageAssets.map",
-    'capability: "ai-bug-draft"'
-  ]) {
-    assert.equal(serviceSource.includes(contractMarker), true, contractMarker);
-  }
+  assertManagedInstruction("ai.bug.draft", "aiBugDraft.service.js.prompt.final.1");
+  assertManagedInstruction("ai.bug.draft", "aiBugDraft.imageOnlyContext");
 });
 
 test("every reference UI backend capability is protected by an explicit permission", () => {

@@ -1,3 +1,4 @@
+const { compare, evaluateExtendedApiAssertion } = require("../lib/automationApiAssertions");
 const { normalizeApiRequest } = require("@hellotest/platform/backend/src/utils/testStepAutomation");
 const { materializeTemplateValue } = require("@hellotest/platform/backend/src/utils/testDataGenerators");
 const { normalizeParameterLayer } = require("@hellotest/platform/backend/src/utils/stepParameterResolution");
@@ -295,8 +296,11 @@ const resolveApiRequestParameters = (request, parameterValues = {}) => {
 
   return {
     ...request,
-    url: interpolateText(request.url, contextValues),
+    url: (()=>{const url=interpolateText(request.url,contextValues),base=resolveContextValue(contextValues,"r.base_url");return url.startsWith("/")&&base?new URL(url,base).href:url;})(),
     body: interpolateText(request.body, contextValues),
+    query_params: (request.query_params || []).map(row => ({key:interpolateText(row.key,contextValues),value:interpolateText(row.value,contextValues)})),
+    cookies: (request.cookies || []).map(row => ({key:interpolateText(row.key,contextValues),value:interpolateText(row.value,contextValues)})),
+    ...(request.auth && request.auth.type !== "none" ? {auth:{...request.auth, credential_reference:request.auth.credential_reference}, resolved_credential:resolveContextValue(contextValues,request.auth.credential_reference)} : {}),
     headers: (request.headers || []).map((header) => ({
       key: interpolateText(header.key, contextValues),
       value: interpolateText(header.value, contextValues)
@@ -478,22 +482,6 @@ const parseAssertionExpectedValue = (value) => {
   return normalized;
 };
 
-const areAssertionValuesEqual = (left, right) => {
-  if (left === right) {
-    return true;
-  }
-
-  if (typeof left === "object" && left !== null && typeof right === "object" && right !== null) {
-    try {
-      return JSON.stringify(left) === JSON.stringify(right);
-    } catch {
-      return false;
-    }
-  }
-
-  return false;
-};
-
 const evaluateApiAssertions = (preview, validations = []) => {
   const effectiveValidations = validations.length ? validations : [{ kind: "status", expected: "200" }];
 
@@ -501,6 +489,9 @@ const evaluateApiAssertions = (preview, validations = []) => {
     const kind = normalizeText(validation.kind || "status") || "status";
     const target = normalizeText(validation.target);
     const expected = normalizeText(validation.expected);
+
+    const extended=evaluateExtendedApiAssertion(preview,{...validation,kind,target,expected});
+    if(extended)return {kind,target,expected,...extended};
 
     if (kind === "status") {
       const expectedStatus = Number(expected || "200") || 200;
@@ -521,7 +512,7 @@ const evaluateApiAssertions = (preview, validations = []) => {
     if (kind === "header") {
       const headerName = String(target || "content-type").toLowerCase();
       const actual = preview.response.headers[headerName] || "";
-      const passed = actual === (expected || "");
+      const passed = compare(actual, expected || "", validation.operator);
 
       return {
         kind,
@@ -564,7 +555,7 @@ const evaluateApiAssertions = (preview, validations = []) => {
 
     const resolved = readJsonPathValue(preview.response.body_json, target || "$");
 
-    if (!resolved.found) {
+    if (!resolved.found && validation.operator !== "exists") {
       return {
         kind,
         passed: false,
@@ -576,7 +567,9 @@ const evaluateApiAssertions = (preview, validations = []) => {
     }
 
     const expectedValue = parseAssertionExpectedValue(expected);
-    const passed = areAssertionValuesEqual(resolved.value, expectedValue);
+    let passed;
+    try { passed = compare(resolved.value, expectedValue, validation.operator); }
+    catch(error) { return {kind,passed:false,target,expected,actual:null,summary:error.message}; }
 
     return {
       kind,
@@ -755,7 +748,8 @@ const runResolvedApiRequest = async (request) => {
     throw new Error("A valid API request is required");
   }
 
-  const url = ensureHttpUrl(normalizedRequest.url);
+  const target = new URL(ensureHttpUrl(normalizedRequest.url));
+  for(const row of normalizedRequest.query_params || [])target.searchParams.append(row.key,row.value);
   const method = normalizedRequest.method || "GET";
   const headers = new Headers();
 
@@ -769,6 +763,17 @@ const runResolvedApiRequest = async (request) => {
     headers.set(key, header.value || "");
   }
 
+  if(normalizedRequest.cookies?.length)headers.set('cookie',normalizedRequest.cookies.map(row=>`${row.key}=${row.value}`).join('; '));
+  const auth=normalizedRequest.auth;
+  if(auth && auth.type !== 'none'){
+    const credential=request.resolved_credential;
+    if(!credential)throw new Error('Configure the API authentication credential_reference in authorized test data before execution.');
+    if(auth.type==='api_key'){
+      if(auth.location==='query')target.searchParams.append(auth.key_name||'api_key',credential);
+      else headers.set(auth.key_name||'Authorization',credential);
+    }else headers.set('Authorization',`${auth.type==='basic'?'Basic':'Bearer'} ${credential}`);
+  }
+  const url=target.toString();
   const requestBody = method === "GET" || method === "HEAD" ? undefined : serializeApiBody(normalizedRequest, headers);
   const startedAt = Date.now();
   const startedAtIso = new Date(startedAt).toISOString();
@@ -784,7 +789,8 @@ const runResolvedApiRequest = async (request) => {
         method,
         headers,
         body: requestBody,
-        signal: AbortSignal.timeout(20000)
+        redirect: normalizedRequest.follow_redirects === false ? "manual" : "follow",
+        signal: AbortSignal.timeout(normalizedRequest.timeout_ms || 20000)
       });
       attempts.push({
         attempt,
@@ -807,7 +813,7 @@ const runResolvedApiRequest = async (request) => {
         status: null,
         duration_ms: Date.now() - attemptStartedAt,
         outcome: attempt < maxAttempts ? "retrying" : "failed",
-        error: timedOut ? "Request timed out after 20 seconds" : (error instanceof Error ? error.message : "Network request failed")
+        error: timedOut ? `Request timed out after ${normalizedRequest.timeout_ms || 20000} ms` : (error instanceof Error ? error.message : "Network request failed")
       });
 
       if (attempt < maxAttempts) {
@@ -815,7 +821,7 @@ const runResolvedApiRequest = async (request) => {
         continue;
       }
 
-      throw new Error(timedOut ? "API request timed out after 20 seconds" : (error instanceof Error ? error.message : "Unable to run API request"));
+      throw new Error(timedOut ? `API request timed out after ${normalizedRequest.timeout_ms || 20000} ms` : (error instanceof Error ? error.message : "Unable to run API request"));
     }
   }
 
@@ -827,11 +833,17 @@ const runResolvedApiRequest = async (request) => {
   const contentType = response.headers.get("content-type");
   const completedAt = Date.now();
 
+  const reportedUrl=new URL(url);
+  const reportedHeaders=Object.fromEntries(headers.entries());
+  if(auth && auth.type !== 'none'){
+    if(auth.type==='api_key' && auth.location==='query')reportedUrl.searchParams.set(auth.key_name||'api_key','[credential reference]');
+    else reportedHeaders[auth.type==='api_key'?(auth.key_name||'authorization').toLowerCase():'authorization']='[credential reference]';
+  }
   return {
     request: {
       method,
-      url,
-      headers: Object.fromEntries(headers.entries()),
+      url:reportedUrl.toString(),
+      headers: reportedHeaders,
       body: normalizedRequest.body || null
     },
     response: {
@@ -859,7 +871,9 @@ const runResolvedApiRequest = async (request) => {
 };
 
 exports.runApiRequestPreview = async (input, options = {}) => {
-  const request = normalizeApiRequest(resolveApiRequestParameters(input, options.parameterValues || {}));
+  const resolved = resolveApiRequestParameters(input, options.parameterValues || {});
+  const request = normalizeApiRequest(resolved);
+  if(request)request.resolved_credential=resolved?.resolved_credential;
 
   if (!request) {
     throw new Error("A valid API request is required");
@@ -889,7 +903,9 @@ exports.runApiRequestPreview = async (input, options = {}) => {
 };
 
 exports.executeApiRequestStep = async ({ api_request, parameter_values = {} } = {}) => {
-  const request = normalizeApiRequest(resolveApiRequestParameters(api_request, parameter_values));
+  const resolved = resolveApiRequestParameters(api_request, parameter_values);
+  const request = normalizeApiRequest(resolved);
+  if(request)request.resolved_credential=resolved?.resolved_credential;
 
   if (!request) {
     throw new Error("A valid API request is required");
@@ -898,6 +914,8 @@ exports.executeApiRequestStep = async ({ api_request, parameter_values = {} } = 
   const preview = await runResolvedApiRequest(request);
   const assertions = evaluateApiAssertions(preview, request.validations || []);
   const captures = extractCaptures(request, preview);
+  const captureSource=preview.response.body_json ?? preview.response.body_text;
+  for(const capture of request.captures || [])if(!readJsonPathValue(captureSource,capture.path||'$').found)assertions.push({kind:'json_path',passed:false,target:capture.path,expected:`Capture ${capture.parameter}`,actual:null,summary:`Required response capture ${capture.parameter} was not found at ${capture.path}.`});
   const firstFailure = assertions.find((assertion) => !assertion.passed);
   const passed = assertions.every((assertion) => assertion.passed);
   const captureLines = Object.entries(captures).map(([key, value]) => `Captured ${key} = ${stringifyValue(value)}`);

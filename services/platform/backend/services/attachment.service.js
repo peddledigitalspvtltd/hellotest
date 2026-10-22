@@ -271,6 +271,15 @@ const download = async ({ user, id, permissionCode = "attachment.view" }) => {
   };
 };
 
+const copyToEntity = async ({ user, id, projectId, entityType, entityId }) => {
+  const { row, stream } = await download({ user, id });
+  try {
+    if (row.project_id !== projectId) throw Object.assign(new Error('Reference evidence must belong to the same project as the target record.'), { statusCode:403 });
+    return await upload({ user, projectId, entityType, entityId, fileName:row.file_name, mimeType:row.mime_type,
+      stream, expectedSha256:row.checksum_sha256 || undefined });
+  } finally { stream.destroy(); }
+};
+
 // Background Knowledge ingestion has already passed project permission checks
 // and owns a leased job. Re-authorizing through a partial worker user object made
 // staged files fragile (and previously rejected knowledge.manage as a download).
@@ -352,6 +361,7 @@ module.exports = {
   assertKnowledgeSourceAttachmentAccess,
   assertExecutionAttachmentAccess,
   download,
+  copyToEntity,
   downloadManagedKnowledgeObject,
   list,
   meta: () => ({

@@ -13,7 +13,12 @@ if "%HELLOTEST_HOST_RECORDER_BIN%"=="" set "HELLOTEST_HOST_RECORDER_BIN=%LOCAL_R
 if not exist "%HELLOTEST_PLAYWRIGHT_BROWSERS_PATH%" mkdir "%HELLOTEST_PLAYWRIGHT_BROWSERS_PATH%"
 if not exist "%HELLOTEST_HOST_RECORDER_ARTIFACT_ROOT%" mkdir "%HELLOTEST_HOST_RECORDER_ARTIFACT_ROOT%"
 
-curl -fsS "http://localhost:%HELLOTEST_HOST_RECORDER_PORT%/health" >nul 2>nul
+where node >nul 2>nul
+if errorlevel 1 (
+  echo Install Node.js 20 or newer and npm, then start the local Playwright runner again.
+  exit /b 1
+)
+node "%LOCAL_RUN_DIR%\lib\probe-runner.mjs" "http://localhost:%HELLOTEST_HOST_RECORDER_PORT%"
 if "%ERRORLEVEL%"=="0" (
   echo HelloTest host recorder is already running
   echo   Browser URL: http://localhost:%HELLOTEST_HOST_RECORDER_PORT%
@@ -42,13 +47,11 @@ if exist "%HELLOTEST_HOST_RECORDER_BIN%" (
 :source_runner
 cd /d "%ENGINE_DIR%" || exit /b 1
 
-if not exist node_modules (
-  npm install || exit /b 1
-)
+call npm ci --include=dev --no-audit --no-fund || exit /b 1
 
 set "PLAYWRIGHT_BROWSERS_PATH=%HELLOTEST_PLAYWRIGHT_BROWSERS_PATH%"
-npx playwright install chromium || exit /b 1
-npm run build || exit /b 1
+node node_modules\playwright\cli.js install chromium || exit /b 1
+call npm run build || exit /b 1
 
 echo Starting HelloTest host recorder from source fallback
 echo   Browser URL: http://localhost:%HELLOTEST_HOST_RECORDER_PORT%

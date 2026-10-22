@@ -8,6 +8,7 @@ const {
 } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
 const KINDS = new Set([
   "customAI",
+  "artifactTask",
   "apiTool",
   "apiAgent",
   "webAgent",
@@ -140,7 +141,7 @@ function validate(node) {
       errors.push(error.publicMessage || error.message);
     }
   };
-  if (kind === "transform" || (kind === "loop" && data.loopAction !== "customAI"))
+  if (kind === "transform" || (kind === "loop" && !["customAI", "storyPackets"].includes(data.loopAction)))
     check(() => parseObject(data.transformMapping || "{}", "Field mapping"));
   if (Number(data.retryCount) > 0 && !require("./runtimeEvents").canRetry(kind, data))
     errors.push("Retries are available for AI reviews and HTTP GET/HEAD requests. Set retries to zero for this node.");
@@ -171,17 +172,20 @@ function validate(node) {
       "MCP calls cannot be automatically retried. Set retries to zero.",
     );
   if (kind === "loop") {
-    if (!["transform", "customAI"].includes(data.loopAction || "transform"))
+    if (!["transform", "customAI", "storyPackets"].includes(data.loopAction || "transform"))
       errors.push("Choose field mapping or AI review for each item.");
     if (
       !Number.isInteger(Number(data.loopMaxIterations)) ||
       Number(data.loopMaxIterations) < 1 ||
-      Number(data.loopMaxIterations) > 10
+      Number(data.loopMaxIterations) > (data.loopAction === "storyPackets" ? 100 : 10)
     )
-      errors.push("For each supports 1–10 items per execution.");
+      errors.push(data.loopAction === "storyPackets" ? "For each Story supports 1–100 Stories per execution." : "For each supports 1–10 items per execution.");
     if (data.loopAction === "customAI" && !String(data.prompt || "").trim())
       errors.push("Describe the AI task for each item.");
   }
+  if (kind === "artifactTask" && !require("./artifactTasks").TASKS.has(data.artifactTask)) errors.push("Choose a native artifact task.");
+  if (data.apiPagination && !["none", "cursor"].includes(data.apiPagination)) errors.push("Choose supported cursor pagination.");
+  if (data.apiResource === "sprintStories" && !data.connectionId) errors.push("Select a managed HelloTest HTTP API connection with an API key.");
   if (
     kind === "testOpsTool" &&
     data.testOpsAction &&
@@ -202,6 +206,21 @@ async function execute({
   const data = node.data || {},
     kind = data.kind || node.type;
   const context = contextFor(run, sources);
+  if (kind === "artifactTask") return require("./artifactTasks").execute({ run, node, sources, user, signal, onProgress, context });
+  if (data.apiResource === "sprintStories") {
+    require("./artifactTasks").checkInput(run);
+    await require("./artifactTasks").access(user, run.project_id, ["requirement.view"]);
+    const { connection, url } = await connections.resolve(data.connectionId, run.project_id, data.apiUrl || undefined);
+    if (!connection) throw connections.fail("Select a managed HelloTest HTTP connection with an API key.", 422);
+    const endpoint = new URL(url);
+    endpoint.pathname = endpoint.pathname.replace(/\/+$/, "").replace(/\/requirements$/, "") + "/requirements";
+    endpoint.search = "";
+    endpoint.searchParams.set("project_id", run.project_id);
+    endpoint.searchParams.set("sprint_id", String(run.input_payload.sprint_id));
+    endpoint.searchParams.set("include_page", "true");
+    endpoint.searchParams.set("page_size", "20");
+    return connections.callHttp({ projectId: run.project_id, data: { ...data, apiUrl: endpoint.toString(), apiMethod: "GET", apiPagination: "cursor", apiMaxItems: 100 }, signal });
+  }
   if (kind === "customAI")
     return review(run, {
       ...node,
@@ -274,7 +293,17 @@ async function execute({
         `For each received ${items.length} items; its limit is ${max}. Split the input or increase the limit (maximum 10).`,
       );
     const results = [];
-    const mapping = data.loopAction === "customAI" ? null : parseObject(data.transformMapping || "{}", "Field mapping");
+    const mapping = ["customAI", "storyPackets"].includes(data.loopAction) ? null : parseObject(data.transformMapping || "{}", "Field mapping");
+    if (data.loopAction === "storyPackets") {
+      require("./artifactTasks").checkInput(run);
+      const packets = [];
+      for (const item of items) {
+        const story = await require("./artifactTasks").loadStory(run, user, item);
+        if (packets.some(packet => packet.story_id === story.id)) throw connections.fail("The Stories API returned a duplicate Story. Retry against a stable Sprint scope.", 409);
+        packets.push({ story_id: story.id, story_revision: require("./artifactTasks").revision(story) });
+      }
+      return { data: packets, processed: packets.length, for_each: "story", requires_human_review: true };
+    }
     for (let index = 0; index < items.length; index++) {
       if (signal.aborted) throw connections.fail("Iteration cancelled.", 499);
       await onProgress({

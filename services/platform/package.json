@@ -209,6 +209,8 @@
     "./shared/agentEvidenceScopeFields.json": "./shared/agentEvidenceScopeFields.json",
     "./shared/aiPromptTemplateCatalog.json": "./shared/aiPromptTemplateCatalog.json",
     "./backend/src/utils/aiGenerationContext": "./backend/src/utils/aiGenerationContext.js",
+    "./backend/src/utils/aiAuthoringIntent": "./backend/src/utils/aiAuthoringIntent.js",
+    "./backend/services/aiAttachmentAccess.service": "./backend/services/aiAttachmentAccess.service.js",
     "./backend/src/utils/aiGenerationContracts": "./backend/src/utils/aiGenerationContracts.js",
     "./frontend/src/shared/lib/catalogDescriptionSummary": "./frontend/src/shared/lib/catalogDescriptionSummary.js",
     "./backend/src/utils/aiReferenceImages": "./backend/src/utils/aiReferenceImages.js"

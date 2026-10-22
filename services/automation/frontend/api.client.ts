@@ -7,7 +7,7 @@ localAgent: {
     status: () =>
       request<{
         launch_supported: boolean;
-        web: { ready: boolean; base_url: string | null; health?: Record<string, unknown> | null };
+        web: { ready: boolean; base_url: string | null; health?: Record<string, unknown> | null; code?: string; message?: string };
         mobile: { ready: boolean; base_url: string | null; health?: Record<string, unknown> | null };
         appium: { ready: boolean; base_url: string | null; health?: Record<string, unknown> | null };
         recommended: {

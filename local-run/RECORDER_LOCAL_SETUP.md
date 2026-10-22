@@ -31,10 +31,35 @@ cd testengine/backend
 npm run package:host-recorder
 ```
 
-The first source-based host-recorder run installs Playwright Chromium into
-`local-run/.playwright-browsers`. Later runs reuse that directory. Override it
+Each source-based launch reconciles all dependencies from the lockfile, including
+build tools, and installs Playwright Chromium into `local-run/.playwright-browsers`
+when needed. Later runs reuse the browser download. Override it
 with `HELLOTEST_PLAYWRIGHT_BROWSERS_PATH=/path/to/browsers` if your team wants to
 preload or cache the browser binaries.
+
+The runner reads the API's shared credential from the terminal environment,
+then `.hellotest/local.env`, then `local-run/.env`. Terminal settings take
+precedence, including either shared-secret alias. A runner and API with different
+shared credentials cannot dispatch a run. One-click launches retain installation
+and startup output in `local-run/artifacts/host-recorder/launcher.log`.
+
+The Object Repository download command installs a separate inspection service
+on port `4311`. It includes all inspection dependencies, including Acorn, but
+does not execute saved test cases. The full host runner above uses port `4313`.
+The status panel reports these capabilities separately. For hosted HelloTest,
+starting an inspection agent on your laptop does not make its execution port
+reachable from the cloud API. Configure an administrator-approved runner address
+reachable from the API and a callback address reachable from the runner.
+
+In a test case execution, **Live Run View** appears immediately before Report
+defect and opens a separate browser tab for that case's exact engine run and
+data row. The action stays visible with setup/waiting guidance when no browser
+session is active; it never switches to another case or row. API-only and manual
+cases do not have a live browser. The Compose web workers use `TESTENGINE_LIVE_PEER_HOST` to
+locate the owning browser when the gateway selects another replica. Peer
+requests require the engine credential, use bounded responses and deadlines,
+and never forward recursively. Set the service hostname and port explicitly
+when using a different engine deployment topology.
 
 If you only want the Docker embedded live view, skip `bin/start-host-recorder.sh`
 and keep using the Test Engine container on port `4301`.
@@ -63,7 +88,7 @@ Use these local values:
 - Recorder public base URL for visible host browser: `http://localhost:4313`
 - Docker embedded fallback engine URL: `http://testengine:4301`
 - Docker embedded fallback public URL: `http://localhost:4301`
-- Shared secret: `hellotest-testengine-dev-secret`
+- Shared secret: the configured `TESTENGINE_SHARED_SECRET` from `.hellotest/local.env` (or your explicit override); use the same value as the API and host runner
 - Queue polling: `0.5` minutes or `30000` ms via env
 - Dispatch mode: HelloTest pull
 - Active web engine: Playwright

@@ -40,7 +40,7 @@ test('AI command canvas preserves context, cancellation and focused artifact rev
     const instructions = dialog.getByRole('textbox', { name: 'Additional instructions', exact: true });
     assert.equal(await instructions.inputValue(), 'Cover offline recovery.');
     await instructions.fill('Cover interrupted payment and recovery.');
-    await dialog.getByRole('button', { name: 'Edge cases', exact: true }).click();
+    await instructions.fill(`${await instructions.inputValue()}\nCover boundary conditions and invalid inputs supported by the selected Stories.`);
     assert.match(await instructions.inputValue(), /boundary conditions/);
     await dialog.getByRole('button', { name: 'Show context', exact: true }).click();
     const context = page.getByRole('dialog', { name: 'Context & options', exact: true });
@@ -72,7 +72,7 @@ test('AI command canvas preserves context, cancellation and focused artifact rev
     await dialog.getByRole('list', {name:'Generation stages',exact:true}).waitFor();
     await page.evaluate(()=>window.finishGeneration());
     await dialog.getByRole('heading', { name: 'Purchase with a saved card', exact: true }).waitFor();
-    assert.match(await page.evaluate(() => window.generatedContext), /Reviewed source: payment specification/, 'Typing and intent starters preserve reviewed evidence');
+    assert.match(await page.evaluate(() => window.generatedContext), /Reviewed source: payment specification/, 'Custom instructions preserve reviewed evidence');
     await instructions.waitFor({state:'hidden'});
     assert.equal(await dialog.locator('.ai-intent-canvas details').getAttribute('open'), null, 'Run brief starts collapsed so generated output receives visual focus');
     assert.equal(await page.evaluate(()=>Boolean(document.activeElement?.closest('[hidden], [aria-hidden="true"]'))),false,'Keyboard focus remains on an available surface');

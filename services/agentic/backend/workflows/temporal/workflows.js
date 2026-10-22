@@ -1,7 +1,7 @@
 // This module runs in Temporal's deterministic sandbox. Never import a service,
 // database, wall-clock IO, credentials or model client into workflow history.
 const { proxyActivities, CancellationScope, isCancellation } = require('@temporalio/workflow');
-const { executeReviewNode } = proxyActivities({ startToCloseTimeout: '185 seconds', scheduleToCloseTimeout: '5 minutes',
+const { executeReviewNode } = proxyActivities({ startToCloseTimeout: '60 minutes', scheduleToCloseTimeout: '65 minutes',
   heartbeatTimeout: '15 seconds', retry: { maximumAttempts: 3, initialInterval: '1 second', maximumInterval: '5 seconds' } });
 const { publishReview } = proxyActivities({ startToCloseTimeout: '15 seconds', retry: { maximumAttempts: 10, maximumInterval: '30 seconds' } });
 async function reviewWorkflow(plan) {

@@ -19,8 +19,22 @@ const options = {
 };
 const graphSchema=z.object({seeds:z.array(seed).min(1).max(6),...options}).strict();
 const traceSchema=z.object({source:seed,target:seed,max_paths:z.number().int().min(1).max(5).default(3),...options}).strict();
+const resolveSchema=z.object({identifiers:z.array(z.union([id,seed])).max(20).default([]),query:z.string().min(1).max(255).optional(),
+ app_type_id:id.optional(),limit:z.number().int().min(1).max(30).default(20),timeout_ms:z.number().int().min(1).max(10000).default(8000)}).strict();
 
 function createGraphContext({permit,fail,db,bounded,service}) {
+ async function resolve(actor,args,signal) {
+  return withDeadline(async boundedSignal=>{
+   await permit(actor,'knowledge.view');boundedSignal.throwIfAborted();
+   if(args.app_type_id){const app=await db.prepare('SELECT project_id FROM app_types WHERE id=?').get(args.app_type_id);if(app?.project_id!==actor.projectId)throw fail('Application is outside this MCP project.',403,'MCP_GRAPH_SCOPE');}
+   const result=await service().resolveNodes({projectId:actor.projectId,user:actor.user,identifiers:args.identifiers,query:args.query,
+    appTypeId:args.app_type_id,limit:args.limit,signal:boundedSignal,timeoutMs:args.timeout_ms});
+   boundedSignal.throwIfAborted();
+   if(!result||result.project_id&&result.project_id!==actor.projectId||!Array.isArray(result.nodes)||result.nodes.length>args.limit||result.nodes.some(node=>typeof node.id!=='string'||!kinds.includes(node.kind)))throw fail('The graph resolver returned an invalid projection.',502,'MCP_GRAPH_CONTRACT');
+   return bounded({...result,project_id:actor.projectId,observed_at:new Date().toISOString(),
+    gap:result.nodes.length?null:'No authorized current node matched. Try an exact canonical source ID, typed record ID, title or curated alias. Missing nodes do not establish absence.'});
+  },{signal,timeoutMs:args.timeout_ms});
+ }
  async function traverse(actor,args,signal,mode='expand') {
   return withDeadline(async boundedSignal=>{
    await permit(actor,'knowledge.view');boundedSignal.throwIfAborted();
@@ -57,7 +71,7 @@ function createGraphContext({permit,fail,db,bounded,service}) {
   if(!value||typeof value!=='object')throw fail('The graph ontology is unavailable.',503,'MCP_GRAPH_UNAVAILABLE');
   return bounded({ontology:value,mcp_limits:{max_hops:3,max_seeds:6,max_nodes:100,max_edges:100,max_evidence:30,max_tokens:8000,max_timeout_ms:20000}});
  }
- return {expand:(actor,args,signal)=>traverse(actor,args,signal),trace:(actor,args,signal)=>traverse(actor,args,signal,'trace'),ontology};
+ return {resolve,expand:(actor,args,signal)=>traverse(actor,args,signal),trace:(actor,args,signal)=>traverse(actor,args,signal,'trace'),ontology};
 }
 let instance;
 function current() {
@@ -68,5 +82,5 @@ function current() {
  }
  return instance;
 }
-module.exports={kinds,graphSchema,traceSchema,createGraphContext,
- expand:(...args)=>current().expand(...args),trace:(...args)=>current().trace(...args),ontology:(...args)=>current().ontology(...args)};
+module.exports={kinds,graphSchema,traceSchema,resolveSchema,createGraphContext,
+ resolve:(...args)=>current().resolve(...args),expand:(...args)=>current().expand(...args),trace:(...args)=>current().trace(...args),ontology:(...args)=>current().ontology(...args)};

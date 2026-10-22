@@ -260,7 +260,7 @@ function createAutomationSemanticReviewer({ featureKey = 'ai.automation.keyword_
       if (formatAttempt || reviewCount >= limit) throw error('AUTOMATION_SEMANTIC_REVIEW_INVALID', 'The semantic review did not return valid evidence for every pinned requirement. The unfinished section was not saved; confirmed actions were retained.');
       retainRejection = verdict?.decision === 'reject';
       formatFeedback = { code: 'AUTOMATION_SEMANTIC_REVIEW_INVALID', field: verdictResult.field, expected: verdictResult.expected,
-        instruction: 'Correct only the JSON structure using response_contract and the unchanged evidence. Include every required obligation row even when rejecting. Do not invent coverage or change the evidence.',
+        instruction: aiInstructionBlock(featureKey, 'automationSemanticReview.formatCorrection'),
         ...(retainRejection ? { required_decision: 'reject' } : {}) };
     }
     const mappedActions=new Set(verdict.obligations.flatMap(row=>row.action_operations));

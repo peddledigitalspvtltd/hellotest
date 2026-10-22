@@ -9,7 +9,7 @@ const parameterContractFailure = () => Object.assign(new Error('The manual-flow 
 const canonicalParameterName = name => typeof name === 'string' && name.length <= 220
   && /^[tsr]\./.test(name) && !/[\u0000-\u001f\u007f]/.test(name) && referenceKey(parameterReference(name)) === name;
 
-function flowPlanningParameterContract(requiredParameterNames, referencedParameterNames) {
+function flowPlanningParameterContract(requiredParameterNames, referencedParameterNames, featureKey) {
   if (!Array.isArray(requiredParameterNames) || requiredParameterNames.length > 2000
     || [...requiredParameterNames].some(name => !canonicalParameterName(name))
     || new Set(requiredParameterNames).size !== requiredParameterNames.length
@@ -17,7 +17,7 @@ function flowPlanningParameterContract(requiredParameterNames, referencedParamet
     || (requiredParameterNames.length && typeof referencedParameterNames !== 'function')) throw parameterContractFailure();
   const names = [...requiredParameterNames].sort();
   return {
-    prompt: names.length ? { required_references: names.map(parameterReference), instruction: 'Keep every required input reference in flow_steps. Never materialize, erase or replace these bindings with literal values, including public, private or empty inputs. Preserve the intended actions and outcomes; do not invent steps to carry references.' } : undefined,
+    prompt: names.length ? { required_references: names.map(parameterReference), instruction: aiInstructionBlock(featureKey, 'automationFlowPlanning.parameters') } : undefined,
     validate(rows) {
       if (!names.length) return;
       const referenced = referencedParameterNames(rows);
@@ -66,9 +66,9 @@ function normalizeFlowPlan(payload, { allowedTypes = ['web'] } = {}) {
 /** Reuse the configured Engineer, with browser mutations unavailable during planning. */
 async function planAutomationFlow({ featureKey, context, allowedTypes = ['web'], browser, startUrl, complete, parse, observations = [], onObservation = () => {}, onProgress = async () => {}, deadlineMs, requiredParameterNames = [], referencedParameterNames }) {
   assertFlowPlanningFeature(featureKey);
-  const parameterContract = flowPlanningParameterContract(requiredParameterNames, referencedParameterNames);
+  const parameterContract = flowPlanningParameterContract(requiredParameterNames, referencedParameterNames, featureKey);
   const readTools = new Set(FLOW_PLANNING_READ_TOOLS);
-  const protocol = createAutomationFlowPlanningProtocol({ allowedTypes, toolNames: browser?.tools?.map(tool => tool.name) || [] });
+  const protocol = createAutomationFlowPlanningProtocol({ featureKey, allowedTypes, toolNames: browser?.tools?.map(tool => tool.name) || [] });
   const limits = { model_calls: 6, browser_calls: 4, validation_attempts: 3 };
   const deadline = Math.min(Number.isFinite(deadlineMs) ? deadlineMs : Infinity, Date.now() + 180_000);
   const ledger = [...observations];
@@ -116,7 +116,7 @@ async function planAutomationFlow({ featureKey, context, allowedTypes = ['web'],
     catch (error) {
       if (error.code !== 'AUTOMATION_FLOW_PLAN_INVALID' && error.code !== 'AI_INVALID_JSON') throw error;
       feedback = { code: error.code === 'AUTOMATION_FLOW_PLAN_INVALID' ? error.code : 'AI_INVALID_JSON',
-        message: error.code === 'AUTOMATION_FLOW_PLAN_INVALID' ? error.message : 'Return one valid JSON object matching planning_protocol.response_schema. The previous response could not be parsed; no browser work should be repeated merely to repair its format.' };
+        message: error.code === 'AUTOMATION_FLOW_PLAN_INVALID' ? error.message : aiInstructionBlock(featureKey, 'automationFlowPlanning.jsonCorrection') };
     }
   }
   throw failure('The agent could not produce a complete manual flow from this brief. Add the intended actions, test data and expected outcome, then retry.');

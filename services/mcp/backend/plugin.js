@@ -68,6 +68,7 @@ module.exports=fp(async function mcpPlugin(app){
    const row=await db.prepare('SELECT * FROM mcp_action_plans WHERE id=? AND user_id=? AND project_id=? FOR UPDATE').get(req.params.id,actor.user.id,actor.projectId);
    if(!row||row.state!=='requires_authorization'||row.digest!==req.body.digest||row.digest!==backplane.planDigest(row)||new Date(row.expires_at)<=new Date()||row.catalog_revision!==registry.revision())throw auth.fail('The reviewed plan is stale or unavailable.',409,'MCP_STALE_PLAN');
    await auth.permit(actor,registry.get(row.operation_id).permission);
+   await backplane.verifyPlanTargets(actor,row);
    await db.prepare("UPDATE mcp_action_plans SET state='authorized',approved_at=NOW(),updated_at=NOW() WHERE id=?").run(row.id);
    await db.prepare('INSERT INTO mcp_audit_events(project_id,user_id,client_id,tool,outcome,plan_id) VALUES (?,?,?,?,?,?)').run(actor.projectId,actor.user.id,row.client_id,'authorize_plan','authorized',row.id);
    return {plan_id:row.id,state:'authorized',digest:row.digest};

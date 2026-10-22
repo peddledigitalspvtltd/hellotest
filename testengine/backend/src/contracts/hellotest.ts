@@ -15,7 +15,8 @@ export type EngineKeyValueEntry = {
 };
 
 export type EngineApiValidation = {
-  kind: "status" | "header" | "body_contains" | "json_path";
+  kind: "status" | "header" | "header_present" | "body_contains" | "body_not_contains" | "json_path" | "json_schema" | "response_time";
+  operator?: "eq" | "ne" | "contains" | "exists" | "lt" | "lte" | "gt" | "gte";
   target?: string | null;
   expected?: string | null;
 };
@@ -30,6 +31,10 @@ export type EngineApiRequest = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
   url?: string | null;
   headers?: Array<{ key: string; value: string }>;
+  query_params?: Array<{ key: string; value: string }>;
+  cookies?: Array<{ key: string; value: string }>;
+  auth?: {type: "none" | "bearer" | "api_key" | "basic" | "oauth2_ref";credential_reference?: string | null;key_name?: string | null;location?: "header" | "query"};
+  follow_redirects?: boolean;
   body_mode?: "none" | "json" | "text" | "xml" | "form";
   body?: string | null;
   validations?: EngineApiValidation[];

@@ -1,0 +1,47 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const {createHash,randomUUID}=require('node:crypto');
+test('real PostgreSQL and private MinIO retain original AI evidence, bind file capabilities and honor revocation',{skip:process.env.AI_ATTACHMENTS_POSTGRES_TEST!=='1',timeout:180000},async()=>{
+  const url=new URL(process.env.DATABASE_URL);
+  assert.match(url.pathname,/^\/agent_verify_ai_files_\d+$/);assert.ok(['127.0.0.1','localhost'].includes(url.hostname));
+  assert.equal(process.env.MINIO_ENDPOINT,'127.0.0.1');assert.match(process.env.MINIO_BUCKET,/^agent-verify-ai-files-\d+$/);
+  const db=require('../../src/db'),obs=require('../../src/obsDb');let app;
+  try{
+    assert.equal((await db.prepare("SELECT to_regclass('public.users') AS present").get()).present,null);
+    await require('../../src/migrate').migrate();
+    await db.query("INSERT INTO roles(id,name) VALUES('ai-file-role','AI file fixture')");
+    await db.query("INSERT INTO role_permissions(role_id,permission_id) SELECT 'ai-file-role',id FROM permissions WHERE code IN ('project.view','app_type.view','testcase.view','testcase.create','attachment.view','attachment.create','attachment.delete')");
+    await db.query("INSERT INTO users(id,email,password_hash,name,default_role_id,status) VALUES('file-author','ai-file@example.test','unused','File author','ai-file-role','active')");
+    await db.query("INSERT INTO projects(id,name,visibility,created_by) VALUES('files-project','Files','private','file-author'),('foreign-project','Other files','private','file-author')");
+    await db.query("INSERT INTO project_members(id,project_id,user_id,role_id) VALUES('file-membership','files-project','file-author','ai-file-role')");
+    await db.query("INSERT INTO app_types(id,project_id,name,type) VALUES('files-app','files-project','Web','web')");
+    await db.query("INSERT INTO test_cases(id,app_type_id,title) VALUES('files-case','files-app','Retained file evidence')");
+    app=require('fastify')({logger:false});
+    await app.register(require('../../src/plugins/errorHandler'));await app.register(require('../../src/plugins/accessControl'));
+    await app.register(require('@fastify/multipart'),{limits:{fileSize:1024*1024,fields:10}});await app.register(require('../../routes/attachments.routes'));
+    const headers={authorization:'Bearer '+require('../../src/utils/token').createToken({id:'file-author'})};
+    const bytes=Buffer.from('Checkout acceptance: a saved order retains its original delivery address.\n'.repeat(80));
+    const checksum=createHash('sha256').update(bytes).digest('hex'),boundary='fixture-'+randomUUID();
+    const fields={project_id:'files-project',entity_type:'project',entity_id:'files-project',checksum_sha256:checksum};
+    const prefix=Object.entries(fields).map(([key,value])=>`--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`).join('');
+    const upload=await app.inject({method:'POST',url:'/attachments',headers:{...headers,'content-type':`multipart/form-data; boundary=${boundary}`},payload:Buffer.concat([Buffer.from(prefix+`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="original-rules.txt"\r\nContent-Type: text/plain\r\n\r\n`),bytes,Buffer.from(`\r\n--${boundary}--\r\n`)])});
+    assert.equal(upload.statusCode,200,upload.body);const source=upload.json();assert.equal(source.compression,'gzip');assert.equal(source.checksum,checksum);
+    const access=await app.inject({method:'POST',url:`/attachments/${source.id}/ai-access`,headers,payload:{project_id:'files-project'}});
+    assert.equal(access.statusCode,200,access.body);assert.equal(access.headers['cache-control'],'no-store');const link=new URL(access.json().url),signedPath=link.pathname.replace(/^\/api/,'')+link.search;
+    const content=await app.inject({method:'GET',url:signedPath});
+    assert.equal(content.statusCode,200,content.body);assert.deepEqual(content.rawPayload,bytes);assert.equal(content.headers['cache-control'],'private, no-store');assert.match(content.headers['content-security-policy'],/sandbox/);
+    assert.equal((await app.inject({method:'GET',url:signedPath+'x'})).statusCode,403);
+    assert.equal((await app.inject({method:'GET',url:`/attachments/${source.id}/ai-content?token=${headers.authorization.slice(7)}`})).statusCode,403,'A login token cannot authorize model file access.');
+    const copy=()=>app.inject({method:'POST',url:`/attachments/${source.id}/copy`,headers,payload:{project_id:'files-project',entity_type:'test_case',entity_id:'files-case'}});
+    const copies=await Promise.all([copy(),copy()]);assert.ok(copies.every(item=>item.statusCode===200),copies.map(item=>item.body).join('\n'));assert.equal(copies[0].json().id,copies[1].json().id);
+    const target=copies[0].json();assert.equal(target.entity_id,'files-case');assert.equal(target.checksum,checksum);
+    assert.equal((await app.inject({method:'POST',url:`/attachments/${source.id}/copy`,headers,payload:{project_id:'foreign-project',entity_type:'project',entity_id:'foreign-project'}})).statusCode,403);
+    await db.query("DELETE FROM role_permissions WHERE role_id='ai-file-role' AND permission_id IN(SELECT id FROM permissions WHERE code='attachment.view')");
+    assert.equal((await app.inject({method:'GET',url:signedPath})).statusCode,403,'Existing capability stops after permission revocation.');
+    await db.query("INSERT INTO role_permissions(role_id,permission_id) SELECT 'ai-file-role',id FROM permissions WHERE code='attachment.view'");
+    await db.query("UPDATE users SET status='suspended' WHERE id='file-author'");
+    assert.equal((await app.inject({method:'GET',url:signedPath})).statusCode,403);
+    await db.query("UPDATE users SET status='active' WHERE id='file-author'");
+    const removed=await app.inject({method:'DELETE',url:`/attachments/${source.id}`,headers});assert.equal(removed.statusCode,200,removed.body);
+    const preserved=await app.inject({method:'GET',url:`/attachments/${target.id}/download`,headers});assert.equal(preserved.statusCode,200,preserved.body);assert.deepEqual(preserved.rawPayload,bytes,'Each evidence record owns independent storage bytes.');
+  }finally{await app?.close();await Promise.all([db.close(),obs.close()]);}
+});

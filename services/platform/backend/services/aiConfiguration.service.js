@@ -89,6 +89,7 @@ function adaptStored(item, stored, inheritedBlocks=item.defaults.instruction_blo
     config.guardrails=config.guardrails===old.default && policy===old.request_policy ? item.defaults.guardrails : [config.guardrails,policy].filter(Boolean).join('\n\n');
   }
   if(item.prompt_default_migrations?.includes(config.prompt))config.prompt=item.defaults.prompt;
+  if(item.guardrail_default_migrations?.includes(config.guardrails))config.guardrails=item.defaults.guardrails;
   config.instruction_blocks=Object.fromEntries(Object.entries(item.defaults.instruction_blocks).map(([key,value])=>{
     const fragments=item.instruction_layout_migrations?.[key];
     // Historical versions used one field per template line. Preserve every
@@ -131,8 +132,9 @@ function effective(item, record, legacy={}, parent=null, instructionSources=[]) 
     draft:record?.draft?{...record.draft,config:adaptStored(item,record.draft.config,base.instruction_blocks)}:null, history:record?.history || [], fingerprint:hash(config) };
 }
 function publicFeature(profile) {
-  const {instruction_block_migrations,instruction_default_migrations,legacy_instruction_blocks,legacy_instruction_block_migrations,instruction_layout_migrations,guardrail_migration,prompt_default_migrations,...result}=profile;
-  return { ...result, native_output_contract: require('../src/utils/aiGenerationContracts').nativeArtifactContract(profile.id) };
+  const {instruction_block_migrations,instruction_default_migrations,legacy_instruction_blocks,legacy_instruction_block_migrations,instruction_layout_migrations,guardrail_migration,guardrail_default_migrations,prompt_default_migrations,...result}=profile;
+  const contract = require('../src/utils/aiGenerationContracts').nativeArtifactContract(profile.id);
+  return { ...result, native_output_contract: contract ? { ...contract, note: profile.config.instruction_blocks?.['application.artifactContract'] || '' } : null };
 }
 async function list() {
   const [rows,legacy] = await Promise.all([db.prepare('SELECT key,value FROM app_settings WHERE key LIKE ?').all(KEY+'%'),legacyOverrides()]);

@@ -99,6 +99,32 @@ test('stock legacy Test Case priorities and regression templates upgrade while c
  assert.equal((await service({[item.id]:{published:{version:1,config:old}}}).resolve(item.id)).config.prompt,old.prompt);
 });
 
+test('stock case scope and NFR emphasis migrate to neutral defaults while reviewed admin choices remain exact',async()=>{
+ for(const id of ['ai.case_authoring.full_case','ai.case_authoring.step_rephrase','ai.test_case.design']){
+  const item=catalog.find(item=>item.id===id),stored=structuredClone(item.defaults);
+  stored.prompt=item.prompt_default_migrations.at(-1);
+  stored.guardrails=item.guardrail_default_migrations.at(-1);
+  const detail=await service({[id]:{published:{version:9,config:stored},draft:{config:stored}}}).detail(id);
+  assert.equal(detail.config.prompt,item.defaults.prompt);assert.equal(detail.config.guardrails,item.defaults.guardrails);
+  assert.equal(detail.draft.config.prompt,item.defaults.prompt);assert.equal(detail.published_version,9);
+  assert.equal(detail.guardrail_default_migrations,undefined);
+  stored.prompt='Our reviewed security-only testing objective.';stored.guardrails='Preserve our reviewed project testing boundaries.';
+  const custom=await service({[id]:{published:{version:10,config:stored}}}).resolve(id);
+  assert.equal(custom.config.prompt,stored.prompt);assert.equal(custom.config.guardrails,stored.guardrails);
+ }
+});
+
+test('browser planning recovery and current-goal guidance remain managed while host scope is structured data',()=>{
+ const browser=fs.readFileSync(require.resolve('../../../automation/backend/lib/automationBrowserAgent'),'utf8');
+ const builder=fs.readFileSync(require.resolve('../../../automation/backend/services/aiAutomationBuilder.service'),'utf8');
+ for(const literal of ['Correct the advertised read-only arguments using retained evidence.','Return the requested manual flow JSON, or a genuinely necessary','The host selected ONLY this current manual section:'])assert.ok(!`${browser}\n${builder}`.includes(literal),`Runtime contains unmanaged guidance: ${literal}`);
+ for(const key of ['automationFlowPlanning.browserRecovery','automationFlowPlanning.finalTurn'])assert.ok(browser.includes(`aiInstructionBlock(featureKey, '${key}')`));
+ assert.ok(builder.includes("'automationBrowserAgent.activeGoal'"));assert.match(builder,/host_selected_current_manual_section:\{action:activeGoal\.action,expected_result:activeGoal\.expected_result\}/);
+ for(const item of catalog.filter(item=>item.defaults.instruction_blocks['automationBrowserAgent.toolProtocol'])){
+  for(const key of ['automationFlowPlanning.browserRecovery','automationFlowPlanning.finalTurn','automationBrowserAgent.activeGoal'])assert.equal(typeof item.defaults.instruction_blocks[key],'string',`${item.id}:${key}`);
+ }
+});
+
 test('stock browser evidence guidance upgrades in published and draft controls while reviewed custom blocks remain exact',async()=>{
  const ids=['ai.automation.keyword_generation','ai.agentic.automation-engineer','ai.automation.review','ai.automation.gap_analysis','ai.execution.network_to_api_steps'];
  for(const id of ids){

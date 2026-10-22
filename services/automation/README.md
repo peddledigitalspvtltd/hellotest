@@ -56,6 +56,35 @@ blocked source outcomes cannot become a passing manual result.
 
 The Build tab has two entry points: **Build with automation agent** and **Record & playback**. Both produce editable case steps. Keyword authoring and executable Playwright JavaScript statements remain available in the step plan. Web sections support JavaScript bodies, single supported Playwright `test()`/`it()` entry points and function/module entry points through the runtime adapter. Generation normalizes supported entry points into awaited section programs. Suite hooks and multiple independent tests are not section programs; configure before/after-test hooks in HelloTest, where selections are frozen with the run and retained by reruns. API sections execute their structured requests; saved JavaScript is a source reference, not a request override. Android/iOS sections retain the mobile runtime. Playwright does not execute native mobile programs.
 
+The Automation Engineer also recognizes explicit API requests in unimplemented
+Web defaults, such as `Send a POST request to @r.base_url/orders`. Saved Web
+programs and native sections retain their runtime. An API-only build requires no
+browser session or browser Start URL. Mixed builds preserve section order and
+develop their API sections without invoking browser tools. Ambiguous actions
+retain their saved runtime; choose API explicitly when the prose has no clear
+request evidence.
+
+Native API requests retain method, URL, repeated query parameters, headers,
+cookies, string bodies, timeouts and redirect policy. Authentication uses an
+authorized scoped `credential_reference`, for example `@r.api_token`, for bearer,
+API-key, basic or OAuth access-token references. Basic references contain the
+encoded credential; OAuth references use an already authorized access token and
+do not perform an OAuth authorization/refresh flow. No server environment secret
+is selected implicitly. Reported authentication headers/query values are masked.
+Responses support status, header equality/presence, included/omitted body text,
+JSON-path equality/existence/comparison, draft-07 JSON Schema and response-time
+assertions. Invalid schemas, failed assertions and missing required capture paths
+fail the step. Captures flow to later API or Web sections through scoped runtime
+parameters. Missing API contracts or credentials remain explicit dependencies;
+generation does not submit HTTP requests to discover or guess them.
+
+`previewAutomationDraft` exposes the same native validation to workflow nodes
+without saving cases or executing browser/HTTP actions. Its structural
+`validation.status: passed` is separate from `verification_status: unverified`.
+Acceptance creates an incomplete automation case for review. A passing real Test
+Engine run establishes execution evidence. The `automationBuild.apiRuntime`
+instruction is editable under Admin AI Controls.
+
 Edit section and Edit instructions split JavaScript into complete statements or blocks, with selection, copy, paste, insert, reorder and delete controls. Loops, conditionals and multiline literals remain intact. Invalid drafts remain editable instead of being silently rewritten. Expanded Instructions and Gherkin present readable actions such as Click, Type and Press with repository field names and parameter references. Source retains the executable statements; Full source adds the complete Playwright wrapper and data bindings.
 
 `backend/lib/automationBrowserAgent.js` owns the bounded LLM/browser conversation. `testengine/backend/src/lib/automationMcp.ts` provides a Playwright-powered MCP server at `/api/v1/automation/mcp`. This is HelloTest's restricted browser tool server, not a bundled copy of Microsoft's Playwright MCP package. In interactive actor mode the LLM chooses tools, MCP returns observed results, and the host compiles confirmed operations into executable Playwright source. Source-only generation retains the model-authored code path. Browser navigation, snapshots and locator checks run in isolated sessions. Click/fill/keyboard/select tools and non-read HTTP requests require the explicit interaction option, which may submit forms in the target application.

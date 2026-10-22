@@ -4,13 +4,15 @@ const fs = require('node:fs');
 const { retryLlmCapacity } = require('@hellotest/platform/backend/src/utils/llmCapacityRetry');
 const { createLlmProviderError } = require('@hellotest/platform/backend/src/utils/upstreamLlmError');
 const { getCompletionContent } = require('@hellotest/platform/backend/src/utils/llmResponse');
+const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
+const { expandManagedInstructions } = require('../../../platform/backend/test/helpers/managedInstructions');
 const source = fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'), 'utf8');
 const declaration = source.slice(source.indexOf('const requestChatCompletion ='), source.indexOf('const normalizeUrlKey ='));
 const integration = { base_url: 'https://provider.example.test/v1', model: 'fixture-small-model', api_key: 'private-fixture-key' };
 const accepted = () => new Response(JSON.stringify({ choices: [{ message: { content: '{"stage":"act","tool_calls":[]}' } }] }), { headers: { 'content-type': 'application/json' } });
 const rejected = (delay = '0.005') => new Response(JSON.stringify({ error: { code: 'rate_limit_exceeded', message: `TPM: Limit 8000, Used 6511, Requested 7623. Please try again in ${delay}s.` } }), { status: 429, headers: { 'retry-after': delay } });
 function builderRequest(fetchWithTimeout) {
-  return new Function('retryLlmCapacity', 'fetchWithTimeout', 'createLlmProviderError', 'getCompletionContent', 'LLM_TIMEOUT_MS', `${declaration};return requestChatCompletion;`)(retryLlmCapacity, fetchWithTimeout, createLlmProviderError, getCompletionContent, 5000);
+  return new Function('retryLlmCapacity', 'fetchWithTimeout', 'createLlmProviderError', 'getCompletionContent', 'LLM_TIMEOUT_MS', 'aiInstructionBlock', `${declaration};return requestChatCompletion;`)(retryLlmCapacity, fetchWithTimeout, createLlmProviderError, getCompletionContent, 5000, aiInstructionBlock);
 }
 
 test('the real builder completion request honors 429 headers and retries the identical model payload only', async () => {
@@ -41,11 +43,11 @@ test('the actor request foregrounds only the host-selected current goal without 
   const complete=builderRequest(async (_url,init)=>{payloads.push(JSON.parse(init.body));return accepted();});
   const activeGoal={action:'Navigate to https://app.test/auth',expected_result:'The login form is visible',ignored:'later submit'};
   await complete({integration,prompt:'Broader flow includes entering @r.email and submitting later.',activeGoal});
-  assert.deepEqual(payloads[0].messages.map(message=>message.role),['system','user']);
-  assert.match(payloads[0].messages[0].content,/ONLY this current manual section/);
-  assert.match(payloads[0].messages[0].content,/Navigate to https:\/\/app.test\/auth/);
-  assert.doesNotMatch(payloads[0].messages[0].content,/@r.email|later submit/);
-  assert.match(payloads[0].messages[1].content,/@r.email/,'the complete broader constraints remain available');
+  assert.deepEqual(payloads[0].messages.map(message=>message.role),['system','user','user']);
+  assert.match(expandManagedInstructions(payloads[0].messages[0].content),/ONLY this current manual section/);
+  assert.deepEqual(JSON.parse(payloads[0].messages[1].content),{host_selected_current_manual_section:{action:activeGoal.action,expected_result:activeGoal.expected_result}});
+  assert.doesNotMatch(payloads[0].messages[1].content,/@r.email|later submit/);
+  assert.match(payloads[0].messages[2].content,/@r.email/,'the complete broader constraints remain available');
   await complete({integration,prompt:'Full oversized current goal remains in the structured packet.',activeGoal:{action:'a'.repeat(2001),expected_result:'Exact outcome'}});
   assert.deepEqual(payloads[1].messages.map(message=>message.role),['user'],'an oversized goal is never replaced by a truncated scope hint');
 });

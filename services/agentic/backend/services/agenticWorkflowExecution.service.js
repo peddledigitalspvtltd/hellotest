@@ -16,6 +16,8 @@ const events = require("../workflows/runtimeEvents");
 const MODE = "review";
 const MAX_DURATION_MS = 180_000;
 const MAX_INPUT_BYTES = 16_384;
+const MAX_ARTIFACT_DURATION_MS = 3_600_000;
+const workflowDuration = workflow => workflow.nodes?.some(node => node.data?.kind === "artifactTask") ? Math.min(MAX_ARTIFACT_DURATION_MS, Math.max(MAX_DURATION_MS, Number(workflow.settings?.maxDurationMs) || MAX_ARTIFACT_DURATION_MS)) : MAX_DURATION_MS;
 const MAX_PARALLEL_RUNS = 2;
 const SUPPORTED_KINDS = new Set(["trigger", "agent", "llmAgent", "repositoryAgent", "aggregator", "output", ...operations.KINDS]);
 const active = new Map();
@@ -126,7 +128,7 @@ function readiness(workflow, targetNodeId = "") {
     if (data.onError === "errorOutput" && !outgoing.some(edge => nodes.some(next => next.id === edge.target && kindOf(next) === "errorHandler"))) add(node, "Connect an Error handler before routing failures.");
     for (const message of operations.validate(node)) add(node, message);
     if (data.mergeMode && data.mergeMode !== "waitAllAppend") add(node, "Review execution collects every connected result. Choose Wait for all, append items.");
-    const maxTimeout = kind === "repositoryAgent" ? MAX_DURATION_MS : kind === "agent" || kind === "customAI" ? 150_000 : 70_000;
+    const maxTimeout = kind === "artifactTask" ? MAX_ARTIFACT_DURATION_MS : kind === "repositoryAgent" ? MAX_DURATION_MS : kind === "agent" || kind === "customAI" ? 150_000 : 70_000;
     if (data.timeoutMs != null && (!Number.isFinite(Number(data.timeoutMs)) || Number(data.timeoutMs) < 1_000 || Number(data.timeoutMs) > maxTimeout)) add(node, `Choose a step timeout between 1,000 and ${maxTimeout.toLocaleString("en-US")} milliseconds.`);
     if (data.retryCount != null && (!Number.isInteger(Number(data.retryCount)) || Number(data.retryCount) < 0 || Number(data.retryCount) > 2)) add(node, "Review steps support zero, one or two retries within their timeout.");
     if (data.retryDelayMs != null && (!Number.isFinite(Number(data.retryDelayMs)) || Number(data.retryDelayMs) < 0 || Number(data.retryDelayMs) > 10_000)) add(node, "Choose a retry delay between 0 and 10,000 milliseconds.");
@@ -135,7 +137,7 @@ function readiness(workflow, targetNodeId = "") {
   warnings.push("AI and source analysis return reviewable results. HTTP methods and MCP tools can act on external systems only when enabled by the server connection policy.");
   warnings.push("Connected branches execute in dependency order on this worker. Output labels do not evaluate expressions; each specialist retrieves fresh evidence with its own bounded context policy.");
   return { ready: blockers.length === 0, execution_mode: MODE, target_node_id: targetNodeId || null, blockers, warnings,
-    limits: { max_steps: 20, max_specialists: 4, timeout_ms: MAX_DURATION_MS, input_limit_bytes: MAX_INPUT_BYTES },
+    limits: { max_steps: 20, max_specialists: 4, timeout_ms: workflowDuration(workflow), input_limit_bytes: MAX_INPUT_BYTES },
     steps: ordered.map(node => ({ node_id: node.id, name: nodeName(node), kind: kindOf(node), specialist_id: node.data?.agentId || null })) };
 }
 
@@ -149,8 +151,14 @@ async function checkReadiness(workflow, targetNodeId = "", user) {
   if (!report.ready) return report;
   for (const step of report.steps) {
     const node = workflow.nodes.find(item => item.id === step.node_id);
-    if (!["agent", "llmAgent", "customAI", "repositoryAgent"].includes(step.kind) && !(step.kind === "loop" && node.data?.loopAction === "customAI")) continue;
+    if (!["agent", "llmAgent", "customAI", "repositoryAgent", "artifactTask"].includes(step.kind) && !(step.kind === "loop" && node.data?.loopAction === "customAI")) continue;
     if (step.kind === "repositoryAgent" && !node.data.llmIntegrationId) continue;
+    if (step.kind === "artifactTask") {
+      try {
+        const codes = node.data.artifactTask === 'story-assurance' ? ['requirement.view', 'requirement.ai'] : node.data.artifactTask === 'automation-engineer' ? ['requirement.view', 'automation.ai', 'automation.build', 'automation.code.view'] : ['requirement.view', 'testcase.ai'];
+        await require('../workflows/artifactTasks').access(user, workflow.project_id, codes);
+      } catch (failure) { report.blockers.push({ node_id: node.id, node_name: nodeName(node), message: failure.publicMessage }); }
+    }
     try {
       const registered = String(node.data.agentId || "").startsWith("agent-") ? await agentRegistry.resolve(node.data.agentId, node.data.agentVersion, workflow.project_id) : null;
       await agentRegistry.resolveModel(workflow.project_id, user?.id, node.data.llmIntegrationId || registered?.definition.integration_id);
@@ -416,7 +424,8 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
         result.progress = progress; await persist();
       },
       async event => { events.log(result, event); await persist(); });
-    if (Buffer.byteLength(JSON.stringify(output)) > 128 * 1024) throw error("Node output exceeded 128 KB. Narrow the query or field mapping.", 422);
+    const outputLimit = run.workflow_snapshot.nodes.some(item => item.data?.kind === "artifactTask") ? 2 * 1024 * 1024 : 128 * 1024;
+    if (Buffer.byteLength(JSON.stringify(output)) > outputLimit) throw error(`Node output exceeded ${outputLimit / 1024} KB. Reduce the Sprint scope or number of cases per Story.`, 422);
     result.output = output;
   } catch (failure) {
     if (signal.aborted || [401,403,499].includes(failure.statusCode) || node.data?.onError !== "errorOutput") throw failure;
@@ -512,6 +521,8 @@ async function start(workflow, input = {}, user) {
   if (input.input_payload !== undefined && (input.input_payload === null || typeof input.input_payload !== "object" || Array.isArray(input.input_payload))) throw error("Workflow input must be a JSON object.");
   const payload = object(input.input_payload);
   if (Buffer.byteLength(JSON.stringify(payload)) > MAX_INPUT_BYTES) throw error("Review input is limited to 16 KB.");
+  if (report.steps.some(step => step.kind === "artifactTask")) require("../workflows/artifactTasks").checkInput({ project_id: workflow.project_id, app_type_id: workflow.app_type_id, input_payload: payload });
+  const durationMs = workflowDuration(workflow);
   const needsRequestSource = report.steps.some(step => step.kind === "repositoryAgent" && workflow.edges.filter(edge => edge.target === step.node_id).every(edge => kindOf(workflow.nodes.find(node => node.id === edge.source)) === "trigger"));
   if (needsRequestSource && (object(payload.source).type !== "github" || !text(object(payload.source).repository_url))) throw error("Add source.type = github and source.repository_url to Workflow input before starting source analysis.");
   workflow = structuredClone(workflow);
@@ -544,8 +555,8 @@ async function start(workflow, input = {}, user) {
   const durable = require("../workflows/temporal/control");
   if (!durable.enabled() && active.size >= MAX_PARALLEL_RUNS) throw error("Two review workflows are already running on this worker. Try again after one finishes.", 429);
   const runtime = { mode: "bounded-review-workflow", execution_mode: MODE, simulated: false, arbitrary_code_execution: false, project_changes_applied: false,
-    external_write_tools: report.steps.some(step => ["mcpTool", "apiTool", "apiAgent"].includes(step.kind)), requires_human_review: true, max_duration_ms: MAX_DURATION_MS, target_node_id: targetNodeId || null,
-    deadline_at: new Date(Date.now() + MAX_DURATION_MS).toISOString(), request_fingerprint: requestFingerprint,
+    external_write_tools: report.steps.some(step => ["mcpTool", "apiTool", "apiAgent"].includes(step.kind)), requires_human_review: true, max_duration_ms: durationMs, target_node_id: targetNodeId || null,
+    deadline_at: new Date(Date.now() + durationMs).toISOString(), request_fingerprint: requestFingerprint,
     orchestrator: durable.enabled() ? "temporal" : "local",
     recovery: durable.enabled() ? "Temporal resumes from durable step receipts. Uncertain operations require reconciliation." : "Interrupted work is preserved; it is never automatically replayed." };
   const run = { id, workflow_id: workflow.id, project_id: workflow.project_id, app_type_id: workflow.app_type_id || null, workflow_name: workflow.name,

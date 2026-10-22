@@ -88,5 +88,14 @@ export type RepositoryAgentPublishResult = {
   skipped: number;
   skipped_items?: Array<{ finding_id: string; reason: string }>;
   indexing?: string;
+  knowledge_graph?: string;
+  context_graph?: string;
   message?: string;
+};
+
+export type RepositoryAgentPublicationStatus = {
+  items: Array<{ finding_id:string; target_id:string; source_id?:string; document_id?:string; indexing:'queued'|'processing'|'ready'|'failed'|'archived'|'pending'; knowledge_graph:'pending'|'ready'; context_graph:'pending'|'ready'; error?:string }>;
+  ready:number;
+  pending:number;
+  failed:number;
 };

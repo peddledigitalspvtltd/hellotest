@@ -34,6 +34,8 @@ The editor's Executions tab lists saved runs with durations and a status filter.
 
 ## Templates and runtime contracts
 
+The [Sprint Automator guide](sprint-automator.md) describes the native Story-to-Test-Case-to-automation template, secure API connection, per-Story data flow and Library acceptance.
+
 Review templates cover release readiness, story assurance, failure investigation and a custom AI review. The For each template provides sample items and a runnable field mapping without a model. Source templates cover UI objects, API tests, repository knowledge and component tests. Source nodes reuse `backend/agents/repositoryAgents.service.js`; they do not duplicate its compiler, storage or publication logic. Their stage progress and child execution reference are saved with the workflow step.
 
 Source workflow input uses the existing GitHub source contract:

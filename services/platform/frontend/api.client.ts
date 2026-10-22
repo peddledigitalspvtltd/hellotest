@@ -46,6 +46,8 @@ attachments: {
       return requestForm<JiraAttachment>("/attachments", formData);
     },
     download: (attachmentId: string) => requestBlob(`/attachments/${attachmentId}/download`),
+    aiAccess: (attachmentId: string, projectId: string) => request<{ id:string; url:string; expires_at:string }>(`/attachments/${attachmentId}/ai-access`, { method:'POST', body:JSON.stringify({ project_id:projectId }) }),
+    copy: (attachmentId: string, scope: HelloTestEntityScope) => request<JiraAttachment>(`/attachments/${attachmentId}/copy`, { method:'POST', body:JSON.stringify(scope) }),
     delete: (attachmentId: string) => request<{ deleted: boolean; id: string }>(`/attachments/${attachmentId}`, { method: "DELETE" })
   },
 comments: {

@@ -46,6 +46,22 @@ test('graph edges disappear when their exact proof is revoked even if an endpoin
   assert.ok(result.packet.evidence.some(item=>item.evidence_id==='K-1'));assert.equal(result.packet.relationships.length,0);
 });
 
+test('the real fusion contract retains native zero-similarity graph witnesses without admitting weak or unreviewed matches',async()=>{
+  const {mergeRetrievalResults}=require('../../backend/services/knowledgeRetrieval.service');
+  const proof={...hit('graph-proof','The release depends on checkout.'),score:0};
+  const edge={source_canonical_id:'release-node',target_canonical_id:'checkout-node',relationship_type:'DEPENDS_ON',evidence_ids:['K-graph-proof'],provenance_type:'HUMAN_VERIFIED',endpoints_authorized:true};
+  const dependencies=fixtures({merge:mergeRetrievalResults,assess:()=>({requires_more_context:true}),
+    expandRelationships:async()=>({results:[proof],relationships:[edge],retrieval:{vector_mode:'graph_witnesses'}})
+  });
+  const result=await execution.run({},()=>engine.retrieve({request:contracts.buildRetrievalRequest({projectId:'project-1',query:'Investigate release coverage',queryClass:'INVESTIGATIVE',budgets:{max_rounds:1}}),user:{id:'user-1'},dependencies}));
+  assert.ok(result.packet.evidence.some(item=>item.evidence_id==='K-graph-proof'));
+  assert.equal(result.packet.relationships.length,1);
+  assert.equal(result.hits.find(item=>item.chunk_id==='graph-proof').score,0,'Factual witnesses must not receive invented similarity scores');
+  const entry={results:[proof],relationships:[{...edge,provenance_type:'LLM_CANDIDATE'}],retrieval:{vector_mode:'graph_witnesses'}};
+  assert.deepEqual(mergeRetrievalResults([{result:entry}]),[]);
+  assert.deepEqual(mergeRetrievalResults([{result:{results:[proof]}}]),[]);
+});
+
 test("context engine returns the same bounded evidence used by consumers and actual safe events", async () => {
   const events = [];
   const result = await retrieve(fixtures(), { max_context_tokens: 1500 }, { onProgress: (event) => events.push(event) });

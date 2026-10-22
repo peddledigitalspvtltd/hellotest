@@ -277,6 +277,12 @@
   justify-content: flex-end;
 }
 
+.issue-detail-header-actions > .defect-ai-form-actions {
+  min-width: 0;
+  max-width: 100%;
+  justify-content: flex-start;
+}
+
 .issue-detail-convert-button {
   display: inline-flex;
   min-height: 38px;

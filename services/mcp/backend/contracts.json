@@ -1439,32 +1439,106 @@
       "body": {
         "type": "object",
         "properties": {
-          "acceptance_token": {
-            "type": "string",
-            "maxLength": 10000
+          "project_id": {
+            "type": "string"
           },
-          "request_id": {
-            "type": "string",
-            "maxLength": 255
+          "app_type_id": {
+            "type": "string"
           },
-          "input_fingerprint": {
-            "type": "string",
-            "maxLength": 128
-          },
-          "selected_test_case_ids": {
+          "suite_ids": {
             "type": "array",
-            "minItems": 1,
             "items": {
               "type": "string"
-            },
-            "maxItems": 30
+            }
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expected_case_revisions": {
+            "type": "array",
+            "maxItems": 50
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_data_options": {
+            "type": "object"
+          },
+          "execution_hooks": {
+            "type": "array"
+          },
+          "parallel_enabled": {
+            "type": "boolean"
+          },
+          "parallel_count": {
+            "type": "number"
+          },
+          "execution_mode": {
+            "type": "string"
+          },
+          "engine_base_url": {
+            "type": "string"
+          },
+          "assigned_to": {
+            "type": "string"
+          },
+          "assigned_to_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "release": {
+            "type": "string"
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "release_id": {
+            "type": "string"
+          },
+          "iteration_id": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope_source": {
+            "type": "string",
+            "enum": [
+              "smart-run"
+            ]
+          },
+          "start_date": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "end_date": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "smart_plan": {
+            "type": "object"
+          },
+          "created_by": {
+            "type": "string"
           }
         },
         "required": [
-          "acceptance_token",
-          "request_id",
-          "input_fingerprint",
-          "selected_test_case_ids"
+          "project_id",
+          "created_by"
         ],
         "additionalProperties": true
       }

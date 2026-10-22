@@ -112,6 +112,7 @@ import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAi
 import { api } from "@hellotest/platform/frontend/src/lib/api";
 import { isJiraCoreFieldRequired } from "@hellotest/integration/frontend/lib/jiraCreateMetadata";
 import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles, replaceTemplateContextPack } from "@hellotest/ai/frontend/lib/aiDesignStudio";
+import { prepareAiPromptFiles } from "@hellotest/testing/frontend/lib/aiPromptFiles";
 import { buildStoryAssuranceAnalysis, mergeAssuranceReview } from "@hellotest/ai/frontend/lib/artifactAssurance";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "@hellotest/platform/frontend/src/shared/lib/auditDisplay";
 import { buildBugReportPath } from "@hellotest/testing/frontend/lib/bugReportNavigation";
@@ -852,6 +853,16 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const [aiAdditionalContext, setAiAdditionalContext] = useState("");
   const [aiExternalLinksText, setAiExternalLinksText] = useState("");
   const [aiReferenceImages, setAiReferenceImages] = useState<AiDesignImageInput[]>([]);
+  const [aiContextFiles, setAiContextFiles] = useState<File[]>([]);
+  const aiOriginalImagesRef = useRef(new Map<string, File[]>());
+  const aiDesignScopeRef = useRef(`${projectId}:${appTypeId}`);
+  aiDesignScopeRef.current = `${projectId}:${appTypeId}`;
+  const aiImageReadGenerationRef = useRef(0);
+  const [isAiDesignPreparingFiles, setIsAiDesignPreparingFiles] = useState(false);
+  const [pendingAiCaseEvidence, setPendingAiCaseEvidence] = useState<Array<{ projectId: string; caseId: string; title: string; ids: string[] }>>([]);
+  const [isRetryingAiCaseEvidence, setIsRetryingAiCaseEvidence] = useState(false);
+  const aiCaseEvidenceRetryBusyRef = useRef(false);
+  const aiCaseAcceptanceBusyRef = useRef(false);
   const [previewCases, setPreviewCases] = useState<AiDesignedTestCaseCandidate[]>([]);
   const [previewMessage, setPreviewMessage] = useState("");
   const [previewTone, setPreviewTone] = useState<"success" | "error">("success");
@@ -1388,7 +1399,16 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       api.requirements.replaceRelatedRequirements(requirementId, requirementIds)
   });
   const aiDesignControllerRef = useRef<AbortController | null>(null);
-  useEffect(() => () => { aiDesignControllerRef.current?.abort(); }, [projectId, appTypeId]);
+  useEffect(() => {
+    aiImageReadGenerationRef.current++;
+    setIsAiStudioOpen(false);
+    setAiContextFiles([]);
+    setAiReferenceImages([]);
+    aiOriginalImagesRef.current.clear();
+    setPreviewCases([]);
+    setIsAiDesignPreparingFiles(false);
+    return () => { aiDesignControllerRef.current?.abort(); aiDesignControllerRef.current = null; };
+  }, [projectId, appTypeId]);
   const previewDesignedCases = useMutation({
     mutationFn: ({ requirementId, input, signal }: { requirementId: string; input: Parameters<typeof api.requirements.previewDesignedTestCases>[1]; signal: AbortSignal }) =>
       api.requirements.previewDesignedTestCases(requirementId, input, { signal })
@@ -4225,11 +4245,14 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 	      return;
 	    }
 
+	    aiImageReadGenerationRef.current++;
 	    openRequirementWorkspace(requirementId);
 	    setAiRequirementId(requirementId);
       setAiAdditionalContext("");
       setAiExternalLinksText("");
       setAiReferenceImages([]);
+      setAiContextFiles([]);
+      aiOriginalImagesRef.current.clear();
       setPreviewCases([]);
       setPreviewMessage("");
       setPreviewTone("success");
@@ -4323,13 +4346,22 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   };
 
   const handleAddAiReferenceImages = async (files: FileList | null) => {
+    const generation = aiImageReadGenerationRef.current;
     try {
+      const originals = Array.from(files || []);
       const images = await readImageFiles(files);
+      if (generation !== aiImageReadGenerationRef.current) return;
       setPreviewCases([]);
       setPreviewMessage("");
       let budgetMessage = "";
       setAiReferenceImages((current) => {
         const result = mergeAiReferenceImagesWithinBudget(current, images);
+        for (const [index, image] of images.entries()) {
+          const original = originals[index];
+          if (!original || !result.images.some(retained => retained.url === image.url)) continue;
+          const previous = aiOriginalImagesRef.current.get(image.url) || [];
+          if (!previous.includes(original)) aiOriginalImagesRef.current.set(image.url, [...previous, original]);
+        }
         budgetMessage = result.message;
         return result.images;
       });
@@ -4338,6 +4370,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         setPreviewMessage(budgetMessage);
       }
     } catch (error) {
+      if (generation !== aiImageReadGenerationRef.current) return;
       setPreviewTone("error");
       setPreviewMessage(error instanceof Error ? error.message : "Unable to attach the selected image");
     }
@@ -4425,11 +4458,14 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 	      return;
 	    }
 
-    if (previewDesignedCases.isPending) return;
-    aiDesignControllerRef.current?.abort();
+    if (previewDesignedCases.isPending || isAiDesignPreparingFiles || aiDesignControllerRef.current) return;
     const controller = new AbortController();
     aiDesignControllerRef.current = controller;
+    setIsAiDesignPreparingFiles(true);
     try {
+      const files = [...aiContextFiles, ...aiReferenceImages.flatMap(image => aiOriginalImagesRef.current.get(image.url) || [])];
+      if (files.length && !canCreateAttachments) throw new Error("Attachment upload permission is required to retain these source files with the generated Test Cases.");
+      const promptFiles = await prepareAiPromptFiles({ projectId, files, additionalContext: aiAdditionalContext, signal: controller.signal });
       const response = await previewDesignedCases.mutateAsync({
         signal: controller.signal,
         requirementId: aiRequirement.id,
@@ -4438,24 +4474,25 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           integration_id: integrationId || undefined,
           max_cases: maxCases,
           authoring_mode: authoringMode,
-          additional_context: aiAdditionalContext || undefined,
+          additional_context: promptFiles.additionalContext || undefined,
           external_links: parseExternalLinks(aiExternalLinksText),
           images: aiReferenceImages
         }
       });
 
       if (controller.signal.aborted || aiDesignControllerRef.current !== controller) return;
-      setPreviewCases(response.cases);
+      setPreviewCases(response.cases.map(candidate => ({ ...candidate, reference_attachment_ids: [...new Set([...promptFiles.attachmentIds, ...(candidate.reference_attachment_ids || [])])] })));
       setPreviewTone("success");
       setPreviewMessage(`${response.generated} ${authoringMode === "gherkin" ? "Gherkin" : "structured"} draft case${response.generated === 1 ? "" : "s"} prepared. Review and edit each draft before accepting.`);
     } catch (error) {
       if (controller.signal.aborted || aiDesignControllerRef.current !== controller) return;
       setPreviewTone("error");
       setPreviewMessage(error instanceof Error ? error.message : "Unable to preview AI-generated test cases");
-    } finally { if (aiDesignControllerRef.current === controller) aiDesignControllerRef.current = null; }
+    } finally { if (aiDesignControllerRef.current === controller) { aiDesignControllerRef.current = null; setIsAiDesignPreparingFiles(false); } }
   };
 
 	  const handleAcceptDesignedCases = async (selectedClientIds?: string[]) => {
+    if (acceptDesignedCases.isPending || aiCaseAcceptanceBusyRef.current) return;
 	    if (!canCreateTestCases) {
 	      setPreviewTone("error");
 	      setPreviewMessage("Permission required: testcase.create");
@@ -4474,13 +4511,16 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       return;
     }
 
+    aiCaseAcceptanceBusyRef.current = true;
+    const requestScope = aiDesignScopeRef.current;
     try {
-      await acceptDesignedCases.mutateAsync({
+      const response = await acceptDesignedCases.mutateAsync({
         requirementId: aiRequirement.id,
         input: {
           app_type_id: appTypeId,
           status: "draft",
           cases: acceptedPreviewCases.map((item) => ({
+            reference_attachment_ids: item.reference_attachment_ids,
             title: item.title,
             description: item.description,
             priority: item.priority,
@@ -4499,16 +4539,50 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         }
       });
 
+      const pending = response.created.filter(item => item.pending_reference_attachment_ids?.length)
+        .map(item => ({ projectId, caseId: item.id, title: item.title, ids: item.pending_reference_attachment_ids! }));
+      if (pending.length) setPendingAiCaseEvidence(current => [...current.filter(item => !pending.some(next => next.projectId === item.projectId && next.caseId === item.caseId)), ...pending]);
+      if (aiDesignScopeRef.current !== requestScope) return;
+
       setIsAiStudioOpen(false);
       setPreviewCases([]);
       setPreviewMessage("");
+      setAiContextFiles([]);
+      setAiReferenceImages([]);
+      aiOriginalImagesRef.current.clear();
       showSuccess(`${acceptedPreviewCases.length} AI-designed case${acceptedPreviewCases.length === 1 ? "" : "s"} accepted and linked to the Story.`);
       await refresh();
-      navigate("/test-cases");
+      if (!pending.length) navigate("/test-cases");
     } catch (error) {
       setPreviewTone("error");
       setPreviewMessage(error instanceof Error ? error.message : "Unable to accept AI-generated test cases");
-    }
+    } finally { aiCaseAcceptanceBusyRef.current = false; }
+  };
+
+  const retryAiCaseEvidence = async () => {
+    if (aiCaseEvidenceRetryBusyRef.current) return;
+    aiCaseEvidenceRetryBusyRef.current = true;
+    setIsRetryingAiCaseEvidence(true);
+    const pending = pendingAiCaseEvidence.filter(item => item.projectId === projectId);
+    const requestScope = aiDesignScopeRef.current;
+    const remaining: typeof pending = [];
+    try {
+      if (!canCreateAttachments) throw new Error("Attachment upload permission is required to attach these remaining source files.");
+      for (const target of pending) {
+        const failed: string[] = [];
+        for (const id of target.ids) {
+          try { await platformApi.attachments.copy(id, { project_id: target.projectId, entity_type: "test_case", entity_id: target.caseId }); }
+          catch { failed.push(id); }
+        }
+        if (failed.length) remaining.push({ ...target, ids: failed });
+        await queryClient.invalidateQueries({ queryKey: ["hellotest-attachments", target.projectId, "test_case", target.caseId] }).catch(() => undefined);
+      }
+      setPendingAiCaseEvidence(current => [...current.filter(item => item.projectId !== projectId), ...remaining]);
+      if (aiDesignScopeRef.current !== requestScope) return;
+      if (remaining.length) showError(null, "The Test Cases are saved. Some source files still need to be attached; check attachment access and retry the remaining files.");
+      else { showSuccess("All source files are attached to the saved Test Cases."); navigate("/test-cases"); }
+    } catch (error) { showError(error, "Unable to attach the remaining Test Case source files"); }
+    finally { aiCaseEvidenceRetryBusyRef.current = false; setIsRetryingAiCaseEvidence(false); }
   };
 
 	  function openRequirementOptimization(requirementIds?: string[]) {
@@ -7507,6 +7581,14 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       ) : null}
 
       {!isOptimizeModalOpen?storyAttachmentRetryNotice:null}
+      {pendingAiCaseEvidence.some(item => item.projectId === projectId) ? (
+        <section aria-label="Test Case source files" className="inline-message error-message" role="alert">
+          <strong>Test Cases are saved; some source files still need to be attached.</strong>
+          <p>Retry the remaining files on the saved Test Cases. Accepted cases will stay saved.</p>
+          <ul>{pendingAiCaseEvidence.filter(item => item.projectId === projectId).map(item => <li key={item.caseId}>{item.title}: {item.ids.length} file{item.ids.length === 1 ? "" : "s"} remaining</li>)}</ul>
+          <button className="ghost-button compact" type="button" disabled={isRetryingAiCaseEvidence || !canCreateAttachments} onClick={() => void retryAiCaseEvidence()}>{isRetryingAiCaseEvidence ? "Attaching source files…" : "Retry Test Case source files"}</button>
+        </section>
+      ) : null}
       {isOptimizeModalOpen && (requirementAiMode === "create" || activeOptimizeRequirement) ? (
         <div
           className="modal-backdrop story-ai-workbench-backdrop"
@@ -8460,9 +8542,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           additionalContext={aiAdditionalContext}
           allowMultipleRequirements={false}
           appTypeName={currentAppTypeName}
-          closeDisabled={previewDesignedCases.isPending || acceptDesignedCases.isPending}
+          closeDisabled={isAiDesignPreparingFiles || previewDesignedCases.isPending || acceptDesignedCases.isPending}
 	          disableAccept={!canCreateTestCases || !previewCases.length || acceptDesignedCases.isPending}
-	          disablePreview={!canUseRequirementAi || !aiRequirement || !appTypeId || previewDesignedCases.isPending || !integrations.length}
+	          disablePreview={!canUseRequirementAi || !aiRequirement || !appTypeId || isAiDesignPreparingFiles || previewDesignedCases.isPending || !integrations.length}
           dialogClassName="ai-design-modal--requirements"
           existingCases={associatedCases}
           existingCasesSubtitle="These are already associated with the selected Story in the current app type."
@@ -8472,19 +8554,29 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           integrationId={integrationId}
           integrations={integrations}
           isAccepting={acceptDesignedCases.isPending}
-          isPreviewing={previewDesignedCases.isPending}
+          isPreviewing={isAiDesignPreparingFiles || previewDesignedCases.isPending}
           maxCases={maxCases}
           onAccept={(selectedClientIds) => void handleAcceptDesignedCases(selectedClientIds)}
           onAddImages={(files) => void handleAddAiReferenceImages(files)}
+          contextFiles={aiContextFiles}
+          onContextFilesChange={(files) => {
+            setAiContextFiles(files);
+            setPreviewCases([]);
+            setPreviewMessage("");
+          }}
           onAdditionalContextChange={(value) => {
             setAiAdditionalContext(value);
             setPreviewCases([]);
             setPreviewMessage("");
           }}
           onClose={() => {
+            aiImageReadGenerationRef.current++;
             setIsAiStudioOpen(false);
             setPreviewCases([]);
             setPreviewMessage("");
+            setAiContextFiles([]);
+            setAiReferenceImages([]);
+            aiOriginalImagesRef.current.clear();
           }}
           onExternalLinksTextChange={(value) => {
             setAiExternalLinksText(value);
@@ -8504,12 +8596,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           onCancel={() => {
             aiDesignControllerRef.current?.abort();
             aiDesignControllerRef.current = null;
+            setIsAiDesignPreparingFiles(false);
             previewDesignedCases.reset();
             setPreviewTone("success");
             setPreviewMessage("Stopped waiting. Existing drafts are unchanged.");
           }}
           onPreview={(authoringMode) => void handlePreviewDesignedCases(authoringMode)}
-          onPreviewCaseChange={(clientId, next) => setPreviewCases((current) => current.map((candidate) => candidate.client_id === clientId ? next : candidate))}
+          onPreviewCaseChange={(clientId, next) => setPreviewCases((current) => current.map((candidate) => candidate.client_id === clientId ? { ...next, reference_attachment_ids: candidate.reference_attachment_ids } : candidate))}
           onPreviewCasesReorder={(orderedClientIds)=>setPreviewCases(current=>{
             const remaining=new Map(current.map(item=>[item.client_id,item]));
             const ordered:AiDesignedTestCaseCandidate[]=[];
@@ -8517,6 +8610,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             return [...ordered,...remaining.values()];
           })}
           onRemoveImage={(imageUrl) => {
+            aiOriginalImagesRef.current.delete(imageUrl);
             setAiReferenceImages((current) => current.filter((image) => image.url !== imageUrl));
             setPreviewCases([]);
             setPreviewMessage("");

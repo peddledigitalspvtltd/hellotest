@@ -1,6 +1,7 @@
 const service = require('../agents/repositoryAgents.service');
 const { publishRun } = require('../agents/publish');
-const { AGENTS, LIMITS, PUBLISH_PERMISSIONS, error } = require('../agents/catalog');
+const { AGENTS, LIMITS, PUBLISH_PERMISSIONS, PUBLISH_ADDITIONAL_PERMISSIONS, error } = require('../agents/catalog');
+const knowledgePublication = require('../agents/knowledgePublication.service');
 const compiler = require('../agents/compiler');
 const mobileFeatureService = require('@hellotest/platform/backend/services/mobileFeature.service');
 
@@ -64,11 +65,30 @@ module.exports = async function repositoryAgentsRoutes(fastify) {
     const run = await service.getRun(req.params.id, req.user);
     await fastify.requirePermission('agentic_workflow.run', { projectId: run.project_id })(req);
     await fastify.requirePermission(PUBLISH_PERMISSIONS[run.agent_type], { projectId: run.project_id })(req);
+    for (const permission of PUBLISH_ADDITIONAL_PERMISSIONS[run.agent_type] || []) {
+      await fastify.requirePermission(permission, { projectId: run.project_id })(req);
+    }
     if (['api_tests', 'component_tests'].includes(run.agent_type) && await mobileFeatureService.appTypeUsesMobile(run.app_type_id)) {
       await fastify.requirePermission('mobile.manage', { projectId: run.project_id })(req);
     }
     if (req.body?.module_id) await fastify.requirePermission('testcase.update', { projectId: run.project_id })(req);
     return publishRun(run.id, req.body || {}, req.user);
+  });
+  fastify.get('/repository-agents/runs/:id/publication-status', async (req, reply) => {
+    await fastify.authenticate(req);
+    const run = await service.getRun(req.params.id, req.user);
+    await fastify.requirePermission('agentic_workflow.view', { projectId: run.project_id })(req);
+    await fastify.requirePermission('knowledge.view', { projectId: run.project_id })(req);
+    const status = await knowledgePublication.getPublicationStatus(run.id, req.user);
+    return reply.header('Cache-Control', 'private, no-store').send(status);
+  });
+  fastify.post('/repository-agents/runs/:id/process-knowledge', async (req, reply) => {
+    await fastify.authenticate(req);
+    const run = await service.getRun(req.params.id, req.user, 'agentic_workflow.run');
+    await fastify.requirePermission('agentic_workflow.run', { projectId: run.project_id })(req);
+    await fastify.requirePermission('knowledge.manage', { projectId: run.project_id })(req);
+    const status = await knowledgePublication.processPublishedKnowledge(run.id, req.body || {}, req.user);
+    return reply.code(202).header('Cache-Control', 'private, no-store').send(status);
   });
   fastify.get('/repository-agents/runs/:id/artifacts/:name', async (req, reply) => {
     await fastify.authenticate(req);

@@ -1,7 +1,7 @@
 import { consumeAssistantProgress, type AgentProgress } from "./lib/assistantProgressStream";
 import type { AgentStructuredArtifact } from '@hellotest/platform/frontend/src/types';
 import { AI_REQUEST_TIMEOUT_MS } from "@hellotest/platform/frontend/src/platform/lib/requestTimeout";
-import type { RepositoryAgentCatalog, RepositoryAgentPublishResult, RepositoryAgentRun, RepositoryAgentRunInput, RepositoryAgentRunPage } from "./agents/agentTypes";
+import type { RepositoryAgentCatalog, RepositoryAgentPublicationStatus, RepositoryAgentPublishResult, RepositoryAgentRun, RepositoryAgentRunInput, RepositoryAgentRunPage } from "./agents/agentTypes";
 import type { AgenticAssistantMode, AgenticAssistantSessionResponse, AgenticAssistantSavedSessionResponse, AgenticWorkflow, AgenticWorkflowRun, AgenticWorkflowReadiness, RecorderSessionResponse, WorkspaceTransaction } from "@hellotest/platform/frontend/src/types";
 import { resolveServiceBase } from "@hellotest/platform/frontend/src/platform/lib/serviceEndpoints";
 import { API_BASE_URL, readRequestSession, request, requestBlob, requestForm, toQueryString } from "@hellotest/platform/frontend/src/lib/httpClient";
@@ -115,8 +115,12 @@ repositoryAgents: {
       request<RepositoryAgentRun>(`/repository-agents/runs/${encodeURIComponent(id)}/cancel`, { method: "POST", signal: options?.signal }),
     retry: (id: string, options?: { signal?: AbortSignal }) =>
       request<RepositoryAgentRun>(`/repository-agents/runs/${encodeURIComponent(id)}/retry`, { method: "POST", signal: options?.signal }),
-    publish: (id: string, input: { item_ids: string[]; module_id?: string }, options?: { signal?: AbortSignal }) =>
+    publish: (id: string, input: { item_ids: string[]; module_id?: string; automation_start_url?:string }, options?: { signal?: AbortSignal }) =>
       request<RepositoryAgentPublishResult>(`/repository-agents/runs/${encodeURIComponent(id)}/publish`, { method: "POST", body: JSON.stringify(input), signal: options?.signal }, 120_000),
+    publicationStatus: (id:string, options?:{signal?:AbortSignal}) =>
+      request<RepositoryAgentPublicationStatus>(`/repository-agents/runs/${encodeURIComponent(id)}/publication-status`,{signal:options?.signal,cache:'no-store'}),
+    processKnowledge: (id:string,input:{item_ids:string[]},options?:{signal?:AbortSignal}) =>
+      request<RepositoryAgentPublicationStatus>(`/repository-agents/runs/${encodeURIComponent(id)}/process-knowledge`,{method:'POST',body:JSON.stringify(input),signal:options?.signal}),
     artifact: (id: string, name: string) =>
       requestBlob(`/repository-agents/runs/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(name)}`)
   },
@@ -220,6 +224,8 @@ agenticWorkflows: {
       request<AgenticWorkflowReadiness>(`/agentic-workflows/${encodeURIComponent(id)}/readiness${toQueryString({ target_node_id: targetNodeId })}`, { cache: "no-store" }),
     execute: (id: string, input: { request_id: string; input_payload: Record<string, unknown>; target_node_id?: string }) =>
       request<AgenticWorkflowRun>(`/agentic-workflows/${encodeURIComponent(id)}/executions`, { method: "POST", body: JSON.stringify(input) }),
+    acceptWorkflowDraft: (id: string, input: { node_id: string; story_index: number; case_index: number; kind: "manual" | "automation" }) =>
+      request<{ id: string; title: string; kind: string; saved: boolean; reused?: boolean }>(`/agentic-workflow-runs/${encodeURIComponent(id)}/drafts/accept`, { method: "POST", body: JSON.stringify(input) }),
     cancelRun: (id: string) =>
       request<AgenticWorkflowRun>(`/agentic-workflow-runs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
     listRuns: (query?: { project_id?: string; app_type_id?: string; workflow_id?: string; status?: string; limit?: number; summary_only?: boolean }, options?: { signal?: AbortSignal }) =>

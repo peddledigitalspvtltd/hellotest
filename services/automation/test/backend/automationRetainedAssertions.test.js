@@ -1,3 +1,4 @@
+const { expandManagedInstructions } = require('../../../platform/backend/test/helpers/managedInstructions');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createRetainedAssertionContract, pendingFinalAssertions, retainedFinalAssertionHints } = require('../../backend/lib/automationRetainedAssertions');
@@ -168,7 +169,7 @@ test('ordered final hints reveal symbolic bindings but omit all literal expectat
   const encoded = JSON.stringify(hints);
   for (const raw of [privateValue, historicalSecret, publicValue, 'https://fixture.test/auth', '[private parameter value]', 'source_fingerprint', 'operation_index', 'automation_code']) assert.ok(!encoded.includes(raw), raw);
   assert.ok(!projections.includes('@r.email') && !projections.includes('@r.password'), 'a general projector never materializes symbolic bindings');
-  assert.match(hints.instruction, /Saved locators are requirements, not fresh evidence/);assert.match(hints.instruction, /following retained checks to host preflight/);
+  assert.match(expandManagedInstructions(hints.instruction), /Saved locators are requirements, not fresh evidence/);assert.match(expandManagedInstructions(hints.instruction), /following retained checks to host preflight/);
 });
 
 test('hint bindings retain exact namespaces and escaped names without disclosing their frozen values', () => {
@@ -185,7 +186,7 @@ test('hint size retains only a complete ordered prefix within 2000 bytes with an
   assert.ok(hints.checks.length > 0 && hints.checks.length < operations.length);assert.equal(hints.omitted_count, operations.length - hints.checks.length);
   assert.ok(Buffer.byteLength(JSON.stringify(hints), 'utf8') <= 2000);assert.ok(JSON.stringify(hints).length <= 2000);
   assert.deepEqual(hints.checks.map(row => row.locator), operations.slice(0, hints.checks.length).map(row => row.arguments.locator));
-  const oversized = retainedFinalAssertionHints(create([check('visible', '#' + 'x'.repeat(1800)), visible]), { projectText: text => text });
+  const oversized = retainedFinalAssertionHints(create([check('visible', '#' + '界'.repeat(700)), visible]), { projectText: text => text });
   assert.deepEqual(oversized.checks, []);assert.equal(oversized.omitted_count, 2, 'a large first check is not skipped to advertise a later one');
   assert.ok(Buffer.byteLength(JSON.stringify(oversized), 'utf8') <= 2000);
 });

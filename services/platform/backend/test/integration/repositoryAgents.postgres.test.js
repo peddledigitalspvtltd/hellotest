@@ -51,14 +51,17 @@ test('repository agents persist four analyses, publish into real stores and repl
       const findings = run.result.findings[key];
       assert.ok(findings.length, agentType + ' should produce findings');
       const selection = findings.slice(0, 10).map(item => item.id);
-      const published = await publishRun(run.id, { item_ids: selection }, user);
+      const publishInput = { item_ids: selection, ...(agentType === 'component_tests' ? { automation_start_url: 'https://reviewed-component.example.test' } : {}) };
+      const published = await publishRun(run.id, publishInput, user);
       assert.equal(published.items.length, selection.length, JSON.stringify(published));
-      assert.deepEqual((await publishRun(run.id, { item_ids: selection }, user)).items, published.items);
+      assert.deepEqual((await publishRun(run.id, publishInput, user)).items, published.items);
       assert.equal(published.skipped, 0);
       if (agentType === 'api_tests') {
         const saved = await require('../../../../testing/backend/services/testCase.service').getTestCase(published.items[0].target_id);
         assert.equal(saved.status, 'draft');
         assert.equal(saved.authoring_mode, 'structured');
+        assert.equal(saved.automated, 'yes');
+        assert.equal(saved.automation_status, 'incomplete');
         const steps = await db.prepare('SELECT api_request FROM test_steps WHERE test_case_id = ?').all(saved.id);
         assert.ok(steps.some(step => step.api_request?.url === '@r.base_url/orders'));
         assert.ok(steps.some(step => step.api_request?.validations.some(rule => rule.expected === '201')));

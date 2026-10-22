@@ -756,11 +756,9 @@ const buildRequirementCreationPrompt = ({ additionalContext, externalLinks, imag
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.33"),
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.36"),
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.34"),
-  aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.35"),
-  aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.36"),
-  aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.37"),
-  aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.38"),
-  aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.39"),
+  '    "acceptance_criteria": [],',
+  '    "risks": [],',
+  '    "open_questions": [],',
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.40"),
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.41"),
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.37"),
@@ -773,11 +771,11 @@ const buildRequirementCreationPrompt = ({ additionalContext, externalLinks, imag
   [aiInstructionBlock("ai.requirement.creation", "requirement.service.buildRequirementCreationPrompt.segment.9"),String(JSON.stringify(promptGuidance)),""].join(''),
   "",
   [aiInstructionBlock("ai.requirement.creation", "requirement.service.buildRequirementCreationPrompt.segment.10"),String(externalLinks.length ? JSON.stringify(externalLinks) : "none"),""].join(''),
-  [aiInstructionBlock("ai.requirement.creation", "requirement.service.buildRequirementCreationPrompt.segment.11"),String(imageNames.length ? JSON.stringify(imageNames) : "none"),""].join(''),
+  [aiInstructionBlock("ai.requirement.creation", "requirement.service.buildRequirementCreationPrompt.segment.11"),String(imageNames.length ? JSON.stringify(imageNames.map((name,index)=>({name,evidence_ref:evidenceCatalog.filter(item=>item.type==='reference-image')[index]?.ref}))) : "none"),""].join(''),
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.51"),
   JSON.stringify(evidenceCatalog.slice(0, 32).map(({ ref, type, label, excerpt, citation_allowed }) => ({ ref, type, label: boundedAiText(label, 500), excerpt: type === "user-guidance" ? "See the bounded product brief below." : boundedAiText(excerpt, 900), citation_allowed }))),
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.39"),
-  additionalContext?.slice(0, 12000) || aiInstructionBlock("ai.requirement.creation", "requirement.missingProductContext")
+  additionalContext?.slice(0, 12000) || aiInstructionBlock("ai.requirement.creation", imageNames.length ? "requirement.imageOnlyContext" : "requirement.missingProductContext")
 ].join("\n");
 
 const requestRequirementCreation = async ({ integration, prompt, images, fallbackContent, contextState }) => {
@@ -798,7 +796,7 @@ const requestRequirementCreation = async ({ integration, prompt, images, fallbac
       messages: [
         {
           role: "system",
-          content: aiInstructionBlock("ai.requirement.optimization", "requirement.response.52")
+          content: aiInstructionBlock("ai.requirement.creation", "requirement.response.creation")
         },
         { role: "user", content: userContent }
       ]
@@ -1749,9 +1747,9 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
         contextState,
         fallbackContent: buildRequirementOptimizationPrompt({
           promptGuidance,
-          requirement: { id: requirement.id, title: String(requirement.title || "").slice(0, 500) },
-          linkedTestCases: [], knowledge: [], additionalContext: "Only the saved Story title is supplied after a provider size limit. Propose only title-supported changes and list missing information as open questions.",
-          externalLinks: [], imageNames: [], evidenceCatalog: evidence.filter((item) => item.ref === `story:${requirement.id}`).map((item) => ({ ...item, excerpt: requirement.title }))
+          requirement,
+          linkedTestCases: [], knowledge: [], additionalContext,
+          externalLinks: [], imageNames: [], evidenceCatalog: evidence.filter((item) => item.ref === `story:${requirement.id}`)
         }),
         images: safeImages,
         prompt: buildRequirementOptimizationPrompt({
@@ -1926,6 +1924,16 @@ exports.previewRequirementCreation = async ({
   const additionalContext = (normalizeText(additional_context) || "").slice(0, 20_000);
   const externalLinks = normalizeTextList(external_links, 20, 2000);
   const safeImages = normalizeReferenceImages(images, {max_images:4});
+  if (!additionalContext && !safeImages.length) {
+    const message = 'Add a product description or upload a PNG, JPEG, or WebP image before creating Stories. Links alone do not supply product evidence.';
+    throw Object.assign(new Error(message), { statusCode:422, code:'AI_STORY_EVIDENCE_REQUIRED', publicMessage:message });
+  }
+  const missingEvidenceError = () => {
+    const message = safeImages.length
+      ? 'The model did not return a Story supported by the supplied image evidence. Try a clearer screenshot, add a short description of the intended behavior, or select another vision-capable model.'
+      : 'The model did not return a Story supported by the supplied product context. Add the intended behavior and expected outcome, or select another configured model.';
+    return Object.assign(new Error(message), { statusCode:422, code:'AI_STORY_EVIDENCE_REQUIRED', publicMessage:message });
+  };
   const knowledgePackage = additionalContext
     ? await aiKnowledgeService.buildKnowledgeContextPackage(project_id, {
         query: additionalContext,
@@ -1941,6 +1949,7 @@ exports.previewRequirementCreation = async ({
     userId: user_id,
     usageKey: "ai.requirement.creation"
   });
+  requireAiAssessment({ integration });
   const inputFingerprint = storyRequestFingerprint({
     capability: "requirement-creation-preview",
     project_id,
@@ -1955,18 +1964,17 @@ exports.previewRequirementCreation = async ({
     status: defaultStatus
   });
   let rawCandidates;
-  let fallbackUsed = false;
-  let fallbackReason = null;
+  const fallbackUsed = false;
+  const fallbackReason = null;
   const contextState = { reduced: false };
 
-  if (integration) {
-    try {
+  try {
       const result = await requestRequirementCreation({
         integration,
         contextState,
         fallbackContent: buildRequirementCreationPrompt({
           promptGuidance,
-          additionalContext: String(additionalContext || "").slice(0, 2000), externalLinks: [], imageNames: [],
+          additionalContext: String(additionalContext || "").slice(0, 2000), externalLinks: [], imageNames: safeImages.map(image=>image.name),
           maxRequirements, priority: defaultPriority, status: defaultStatus,
           evidenceCatalog: evidence.filter((item) => item.citation_allowed).slice(0, 6).map((item) => ({ ...item, excerpt: String(item.excerpt || "").slice(0, 400) }))
         }),
@@ -1982,36 +1990,21 @@ exports.previewRequirementCreation = async ({
           evidenceCatalog: evidence
         })
       });
-      rawCandidates = Array.isArray(result?.requirements) ? result.requirements : [];
-      if (!rawCandidates.length) throw new Error("LLM response did not contain requirement drafts");
-    } catch (error) {
-      if (error?.code === 'AI_VISION_UNSUPPORTED') throw error;
-      fallbackUsed = true;
-      fallbackReason = "The configured AI provider could not return a valid evidence-backed draft set; HelloTest used an evidence-preserving fallback.";
+      if (!Array.isArray(result?.requirements)) throw new Error('Missing Story draft array');
+      rawCandidates = result.requirements;
+  } catch (error) {
+    // Keep classified, sanitized provider/configuration failures actionable.
+    // Never substitute provider response text or invented local Stories.
+    if (typeof error?.publicMessage === 'string' && error.publicMessage.trim()) {
+      error.message = error.publicMessage; // Durable jobs display message, while HTTP uses publicMessage.
+      throw error;
     }
-  } else {
-    fallbackUsed = true;
-    fallbackReason = "No active LLM integration is configured; HelloTest used an evidence-preserving fallback.";
+    if (['AI_VISION_UNSUPPORTED','LLM_AUTHENTICATION_FAILED','LLM_QUOTA_EXCEEDED','LLM_RATE_LIMITED','LLM_RATE_LIMIT_REQUEST_TOO_LARGE','LLM_REQUEST_TOO_LARGE'].includes(error?.code)) throw error;
+    if (error?.code === 'AI_NATIVE_CONTRACT_INVALID' && error.validation_errors?.length && error.validation_errors.every(item=>item.field==='requirements')) throw missingEvidenceError();
+    const message = 'The configured model did not return a valid Story response. Retry or select another configured model; image inputs require a vision-capable model.';
+    throw Object.assign(new Error(message), { statusCode:502, code:'AI_STORY_RESPONSE_INVALID', publicMessage:message });
   }
-
-  const restrictImagesToManualReview = () => {
-    evidence.filter((item) => item.type === "reference-image").forEach((item) => {
-      item.citation_allowed = false;
-      item.trust = "manual-review-only";
-      item.limitation = "The deterministic fallback did not inspect this image; it cannot support a generated Story field.";
-    });
-  };
-  if (fallbackUsed) restrictImagesToManualReview();
-  let allowedEvidenceRefs = new Set(evidence.filter((item) => item.citation_allowed).map((item) => item.ref));
-  if (!rawCandidates?.length) {
-    rawCandidates = buildDeterministicRequirementCreation({
-      additionalContext,
-      externalLinks,
-      priority: defaultPriority,
-      status: defaultStatus,
-      evidenceRefs: evidence.filter((item) => item.type === "user-guidance").map((item) => item.ref)
-    });
-  }
+  const allowedEvidenceRefs = new Set(evidence.filter((item) => item.citation_allowed).map((item) => item.ref));
 
   const normalizeCandidates = (candidates) => candidates
     .slice(0, maxRequirements)
@@ -2023,28 +2016,12 @@ exports.previewRequirementCreation = async ({
     }))
     .filter((candidate) => Boolean(candidate?.title))
     .filter((candidate, index, all) => all.findIndex(item => item.title.toLowerCase() === candidate.title.toLowerCase() && item.description === candidate.description) === index);
-  let requirements = normalizeCandidates(rawCandidates);
+  const requirements = normalizeCandidates(rawCandidates);
+  if (!requirements.length) throw missingEvidenceError();
 
-  if (!requirements.length && !fallbackUsed) {
-    fallbackUsed = true;
-    fallbackReason = "The configured AI provider returned no draft with allowed field-level evidence; HelloTest used an evidence-preserving fallback.";
-    restrictImagesToManualReview();
-    allowedEvidenceRefs = new Set(evidence.filter((item) => item.citation_allowed).map((item) => item.ref));
-    rawCandidates = buildDeterministicRequirementCreation({
-      additionalContext,
-      externalLinks,
-      priority: defaultPriority,
-      status: defaultStatus,
-      evidenceRefs: evidence.filter((item) => item.type === "user-guidance").map((item) => item.ref)
-    });
-    requirements = normalizeCandidates(rawCandidates);
-  }
-
-  requireAiAssessment({ integration, failed: fallbackUsed, accepted: requirements.length > 0 });
   const limitations = storyEvidenceLimitations(evidence, fallbackReason);
   const unsupportedDraftCount = requirements.filter((candidate) => candidate.unsupported_fields.length).length;
   if (unsupportedDraftCount) limitations.push(`${unsupportedDraftCount} draft${unsupportedDraftCount === 1 ? " had" : "s had"} unsupported acceptance criteria removed before review.`);
-  if (!requirements.length) limitations.push("No evidence-backed fallback Story could be prepared. Add a written outcome or configure an active LLM provider.");
   const processing = buildStoryProcessingSnapshot({
     profile: "story-create",
     sourceCount: evidence.length,

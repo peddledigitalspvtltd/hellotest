@@ -64,6 +64,8 @@ type AiDesignStudioModalProps = {
   externalLinksText: string;
   onExternalLinksTextChange: (value: string) => void;
   referenceImages: AiDesignImageInput[];
+  contextFiles?: File[];
+  onContextFilesChange?: (files:File[]) => void;
   onAddImages: (files: FileList | null) => void;
   onRemoveImage: (imageUrl: string) => void;
   appTypeName: string;
@@ -257,7 +259,6 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
                 ...(sourceCase ? [{ id: "source", label: sourceCase.displayId || "Current Test Case", onClick: () => setContextOpen(true) }] : []),
                 { id: "evidence", label: additionalContext.includes("[HELLOTEST_SMART_CONTEXT_START]") ? "Reviewed evidence included" : additionalContext.includes("[HELLOTEST_TEMPLATE_CONTEXT_START]") ? "Template included" : "Attach evidence", count: linkCount + referenceImages.length, onClick: () => setContextOpen(true) }
               ]}
-              suggestions={sourceCase ? [{ label: "Clarify results", instruction: "Make every expected result measurable. Preserve the current intent and linked Story." }, { label: "Cover recovery", instruction: "Include failure recovery and boundary conditions supported by the evidence." }] : [{ label: "Edge cases", instruction: "Cover boundary conditions and invalid inputs supported by the selected Stories." }, { label: "Failure recovery", instruction: "Cover interrupted workflows and recovery without losing user data." }, { label: "Permission checks", instruction: "Cover the allowed and denied actions for roles described in the evidence." }]}
               options={<div aria-label="Test Case authoring format" className="ai-test-generator-authoring-tabs" role="radiogroup">
                 <button aria-checked={authoringMode === "structured"} className={authoringMode === "structured" ? "is-active" : ""} disabled={busy} onClick={() => changeMode("structured")} role="radio" type="button"><IconListDetails size={15} />Structured</button>
                 <button aria-checked={authoringMode === "gherkin"} className={authoringMode === "gherkin" ? "is-active" : ""} disabled={busy} onClick={() => changeMode("gherkin")} role="radio" type="button"><IconBraces size={15} />Gherkin</button>
@@ -351,7 +352,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
             </section> : null}
             <section className="ai-test-generator-section ai-test-generator-context-engine">
               <div className="ai-test-generator-section__heading"><span>Generation Context</span><small>Manual + Templates</small></div>
-              <AiPromptContextPanel additionalContext={additionalContext} includeArtifactContextInPack={false} artifactIds={sourceCase?.id ? [sourceCase.id] : []} artifactContext={sourceCase ? [
+              <AiPromptContextPanel contextFiles={props.contextFiles} onContextFilesChange={props.onContextFilesChange} additionalContext={additionalContext} includeArtifactContextInPack={false} artifactIds={sourceCase?.id ? [sourceCase.id] : []} artifactContext={sourceCase ? [
                 `Current Test Case: ${sourceCase.displayId || sourceCase.id || "draft"} — ${sourceCase.title}`,
                 sourceCase.description.slice(0, 1_500),
                 ...sourceCase.steps.slice(0, 8).map((step, index) => `${index + 1}. ${String(step.action || "").slice(0, 240)} Expected: ${String(step.expected_result || "").slice(0, 180)}`)

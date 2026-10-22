@@ -3220,12 +3220,13 @@ body > .modal-backdrop {
   background: #ffffff !important;
 }
 
+/* Gherkin source inputs stay transparent above their highlighted text. */
 :root:not([data-theme="dark"]) :is(
   .workspace-main[data-route^="/requirements"],
   .workspace-main[data-route^="/test-cases"],
   .workspace-main[data-route^="/design"],
   .workspace-main[data-route^="/shared-steps"]
-) :is(input, select, textarea, .rich-text-editor, .rich-text-editor-surface) {
+) :is(input, select, textarea:not(.gherkin-source-input), .rich-text-editor, .rich-text-editor-surface) {
   color: #172b4d !important;
   background: #ffffff !important;
   border-color: #b7b9be !important;

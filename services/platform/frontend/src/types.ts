@@ -1764,6 +1764,7 @@ export type AiPromptTemplate = {
 
 export type AiDesignedTestCaseCandidate = {
   client_id: string;
+  reference_attachment_ids?: string[];
   title: string;
   description: string | null;
   priority: number;
@@ -1805,6 +1806,7 @@ export type AiDesignPreviewResponse = {
 };
 
 export type AiAuthoredTestCasePreview = {
+  reference_attachment_ids?: string[];
   summary?: string | null;
   title: string;
   description: string | null;
@@ -2683,7 +2685,7 @@ export type ExecutionScopeSnapshot = {
 };
 
 export type Execution = {
-  live_sessions?: { engine_run_id: string; provider: string; url: string }[];
+  live_sessions?: { engine_run_id: string; test_case_id: string; data_set_iteration_index: number | null; data_set_iteration_key: string | null; provider: string; url: string }[];
   test_data_options?: TestDataOptions;
   release_id?: string | null;
   iteration_id?: string | null;

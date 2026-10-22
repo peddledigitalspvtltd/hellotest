@@ -205,8 +205,8 @@ test("typed repair context remains atomic through the bounded model packet", () 
   const packet = JSON.parse(agenticAssistant._internals.buildBoundedAgentPromptPayload(input));
   assert.equal(packet.bounded_workspace_context.automation_repair[0].content, content);
   assert.equal(packet.bounded_workspace_context.automation_repair[0].excerpt_truncated, undefined);
-  assert.throws(() => agenticAssistant._internals.buildBoundedAgentPromptPayload({ ...input, maxChars: 1000 }), /exact repair contract/);
-  assert.throws(() => agenticAssistant._internals.buildBoundedAgentPromptPayload({ ...input, context: { automation_repair: [{ content: "x".repeat(24001) }] } }), /exact repair contract/);
+  assert.throws(() => agenticAssistant._internals.buildBoundedAgentPromptPayload({ ...input, maxChars: 1000 }), { code: 'AGENT_CONTEXT_BUDGET' });
+  assert.throws(() => agenticAssistant._internals.buildBoundedAgentPromptPayload({ ...input, context: { automation_repair: [{ content: "x".repeat(24001) }] } }), { code: 'AGENT_CONTEXT_BUDGET' });
 });
 
 test("deterministic agent fallback produces a decision-ready specialist brief from live evidence", () => {

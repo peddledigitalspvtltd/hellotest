@@ -6,7 +6,7 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
  try{
   await require('../../src/migrate').migrate();
   await db.query("INSERT INTO roles(id,name) VALUES ('mcp-fixture-role','MCP Fixture')");
-  await db.query("INSERT INTO role_permissions(role_id,permission_id) SELECT 'mcp-fixture-role',id FROM permissions WHERE code IN ('project.view','app_type.view','testcase.view','testcase.create','knowledge.view','agentic_workflow.view','environment.view','configuration.view','requirement.view','requirement.create','requirement.update','feedback.view','feedback.create')");
+  await db.query("INSERT INTO role_permissions(role_id,permission_id) SELECT 'mcp-fixture-role',id FROM permissions WHERE code IN ('project.view','app_type.view','testcase.view','testcase.create','run.view','run.create','knowledge.view','agentic_workflow.view','environment.view','configuration.view','requirement.view','requirement.create','requirement.update','feedback.view','feedback.create')");
   await db.query("INSERT INTO users(id,email,password_hash,name,default_role_id) VALUES ('mcp-a','mcp-a@example.test','unused','A','mcp-fixture-role'),('mcp-b','mcp-b@example.test','unused','B','mcp-fixture-role')");
   await db.query("INSERT INTO projects(id,name,visibility,created_by) VALUES ('mcp-p-a','Project A','private','mcp-a'),('mcp-p-b','Project B','private','mcp-b')");
   await db.query("INSERT INTO project_members(id,project_id,user_id,role_id) VALUES ('mcp-aa','mcp-p-a','mcp-a','mcp-fixture-role'),('mcp-ab','mcp-p-b','mcp-a','mcp-fixture-role'),('mcp-bb','mcp-p-b','mcp-b','mcp-fixture-role')");
@@ -39,6 +39,9 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   const builtinStatus=await app.inject({method:'GET',url:'/agentic-workflows/mcp/status?project_id=mcp-p-a',headers});assert.equal(builtinStatus.statusCode,200,builtinStatus.body);assert.equal(builtinStatus.json().status,'connected');assert.equal(builtinStatus.headers['cache-control'],'no-store');
   const connection=await app.inject({method:'GET',url:'/agentic-workflows/mcp/server?project_id=mcp-p-a',headers});assert.equal(connection.statusCode,200,connection.body);const descriptor=connection.json();assert.equal(descriptor.client_contract.authentication,'manual_bearer');assert.equal(descriptor.client_contract.oauth_supported,false);assert.ok(descriptor.tools.find(tool=>tool.name==='hellotest_graph_trace').input_schema.properties.token_budget);assert.ok(descriptor.discovery.resource_templates.includes('hellotest://projects/{project_id}/graph/ontology'));
   const graphSchema=await rpc('hellotest_graph_schema');assert.equal(graphSchema.result.isError,undefined,JSON.stringify(graphSchema.result));assert.ok(graphSchema.result.structuredContent.data.ontology.node_kinds.includes('requirement'));
+  const resolvedGraph=await rpc('hellotest_graph_resolve',{query:'Auth service'});assert.equal(resolvedGraph.result.isError,undefined,JSON.stringify(resolvedGraph.result));assert.deepEqual(resolvedGraph.result.structuredContent.data.nodes.map(node=>node.id),[graphFixture.sourceId]);
+  const removedAliasGraph=await rpc('hellotest_graph_resolve',{query:'AuthSvc'});assert.deepEqual(removedAliasGraph.result.structuredContent.data.nodes,[],'The removed curated alias must not survive in MCP resolution');
+  const foreignResolvedGraph=await rpc('hellotest_graph_resolve',{identifiers:['cg-management-foreign']});assert.deepEqual(foreignResolvedGraph.result.structuredContent.data.nodes,[]);
   const graphContext=await rpc('hellotest_graph_context',{seeds:[graphFixture.source],hops:2,token_budget:8000});
   assert.equal(graphContext.result.isError,undefined,JSON.stringify(graphContext.result));
   const graphData=graphContext.result.structuredContent.data;
@@ -82,6 +85,9 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   const cross=await rpc('hellotest_operation_read',{operation_id:read.id,arguments:{path:{id:'mcp-case-b'}}});assert.equal(cross.result.isError,true);assert.ok(!JSON.stringify(cross.result).includes('B private case'));
   const projection=await rpc('hellotest_database_query',{entity:'test_cases',fields:['id','title']});assert.deepEqual(projection.result.structuredContent.data.rows.map(row=>row.id),['mcp-case-a']);
   const fragment=await rpc('hellotest_knowledge_fetch',{fragment_id:'mcp-fragment'});assert.equal(fragment.result.isError,undefined,JSON.stringify(fragment.result));assert.equal(fragment.result.structuredContent.data.fragment.content,'Release requires passing tests');
+  assert.equal(fragment.result.structuredContent.data.citation.document_id,'mcp-document');assert.equal(fragment.result.structuredContent.data.citation.source_version,'1');assert.match(fragment.result.structuredContent.data.citation.chunk_hash,/^[a-f0-9]{64}$/);
+  const changedFragment=await rpc('hellotest_knowledge_fetch',{fragment_id:'mcp-fragment',expected_document_id:'outdated-document'});assert.equal(changedFragment.result.isError,true);assert.match(changedFragment.result.content[0].text,/KNOWLEDGE_EVIDENCE_CHANGED/);
+  const pinnedProof=await rpc('hellotest_knowledge_fetch',{fragment_id:graphProof.chunk_id,expected_document_id:graphProof.document_id,expected_version_hash:graphProof.citation.version_hash});assert.equal(pinnedProof.result.isError,undefined,JSON.stringify(pinnedProof.result));assert.equal(pinnedProof.result.structuredContent.data.citation.chunk_hash,graphProof.citation.chunk_hash);
   await db.query("UPDATE ai_knowledge_security_bindings SET effect='DENY' WHERE id='mcp-binding'");const deniedFragment=await rpc('hellotest_knowledge_fetch',{fragment_id:'mcp-fragment'});assert.equal(deniedFragment.result.isError,true);assert.ok(!JSON.stringify(deniedFragment.result).includes('Release requires passing tests'));await db.query("UPDATE ai_knowledge_security_bindings SET effect='ALLOW' WHERE id='mcp-binding'");
   const historical=await rpc('hellotest_knowledge_fetch',{fragment_id:'mcp-fragment',as_of:new Date().toISOString()});assert.equal(historical.result.isError,true);
   const otherApplication=await rpc('hellotest_context_build',{question:'Show app context',app_type_id:'mcp-app-b'});assert.equal(otherApplication.result.isError,true);
@@ -123,7 +129,34 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   const uncertain=await rpc('hellotest_operation_prepare',{operation_id:create.id,arguments:{body:{app_type_id:'mcp-app-a',title:'Uncertain receipt fixture'}}});const uncertainPlan=uncertain.result.structuredContent.data;
   const uncertainApproval=await app.inject({method:'POST',url:`/agentic-workflows/mcp/plans/${uncertainPlan.plan_id}/authorize`,headers,payload:{project_id:'mcp-p-a',digest:uncertainPlan.digest}});assert.equal(uncertainApproval.statusCode,200);
   const actualInject=app.inject.bind(app);app.inject=async options=>{const response=await actualInject(options);if(options.method==='POST'&&options.url.startsWith('/test-cases?'))throw new Error('Fixture loses receipt after committed create');return response;};
-  try{const unknown=await rpc('hellotest_operation_execute',{plan_id:uncertainPlan.plan_id});assert.equal(unknown.result.structuredContent.data.state,'unknown');const repeated=await rpc('hellotest_operation_execute',{plan_id:uncertainPlan.plan_id});assert.equal(repeated.result.structuredContent.data.state,'unknown');assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM test_cases WHERE title=?').get('Uncertain receipt fixture')).count,1);}finally{app.inject=actualInject;}
+  try{const unknown=await rpc('hellotest_operation_execute',{plan_id:uncertainPlan.plan_id});assert.equal(unknown.result.structuredContent.data.state,'unknown');const repeated=await rpc('hellotest_operation_execute',{plan_id:uncertainPlan.plan_id});assert.equal(repeated.result.structuredContent.data.state,'succeeded_verified');assert.match(repeated.result.structuredContent.data.reconciliation,/No replacement/);assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM test_cases WHERE title=?').get('Uncertain receipt fixture')).count,1);}finally{app.inject=actualInject;}
+  const runCatalog=await rpc('hellotest_capabilities',{query:'/executions',limit:50});
+  const runCreate=runCatalog.result.structuredContent.data.operations.find(op=>op.method==='POST'&&op.path==='/executions');assert.ok(runCreate);
+  const executionPlan=async name=>{const result=await rpc('hellotest_operation_prepare',{operation_id:runCreate.id,arguments:{body:{app_type_id:'mcp-app-a',test_case_ids:['mcp-case-a'],execution_mode:'manual',name}}});assert.equal(result.result.isError,undefined,JSON.stringify(result.result));return result.result.structuredContent.data;};
+  const approvePlan=plan=>app.inject({method:'POST',url:`/agentic-workflows/mcp/plans/${plan.plan_id}/authorize`,headers,payload:{project_id:'mcp-p-a',digest:plan.digest}});
+  for(const invalidation of ['expiry','catalog','arguments']){
+   const invalidated=await executionPlan(`Invalid ${invalidation}`);
+   if(invalidation==='expiry')await db.prepare("UPDATE mcp_action_plans SET expires_at=NOW()-INTERVAL '1 second' WHERE id=?").run(invalidated.plan_id);
+   if(invalidation==='catalog')await db.prepare("UPDATE mcp_action_plans SET catalog_revision='old-catalog' WHERE id=?").run(invalidated.plan_id);
+   if(invalidation==='arguments')await db.prepare("UPDATE mcp_action_plans SET arguments=jsonb_set(arguments,'{body,name}','\"Changed after preparation\"') WHERE id=?").run(invalidated.plan_id);
+   assert.equal((await approvePlan(invalidated)).statusCode,409,`Invalid ${invalidation} cannot be authorized`);
+  }
+  const revisionPlan=await executionPlan('Stale history revision');assert.equal(revisionPlan.preview.arguments.preconditions.execution_case_revisions[0].revision,1);
+  await db.query("INSERT INTO test_case_versions(id,test_case_id,revision,snapshot) VALUES ('mcp-history-revision','mcp-case-a',1,'{}')");
+  assert.equal((await approvePlan(revisionPlan)).statusCode,409,'A changed source revision cannot be approved');
+  await db.query("INSERT INTO test_steps(id,test_case_id,step_order,action,expected_result) VALUES ('mcp-reviewed-step','mcp-case-a',1,'Submit checkout','One order exists')");
+  const changedStepPlan=await executionPlan('Stale standalone step');assert.equal((await approvePlan(changedStepPlan)).statusCode,200);
+  await db.query("UPDATE test_steps SET action='Submit changed checkout' WHERE id='mcp-reviewed-step'");
+  const staleSteps=await rpc('hellotest_operation_execute',{plan_id:changedStepPlan.plan_id});assert.equal(staleSteps.result.isError,true);assert.match(staleSteps.result.content[0].text,/MCP_STALE_PLAN/);
+  assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM executions WHERE source_idempotency_key=?').get('mcp-plan-'+changedStepPlan.plan_id)).count,0);
+  const atomicPlan=await executionPlan('Atomic source validation');assert.equal((await approvePlan(atomicPlan)).statusCode,200);
+  app.inject=async options=>{if(options.method==='POST'&&options.url.startsWith('/executions?'))await db.query("UPDATE test_steps SET action='Changed between claim and native snapshot' WHERE id='mcp-reviewed-step'");return actualInject(options);};
+  try{const atomic=await rpc('hellotest_operation_execute',{plan_id:atomicPlan.plan_id});assert.equal(atomic.result.structuredContent.data.state,'failed');assert.equal(atomic.result.structuredContent.data.code,'MCP_STALE_PLAN');}finally{app.inject=actualInject;}
+  assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM executions WHERE source_idempotency_key=?').get('mcp-plan-'+atomicPlan.plan_id)).count,0,'Domain validation closes the gap between MCP claim and native snapshot');
+  const freshRunPlan=await executionPlan('Reviewed source snapshots');assert.equal((await approvePlan(freshRunPlan)).statusCode,200);
+  const freshRun=await rpc('hellotest_operation_execute',{plan_id:freshRunPlan.plan_id});assert.equal(freshRun.result.structuredContent.data.state,'succeeded_verified',JSON.stringify(freshRun.result));
+  assert.equal(freshRun.result.structuredContent.data.verification.source_revisions[0].revision,2);
+  const frozenStep=await db.prepare('SELECT action FROM execution_step_snapshots WHERE execution_id=?').get(freshRun.result.structuredContent.data.domain_id);assert.equal(frozenStep.action,'Changed between claim and native snapshot');
   // Acceptance saves native domain records and a durable receipt atomically.
   const createdStory=await app.inject({method:'POST',url:'/requirements',headers,payload:{project_id:'mcp-p-a',title:'Recorded retry intent',description:'Preserve exactly one order.',acceptance_criteria:['One order remains.']}});
   assert.equal(createdStory.statusCode,200,createdStory.body);

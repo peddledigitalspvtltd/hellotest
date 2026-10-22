@@ -284,6 +284,13 @@ module.exports = async function (fastify) {
     return reply.code(202).send(run);
   });
 
+  fastify.post("/agentic-workflow-runs/:id/drafts/accept", async (req) => {
+    await fastify.authenticate(req);
+    const run = await agenticWorkflowService.getWorkflowRun(req.params.id);
+    await requireProjectPermission(req, run.project_id, "agentic_workflow.run");
+    return require("../workflows/acceptDraft").accept(fastify, req, run);
+  });
+
   fastify.post("/agentic-workflow-runs/:id/cancel", async (req) => {
     await fastify.authenticate(req);
     const run = await agenticWorkflowService.getWorkflowRun(req.params.id);

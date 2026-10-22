@@ -16,6 +16,7 @@ export type WorkflowTemplate = {
   task?: string;
 };
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
+  { id: "sprint-automator", name: "Sprint Automator", category: "Data flow", description: "Read every Story in a Sprint through a managed API connection, assess Stories, generate and assess Test Cases, then produce automation drafts for acceptance." },
   {
     id: "foreach",
     name: "Process a list of items",
@@ -97,6 +98,22 @@ export function draftFromTemplate(template: WorkflowTemplate): {
   draft.name = template.name;
   draft.description = template.description;
   if (template.id === "release") return { draft };
+  if (template.id === "sprint-automator") {
+    const definitions: Array<[string, string, Record<string, unknown>]> = [
+      ["request", "trigger", { label: "Manual Sprint trigger" }],
+      ["sprint-stories", "apiTool", { label: "Read all Sprint Stories", apiResource: "sprintStories", apiPagination: "cursor", apiMethod: "GET", connectionId: "", apiUrl: "", timeoutMs: "70000", retryCount: "0", outputKey: "sprint_stories" }],
+      ["each-story", "loop", { label: "For each Story", loopSourceKey: "input.items", loopMaxIterations: "100", loopAction: "storyPackets", timeoutMs: "70000", outputKey: "story_packets" }],
+      ["story-assurance", "artifactTask", { label: "AI Story Assurance", artifactTask: "story-assurance" }],
+      ["test-case-generation", "artifactTask", { label: "AI Test Case Generator", artifactTask: "test-case-generation" }],
+      ["test-case-assurance", "artifactTask", { label: "AI Test Case Quality Assurance", artifactTask: "test-case-assurance" }],
+      ["automation-engineer", "artifactTask", { label: "AI Automation Engineer", artifactTask: "automation-engineer" }],
+      ["sprint-output", "output", { label: "Review Sprint drafts" }],
+    ];
+    draft.nodes = definitions.map(([id, kind, data], index) => ({ id, type: "agenticStep", position: { x: 80 + index * 310, y: 140 }, data: { ...buildNodeDefaults(kind as Parameters<typeof buildNodeDefaults>[0], index), ...data } }));
+    draft.edges = draft.nodes.slice(1).map((node, index) => createFlowEdge(draft.nodes[index].id, node.id));
+    draft.settings = { execution_mode: "review", maxDurationMs: 3600000 };
+    return { draft, input: JSON.stringify({ sprint_id: "", integration_id: "", max_cases_per_story: 5, authoring_mode: "structured", automation_start_url: "", generation_instructions: "" }, null, 2) };
+  }
   if (["foreach", "custom"].includes(template.id)) {
     const task = {
       id: `task-${template.id}`,

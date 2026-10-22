@@ -171,12 +171,13 @@ const processingProfile = (chunking = {}) => {
     fingerprint: fingerprint(JSON.stringify({ version: KNOWLEDGE_PROCESSING_VERSION, chunking: normalizedChunking }))
   };
 };
-const canReuseSourceVersion = ({ existing, readyDocument, contentHash, documentHash, processingFingerprint }) => Boolean(
+const canReuseSourceVersion = ({ existing, readyDocument, contentHash, documentHash, processingFingerprint, metadataFingerprint }) => Boolean(
   readyDocument
   && existing?.extraction_status === "ready"
   && existing?.checksum_sha256 === contentHash
   && (!documentHash || readyDocument.checksum_sha256 === documentHash)
   && (!processingFingerprint || asObject(readyDocument.metadata).processing_pipeline?.fingerprint === processingFingerprint)
+  && (!metadataFingerprint || asObject(readyDocument.metadata).repository_provenance_fingerprint === metadataFingerprint)
 );
 const resolveAllowedSourcePermissions = async (user, projectId) => {
   if (!user) return [];
@@ -1064,7 +1065,14 @@ const createSource = async ({ projectId, collectionId, input, userId, jobId, lea
       SELECT id, checksum_sha256, metadata FROM ai_knowledge_documents
       WHERE source_id = ? AND is_active = TRUE LIMIT 1
     `).get(existing.id);
-    if (canReuseSourceVersion({ existing, readyDocument, contentHash, documentHash, processingFingerprint: input.processing_fingerprint })) {
+    const reusable = canReuseSourceVersion({ existing, readyDocument, contentHash, documentHash, processingFingerprint: input.processing_fingerprint, metadataFingerprint: input.metadata_fingerprint });
+    const graphReady = !reusable || !input.graph_projection_required || Boolean((await db.prepare(`SELECT 1 AS ready
+      FROM ai_knowledge_graph_nodes nodes JOIN ai_knowledge_graph_projection_states projections ON projections.project_id = nodes.project_id
+      WHERE nodes.source_id = ? AND nodes.project_id = ? AND nodes.tombstoned_at IS NULL AND projections.document_id = ?
+        AND EXISTS(SELECT 1 FROM ai_knowledge_graph_chunk_entities fragments WHERE fragments.project_id = nodes.project_id
+          AND fragments.node_id = nodes.source_id AND fragments.source_id = nodes.source_id AND fragments.document_id = projections.document_id)
+      LIMIT 1`).get(existing.id, projectId, readyDocument.id))?.ready);
+    if (reusable && graphReady) {
       return { ...existing, _reused: true, _new: false, _had_ready_version: true };
     }
     // Reserve only an index attempt. Visible source metadata changes atomically
@@ -2161,7 +2169,7 @@ const processLegacyKnowledgeSyncOutbox = async ({ limit = 4, leaseMinutes = 10 }
     try {
       const record = event.action === "upsert" ? await db.prepare(`
         SELECT id, project_id, app_type_id, title, description, content_type,
-          content, source_uri, is_active
+          content, source_uri, is_active, metadata
         FROM ai_knowledge_repo WHERE id = ? AND project_id = ?
       `).get(event.source_ref_id, event.project_id) : null;
       if (!record || !record.is_active || !normalizeText(record.content)) {
@@ -3358,6 +3366,7 @@ const syncLegacyKnowledgeItem = async (projectId, item, userId, { signal, activa
     await archiveLegacyKnowledgeSource(projectId, item.id);
     return null;
   }
+  const provenance = require('./knowledgeRepositoryProvenance').repositoryProvenanceMetadata(item.metadata);
   const input = {
     source_kind: "knowledge_item",
     source_ref_id: item.id,
@@ -3366,7 +3375,9 @@ const syncLegacyKnowledgeItem = async (projectId, item, userId, { signal, activa
     content: [item.description, item.content].filter(Boolean).join("\n\n"),
     source_uri: item.source_uri || null,
     extraction_strategy: "legacy_knowledge_item",
-    metadata: { content_type: item.content_type, legacy: true },
+    metadata: { content_type: ['text','url','video_url','file','pdf','image','markdown'].includes(item.content_type) ? item.content_type : 'text', legacy: true, ...provenance },
+    metadata_fingerprint: provenance.repository_provenance_fingerprint,
+    graph_projection_required: Boolean(provenance.repository_agent_key),
     processing_fingerprint: processingProfile({}).fingerprint
   };
   const source = await createSource({ projectId, input, userId });
@@ -3383,12 +3394,13 @@ const syncLegacyKnowledgeItem = async (projectId, item, userId, { signal, activa
     signal,
     activationGuard: async () => {
       const current = await db.prepare(`
-        SELECT description, content, is_active
+        SELECT description, content, is_active, metadata
         FROM ai_knowledge_repo WHERE id = ? AND project_id = ?
         FOR SHARE
       `).get(item.id, projectId);
       const currentMatches = Boolean(current?.is_active)
-        && fingerprint(sanitizeAiText([current.description, current.content].filter(Boolean).join("\n\n")).text) === expectedHash;
+        && fingerprint(sanitizeAiText([current.description, current.content].filter(Boolean).join("\n\n")).text) === expectedHash
+        && (!input.metadata_fingerprint || require('./knowledgeRepositoryProvenance').repositoryProvenanceMetadata(current.metadata).repository_provenance_fingerprint === input.metadata_fingerprint);
       return currentMatches && (!activationGuard || await activationGuard());
     }
   });

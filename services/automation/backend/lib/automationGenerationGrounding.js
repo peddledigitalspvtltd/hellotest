@@ -55,4 +55,10 @@ function validateNavigationGrounding(source,knownOrigins,{parameters={},resolveT
   if(!knownOrigins.has(url.origin))throw Object.assign(new Error(`Generated navigation to ${url.origin} has no supplied or observed URL evidence. Use a configured source/parameter reference or report the missing external dependency; do not invent an application or mailbox URL.`),{code:'AUTOMATION_UNGROUNDED_NAVIGATION'});
  });
 }
-module.exports={navigationOrigins,validateNavigationGrounding,scopeRepositoryToTarget,buildNavigationOrigins};
+function validateApiRequestGrounding(request, knownOrigins, resolveText = value=>value) {
+ const text=resolveText(request?.url||'');
+ if(!text || /@(?:t|s|r)\.|\$\{|\{\{/.test(text) || !/^https?:\/\//i.test(text))return;
+ const origin=new URL(text).origin;
+ if(!knownOrigins.has(origin))throw Object.assign(new Error(`Generated API target ${origin} has no supplied endpoint evidence. Supply its API contract, request example or configured URL parameter instead of inventing a host.`),{code:'AUTOMATION_UNGROUNDED_API_TARGET'});
+}
+module.exports={navigationOrigins,validateNavigationGrounding,validateApiRequestGrounding,scopeRepositoryToTarget,buildNavigationOrigins};

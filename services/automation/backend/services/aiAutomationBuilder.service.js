@@ -9,7 +9,7 @@ const { completeAutomationBuild } = require("../lib/automationBuildCompletion");
 const {canonicalizeRepositoryRows,canonicalPageUrl,repositoryInputMetadata}=require("../lib/repositoryScreenIdentity");
 const {sameRecordedLocator}=require("../lib/automationLocatorIdentity");
 const {normalizeGeneratedProgram,preserveGeneratedAssertions}=require("../lib/automationGeneratedProgram");
-const {navigationOrigins,validateNavigationGrounding,scopeRepositoryToTarget,buildNavigationOrigins}=require('../lib/automationGenerationGrounding');
+const {navigationOrigins,validateNavigationGrounding,validateApiRequestGrounding,scopeRepositoryToTarget,buildNavigationOrigins}=require('../lib/automationGenerationGrounding');
 const {normalizeAutomationStartUrl,requiresAutomationStartUrl}=require('@hellotest/platform/backend/src/utils/automationStartUrl');
 const { loadAutomationStoryContext, loadAutomationManualContext, manualContextKey, automationPromptParameters, loadAutomationParameterContext, resolveAutomationStartUrl } = require("../lib/automationBuildContext");
 const { resolveMobileRecorderPlatform } = require("../domain/mobileRecorderPlan");
@@ -31,6 +31,8 @@ const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llm
 const { getCompletionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
 const {
   normalizeApiRequest,
+  inferAutomationStepType,
+  validateGeneratedApiRequest,
   normalizeRichText,
   normalizeTestStepType,
   parseJsonValue
@@ -571,7 +573,10 @@ const requestChatCompletion = async ({ integration, prompt, content, featureKey,
       response_format: { type: "json_object" },
       messages: [
         ...(activeGoal && typeof activeGoal.action === 'string' && typeof activeGoal.expected_result === 'string'
-          && activeGoal.action.length + activeGoal.expected_result.length <= 2000 ? [{role:'system',content:'The host selected ONLY this current manual section: '+JSON.stringify({action:activeGoal.action,expected_result:activeGoal.expected_result})+'. Complete this action and every listed outcome using current evidence. The broader case brief remains constraints and context; later actions are not requested in this call. Tools excluded by the current action policy are unnecessary for this section, not a missing prerequisite for later actions.'}] : []),
+          && activeGoal.action.length + activeGoal.expected_result.length <= 2000 ? [
+            {role:'system',content:aiInstructionBlock(featureKey || 'ai.automation.keyword_generation', 'automationBrowserAgent.activeGoal')},
+            {role:'user',content:JSON.stringify({host_selected_current_manual_section:{action:activeGoal.action,expected_result:activeGoal.expected_result}})}
+          ] : []),
         {
           role: "user",
           content: content || prompt
@@ -1218,7 +1223,7 @@ const buildRecorderRepositoryModel = async ({
 const summarizeStep = (step) => ({
   id: step.id,
   order: Number(step.step_order || 0),
-  type: step.step_type || "web",
+  type: inferAutomationStepType(step),
   action: step.action || "",
   expected_result: step.expected_result || "",
   group: { id: step.group_id, name: step.group_name, kind: step.group_kind, shared_group_id: step.reusable_group_id },
@@ -2143,6 +2148,7 @@ const buildPrompt = ({
     aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.44"),
     "",
     aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.45"),
+    aiInstructionBlock("ai.automation.keyword_generation", "automationBuild.apiRuntime"),
     "",
     aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.66"),
     "{",
@@ -2356,7 +2362,7 @@ const findCachedLocator = (step, cacheRows = []) => {
   })?.locator || null;
 };
 
-const normalizeStepCandidate = (candidate, stepsById, stepsByOrder) => {
+const normalizeStepCandidate = (candidate, stepsById, stepsByOrder, appTypeKind) => {
   if (!isPlainObject(candidate)) {
     return null;
   }
@@ -2378,36 +2384,13 @@ const normalizeStepCandidate = (candidate, stepsById, stepsByOrder) => {
     throw new Error("Automation output contains an unsupported runtime. Use web, api, android or ios.");
   }
   const apiRequest = candidate.api_request ?? candidate.apiRequest;
-  if (apiRequest && normalizeTestStepType(suppliedType, step.step_type || "web") === "api") {
-    const request = parseJsonValue(apiRequest, null);
-    const method = String(request?.method || "GET").trim().toUpperCase();
-    const bodyMode = String(request?.body_mode || request?.bodyMode || request?.bodyType || "none").trim().toLowerCase();
-    if (!request || !["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(method)
-      || !["none", "json", "text", "xml", "form"].includes(bodyMode)
-      || (request.body != null && typeof request.body !== "string")) {
-      throw new Error(`Step ${step.step_order} contains an invalid API request. Use a supported method and a string request body.`);
-    }
-    for (const key of ["headers", "validations", "captures"]) {
-      if (request[key] != null && !Array.isArray(request[key])) throw new Error(`Step ${step.step_order} API ${key} must be an array.`);
-    }
-    if(request.headers?.some(header=>!isPlainObject(header)||!normalizeText(header.key)||typeof header.value!=="string"))throw new Error(`Step ${step.step_order} contains an invalid API header. Preserve each header name and string value.`);
-    if (request.validations?.some((validation) => !["status", "header", "body_contains", "json_path"].includes(validation?.kind || validation?.type)
-      || typeof (validation.expected ?? validation.value) !== "string"
-      || (["header", "json_path"].includes(validation.kind || validation.type) && !normalizeText(validation.target || validation.path)))) {
-      throw new Error(`Step ${step.step_order} contains an invalid API assertion. Provide a supported kind, target when required, and string expected value.`);
-    }
-    if (request.captures?.some((capture) => !normalizeText(capture?.path) || !normalizeText(capture?.parameter))) throw new Error(`Step ${step.step_order} contains an incomplete API capture.`);
-    const normalized=normalizeApiRequest(request);
-    if(['headers','validations','captures'].some(key=>(request[key]?.length||0)!==(normalized?.[key]?.length||0)))throw new Error(`Step ${step.step_order} contains API fields that would be discarded. Provide complete headers, assertions and captures.`);
-    if(request.body && (bodyMode==='none'||['GET','HEAD'].includes(method)))throw new Error(`Step ${step.step_order} supplies an API body that this method or body mode would discard.`);
-    if(request.timeout_ms!==undefined&&Number(request.timeout_ms)!==normalized?.timeout_ms)throw new Error(`Step ${step.step_order} API timeout must fit the supported runtime range without normalization.`);
-    const existing=normalizeApiRequest(step.api_request);
-    for(const key of ['validations','captures'])if(existing?.[key]?.some(item=>!normalized?.[key]?.some(next=>JSON.stringify(next)===JSON.stringify(item))))throw new Error(`Step ${step.step_order} removed or changed an existing API ${key==='validations'?'assertion':'capture'}. Preserve the saved behavior and expected values.`);
+  if (apiRequest && normalizeTestStepType(suppliedType, inferAutomationStepType(step, {appTypeKind})) === "api") {
+    validateGeneratedApiRequest(apiRequest, {stepOrder:step.step_order, existingRequest:step.api_request, expectedResult:step.expected_result});
   }
 
   return {
     step,
-    step_type: normalizeTestStepType(candidate.step_type || candidate.stepType, step.step_type || "web"),
+    step_type: normalizeTestStepType(candidate.step_type || candidate.stepType, inferAutomationStepType(step, {appTypeKind})),
     automation_code: normalizeRichText(candidate.automation_code || candidate.automationCode || candidate.code),
     api_request: normalizeApiRequest(candidate.api_request || candidate.apiRequest)
   };
@@ -2420,9 +2403,9 @@ const normalizeLlmBuild = (payload, steps, cacheRows, startUrl, grounding) => {
   const byStepId = new Map();
 
   candidates.forEach((candidate) => {
-    const normalized = normalizeStepCandidate(candidate, stepsById, stepsByOrder);
+    const normalized = normalizeStepCandidate(candidate, stepsById, stepsByOrder, grounding?.appTypeKind);
     if (!normalized || byStepId.has(normalized.step.id)) throw new Error("Automation output contains an unknown or duplicate step. Retry generation.");
-    if (normalized.step_type !== normalizeTestStepType(normalized.step.step_type, "web")) throw new Error("Automation output changed a step runtime. Keep web, API and native steps in their original runtime.");
+    if (normalized.step_type !== inferAutomationStepType(normalized.step, {appTypeKind:grounding?.appTypeKind})) throw new Error("Automation output changed a step runtime. Keep web, API and native steps in their original runtime.");
     byStepId.set(normalized.step.id, normalized);
   });
 
@@ -2440,6 +2423,7 @@ const normalizeLlmBuild = (payload, steps, cacheRows, startUrl, grounding) => {
       catch { throw new Error(`Step ${step.step_order} contains invalid JavaScript. Retry generation.`); }
     }
     if (stepType === "api" && !candidate?.api_request?.url) throw new Error(`Step ${step.step_order} needs a complete API request.`);
+    if (stepType === "api" && grounding?.apiOrigins) validateApiRequestGrounding(candidate.api_request,grounding.apiOrigins,grounding.resolveText);
 
     return {
       step,
@@ -2468,6 +2452,39 @@ const normalizeLlmBuild = (payload, steps, cacheRows, startUrl, grounding) => {
     updates,
     learned_locators: learnedLocators
   };
+};
+
+/** Workflow previews use the native section validator without saving a case,
+ * opening a browser, or making any request to the application under test. */
+exports.previewAutomationDraft = async ({ draft, project_id, app_type_id, app_type_kind = 'web', user_id, integration_id, additional_context, signal } = {}) => {
+  if (!project_id || !app_type_id || !user_id || !draft || typeof draft !== 'object') throw Object.assign(new Error('Supply the project, application, actor and Test Case draft for automation preview.'), {statusCode:400});
+  const access = await getOptionalEvidenceAccess({id:user_id}, project_id, ['automation.ai','automation.build']);
+  if (!access['automation.ai'] || !access['automation.build']) throw Object.assign(new Error('Automation preview requires AI and build access.'), {statusCode:403});
+  const application = await db.prepare('SELECT id,type FROM app_types WHERE id=? AND project_id=?').get(app_type_id,project_id);
+  if (!application) throw Object.assign(new Error('The selected application is unavailable in this project.'),{statusCode:404});
+  app_type_kind = application.type || app_type_kind;
+  const source = Array.isArray(draft.steps) ? draft.steps : [];
+  if (!source.length || source.length > 200) throw Object.assign(new Error('Automation preview needs between 1 and 200 authored Test Case steps.'),{statusCode:422});
+  const apiFixture=step=>!normalizeRichText(step.automation_code)&&(!step.step_type||['manual','web'].includes(step.step_type))&&(step.gherkin_keyword==='Given'||step.gherkin_role==='background'&&step.gherkin_keyword==='And')&&/\b(?:existing|exists|available|configured|valid|authenticated|precondition|fixture|API)\b/i.test(step.action||'')&&!/\b(?:browser|page|screen|dashboard|button|tab|window|click|tap|type|fill|enter|select|navigate|browse|visit|hover|scroll)\b/i.test(step.action||'')&&!/^(?:I\s+)?open\b/i.test(step.action||'');
+  const apiScenario=source.some(step=>step.gherkin_keyword==='When'&&inferAutomationStepType(step)==='api')&&source.every(step=>inferAutomationStepType(step)==='api'||apiFixture(step));
+  const steps = source.map((step,index)=>({...step,id:typeof step.id==='string'&&step.id?step.id:`draft-step-${index+1}`,step_order:index+1,step_type:inferAutomationStepType(step,{appTypeKind:apiScenario&&apiFixture(step)?'api':app_type_kind})}));
+  const startUrl=normalizeAutomationStartUrl(draft.automation_start_url,{required:requiresAutomationStartUrl({appTypeKind:app_type_kind,steps})});
+  if (new Set(steps.map(step=>step.id)).size !== steps.length) throw Object.assign(new Error('Draft step identifiers must be unique.'),{statusCode:422});
+  const featureKey = 'ai.agentic.automation-engineer';
+  const featureProfile=await require('@hellotest/platform/backend/services/aiConfiguration.service').resolve(featureKey);
+  const integration = await resolveLlmIntegration(integration_id,{userId:user_id,projectId:project_id,usageKey:featureKey});
+  if (!integration) throw Object.assign(new Error('Configure an active LLM integration before generating automation.'),{statusCode:422});
+  const resolver=require('../lib/automationBrowserParameters').createBrowserParameterResolver({testCase:draft,caseValues:draft.parameter_values||{},privateParameterNames:draft.test_data_options?.private_parameter_names||[],steps,materialize:false});
+  const promptSteps=resolver.projectSteps(steps).map(step=>JSON.parse(resolver.projectPrivateText(JSON.stringify(step),{preserveReferences:true})));
+  const prompt = buildPrompt({testCase:resolver.projectCase({...draft,project_id,app_type_id,app_type_kind}),steps:promptSteps,cacheRows:[],knowledgeRows:[],capturedActions:[],capturedNetwork:[],startUrl,buildContext:{generation_mode:'draft_preview',verification_status:'unverified'},additionalContext:resolver.projectText(normalizeRichText(additional_context))});
+  const build = await completeAutomationBuild({steps,displaySteps:promptSteps,sequential:true,availableParameters:resolver.availableParameterNames,feedbackInstruction:aiInstructionBlock(featureKey,'automationBuild.completionFeedback'),validateOutcome:payload=>require('@hellotest/platform/backend/src/utils/aiFeatureRuntime').validateValue(payload,featureProfile),validate:(payload,required)=>normalizeLlmBuild(payload,required,[],startUrl,{appTypeKind:app_type_kind,apiOrigins:navigationOrigins(startUrl,additional_context,steps),origins:navigationOrigins(startUrl,additional_context,steps)}),generate:async({feedback,feedbackInstruction})=>{
+    if(signal?.aborted)throw signal.reason;
+    const current=await getOptionalEvidenceAccess({id:user_id},project_id,['automation.ai','automation.build']);
+    if(!current['automation.ai']||!current['automation.build'])throw Object.assign(new Error('Automation preview access changed.'),{statusCode:403});
+    return requestChatCompletion({integration,featureKey,prompt:[prompt,feedbackInstruction,JSON.stringify(feedback)].join('\n\n'),signal});
+  },parse:extractJsonPayload});
+  const nativeSteps=build.updates.map(update=>({...update.step,step_type:update.step_type,automation_code:update.automation_code,api_request:update.api_request}));
+  return {draft:{...draft,automated:'yes',automation_status:'incomplete',steps:nativeSteps},steps:nativeSteps,automation_start_url:draft.automation_start_url || null,summary:build.summary,verification_status:'unverified',validation:{status:'passed',checks:['native_request_contract','step_runtime_and_order','existing_assertions_preserved']},generation_mode:'llm',integration:{id:integration.id,name:integration.name,model:integration.model},completion_attempts:build.completion_attempts,side_effects:{cases_saved:0,target_requests:0,browser_actions:0}};
 };
 
 
@@ -2847,7 +2864,8 @@ const buildCaseCore = async ({
   const progressiveState={steps:structuredClone(steps),parameter_context_key:parameterContext.source_key,input_context:inputContext,data_snapshot:dataSnapshot};
   const buildIdentity={manual_context:buildContext.linked_manual_cases,manual_link_ids:manualLinkIds,parameter_context_key:parameterContext.source_key,input_context:inputContext,data_snapshot:dataSnapshot,project_id:testCase.project_id,app_type_id:testCase.app_type_id,case_start_url:reviewedNavigation.savedStartUrl};
   const promptCase=browserParameters.projectCase(testCase);
-  let promptSteps=browserParameters.projectSteps(steps);
+  const projectBuildSteps=source=>browserParameters.projectSteps(source).map(step=>({...step,step_type:inferAutomationStepType(step,{appTypeKind:testCase.app_type_kind})}));
+  let promptSteps=projectBuildSteps(steps);
   navigation=resolveAutomationStartUrl({startUrl:selectedStartUrl,caseUrl:testCase.automation_start_url,environmentUrl:browserParameters.projectText(buildContext.environment?.base_url),steps:promptSteps,required:browserBuild});
   startUrl=navigation.url;
   buildContext.browser_policy={...buildContext.browser_policy,interaction_mode:startUrl?(allow_browser_actions===true?'interactive':'read_only'):'not_configured',entry_url:startUrl,entry_origin:startUrl?new URL(startUrl).origin:null};
@@ -2919,7 +2937,7 @@ const buildCaseCore = async ({
       try{require('../lib/automationBuildInputPreflight').assertBuildInputs(steps,browserParameters);}
       catch(error){completionActiveStepId=error.active_step_id;await progress({phase:'automation.agent.dependencies',level:'warning',message:error.message,details:{blocked_steps:error.blocked_steps,active_step_id:error.active_step_id,generation_provider_requests:0,browser_actions:0}});throw error;}
     }
-    if (startUrl && (needsFlowPlanning&&browserBuild||steps.some((step) => normalizeTestStepType(step.step_type, "web") === "web"))) {
+    if (startUrl && (needsFlowPlanning&&browserBuild||steps.some((step) => inferAutomationStepType(step, {appTypeKind:testCase.app_type_kind}) === "web"))) {
       const engine = await resolveTestEngineIntegration(testCase);
       browser = await connectAutomationBrowser({ integration: engine, startUrl, allowBrowserActions: allow_browser_actions === true, signal:execution_guard?.signal });
       const callBrowser=browser.call;
@@ -2960,7 +2978,7 @@ const buildCaseCore = async ({
       const adoptedNavigation=firstWebSection?require('../lib/automationBrowserRecording').adoptPlanningNavigation(browserObservations,firstWebSection.id):0;
       if(adoptedNavigation)await progress({phase:'automation.agent.flow.navigation.reused',message:'Retained confirmed planning navigation as the first browser section’s setup. No browser action was replayed.',details:{active_step_id:firstWebSection.id,confirmed_navigation_count:adoptedNavigation,evidence_source:'protected_planning_operations'}});
       browserParameters.registerStepReferences?.(steps);
-      promptSteps=browserParameters.projectSteps(steps);
+      promptSteps=projectBuildSteps(steps);
       dataSnapshot=await require('../lib/automationBuildDataSnapshot').prepareBuildDataSnapshot({testCase,projectId:testCase.project_id,userId:created_by,generatedValues:browserParameters.generatedCaseValues,authoredValues:browserParameters.reviewedCaseValues,defaultedValues:browserParameters.defaultedCaseValues,parameterOverrides:parameterContext.parameter_overrides,privateNames:browserParameters.privateParameterNames});
       Object.assign(progressiveState,{steps:structuredClone(steps),data_snapshot:dataSnapshot});buildIdentity.data_snapshot=dataSnapshot;
       prompt=buildPrompt({featureKey:buildFeature(ai_feature),testCase:promptCase,steps:promptSteps,cacheRows,knowledgeRows,capturedActions,capturedNetwork,buildContext:promptBuildContext,startUrl,additionalContext:browserParameters.projectText(normalizeRichText(additional_context))});
@@ -2971,8 +2989,8 @@ const buildCaseCore = async ({
       catch(error){if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;await appendEvent(transaction_id,{phase:'automation.agent.data.unavailable',level:'warning',message:'The optional planned-data display could not be stored. Generation continues with the same fixed values.'}).catch(()=>{});}
       await progress({phase:'automation.agent.flow.planned',message:`Prepared ${steps.length} draft manual actions. Each will be performed, generated and saved in order.`,details:{flow_source:'agent_brief',total_sections:steps.length,verification_status:'unverified'}});
     }
-    build = await completeAutomationBuild({steps,manualSteps:buildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),displaySteps:promptSteps,displayManualSteps:promptBuildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),sequential:browserBuild||buildContext.linked_manual_cases.length>0,progressionPolicy,availableParameters:browserParameters.availableParameterNames,feedbackInstruction:aiInstructionBlock(buildFeature(ai_feature),"automationBuild.completionFeedback"),
-      validate:(payload,requiredSteps)=>normalizeLlmBuild(payload,requiredSteps,cacheRows,startUrl,{origins:buildNavigationOrigins({startUrl,additionalContext:additional_context,observations:browserObservations}),parameters:browserParameters.promptValues,resolveText:browserParameters.projectText,
+    build = await completeAutomationBuild({steps,manualSteps:buildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),displaySteps:promptSteps,displayManualSteps:promptBuildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),sequential:browserBuild||steps.some(step=>inferAutomationStepType(step,{appTypeKind:testCase.app_type_kind})==='api')||buildContext.linked_manual_cases.length>0,progressionPolicy,availableParameters:browserParameters.availableParameterNames,feedbackInstruction:aiInstructionBlock(buildFeature(ai_feature),"automationBuild.completionFeedback"),
+      validate:(payload,requiredSteps)=>normalizeLlmBuild(payload,requiredSteps,cacheRows,startUrl,{appTypeKind:testCase.app_type_kind,apiOrigins:navigationOrigins(startUrl,additional_context,steps,capturedNetwork,knowledgeRows.knowledge,promptBuildContext),origins:buildNavigationOrigins({startUrl,additionalContext:additional_context,observations:browserObservations}),parameters:browserParameters.promptValues,resolveText:browserParameters.projectText,
         resolveAssertionParameter:key=>browserParameters.resolve('browser_assert',{value:require('../lib/automationBrowserParameters').parameterReference(key)}).value}),
       validateOutcome:payload=>require('@hellotest/platform/backend/src/utils/aiFeatureRuntime').validateValue(payload,featureProfile),
       onProgress:async event=>{await execution_guard?.ensureOwnership();return progress(event);},
@@ -3060,7 +3078,7 @@ const buildCaseCore = async ({
             buildContext:{...promptBuildContext,generation_scope:{mode:'sequential',active_step_id:activeStepId,active_manual_step_ids:activeManualStepIds}},startUrl,additionalContext:browserParameters.projectText(normalizeRichText(additional_context))})
           :prompt;
         const attemptPrompt=[requestPrompt,interactiveActor?'':feedbackInstruction,JSON.stringify(interactiveActor?require('../lib/automationActorPrompt').projectAutomationActorFeedback(feedback):feedback)].filter(Boolean).join("\n\n");
-        if(!browser)return completeBuild(attemptPrompt,completionDeadline-Date.now());
+        if(!browser || currentSection?.step_type === "api")return completeBuild(attemptPrompt,completionDeadline-Date.now());
         return runAutomationBrowserAgent({featureKey:buildFeature(ai_feature),prompt:attemptPrompt,browser,startUrl:attempt===1&&!needsFlowPlanning?startUrl:undefined,complete:completeBuild,parse:extractJsonPayload,generationMode:feedback.generation_mode,
           execution:{required:allow_browser_actions===true&&normalizeTestStepType(currentSection?.step_type,'web')==='web',step_id:activeStepId,action:currentSection?.action||'',expected_result:currentSection?.expected_result||'',
             retained_assertion_contract:retainedAssertionContract,
@@ -3146,7 +3164,7 @@ const buildCaseCore = async ({
       const section = sections.find(row => row.step_id === failure.step_id);
       const packet = {requirement: {step_id: section.step_id, action: section.action, expected_result: section.expected_result}, failed_operation: section.operations[failure.operation_index - 1], failure, snapshot};
       const projected = JSON.parse(browserParameters.redactResult({content: [{type: 'text', text: JSON.stringify(packet)}]}).content[0].text);
-      const repairContext = require('../lib/automationVerificationRepairContext').createVerificationRepairContext({requirement: projected.requirement, failedOperation: projected.failed_operation, failure: projected.failure, snapshot: projected.snapshot});
+      const repairContext = require('../lib/automationVerificationRepairContext').createVerificationRepairContext({featureKey: buildFeature(ai_feature), requirement: projected.requirement, failedOperation: projected.failed_operation, failure: projected.failure, snapshot: projected.snapshot});
       if (!repairContext.packet.current_snapshot.targets.length) return {};
       const prompt = [aiInstructionBlock(buildFeature(ai_feature), 'automationBrowserAgent.verificationRepair'), JSON.stringify(repairContext.packet)].join('\n\n');
       const response = await completeBuild(prompt, 30_000, {generationScope: 'verification_repair'});

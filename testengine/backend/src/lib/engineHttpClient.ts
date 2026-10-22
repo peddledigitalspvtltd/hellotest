@@ -20,7 +20,7 @@ export async function requestEngineService<T = unknown>(options: {
   service: string;
   timeoutMs: number;
   maxResponseBytes?: number;
-  responseType?: "json" | "none";
+  responseType?: "json" | "none" | "buffer";
   init?: RequestInit;
 }): Promise<T> {
   const { service, init = {} } = options;
@@ -66,6 +66,7 @@ export async function requestEngineService<T = unknown>(options: {
       if (size > maxBytes) throw failure("RESPONSE_TOO_LARGE", response.status);
       chunks.push(item.value);
     }
+    if (options.responseType === "buffer") return Buffer.concat(chunks) as T;
     try { return JSON.parse(Buffer.concat(chunks).toString("utf8")) as T; }
     catch { throw failure("INVALID_JSON", response.status); }
   } catch (error) {

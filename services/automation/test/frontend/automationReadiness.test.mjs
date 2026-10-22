@@ -4,11 +4,12 @@ import fs from 'node:fs';
 import ts from 'typescript';
 import { parseApiRequestSource } from '../../frontend/lib/apiRequestSource.ts';
 import { isAutomationStepMapped } from '../../frontend/lib/automationStepPersistence.ts';
+import { inferAutomationBuildRuntime } from '../../frontend/lib/automationRuntime.ts';
 import { assertAutomationDispatchAccepted, AutomationStartError, retrySavedAutomationRun, startRemoteAutomationRun, verifyCreatedAutomationRun } from '../../frontend/lib/automationRunDispatch.ts';
 
 const lib = {};
 const code = ts.transpileModule(fs.readFileSync(new URL('../../frontend/lib/automationReadiness.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
-new Function('require', 'exports', code)(name => name.includes('apiRequestSource') ? { parseApiRequestSource } : { isAutomationStepMapped }, lib);
+new Function('require', 'exports', code)(name => name.includes('apiRequestSource') ? { parseApiRequestSource } : name.includes('automationRuntime') ? {inferAutomationBuildRuntime} : { isAutomationStepMapped }, lib);
 const item = { id: 'one', app_type_id: 'app', title: 'Checkout', automated: 'yes', status: 'active', revision: 3, automation_status: 'ready' };
 const step = { id: 's1', test_case_id: 'one', step_order: 1, step_type: 'web', action: 'Open checkout', expected_result: 'Checkout is visible', automation_code: 'await page.goto("https://app.test");' };
 
@@ -32,6 +33,14 @@ test('request readiness rejects malformed API requests and detects source change
   assert.equal(lib.assessAutomationReadiness(item, [api]).ready, false);
   assert.notEqual(lib.assessAutomationReadiness(item, [step]).planSignature, lib.assessAutomationReadiness(item, [{ ...step, automation_code: 'await page.reload();' }]).planSignature);
   assert.throws(() => lib.requireReadyAutomation([lib.assessAutomationReadiness(item, [api])]), /Checkout/);
+});
+
+test('build preflight detects API requests in unimplemented Web defaults without changing run preflight',()=>{
+ const api={...step,automation_code:'',action:'Send a POST request to /orders'};
+ const build=lib.assessAutomationReadiness(item,[api],'build');
+ assert.equal(build.ready,true);assert.deepEqual(build.runtimes,['api']);
+ const run=lib.assessAutomationReadiness(item,[api],'run');
+ assert.equal(run.ready,false);assert.deepEqual(run.runtimes,['web']);
 });
 
 test('prompt-only AI planning is allowed without inventing a saved step and execution remains blocked', async () => {

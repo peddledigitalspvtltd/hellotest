@@ -9,6 +9,7 @@ const executions=require('@hellotest/testing/backend/services/execution.service'
 const results=require('@hellotest/testing/backend/services/executionResult.service');
 const integration=require('@hellotest/integration/backend/services/integration.service');
 const telemetry=require('@hellotest/trace/backend/services/opsTelemetry.service');
+const { classifyError }=require('../../../platform/backend/src/utils/httpErrorPolicy');
 test.after(async()=>{await Promise.all([db.close(),obs.close()]);});
 const secret='local-execution-test-secret-32-characters-only';
 const run={id:'run',project_id:'p',app_type_id:'a',trigger:'local',status:'running',case_snapshots:[{test_case_id:'c',test_case_title:'Case'}],step_snapshots:[]};
@@ -77,11 +78,71 @@ test('configured remote runner status does not fall back to an unrelated local b
 test('live sessions use dispatched project scope and omit credentials or unrelated URLs', async t => {
  const requests=[];
  t.mock.method(obs.pool,'query',async statement=>{requests.push(statement);return {rows:[
-  {engine_run_id:'local-run',url:'http://host.docker.internal:4313/api/v1/live-session?provider=playwright',provider:'playwright'},
+  {engine_run_id:'local-run',test_case_id:'c',data_set_iteration_index:'1',data_set_iteration_key:'data:2',url:'http://host.docker.internal:4313/api/v1/live-session?provider=playwright',provider:'playwright'},
   {engine_run_id:'bad',url:'https://user:private@example.test/session',provider:'playwright'},
   {engine_run_id:'bad-scheme',url:'javascript:alert(1)',provider:'playwright'}],rowCount:3};});
  const links=await dispatch.getExecutionLiveSessions(run);
  assert.equal(links.length,1);assert.equal(links[0].url,'http://localhost:4313/api/v1/live-session?provider=playwright&run_id=local-run');
+ assert.equal(links[0].test_case_id,'c');assert.equal(links[0].data_set_iteration_index,1);assert.equal(links[0].data_set_iteration_key,'data:2');
  assert.deepEqual(requests[0].values,['p','run']);
  assert.deepEqual(await dispatch.getExecutionLiveSessions({...run,status:'completed'}),[]);
+});
+
+test('local runner status distinguishes inspection-only agents and services that are not ready', async t => {
+ const agent=require('../../backend/services/localAgent.service');
+ for (const [payload, code] of [
+  [{service:'hellotest-inspection-agent',ready:true,supported_web_engines:[],capabilities:{local_execution:false}},'LOCAL_AGENT_INSPECTION_ONLY'],
+  [{service:'HelloTest Test Engine',ready:false,supported_web_engines:['playwright']},'LOCAL_AGENT_NOT_READY']
+ ]) {
+  const mock=t.mock.method(globalThis,'fetch',async()=>Response.json(payload));
+  const status=await agent.getStatus();assert.equal(status.web.ready,false);assert.equal(status.web.code,code);assert.match(status.web.message,/runner|inspection/i);
+  mock.mock.restore();
+ }
+});
+
+test('a case-scoped viewer never publishes a shared Selenium desktop or a session missing case identity',async t=>{
+ t.mock.method(obs.pool,'query',async()=>({rows:[
+  {engine_run_id:'selenium',test_case_id:'c',provider:'selenium',url:'http://localhost:7900/?autoconnect=1'},
+  {engine_run_id:'unscoped',provider:'playwright',url:'http://localhost:4313/api/v1/live-session'},
+  {engine_run_id:'scoped-selenium',test_case_id:'c',provider:'selenium',url:'http://localhost:4301/api/v1/live-session?provider=selenium'}
+ ]}));
+ const sessions=await dispatch.getExecutionLiveSessions(run);assert.equal(sessions.length,1);assert.equal(sessions[0].engine_run_id,'scoped-selenium');assert.match(sessions[0].url,/run_id=scoped-selenium/);
+});
+
+test('local-run setup failures preserve actionable guidance through the public error policy before creating a run', async t => {
+ const previous=process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL;
+ t.after(()=>{if(previous===undefined)delete process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL;else process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL=previous;});
+ const scenarios=[
+  [{},503,'LOCAL_AGENT_UNAVAILABLE',/start-host-recorder/],
+  [{service:'hellotest-inspection-agent',ready:true,capabilities:{local_execution:false}},200,'LOCAL_AGENT_INSPECTION_ONLY',/inspection agent/],
+  [{supported_web_engines:['playwright'],ready:false,capabilities:{local_execution:true}},200,'LOCAL_AGENT_NOT_READY',/shared secret/]
+ ];
+ for(const [index,[health,status,code,expectedMessage]] of scenarios.entries()){
+  process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL=`https://local-run-failure-${index}.example.test`;
+  const fetch=t.mock.method(globalThis,'fetch',async()=>Response.json(health,{status}));
+  await assert.rejects(executions.createLocalRun({}),error=>{
+   const publicError=classifyError(error);
+   assert.equal(publicError.code,code);assert.equal(publicError.statusCode,503);
+   assert.match(publicError.message,expectedMessage);
+   assert.notEqual(publicError.message,'The service is temporarily unavailable.');
+   return true;
+  });
+  fetch.mock.restore();
+ }
+});
+
+test('local dispatch rejection explains credential repair without exposing the runner response', async t => {
+ configureSecret(t);
+ t.mock.method(require('@hellotest/platform/backend/services/aiConfiguration.service'),'resolve',async()=>({config:{instruction_blocks:{'engineRepair.goal':'Retain behavior','engineRepair.screen_selection':'Observed screen','engineRepair.correction_policy':'Retain assertions'}}}));
+ t.mock.method(obs.pool,'query',async()=>({rows:[],rowCount:0}));
+ t.mock.method(workspace,'createTransaction',async()=>({...tx}));
+ t.mock.method(workspace,'appendTransactionEvent',async()=>{});
+ t.mock.method(workspace,'updateTransaction',async()=>{});
+ t.mock.method(globalThis,'fetch',async()=>Response.json({message:'PRIVATE_RUNNER_RESPONSE',secret:'do-not-expose'},{status:401}));
+ await assert.rejects(dispatch.runExecutionDirectLocal({engineBaseUrl:'http://127.0.0.1:4313',integration:{config:{}},plan:{execution:run,project:{id:'p',name:'Project'},appType:{id:'a',name:'App',type:'web'},automated_case_count:1,manual_case_count:0,unsupported_automated_case_count:0,warnings:[],eligibleCases:[{engine_run_id:'auth-run',case_snapshot:run.case_snapshots[0],steps:[{id:'s',step_type:'web',action:'Open',expected_result:'Visible'}]}]}}),error=>{
+  const publicError=classifyError(error);
+  assert.equal(publicError.statusCode,502);assert.match(publicError.message,/same HELLOTEST_TESTENGINE_SECRET/);
+  assert.doesNotMatch(publicError.message,/PRIVATE_RUNNER_RESPONSE|do-not-expose/);
+  return true;
+ });
 });

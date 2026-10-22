@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getAutomationRuntimeTypes, getDefaultAutomationStepType, getRecorderPlatform } from '../../frontend/lib/automationRuntime.ts';
+import { getAutomationRuntimeTypes, getAutomationBuildRuntimeTypes, inferAutomationBuildRuntime, getDefaultAutomationStepType, getRecorderPlatform } from '../../frontend/lib/automationRuntime.ts';
 test('runtime identity and targeted recording preserve mixed plans and native platforms', () => {
   const steps = [{ id: 'api', step_type: 'api' }, { id: 'native', step_type: 'ios' }];
   assert.deepEqual(getAutomationRuntimeTypes(steps), ['api', 'ios']);
@@ -28,4 +28,16 @@ test('new steps keep application runtime and ignore API setup in a unified nativ
   assert.equal(getDefaultAutomationStepType([], 'api'), 'api');
   assert.equal(getDefaultAutomationStepType([{ step_type: 'api' }, { step_type: 'android' }], 'unified'), 'android');
   assert.equal(getDefaultAutomationStepType([{ step_type: 'api' }], 'unified'), 'api');
+});
+
+test('build runtime inference recognizes API prose while recorder identity and saved Web code stay unchanged',()=>{
+ for(const action of ['POST /orders','I GET /orders','Send a POST request to @r.base_url/orders','When send an HTTP GET request to https://api.fixture/orders','Call the API endpoint to create an order'])assert.equal(inferAutomationBuildRuntime({action,step_type:'web'}),'api');
+ const steps=[{id:'api',step_type:'web',action:'POST /orders'},{id:'web',step_type:'web',action:'Click the API docs link'}];
+ assert.deepEqual(getAutomationBuildRuntimeTypes(steps),['api','web']);
+ assert.deepEqual(getAutomationBuildRuntimeTypes([steps[0]]),['api']);
+ assert.deepEqual(getAutomationRuntimeTypes([steps[0]]),['web']);
+ assert.equal(getRecorderPlatform([steps[0]],''),'web');
+ assert.equal(inferAutomationBuildRuntime({...steps[0],automation_code:'await page.click("#post");'}),'web');
+ assert.equal(inferAutomationBuildRuntime({step_type:'ios',action:'POST /orders'}),'ios');
+ assert.equal(inferAutomationBuildRuntime({action:'Create an order'},'api'),'api');
 });

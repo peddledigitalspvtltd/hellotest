@@ -45,7 +45,18 @@ function argumentsFor(op,actor,args={}) {
  query.page_size=Math.min(50,Math.max(1,Number(query.page_size)||25));
  if(query.offset!==undefined)query.offset=Math.min(10000,Math.max(0,Number(query.offset)||0));
  if(body.project_id!==undefined||['/executions','/agentic-quality/runs'].includes(op.path))body.project_id=actor.projectId;
+ if(op.path==='/executions')body.created_by=actor.user.id;
+ if(args.idempotency_key&&['/test-cases','/executions'].includes(op.path))body.source_idempotency_key=args.idempotency_key;
+ if(op.path==='/executions'&&args.preconditions?.execution_case_revisions)body.expected_case_revisions=args.preconditions.execution_case_revisions;
  return {url:url+'?'+new URLSearchParams(query),body};
+}
+async function verifyPlanTargets(actor,row){
+ const op=registry.get(row.operation_id);
+ if(op.path!=='/executions')return;
+ await permit(actor,'testcase.view');
+ try{await require('@hellotest/testing/backend/services/executionPlanPreconditions.service').verify({projectId:actor.projectId,appTypeId:row.arguments.body?.app_type_id,
+  caseIds:row.arguments.body?.test_case_ids,expected:row.arguments.preconditions?.execution_case_revisions});}
+ catch(error){if(error.code==='EXECUTION_PLAN_STALE'||error.code==='EXECUTION_PLAN_INVALID')throw fail(error.publicMessage||'Execution source revisions changed. Review a new plan.',409,'MCP_STALE_PLAN');throw error;}
 }
 async function targetScope(op,actor,args) {
  const root=registry.rootFor(op.path);
@@ -69,7 +80,11 @@ async function invokeOperation(actor,op,args,signal) {
  const {url,body}=argumentsFor(op,actor,args);
  signal?.throwIfAborted();
  const response=await app.inject({method:op.method,url,headers:{authorization:'Bearer '+createToken(actor.user),'idempotency-key':args.idempotency_key||randomUUID()},...(op.method==='GET'?{}:{payload:body})});
- if(response.statusCode>=400)throw fail('The domain API rejected this operation.',response.statusCode,'MCP_DOMAIN_REJECTED');
+ if(response.statusCode>=400){
+  let code;try{code=response.json()?.code;}catch{}
+  if(response.statusCode===409&&code==='EXECUTION_PLAN_STALE')throw fail('A selected Test Case or its steps changed after review. No execution was created; review a new plan.',409,'MCP_STALE_PLAN');
+  throw fail('The domain API rejected this operation.',response.statusCode,'MCP_DOMAIN_REJECTED');
+ }
  if(!response.headers['content-type']?.includes('application/json'))throw fail('This API needs a typed non-JSON wrapper.',422,'MCP_WRAPPER_REQUIRED');
  const value=response.json();
  // Enforce token scope even when a domain route ignores a project query parameter.
@@ -147,18 +162,40 @@ async function prepare(actor,{operation_id,arguments:args}) {
  const schemaKey=registry.revision()+':'+op.id;
  let validate=actionSchemas.get(schemaKey);
  if(!validate){validate=actionValidator.compile(op.input_schema.body);actionSchemas.clear();actionSchemas.set(schemaKey,validate);}
- if(!validate(args.body||{}))throw fail('Action arguments do not match the domain input schema. Inspect the operation before preparing a plan.',400,'MCP_INVALID_ARGUMENT');
+ if(!validate(argumentsFor(op,actor,args).body))throw fail('Action arguments do not match the domain input schema. Inspect the operation before preparing a plan.',400,'MCP_INVALID_ARGUMENT');
  const unsafe=value=>typeof value==='string'?(/\bmcp1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(value)||require('@hellotest/platform/backend/src/security/aiTextPolicy').redactSensitiveData(value).redaction_count>0):value&&typeof value==='object'&&Object.entries(value).some(([key,item])=>(sensitive.test(key)&&!(op.path==='/agentic-quality/runs'&&key==='credential_ref'&&typeof item==='string'&&/^[A-Za-z0-9_.:-]{1,128}$/.test(item)))||unsafe(item));
  if(canonical(args).length>40000||unsafe(args))throw fail('Use bounded action arguments without credentials or sensitive fields.',400,'MCP_INVALID_ARGUMENT');
  if(op.path==='/test-cases'&&(!args.body?.app_type_id||!args.body?.title))throw fail('A test case requires its application and title.',400);
  if(op.path==='/executions'&&(!Array.isArray(args.body?.test_case_ids)||!args.body.test_case_ids.length||args.body.test_case_ids.length>50))throw fail('Select 1–50 explicit cases.',400);
- const row={id:randomUUID(),user_id:actor.user.id,project_id:actor.projectId,client_id:actor.clientId,operation_id,catalog_revision:registry.revision(),arguments:args,expires_at:new Date(Date.now()+15*60000).toISOString()};row.digest=planDigest(row);
- await db.prepare(`INSERT INTO mcp_action_plans(id,user_id,project_id,client_id,operation_id,catalog_revision,arguments,digest,expires_at) VALUES (?,?,?,?,?,?,?,?,?)`).run(row.id,row.user_id,row.project_id,row.client_id,row.operation_id,row.catalog_revision,args,row.digest,row.expires_at);
- return {plan_id:row.id,digest:row.digest,state:'requires_authorization',preview:{operation:op,arguments:args},expires_at:row.expires_at,authorization:'Review this exact plan in Agent Studio. The model cannot approve its own action.'};
+ if(['source_idempotency_key','idempotency_key','expected_case_revisions'].some(key=>args.body?.[key]!==undefined))throw fail('Plan idempotency and source revisions are captured by the server; omit those body fields.',400,'MCP_INVALID_ARGUMENT');
+ const plannedArgs=JSON.parse(canonical(args));
+ if(op.path==='/executions'){
+  plannedArgs.body=argumentsFor(op,actor,plannedArgs).body;
+  await permit(actor,'testcase.view');
+  plannedArgs.preconditions={execution_case_revisions:await db.transaction(()=>require('@hellotest/testing/backend/services/executionPlanPreconditions.service').capture({
+   projectId:actor.projectId,appTypeId:plannedArgs.body.app_type_id,caseIds:plannedArgs.body.test_case_ids,lock:true}))()};
+ }
+ const row={id:randomUUID(),user_id:actor.user.id,project_id:actor.projectId,client_id:actor.clientId,operation_id,catalog_revision:registry.revision(),arguments:plannedArgs,expires_at:new Date(Date.now()+15*60000).toISOString()};row.digest=planDigest(row);
+ await db.prepare(`INSERT INTO mcp_action_plans(id,user_id,project_id,client_id,operation_id,catalog_revision,arguments,digest,expires_at) VALUES (?,?,?,?,?,?,?,?,?)`).run(row.id,row.user_id,row.project_id,row.client_id,row.operation_id,row.catalog_revision,plannedArgs,row.digest,row.expires_at);
+ return {plan_id:row.id,digest:row.digest,state:'requires_authorization',preview:{operation:op,arguments:plannedArgs},expires_at:row.expires_at,authorization:'Review this exact plan in Agent Studio. The model cannot approve its own action.'};
 }
 async function loadPlan(actor,id) {
  const row=await db.prepare('SELECT * FROM mcp_action_plans WHERE id=? AND user_id=? AND project_id=? AND client_id=?').get(id,actor.user.id,actor.projectId,actor.clientId);
  if(!row)throw fail('Plan unavailable.',404);return row;
+}
+async function verifyCreatedRecord(actor,op,row,id,signal){
+ const get=registry.all().find(item=>item.method==='GET'&&item.path===op.path+'/:id'&&item.read);
+ if(!get)throw fail('Read-back verification is unavailable.',502,'MCP_UNVERIFIED_COMPLETION');
+ const observed=await invokeOperation(actor,get,{path:{id}},signal);
+ if(observed.id!==id)throw fail('Persisted record could not be verified.',502,'MCP_UNVERIFIED_COMPLETION');
+ if(op.path==='/test-cases'&&(observed.title!==row.arguments.body.title||observed.app_type_id!==row.arguments.body.app_type_id))throw fail('Persisted fields do not match the prepared plan.',502,'MCP_UNVERIFIED_COMPLETION');
+ if(op.path==='/executions'){
+  const actual=(observed.case_snapshots||[]).map(item=>item.test_case_id).sort(),expected=[...new Set(row.arguments.body.test_case_ids||[])].sort();
+  if(observed.project_id!==actor.projectId||observed.app_type_id!==row.arguments.body.app_type_id||canonical(actual)!==canonical(expected))throw fail('Persisted execution scope does not match the reviewed plan.',502,'MCP_UNVERIFIED_COMPLETION');
+ }
+ const state=op.path==='/agentic-quality/runs'||op.path==='/executions'&&['local','remote'].includes(row.arguments.body.execution_mode)?'submitted':'succeeded_verified';
+ return {state,domain_id:id,verification:{record_id:observed.id,observed_at:new Date().toISOString(),
+  ...(row.arguments.preconditions?.execution_case_revisions?{source_revisions:row.arguments.preconditions.execution_case_revisions}:{})},data:bounded(observed)};
 }
 async function execute(actor,{plan_id},signal) {
  const claim=await db.transaction(async()=>{
@@ -166,7 +203,7 @@ async function execute(actor,{plan_id},signal) {
   if(!row)throw fail('Plan unavailable.',404);
   if(row.state!=='authorized')return {row,execute:false};
   if(new Date(row.expires_at)<=new Date()||row.digest!==planDigest(row)||row.catalog_revision!==registry.revision())throw fail('Plan expired or changed. Prepare a new plan.',409,'MCP_STALE_PLAN');
-  const op=registry.get(row.operation_id);await permit(actor,op.permission);await targetScope(op,actor,row.arguments);
+  const op=registry.get(row.operation_id);await permit(actor,op.permission);await targetScope(op,actor,row.arguments);await verifyPlanTargets(actor,row);
   await db.prepare('INSERT INTO mcp_audit_events(project_id,user_id,client_id,tool,outcome,plan_id) VALUES (?,?,?,?,?,?)').run(actor.projectId,actor.user.id,actor.clientId,'execute_plan','accepted',plan_id);
   await db.prepare("UPDATE mcp_action_plans SET state='executing',started_at=NOW(),updated_at=NOW() WHERE id=?").run(plan_id);
   return {row,execute:true};
@@ -176,24 +213,37 @@ async function execute(actor,{plan_id},signal) {
  try {
   const result=await invokeOperation(actor,op,{...row.arguments,idempotency_key:'mcp-plan-'+plan_id},signal);
   if(!result?.id)throw fail('Domain receipt did not contain a persisted identifier.',502,'MCP_UNVERIFIED_COMPLETION');
-  const get=registry.all().find(item=>item.method==='GET'&&item.path===op.path+'/:id'&&item.read);
-  if(!get)throw fail('Read-back verification is unavailable.',502,'MCP_UNVERIFIED_COMPLETION');
-  const observed=await invokeOperation(actor,get,{path:{id:result.id}},signal);
-  if(observed.id!==result.id)throw fail('Persisted record could not be verified.',502,'MCP_UNVERIFIED_COMPLETION');
-  if(op.path==='/test-cases'&&(observed.title!==row.arguments.body.title||observed.app_type_id!==row.arguments.body.app_type_id))throw fail('Persisted fields do not match the prepared plan.',502,'MCP_UNVERIFIED_COMPLETION');
-  state=op.path==='/agentic-quality/runs'?'submitted':op.path==='/executions'&&['local','remote'].includes(row.arguments.body.execution_mode)?'submitted':'succeeded_verified';
-  receipt={state,domain_id:result.id,verification:{record_id:observed.id,observed_at:new Date().toISOString()},data:bounded(result)};
- }catch(error){state=error.code==='MCP_DOMAIN_REJECTED'&&error.statusCode<500?'failed':'unknown';receipt={state,code:error.code||'MCP_EXECUTION_UNKNOWN',message:state==='unknown'?'The effect is uncertain. Reconcile this plan; do not submit a replacement.':'The domain rejected this operation.'};}
+  receipt=await verifyCreatedRecord(actor,op,row,result.id,signal);state=receipt.state;
+ }catch(error){state=error.code==='MCP_STALE_PLAN'||error.code==='MCP_DOMAIN_REJECTED'&&error.statusCode<500?'failed':'unknown';receipt={state,code:error.code||'MCP_EXECUTION_UNKNOWN',message:state==='unknown'?'The effect is uncertain. Reconcile this plan; do not submit a replacement.':error.code==='MCP_STALE_PLAN'?error.publicMessage:'The domain rejected this operation.'};}
  await db.transaction(async()=>{
   await db.prepare('UPDATE mcp_action_plans SET state=?,receipt=?,updated_at=NOW() WHERE id=? AND user_id=? AND project_id=?').run(state,receipt,plan_id,actor.user.id,actor.projectId);
   await db.prepare('INSERT INTO mcp_audit_events(project_id,user_id,client_id,tool,outcome,plan_id) VALUES (?,?,?,?,?,?)').run(actor.projectId,actor.user.id,actor.clientId,'execute_plan',state,plan_id);
  })();
  return {plan_id,...receipt};
 }
-async function status(actor,{plan_id}) {
- const row=await loadPlan(actor,plan_id);await permit(actor,registry.get(row.operation_id).permission);
+async function status(actor,{plan_id},signal) {
+ const row=await loadPlan(actor,plan_id),op=registry.get(row.operation_id);await permit(actor,op.permission);
  const stale=row.state==='executing'&&Date.now()-new Date(row.started_at).getTime()>120000;
- return {plan_id,state:stale?'unknown':row.state,receipt:bounded(row.receipt),expires_at:row.expires_at,reconciliation:stale?'Check the original domain operation and audit before any retry.':undefined};
+ if((row.state==='unknown'||stale)&&['/test-cases','/executions'].includes(op.path)){
+  if(row.digest!==planDigest(row))throw fail('The original plan changed; its outcome cannot be reconciled safely.',409,'MCP_STALE_PLAN');
+  // Read only the original durable command key. Never resubmit a domain create
+  // or substitute another plan when the acknowledgement was lost.
+  const key='mcp-plan-'+plan_id;
+  const original=op.path==='/test-cases'?await db.prepare(`SELECT cases.id FROM test_cases cases JOIN app_types app ON app.id=cases.app_type_id
+   WHERE app.project_id=? AND cases.app_type_id=? AND cases.created_by=? AND cases.source_idempotency_key=?`).get(actor.projectId,row.arguments.body.app_type_id,actor.user.id,key)
+   :await db.prepare('SELECT id FROM executions WHERE project_id=? AND created_by=? AND source_idempotency_key=?').get(actor.projectId,actor.user.id,key);
+  if(original){
+   try{
+    const receipt=await verifyCreatedRecord(actor,op,row,original.id,signal);
+    await db.transaction(async()=>{
+     await db.prepare("UPDATE mcp_action_plans SET state=?,receipt=?,updated_at=NOW() WHERE id=? AND user_id=? AND project_id=? AND digest=? AND state IN ('unknown','executing')").run(receipt.state,receipt,plan_id,actor.user.id,actor.projectId,row.digest);
+     await db.prepare('INSERT INTO mcp_audit_events(project_id,user_id,client_id,tool,outcome,plan_id) VALUES (?,?,?,?,?,?)').run(actor.projectId,actor.user.id,actor.clientId,'reconcile_plan',receipt.state,plan_id);
+    })();
+    return {plan_id,state:receipt.state,receipt:bounded(receipt),expires_at:row.expires_at,reconciliation:'The original command was verified by its persisted record. No replacement was submitted.'};
+   }catch(error){signal?.throwIfAborted();if(error.code==='MCP_STALE_PLAN')throw error;}
+  }
+ }
+ return {plan_id,state:stale?'unknown':row.state,receipt:bounded(row.receipt),expires_at:row.expires_at,reconciliation:stale||row.state==='unknown'?'No original effect has been verified. Check the original domain operation and audit before any retry.':undefined};
 }
 function auditFailure(tool){app?.log?.error({code:'MCP_AUDIT_UNAVAILABLE',tool},'MCP audit write failed');}
-module.exports={auditFailure,configure,catalog,describe,read,context,graph,prepare,execute,status,sanitize,bounded,planDigest,canonical};
+module.exports={auditFailure,configure,catalog,describe,read,context,graph,prepare,execute,status,sanitize,bounded,planDigest,canonical,verifyPlanTargets};

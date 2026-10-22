@@ -12,6 +12,21 @@ export function getAutomationRuntimeTypes(steps: Array<{ step_type?: string | nu
   return types.length ? types : [Object.prototype.hasOwnProperty.call(AUTOMATION_RUNTIMES, fallback) ? fallback as TestStepType : "web"];
 }
 
+/** Build-time inference leaves saved executable sources and recorder behavior intact. */
+export function inferAutomationBuildRuntime(step: {step_type?:string|null;action?:string|null;automation_code?:string|null;api_request?:{url?:string|null}|null}, appTypeKind = "web"): TestStepType {
+  const saved = Object.prototype.hasOwnProperty.call(AUTOMATION_RUNTIMES, step.step_type || "") ? step.step_type as TestStepType : "web";
+  if (saved !== "web" || step.automation_code?.trim()) return saved;
+  if (step.api_request?.url || appTypeKind === "api") return "api";
+  const action = String(step.action || "").replace(/<[^>]+>/g," ").trim().replace(/^(?:Given|When|Then|And|But)\s+/i, "").replace(/^(?:I|we|the client)\s+/i, "");
+  if (/^(?:click|tap|type|fill|enter|select|navigate|browse|open|visit|hover|scroll)\b/i.test(action)) return saved;
+  return /^(?:(?:send|call|execute|perform|issue|make|invoke)\s+(?:(?:an?|the)\s+)?(?:(?:HTTP|API)\s+)?(?:request\s+)?(?:to\s+)?)?(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(?:(?:HTTP|API)\s+)?(?:request\s+)?(?:to\s+)?(?:https?:\/\/|\/|@[a-z][\w.\[\]-]*|\{\{)/i.test(action)
+    || /^(?:send|call|execute|perform|issue|make|invoke)\b.*\b(?:API|HTTP)\s+(?:request|endpoint|call)\b/i.test(action) ? "api" : saved;
+}
+
+export function getAutomationBuildRuntimeTypes(steps: Parameters<typeof inferAutomationBuildRuntime>[0][], fallback = "web"): TestStepType[] {
+  return steps.length ? [...new Set(steps.map(step=>inferAutomationBuildRuntime(step,fallback)))] : getAutomationRuntimeTypes([],fallback);
+}
+
 export function getDefaultAutomationStepType(steps: Array<{ step_type?: string | null }>, fallback = "web"): TestStepType {
   if (Object.prototype.hasOwnProperty.call(AUTOMATION_RUNTIMES, fallback)) return fallback as TestStepType;
   const types = getAutomationRuntimeTypes(steps, fallback);

@@ -237,6 +237,7 @@ function GherkinSectionSurface({ availableParameters, actions, autoFocus = false
             aria-describedby={`${sectionId}-description`}
             aria-invalid={invalid || undefined}
             aria-label={`${label} Gherkin`}
+            className="gherkin-source-input"
             onBlur={() => { setIsEditing(false); onEditingChange(false); autocomplete.dismiss(); }}
             onChange={changeValue}
             onClick={(event) => { updateActiveLine(event.currentTarget); updateSuggestions(event.currentTarget); }}

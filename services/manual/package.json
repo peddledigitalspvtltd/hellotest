@@ -26,6 +26,7 @@
     "./frontend/components/TraceabilityRunHistory": "./frontend/components/TraceabilityRunHistory.tsx",
     "./frontend/index": "./frontend/index.ts",
     "./frontend/lib/deliveryScopeOptions": "./frontend/lib/deliveryScopeOptions.ts",
+    "./frontend/lib/attachmentChecksum": "./frontend/lib/attachmentChecksum.ts",
     "./frontend/lib/requirementCatalog": "./frontend/lib/requirementCatalog.ts",
     "./frontend/lib/transactionTileProgress": "./frontend/lib/transactionTileProgress.ts",
     "./frontend/pages/ReleasesPage": "./frontend/pages/ReleasesPage.tsx",

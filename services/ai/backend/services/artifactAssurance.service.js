@@ -82,7 +82,8 @@ const readReviewResponse = async (response) => {
   }
 };
 
-async function reviewArtifact({ artifactType, savedArtifact, proposedChange, baseline, linkedEvidence = [], user, projectId, integrationId, promptGuidance, additionalContext, reviewPurpose = 'assurance' }) {
+async function reviewArtifact({ artifactType, savedArtifact, proposedChange, baseline, linkedEvidence = [], user, projectId, integrationId, promptGuidance, additionalContext, reviewPurpose = 'assurance', signal }) {
+  if (signal?.aborted) throw Object.assign(new Error('Workflow cancelled.'), { statusCode: 499, publicMessage: 'Workflow cancelled.' });
   const featureKey = reviewPurpose === 'change-impact'
     ? (artifactType === 'story' ? 'ai.requirement.change_impact' : 'ai.test_case.change_impact')
     : (artifactType === 'story' ? 'ai.quality.story_assurance' : 'ai.quality.test_case_assurance');
@@ -124,7 +125,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       const remaining = deadline - Date.now();
       if (remaining < 1000 || modelCalls >= 2) throw Object.assign(new Error("AI assurance exhausted its request budget."), { code: "AI_BUDGET_EXCEEDED", statusCode: 504 });
       modelCalls += 1;
-      return fetchLlmWithRetry(url, { method: "POST", headers, body: JSON.stringify({
+      return fetchLlmWithRetry(url, { method: "POST", headers, signal, body: JSON.stringify({
       model: integration.model,  response_format: { type: "json_object" }, messages
     }) }, { integration, operation, featureKey, timeoutMs: Math.min(timeoutMs, remaining), maxOutputTokens, maxAttempts: 1, compatibility: false, contextFallback: false });
     };
@@ -166,6 +167,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       model_execution: { model_calls: modelCalls, max_model_calls: 2, deadline_ms: ASSURANCE_REQUEST_TIMEOUT_MS },
       integration: { id: integration.id, name: integration.name, type: integration.type, model: integration.model, generation_mode: "hybrid", direct_model_invocation: true } };
   } catch (error) {
+    if (signal?.aborted) throw Object.assign(new Error('Workflow cancelled.'), { statusCode: 499, publicMessage: 'Workflow cancelled.' });
     const reasons = {
       AI_MODEL_REQUIRED: "Configure an active LLM in Integrations to run AI assurance.",
       AI_INPUT_BUDGET_EXCEEDED: "The review input exceeds the provider budget. Shorten the draft or guidance and retry.",

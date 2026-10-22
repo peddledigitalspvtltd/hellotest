@@ -211,6 +211,7 @@ module.exports = async function (fastify) {
       app_type_id: { required: false, type: "string" },
       suite_ids: { required: false, type: "array", items: "string" },
       test_case_ids: { required: false, type: "array", items: "string" },
+      expected_case_revisions: { required: false, type: "array", maxItems: 50 },
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },

@@ -1,4 +1,6 @@
 import { takeAgentProposal } from "@hellotest/platform/frontend/src/lib/agentProposalDraft";
+import { prepareAiPromptFiles } from '../lib/aiPromptFiles';
+import { platformApi } from '@hellotest/platform/client';
 import { automationStartUrlError, reviewedAutomationStartUrl } from "@hellotest/automation/frontend/lib/automationStartUrl";
 import { useAutomationBuildParameters } from "@hellotest/automation/frontend/hooks/useAutomationBuildParameters";
 import { getAutomationRuntimeTypes } from "@hellotest/automation/frontend/lib/automationRuntime";
@@ -2344,6 +2346,17 @@ export function TestCasesPage() {
   const [aiCaseAuthoringAdditionalContext, setAiCaseAuthoringAdditionalContext] = useState("");
   const [aiCaseAuthoringExternalLinksText, setAiCaseAuthoringExternalLinksText] = useState("");
   const [aiCaseAuthoringReferenceImages, setAiCaseAuthoringReferenceImages] = useState<AiDesignImageInput[]>([]);
+  const [aiCaseContextFiles, setAiCaseContextFiles] = useState<File[]>([]);
+  const [aiContextFiles, setAiContextFiles] = useState<File[]>([]);
+  const aiOriginalImagesRef = useRef(new Map<string, File>());
+  const pendingDraftEvidenceRef = useRef<string[]>([]);
+  const [pendingAiEvidence, setPendingAiEvidence] = useState<Array<{projectId:string;caseId:string;ids:string[]}>>([]);
+  const retainAiEvidence = async (caseId:string, ids:string[], scopeProject=projectId) => {
+    const outcomes = await Promise.allSettled(ids.map(id=>platformApi.attachments.copy(id,{project_id:scopeProject,entity_type:'test_case',entity_id:caseId})));
+    const pending=ids.filter((_,index)=>outcomes[index].status==='rejected');
+    setPendingAiEvidence(current=>[...current.filter(item=>item.caseId!==caseId),...(pending.length?[{projectId:scopeProject,caseId,ids:pending}]:[])]);
+    return !pending.length;
+  };
   const [aiCaseAuthoringPreview, setAiCaseAuthoringPreview] = useState<AiAuthoredTestCasePreview | null>(null);
   const [aiCaseAuthoringMessage, setAiCaseAuthoringMessage] = useState("");
   const [aiCaseAuthoringTone, setAiCaseAuthoringTone] = useState<"success" | "error">("success");
@@ -3176,6 +3189,7 @@ export function TestCasesPage() {
 	    syncTestCaseSearchParams(null);
 	    setCreateSuiteContextId(suiteContextId);
     setActiveBugConversion(null);
+    pendingDraftEvidenceRef.current=[];
     const requirementScope = requirementDeliveryScopeById.get(requirementId);
     setCaseDeliveryRelease(deliveryContext.release || requirementScope?.release || "");
     setCaseDeliverySprint(deliveryContext.sprint || requirementScope?.sprint || "");
@@ -5398,6 +5412,8 @@ export function TestCasesPage() {
           ))
         });
 
+        await retainAiEvidence(response.id,pendingDraftEvidenceRef.current);
+        pendingDraftEvidenceRef.current=[];
         if (moduleIds.length) {
           const moduleAssignments = await Promise.allSettled(moduleIds.map((moduleId) => assignCasesToModule.mutateAsync({
             id: moduleId,
@@ -7707,6 +7723,8 @@ export function TestCasesPage() {
     setAiCaseAuthoringAdditionalContext("");
     setAiCaseAuthoringExternalLinksText("");
     setAiCaseAuthoringReferenceImages([]);
+    aiOriginalImagesRef.current.clear();
+    setAiCaseContextFiles([]);
     setAiCaseAuthoringPreview(null);
     setAiCaseAuthoringMessage(
       aiCaseAuthoringNeedsAutomationEdit && !canEditAutomationCode
@@ -7735,6 +7753,8 @@ export function TestCasesPage() {
     setAiAdditionalContext("");
     setAiExternalLinksText("");
     setAiReferenceImages([]);
+    aiOriginalImagesRef.current.clear();
+    setAiContextFiles([]);
     setAiPreviewCases([]);
     setAiPreviewMessage("");
     setAiPreviewTone("success");
@@ -7743,7 +7763,9 @@ export function TestCasesPage() {
 
 	  const handleAddAiReferenceImages = async (files: FileList | null) => {
 	    try {
+	      const originals = Array.from(files || []);
 	      const images = await readImageFiles(files);
+      images.forEach((image,index) => { const original=originals[index]; if(original)aiOriginalImagesRef.current.set(image.url,original); });
       setAiPreviewCases([]);
       setAiPreviewMessage("");
       let budgetMessage = "";
@@ -7764,7 +7786,9 @@ export function TestCasesPage() {
 
   const handleAddAiCaseAuthoringReferenceImages = async (files: FileList | null) => {
     try {
+      const originals = Array.from(files || []);
       const images = await readImageFiles(files);
+      images.forEach((image,index) => { const original=originals[index]; if(original)aiOriginalImagesRef.current.set(image.url,original); });
       setAiCaseAuthoringPreview(null);
       setAiCaseAuthoringMessage("");
       let budgetMessage = "";
@@ -7799,19 +7823,20 @@ export function TestCasesPage() {
     const controller = new AbortController();
     aiDesignControllerRef.current = controller;
     try {
+      const promptFiles = await prepareAiPromptFiles({ projectId, files:[...aiContextFiles,...aiReferenceImages.flatMap(image=>aiOriginalImagesRef.current.get(image.url)||[])], additionalContext:aiAdditionalContext, signal:controller.signal });
       const response = await previewDesignedCases.mutateAsync({ signal: controller.signal, input: {
         app_type_id: appTypeId,
         requirement_ids: aiRequirementIds,
         integration_id: integrationId || undefined,
         max_cases: maxCases,
         authoring_mode: authoringMode,
-        additional_context: aiAdditionalContext || undefined,
+        additional_context: promptFiles.additionalContext || undefined,
         external_links: parseExternalLinks(aiExternalLinksText),
         images: aiReferenceImages
       } });
       if (controller.signal.aborted || aiDesignControllerRef.current !== controller) return;
 
-      setAiPreviewCases(response.cases);
+      setAiPreviewCases(response.cases.map(candidate=>({...candidate,reference_attachment_ids:promptFiles.attachmentIds.length?promptFiles.attachmentIds:candidate.reference_attachment_ids})));
       setAiPreviewTone("success");
       setAiPreviewMessage(`${response.context_reduced ? `${response.context_reduction_reason} ` : ""}${response.generated} ${authoringMode === "gherkin" ? "Gherkin" : "structured"} draft case${response.generated === 1 ? "" : "s"} prepared. Review and edit each draft before accepting.`);
     } catch (error) {
@@ -7862,19 +7887,20 @@ export function TestCasesPage() {
     const controller = new AbortController();
     aiCaseAuthoringControllerRef.current = controller;
     try {
+      const promptFiles = await prepareAiPromptFiles({projectId,files:[...aiCaseContextFiles,...aiCaseAuthoringReferenceImages.flatMap(image=>aiOriginalImagesRef.current.get(image.url)||[])],additionalContext:aiCaseAuthoringAdditionalContext,signal:controller.signal});
       const response = await previewCaseAuthoring.mutateAsync({ signal: controller.signal, input: {
         app_type_id: appTypeId,
         requirement_id: aiCaseAuthoringRequirementId || undefined,
         authoring_mode: authoringMode,
         integration_id: integrationId || undefined,
-        additional_context: aiCaseAuthoringAdditionalContext || undefined,
+        additional_context: promptFiles.additionalContext || undefined,
         external_links: parseExternalLinks(aiCaseAuthoringExternalLinksText),
         images: aiCaseAuthoringReferenceImages,
         test_case: aiCaseAuthoringSourceDraft
       } });
       if (controller.signal.aborted || aiCaseAuthoringControllerRef.current !== controller) return;
 
-      setAiCaseAuthoringPreview(response.case);
+      setAiCaseAuthoringPreview({...response.case,reference_attachment_ids:promptFiles.attachmentIds.length?promptFiles.attachmentIds:response.case.reference_attachment_ids});
       setAiCaseAuthoringTone("success");
       setAiCaseAuthoringMessage(
         response.context_reduced ? response.context_reduction_reason || "Reduced context was used; review against the original Story." : response.case.authoring_mode === "gherkin"
@@ -7913,6 +7939,7 @@ export function TestCasesPage() {
     const normalizedPreviewParameterValues = normalizeTestCaseParameterValues(aiCaseAuthoringPreview.parameter_values);
 
     if (isCreating) {
+      pendingDraftEvidenceRef.current=[...new Set([...pendingDraftEvidenceRef.current,...(aiCaseAuthoringPreview.reference_attachment_ids||[])])];
       const nextDraftSteps = aiCaseAuthoringPreview.authoring_mode === "gherkin"
         ? []
         : buildDraftStepsFromAiAuthoringPreview(aiCaseAuthoringPreview);
@@ -7973,6 +8000,7 @@ export function TestCasesPage() {
           steps: aiCaseAuthoringPreview.authoring_mode === "gherkin" ? [] : buildPersistedStepsFromAiAuthoringPreview(aiCaseAuthoringPreview)
         }
       });
+      await retainAiEvidence(selectedTestCase.id,aiCaseAuthoringPreview.reference_attachment_ids||[]);
 
       setCaseDraft((current) => ({
         ...current,
@@ -8029,6 +8057,7 @@ export function TestCasesPage() {
         requirement_ids: aiRequirementIds,
         status: "draft",
         cases: acceptedPreviewCases.map((item) => ({
+          reference_attachment_ids:item.reference_attachment_ids,
           title: item.title,
           description: item.description,
           priority: item.priority,
@@ -8046,6 +8075,7 @@ export function TestCasesPage() {
         }))
       });
 
+      for(const item of response.created){if(item.pending_reference_attachment_ids?.length)setPendingAiEvidence(current=>[...current,{projectId,caseId:item.id,ids:item.pending_reference_attachment_ids!}]);}
       setAiPreviewCases([]);
       setAiPreviewMessage("");
       setIsAiStudioOpen(false);
@@ -8076,6 +8106,7 @@ export function TestCasesPage() {
     }
 
     try {
+      const promptFiles = await prepareAiPromptFiles({projectId,files:[...aiContextFiles,...aiReferenceImages.flatMap(image=>aiOriginalImagesRef.current.get(image.url)||[])],additionalContext:aiAdditionalContext});
       const response = await createGenerationJob.mutateAsync({
         app_type_id: appTypeId,
         requirement_ids: aiRequirementIds,
@@ -8083,7 +8114,7 @@ export function TestCasesPage() {
         max_cases_per_requirement: maxCases,
         parallel_requirement_limit: parallelRequirementLimit,
         authoring_mode: authoringMode,
-        additional_context: aiAdditionalContext || undefined,
+        additional_context: promptFiles.additionalContext || undefined,
         external_links: parseExternalLinks(aiExternalLinksText),
         images: aiReferenceImages
       });
@@ -9993,6 +10024,9 @@ export function TestCasesPage() {
   return (
     <div className={["page-content", "page-content--library-full", "page-content--test-cases", isCaseWorkspaceOpen ? "page-content--workspace-focus" : ""].join(" ")}>
       {confirmationDialog}
+      {pendingAiEvidence.filter(item=>item.projectId===projectId).map(item=><div key={item.caseId} className="inline-message error-message" role="alert">The Test Case was saved, but {item.ids.length} reference file{item.ids.length===1?'':'s'} still need to be attached.
+        <button className="ghost-button compact" type="button" onClick={()=>void retainAiEvidence(item.caseId,item.ids,item.projectId)}>Retry evidence upload</button>
+      </div>)}
       {healthModule && testCaseMetricsQuery.data ? <EntityHealthDialog
         entityType="Module"
         entityName={healthModule.name}
@@ -12906,6 +12940,8 @@ export function TestCasesPage() {
 
       {isAiCaseAuthoringOpen && canUseTestCaseAi ? (
         <AiCaseAuthoringModal
+          contextFiles={aiCaseContextFiles}
+          onContextFilesChange={files=>{setAiCaseContextFiles(files);setAiCaseAuthoringPreview(null);}}
           additionalContext={aiCaseAuthoringAdditionalContext}
           externalLinksText={aiCaseAuthoringExternalLinksText}
           applyLabel={isCreating ? "Apply Improvement To Draft" : "Apply Reviewed Improvement"}
@@ -12975,6 +13011,8 @@ export function TestCasesPage() {
 
       {isAiStudioOpen && canUseTestCaseAi ? (
         <AiDesignStudioModal
+          contextFiles={aiContextFiles}
+          onContextFilesChange={files=>{setAiContextFiles(files);setAiPreviewCases([]);}}
           acceptLabel="Accept Into Test Case Library"
           additionalContext={aiAdditionalContext}
           allowMultipleRequirements={true}

@@ -2,6 +2,7 @@ const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platf
 const { splitGenerationContext, generationRetrievalQuery } = require('@hellotest/platform/backend/src/utils/aiGenerationContext');
 const { caseOutputSchema, stepOutputSchema } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
+const { validateAuthoringIntent } = require('@hellotest/platform/backend/src/utils/aiAuthoringIntent');
 const aiLlmSelectionService = require("@hellotest/integration/backend/services/aiLlmSelection.service");
 const { normalizeRichText, normalizeTestStepType } = require("@hellotest/platform/backend/src/utils/testStepAutomation");
 const { createLlmProviderError } = require("@hellotest/platform/backend/src/utils/upstreamLlmError");
@@ -138,7 +139,7 @@ const resolveChatCompletionsUrl = (baseUrl) => {
   return `${normalizedBaseUrl.replace(/\/+$/, "")}/chat/completions`;
 };
 
-const requestChatCompletion = async ({ integration, prompt, images = [], fallbackContent, contextState, testCaseTypes, featureKey = "ai.case_authoring.full_case", authoringMode = "structured", operation = "case-authoring.generate" }) => {
+const requestChatCompletion = async ({ integration, prompt, images = [], imageOnly = false, fallbackContent, contextState, testCaseTypes, featureKey = "ai.case_authoring.full_case", authoringMode = "structured", operation = "case-authoring.generate" }) => {
   const headers = {
     "Content-Type": "application/json"
   };
@@ -163,7 +164,7 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
         messages: [
           {
             role: "system",
-            content: [aiInstructionBlock(featureKey,"legacy.reviewed"),...(featureKey==="ai.case_authoring.full_case"?[aiInstructionBlock(featureKey,`format.${authoringMode}`)]:[])].join("\n\n")
+            content: [aiInstructionBlock(featureKey,"legacy.reviewed"),...(featureKey==="ai.case_authoring.full_case"?[aiInstructionBlock(featureKey,`format.${authoringMode}`),...(imageOnly ? [aiInstructionBlock(featureKey,"evidence.imageOnly")] : [])]:[])].join("\n\n")
           },
           {
             role: "user",
@@ -171,7 +172,9 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
           }
         ]
       })
-    }, { integration, operation, featureKey, nativeArtifactTestCaseTypes:testCaseTypes, contextRetrievalQuery:generationRetrievalQuery(userContent), contextFallbackContent: fallbackContent, contextFallbackInstructions: aiInstructionBlock(featureKey,"recovery.context_size"), onContextFallback: () => { if (contextState) contextState.reduced = true; } });
+    }, { integration, operation, featureKey, persistReferenceImages:featureKey === 'ai.case_authoring.full_case', referenceImageNames:images.map(item=>item.name),
+      onReferenceAttachments: items => { if (contextState) contextState.referenceAttachments = items; },
+      nativeArtifactTestCaseTypes:testCaseTypes, contextRetrievalQuery:generationRetrievalQuery(userContent), contextFallbackContent: fallbackContent, contextFallbackInstructions: aiInstructionBlock(featureKey,"recovery.context_size"), onContextFallback: () => { if (contextState) contextState.reduced = true; } });
   } catch (error) {
     if (error?.name === "AbortError") {
       throw Object.assign(new Error("AI authoring timed out while waiting for the LLM provider"), { statusCode: 504 });
@@ -190,7 +193,7 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
   const messageContent = getCompletionContent(payload);
 
   if (!messageContent) {
-    throw new Error("LLM response did not include generated content");
+    throw Object.assign(new Error('The model returned no Test Case content. Retry or select another configured model.'), { statusCode: 502, code: 'AI_TEST_CASE_RESPONSE_INVALID' });
   }
 
   return messageContent;
@@ -327,6 +330,8 @@ exports.previewCaseAuthoring = async ({
     projectId: appType.project_id || requirement?.project_id,
     usageKey: "ai.case_authoring.full_case"
   });
+  await validateAuthoringIntent({ featureKey: 'ai.case_authoring.full_case', integration, additionalContext,
+    requirements: requirement ? [requirement] : [], currentCase, images: safeImages, externalLinks, fetchCompletion: fetchLlmWithRetry });
   const prompt = buildPrompt({
     requirement,
     appType,
@@ -348,8 +353,14 @@ exports.previewCaseAuthoring = async ({
     authoringMode, additionalContext,
     externalLinks: [], images: [], testCaseTypes
   });
-  const content = await requestChatCompletion({ integration, prompt, authoringMode, images: safeImages, fallbackContent, contextState, testCaseTypes });
-  const preview = normalizePreview(extractJsonPayload(content), currentCase, fallbackStepType, authoringMode);
+  const content = await requestChatCompletion({ integration, prompt, authoringMode, images: safeImages, imageOnly: safeImages.length > 0 && !splitGenerationContext(additionalContext).user_request, fallbackContent, contextState, testCaseTypes });
+  let parsed;
+  try { parsed = extractJsonPayload(content); }
+  catch {
+    throw Object.assign(new Error('The model returned an invalid Test Case response. Retry or select another configured model; your existing Test Case is unchanged.'), { statusCode: 502, code: 'AI_TEST_CASE_RESPONSE_INVALID' });
+  }
+  const preview = normalizePreview(parsed, currentCase, fallbackStepType, authoringMode);
+  preview.reference_attachment_ids = (contextState.referenceAttachments || []).map(item => item.id);
   preview.test_case_type ||= currentCase.test_case_type || typeField.default_value;
   if (!testCaseTypes.includes(preview.test_case_type)) throw Object.assign(new Error('AI authoring selected an unavailable Test Case type. Choose an active type configured by an administrator.'),{statusCode:502,code:'AI_NATIVE_CONTRACT_INVALID'});
   if (!Number.isSafeInteger(preview.priority)||preview.priority<1||preview.priority>5) throw Object.assign(new Error('AI authoring returned an invalid priority.'),{statusCode:502,code:'AI_NATIVE_CONTRACT_INVALID'});
@@ -367,7 +378,7 @@ exports.previewCaseAuthoring = async ({
       name: appType.name
     },
     context_reduced: contextState.reduced,
-    context_reduction_reason: contextState.reduced ? "The provider rejected the full context size. Images and URL pointers were omitted; user instructions, the Story and existing authored content were preserved. Review against the original requirements before applying." : null,
+    context_reduction_reason: contextState.reduced ? "The provider rejected the full context size. URL pointers were omitted; user instructions, the Story and existing authored content were preserved. Review against the original requirements before applying." : null,
     case: preview
   };
 };
@@ -417,6 +428,8 @@ exports.rephraseTestStep = async ({
   });
   const additionalContext = normalizeRichText(additional_context) || '';
   if (additionalContext.length > 18000) throw Object.assign(new Error('Shorten step guidance to 18,000 characters.'), { statusCode: 422, code: 'AI_INPUT_BUDGET_EXCEEDED' });
+  await validateAuthoringIntent({ featureKey: ai_feature || 'ai.case_authoring.step_rephrase', integration, additionalContext,
+    requirements: requirement ? [requirement] : [], currentCase: { ...currentCase, steps: [currentStep] }, fetchCompletion: fetchLlmWithRetry });
   const prompt = buildStepRephrasePrompt({
     requirement,
     appType,

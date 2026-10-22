@@ -122,10 +122,10 @@ function registerFeedbackRoutes(fastify, basePath) {
 
   fastify.post(`${basePath}/ai-improve-preview`, { schema: { body: {
     type: "object", additionalProperties: true,
-    required: ["project_id", "intent", "evidence", "linked_test_case_ids"],
+    required: ["project_id", "linked_test_case_ids"],
     properties: {
       project_id: { type: "string" }, issue_id: { type: "string" },
-      intent: { type: "string", minLength: 2, maxLength: 4000 },
+      intent: { type: "string", maxLength: 4000 },
       evidence: { type: "string", maxLength: 12000 },
       additional_context: { type: "string", maxLength: 12000 },
       external_links: { type: "array", maxItems: 12, items: {type:'string',maxLength:2048} },
@@ -160,7 +160,7 @@ function registerFeedbackRoutes(fastify, basePath) {
     await fastify.authenticate(req);
     fastify.validate({
       project_id: { required: true, type: "string" },
-      intent: { required: true, type: "string", minLength: 2 },
+      intent: { required: false, type: "string", maxLength: 4_000 },
       evidence: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
       external_links: { required: false, type: "array", items: "string", maxItems: 12 },

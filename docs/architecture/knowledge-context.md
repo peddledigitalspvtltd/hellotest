@@ -154,6 +154,17 @@ cleanup reconciles native records that were deleted outside Knowledge Repo.
 Native graph endpoints and proofs also check the current application record at
 read time, so a deleted native record is hidden before that cleanup tick runs.
 
+Repository Knowledge Builder acceptance uses this same ingestion boundary.
+The durable legacy-item sync retains an explicit, bounded repository provenance
+allowlist: run/finding key, repository revision, relative file/line evidence,
+content hash and excerpt coverage. It discards client authorization metadata and
+keeps static evidence unverified at runtime. Provenance changes invalidate reuse
+of an older document; missing source projections are repaired by promoting a
+complete new immutable revision. The repository publication status endpoint
+reports graph/context readiness only for the exact current source, document and
+fragment projection. These are source evidence nodes; acceptance does not infer
+repository dependency or ownership relationships from file names.
+
 Entity resolution uses exact canonical IDs, typed native keys, names and curated
 aliases. It returns ambiguity instead of selecting a similar record. Knowledge
 managers can edit aliases with optimistic revision checks. Conflicting aliases
@@ -276,3 +287,26 @@ recall and cost improvements require a labeled project-specific evaluation set.
 Primary references: [PostgreSQL recursive query behavior](https://www.postgresql.org/docs/current/queries-with.html),
 [Qdrant point idempotence](https://qdrant.tech/documentation/concepts/points/),
 and [MCP tool contracts and access controls](https://modelcontextprotocol.io/specification/2026-07-28/server/tools).
+
+## MCP and graph integration review, 22 October 2026
+
+The production retrieval merger now admits exact authorized graph witnesses
+through their reviewed relationship provenance even when their similarity score
+is zero. It preserves the native graph contract during expansion. Shared LLM
+enrichment and provider size correction carry the resulting relationships with
+their exact delivered proofs; missing, modified or truncated proof text removes
+the dependent relationship and reports an omission. A retained citation ID alone
+cannot establish a discarded relationship witness.
+
+MCP now exposes the existing exact node/curated-alias resolver and uses a reusable
+Knowledge exact-evidence reader. The reader rechecks source/document/fragment
+ACLs and current native record/index/version gates during hydration. Fetches
+retain immutable document, version and chunk identity, with optional expected
+document/hash checks and explicit display-redaction metadata. Historical access
+retains its existing permission boundary.
+
+The [combined architecture review](../research/mcp-context-knowledge-review-2026-10-22.md)
+records the real route/tool coverage, corrected implementation gaps, real
+PostgreSQL/SDK checks and remaining wrapper/deployment limits. It also documents
+source revision pinning for reviewed execution plans and original-record
+reconciliation for uncertain Test Case/Execution create receipts.

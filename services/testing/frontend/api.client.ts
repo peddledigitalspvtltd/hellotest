@@ -160,7 +160,7 @@ issues: {
       request<{ id: string; display_id?: string; status_warning?: { code: string; message: string; requested_status?: string | null; current_status?: string | null; issue_key?: string | null } }>("/feedback", { method: "POST", body: JSON.stringify(input) }),
     previewAiDraft: (input: {
       project_id: string;
-      intent: string;
+      intent?: string;
       additional_context?: string;
       evidence?: string;
       external_links?: string[];
@@ -174,7 +174,7 @@ issues: {
       method: "POST",
       body: JSON.stringify(input)
     }),
-    previewAiImprove: (input: { reference_photos?: AiDesignImageInput[]; additional_context?:string; external_links?:string[]; project_id: string; issue_id?: string; intent: string; evidence?: string; linked_test_case_ids?: string[]; integration_id?: string; prompt_guidance?: string }) =>
+    previewAiImprove: (input: { reference_photos?: AiDesignImageInput[]; additional_context?:string; external_links?:string[]; project_id: string; issue_id?: string; intent?: string; evidence?: string; linked_test_case_ids?: string[]; integration_id?: string; prompt_guidance?: string }) =>
       request<import("@hellotest/platform/frontend/src/types").AiBugDraftPreview>("/feedback/ai-improve-preview", { method: "POST", body: JSON.stringify(input) }),
     previewAiTriage: (input: {
       project_id: string;
@@ -336,8 +336,8 @@ testCases: {
         signal: options?.signal,
         body: JSON.stringify(input)
       }),
-    acceptDesignedCases: (input: { app_type_id: string; requirement_ids: string[]; status?: string; cases: Array<{ title: string; description?: string | null; priority?: number; test_case_type?: string; requirement_ids?: string[]; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string | null; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; step_type?: TestStep["step_type"]; action?: string | null; expected_result?: string | null }> }> }) =>
-      request<{ accepted: number; created: Array<{ id: string; title: string; step_count: number; requirement_ids: string[] }> }>("/test-cases/design-test-cases-accept", {
+    acceptDesignedCases: (input: { app_type_id: string; requirement_ids: string[]; status?: string; cases: Array<{ title: string; reference_attachment_ids?: string[]; description?: string | null; priority?: number; test_case_type?: string; requirement_ids?: string[]; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string | null; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; step_type?: TestStep["step_type"]; action?: string | null; expected_result?: string | null }> }> }) =>
+      request<{ accepted: number; created: Array<{ id: string; title: string; step_count: number; requirement_ids: string[]; pending_reference_attachment_ids?:string[] }> }>("/test-cases/design-test-cases-accept", {
         method: "POST",
         body: JSON.stringify(input)
       }),

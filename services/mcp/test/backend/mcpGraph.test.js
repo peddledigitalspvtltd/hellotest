@@ -10,7 +10,8 @@ function fixture(options={}) {
  const calls=[];
  const graph=options.graph||{contract_type:'KnowledgeGraph',project_id:'project-a',nodes:[{id:'source-a',kind:'requirement',key:'story-a'},{id:'source-b',kind:'test_case',key:'case-a'}],edges:[{id:'edge-a',source:'source-a',target:'source-b',type:'TESTS',evidence_ids:['chunk-a']}],evidence:[{id:'chunk-a',source_id:'source-a',document_id:'version-a',content:'Approved observed requirement'}],limitations:[],stats:{}};
  const traverse=async input=>{calls.push(input);return options.expand?options.expand(input):graph;};
- const service={describe:()=>({node_kinds:G.kinds,provenance_types:['domain_link','source_passage']}),expand:traverse,trace:traverse};
+ const service={describe:()=>({node_kinds:G.kinds,provenance_types:['domain_link','source_passage']}),expand:traverse,trace:traverse,
+  resolveNodes:async input=>{calls.push(input);return{nodes:[{id:'source-a',kind:'requirement',ref_id:'story-a'}],ambiguous:false,unresolved:[],partial:false};}};
  const boundary=G.createGraphContext({permit:async(a,p)=>{assert.equal(p,'knowledge.view');if(options.denied)throw fail('Denied');},fail,db:{prepare:()=>({get:async()=>({project_id:options.foreignApp?'foreign':'project-a'})})},bounded:options.bounded|| (value=>value),service:()=>service});
  return {calls,boundary,graph};
 }
@@ -21,6 +22,12 @@ test('graph schemas keep typed exact identity and bounded traversal controls wit
 test('the graph boundary passes verified identity, exact selectors and zero evidence budget into native services',async()=>{
  const f=fixture({graph:{contract_type:'KnowledgeGraph',project_id:'project-a',nodes:[],edges:[],evidence:[]}}),input=G.graphSchema.parse({seeds:[{kind:'test_case',ref_id:'case-a'}],app_type_id:'app-a',max_edges:0,max_evidence:0,hops:0});
  const result=await f.boundary.expand(actor,input);assert.equal(result.project_id,'project-a');assert.equal(f.calls.length,1);const passed=f.calls[0];assert.equal(passed.user,actor.user);assert.equal(passed.projectId,actor.projectId);assert.equal(passed.app_type_id,'app-a');assert.deepEqual(passed.seeds,input.seeds);assert.equal(passed.maxEdges,0);assert.equal(passed.maxEvidence,0);assert.equal(passed.maxTokens,4000);assert.equal(passed.hops,0);assert.ok(passed.signal instanceof AbortSignal);
+});
+test('graph resolver reuses authorized native exact IDs and curated aliases without permitting model-selected scope',async()=>{
+ const f=fixture(),args=G.resolveSchema.parse({query:'Checkout',identifiers:[{kind:'requirement',ref_id:'story-a'}],app_type_id:'app-a'});
+ const result=await f.boundary.resolve(actor,args);assert.equal(result.project_id,'project-a');assert.equal(result.nodes[0].id,'source-a');assert.equal(f.calls[0].user,actor.user);assert.equal(f.calls[0].appTypeId,'app-a');assert.deepEqual(f.calls[0].identifiers,args.identifiers);
+ assert.equal(G.resolveSchema.safeParse({...args,project_id:'foreign'}).success,false);
+ await assert.rejects(fixture({foreignApp:true}).boundary.resolve(actor,args),{code:'MCP_GRAPH_SCOPE'});
 });
 test('revoked access, foreign application and malformed native endpoints stop before exposing graph data',async()=>{
  for(const config of [{denied:true},{foreignApp:true}]){const f=fixture(config);await assert.rejects(f.boundary.expand(actor,G.graphSchema.parse({seeds:[{kind:'file',ref_id:'source'}],app_type_id:'app-a'})),error=>error.statusCode===403);assert.equal(f.calls.length,0);}

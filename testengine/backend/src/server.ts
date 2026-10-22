@@ -17,6 +17,7 @@ import {
   resolveTestEngineSharedSecret
 } from "./lib/testEngineSecurity.js";
 import { captureLiveSessionScreenshot, getLiveSessionStatus } from "./lib/webEngine.js";
+import { createLiveViewPeerReader } from "./lib/liveViewPeers.js";
 import type { EngineRunEnvelope } from "./contracts/hellotest.js";
 
 const port = Number.parseInt(process.env.PORT || "4301", 10);
@@ -92,6 +93,7 @@ const app = Fastify({
 });
 const sharedSecretConfig = resolveTestEngineSharedSecret();
 const privilegedRunGuard = createPrivilegedRunGuard(sharedSecretConfig);
+const readPeerLiveScreenshot = createLiveViewPeerReader();
 const corsPolicy = resolveCorsPolicy();
 const activeDirectExecutions = new Set<Promise<void>>();
 let queueWorker: QueueWorkerController | null = null;
@@ -153,6 +155,8 @@ app.get("/health/ready", async (_request, reply) => {
 // Compatibility endpoint for older operators. Deployment probes use the explicit live/ready endpoints.
 app.get("/health", async () => ({
   ...buildLiveHealth(),
+  ready: !shuttingDown && sharedSecretConfig.ready && Boolean(opsTelemetry) && Boolean(queueWorker?.getHealthSnapshot().ready),
+  capabilities: { repository_inspection: true, local_execution: true },
   supported_web_engines: ["playwright", "selenium"],
   queue_worker: queueWorker?.getHealthSnapshot() || null,
   ops_telemetry: getOpsTelemetry().getHealthSnapshot()
@@ -161,33 +165,44 @@ app.get("/health", async () => ({
 app.get("/api/v1/capabilities", async () => buildCapabilities());
 
 app.get("/api/v1/live-session/screenshot", async (request, reply) => {
-  const query = request.query as { provider?: string; run_id?: string };
+  const query = request.query as { provider?: string; run_id?: string; local_only?: string };
+  if (query.local_only === "1") {
+    await privilegedRunGuard(request, reply);
+    if (reply.sent) return;
+  }
+  if (typeof query.run_id !== "string" || !query.run_id.trim() || query.run_id.length > 255) {
+    return reply.code(400).send({ code: "LIVE_VIEW_RUN_REQUIRED", message: "Open Live view from a test case execution to select its browser session." });
+  }
   const provider = query.provider === "selenium" ? "selenium" : "playwright";
-  const screenshot = await captureLiveSessionScreenshot(provider, query.run_id);
+  const screenshot = await captureLiveSessionScreenshot(provider, query.run_id)
+    || (query.local_only === "1" ? null : await readPeerLiveScreenshot(provider, query.run_id));
 
   if (!screenshot) {
     reply.code(204);
     return "";
   }
 
-  reply.header("Content-Type", "image/jpeg").header("Cache-Control", "no-store");
+  reply.header("Content-Type", provider === "selenium" ? "image/png" : "image/jpeg").header("Cache-Control", "no-store");
   return screenshot;
 });
 
 app.get("/api/v1/live-session", async (request, reply) => {
   const query = request.query as { provider?: string; format?: string; run_id?: string };
+  if (typeof query.run_id !== "string" || !query.run_id.trim() || query.run_id.length > 255) {
+    return reply.code(400).send({ code: "LIVE_VIEW_RUN_REQUIRED", message: "Open Live view from a test case execution to select its browser session." });
+  }
   const provider = query.provider === "selenium" ? "selenium" : "playwright";
 
-  if (provider === "playwright" && query.format !== "json") {
-    const status = getLiveSessionStatus("playwright", query.run_id);
-    const screenshotPath = "/api/v1/live-session/screenshot?provider=playwright" + (query.run_id ? "&run_id=" + encodeURIComponent(query.run_id) : "");
-    reply.header("Content-Type", "text/html; charset=utf-8");
+  if (query.format !== "json") {
+    const status = getLiveSessionStatus(provider, query.run_id);
+    const screenshotPath = "/api/v1/live-session/screenshot?provider=" + provider + (query.run_id ? "&run_id=" + encodeURIComponent(query.run_id) : "");
+    reply.header("Content-Type", "text/html; charset=utf-8").header("Cache-Control", "no-store").header("Referrer-Policy", "no-referrer");
     return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>HelloTest Playwright Live View</title>
+  <title>HelloTest Test Case Live View</title>
   <style>
     body { margin: 0; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0e1726; color: #f8fafc; }
     .bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 14px; background: #121f33; border-bottom: 1px solid rgba(255,255,255,.12); }
@@ -199,29 +214,33 @@ app.get("/api/v1/live-session", async (request, reply) => {
   </style>
 </head>
 <body>
-  <div class="bar"><strong>HelloTest Playwright live view</strong><span id="state">${status.available ? "Connected" : "Waiting for a Playwright run"}</span></div>
-  <div class="stage"><img id="shot" alt="" /><div class="empty" id="empty">Waiting for an active Playwright browser session.</div></div>
+  <div class="bar"><strong>HelloTest ${provider === "selenium" ? "Selenium" : "Playwright"} test case live view</strong><span id="state">${status.available ? "Connected" : "Waiting for this test case"}</span></div>
+  <div class="stage"><img id="shot" alt="Live browser for the selected test case" /><div class="empty" id="empty">Waiting for this test case's browser session. The view closes when its browser stops.</div></div>
   <script>
     const shot = document.getElementById("shot");
     const empty = document.getElementById("empty");
     const state = document.getElementById("state");
+    let imageUrl;
     async function refresh() {
       const src = "${screenshotPath}&t=" + Date.now();
       const response = await fetch(src, { cache: "no-store" }).catch(() => null);
-      if (!response || response.status === 204) {
+      if (!response || !response.ok || response.status === 204) {
         shot.removeAttribute("src");
         shot.style.display = "none";
         empty.style.display = "block";
-        state.textContent = "Waiting for a Playwright run";
+        state.textContent = "Waiting for this test case";
         return;
       }
-      shot.src = src;
+      const nextImageUrl = URL.createObjectURL(await response.blob());
+      shot.src = nextImageUrl;
+      if (imageUrl) URL.revokeObjectURL(imageUrl);
+      imageUrl = nextImageUrl;
       shot.style.display = "block";
       empty.style.display = "none";
       state.textContent = "Connected";
     }
-    refresh();
-    setInterval(refresh, 1000);
+    async function poll() { try { await refresh(); } finally { setTimeout(poll, 1000); } }
+    poll();
   </script>
 </body>
 </html>`;
@@ -230,18 +249,24 @@ app.get("/api/v1/live-session", async (request, reply) => {
   const seleniumLiveViewUrl = buildSeleniumLiveViewUrl();
   const playwrightLiveViewUrl = buildPlaywrightLiveViewUrl();
   const status = getLiveSessionStatus(provider, query.run_id);
+  let caseLiveViewUrl: string | null = null;
+  try {
+    const url = new URL(playwrightLiveViewUrl || "");
+    url.pathname = "/api/v1/live-session";
+    url.searchParams.set("provider", provider);
+    if (query.run_id) url.searchParams.set("run_id", query.run_id);
+    caseLiveViewUrl = url.toString();
+  } catch {}
 
   return {
     ok: true,
     provider,
-    available: provider === "selenium" ? Boolean(seleniumLiveViewUrl) : status.available,
-    live_view_url: provider === "selenium" ? seleniumLiveViewUrl : playwrightLiveViewUrl,
+    available: status.available || Boolean(await readPeerLiveScreenshot(provider, query.run_id)),
+    live_view_url: caseLiveViewUrl,
     selenium_grid_url: process.env.SELENIUM_GRID_URL || "http://selenium-hub:4444/wd/hub",
     playwright_live_view_url: playwrightLiveViewUrl,
     selenium_live_view_url: seleniumLiveViewUrl,
-    note: provider === "selenium"
-      ? "Use the Selenium noVNC live_view_url while a Selenium web run is active."
-      : "Use the Playwright live_view_url while a Playwright web run is active."
+    note: "Open the test case live_view_url to view this browser session. A run_id keeps the view scoped to its dispatched case."
   };
 });
 

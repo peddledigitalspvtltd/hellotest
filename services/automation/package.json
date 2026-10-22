@@ -84,11 +84,12 @@
     "@hellotest/dashboard": "^1.0.0",
     "@hellotest/integration": "^1.0.0",
     "@hellotest/knowledge": "^1.0.0",
+    "@hellotest/manual": "^1.0.0",
+    "@hellotest/mcp": "^1.0.0",
     "@hellotest/platform": "^1.0.0",
     "@hellotest/testing": "^1.0.0",
     "@hellotest/trace": "^1.0.0",
-    "@hellotest/manual": "^1.0.0",
-    "@hellotest/mcp": "^1.0.0",
-    "acorn": "8.18.0"
+    "acorn": "8.18.0",
+    "ajv": "8.20.0"
   }
 }

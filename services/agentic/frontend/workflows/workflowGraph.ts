@@ -11,6 +11,7 @@ import type {
   AgenticWorkflowTriggerKind,
 } from "@hellotest/platform/frontend/src/types";
 export type WorkflowNodeKind =
+  | "artifactTask"
   | "customAI"
   | "mcpTool"
   | "repositoryAgent"
@@ -61,6 +62,7 @@ export const DEFAULT_RUN_INPUT = `{
 }`;
 
 export const nodeKindLabels: Record<WorkflowNodeKind, string> = {
+  artifactTask: "Native AI task",
   customAI: "Custom AI",
   mcpTool: "MCP server tool",
   repositoryAgent: "Source analysis",
@@ -83,6 +85,7 @@ export const nodeKindLabels: Record<WorkflowNodeKind, string> = {
 };
 
 export const nodeKindDescriptions: Record<WorkflowNodeKind, string> = {
+  artifactTask: "Generate or assess native Story and Test Case drafts for every connected Story",
   customAI: "Review connected input with your own prompt and model",
   mcpTool: "Call an enabled tool on a configured MCP server",
   repositoryAgent: "Analyze GitHub source with a repository agent",
@@ -112,7 +115,7 @@ export const nodePaletteGroups: Array<{
   { label: "Start", kinds: ["trigger"] },
   {
     label: "AI and source analysis",
-    kinds: ["customAI", "agent", "repositoryAgent"],
+    kinds: ["artifactTask", "customAI", "agent", "repositoryAgent"],
   },
   { label: "Connections and servers", kinds: ["apiTool", "mcpTool"] },
   {
@@ -282,6 +285,10 @@ export const buildNodeDefaults = (
       summary:
         "Use HelloTest TestOps adapters for controlled background activity.",
     };
+  }
+
+  if (kind === "artifactTask") {
+    return { ...base, label: "AI Story Assurance", artifactTask: "story-assurance", timeoutMs: "1800000", retryCount: "0", outputKey: "" };
   }
 
   if (kind === "loop") {

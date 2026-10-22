@@ -96,6 +96,11 @@ export function WorkflowOperationFields({
   );
   return (
     <>
+      {kind === "artifactTask" ? <>
+        {select("artifactTask", "Native task", [["story-assurance", "AI Story Assurance"], ["test-case-generation", "AI Test Case Generator"], ["test-case-assurance", "AI Test Case Quality Assurance"], ["automation-engineer", "AI Automation Engineer"]], "story-assurance")}
+        {field("prompt", "Optional task guidance", true)}
+        <p className="studio-caption">Processes each connected Story packet with the native feature contract. Instructions and metrics use Admin AI Controls. Generated cases and automation remain drafts until accepted into the library.</p>
+      </> : null}
       {usesConnection ? (
         <div className="studio-parameter-group">
           <h4>
@@ -177,6 +182,7 @@ export function WorkflowOperationFields({
             ).map((value) => [value, value]),
             "GET",
           )}
+          {data.apiResource === "sprintStories" ? <p className="studio-caption">Reads /requirements for the trigger Sprint and current project, following every cursor page. Choose the HelloTest API base URL connection with an API key. Credentials stay on the server.</p> : null}
           {field(
             "apiUrl",
             "Endpoint URL",
@@ -286,6 +292,7 @@ export function WorkflowOperationFields({
             [
               ["transform", "Map fields"],
               ["customAI", "AI review"],
+              ["storyPackets", "Native Story pipeline"],
             ],
             "transform",
           )}
@@ -298,13 +305,13 @@ export function WorkflowOperationFields({
             </>
           ) : null}
           <p className="studio-caption">
-            Items run sequentially inside this node. Maximum 10 items, within
+            Items run sequentially inside this node. Native Story pipelines support up to 100 Stories; other actions support 10 items, within
             this node's timeout. The next node receives the collected results.
           </p>
         </>
       ) : null}
       {kind === "transform" ||
-      (kind === "loop" && data.loopAction !== "customAI") ? (
+      (kind === "loop" && !["customAI", "storyPackets"].includes(String(data.loopAction))) ? (
         <>
           {field("transformMapping", "Field mapping JSON", true)}
           <p className="studio-caption">

@@ -41,6 +41,7 @@ COPY --chown=node:node services/platform/backend ./services/platform/backend
 COPY --chown=node:node services/platform/shared ./services/platform/shared
 COPY --chown=node:node services/mcp/backend ./services/mcp/backend
 COPY --chown=node:node services/testing/backend ./services/testing/backend
+COPY --chown=node:node services/testing/shared ./services/testing/shared
 COPY --chown=node:node services/knowledge/backend ./services/knowledge/backend
 COPY --chown=node:node services/manual/backend ./services/manual/backend
 COPY --chown=node:node services/dashboard/backend ./services/dashboard/backend
@@ -50,6 +51,7 @@ COPY --chown=node:node services/agentic/backend ./services/agentic/backend
 COPY --chown=node:node services/agentic/shared ./services/agentic/shared
 COPY --chown=node:node services/chatbot/backend ./services/chatbot/backend
 COPY --chown=node:node services/ai/backend ./services/ai/backend
+COPY --chown=node:node services/ai/shared ./services/ai/shared
 COPY --chown=node:node services/trace/backend ./services/trace/backend
 COPY --chown=node:node services/integration/backend ./services/integration/backend
 

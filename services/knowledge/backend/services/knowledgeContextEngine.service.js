@@ -210,7 +210,10 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
           errors.push(...array(expansion.value.retrieval?.error_codes));
           degraded ||= Boolean(expansion.value.retrieval?.degraded);
           candidateCount += additions.length;
-          results.push({ query: expansionJobs[index].stage.toLowerCase(), result: { results: additions }, counted: true });
+          // Retain the native expansion contract. Graph witnesses deliberately
+          // have no similarity score; fusion needs their witnessed relationship
+          // provenance to distinguish them from weak semantic search matches.
+          results.push({ query: expansionJobs[index].stage.toLowerCase(), result: { ...expansion.value, results: additions }, counted: true });
           relationships.push(...array(expansion.value.relationships));
           execution.emit(expansionJobs[index].stage, "completed", { evidence_count: additions.length });
         }

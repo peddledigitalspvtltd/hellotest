@@ -6,6 +6,11 @@ const inspection=require('../services/aiRequestPreview.service');
 const Ajv=require('ajv');
 const request='Generate only NFR performance tests. Measure p95 <= 250 ms at 150 concurrent users.';
 const context=`${request}\n\n---\n\n[HELLOTEST_TEMPLATE_CONTEXT_START]\nPrefer positive functional login cases.\n[HELLOTEST_TEMPLATE_CONTEXT_END]\n\n---\n\n[HELLOTEST_SMART_CONTEXT_START]\nObserved benchmark documentation [source-1].\n[HELLOTEST_SMART_CONTEXT_END]`;
+test('images without semantic text do not supply an unrelated graph retrieval query',()=>{
+ const task={generation_request:{user_request:'',selected_template:[],reviewed_context:['Private image source metadata']},stories:[],current_case:{title:null},reference_images:[{name:'Screenshot.png'}]};
+ assert.equal(generationRetrievalQuery(JSON.stringify(task)),null);
+ task.current_case.title='Sign in with valid credentials';assert.match(generationRetrievalQuery(JSON.stringify(task)),/Sign in with valid credentials/);
+});
 test('explicit user objectives, reusable templates and reviewed evidence remain separate',()=>{
  const input=splitGenerationContext(context);assert.equal(input.user_request,request);assert.deepEqual(input.selected_template,['Prefer positive functional login cases.']);assert.deepEqual(input.reviewed_context,['Observed benchmark documentation [source-1].']);
  const incomplete=splitGenerationContext(request+'\n[HELLOTEST_SMART_CONTEXT_START]unclosed evidence');assert.equal(incomplete.user_request,request);assert.deepEqual(incomplete.unclassified_context,['[HELLOTEST_SMART_CONTEXT_START]unclosed evidence']);
@@ -33,7 +38,7 @@ test('authoring and step requests use separate native schemas and format guidanc
 });
 test('native NFR drafts remain valid without a functional-positive case requirement',()=>{
  const schema=caseOutputSchema('structured',{count:3,refs:['R1']}),validate=new Ajv({strict:false}).compile(schema);
- const nfr={applicable_domain:'performance',testCases:[{title:'Checkout p95 latency under concurrency',requirement_refs:['R1'],authoring_mode:'structured',steps:[{action:'Run the checkout workload with 150 concurrent users',expected_result:'Measured p95 latency is at most 250 ms'}]}]};
+ const nfr={applicable_domain:'performance',testCases:[{title:'Checkout p95 latency under concurrency',description:'Measure the supplied checkout latency target.',priority:3,test_case_type:'performance',parameter_values:{},requirement_refs:['R1'],authoring_mode:'structured',steps:[{action:'Run the checkout workload with 150 concurrent users',expected_result:'Measured p95 latency is at most 250 ms'}]}]};
  assert.equal(validate(nfr),true,JSON.stringify(validate.errors));assert.equal(validate({...nfr,testCases:[{...nfr.testCases[0],requirement_refs:['foreign']}]}),false);
 });
 test('inspection validates draft inputs, excludes reserved controls and does not make model calls',async()=>{
