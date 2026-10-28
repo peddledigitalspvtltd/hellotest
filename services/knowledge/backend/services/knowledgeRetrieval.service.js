@@ -100,7 +100,7 @@ const normalizeAssistantFilters = async ({ projectId, appTypeId, base, override 
   const filters = {};
   if (Array.isArray(merged.requested_scopes)) filters.requested_scopes = [...new Set(merged.requested_scopes.filter(scope => ['stories','test-cases','runs','bugs','automation','knowledge'].includes(scope)))];
   if (typeof merged.agent_id === 'string') filters.agent_id = normalizeText(merged.agent_id, 255);
-  if (merged.evidence_scope && typeof merged.evidence_scope === 'object') filters.evidence_scope = Object.fromEntries(['story_id','test_case_id','execution_id','release_id','build','environment_id'].filter(key => typeof merged.evidence_scope[key] === 'string' && merged.evidence_scope[key].trim()).map(key => [key, normalizeText(merged.evidence_scope[key], 255)]));
+  if (merged.evidence_scope && typeof merged.evidence_scope === 'object') filters.evidence_scope = Object.fromEntries(require('@hellotest/platform/shared/agentEvidenceScopeFields.json').map(field => field.key).filter(key => typeof merged.evidence_scope[key] === 'string' && merged.evidence_scope[key].trim()).map(key => [key, normalizeText(merged.evidence_scope[key], 255)]));
   if (collectionIds.length) filters.collection_ids = collectionIds;
   const sourceKinds = [...new Set(asArray(merged.source_kinds).map((value) => normalizeText(value, 80)).filter(Boolean))].slice(0, 20);
   if (sourceKinds.length) filters.source_kinds = sourceKinds;

@@ -2,12 +2,24 @@ const dns = require("node:dns").promises;
 const http = require("node:http");
 const https = require("node:https");
 const net = require("node:net");
+const { randomUUID } = require("node:crypto");
 const execution = require("@hellotest/knowledge/backend/services/knowledgeExecution.service");
 const {
   sanitizeAiText,
 } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
 const { fail, cleanUrl } = require("./endpointPolicy");
 const settings = require("./connectionSettings");
+const HTTP_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
+const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const MAX_RESPONSE_BYTES = 128 * 1024;
+const MAX_PAGINATION_BYTES = 8 * 1024 * 1024;
+const MAX_PAGINATION_PAGES = 100;
+const httpFailure = (message, statusCode, code, details = {}) => Object.assign(fail(message, statusCode), { code, ...details });
+function requestTimeout(value, fallback = 30000) {
+  const timeout = Number(value ?? fallback);
+  if (!Number.isInteger(timeout) || timeout < 1 || timeout > 70000) throw fail("Choose an HTTP timeout of at most 70,000 milliseconds.");
+  return timeout;
+}
 async function configured() {
   let rows;
   try {
@@ -110,6 +122,7 @@ function authHeaders(connection) {
   const secret = connection.secretEnv ? process.env[connection.secretEnv] : settings.credential(connection);
   if (!secret)
     throw fail("The selected connection has no configured credential.", 503);
+  if (typeof secret !== "string" || /[\r\n]/.test(secret)) throw fail("The configured connection credential is invalid.", 503);
   const name = connection.header || "Authorization";
   if (
     !/^[A-Za-z0-9-]+$/.test(name) ||
@@ -147,15 +160,26 @@ async function request({
   signal,
   timeoutMs = 30000,
   onChunk,
+  maxResponseBytes = MAX_RESPONSE_BYTES,
+  effectful = false,
+  operationId,
 }) {
   if (signal?.aborted) throw fail("The node was cancelled.", 499);
+  const deadline = Date.now() + requestTimeout(timeoutMs);
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
-  const addresses = net.isIP(hostname)
-    ? [{ address: hostname, family: net.isIP(hostname) }]
-    : await execution.bounded(() => dns.lookup(hostname, { all: true }), {
-        timeoutMs: Math.min(5000, timeoutMs),
+  let addresses;
+  try {
+    addresses = net.isIP(hostname)
+      ? [{ address: hostname, family: net.isIP(hostname) }]
+      : await execution.bounded(() => dns.lookup(hostname, { all: true }), {
+        timeoutMs: Math.min(5000, Math.max(1, deadline - Date.now())),
         signal,
       });
+  } catch (failure) {
+    if (signal?.aborted) throw httpFailure("The node was cancelled before HTTP dispatch.", 499, "AGENT_HTTP_CANCELLED");
+    throw httpFailure(failure.code === "DEADLINE_EXCEEDED" ? "Endpoint resolution exceeded the HTTP deadline." : "The configured endpoint could not be resolved.",
+      failure.code === "DEADLINE_EXCEEDED" ? 504 : 502, failure.code === "DEADLINE_EXCEEDED" ? "AGENT_HTTP_TIMEOUT" : "AGENT_HTTP_UNAVAILABLE");
+  }
   if (signal?.aborted) throw fail("The node was cancelled.", 499);
   if (
     !addresses.length ||
@@ -170,15 +194,31 @@ async function request({
       403,
     );
   const pinned = addresses[0];
+  if (body != null && typeof body !== "string") throw fail("HTTP request bodies must be serialized text.");
   if (body && Buffer.byteLength(body) > 128 * 1024)
     throw fail("Node request bodies are limited to 128 KB.");
+  const requestHeaders = {
+    Accept: "application/json",
+    ...(body ? { "Content-Type": "application/json" } : {}),
+    ...headers,
+    ...authHeaders(connection),
+    // Node does not automatically frame DELETE/OPTIONS request bodies.
+    ...(body != null ? { "Content-Length": Buffer.byteLength(body) } : {}),
+  };
+  if (Date.now() >= deadline) throw httpFailure("The external node timed out before dispatch.", 504, "AGENT_HTTP_TIMEOUT");
   return new Promise((resolve, reject) => {
     let completed = false;
+    let dispatched = false;
     let timer;
     const finish = (error, result) => {
       if (completed) return;
       completed = true;
       clearTimeout(timer);
+      if (error && effectful && dispatched) Object.assign(error, {
+        code: "AGENT_HTTP_OUTCOME_UNKNOWN", outcome_unknown: true, retryable: false,
+        ...(operationId ? { operation_id: operationId } : {}),
+        publicMessage: `${error.publicMessage || "The HTTP response was unavailable."} The request may have changed the remote system. Verify its outcome before sending it again.`,
+      });
       error ? reject(error) : resolve(result);
     };
     const req = (url.protocol === "https:" ? https : http).request(
@@ -186,12 +226,7 @@ async function request({
       {
         method,
         signal,
-        headers: {
-          Accept: "application/json",
-          ...(body ? { "Content-Type": "application/json" } : {}),
-          ...headers,
-          ...authHeaders(connection),
-        },
+        headers: requestHeaders,
         // Pin the checked address so DNS rebinding cannot redirect credentials.
         lookup: (_host, options, cb) =>
           options?.all
@@ -206,11 +241,12 @@ async function request({
             status: res.statusCode,
             headers: res.headers,
             body: Buffer.concat(chunks).toString("utf8"),
+            bytes,
           });
         res.on("data", (chunk) => {
           bytes += chunk.length;
-          if (bytes > 128 * 1024) {
-            finish(fail("The node response exceeded 128 KB.", 502));
+          if (bytes > maxResponseBytes) {
+            finish(httpFailure(`The node response exceeded ${Math.round(maxResponseBytes / 1024)} KB; no partial result was returned.`, 502, "AGENT_HTTP_RESPONSE_LIMIT", { retryable: false }));
             res.destroy();
             req.destroy();
             return;
@@ -223,6 +259,7 @@ async function request({
           }
         });
         res.on("end", finishBody);
+        res.on("aborted", () => finish(httpFailure("The server response was interrupted.", 502, "AGENT_HTTP_RESPONSE_INTERRUPTED")));
         res.on("error", () =>
           finish(fail("The server response was interrupted.", 502)),
         );
@@ -230,18 +267,20 @@ async function request({
     );
     timer = setTimeout(
       () => {
-        finish(fail("The external node timed out.", 504));
+        finish(httpFailure("The external node timed out.", 504, "AGENT_HTTP_TIMEOUT"));
         req.destroy();
       },
-      Math.min(70000, Math.max(1000, timeoutMs)),
+      Math.max(1, deadline - Date.now()),
     );
+    req.once("finish", () => { dispatched = true; });
     req.on("error", () =>
       finish(
-        fail(
+        httpFailure(
           signal?.aborted
             ? "The node was cancelled."
             : "Unable to reach the configured endpoint.",
           signal?.aborted ? 499 : 502,
+          signal?.aborted ? "AGENT_HTTP_CANCELLED" : "AGENT_HTTP_UNAVAILABLE",
         ),
       ),
     );
@@ -254,13 +293,11 @@ async function callHttp({ projectId, data, signal }) {
     projectId,
     data.apiUrl,
   );
-  const method = String(data.apiMethod || "GET").toUpperCase();
+  const method = String(data.apiMethod || "GET").trim().toUpperCase();
   const allowed = connection?.methods || ["GET", "HEAD"];
   if (
     !allowed.includes(method) ||
-    !["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"].includes(
-      method,
-    )
+    !HTTP_METHODS.has(method)
   )
     throw fail("This HTTP method is not enabled for the connection.", 403);
   if (data.apiAuth || data.credentialId)
@@ -269,31 +306,59 @@ async function callHttp({ projectId, data, signal }) {
     );
   const paginated = data.apiPagination === "cursor";
   if (paginated && method !== "GET") throw fail("Cursor pagination is available only for HTTP GET.");
-  const items = [], cursors = new Set();
-  const maxItems = Math.min(100, Math.max(1, Number(data.apiMaxItems) || 100));
+  if (data.apiPagination && !["none", "cursor"].includes(data.apiPagination)) throw fail("Choose supported cursor pagination.");
+  if (data.apiResource === "sprintStories") {
+    const credentials = Object.fromEntries(Object.entries(authHeaders(connection)).map(([name, value]) => [name.toLowerCase(), value]));
+    if (!connection || (!credentials["x-api-key"] && !/^Bearer \S+$/i.test(credentials.authorization || ""))) throw fail("Select a managed HelloTest HTTP connection using a Settings API key in X-API-Key or Bearer authentication.", 422);
+    if (/^(?:Bearer )?mcp1\./i.test(credentials["x-api-key"] || credentials.authorization || "")) throw fail("MCP host credentials cannot read the Stories HTTP API. Use a personal key from Settings → API Keys.", 422);
+  }
+  const timeoutMs = requestTimeout(data.timeoutMs == null || data.timeoutMs === "" ? connection?.timeoutMs || 30000 : data.timeoutMs);
+  const deadline = Date.now() + timeoutMs;
+  const effectful = !READ_METHODS.has(method), operationId = effectful ? `http-${randomUUID()}` : undefined;
+  const items = [], cursors = new Set(), recordIds = new Set();
+  const maxItems = Number(data.apiMaxItems ?? 100);
+  if (!Number.isSafeInteger(maxItems) || maxItems < 1 || maxItems > 10000) throw fail("Choose a complete pagination limit between 1 and 10,000 records.");
   let pages = 0;
+  let totalBytes = 0;
   let expectedTotal = null;
   let result;
   do {
+    if (signal?.aborted) throw httpFailure("The node was cancelled.", 499, "AGENT_HTTP_CANCELLED");
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) throw httpFailure("The complete HTTP page set exceeded the node timeout; no partial result was returned.", 504, "AGENT_HTTP_TIMEOUT");
     const response = await request({ url, connection, method,
       body: ["GET", "HEAD"].includes(method) ? undefined : String(data.apiBody || ""),
-      signal, timeoutMs: Number(data.timeoutMs) || connection?.timeoutMs || 30000 });
-    if (response.status < 200 || response.status >= 300) throw fail(`The endpoint returned HTTP ${response.status}. Redirects are not followed.`, response.status);
+      signal, timeoutMs: remainingMs, effectful, operationId,
+      ...(paginated ? { maxResponseBytes: 1024 * 1024 } : {}) });
+    if (response.status < 200 || response.status >= 300) throw httpFailure(`The endpoint returned HTTP ${response.status}. Redirects are not followed.${effectful && (response.status >= 500 || response.status === 408) ? " Verify the remote outcome before sending this request again." : ""}`, response.status, "AGENT_HTTP_STATUS", {
+      ...(effectful ? { retryable: false, operation_id: operationId } : {}),
+      ...(effectful && (response.status >= 500 || response.status === 408) ? { outcome_unknown: true } : {}),
+    });
     let content;
     try { content = JSON.parse(response.body); } catch { content = response.body; }
-    result = { status: response.status, data: content, content_type: response.headers["content-type"] || "" };
+    result = { status: response.status, data: content, content_type: response.headers["content-type"] || "",
+      request: { method, response_received: true, ...(operationId ? { operation_id: operationId, postcondition_verified: false } : {}) } };
     if (!paginated) return redact(result, connection);
-    if (!content || !Array.isArray(content.items) || typeof content.is_last !== "boolean") throw fail("The Stories API must return items, is_last and next_cursor. Enable include_page=true.", 502);
+    if (!content || !Array.isArray(content.items) || typeof content.is_last !== "boolean") throw httpFailure("The paginated API must return items, is_last and next_cursor. Enable include_page=true for Stories.", 502, "AGENT_HTTP_PAGINATION_INVALID", { retryable: false });
     if (data.apiResource === "sprintStories" && (!Number.isInteger(content.total) || content.total < 0)) throw fail("The Stories API must return a valid total count.", 502);
     if (Number.isInteger(content.total)) {
       if (expectedTotal !== null && content.total !== expectedTotal) throw fail("Sprint membership changed during pagination. Retry against a stable Sprint scope.", 409);
       expectedTotal = content.total;
     }
+    for (const item of content.items) {
+      if (data.apiResource === "sprintStories" && (!item || typeof item.id !== "string" || !item.id)) throw fail("The Stories API returned a Story without its exact record ID.", 502);
+      if (item && typeof item.id === "string") {
+        if (recordIds.has(item.id)) throw fail("The API returned a duplicate record across cursor pages. Retry against a stable scope.", 409);
+        recordIds.add(item.id);
+      }
+    }
     items.push(...content.items);
     pages += 1;
-    if (items.length > maxItems || (Number.isFinite(content.total) && content.total > maxItems)) throw fail(`This Sprint contains more than ${maxItems} Stories. Split its scope before running; no Stories were silently omitted.`, 422);
+    totalBytes += response.bytes;
+    if (totalBytes > MAX_PAGINATION_BYTES) throw httpFailure("The complete API result exceeded the 8 MB workflow budget. Narrow the scope; no partial result was returned.", 422, "AGENT_HTTP_RESULT_LIMIT", { retryable: false });
+    if (items.length > maxItems || (Number.isFinite(content.total) && content.total > maxItems)) throw fail(`The selected scope contains more than ${maxItems} records. Narrow or split the workflow scope; no records were silently omitted.`, 422);
     if (content.is_last) { if (expectedTotal !== null && items.length !== expectedTotal) throw fail("The Stories API returned an incomplete Sprint page set. Retry before generating drafts.", 502); break; }
-    if (pages >= 100 || !content.next_cursor || cursors.has(content.next_cursor) || !content.items.length) throw fail("Stories pagination stopped advancing. Retry against a stable Sprint scope.", 502);
+    if (pages >= MAX_PAGINATION_PAGES || typeof content.next_cursor !== "string" || !content.next_cursor || content.next_cursor.length > 4096 || cursors.has(content.next_cursor) || !content.items.length) throw fail("Cursor pagination stopped advancing or exceeded its page budget. Retry against a stable scope; no partial result was returned.", 502);
     cursors.add(content.next_cursor);
     url.searchParams.set("cursor", String(content.next_cursor));
   } while (!signal?.aborted);

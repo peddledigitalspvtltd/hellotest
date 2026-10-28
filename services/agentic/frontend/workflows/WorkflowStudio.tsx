@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useWorkflowHistory } from "../hooks/useWorkflowHistory";
 import { validateWorkflowInput, type WorkflowGraphSnapshot } from "./workflowHistory";
 import { executionDuration } from "./WorkflowExecutionLog";
@@ -53,6 +53,7 @@ type Props = {
   busy: boolean;
   error: string;
   input: string;
+  inputSetup?: ReactNode;
   onInput: (value: string) => void;
   onDraft: (patch: Partial<WorkflowDraft>) => void;
   onBack: () => void;
@@ -161,7 +162,7 @@ export function WorkflowStudio(props: Props) {
               disabled={props.busy}
             >
               <IconDeviceFloppy size={16} />
-              Save
+              {props.draft.id ? "Save changes" : "Create Workflow"}
             </button>
           )}
           {props.canRun && (
@@ -214,6 +215,7 @@ export function WorkflowStudio(props: Props) {
           </button>
         </div>
       </div>
+      {tab === "editor" && props.inputSetup}
       {inputOpen && (
         <section id={inputId} className="studio-input-drawer" aria-label="Workflow input">
           <header>
@@ -611,6 +613,15 @@ export function WorkflowStudio(props: Props) {
                 <option value="webhook">Webhook · preview only</option>
               </select>
             </label>
+            <label>
+              <span>Node processing</span>
+              <select aria-label="Node processing" value={props.draft.settings.processing_mode === "parallel" ? "parallel" : "sequential"}
+                onChange={event => props.onDraft({ settings: { ...props.draft.settings, processing_mode: event.target.value, max_parallel_nodes: 2 } })}>
+                <option value="sequential">Sequential</option>
+                <option value="parallel">Parallel independent branches · up to 2 nodes</option>
+              </select>
+            </label>
+            <p>Connected nodes wait for their inputs. Merge nodes collect connected branch results in connection order.</p>
           </fieldset>
           <WorkflowConnections projectId={props.inspector.projectId} />
           <p className="studio-caption">

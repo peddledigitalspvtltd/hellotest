@@ -3,6 +3,7 @@ import { FormattedText } from "@hellotest/platform/frontend/src/shared/component
 import { AgentArtifactReview } from "../agents/AgentArtifactReview";
 import { AgentReportVisuals, AgentStructuredValue } from './AgentStructuredValue';
 import { agentOutputText } from '../lib/agentOutputValue';
+import { agentArtifactLabel, agentFindingProposals, agentHandoffStatus, agentOutcomeBrief, agentOutcomeCalls, agentOutcomeCitationIds, agentOutcomeReviewState, agentOutcomeSources } from '../lib/agentOutcomeView';
 import { AutomationRepairReview } from "@hellotest/ai/frontend/components/AutomationRepairReview";
 import { QualityEvidencePanel } from "@hellotest/ai/frontend/components/QualityEvidencePanel";
 import specialistProfiles from "../../shared/workflowSpecialists.json";
@@ -311,6 +312,7 @@ export function AgenticCommandComposer({
           </details>
           {onSmartContextChange ? (
             <SmartContextWorkbench
+              key={JSON.stringify([projectId, appTypeId, agentId, contextScopes, evidenceScope])}
               appTypeId={appTypeId}
               buttonClassName="agent-command-smart-context"
               buttonLabel={smartContext?.resultCount ? `Smart Context · ${smartContext.resultCount}` : "Smart Context"}
@@ -1014,162 +1016,140 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   };
 }) {
   const [projectId] = useCurrentProject();
-  const draftResponse = agentOutputText(result.response);
-  const draftRecommendations = result.recommendations;
-  const [selectedRecommendationIndexes, setSelectedRecommendationIndexes] = useState(result.recommendations.map((_, index) => index));
+  const draftRecommendations = result.recommendations || [];
+  const [selectedRecommendationIndexes, setSelectedRecommendationIndexes] = useState(draftRecommendations.map((_, index) => index));
   const [exportNotice, setExportNotice] = useState("");
   const [isEvidenceOpen, setIsEvidenceOpen] = useState(false);
+  const [evidenceCitationIds, setEvidenceCitationIds] = useState<string[] | null>(null);
   const [activeSection, setActiveSection] = useState("summary");
+  const [proposalIndex, setProposalIndex] = useState(0);
   const surfaceId = useId();
-  const groundedCitations = result.citation_ids?.length
-    ? citations.filter((citation) => result.citation_ids?.includes(citation.id))
-    : [];
   const findings = result.findings || [];
   const deliverables = result.deliverables || [];
+  const artifacts = result.artifacts || [];
+  const assumptions = result.assumptions || [];
   const evidenceGaps = result.evidence_gaps || [];
-  const reviewOnly = result.outcome_contract?.mode === 'review' && !result.artifacts?.length;
-  const hasReviewActions = Boolean(result.artifacts?.length || draftRecommendations.length || result.outcome_contract?.mode === 'author');
+  const review = agentOutcomeReviewState(result, citations);
+  const allSources = agentOutcomeSources(agentOutcomeCitationIds(result), citations);
+  const displayedSources = evidenceCitationIds ? agentOutcomeSources(evidenceCitationIds, citations) : allSources;
+  const reportCount = deliverables.length + (result.sections?.length || 0) + (result.tables?.length || 0) + (result.charts?.length || 0);
+  const calls = agentOutcomeCalls(result.model_call_records, result.agent_chain);
   const contextRouteLabel = provenance?.context_route?.input_type?.replace(/_/g, " ") || "specialist task";
+  const readiness = result.readiness?.status;
+  const reviewLimitations = [...new Set([...(result.readiness?.limitations || []), ...(result.verification?.limitations || [])])];
+  const proposedFindingCount = findings.filter((finding, index) => agentFindingProposals(finding, index, artifacts).length).length;
 
   useEffect(() => {
-    setSelectedRecommendationIndexes(result.recommendations.map((_, index) => index));
-    setActiveSection(result.artifacts?.length ? "actions" : "summary");
+    setSelectedRecommendationIndexes((result.recommendations || []).map((_, index) => index));
+    setActiveSection("summary");
+    setProposalIndex(0);
     setExportNotice("");
+    setIsEvidenceOpen(false);
   }, [result]);
 
-  const briefText = () => [
-    `# ${agentOutputText(result.headline || "Specialist review")}`,
-    result.executive_summary ? agentOutputText(result.executive_summary) : '',
-    draftResponse,
-    findings.length ? `## Findings\n${findings.map(item => `### ${agentOutputText(item.title)}\n${agentOutputText(item.detail)}${item.citation_ids?.length ? `\nSources: ${item.citation_ids.join(", ")}` : "\nEvidence requires verification."}`).join("\n\n")}` : "",
-    deliverables.length ? `## Deliverables\n${deliverables.map(item => `### ${agentOutputText(item.title)}\n${agentOutputText(item.detail)}${item.citation_ids?.length ? `\nSources: ${item.citation_ids.join(", ")}` : ""}`).join("\n\n")}` : "",
-    result.sections?.length ? `## Report sections\n${agentOutputText(result.sections)}` : '',
-    result.tables?.length ? `## Report tables\n${agentOutputText(result.tables)}` : '',
-    result.charts?.length ? `## Report measures\n${agentOutputText(result.charts)}` : '',
-    result.readiness?.limitations?.length ? `## Review limitations\n${result.readiness.limitations.map(item => `- ${item}`).join("\n")}` : "",
-    selectedRecommendationIndexes.length ? `## Review considerations\n${selectedRecommendationIndexes.map(index => `- ${draftRecommendations[index]}`).join("\n")}` : "",
-    result.artifacts?.length ? `## Structured proposals\n${JSON.stringify(result.artifacts, null, 2)}` : "",
-    result.assumptions.length ? `## Assumptions\n${result.assumptions.map(item => `- ${item}`).join("\n")}` : "",
-    evidenceGaps.length ? `## Evidence gaps\n${evidenceGaps.map(item => `- ${item}`).join("\n")}` : "",
-    `## Sources\n${groundedCitations.length ? groundedCitations.map(item => `- ${item.label} (${item.scope}: ${item.id})`).join("\n") : "No verified references were returned."}`,
-    `Generation: ${provenance?.generation_mode || "evidence review"}${provenance?.model ? ` · ${provenance.model}` : ""}. Review before applying changes.`
-  ].filter(Boolean).join("\n\n");
-  const readiness = result.readiness?.status;
+  const openSources = (ids: string[] | null = null) => { setEvidenceCitationIds(ids); setIsEvidenceOpen(true); };
+  const sourceButton = (ids: string[] = []) => {
+    const sources = agentOutcomeSources(ids, citations);
+    return sources.ids.length ? <button className="agent-outcome-source-link" type="button" onClick={() => openSources(ids)}>{sources.available.length} referenced source{sources.available.length === 1 ? "" : "s"}{sources.missing.length ? ` · ${sources.missing.length} unavailable` : ""}</button> : <small>Source evidence not supplied · verify before use</small>;
+  };
+  const briefText = () => agentOutcomeBrief(result, citations, selectedRecommendationIndexes.map(index => draftRecommendations[index]).filter(Boolean));
+  const sections = [
+    { id: "summary", label: "Overview", count: undefined },
+    { id: "findings", label: "Findings", count: findings.length },
+    { id: "deliverables", label: "Artifacts", count: artifacts.length + reportCount },
+    { id: "details", label: "Full brief", count: undefined },
+    { id: "actions", label: review.label, count: artifacts.length || undefined },
+    { id: "calls", label: "Model calls", count: calls.length || undefined }
+  ];
 
   return (
     <section className="agent-outcome-panel">
       <header>
-        <div><span>Agent outcome</span><strong>{agentOutputText(result.headline || "Ready for human review")}</strong></div>
-        <span className="agent-brief-readiness" data-readiness={readiness || "unverified"}>{readiness === "ready_for_review" ? "Ready for review" : readiness === "limited_evidence" ? "Limited evidence" : readiness === "insufficient_evidence" ? "More evidence needed" : "Review required"}</span>
+        <div><span>Agent outcome</span><strong>{agentOutputText(result.headline || "Specialist review")}</strong></div>
+        <span className="agent-brief-readiness" data-readiness={review.blocked ? "insufficient_evidence" : readiness || "unverified"}>{review.blocked ? "Follow-up required" : readiness === "ready_for_review" ? "Ready for review" : readiness === "limited_evidence" ? "Limited evidence" : readiness === "insufficient_evidence" ? "More evidence needed" : "Human review required"}</span>
       </header>
-      <nav className="agent-artifact-navigation" aria-label="Output sections" role="tablist">{[
-        { id: "summary", label: "Overview", count: undefined },
-        ...(findings.length ? [{ id: "findings", label: "Findings", count: findings.length }] : []),
-        ...((deliverables.length || result.sections?.length || result.tables?.length || result.charts?.length) ? [{ id: "deliverables", label: "Artifacts", count: deliverables.length + (result.sections?.length || 0) + (result.tables?.length || 0) + (result.charts?.length || 0) }] : []),
-        { id: "details", label: "Full brief", count: undefined },
-        ...(hasReviewActions ? [{ id: "actions", label: reviewOnly ? 'Review considerations' : "Review & approve", count: result.artifacts?.length || draftRecommendations.length || undefined }] : []), { id: "calls", label: "Model calls", count: result.model_call_records?.length || result.agent_chain?.filter(call => call.trace_id).length || undefined }
-      ].map((section, index, sections) => <button aria-controls={`${surfaceId}-${section.id}`} aria-selected={activeSection === section.id} id={`${surfaceId}-tab-${section.id}`} key={section.id} onClick={() => setActiveSection(section.id)} onKeyDown={event => {
+      <div className="agent-outcome-toolbar">
+        <span>{artifacts.length ? `${artifacts.length} proposed change${artifacts.length === 1 ? "" : "s"} · acceptance saves drafts` : "Assessment prepared for human review"}</span>
+        <div className="agent-brief-icon-actions"><AiEvidenceButton label="Sources" onClick={() => openSources()} /><button className="ghost-button compact" type="button" aria-label="Copy brief" title="Copy brief" onClick={async () => { try { await navigator.clipboard.writeText(briefText()); setExportNotice("Brief copied."); } catch { setExportNotice("Copy is unavailable. Download the brief instead."); } }}><IconCopy size={17} /></button><button className="ghost-button compact" type="button" aria-label="Download brief" title="Download brief" onClick={() => { const url = URL.createObjectURL(new Blob([briefText()], { type: "text/markdown;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "specialist-review.md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setExportNotice("Review brief downloaded."); }}><IconDownload size={17} /></button></div>
+      </div>
+      {exportNotice && <p className="agent-brief-export-notice" role="status">{exportNotice}</p>}
+      <nav className="agent-artifact-navigation" aria-label="Output sections" role="tablist">{sections.map((section, index) => <button aria-controls={`${surfaceId}-${section.id}`} aria-selected={activeSection === section.id} id={`${surfaceId}-tab-${section.id}`} key={section.id} onClick={() => setActiveSection(section.id)} onKeyDown={event => {
         const next = event.key === "ArrowRight" ? (index + 1) % sections.length : event.key === "ArrowLeft" ? (index + sections.length - 1) % sections.length : event.key === "Home" ? 0 : event.key === "End" ? sections.length - 1 : -1;
         if (next >= 0) { event.preventDefault(); setActiveSection(sections[next].id); event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus(); }
       }} role="tab" tabIndex={activeSection === section.id ? 0 : -1} type="button">{section.label}{typeof section.count === "number" ? <span>{section.count}</span> : null}</button>)}</nav>
 
-
-      {result.automation_repair&&<AutomationRepairReview summary={result.automation_repair}/>}
-      {result.quality_assessment && <QualityEvidencePanel key={result.quality_assessment.snapshot_hash} report={result.quality_assessment} />}
-      {result.verification && <details className="agent-brief-limitations" open={result.verification.status !== "passed"}><summary>Completion checks · {result.verification.status === "passed" ? "passed · human review required" : "more input needed"}</summary><ul>{result.verification.checks.map(check => <li key={check.id}>{check.passed ? "Passed" : "Unmet"}: {check.label}</li>)}</ul>{result.verification.limitations.map(item => <p key={item}>{item}</p>)}{result.model_execution && <p>Model: {result.model_execution.effective_model} · {result.model_execution.model_calls}/{result.model_execution.max_model_calls} calls · agent v{result.model_execution.agent_version}</p>}</details>}
-      {exportNotice && <p className="agent-brief-export-notice" role="status">{exportNotice}</p>}
-      {result.readiness?.limitations?.length ? <div className="agent-brief-limitations"><strong>Review limitations</strong><ul>{result.readiness.limitations.map(item => <li key={item}>{item}</li>)}</ul></div> : null}
-      <section aria-labelledby={`${surfaceId}-tab-summary`} className="agent-outcome-executive-summary" hidden={activeSection !== "summary"} id={`${surfaceId}-summary`} role="tabpanel">
-        <span>Decision summary</span><AgentStructuredValue value={result.executive_summary || result.response} />
+      <section aria-labelledby={`${surfaceId}-tab-summary`} hidden={activeSection !== "summary"} id={`${surfaceId}-summary`} role="tabpanel">
+        <div className="agent-outcome-executive-summary"><span>Outcome summary</span><AgentStructuredValue value={result.executive_summary || result.response} /></div>
+        <dl className="agent-outcome-facts" aria-label="Outcome coverage"><div><dt>Findings</dt><dd>{findings.length}</dd></div><div><dt>Findings linked to drafts</dt><dd>{proposedFindingCount} of {findings.length}</dd></div><div><dt>Referenced sources</dt><dd>{allSources.available.length}{allSources.missing.length ? ` · ${allSources.missing.length} unavailable` : ""}</dd></div><div><dt>Next step</dt><dd>{review.blocked ? "Resolve open requirements" : artifacts.length ? "Review proposed changes" : "Review the assessment"}</dd></div></dl>
+        {result.evidence_scope && Object.keys(result.evidence_scope).length > 0 && <div className="agent-brief-limitations"><strong>Selected evidence scope</strong><AgentStructuredValue value={result.evidence_scope} /></div>}
+        {result.quality_assessment && <QualityEvidencePanel key={result.quality_assessment.snapshot_hash} report={result.quality_assessment} />}
+        {result.verification && <details className="agent-brief-limitations" open={result.verification.status !== "passed"}><summary>Completion checks · {result.verification.status === "passed" ? "passed · human review required" : "more input needed"}</summary><ul>{result.verification.checks.map(check => <li key={check.id}>{check.passed ? "Passed" : "Unmet"}: {check.label}</li>)}</ul></details>}
+        {reviewLimitations.length > 0 && <div className="agent-brief-limitations"><strong>Review limitations</strong><ul>{reviewLimitations.map(item => <li key={item}>{item}</li>)}</ul></div>}
+        {assumptions.length > 0 && <details className="agent-outcome-details"><summary>Assumptions to verify ({assumptions.length})</summary><ul>{assumptions.map(item => <li key={item}>{item}</li>)}</ul></details>}
+        {evidenceGaps.length > 0 && <details className="agent-outcome-details is-evidence-gap" open><summary>Evidence gaps ({evidenceGaps.length})</summary><ul>{evidenceGaps.map(item => <li key={item}>{item}</li>)}</ul></details>}
       </section>
-      {findings.length ? (
-        <section aria-labelledby={`${surfaceId}-tab-findings`} className="agent-outcome-findings" aria-label="Agent findings" hidden={activeSection !== "findings"} id={`${surfaceId}-findings`} role="tabpanel">
-          <header><span>Evidence-backed findings</span><strong>{findings.length} item{findings.length === 1 ? "" : "s"}</strong></header>
-          <div>{findings.map((finding, index) => (
-            <article data-priority={finding.priority || "info"} key={`${finding.title}:${index}`}>
-              <header><strong>{agentOutputText(finding.title)}</strong><span>{finding.priority || "info"}</span></header>
-              <AgentStructuredValue value={finding.detail} />
-              {(finding.observation || finding.gap || finding.proposed_action) && <dl className="agent-finding-facts">{[
-                ['Observed evidence', finding.observation], ['Coverage / quality gap', finding.gap], ['Impact', finding.impact],
-                ['Proposed change', finding.proposed_action], ['Acceptance check', finding.acceptance_check],
-              ].filter(([,value]) => value).map(([label,value]) => <div key={label}><dt>{label}</dt><dd><AgentStructuredValue value={value} /></dd></div>)}</dl>}
-              {finding.citation_ids?.length ? <small>{finding.citation_ids.length} supporting reference{finding.citation_ids.length === 1 ? "" : "s"}</small> : <small>Evidence gap · verify before use</small>}
-            </article>
-          ))}</div>
-        </section>
-      ) : null}
-      {(deliverables.length || result.sections?.length || result.tables?.length || result.charts?.length) ? (
-        <section aria-labelledby={`${surfaceId}-tab-deliverables`} className="agent-outcome-deliverables" aria-label="Specialist deliverables" hidden={activeSection !== "deliverables"} id={`${surfaceId}-deliverables`} role="tabpanel">
-          <header><span>Specialist deliverables</span><strong>Use as a reviewable starting point</strong></header>
-          <div>{deliverables.map((deliverable, index) => (
-            <article key={`${deliverable.title}:${index}`}>
-              <span>{deliverable.type?.replace(/_/g, " ") || "deliverable"}</span>
-              <strong>{agentOutputText(deliverable.title)}</strong>
-              <AgentStructuredValue value={deliverable.detail} />
-            </article>
-          ))}</div>
-          <AgentReportVisuals sections={result.sections} tables={result.tables} charts={result.charts} />
-        </section>
-      ) : null}
-      <div aria-labelledby={`${surfaceId}-tab-details`} className="agent-outcome-response-editor" hidden={activeSection !== "details"} id={`${surfaceId}-details`} role="tabpanel">
-        <div><span>Detailed specialist output</span><em>Review brief</em></div>
-        <div aria-label="Complete specialist output" className="agent-brief-body" role="region" tabIndex={0}><AgentStructuredValue value={result.response} /><AgentReportVisuals sections={result.sections} tables={result.tables} charts={result.charts} /></div>
-      </div>
-        <div aria-labelledby={`${surfaceId}-tab-actions`} className="agent-outcome-section agent-outcome-recommendation-review" hidden={activeSection !== "actions"} id={`${surfaceId}-actions`} role="tabpanel">
-          <header className="agent-next-actions-heading"><div><h3>{reviewOnly ? 'Review conclusions' : 'Improved outcomes · human approval'}</h3><p>{result.artifacts?.length ? 'These drafts build on the evidence-backed assessment. Review the specialist handoffs and proposed fields, then accept a draft to save it in its destination module.' : reviewOnly ? 'Review the cited conclusions and considerations before making a decision.' : 'No saveable draft was prepared. Review the assessment, unresolved handoffs and recommendations below. Recommendations do not save records.'}</p></div><div className="agent-brief-icon-actions"><AiEvidenceButton label="Sources" onClick={() => setIsEvidenceOpen(true)} /><button className="ghost-button compact" type="button" aria-label="Copy brief" title="Copy brief" onClick={async () => { try { await navigator.clipboard.writeText(briefText()); setExportNotice("Brief copied."); } catch { setExportNotice("Copy is unavailable. Download the brief instead."); } }}><IconCopy size={17} /></button><button className="ghost-button compact" type="button" aria-label="Download brief" title="Download brief" onClick={() => { const url = URL.createObjectURL(new Blob([briefText()], { type: "text/markdown;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "specialist-review.md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setExportNotice("Review brief downloaded."); }}><IconDownload size={17} /></button></div></header>
-          {result.outcome_issues?.length ? <div className="agent-brief-limitations" role="alert"><strong>Completion requirements remain open</strong><ul>{result.outcome_issues.map((issue,index) => <li key={index}>{typeof issue === 'string' ? issue : agentOutputText(issue.message)}</li>)}</ul></div> : null}
-          {(result.agent_chain?.length || 0) > 1 && <ol className="agent-handoff-list" aria-label="Agent handoffs">{result.agent_chain!.slice(1).map((step, index) => <li key={`${step.agent_id}-${index}`} data-status={step.status}><div><strong>{step.name}</strong><span>{step.status === 'completed' ? `${step.artifact_count || 'Structured'} proposal${step.artifact_count === 1 ? '' : 's'} ready` : 'Needs follow-up'}</span></div><p>{step.reason || 'Prepared proposals from the review findings.'}</p>{step.detail && <p>{step.detail}</p>}</li>)}</ol>}
-          {result.artifacts?.length ? <AgentArtifactReview artifacts={result.artifacts} chain={result.agent_chain || []} sessionId={sessionId} findings={findings} approvalBlocked={result.verification && result.verification.status !== 'passed' || result.readiness?.status === 'insufficient_evidence' || result.outcome_issues?.length ? 'This review has unresolved completion or evidence requirements. Complete a fresh review before accepting proposals.' : undefined} /> : null}
-          {draftRecommendations.length > 0 && <h4>Remaining review considerations</h4>}
-          <div className="agent-brief-action-selection">{draftRecommendations.map((item, index) => <label key={index}><input checked={selectedRecommendationIndexes.includes(index)} onChange={event => { setSelectedRecommendationIndexes(current => event.target.checked ? [...new Set([...current, index])] : current.filter(itemIndex => itemIndex !== index)); }} type="checkbox" /><div className="agent-next-action-copy"><FormattedText text={item} /></div></label>)}</div>
-        </div>
-      {result.assumptions.length ? <details className="agent-outcome-details"><summary>Assumptions to verify ({result.assumptions.length})</summary><ul>{result.assumptions.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
-      {evidenceGaps.length ? <details className="agent-outcome-details is-evidence-gap" open><summary>Evidence gaps ({evidenceGaps.length})</summary><ul>{evidenceGaps.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
-      <section role="tabpanel" aria-labelledby={`${surfaceId}-tab-calls`} id={`${surfaceId}-calls`} hidden={activeSection !== "calls"}><AgentModelCalls projectId={projectId} chain={result.agent_chain} records={result.model_call_records} sessionId={sessionId} /></section>
+
+      <section aria-labelledby={`${surfaceId}-tab-findings`} className="agent-outcome-findings" hidden={activeSection !== "findings"} id={`${surfaceId}-findings`} role="tabpanel">
+        <header><span>Findings and supporting evidence</span><strong>{findings.length} item{findings.length === 1 ? "" : "s"}</strong></header>
+        {!findings.length && <p className="agent-outcome-empty">No structured findings were returned. Review the full brief and evidence gaps before drawing a conclusion.</p>}
+        <div>{findings.map((finding, index) => {
+          const proposals = agentFindingProposals(finding, index, artifacts);
+          return <article data-priority={finding.priority || "info"} key={finding.id || index}>
+            <header><strong>{agentOutputText(finding.title)}</strong><span>{finding.priority || "info"}</span></header>
+            <AgentStructuredValue value={finding.detail} />
+            {[finding.observation, finding.gap, finding.impact, finding.proposed_action, finding.acceptance_check].some(Boolean) && <dl className="agent-finding-facts">{[
+              ['Observed evidence', finding.observation], ['Gap', finding.gap], ['Impact', finding.impact], ['Proposed change', finding.proposed_action], ['Acceptance check', finding.acceptance_check]
+            ].filter(([,value]) => value).map(([label,value]) => <div key={label}><dt>{label}</dt><dd><AgentStructuredValue value={value} /></dd></div>)}</dl>}
+            {sourceButton(finding.citation_ids)}
+            {proposals.length ? <button className="agent-outcome-source-link" type="button" onClick={() => { setProposalIndex(artifacts.indexOf(proposals[0])); setActiveSection("actions"); }}>{proposals.length} matching draft{proposals.length === 1 ? "" : "s"} prepared · review changes</button> : finding.requires_proposal === true ? <small>Requested change has no matching draft</small> : null}
+          </article>;
+        })}</div>
+      </section>
+
+      <section aria-labelledby={`${surfaceId}-tab-deliverables`} className="agent-outcome-deliverables" hidden={activeSection !== "deliverables"} id={`${surfaceId}-deliverables`} role="tabpanel">
+        <header><span>Drafts and supporting reports</span><strong>{artifacts.length} native draft{artifacts.length === 1 ? "" : "s"} · {reportCount} report item{reportCount === 1 ? "" : "s"}</strong></header>
+        {!artifacts.length && !reportCount && <p className="agent-outcome-empty">No native drafts or supporting reports were returned. The full brief contains the agent assessment.</p>}
+        {artifacts.length > 0 && <div>{artifacts.map((artifact, index) => <article key={index}><span>{agentArtifactLabel(artifact.kind)} · {artifact.target_id ? `update ${artifact.target_id}` : 'new draft'}</span><strong>{artifact.title}</strong><AgentStructuredValue value={artifact.description} />{sourceButton(artifact.citation_ids)}<small>{artifact.addressed_finding_ids?.length ? `Addresses findings: ${artifact.addressed_finding_ids.join(', ')}` : 'No finding links recorded'}</small><button className="ghost-button compact" type="button" onClick={() => { setProposalIndex(index); setActiveSection("actions"); }}>Review draft {index + 1}</button></article>)}</div>}
+        {reportCount > 0 && <h3>Supporting analysis</h3>}
+        <div>{deliverables.map((deliverable, index) => <article key={index}><span>{deliverable.type?.replace(/_/g, " ") || "Report"}</span><strong>{agentOutputText(deliverable.title)}</strong><AgentStructuredValue value={deliverable.detail} />{sourceButton(deliverable.citation_ids)}</article>)}</div>
+        <AgentReportVisuals sections={result.sections} tables={result.tables} charts={result.charts} />
+      </section>
+
+      <section aria-labelledby={`${surfaceId}-tab-details`} className="agent-outcome-response-editor" hidden={activeSection !== "details"} id={`${surfaceId}-details`} role="tabpanel">
+        <div><span>Complete review brief</span><em>Assessment, findings, proposed changes and source references</em></div>
+        <div aria-label="Complete specialist output" className="agent-brief-body" role="region" tabIndex={0}>{activeSection === 'details' && <AgentStructuredValue value={agentOutcomeBrief(result, citations)} />}</div>
+      </section>
+
+      <section aria-labelledby={`${surfaceId}-tab-actions`} className="agent-outcome-section agent-outcome-recommendation-review" hidden={activeSection !== "actions"} id={`${surfaceId}-actions`} role="tabpanel">
+        <header className="agent-next-actions-heading"><div><h3>{review.title}</h3><p>{review.description}</p></div></header>
+        {result.outcome_issues?.length ? <div className="agent-brief-limitations" role="alert"><strong>Completion requirements remain open</strong><ul>{result.outcome_issues.map((issue,index) => <li key={index}>{typeof issue === 'string' ? issue : agentOutputText(issue.message)}</li>)}</ul></div> : null}
+        {(result.agent_chain?.length || 0) > 1 && <div className="agent-outcome-sequence"><h4>Assessment to proposed changes</h4><ol className="agent-handoff-list" aria-label="Agent handoffs">{result.agent_chain!.map((step, index) => <li key={`${step.agent_id}-${index}`} data-status={step.status}><div><strong>{step.name}</strong><span>{agentHandoffStatus(step)}</span></div>{step.reason && <p>{step.reason}</p>}{step.detail && <p>{step.detail}</p>}{step.finding_ids?.length ? <p>Requested findings: {step.finding_ids.join(', ')}</p> : null}{step.addressed_finding_ids?.length ? <p>Drafts address: {step.addressed_finding_ids.join(', ')}</p> : null}{step.verification && <details><summary>Draft completion checks · {step.verification.status === 'passed' ? 'passed' : 'needs input'}</summary><ul>{step.verification.checks.map(check => <li key={check.id}>{check.passed ? 'Passed' : 'Unmet'}: {check.label}</li>)}</ul></details>}</li>)}</ol></div>}
+        {(result.agent_chain?.length || 0) > 1 && result.primary_review && <details className="agent-outcome-details"><summary>Original specialist assessment</summary>{result.primary_review.summary && <AgentStructuredValue value={result.primary_review.summary} />}{result.primary_review.findings?.map((finding,index) => <div key={finding.id || index}><h4>{finding.title}</h4><AgentStructuredValue value={finding.detail} />{sourceButton(finding.citation_ids)}</div>)}</details>}
+        {result.automation_repair && <AutomationRepairReview summary={result.automation_repair}/>}
+        {artifacts.length > 0 && <AgentArtifactReview artifacts={artifacts} chain={result.agent_chain || []} sessionId={sessionId} findings={findings} approvalBlocked={review.blockedReason} proposalIndex={proposalIndex} />}
+        {draftRecommendations.length > 0 && <><h4>Follow-up considerations</h4><p className="agent-outcome-selection-hint">Select items to include in the copied or downloaded brief. Selecting a consideration does not save a record.</p></>}
+        <div className="agent-brief-action-selection">{draftRecommendations.map((item, index) => <label key={index}><input checked={selectedRecommendationIndexes.includes(index)} onChange={event => { setSelectedRecommendationIndexes(current => event.target.checked ? [...new Set([...current, index])] : current.filter(itemIndex => itemIndex !== index)); }} type="checkbox" /><div className="agent-next-action-copy"><FormattedText text={item} /></div></label>)}</div>
+        {!artifacts.length && !draftRecommendations.length && !result.automation_repair && <p className="agent-outcome-empty">No executable approval action is available in this outcome.</p>}
+      </section>
+
+      <section role="tabpanel" aria-labelledby={`${surfaceId}-tab-calls`} id={`${surfaceId}-calls`} hidden={activeSection !== "calls"}><AgentModelCalls projectId={projectId} chain={result.agent_chain} records={result.model_call_records} sessionId={sessionId} execution={result.model_execution} /></section>
       <AiEvidenceFlyout
-        description="Review the sources, guardrails, provider, and approval boundary behind this outcome."
+        description="Inspect the recorded references and boundaries used for this assessment. A source reference does not establish that a proposed change has been executed."
         eyebrow="Agent outcome · Evidence"
-        facts={[
-          { label: "References", value: groundedCitations.length },
-          { label: "Guardrails", value: guardrails.length },
-          { label: "Route", value: contextRouteLabel }
-        ]}
-        onClose={() => setIsEvidenceOpen(false)}
-        open={isEvidenceOpen}
-        title="Outcome evidence"
+        facts={[{ label: "References", value: displayedSources.available.length }, { label: "Unavailable", value: displayedSources.missing.length }, { label: "Guardrails", value: guardrails.length }]}
+        onClose={() => setIsEvidenceOpen(false)} open={isEvidenceOpen} title="Outcome evidence"
       >
-        <section className="ai-evidence-flyout__section">
-          <header><span>Context route</span><strong>Why this evidence was selected</strong></header>
-          <dl className="ai-evidence-flyout__record-list">
-            <div><dt>Input</dt><dd>{contextRouteLabel}</dd></div>
-            <div><dt>Decision</dt><dd>{provenance?.context_route?.decision_question || "What conclusion is supported by the selected project evidence?"}</dd></div>
-            <div><dt>Deliverable</dt><dd>{provenance?.context_route?.deliverable_contract || "A reviewable evidence-backed specialist outcome"}</dd></div>
-            <div><dt>Priority scopes</dt><dd>{provenance?.context_route?.priority_scopes?.join(", ") || "Selected project context"}</dd></div>
-            <div><dt>Retrieval focus</dt><dd>{provenance?.context_route?.retrieval_focus || "The submitted specialist task"}</dd></div>
-            {provenance?.context_route?.conversation_reference_used ? <div><dt>Resolved follow-up</dt><dd>{provenance.context_route.resolved_query || "Previous conversation context was used to resolve this request."}</dd></div> : null}
-          </dl>
+        <section className="ai-evidence-flyout__section"><header><span>Sources</span><strong>{evidenceCitationIds ? 'References for the selected item' : 'References used across this outcome'}</strong></header>
+          {displayedSources.available.length ? <ul className="ai-evidence-flyout__source-list">{displayedSources.available.map(citation => <li key={`${citation.scope}:${citation.id}`}><span>{formatRecordKindLabel(citation.source_kind || citation.scope)}</span><strong>{citation.label}</strong><code>{citation.id}</code>{citation.source_id && <small>Record: {citation.source_id}</small>}</li>)}</ul> : <p className="ai-evidence-flyout__empty">No source reference was supplied for this item. Verify the assessment before use.</p>}
+          {displayedSources.missing.length > 0 && <p className="ai-evidence-flyout__empty">Unavailable references: {displayedSources.missing.join(', ')}. These references cannot be inspected in this saved review.</p>}
         </section>
-        <section className="ai-evidence-flyout__section">
-          <header><span>Sources</span><strong>Citations used for this outcome</strong></header>
-          {groundedCitations.length ? (
-            <ul className="ai-evidence-flyout__source-list">
-              {groundedCitations.map((citation) => <li key={`${citation.scope}:${citation.id}`}><span>{formatRecordKindLabel(citation.source_kind || citation.scope)}</span><strong>{citation.label}</strong><code>{citation.id}</code></li>)}
-            </ul>
-          ) : <p className="ai-evidence-flyout__empty">No citation was returned. Treat the outcome as ungrounded until a source is added.</p>}
-        </section>
-        <section className="ai-evidence-flyout__section">
-          <header><span>Guardrails</span><strong>Boundaries applied to the run</strong></header>
-          {guardrails.length ? <ul className="ai-evidence-flyout__bullet-list">{guardrails.map((guardrail) => <li key={guardrail}>{guardrail}</li>)}</ul> : <p className="ai-evidence-flyout__empty">No guardrail detail was returned.</p>}
-        </section>
-        <section className="ai-evidence-flyout__section">
-          <header><span>Provenance</span><strong>Generation route</strong></header>
-          <dl className="ai-evidence-flyout__record-list">
-            <div><dt>Provider</dt><dd>{provenance?.provider || "HelloTest evidence engine"}</dd></div>
-            <div><dt>Model</dt><dd>{provenance?.model || "Deterministic"}</dd></div>
-            <div><dt>Mode</dt><dd>{provenance?.generation_mode || "Evidence assisted"}</dd></div>
-            {provenance?.fallback_reason ? <div><dt>Model fallback</dt><dd>The configured model was unavailable or its output failed the citation contract, so HelloTest retained the deterministic evidence brief.</dd></div> : null}
-          </dl>
-        </section>
+        <section className="ai-evidence-flyout__section"><header><span>Context route</span><strong>Why this evidence was selected</strong></header><dl className="ai-evidence-flyout__record-list">
+          {result.evidence_scope && Object.entries(result.evidence_scope).map(([key,value]) => <div key={key}><dt>{key.replace(/_/g,' ')}</dt><dd>{value}</dd></div>)}
+          <div><dt>Input</dt><dd>{contextRouteLabel}</dd></div><div><dt>Decision</dt><dd>{provenance?.context_route?.decision_question || "What conclusion is supported by the selected project evidence?"}</dd></div><div><dt>Deliverable</dt><dd>{provenance?.context_route?.deliverable_contract || "A reviewable specialist outcome"}</dd></div><div><dt>Priority scopes</dt><dd>{provenance?.context_route?.priority_scopes?.join(", ") || "Selected project context"}</dd></div><div><dt>Retrieval focus</dt><dd>{provenance?.context_route?.retrieval_focus || "The submitted specialist task"}</dd></div>
+          {provenance?.context_route?.conversation_reference_used && <div><dt>Resolved follow-up</dt><dd>{provenance.context_route.resolved_query || "Previous conversation context was used to resolve this request."}</dd></div>}
+        </dl></section>
+        <section className="ai-evidence-flyout__section"><header><span>Guardrails</span><strong>Boundaries recorded for the run</strong></header>{guardrails.length ? <ul className="ai-evidence-flyout__bullet-list">{guardrails.map(guardrail => <li key={guardrail}>{guardrail}</li>)}</ul> : <p className="ai-evidence-flyout__empty">No guardrail detail was returned.</p>}</section>
+        <section className="ai-evidence-flyout__section"><header><span>Provenance</span><strong>Generation route</strong></header><dl className="ai-evidence-flyout__record-list"><div><dt>Provider</dt><dd>{provenance?.provider || "Not recorded"}</dd></div><div><dt>Model</dt><dd>{provenance?.model || "Not recorded"}</dd></div><div><dt>Mode</dt><dd>{provenance?.generation_mode || "Not recorded"}</dd></div>{provenance?.fallback_reason && <div><dt>Fallback</dt><dd>A fallback was recorded. Review the evidence and completion checks for this outcome.</dd></div>}</dl></section>
       </AiEvidenceFlyout>
     </section>
   );

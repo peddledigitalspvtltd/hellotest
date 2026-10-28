@@ -29,7 +29,8 @@ test('explicit evidence aliases become canonical before live case filters, only 
  const input={projectId:'project',appTypeId:'app',prompt:'Inspect AT_0042',user:{id:'reader'},evidenceScope:{test_case_id:'AT_0042'},route:{live_scopes:['test-cases'],priority_scopes:['test-cases']},sourceKinds:['test_case']};
  const result=await orchestrator.buildLiveProjectEvidence(input);
  assert.deepEqual(reads.find(read=>read.sql.includes('UPPER(test_cases.display_id)')).params,['project','app','AT_0042',['AT_0042']]);assert.ok(reads.some(read=>read.sql.includes('FROM test_cases')&&read.params.includes('canonical')));
- assert.equal(JSON.parse(result.hits.find(hit=>hit.title.startsWith('Live project')).content).evidence_scope.test_case_id,'canonical');
+ assert.equal(result.hits.some(hit=>hit.title.startsWith('Live project')),false,'Project metadata must not masquerade as matching scoped evidence.');
+ assert.equal(result.counts.test_cases,0);
  reads.length=0;allowed=false;await orchestrator.buildLiveProjectEvidence(input);assert.ok(!reads.some(read=>read.sql.includes('UPPER(test_cases.display_id)')));
 });
 test('agent inputs canonicalize display references before specialist context loading and retain user scope',async t=>{

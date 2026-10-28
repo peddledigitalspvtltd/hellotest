@@ -1,6 +1,7 @@
 import {
   Background,
   Controls,
+  ControlButton,
   Handle,
   MiniMap,
   Position,
@@ -14,7 +15,7 @@ import {
   type ReactFlowProps,
 } from "@xyflow/react";
 import { createContext, useContext, useEffect, useRef, type RefObject } from "react";
-import { IconCheck, IconPlus } from "@tabler/icons-react";
+import { IconCheck, IconPlus, IconFocusCentered } from "@tabler/icons-react";
 import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
 import type {
   AgenticWorkflowNode,
@@ -115,11 +116,11 @@ function WorkflowEdge(props: EdgeProps) {
   </>;
 }
 const edgeTypes = { workflow: WorkflowEdge };
-function FitCanvas({ container }: { container: RefObject<HTMLDivElement> }) {
+function FitCanvas({ container, enabled = true }: { container: RefObject<HTMLDivElement>; enabled?: boolean }) {
   const initialized = useNodesInitialized();
   const { fitView } = useReactFlow();
   useEffect(() => {
-    if (!initialized || !container.current) return;
+    if (!enabled || !initialized || !container.current) return;
     let frame = 0;
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(frame);
@@ -132,11 +133,15 @@ function FitCanvas({ container }: { container: RefObject<HTMLDivElement> }) {
       observer.disconnect();
       cancelAnimationFrame(frame);
     };
-  }, [initialized, fitView, container]);
+  }, [initialized, fitView, container, enabled]);
   return null;
 }
+function FocusSelectedStep({ id }: { id: string }) {
+  const { fitView } = useReactFlow();
+  return <ControlButton title="Focus selected step" aria-label="Focus selected step" onClick={() => void fitView({ nodes: [{ id }], padding: 0.35, minZoom: 0.6, maxZoom: 1, duration: 200 })}><IconFocusCentered size={16} /></ControlButton>;
+}
 export function WorkflowCanvas(
-  { onInsert, ...props }: ReactFlowProps<AgenticWorkflowNode, AgenticWorkflowEdge> & { onInsert?: (insertion: NodeInsertion) => void },
+  { onInsert, focusNodeId, autoFitOnResize = true, ...props }: ReactFlowProps<AgenticWorkflowNode, AgenticWorkflowEdge> & { onInsert?: (insertion: NodeInsertion) => void; focusNodeId?: string; autoFitOnResize?: boolean },
 ) {
   const container = useRef<HTMLDivElement>(null);
   return (
@@ -152,9 +157,9 @@ export function WorkflowCanvas(
         edgeTypes={edgeTypes}
         edges={props.edges?.map(edge => ({ ...edge, type: onInsert && props.nodes?.find(node => node.id === edge.target)?.data.kind !== "errorHandler" ? "workflow" : edge.type }))}
       >
-        <FitCanvas container={container} />
+        <FitCanvas container={container} enabled={autoFitOnResize} />
         <Background gap={22} size={1} />
-        <Controls showInteractive={false} />
+        <Controls showInteractive={false}>{focusNodeId && <FocusSelectedStep id={focusNodeId} />}</Controls>
         <MiniMap pannable zoomable nodeColor="var(--studio-accent)" />
       </ReactFlow>
     </div></ConnectedPortsContext.Provider></InsertionContext.Provider>

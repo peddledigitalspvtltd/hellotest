@@ -20,6 +20,7 @@ function setup(t, review = async () => response()) {
   t.mock.method(permissions, "hasPermission", async (_user, _permission, project) => project === "project-a");
   t.mock.method(flags, "areEnabled", async () => true);
   t.mock.method(runtime._internals.store, "get", async id => structuredClone(rows.get(id) || null));
+  t.mock.method(runtime._internals.store, "mergePublication", async () => null);
   t.mock.method(runtime._internals.store, "insert", async row => {
     if (rows.has(row.id)) return null;
     rows.set(row.id, structuredClone(row)); return { id: row.id };
@@ -580,4 +581,253 @@ test('specialist variants use the same bounded review contract and conditions co
   assert.equal((await finished((await runtime.start(graph,{},user)).id)).status,'completed');
   const {condition}=require('../../../agentic/backend/workflows/nodeOperations')._internals;
   assert.equal(condition({conditionPath:'input',conditionValue:'{"b":2,"a":1}'},{input:{a:1,b:2}}),true);
+});
+
+const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+const branchWorkflow = mode => ({ ...workflow(), settings: { processing_mode: mode, max_parallel_nodes: 2 },
+  nodes: [node('request', 'trigger'), ...['A', 'B', 'C'].map(id => node(id, 'agent', { agentId: 'quality-evaluator', prompt: `Branch ${id}` })), node('merge', 'aggregator'), node('finish', 'output')],
+  edges: [...['A', 'B', 'C'].map(id => ({ source: 'request', target: id })), ...['C', 'A', 'B'].map(id => ({ source: id, target: 'merge' })), { source: 'merge', target: 'finish' }] });
+
+test('parallel DAG processing bounds model concurrency and merges by connection order rather than finish order', async t => {
+  const began = Object.fromEntries(['A', 'B', 'C'].map(id => [id, deferred()]));
+  const release = Object.fromEntries(['A', 'B', 'C'].map(id => [id, deferred()]));
+  let running = 0, peak = 0;
+  const { requests } = setup(t, async input => {
+    const id = input.prompt.match(/^Branch ([ABC])/)[1];
+    running++; peak = Math.max(peak, running); began[id].resolve();
+    await release[id].promise; running--;
+    return response('ready_for_review', `session-${id}`);
+  });
+  const run = await runtime.start(branchWorkflow('parallel'), {}, user);
+  await Promise.all([began.A.promise, began.B.promise]);
+  assert.equal(requests.length, 2);
+  assert.equal(peak, 2);
+  release.B.resolve(); release.A.resolve();
+  await began.C.promise;
+  assert.equal(requests.length, 3);
+  const partial = await runtime._internals.store.get(run.id);
+  assert.equal(partial.node_results.find(row => row.node_id === 'merge').status, 'queued', 'Merge waits for every selected dependency');
+  release.C.resolve();
+  const done = await finished(run.id);
+  assert.equal(done.status, 'completed');
+  const merge = done.node_results.find(row => row.node_id === 'merge');
+  assert.deepEqual(merge.output.data.map(item => item.session_id), ['session-C', 'session-A', 'session-B']);
+  assert.deepEqual(merge.input.source_node_ids, ['C', 'A', 'B']);
+  assert.deepEqual(merge.output.source_items.map(item => [item.node_id, item.start_index, item.item_count]), [['C', 0, 1], ['A', 1, 1], ['B', 2, 1]]);
+  assert.equal(merge.input.merge_mode, 'waitAllAppend');
+  assert.deepEqual(done.output_payload.runtime_contract.processing, { mode: 'parallel', max_parallel_nodes: 2 });
+  assert.ok(done.node_results.every(row => row.status === 'completed'));
+});
+
+test('sequential DAG processing starts the next independent model only after its predecessor finishes', async t => {
+  const began = Object.fromEntries(['A', 'B', 'C'].map(id => [id, deferred()]));
+  const release = Object.fromEntries(['A', 'B', 'C'].map(id => [id, deferred()]));
+  const { requests } = setup(t, async input => {
+    const id = input.prompt.match(/^Branch ([ABC])/)[1]; began[id].resolve();
+    await release[id].promise; return response('ready_for_review', `session-${id}`);
+  });
+  const run = await runtime.start(branchWorkflow('sequential'), {}, user);
+  for (const [index, id] of ['A', 'B', 'C'].entries()) {
+    await began[id].promise;
+    assert.equal(requests.length, index + 1);
+    release[id].resolve();
+  }
+  const done = await finished(run.id);
+  assert.equal(done.status, 'completed');
+  assert.equal(done.output_payload.runtime_contract.processing.max_parallel_nodes, 1);
+});
+
+test('parallel branch failure aborts the other model and preserves distinct terminal node states', async t => {
+  const both = deferred(); let calls = 0, aborted = false;
+  setup(t, async input => {
+    if (++calls === 2) both.resolve();
+    if (input.prompt.startsWith('Branch A')) { await both.promise; throw Object.assign(new Error('Provider unavailable'), { statusCode: 503 }); }
+    return new Promise((_, reject) => input.signal.addEventListener('abort', () => { aborted = true; reject(Object.assign(new Error('Cancelled'), { name: 'AbortError' })); }, { once: true }));
+  });
+  const done = await finished((await runtime.start(branchWorkflow('parallel'), {}, user)).id);
+  assert.equal(done.status, 'failed');
+  assert.equal(aborted, true);
+  assert.equal(calls, 2);
+  assert.equal(done.node_results.find(row => row.node_id === 'A').status, 'failed');
+  assert.equal(done.node_results.find(row => row.node_id === 'B').status, 'interrupted');
+  assert.equal(done.node_results.find(row => row.node_id === 'C').status, 'skipped');
+});
+
+test('parallel conditional fan-in ignores skipped branches and preserves empty and false values', async t => {
+  setup(t);
+  const graph = { ...workflow(), settings: { processing_mode: 'parallel' },
+    nodes: [node('request','trigger'),node('check','condition',{conditionPath:'input.enabled',conditionValue:'true'}),
+      node('yes','transform',{transformMapping:'{"value":true}'}),node('no','transform',{transformMapping:'{"value":false}'}),
+      node('empty','transform',{transformMapping:'{"items":[]}'}),node('merge','aggregator'),node('finish','output')],
+    edges: [{source:'request',target:'check'},{source:'request',target:'empty'},{source:'check',target:'yes',sourceHandle:'true'},
+      {source:'check',target:'no',sourceHandle:'false'},{source:'yes',target:'merge'},{source:'no',target:'merge'},
+      {source:'empty',target:'merge'},{source:'merge',target:'finish'}] };
+  const done = await finished((await runtime.start(graph,{input_payload:{enabled:false}},user)).id);
+  assert.equal(done.status,'completed');
+  assert.equal(done.node_results.find(row=>row.node_id==='yes').status,'skipped');
+  assert.deepEqual(done.node_results.find(row=>row.node_id==='merge').output.data,[{value:false},{items:[]}]);
+});
+
+test('processing settings reject unbounded concurrency and explicitly reject parallel durable execution', t => {
+  for (const value of [0,3,2.5,'invalid']) {
+    const graph = branchWorkflow('parallel'); graph.settings.max_parallel_nodes = value;
+    assert.equal(runtime.readiness(graph).ready,false);
+  }
+  const control = require('../../../agentic/backend/workflows/temporal/control');
+  t.mock.method(control,'enabled',()=>true);
+  assert.match(runtime.readiness(branchWorkflow('parallel')).blockers.map(row=>row.message).join(' '),/sequential processing for durable/);
+  assert.equal(runtime.readiness(branchWorkflow('sequential')).ready,true);
+});
+
+test('native publication follows recorded generation and input-required automation still reaches the output', async t => {
+  setup(t);
+  const tasks = require('../../../agentic/backend/workflows/artifactTasks');
+  const publisher = require('../../../agentic/backend/workflows/acceptDraft');
+  const order = [];
+  t.mock.method(tasks,'execute',async ({node}) => {
+    order.push(node.data.artifactTask);
+    return { data: [{ story_id: 'story-a', cases: [{ client_id: 'draft-1' }] }],
+      verification: { status: node.data.artifactTask === 'automation-engineer' ? 'needs_input' : 'passed' } };
+  });
+  t.mock.method(publisher,'publishNodeArtifacts',async ({run,node,signal}) => {
+    assert.equal(signal instanceof AbortSignal,true);
+    assert.equal(signal.aborted,false);
+    const checkpoint = await runtime._internals.store.get(run.id);
+    assert.equal(checkpoint.node_results.find(row=>row.node_id===node.id).status,'completed');
+    order.push(`publish:${node.data.artifactTask}`);
+    return {mode:'automatic',status:'saved',receipts:node.data.artifactTask==='test-case-generation'?[{id:'saved-manual',kind:'manual',saved:true,verification_status:'pending_review'}]:[],requires_review:true,approved:false};
+  });
+  const nodes = [node('request','trigger'), ...['test-case-generation','test-case-assurance','automation-engineer'].map(task=>node(task,'artifactTask',{artifactTask:task})),node('finish','output')];
+  const graph = {...workflow(),nodes,edges:nodes.slice(1).map((item,index)=>({source:nodes[index].id,target:item.id})),
+    settings:{template_id:'sprint-automator',library_publication_mode:'automatic'}};
+  const done = await finished((await runtime.start(graph,{input_payload:{sprint_id:'sprint-a'}},user)).id);
+  assert.equal(done.status,'needs_review');
+  assert.deepEqual(order,['test-case-generation','publish:test-case-generation','test-case-assurance','automation-engineer','publish:automation-engineer']);
+  assert.equal(done.node_results.at(-1).status,'completed','Missing automation input does not discard the output/publication');
+  assert.equal(done.node_results[1].output.library_publication.receipts[0].id,'saved-manual');
+  assert.equal(done.node_results[1].output.library_publication.approved,false);
+  assert.equal(done.output_payload.project_changes_applied,true);
+  assert.equal(done.output_payload.runtime_contract.automatic_library_publication,true);
+  assert.equal(Object.hasOwn(done.output_payload.runtime_contract,'project_changes_applied'),false);
+  assert.equal(done.output_payload.summary,'Saved 1 manual Test Case pending review. Additional automation inputs are still needed.');
+});
+
+test('parallel processing keeps HTTP mutations exclusive and retains their operation receipts', async t => {
+  setup(t);
+  const journal = require('../../../agentic/backend/workflows/operationJournal');
+  const connections = require('../../../agentic/backend/workflows/connections');
+  t.mock.method(connections,'resolve',async (_id,_project,url)=>({connection:{id:'approved-write-fixture',kind:'http',methods:['POST']},url:new URL(url)}));
+  const began = deferred(), release = deferred(); let calls = 0, running = 0, peak = 0;
+  t.mock.method(journal,'invoke',async ({node},dispatch)=>({...(await dispatch()),operation_receipt:{id:`op-${node.id}`,state:'response_received',postcondition_verified:false}}));
+  t.mock.method(connections,'callHttp',async ({data})=>{
+    running++; peak=Math.max(peak,running); calls++;
+    if(data.apiUrl.endsWith('/first')) { began.resolve(); await release.promise; }
+    running--; return {data:{url:data.apiUrl}};
+  });
+  const graph = {...workflow(),settings:{processing_mode:'parallel',max_parallel_nodes:2},
+    nodes:[node('request','trigger'),...['first','second'].map(id=>node(id,'apiTool',{apiUrl:`https://example.test/${id}`,apiMethod:'POST'})),node('merge','aggregator'),node('finish','output')],
+    edges:[{source:'request',target:'first'},{source:'request',target:'second'},{source:'first',target:'merge'},{source:'second',target:'merge'},{source:'merge',target:'finish'}]};
+  const run = await runtime.start(graph,{},user); await began.promise;
+  assert.equal(calls,1); release.resolve();
+  const done = await finished(run.id);
+  assert.equal(done.status,'completed'); assert.equal(peak,1); assert.equal(calls,2);
+  for(const id of ['first','second']) assert.deepEqual(done.node_results.find(row=>row.node_id===id).output.operation_receipt,{id:`op-${id}`,state:'response_received',postcondition_verified:false});
+});
+
+test('durable input-required receipts retain needs-review status while executing the final output', async () => {
+  const filename = require.resolve('../../../agentic/backend/workflows/temporal/workflows');
+  const called = [], published = [];
+  const module = { exports: {} };
+  new Function('require','module',require('node:fs').readFileSync(filename,'utf8'))(() => ({
+    proxyActivities: () => ({ executeReviewNode: async ({nodeId}) => { called.push(nodeId); return {node_id:nodeId,kind:nodeId==='start'?'trigger':nodeId==='output'?'output':'artifactTask',status:'completed',needs_attention:nodeId==='automation'}; },
+      publishReview: async input => { published.push(input); } }),
+    CancellationScope: {withTimeout:async(_timeout,task)=>task(),nonCancellable:async task=>task()},isCancellation:()=>false
+  }),module);
+  const result = await module.exports.reviewWorkflow({runId:'durable-native',deadline:new Date(Date.now()+10000).toISOString(),
+    nodes:[{id:'start',kind:'trigger'},{id:'automation',kind:'artifactTask'},{id:'output',kind:'output'}],
+    edges:[{source:'start',target:'automation'},{source:'automation',target:'output'}]});
+  assert.deepEqual(called,['start','automation','output']);
+  assert.equal(result.status,'needs_review');
+  assert.equal(published[0].status,'needs_review');
+  assert.equal(published[0].receipts.length,3);
+});
+
+test('nested merges retain immediate source ranges and the preceding merge provenance in recorded input', async t => {
+  setup(t);
+  const graph = {...workflow(),settings:{processing_mode:'parallel'},
+    nodes:[node('request','trigger'),...['A','B','C'].map(id=>node(id,'transform',{transformMapping:JSON.stringify({id})})),
+      node('mergeAB','aggregator'),node('mergeAll','aggregator'),node('finish','output')],
+    edges:[...['A','B','C'].map(id=>({source:'request',target:id})),{source:'B',target:'mergeAB'},{source:'A',target:'mergeAB'},
+      {source:'C',target:'mergeAll'},{source:'mergeAB',target:'mergeAll'},{source:'mergeAll',target:'finish'}]};
+  const done = await finished((await runtime.start(graph,{},user)).id);
+  assert.equal(done.status,'completed');
+  const result = done.node_results.find(row=>row.node_id==='mergeAll');
+  assert.deepEqual(result.output.data,[{id:'C'},{id:'B'},{id:'A'}]);
+  assert.deepEqual(result.output.source_items,[{node_id:'C',start_index:0,item_count:1},{node_id:'mergeAB',start_index:1,item_count:2}]);
+  assert.deepEqual(result.input.nodes.mergeAB.source_items,[{node_id:'B',start_index:0,item_count:1},{node_id:'A',start_index:1,item_count:1}]);
+  assert.deepEqual(result.input.nodes.mergeAB,done.node_results.find(row=>row.node_id==='mergeAB').output);
+});
+
+test('publication failure preserves partial receipts and claims project changes only for a saved identity', async t => {
+  setup(t);
+  const tasks = require('../../../agentic/backend/workflows/artifactTasks');
+  const publisher = require('../../../agentic/backend/workflows/acceptDraft');
+  t.mock.method(tasks,'execute',async()=>({data:[],verification:{status:'passed'}}));
+  let savedReceipt, calls = 0;
+  t.mock.method(publisher,'publishNodeArtifacts',async()=>{
+    calls++;
+    throw Object.assign(new Error('Reconcile the incomplete publication.'),{code:'AGENT_LIBRARY_PUBLICATION_OUTCOME_UNKNOWN',outcome_unknown:true,
+      library_publication:{mode:'automatic',status:'partial',receipts:savedReceipt?[{id:'saved-before-failure',saved:true}]:[]}});
+  });
+  const nodes=[node('request','trigger'),node('generate','artifactTask',{artifactTask:'test-case-generation'}),node('finish','output')];
+  const graph={...workflow(),nodes,edges:[{source:'request',target:'generate'},{source:'generate',target:'finish'}],settings:{template_id:'sprint-automator',library_publication_mode:'automatic'}};
+  for(const saved of [true,false]) {
+    savedReceipt=saved;
+    const done=await finished((await runtime.start(graph,{input_payload:{sprint_id:'sprint-a'}},user)).id);
+    assert.equal(done.status,'failed');
+    assert.equal(done.output_payload.project_changes_applied,saved);
+    const result=done.node_results.find(row=>row.node_id==='generate');
+    assert.equal(result.output.library_publication.status,'partial');
+    assert.equal(result.error_details.outcome_unknown,true);
+    assert.equal(done.node_results.at(-1).status,'skipped');
+  }
+  assert.equal(calls,2,'An uncertain publication is never automatically retried');
+});
+
+test('cancellation reaches publication and its committed receipt merges without changing the winning cancellation', async t => {
+  const { rows } = setup(t);
+  const tasks=require('../../../agentic/backend/workflows/artifactTasks'),publisher=require('../../../agentic/backend/workflows/acceptDraft');
+  const began=deferred(); let receivedSignal,merged=0;
+  const receipt={id:'committed-before-cancel',kind:'manual',saved:true};
+  t.mock.method(tasks,'execute',async()=>({data:[],verification:{status:'passed'}}));
+  t.mock.method(publisher,'publishNodeArtifacts',async({signal})=>{
+    receivedSignal=signal; began.resolve();
+    return new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(Object.assign(new Error('Publication cancelled.'),{statusCode:499,
+      library_publication:{mode:'automatic',status:'partial',receipts:[receipt]}})),{once:true}));
+  });
+  t.mock.method(runtime._internals.store,'mergePublication',async(id,nodeId,status)=>{
+    const saved=rows.get(id);
+    assert.equal(saved.status,'cancelled'); assert.equal(status,'partial'); merged++;
+    saved.node_results.find(node=>node.node_id===nodeId).output.library_publication={mode:'automatic',status:'partial',receipts:[receipt]};
+    saved.output_payload.project_changes_applied=true;
+    return structuredClone(saved);
+  });
+  const nodes=[node('request','trigger'),node('generate','artifactTask',{artifactTask:'test-case-generation'}),node('finish','output')];
+  const graph={...workflow(),nodes,edges:[{source:'request',target:'generate'},{source:'generate',target:'finish'}],settings:{template_id:'sprint-automator',library_publication_mode:'automatic'}};
+  const run=await runtime.start(graph,{input_payload:{sprint_id:'sprint-a'}},user); await began.promise;
+  await runtime.cancel(await runtime._internals.store.get(run.id),user);
+  const done=await finished(run.id);
+  assert.equal(receivedSignal.aborted,true); assert.equal(merged,1);
+  assert.equal(done.status,'cancelled'); assert.equal(done.output_payload.project_changes_applied,true);
+  assert.equal(done.node_results.find(node=>node.node_id==='generate').output.library_publication.receipts[0].id,receipt.id);
+  assert.equal(done.node_results.at(-1).status,'skipped');
+});
+
+test('saved receipt summaries deduplicate cases and distinguish pending review from unverified automation',()=>{
+  const manual={id:'manual',kind:'manual',saved:true},automation={id:'automation',kind:'automation',saved:true};
+  const nodes=[{output:{library_publication:{receipts:[manual,automation]}}},{output:{library_publication:{receipts:[manual]}}}];
+  const summary=runtime._internals.terminalSummary({},'completed',nodes,'Review workflow completed.');
+  assert.equal(summary,'Saved 1 manual Test Case pending review. Saved 1 automation Test Case pending review and unverified.');
+  const failed=runtime._internals.terminalSummary({},'failed',nodes,'The workflow stopped.');
+  assert.equal(runtime._internals.terminalSummary({},'failed',nodes,failed),failed,'Recovery cannot duplicate the saved-case summary');
 });

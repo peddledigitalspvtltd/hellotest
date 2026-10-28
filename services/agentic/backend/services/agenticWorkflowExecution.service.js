@@ -11,7 +11,7 @@ const execution = require("@hellotest/knowledge/backend/services/knowledgeExecut
 // fail readiness before a run starts; no simulated output is passed as real data.
 const operations = require("../workflows/nodeOperations");
 const { policy: specialistPolicy } = require("../workflows/specialistPolicy");
-const { contextFor, inputValue } = operations._internals;
+const { contextFor, appendInputs } = operations._internals;
 const events = require("../workflows/runtimeEvents");
 const MODE = "review";
 const MAX_DURATION_MS = 180_000;
@@ -19,10 +19,14 @@ const MAX_INPUT_BYTES = 16_384;
 const MAX_ARTIFACT_DURATION_MS = 3_600_000;
 const workflowDuration = workflow => workflow.nodes?.some(node => node.data?.kind === "artifactTask") ? Math.min(MAX_ARTIFACT_DURATION_MS, Math.max(MAX_DURATION_MS, Number(workflow.settings?.maxDurationMs) || MAX_ARTIFACT_DURATION_MS)) : MAX_DURATION_MS;
 const MAX_PARALLEL_RUNS = 2;
+const TERMINAL_SAVE_TIMEOUT_MS = 6000;
 const SUPPORTED_KINDS = new Set(["trigger", "agent", "llmAgent", "repositoryAgent", "aggregator", "output", ...operations.KINDS]);
 const active = new Map();
 const starting = new Map();
-const diagnostics = { onFailure: () => {} };
+// Only terminal snapshots produced by this worker may be recovered on a read.
+// An absent active-map entry alone never establishes ownership or abandonment.
+const pendingTerminals = new Map();
+const diagnostics = { onFailure: () => {}, failures: [] };
 const error = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode, publicMessage: message });
 const text = (value) => typeof value === "string" ? value.trim() : "";
 const object = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -30,6 +34,8 @@ const array = (value) => Array.isArray(value) ? value : [];
 const parse = (value, fallback) => { try { return typeof value === "string" ? JSON.parse(value) : value ?? fallback; } catch { return fallback; } };
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const kindOf = (node) => node.data?.kind || node.type || "agent";
+const processing = workflow => ({ mode: workflow.settings?.processing_mode === 'parallel' ? 'parallel' : 'sequential',
+  max_parallel_nodes: workflow.settings?.processing_mode === 'parallel' ? Math.min(2, Math.max(1, Number(workflow.settings?.max_parallel_nodes) || 2)) : 1 });
 const nodeName = (node) => text(node.data?.label) || node.id;
 const hydrate = (run) => run && ({ ...run, execution_mode: parse(run.workflow_snapshot, {}).execution_mode || "preview", workflow_snapshot: parse(run.workflow_snapshot, {}), input_payload: parse(run.input_payload, {}), output_payload: parse(run.output_payload, {}), node_results: parse(run.node_results, []) });
 
@@ -43,8 +49,96 @@ const store = {
     SET status = ?, node_results = ?, output_payload = ?, updated_at = CURRENT_TIMESTAMP,
       completed_at = CASE WHEN ? = 'running' THEN NULL ELSE CURRENT_TIMESTAMP END
     WHERE id = ? AND status = 'running'
-      AND (?::jsonb IS NULL OR node_results = ?::jsonb) RETURNING id`).get(status, nodes, output, status, id, expectedNodes, expectedNodes)
+      AND (?::jsonb IS NULL OR node_results = ?::jsonb) RETURNING id`).get(status, nodes, output, status, id, expectedNodes, expectedNodes),
+  // A cancellation may win while the current atomic case publication commits.
+  // Recover only committed domain receipts, without replacing cancellation,
+  // other node results, or their timestamps with a worker's earlier snapshot.
+  mergePublication: async (id, nodeId = null, publicationStatus = null) => {
+    const rows = await db.prepare(`SELECT acceptances.node_id,acceptances.receipt
+      FROM workflow_draft_acceptances acceptances JOIN agentic_workflow_runs runs
+        ON runs.id=acceptances.run_id AND runs.project_id=acceptances.project_id
+      WHERE runs.id=? AND (?::text IS NULL OR acceptances.node_id=?)
+      ORDER BY acceptances.node_id,acceptances.story_id,acceptances.case_index,acceptances.kind LIMIT 2001`).all(id,nodeId,nodeId);
+    if (!rows.length) return null;
+    if (rows.length > 2000) throw error('Recorded publication receipts exceed the workflow limit.', 409);
+    const grouped = Object.create(null);
+    for (const row of rows) {
+      const receipt = object(row.receipt);
+      if (receipt.saved !== true || !text(receipt.id)) continue;
+      (grouped[row.node_id] ||= { mode:'automatic', status:publicationStatus === 'partial' ? 'partial' : 'saved',
+        receipts:[], manual_cases_saved:0, automation_cases_saved:0, requires_review:true, approved:false }).receipts.push(receipt);
+      if (receipt.kind === 'manual') grouped[row.node_id].manual_cases_saved++;
+      if (receipt.kind === 'automation') grouped[row.node_id].automation_cases_saved++;
+    }
+    if (!Object.keys(grouped).length) return null;
+    const updated = hydrate(await db.prepare(`UPDATE agentic_workflow_runs SET
+      node_results=(SELECT jsonb_agg(CASE WHEN (?::jsonb -> (item.value->>'node_id')) IS NOT NULL
+        THEN jsonb_set(item.value,'{output}',COALESCE(NULLIF(item.value->'output','null'::jsonb),'{}'::jsonb)
+          || jsonb_build_object('library_publication',(?::jsonb -> (item.value->>'node_id')) ||
+            CASE WHEN ?::text IS NULL THEN jsonb_build_object('status',COALESCE(item.value#>>'{output,library_publication,status}',
+              CASE WHEN status IN ('cancelled','interrupted','failed') THEN 'partial' ELSE 'saved' END)) ELSE '{}'::jsonb END),true)
+        ELSE item.value END ORDER BY item.ordinality)
+        FROM jsonb_array_elements(node_results) WITH ORDINALITY AS item(value,ordinality)),
+      output_payload=COALESCE(output_payload,'{}'::jsonb)||'{"project_changes_applied":true}'::jsonb,
+      updated_at=CURRENT_TIMESTAMP WHERE id=? RETURNING *`).get(grouped,grouped,publicationStatus,id));
+    if (!updated || updated.status === 'running') return updated;
+    const summary = terminalSummary(updated,updated.status,updated.node_results,updated.output_payload.summary);
+    if (summary === updated.output_payload.summary) return updated;
+    return hydrate(await db.prepare(`UPDATE agentic_workflow_runs SET output_payload=jsonb_set(output_payload,'{summary}',to_jsonb(?::text),true)
+      WHERE id=? AND status=? AND node_results=?::jsonb RETURNING *`).get(summary,id,updated.status,updated.node_results)) || updated;
+  },
+  // Recovery must not inherit a failed/released domain transaction or a
+  // cancelled retrieval context. This conditional metadata write cannot replay
+  // node work or overwrite an already-terminal cancellation/receipt.
+  saveTerminal: async (id, status, nodes, output) => {
+    const isolated = require('@hellotest/platform/backend/src/db/createPostgresAdapter').createPostgresAdapter({
+      poolConfig: { ...db.pool.options, application_name: 'hellotest-workflow-terminal', max: 1, min: 0,
+        connectionTimeoutMillis: 2500, statement_timeout: 1500, query_timeout: 2000, lock_timeout: 500 },
+      statementNamespace: 'hellotest_workflow_terminal'
+    });
+    try {
+      return (await isolated.pool.query({
+        text: `UPDATE agentic_workflow_runs SET status=$2,node_results=$3::jsonb,output_payload=$4::jsonb,
+          updated_at=CURRENT_TIMESTAMP,completed_at=CURRENT_TIMESTAMP WHERE id=$1 AND status='running' RETURNING id`,
+        values: [id, status, JSON.stringify(nodes), JSON.stringify(output)], query_timeout: 2000
+      })).rows[0];
+    } finally { await isolated.close(); }
+  }
 };
+
+function recordFailure(run, phase, failure, nodeId = null) {
+  const entry = { event: 'workflow.execution.failure', run_id: run.id, node_id: nodeId, phase,
+    code: typeof failure?.code === 'string' && /^[A-Z0-9_]{1,100}$/.test(failure.code) ? failure.code
+      : /timeout exceeded when trying to connect|Connection terminated due to connection timeout/i.test(failure?.message || '') ? 'WORKFLOW_DATABASE_CONNECT_TIMEOUT' : 'WORKFLOW_EXECUTION_FAILED',
+    ...(Number.isInteger(failure?.statusCode) ? { status_code: failure.statusCode } : {}), at: new Date().toISOString() };
+  diagnostics.failures.push(entry);
+  if (diagnostics.failures.length > 20) diagnostics.failures.shift();
+  try { diagnostics.onFailure(failure); } catch { /* Diagnostics cannot prevent terminal persistence. */ }
+  console.error(JSON.stringify(entry));
+}
+
+async function persistTerminal(run, status, nodes, output) {
+  const snapshot = { run, status, nodes: structuredClone(nodes), output: structuredClone({ ...output, summary: terminalSummary(run, status, nodes, output.summary) }) };
+  pendingTerminals.set(run.id, snapshot);
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const saved = await execution.run({ signal: undefined }, () => execution.bounded(() => attempt
+        ? store.saveTerminal(run.id, status, snapshot.nodes, snapshot.output)
+        : store.save(run.id, status, snapshot.nodes, snapshot.output), { timeoutMs: TERMINAL_SAVE_TIMEOUT_MS }));
+      // A null conditional UPDATE means another terminal writer won. Its
+      // cancellation or completion remains authoritative.
+      pendingTerminals.delete(run.id);
+      return saved;
+    } catch (failure) {
+      lastError = failure;
+      recordFailure(run, attempt ? 'terminal_recovery' : 'terminal_save', failure);
+    }
+  }
+  throw Object.assign(error('The workflow stopped, but its final status could not be recorded. Reload to retry status recovery; do not repeat its actions.', 503), {
+    code: 'WORKFLOW_TERMINAL_PERSISTENCE', cause: lastError
+  });
+}
 
 function readiness(workflow, targetNodeId = "") {
   const blockers = [];
@@ -73,6 +167,9 @@ function readiness(workflow, targetNodeId = "") {
     ordered = ordered.filter(node => required.has(node.id));
   }
   const settings = object(workflow.settings);
+  if (settings.processing_mode != null && !['sequential', 'parallel'].includes(settings.processing_mode)) add(null, 'Choose sequential or parallel node processing.');
+  if (settings.max_parallel_nodes != null && (!Number.isInteger(Number(settings.max_parallel_nodes)) || Number(settings.max_parallel_nodes) < 1 || Number(settings.max_parallel_nodes) > 2)) add(null, 'Run one or two independent nodes at a time.');
+  if (settings.processing_mode === 'parallel' && require('../workflows/temporal/control').enabled()) add(null, 'Parallel node processing is available on the local worker. Choose sequential processing for durable execution.');
   if (settings.requiresApproval || settings.approvalRequired || settings.human_approval_required) add(null, "Approval gates are preview-only. Remove the execution approval gate; results will still require human review before any artifact change.");
   if (settings.execution_mode && !["review", "sequential", "preview"].includes(settings.execution_mode)) add(null, "Only sequential review execution is supported. Parallel or custom execution modes are preview-only.");
   const specialists = nodes.filter(node => ["agent", "llmAgent", "repositoryAgent"].includes(kindOf(node)));
@@ -135,9 +232,11 @@ function readiness(workflow, targetNodeId = "") {
   }
   if (nodes.some(node => node.data?.sampleOutput != null)) warnings.push("Execution uses actual connected results. Declared sample outputs are used only in previews.");
   warnings.push("AI and source analysis return reviewable results. HTTP methods and MCP tools can act on external systems only when enabled by the server connection policy.");
-  warnings.push("Connected branches execute in dependency order on this worker. Output labels do not evaluate expressions; each specialist retrieves fresh evidence with its own bounded context policy.");
+  warnings.push(processing(workflow).mode === 'parallel'
+    ? 'Up to two independent nodes run together after their dependencies finish. External mutations and native artifact tasks run alone; merges preserve connection order.'
+    : 'Connected branches execute sequentially in dependency order. Each specialist retrieves fresh evidence with its own bounded context policy.');
   return { ready: blockers.length === 0, execution_mode: MODE, target_node_id: targetNodeId || null, blockers, warnings,
-    limits: { max_steps: 20, max_specialists: 4, timeout_ms: workflowDuration(workflow), input_limit_bytes: MAX_INPUT_BYTES },
+    processing: processing(workflow), limits: { max_steps: 20, max_specialists: 4, timeout_ms: workflowDuration(workflow), input_limit_bytes: MAX_INPUT_BYTES, max_parallel_nodes: processing(workflow).max_parallel_nodes },
     steps: ordered.map(node => ({ node_id: node.id, name: nodeName(node), kind: kindOf(node), specialist_id: node.data?.agentId || null })) };
 }
 
@@ -146,9 +245,27 @@ async function requireRunAccess(user, projectId, { allowDisabled = false } = {})
   if (!allowDisabled && !await flags.areEnabled(flags.getFeatureKeysForPermission("agentic_workflow.run"), { user })) throw error("Agent workflows are disabled for this workspace.", 403);
 }
 
-async function checkReadiness(workflow, targetNodeId = "", user) {
+async function checkReadiness(workflow, targetNodeId = "", user, inputPayload) {
   const report = readiness(workflow, targetNodeId);
   if (!report.ready) return report;
+  const hasInput = inputPayload !== undefined;
+  const payload = object(inputPayload);
+  const trigger = workflow.nodes.find(node => kindOf(node) === 'trigger');
+  const inputBlocker = message => report.blockers.push({ node_id: trigger?.id || null, node_name: trigger ? nodeName(trigger) : null, message });
+  if (hasInput) {
+    if (!inputPayload || typeof inputPayload !== 'object' || Array.isArray(inputPayload)) inputBlocker('Workflow input must be a JSON object.');
+    else if (Buffer.byteLength(JSON.stringify(payload)) > MAX_INPUT_BYTES) inputBlocker('Workflow input is limited to 16 KB.');
+    if (report.steps.some(step => step.kind === 'artifactTask')) {
+      try { require('../workflows/artifactTasks').checkInput({ project_id: workflow.project_id, app_type_id: workflow.app_type_id, input_payload: payload }); }
+      catch (failure) { inputBlocker(failure.publicMessage || failure.message); }
+    } else if (report.steps.some(step => workflow.nodes.find(node => node.id === step.node_id)?.data.apiResource === 'sprintStories')) {
+      if (!text(payload.sprint_id)) inputBlocker('Choose a Sprint in Workflow input before reading Sprint Stories.');
+      if (payload.project_id && payload.project_id !== workflow.project_id) inputBlocker('The trigger project must match the workflow project.');
+    }
+  } else if (report.steps.some(step => step.kind === 'artifactTask')) {
+    report.warnings.push('Trigger values have not been checked. Choose a Sprint and supply the execution input before running native tasks.');
+  }
+  if (report.blockers.length) { report.ready = false; return report; }
   for (const step of report.steps) {
     const node = workflow.nodes.find(item => item.id === step.node_id);
     if (!["agent", "llmAgent", "customAI", "repositoryAgent", "artifactTask"].includes(step.kind) && !(step.kind === "loop" && node.data?.loopAction === "customAI")) continue;
@@ -156,8 +273,16 @@ async function checkReadiness(workflow, targetNodeId = "", user) {
     if (step.kind === "artifactTask") {
       try {
         const codes = node.data.artifactTask === 'story-assurance' ? ['requirement.view', 'requirement.ai'] : node.data.artifactTask === 'automation-engineer' ? ['requirement.view', 'automation.ai', 'automation.build', 'automation.code.view'] : ['requirement.view', 'testcase.ai'];
+        if (workflow.settings?.template_id === 'sprint-automator' && workflow.settings?.library_publication_mode === 'automatic'
+          && ['test-case-generation', 'automation-engineer'].includes(node.data.artifactTask)) {
+          codes.push('agentic_workflow.view', 'testcase.create');
+          if (node.data.artifactTask === 'automation-engineer') codes.push('automation.view');
+        }
         await require('../workflows/artifactTasks').access(user, workflow.project_id, codes);
-      } catch (failure) { report.blockers.push({ node_id: node.id, node_name: nodeName(node), message: failure.publicMessage }); }
+        await agentRegistry.resolveModel(workflow.project_id, user?.id, node.data.llmIntegrationId || text(payload.integration_id) || undefined,
+          require('../workflows/artifactTasks').taskUsageKey(node.data.artifactTask));
+      } catch (failure) { report.blockers.push({ node_id: node.id, node_name: nodeName(node), message: failure.publicMessage || failure.message || "Check the native task model and permissions." }); }
+      continue;
     }
     try {
       const registered = String(node.data.agentId || "").startsWith("agent-") ? await agentRegistry.resolve(node.data.agentId, node.data.agentVersion, workflow.project_id) : null;
@@ -170,7 +295,7 @@ async function checkReadiness(workflow, targetNodeId = "", user) {
     try {
       const { connection } = await connections.resolve(data.connectionId, workflow.project_id, step.kind === "mcpTool" ? null : data.apiUrl, step.kind === "mcpTool" ? "mcp" : "http");
       if (step.kind === "mcpTool" && !connection.tools?.includes(data.mcpTool)) throw error("Enable this tool in Integrations or choose an enabled tool.");
-      if (step.kind !== "mcpTool" && !(connection?.methods || ["GET", "HEAD"]).includes(step.kind === "webAgent" ? "GET" : data.apiMethod || "GET")) throw error("This HTTP method is not enabled for the selected connection.");
+      if (step.kind !== "mcpTool" && !(connection?.methods || ["GET", "HEAD"]).includes(step.kind === "webAgent" ? "GET" : String(data.apiMethod || "GET").toUpperCase())) throw error("This HTTP method is not enabled for the selected connection.");
       if (step.kind === "mcpTool" && !connection.toolDefinitions?.some(tool => tool.name === data.mcpTool)) throw error("Discover and save this server tool in Integrations before running it.", 422);
       connections._internals.authHeaders(connection);
     } catch (failure) {
@@ -181,13 +306,23 @@ async function checkReadiness(workflow, targetNodeId = "", user) {
   return report;
 }
 
-const terminalNodes = (nodes, currentId, state) => nodes.map(node => node.node_id === currentId && node.status === "running"
-  ? { ...node, status: state, completed_at: new Date().toISOString() }
+const terminalNodes = (nodes, currentId, state) => nodes.map(node => node.status === "running"
+  ? { ...node, status: node.node_id === currentId || ['cancelled', 'interrupted'].includes(state) ? state : 'interrupted', completed_at: new Date().toISOString() }
   : node.status === "queued" ? { ...node, status: "skipped", completed_at: new Date().toISOString() } : node);
 
 async function reconcile(run) {
-  if (!run || run.execution_mode !== MODE || run.status !== "running") return run;
+  if (!run || run.execution_mode !== MODE) return run;
+  if (['cancelled','interrupted','failed'].includes(run.status) && run.workflow_snapshot?.settings?.template_id === 'sprint-automator'
+    && run.workflow_snapshot?.settings?.library_publication_mode === 'automatic') {
+    return await store.mergePublication(run.id) || run;
+  }
+  if (run.status !== 'running') return run;
   if (run.workflow_snapshot.runtime_contract?.orchestrator === "temporal") return run;
+  const pending = pendingTerminals.get(run.id);
+  if (pending) {
+    await persistTerminal(pending.run, pending.status, pending.nodes, pending.output);
+    return await store.get(run.id);
+  }
   const deadline = Date.parse(run.workflow_snapshot?.runtime_contract?.deadline_at || "");
   if (!Number.isFinite(deadline) || deadline > Date.now()) return run;
   return stopRun(run, "interrupted", { summary: "This review exceeded its deadline or the worker stopped. Completed step results are preserved. Start a new review to retry.", error_code: "WORKFLOW_INTERRUPTED" });
@@ -211,7 +346,7 @@ async function stopRun(run, state, details) {
       events.log(stopped, { event: `node_${stopped.status}`, level: "warning", code: details.error_code, message: stopped.skip_reason || details.summary });
       return stopped;
     });
-    if (await store.save(run.id, state, nodes, { ...current.output_payload, status: state, ...details }, current.node_results)) {
+    if (await store.save(run.id, state, nodes, { ...current.output_payload, status: state, ...details, summary: terminalSummary(current, state, nodes, details.summary) }, current.node_results)) {
       active.get(run.id)?.controller.abort();
       return await store.get(run.id);
     }
@@ -260,6 +395,24 @@ const collectReviews = (sources) => sources.flatMap(source => {
     : array(out.items).filter(item => item.session_id).map(item => ({ node_id: source.node_id, item_index: item.index, session_id: item.session_id, response: item.response, readiness: item.readiness, citation_ids: item.citation_ids })).concat(array(out.reviews));
 }).filter((review, index, all) => all.findIndex(other => other.node_id === review.node_id && other.item_index === review.item_index) === index).slice(0, 200);
 
+function terminalSummary(run, status, nodes, fallback) {
+  const saved = new Map();
+  for (const node of nodes) for (const receipt of array(node.output?.library_publication?.receipts)) {
+    if (receipt.saved === true && text(receipt.id) && ['manual', 'automation'].includes(receipt.kind)) saved.set(`${receipt.kind}:${receipt.id}`, receipt);
+  }
+  if (!saved.size) return fallback;
+  const count = kind => [...saved.values()].filter(receipt => receipt.kind === kind).length;
+  const manual = count('manual'), automation = count('automation');
+  const messages = [];
+  if (manual) messages.push(`Saved ${manual} manual Test Case${manual === 1 ? '' : 's'} pending review.`);
+  if (automation) messages.push(`Saved ${automation} automation Test Case${automation === 1 ? '' : 's'} pending review and unverified.`);
+  if (typeof fallback === 'string' && fallback.startsWith(messages.join(' '))) return fallback;
+  if (status === 'needs_review') messages.push(nodes.some(node => node.output?.verification?.status === 'needs_input')
+    ? 'Additional automation inputs are still needed.' : 'The remaining workflow findings need attention.');
+  else if (status !== 'completed' || run.workflow_snapshot?.runtime_contract?.target_node_id) messages.push(fallback);
+  return messages.filter(Boolean).join(' ');
+}
+
 async function executeNode(run, node, user, signal, onAttempt, onProgress = async () => {}, onEvent = async () => {}) {
   try { return await require("@hellotest/platform/backend/src/utils/llmTraceContext").run(
     { project_id: run.project_id, actor_id: user.id, run_id: run.id, node_id: node.id },
@@ -285,7 +438,7 @@ async function executeNodeTask(run, node, user, signal, onAttempt, onProgress, o
       }
     };
     visit(node.id);
-    return { reviews: collectReviews(run.node_results.filter(item => ancestors.has(item.node_id) && item.status === "completed")), data: kind === "output" ? contextFor(run, sources).input : sources.flatMap(source => { const value = inputValue(source.output); return Array.isArray(value) ? value : [value]; }), sources: sources.map(source => ({ node_id: source.node_id, node_name: source.node_name, output_key: source.output_key, status: source.status })), requires_human_review: true };
+    return { reviews: collectReviews(run.node_results.filter(item => ancestors.has(item.node_id) && item.status === "completed")), ...(kind === 'output' ? { data: contextFor(run, sources).input } : appendInputs(sources)), sources: sources.map(source => ({ node_id: source.node_id, node_name: source.node_name, output_key: source.output_key, status: source.status })), requires_human_review: true };
   }
   const data = object(node.data);
   if (kind === "customAI") return executeNode(run, { ...node, data: { ...data, kind: "agent", agentId: "quality-evaluator", customTask: true } }, user, signal, onAttempt, onProgress, onEvent);
@@ -404,6 +557,7 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
   const upstream = compactUpstream(run, node);
   result.input = {
     input_mode: "connected_results", ...contextFor(run, upstream),
+    ...(kindOf(node) === 'aggregator' ? { merge_mode: 'waitAllAppend' } : {}),
     source_node_ids: upstream.map(source => source.node_id),
     // Keep inspectable data bounded. Full upstream output is stored on its own node.
     upstream: upstream.map(source => ({ node_id: source.node_id, status: source.status,
@@ -450,51 +604,126 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
   events.log(result, { event: "node_completed", duration_ms: result.duration_ms, ...(node.data?.logLevel === "audit" ? { output_size_bytes: result.output_size_bytes, source_node_ids: upstream.map(source => source.node_id) } : {}), message: result.output.session_id ? "Specialist review saved with its evidence and provenance." : "Node completed with its connected results." });
   run.output_payload.completed_steps += 1;
   await persist();
-  return { needsReview: result.output.readiness?.status === "insufficient_evidence" || result.output.verification?.status === "needs_input" };
+  const settings = run.workflow_snapshot.settings || {};
+  if (kindOf(node) === 'artifactTask' && ['test-case-generation', 'automation-engineer'].includes(node.data.artifactTask)
+    && settings.template_id === 'sprint-automator' && settings.library_publication_mode === 'automatic') {
+    const recordPublication = publication => {
+      result.output.library_publication = publication;
+      if (array(publication?.receipts).some(receipt => receipt.saved === true && text(receipt.id))) run.output_payload.project_changes_applied = true;
+    };
+    const checkpointPublication = async publication => {
+      if (!array(publication?.receipts).some(receipt => receipt.saved === true && text(receipt.id))) return;
+      try { await execution.run({signal:undefined},()=>store.mergePublication(run.id,node.id,publication.status)); }
+      catch (failure) { recordFailure(run,'publication_metadata',failure,node.id); }
+    };
+    await requireRunAccess(user, run.project_id);
+    if (signal.aborted) throw execution.abortError();
+    try {
+      recordPublication(await require('../workflows/acceptDraft').publishNodeArtifacts({ run, node, user, signal }));
+      await checkpointPublication(result.output.library_publication);
+      events.log(result, { event: 'library_publication_completed', message: 'Generated artifacts were saved for review; approval and execution remain separate.' });
+      await persist();
+    } catch (failure) {
+      if (failure.library_publication) { recordPublication(failure.library_publication); await checkpointPublication(failure.library_publication); }
+      result.status = 'failed';
+      result.error_details = events.failureInfo(failure);
+      result.error = result.error_details.message;
+      run.output_payload.completed_steps = run.node_results.filter(item => item.status === 'completed').length;
+      await persist();
+      throw failure;
+    }
+  }
+  return { needsReview: result.output.readiness?.status === "insufficient_evidence", needsAttention: result.output.verification?.status === 'needs_input' };
 }
 
 async function perform(run, user, controller) {
   let currentNode = null;
   let checking = false;
+  let heartbeatErrorLogged = false;
   const checkState = async () => {
     if (checking || controller.signal.aborted) return;
     checking = true;
-    try { if ((await store.get(run.id))?.status !== "running") controller.abort(); }
-    catch { controller.abort(); }
+    try {
+      const current = await store.get(run.id);
+      heartbeatErrorLogged = false;
+      if (current?.status !== "running") controller.abort();
+    } catch (failure) {
+      // A database acquisition/read failure does not establish that a person
+      // cancelled the workflow. Native/step deadlines still bound the work;
+      // only an observed terminal record can stop it through this heartbeat.
+      if (!heartbeatErrorLogged) recordFailure(run, 'heartbeat_read', failure, currentNode);
+      heartbeatErrorLogged = true;
+    }
     finally { checking = false; }
   };
   const heartbeat = setInterval(() => void checkState(), 1_000);
   heartbeat.unref?.();
-  const persist = async () => {
-    if (controller.signal.aborted) throw execution.abortError();
-    if (!await store.save(run.id, "running", run.node_results, run.output_payload)) { controller.abort(); throw execution.abortError(); }
+  let persistence = Promise.resolve();
+  const persist = () => {
+    const next = persistence.then(async () => {
+      if (controller.signal.aborted) throw execution.abortError();
+      if (!await store.save(run.id, 'running', structuredClone(run.node_results), structuredClone(run.output_payload))) { controller.abort(); throw execution.abortError(); }
+    });
+    persistence = next.catch(() => {});
+    return next;
   };
   try {
     await execution.bounded(async signal => {
-      for (const step of run.workflow_snapshot.execution_order) {
-        const node = run.workflow_snapshot.nodes.find(item => item.id === step);
+      const pending = new Set(run.workflow_snapshot.execution_order);
+      const plan = processing(run.workflow_snapshot);
+      const exclusive = node => ['artifactTask', 'repositoryAgent', 'mcpTool'].includes(kindOf(node))
+        || (['apiTool', 'apiAgent'].includes(kindOf(node)) && !['GET', 'HEAD'].includes(String(node.data.apiMethod || 'GET').toUpperCase()));
+      while (pending.size) {
         await requireRunAccess(user, run.project_id);
         if (signal.aborted) throw execution.abortError();
-        currentNode = node.id;
-        const outcome = await runStep(run, node, user, signal, persist);
-        if (outcome.needsReview) {
+        const ready = run.workflow_snapshot.execution_order.filter(id => pending.has(id)
+          && run.workflow_snapshot.edges.filter(edge => edge.target === id).every(edge => ['completed', 'skipped', 'failed'].includes(run.node_results.find(result => result.node_id === edge.source)?.status)))
+          .map(id => run.workflow_snapshot.nodes.find(node => node.id === id));
+        if (!ready.length) throw error('No workflow node can run because its dependencies have not finished.', 409);
+        const batch = [];
+        for (const node of ready) {
+          if (batch.length >= plan.max_parallel_nodes || (batch.length && exclusive(node))) break;
+          batch.push(node);
+          if (exclusive(node)) break;
+        }
+        const batchController = new AbortController();
+        const abort = () => batchController.abort();
+        signal.addEventListener('abort', abort, { once: true });
+        if (signal.aborted) abort();
+        let batchFailure;
+        const outcomes = await Promise.allSettled(batch.map(async node => {
+          currentNode = node.id;
+          try { return await runStep(run, node, user, batchController.signal, persist); }
+          catch (failure) {
+            if (!batchFailure) { batchFailure = failure; currentNode = node.id; batchController.abort(); }
+            throw failure;
+          }
+        }));
+        signal.removeEventListener('abort', abort);
+        if (batchFailure) throw batchFailure;
+        batch.forEach(node => pending.delete(node.id));
+        const stopped = outcomes.findIndex(outcome => outcome.value?.needsReview);
+        if (stopped >= 0) {
+          const node = batch[stopped];
+          currentNode = node.id;
           run.node_results = terminalNodes(run.node_results, currentNode, "completed");
-          await store.save(run.id, "needs_review", run.node_results, { ...run.output_payload, status: "needs_review", summary: `${nodeName(node)} needs additional evidence.`, review_session_ids: run.node_results.map(item => item.output?.session_id).filter(Boolean) });
+          await persistTerminal(run, "needs_review", run.node_results, { ...run.output_payload, status: "needs_review", summary: `${nodeName(node)} needs additional evidence.`, review_session_ids: run.node_results.map(item => item.output?.session_id).filter(Boolean) });
           return;
         }
       }
       const reviews = collectReviews(run.node_results.filter(item => item.status === "completed")).map(({ response, citation_ids, ...review }) => review);
       const targetId = run.workflow_snapshot.runtime_contract.target_node_id;
       const noResult = targetId ? run.node_results.find(item => item.node_id === targetId)?.status === "skipped" : !run.node_results.some(item => item.node_type === "output" && item.status === "completed");
-      const limited = noResult || reviews.some(review => review.readiness?.status !== "ready_for_review") || run.node_results.some(item => item.status === "failed" || item.output?.readiness?.status === "limited");
+      const limited = noResult || reviews.some(review => review.readiness?.status !== "ready_for_review") || run.node_results.some(item => item.status === "failed" || item.output?.readiness?.status === "limited" || item.output?.verification?.status === 'needs_input');
       if (signal.aborted) throw execution.abortError();
-      await store.save(run.id, limited ? "needs_review" : "completed", run.node_results, { ...run.output_payload, status: limited ? "needs_review" : "completed",
+      await persistTerminal(run, limited ? "needs_review" : "completed", run.node_results, { ...run.output_payload, status: limited ? "needs_review" : "completed",
         summary: noResult ? "The selected branch did not reach an output or the requested step. Check the condition and its connections." : run.node_results.some(item => item.status === "failed") ? "Workflow finished through its error recovery path. Inspect the failed steps and recovery results before acting." : limited ? "Review workflow finished with evidence limitations. Inspect each review before acting." : targetId ? "Selected step and its preceding steps completed. Downstream steps were not executed." : "Review workflow completed. Evidence and proposed next actions are ready for human review.",
         reviews, review_session_ids: reviews.map(review => review.session_id).filter(Boolean),
         results: run.node_results.filter(item => item.node_type === "output" && item.status === "completed").map(item => ({ node_id: item.node_id, output: item.output })) });
     }, { timeoutMs: Math.max(1, Date.parse(run.workflow_snapshot.runtime_contract.deadline_at) - Date.now()), signal: controller.signal });
   } catch (failure) {
-    diagnostics.onFailure(failure);
+    if (failure.code === 'WORKFLOW_TERMINAL_PERSISTENCE') throw failure;
+    recordFailure(run, 'execution', failure, currentNode);
     const timedOut = failure.code === "DEADLINE_EXCEEDED";
     const state = timedOut ? "interrupted" : controller.signal.aborted || failure.name === "AbortError" ? "cancelled" : "failed";
     const message = timedOut ? "The review reached its deadline. Completed results are preserved."
@@ -509,19 +738,18 @@ async function perform(run, user, controller) {
       failedStep.duration_ms = events.duration(failedStep);
       events.log(failedStep, { event: "node_" + state, level: "error", ...failedStep.error_details });
     }
-    await store.save(run.id, state, run.node_results, { ...run.output_payload, status: state, summary: message, failed_node_id: currentNode, error_code: timedOut ? "WORKFLOW_DEADLINE" : state === "cancelled" ? "WORKFLOW_CANCELLED" : failure.code === "NODE_TIMEOUT" ? "NODE_TIMEOUT" : "WORKFLOW_STEP_FAILED" });
+    await persistTerminal(run, state, run.node_results, { ...run.output_payload, status: state, summary: message, failed_node_id: currentNode, error_code: timedOut ? "WORKFLOW_DEADLINE" : state === "cancelled" ? "WORKFLOW_CANCELLED" : failure.code === "NODE_TIMEOUT" ? "NODE_TIMEOUT" : "WORKFLOW_STEP_FAILED" });
   } finally { clearInterval(heartbeat); }
 }
 
 async function start(workflow, input = {}, user) {
   await requireRunAccess(user, workflow.project_id);
   const targetNodeId = input.target_node_id || "";
-  const report = await checkReadiness(workflow, targetNodeId, user);
-  if (!report.ready) throw Object.assign(error(report.blockers.map(item => item.message).join(" "), 422), { readiness: report });
   if (input.input_payload !== undefined && (input.input_payload === null || typeof input.input_payload !== "object" || Array.isArray(input.input_payload))) throw error("Workflow input must be a JSON object.");
   const payload = object(input.input_payload);
   if (Buffer.byteLength(JSON.stringify(payload)) > MAX_INPUT_BYTES) throw error("Review input is limited to 16 KB.");
-  if (report.steps.some(step => step.kind === "artifactTask")) require("../workflows/artifactTasks").checkInput({ project_id: workflow.project_id, app_type_id: workflow.app_type_id, input_payload: payload });
+  const report = await checkReadiness(workflow, targetNodeId, user, payload);
+  if (!report.ready) throw Object.assign(error(report.blockers.map(item => item.message).join(" "), 422), { readiness: report });
   const durationMs = workflowDuration(workflow);
   const needsRequestSource = report.steps.some(step => step.kind === "repositoryAgent" && workflow.edges.filter(edge => edge.target === step.node_id).every(edge => kindOf(workflow.nodes.find(node => node.id === edge.source)) === "trigger"));
   if (needsRequestSource && (object(payload.source).type !== "github" || !text(object(payload.source).repository_url))) throw error("Add source.type = github and source.repository_url to Workflow input before starting source analysis.");
@@ -554,7 +782,10 @@ async function start(workflow, input = {}, user) {
   }
   const durable = require("../workflows/temporal/control");
   if (!durable.enabled() && active.size >= MAX_PARALLEL_RUNS) throw error("Two review workflows are already running on this worker. Try again after one finishes.", 429);
-  const runtime = { mode: "bounded-review-workflow", execution_mode: MODE, simulated: false, arbitrary_code_execution: false, project_changes_applied: false,
+  const automaticLibraryPublication = workflow.settings?.template_id === 'sprint-automator' && workflow.settings?.library_publication_mode === 'automatic';
+  const runtime = { mode: "bounded-review-workflow", execution_mode: MODE, simulated: false, arbitrary_code_execution: false,
+    ...(automaticLibraryPublication ? { automatic_library_publication: true, initial_project_changes_applied: false } : { project_changes_applied: false }),
+    processing: processing(workflow),
     external_write_tools: report.steps.some(step => ["mcpTool", "apiTool", "apiAgent"].includes(step.kind)), requires_human_review: true, max_duration_ms: durationMs, target_node_id: targetNodeId || null,
     deadline_at: new Date(Date.now() + durationMs).toISOString(), request_fingerprint: requestFingerprint,
     orchestrator: durable.enabled() ? "temporal" : "local",
@@ -563,7 +794,7 @@ async function start(workflow, input = {}, user) {
     created_by: user.id, execution_mode: MODE, status: "running", trigger_kind: "manual", input_payload: payload,
     workflow_snapshot: { ...structuredClone(workflow), execution_mode: MODE, runtime_contract: runtime, execution_order: report.steps.map(step => step.node_id), snapped_at: new Date().toISOString() },
     node_results: report.steps.map(step => ({ node_id: step.node_id, node_name: step.name, node_type: step.kind, specialist_id: step.specialist_id, status: "queued", execution_mode: MODE, attempts: 0, logs: [] })),
-    output_payload: { execution_mode: MODE, status: "running", completed_steps: 0, total_steps: report.steps.length, summary: "Review workflow started.", requires_human_review: true, runtime_contract: runtime } };
+    output_payload: { execution_mode: MODE, status: "running", project_changes_applied: false, completed_steps: 0, total_steps: report.steps.length, summary: "Review workflow started.", requires_human_review: true, runtime_contract: runtime } };
   if (durable.enabled()) {
     await durable.enqueue(run, () => store.insert(run));
     const persisted = await store.get(id);
@@ -582,9 +813,13 @@ async function start(workflow, input = {}, user) {
     }
     // Persist before returning or scheduling any model calls. The task is bounded;
     // stale rows become interrupted on reads rather than being silently replayed.
-    const promise = Promise.resolve().then(() => perform(run, user, controller)).catch(() => {
-      // A database outage may prevent the terminal write. The persisted deadline
-      // reconciles that record once storage is available again.
+    const promise = Promise.resolve().then(() => perform(run, user, controller)).catch(async failure => {
+      recordFailure(run, 'detached_completion', failure);
+      const pending = pendingTerminals.get(run.id);
+      if (pending) {
+        try { await persistTerminal(pending.run, pending.status, pending.nodes, pending.output); }
+        catch { /* The recorded pending snapshot allows recovery on a later read. */ }
+      }
     }).finally(() => { if (active.get(id)?.controller === controller) active.delete(id); });
     active.set(id, { controller, promise });
     return await store.get(id);
@@ -611,4 +846,4 @@ const startOnce = async (workflow, input = {}, user) => {
   try { return await promise; } finally { starting.delete(key); }
 };
 
-module.exports = { readiness, checkReadiness, start: startOnce, cancel, reconcile, _internals: { store, active, diagnostics, perform, requireRunAccess, specialistPrompt, collectReviews, executeNode, runStep, terminalNodes, MAX_DURATION_MS } };
+module.exports = { readiness, checkReadiness, start: startOnce, cancel, reconcile, _internals: { store, active, pendingTerminals, persistTerminal, diagnostics, perform, requireRunAccess, specialistPrompt, collectReviews, terminalSummary, executeNode, runStep, terminalNodes, MAX_DURATION_MS } };

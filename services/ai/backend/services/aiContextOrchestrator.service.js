@@ -438,7 +438,8 @@ const makeLiveHit = ({ projectId, scope, title, content, score = 0.96 }) => {
 const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, route, requestedScopes, sourceKinds, evidenceScope } = {}) => {
   const contextRoute = route || planContext({ prompt, requestedScopes });
   const scoped = require("./agentEvidenceScope");
-  evidenceScope = scoped.normalize(evidenceScope, contextRoute.live_scopes);
+  evidenceScope = scoped.normalize(evidenceScope);
+  const hasEvidenceScope = Object.keys(evidenceScope).length > 0;
   execution.assertActive();
   if (!contextRoute.live_scopes?.length) return { hits: [], route: contextRoute, counts: {} };
   const project = await safeRow("SELECT id, display_id, name, description, visibility, created_at FROM projects WHERE id = ?", [projectId]);
@@ -465,15 +466,19 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       AND (UPPER(test_cases.display_id)=? OR test_cases.legacy_display_ids @> ?::jsonb)`,[projectId,...(appTypeId?[appTypeId]:[]),label,[label]]);
     if(selected)evidenceScope={...evidenceScope,test_case_id:selected.id};
   }
-  const storyScope = scoped.predicate("story", "requirements", evidenceScope);
+  const withApp = (kind, alias) => {
+    const filter = scoped.predicate(kind, alias, evidenceScope), app = scoped.applicationPredicate(kind, alias, appTypeId);
+    return { ...filter, sql: filter.sql + app.sql, params: [...filter.params, ...app.params] };
+  };
+  const storyScope = withApp("story", "requirements");
   const caseScope = scoped.predicate("test_case", "test_cases", evidenceScope);
   const runScope = scoped.predicate("run", "executions", evidenceScope);
-  const bugScope = scoped.predicate("bug", "feedback", evidenceScope);
+  const bugScope = withApp("bug", "feedback");
   const scopeSet = new Set(contextRoute.live_scopes || []);
   const hits = [];
   const counts = {};
   const appTypes = await safeRows("SELECT id, name, type, is_unified FROM app_types WHERE project_id = ? ORDER BY name", [projectId]);
-  if (scopeSet.size) {
+  if (scopeSet.size && !hasEvidenceScope) {
     execution.emit("READING_PROJECT", "completed", { message: `Read the current project and ${appTypes.length} application record${appTypes.length === 1 ? "" : "s"}.` });
     hits.push(makeLiveHit({
       projectId,
@@ -482,8 +487,8 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       content: JSON.stringify({
         evidence_type: "authoritative_live_project_record",
         as_of: new Date().toISOString(),
-        project: { id: project.id, key: project.display_id || project.id, name: project.name, description: project.description || null, visibility: project.visibility },
-        applications: appTypes.map((item) => ({ id: item.id, name: item.name, type: item.type, unified: Boolean(item.is_unified) })),
+        project: { id: project.id, key: project.display_id || project.id, name: project.name, description: hasEvidenceScope ? null : project.description || null, visibility: project.visibility },
+        applications: appTypes.filter(item => !appTypeId || item.id === appTypeId).map((item) => ({ id: item.id, name: item.name, type: item.type, unified: Boolean(item.is_unified) })),
         selected_application_id: appTypeId || null,
         evidence_scope: scoped.normalize(evidenceScope),
         count_scope: Object.keys(scoped.normalize(evidenceScope)).length ? "filtered evidence scope; not project-wide totals" : "project/application"
@@ -495,6 +500,13 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
   if (scopeSet.has("stories") && kindAllowed("requirement") && await canView("requirement.view")) {
     execution.emit("READING_STORIES", "started", { message: "Reading current Stories, delivery fields, and linked coverage." });
     const canViewCoverage = await canView("testcase.view");
+    const coverageCase = scoped.predicate('test_case', 'scope_coverage_case', evidenceScope);
+    const coverageApp = scoped.applicationPredicate('test_case', 'scope_coverage_case', appTypeId);
+    const coverageParams = hasEvidenceScope ? [...coverageCase.params, ...coverageApp.params] : [];
+    const coverageFrom = `FROM test_cases scope_coverage_case JOIN app_types scope_coverage_app ON scope_coverage_app.id = scope_coverage_case.app_type_id AND scope_coverage_app.project_id = requirements.project_id WHERE ${scoped.linkedStory('requirements', 'scope_coverage_case')} ${coverageCase.sql} ${coverageApp.sql}`;
+    const coverageJoin = canViewCoverage ? (hasEvidenceScope
+      ? `LEFT JOIN LATERAL (SELECT scope_coverage_case.id AS test_case_id ${coverageFrom}) requirement_test_cases ON TRUE`
+      : 'LEFT JOIN requirement_test_cases ON requirement_test_cases.requirement_id = requirements.id') : '';
     const referencedIds = unique([...String(prompt || '').matchAll(/"(?:id|client_id|requirement_id|story_id)"\s*:\s*"([A-Za-z0-9_.:-]{1,255})"/g)].map(match => match[1])).slice(0, 16);
     const referenceOrder = referencedIds.length ? `CASE WHEN requirements.id IN (${referencedIds.map(() => '?').join(',')}) THEN 0 ELSE 1 END,` : '';
     const appClause = storyScope.sql;
@@ -508,22 +520,18 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
         requirements.dev_completion_target_date, requirements.qa_completion_target_date,
         requirements.created_at${canViewCoverage ? ", COUNT(DISTINCT requirement_test_cases.test_case_id)::INTEGER AS linked_test_case_count" : ""}
       FROM requirements
-      ${canViewCoverage ? "LEFT JOIN requirement_test_cases ON requirement_test_cases.requirement_id = requirements.id" : ""}
+      ${coverageJoin}
       WHERE requirements.project_id = ? ${appClause}
       GROUP BY requirements.id
       ORDER BY ${referenceOrder} ${canViewCoverage ? "COUNT(DISTINCT requirement_test_cases.test_case_id) ASC," : ""} requirements.priority ASC NULLS LAST, requirements.created_at DESC NULLS LAST
       LIMIT 120
-    `, [projectId, ...storyScope.params, ...referencedIds]);
+    `, [...(canViewCoverage ? coverageParams : []), projectId, ...storyScope.params, ...referencedIds]);
     const storyTotals = await safeRow(`
       SELECT COUNT(*)::INTEGER AS total${canViewCoverage ? `,
-        COUNT(*) FILTER (WHERE EXISTS (
-          SELECT 1 FROM requirement_test_cases WHERE requirement_test_cases.requirement_id = requirements.id
-        ))::INTEGER AS covered,
-        COUNT(*) FILTER (WHERE (
-          SELECT COUNT(*) FROM requirement_test_cases WHERE requirement_test_cases.requirement_id = requirements.id
-        ) = 1)::INTEGER AS thin_coverage` : ""}
+        COUNT(*) FILTER (WHERE ${hasEvidenceScope ? `EXISTS (SELECT 1 ${coverageFrom})` : 'EXISTS (SELECT 1 FROM requirement_test_cases WHERE requirement_test_cases.requirement_id = requirements.id)'})::INTEGER AS covered,
+        COUNT(*) FILTER (WHERE (${hasEvidenceScope ? `SELECT COUNT(*) ${coverageFrom}` : 'SELECT COUNT(*) FROM requirement_test_cases WHERE requirement_test_cases.requirement_id = requirements.id'}) = 1)::INTEGER AS thin_coverage` : ""}
       FROM requirements WHERE project_id = ? ${storyScope.sql}
-    `, [projectId, ...storyScope.params]);
+    `, [...(canViewCoverage ? [...coverageParams, ...coverageParams] : []), projectId, ...storyScope.params]);
     counts.stories = Number(storyTotals?.total || stories.length);
     const selected = rankRecords(stories, prompt, ["display_id", "title", "status", "sprint", "release", "fix_version"]).slice(0, 16);
     const coverageGaps = rankRecords(stories.filter((story) => Number(story.linked_test_case_count || 0) === 0), prompt, ["display_id", "title", "status", "sprint", "release", "fix_version"]).slice(0, 24);
@@ -557,6 +565,7 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       const placeholders = supportIds.map(() => '?').join(',');
       const canViewComments = await canView('comment.view');
       const canViewAttachments = await canView('attachment.view');
+      const relatedScope = withApp('story', 'related');
       const related = await safeRows(`
         SELECT owner.id AS story_id, related.id, related.display_id, related.title, related.status, relations.relation
         FROM requirement_relations relations
@@ -564,8 +573,9 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
           AND (owner.id = relations.requirement_id OR owner.id = relations.related_requirement_id)
         JOIN requirements related ON related.project_id = owner.project_id AND related.id =
           CASE WHEN owner.id = relations.requirement_id THEN relations.related_requirement_id ELSE relations.requirement_id END
+        WHERE TRUE ${relatedScope.sql}
         ORDER BY owner.id, related.id LIMIT 24
-      `, [...supportIds, projectId]);
+      `, [...supportIds, projectId, ...relatedScope.params]);
       const comments = canViewComments ? await safeRows(`
         SELECT entity_id AS story_id, id, LEFT(body, 500) AS excerpt, updated_at
         FROM entity_comments WHERE project_id = ? AND entity_type = 'requirement' AND entity_id IN (${placeholders})
@@ -599,6 +609,7 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
   if (canViewCases) {
     execution.emit("READING_TEST_CASES", "started", { message: "Reading Test Cases, steps, traceability, suites, and shared coverage." });
     const canViewStories = await canView("requirement.view");
+    const linkedStoryScope = scoped.predicate('story', 'visible_story', evidenceScope);
     const params = [...(appTypeId ? [projectId, appTypeId] : [projectId]), ...caseScope.params];
     const appClause = (appTypeId ? "AND test_cases.app_type_id = ?" : "") + caseScope.sql;
     const cases = await safeRows(`
@@ -613,19 +624,19 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       ${canViewStories ? `LEFT JOIN LATERAL (
         SELECT link.requirement_id FROM requirement_test_cases link WHERE link.test_case_id = test_cases.id
         UNION SELECT test_cases.requirement_id WHERE test_cases.requirement_id IS NOT NULL
-      ) requirement_test_cases ON EXISTS (SELECT 1 FROM requirements visible_story WHERE visible_story.id = requirement_test_cases.requirement_id AND visible_story.project_id = app_types.project_id)` : ""}
+      ) requirement_test_cases ON EXISTS (SELECT 1 FROM requirements visible_story WHERE visible_story.id = requirement_test_cases.requirement_id AND visible_story.project_id = app_types.project_id ${linkedStoryScope.sql})` : ""}
       LEFT JOIN test_steps ON test_steps.test_case_id = test_cases.id
       WHERE app_types.project_id = ? ${appClause}
       GROUP BY test_cases.id
       ORDER BY COUNT(DISTINCT test_steps.id) ASC, ${canViewStories ? "COUNT(DISTINCT requirement_test_cases.requirement_id) ASC," : ""}
         test_cases.priority ASC NULLS LAST, test_cases.created_at DESC NULLS LAST
       LIMIT 140
-    `, params);
+    `, [...(canViewStories ? linkedStoryScope.params : []), ...params]);
     const caseTotals = await safeRow(`
       SELECT COUNT(*)::INTEGER AS total,
         COUNT(*) FILTER (WHERE test_cases.automated = 'yes' OR test_cases.automation_status = 'ready')::INTEGER AS automated_or_ready,
         ${canViewStories ? `COUNT(*) FILTER (WHERE NOT EXISTS (
-          SELECT 1 FROM requirements visible_story WHERE visible_story.project_id = app_types.project_id AND (visible_story.id = test_cases.requirement_id OR EXISTS (SELECT 1 FROM requirement_test_cases link WHERE link.test_case_id = test_cases.id AND link.requirement_id = visible_story.id))
+          SELECT 1 FROM requirements visible_story WHERE visible_story.project_id = app_types.project_id AND (visible_story.id = test_cases.requirement_id OR EXISTS (SELECT 1 FROM requirement_test_cases link WHERE link.test_case_id = test_cases.id AND link.requirement_id = visible_story.id)) ${linkedStoryScope.sql}
         ))::INTEGER AS without_story_traceability,` : ""}
         COUNT(*) FILTER (WHERE NOT EXISTS (
           SELECT 1 FROM test_steps WHERE test_steps.test_case_id = test_cases.id
@@ -633,7 +644,7 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       FROM test_cases
       JOIN app_types ON app_types.id = test_cases.app_type_id
       WHERE app_types.project_id = ? ${appClause}
-    `, params);
+    `, [...(canViewStories ? linkedStoryScope.params : []), ...params]);
     counts.test_cases = Number(caseTotals?.total || cases.length);
     const selected = rankRecords(cases, prompt, ["display_id", "title", "status", "automation_status", "test_case_type"]).slice(0, 12);
     const selectedIds = selected.map(item => item.id);
@@ -666,40 +677,37 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
     const withoutTraceability = rankRecords(cases.filter((testCase) => Number(testCase.linked_story_count || 0) === 0), prompt, ["display_id", "title", "status", "test_case_type"]).slice(0, 10).map(compactCase);
     const supportingParams = appTypeId ? [projectId, appTypeId] : [projectId];
     const supportingAppClause = appTypeId ? "AND app_types.id = ?" : "";
+    const assetCaseScope = scoped.predicate('test_case', 'scope_asset_case', evidenceScope);
+    const suiteScope = hasEvidenceScope ? ` AND EXISTS (SELECT 1 FROM test_cases scope_asset_case WHERE scope_asset_case.suite_id = test_suites.id AND scope_asset_case.app_type_id = test_suites.app_type_id ${assetCaseScope.sql})` : '';
+    const moduleScope = hasEvidenceScope ? ` AND EXISTS (SELECT 1 FROM test_case_module_cases scope_asset_link JOIN test_cases scope_asset_case ON scope_asset_case.id = scope_asset_link.test_case_id WHERE scope_asset_link.module_id = test_case_modules.id AND scope_asset_case.app_type_id = test_case_modules.app_type_id ${assetCaseScope.sql})` : '';
+    const sharedScope = hasEvidenceScope ? ` AND EXISTS (SELECT 1 FROM test_steps scope_asset_step JOIN test_cases scope_asset_case ON scope_asset_case.id = scope_asset_step.test_case_id WHERE scope_asset_step.reusable_group_id = shared_step_groups.id AND scope_asset_case.app_type_id = shared_step_groups.app_type_id ${assetCaseScope.sql})` : '';
+    const assetParams = [...supportingParams, ...(hasEvidenceScope ? assetCaseScope.params : [])];
     const canViewSuites = await canView("suite.view");
     const suites = canViewSuites ? await safeRow(`
-      SELECT COUNT(*)::INTEGER AS total
-      FROM test_suites
-      JOIN app_types ON app_types.id = test_suites.app_type_id
-      WHERE app_types.project_id = ? ${supportingAppClause}
-    `, supportingParams) : null;
+      SELECT COUNT(*)::INTEGER AS total FROM test_suites JOIN app_types ON app_types.id = test_suites.app_type_id
+      WHERE app_types.project_id = ? ${supportingAppClause} ${suiteScope}
+    `, assetParams) : null;
     const modules = await safeRow(`
-      SELECT COUNT(*)::INTEGER AS total
-      FROM test_case_modules
-      JOIN app_types ON app_types.id = test_case_modules.app_type_id
-      WHERE app_types.project_id = ? ${supportingAppClause}
-    `, supportingParams);
+      SELECT COUNT(*)::INTEGER AS total FROM test_case_modules JOIN app_types ON app_types.id = test_case_modules.app_type_id
+      WHERE app_types.project_id = ? ${supportingAppClause} ${moduleScope}
+    `, assetParams);
     const canViewSharedSteps = await canView("shared_step.view");
+    const sharedStepJoin = hasEvidenceScope ? ` AND EXISTS (SELECT 1 FROM test_cases scope_asset_case WHERE scope_asset_case.id = test_steps.test_case_id ${assetCaseScope.sql})` : '';
     const sharedGroups = canViewSharedSteps ? await safeRows(`
       SELECT shared_step_groups.id, shared_step_groups.display_id, shared_step_groups.name,
         shared_step_groups.description, shared_step_groups.authoring_mode,
         JSONB_ARRAY_LENGTH(shared_step_groups.steps)::INTEGER AS step_count,
         COUNT(DISTINCT test_steps.test_case_id)::INTEGER AS linked_test_case_count,
         shared_step_groups.updated_at
-      FROM shared_step_groups
-      JOIN app_types ON app_types.id = shared_step_groups.app_type_id
-      LEFT JOIN test_steps ON test_steps.reusable_group_id = shared_step_groups.id
-      WHERE app_types.project_id = ? ${supportingAppClause}
-      GROUP BY shared_step_groups.id
-      ORDER BY shared_step_groups.updated_at DESC NULLS LAST
-      LIMIT 40
-    `, supportingParams) : [];
+      FROM shared_step_groups JOIN app_types ON app_types.id = shared_step_groups.app_type_id
+      LEFT JOIN test_steps ON test_steps.reusable_group_id = shared_step_groups.id ${sharedStepJoin}
+      WHERE app_types.project_id = ? ${supportingAppClause} ${sharedScope}
+      GROUP BY shared_step_groups.id ORDER BY shared_step_groups.updated_at DESC NULLS LAST LIMIT 40
+    `, [...(hasEvidenceScope ? assetCaseScope.params : []), ...assetParams]) : [];
     const sharedGroupTotal = canViewSharedSteps ? await safeRow(`
-      SELECT COUNT(*)::INTEGER AS total
-      FROM shared_step_groups
-      JOIN app_types ON app_types.id = shared_step_groups.app_type_id
-      WHERE app_types.project_id = ? ${supportingAppClause}
-    `, supportingParams) : null;
+      SELECT COUNT(*)::INTEGER AS total FROM shared_step_groups JOIN app_types ON app_types.id = shared_step_groups.app_type_id
+      WHERE app_types.project_id = ? ${supportingAppClause} ${sharedScope}
+    `, assetParams) : null;
     hits.push(makeLiveHit({
       projectId,
       scope: "test-cases",
@@ -734,7 +742,9 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
   if (scopeSet.has("runs") && kindAllowed("execution") && await canView("run.view")) {
     execution.emit("READING_RUNS", "started", { message: "Reading Test Runs and their permitted result outcomes." });
     const canViewResults = await canView("result.view");
-    const params = [...(appTypeId ? [projectId, appTypeId] : [projectId]), ...runScope.params];
+    const resultScope = scoped.predicate('test_case', 'scope_result_case', { story_id: evidenceScope.story_id, test_case_id: evidenceScope.test_case_id });
+    const resultJoin = canViewResults ? `LEFT JOIN execution_results ON execution_results.execution_id = executions.id${resultScope.sql ? ` AND EXISTS (SELECT 1 FROM test_cases scope_result_case WHERE scope_result_case.id = execution_results.test_case_id ${resultScope.sql})` : ''}` : '';
+    const params = [...(canViewResults ? resultScope.params : []), ...(appTypeId ? [projectId, appTypeId] : [projectId]), ...runScope.params];
     const appClause = (appTypeId ? "AND executions.app_type_id = ?" : "") + runScope.sql;
     const runs = await safeRows(`
       SELECT executions.id, executions.name, executions.status, executions.trigger,
@@ -745,7 +755,7 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
         COUNT(execution_results.id) FILTER (WHERE execution_results.status = 'failed')::INTEGER AS failed_count,
         COUNT(execution_results.id) FILTER (WHERE execution_results.status = 'blocked')::INTEGER AS blocked_count` : ""}
       FROM executions
-      ${canViewResults ? "LEFT JOIN execution_results ON execution_results.execution_id = executions.id" : ""}
+      ${resultJoin}
       WHERE executions.project_id = ? ${appClause}
       GROUP BY executions.id
       ORDER BY executions.created_at DESC NULLS LAST
@@ -753,11 +763,11 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
     `, params);
     const runTotals = await safeRow(`
       SELECT COUNT(DISTINCT executions.id)::INTEGER AS total,
-        COUNT(DISTINCT executions.id) FILTER (WHERE executions.status = 'failed')::INTEGER AS failed_runs${canViewResults ? `,
+        COUNT(DISTINCT executions.id) FILTER (WHERE ${canViewResults && resultScope.sql ? "execution_results.status = 'failed'" : "executions.status = 'failed'"})::INTEGER AS failed_runs${canViewResults ? `,
         COUNT(execution_results.id) FILTER (WHERE execution_results.status = 'failed')::INTEGER AS failed_results,
         COUNT(execution_results.id) FILTER (WHERE execution_results.status = 'blocked')::INTEGER AS blocked_results` : ""}
       FROM executions
-      ${canViewResults ? "LEFT JOIN execution_results ON execution_results.execution_id = executions.id" : ""}
+      ${resultJoin}
       WHERE executions.project_id = ? ${appClause}
     `, params);
     counts.runs = Number(runTotals?.total || runs.length);
@@ -799,31 +809,34 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
     execution.emit("READING_RUNS", "completed", { evidence_count: selected.length,
       message: `Read ${counts.runs} Test Run${counts.runs === 1 ? "" : "s"} and selected ${selected.length} relevant outcome${selected.length === 1 ? "" : "s"}.` });
 
-    const executionContextParams = appTypeId ? [projectId, appTypeId] : [projectId];
+    const contextRunScope = withApp('run', 'scope_context_run');
+    const executionContextParams = [...(appTypeId ? [projectId, appTypeId] : [projectId]), ...(hasEvidenceScope ? contextRunScope.params : [])];
     const executionContextAppClause = appTypeId ? "AND app_type_id = ?" : "";
+    const environmentScope = hasEvidenceScope ? ` AND EXISTS (SELECT 1 FROM executions scope_context_run WHERE scope_context_run.project_id = test_environments.project_id AND scope_context_run.test_environment_id = test_environments.id ${contextRunScope.sql})` : '';
+    const configurationScope = hasEvidenceScope ? ` AND EXISTS (SELECT 1 FROM executions scope_context_run WHERE scope_context_run.project_id = test_configurations.project_id AND scope_context_run.test_configuration_id = test_configurations.id ${contextRunScope.sql})` : '';
     const canViewEnvironments = await canView("environment.view");
     const canViewConfigurations = await canView("configuration.view");
     const environments = canViewEnvironments ? await safeRows(`
       SELECT id, name, description, base_url, browser, notes, created_at
       FROM test_environments
-      WHERE project_id = ? ${executionContextAppClause}
+      WHERE project_id = ? ${executionContextAppClause} ${environmentScope}
       ORDER BY created_at DESC NULLS LAST
       LIMIT 30
     `, executionContextParams) : [];
     const configurations = canViewConfigurations ? await safeRows(`
       SELECT id, name, description, browser, mobile_os, platform_version, targets, created_at
       FROM test_configurations
-      WHERE project_id = ? ${executionContextAppClause}
+      WHERE project_id = ? ${executionContextAppClause} ${configurationScope}
       ORDER BY created_at DESC NULLS LAST
       LIMIT 30
     `, executionContextParams) : [];
     const environmentTotal = canViewEnvironments ? await safeRow(`
       SELECT COUNT(*)::INTEGER AS total FROM test_environments
-      WHERE project_id = ? ${executionContextAppClause}
+      WHERE project_id = ? ${executionContextAppClause} ${environmentScope}
     `, executionContextParams) : null;
     const configurationTotal = canViewConfigurations ? await safeRow(`
       SELECT COUNT(*)::INTEGER AS total FROM test_configurations
-      WHERE project_id = ? ${executionContextAppClause}
+      WHERE project_id = ? ${executionContextAppClause} ${configurationScope}
     `, executionContextParams) : null;
     if (environments.length || configurations.length) {
       execution.emit("READING_EXECUTION_CONTEXT", "started", { message: "Reading permitted environments and execution configurations." });
@@ -868,8 +881,16 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
 
   if (scopeSet.has("automation") && await canView("automation.view")) {
     execution.emit("READING_AUTOMATION", "started", { message: "Reading automation and object repository evidence." });
-    const params = appTypeId ? [projectId, appTypeId] : [projectId];
-    const appClause = appTypeId ? "AND app_type_id = ?" : "";
+    // Observability is a separate database: derive permitted current case IDs
+    // in the platform database, then bind those IDs to the repository reader.
+    const repositoryCases = hasEvidenceScope ? await safeRows(`SELECT test_cases.id FROM test_cases
+      JOIN app_types ON app_types.id = test_cases.app_type_id WHERE app_types.project_id = ?
+      ${appTypeId ? 'AND test_cases.app_type_id = ?' : ''} ${caseScope.sql} ORDER BY test_cases.id LIMIT 501`,
+      [projectId, ...(appTypeId ? [appTypeId] : []), ...caseScope.params]) : [];
+    const repositoryCaseIds = repositoryCases.slice(0, 500).map(record => record.id);
+    const params = [...(appTypeId ? [projectId, appTypeId] : [projectId]), ...repositoryCaseIds];
+    const appClause = (appTypeId ? "AND app_type_id = ?" : "") + (hasEvidenceScope
+      ? (repositoryCaseIds.length ? ` AND test_case_id IN (${repositoryCaseIds.map(() => '?').join(',')})` : ' AND FALSE') : '');
     const repositoryRows = await safeObsRows(`
       SELECT id, test_case_id, page_url, page_key, locator_intent, locator, locator_kind,
         confidence, source, metadata, hit_count, updated_at

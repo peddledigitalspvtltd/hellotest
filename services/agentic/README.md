@@ -28,17 +28,23 @@ Read [CONTRIBUTING](../../CONTRIBUTING.md) for setup/debugging and [capability p
 ### Reviewed specialist outcomes
 
 Specialists keep their intent-specific brief, findings and original evidence when
-handing work to applicable Story, Test Case and Defect authors. Next items displays
+handing work to applicable Story, Test Case and Defect authors. Artifacts lists native drafts and supporting analysis; Review & approve displays
 editable native proposals; explicit acceptance saves them through the native
 domain routes. The project, proposal kind and existing Story identity/revision
 come from the recorded review. Current access is checked again on acceptance.
 Native writes and a durable proposal receipt share a transaction, so repeated or
 concurrent accepts do not create duplicates. Decline does not save a domain record.
 
-Model calls sit alongside Next items. Recorded activity events link to their own
+Overview opens first and summarizes evidence, findings linked to drafts and completion checks.
+Findings retain exact finding IDs, source references and matching draft links. Full brief
+includes the assessment, all structured drafts, evidence gaps, original specialist
+assessment and successor sequence. Reviews without native drafts offer Review conclusions
+or Complete outcome according to their completion contract.
+
+Model calls sit alongside these output sections. Recorded activity events link to their own
 request/response capture, including correction and compatibility attempts.
 Browser mission model calls are scoped to the mission transaction. The AI calls
 catalog opens its selected call in a right-side dialog with focus containment and
 Escape/close behavior. Capture content retains the existing administrator access
-restriction and redaction policy. Copy/download tools sit in Next items; the
+restriction and redaction policy. Copy/download tools remain available above every output section; the
 separate brief-editing footer is removed.

@@ -28,6 +28,10 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   await require('./agentProfileInheritance.fixture').verify({app,db,createToken});
   await require('./agentEvidenceScope.fixture').verify();
   const webToken=createToken({id:'mcp-a'}),headers={authorization:'Bearer '+webToken};
+  await require('./agentEvidenceScope.fixture').verifyIntersections({app,db,headers});
+  await require('./scopedRagSql.fixture').verify({db});
+  await require('./qualityEvidenceScope.fixture').verify({db});
+  await require('./apiKeyStories.fixture').verify({app,db,createToken});
   const graphFixture=await require('./contextGraphManagement.fixture').verify({app,db,user:{id:'mcp-a'},headers});
   const issued=await app.inject({method:'POST',url:'/agentic-workflows/mcp/credentials',headers,payload:{project_id:'mcp-p-a'}});
   assert.equal(issued.statusCode,200,issued.body);assert.equal(issued.headers['cache-control'],'no-store');const credential=issued.json();

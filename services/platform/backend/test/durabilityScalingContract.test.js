@@ -74,6 +74,58 @@ test("nested transactions use savepoints and can recover without leaking inner w
   assert.deepEqual(adapter.pool.releaseArguments, [false]);
 });
 
+test("opted-in concurrent reads preserve savepoints and continue after one read fails", async () => {
+  const adapter = createPostgresAdapter({ poolConfig: { max: 5 }, PoolClass: FakePool });
+  const events = [];
+  let releaseFirst, startedFirst;
+  const gate = new Promise(resolve => { releaseFirst = resolve; });
+  const started = new Promise(resolve => { startedFirst = resolve; });
+  const failure = new Error("second read failed");
+
+  await adapter.transaction(async () => {
+    const first = adapter.serializedTransaction(async () => {
+      events.push("first started");
+      startedFirst();
+      await gate;
+      await adapter.query("SELECT 'first read'");
+      events.push("first finished");
+    })();
+    const second = adapter.serializedTransaction(async () => {
+      events.push("second started");
+      throw failure;
+    })();
+    const third = adapter.serializedTransaction(async () => {
+      events.push("third started");
+      await adapter.query("SELECT 'third read'");
+    })();
+    const outcomes = Promise.allSettled([first, second, third]);
+    await started;
+    assert.deepEqual(events, ["first started"]);
+    releaseFirst();
+    const results = await outcomes;
+    assert.deepEqual(results.map(result => result.status), ["fulfilled", "rejected", "fulfilled"]);
+    assert.equal(results[1].reason, failure);
+    await adapter.query("INSERT INTO fixture VALUES ('outer write still works')");
+  })();
+
+  assert.deepEqual(events, ["first started", "first finished", "second started", "third started"]);
+  assert.deepEqual(adapter.pool.queries, [
+    "BEGIN",
+    "SAVEPOINT hellotest_sp_1",
+    "SELECT 'first read'",
+    "RELEASE SAVEPOINT hellotest_sp_1",
+    "SAVEPOINT hellotest_sp_2",
+    "ROLLBACK TO SAVEPOINT hellotest_sp_2",
+    "RELEASE SAVEPOINT hellotest_sp_2",
+    "SAVEPOINT hellotest_sp_3",
+    "SELECT 'third read'",
+    "RELEASE SAVEPOINT hellotest_sp_3",
+    "INSERT INTO fixture VALUES ('outer write still works')",
+    "COMMIT"
+  ]);
+  assert.deepEqual(adapter.pool.releaseArguments, [false]);
+});
+
 test("transaction cleanup failures preserve the original error and evict a broken client", async () => {
   const adapter = createPostgresAdapter({ poolConfig: { max: 5 }, PoolClass: FakePool });
   const originalError = new Error("business failure");

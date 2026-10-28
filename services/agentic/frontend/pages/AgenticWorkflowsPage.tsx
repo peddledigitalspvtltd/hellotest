@@ -36,6 +36,7 @@ import { RichTextContent, richTextToPlainText } from "@hellotest/platform/fronte
 import { StatusBadge } from "@hellotest/platform/frontend/src/shared/components/StatusBadge";
 import { type SmartContextSelection } from "@hellotest/ai/frontend/components/SmartContextWorkbench";
 import { ToastMessage } from "@hellotest/platform/frontend/src/shared/components/ToastMessage";
+import { useDeleteConfirmation } from "@hellotest/platform/frontend/src/shared/components/DeleteConfirmationDialog";
 import { useCapabilityAccess } from "@hellotest/platform/frontend/src/platform/hooks/useCapabilityAccess";
 import { useCurrentAppType, useCurrentProject } from "@hellotest/platform/frontend/src/platform/hooks/useCurrentProject";
 import { useWorkspaceResource } from "@hellotest/platform/frontend/src/platform/hooks/useWorkspaceData";
@@ -47,6 +48,8 @@ import { isRovoIntegrationId } from "@hellotest/integration/frontend/lib/rovo";
 import { readDefaultCatalogViewMode } from "@hellotest/platform/frontend/src/shared/lib/viewPreferences";
 import type { AgenticWorkflow, AgenticAssistantSessionResponse, AgenticWorkflowEdge, AgenticWorkflowNode, AgenticWorkflowNodeData, AgenticWorkflowRun, AgenticWorkflowReadiness, Integration, WorkspaceTransaction } from "@hellotest/platform/frontend/src/types";
 import "./AgenticWorkflowsPage.css";
+import { SprintAutomatorSetup } from "../workflows/SprintAutomatorSetup";
+import { isSprintAutomator, sprintInputDefaults, restoredSprintInput } from "../workflows/sprintAutomatorInput";
 import { WorkflowStudio } from "../workflows/WorkflowStudio";
 import { WorkflowExecutionView } from "../workflows/WorkflowExecutionView";
 import { WORKFLOW_TEMPLATES, draftFromTemplate } from "../workflows/workflowTemplates";
@@ -64,6 +67,7 @@ export function AgenticWorkflowsPage() {
   const { formatDate } = useLocalization();
   const formatTimestamp = useCallback((value?: string | null, fallback = "Not recorded") => !value || Number.isNaN(new Date(value).getTime()) ? fallback : formatDate(value, { dateStyle: "medium", timeStyle: "short" }), [formatDate]);
   const queryClient = useQueryClient();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
   const [projectId, setProjectId] = useCurrentProject();
@@ -131,7 +135,7 @@ export function AgenticWorkflowsPage() {
   const [selectedRunId, setSelectedRunId] = useState(() => searchParams.get("view") === "runs" ? searchParams.get("workflow_run") || "" : "");
   const [testingApiNodeId, setTestingApiNodeId] = useState("");
   const [runInput, setRunInput] = useState(DEFAULT_RUN_INPUT);
-  const [reviewReadiness, setReviewReadiness] = useState<{ definition: string; workflow: AgenticWorkflow; report: AgenticWorkflowReadiness } | null>(null);
+  const [reviewReadiness, setReviewReadiness] = useState<{ definition: string; input: string; workflow: AgenticWorkflow; report: AgenticWorkflowReadiness } | null>(null);
   const [checkingReview, setCheckingReview] = useState(false);
   const [reviewStartError, setReviewStartError] = useState("");
   const reviewRequest = useRef<{ key: string; id: string } | null>(null);
@@ -298,7 +302,8 @@ export function AgenticWorkflowsPage() {
     queryKey: ["agentic-workflow-runs", projectId, appTypeId, draft?.id],
     queryFn: ({ signal }) => api.agenticWorkflows.listRuns({ project_id: projectId, app_type_id: appTypeId, workflow_id: draft!.id, limit: 50, summary_only: true }, { signal }),
     enabled: Boolean(projectId && draft?.id) && canViewAgenticWorkflows,
-    retry: false
+    retry: false,
+    refetchInterval: query => ((query.state.data || []) as AgenticWorkflowRun[]).some(run => ["queued", "running"].includes(run.status)) ? 2000 : false
   });
 
   const selectedRunQuery = useQuery({
@@ -340,6 +345,15 @@ export function AgenticWorkflowsPage() {
   const runs = asArray(runsQuery.data);
   const assistantSessions = asArray(assistantSessionsQuery.data) as WorkspaceTransaction[];
   const selectedRun = selectedRunQuery.data?.id === selectedRunId ? selectedRunQuery.data : runs.find((run) => run.id === selectedRunId) || null;
+  useEffect(() => {
+    if (!workflowsQuery.isSuccess) return;
+    const available = new Set(asArray(workflowsQuery.data).map(workflow => workflow.id));
+    setSelectedActionWorkflowIds(current => current.every(id => available.has(id)) ? current : current.filter(id => available.has(id)));
+  }, [workflowsQuery.data, workflowsQuery.isSuccess]);
+  useEffect(() => {
+    if (!selectedRun || ["queued", "running"].includes(selectedRun.status)) return;
+    void queryClient.invalidateQueries({ queryKey: ["agentic-workflow-runs", selectedRun.project_id, selectedRun.app_type_id || ""] });
+  }, [queryClient, selectedRun?.id, selectedRun?.status]);
   const selectedAssistantAgent = agentCatalog.find((agent) => agent.id === assistantAgentId) || HELLOTEST_AGENT_CATALOG[0];
   const selectedProjectAgent = projectAgents.find(item => item.id === assistantAgentId);
   const specialistExperience = AGENT_EXPERIENCES[selectedAssistantAgent.id] || { category: "planning", outcome: selectedAssistantAgent.description || selectedAssistantAgent.prompt, inputs: "Configured project evidence and supplied inputs", output: agentResultLabel(selectedProjectAgent?.active_definition || selectedProjectAgent?.definition), destination: "/agentic-workflows?view=agents", destinationLabel: "Agent library", destinationPermission: "agentic_workflow.view", starters: [selectedAssistantAgent.prompt] };
@@ -424,12 +438,15 @@ export function AgenticWorkflowsPage() {
   };
 
   const saveMutation = useMutation({
-    mutationFn: async (nextDraft: WorkflowDraft) => {
+    mutationFn: async (nextDraft: WorkflowDraft & { initialInput?: string }) => {
       if (!projectId) {
         throw new Error("Select a project first.");
       }
 
-      const directLlmNodes = nodes.map(normalizeWorkflowNodeDirectLlm);
+      const directLlmNodes = nextDraft.nodes.map(normalizeWorkflowNodeDirectLlm);
+      const settings = isSprintAutomator(directLlmNodes)
+        ? { ...nextDraft.settings, template_id: "sprint-automator", sprint_input_defaults: sprintInputDefaults(safeJsonParse(nextDraft.initialInput ?? runInput)) }
+        : nextDraft.settings;
       const payload = {
         project_id: projectId,
         app_type_id: appTypeId || undefined,
@@ -438,23 +455,28 @@ export function AgenticWorkflowsPage() {
         status: nextDraft.status,
         trigger_kind: nextDraft.trigger_kind,
         nodes: directLlmNodes,
-        edges,
-        settings: nextDraft.settings,
-        n8n_payload: buildN8nPayload(nextDraft, directLlmNodes, edges)
+        edges: nextDraft.edges,
+        settings,
+        n8n_payload: buildN8nPayload({ ...nextDraft, settings }, directLlmNodes, nextDraft.edges)
       };
 
       return nextDraft.id
         ? api.agenticWorkflows.update(nextDraft.id, payload)
         : api.agenticWorkflows.create(payload);
     },
-    onSuccess: (workflow) => {
+    onSuccess: (workflow, submitted) => {
       invalidateWorkflowData();
       if (`${workflow.project_id}:${workflow.app_type_id || ""}` !== currentWorkspaceScope.current) return;
-      setDraft(createWorkflowDraft(workflow));
-      setNodes(workflow.nodes.map(normalizeWorkflowNodeDirectLlm));
-      setEdges(workflow.edges.map(decorateFlowEdge));
+      if (submitted.initialInput !== undefined) {
+        openDraft(workflow);
+        setRunInput(submitted.initialInput);
+      } else {
+        setDraft(createWorkflowDraft(workflow));
+        setNodes(workflow.nodes.map(normalizeWorkflowNodeDirectLlm));
+        setEdges(workflow.edges.map(decorateFlowEdge));
+      }
       setToastTone("success");
-      setToastMessage("Agentic workflow saved.");
+      setToastMessage(submitted.id ? "Workflow changes saved." : "Workflow created. You can now configure and modify it.");
     },
     onError: (error) => {
       setToastTone("error");
@@ -483,12 +505,20 @@ export function AgenticWorkflowsPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: api.agenticWorkflows.delete,
-    onSuccess: () => {
+    mutationFn: async ({ workflows: selected, scope }: { workflows: Array<{ id: string; name: string }>; scope: string }) => {
+      const deleted: string[] = [], failed: Array<{ id: string; name: string; message: string }> = [];
+      for (const workflow of selected) {
+        try { await api.agenticWorkflows.delete(workflow.id); deleted.push(workflow.id); }
+        catch (error) { failed.push({ ...workflow, message: error instanceof Error ? error.message : "Unable to delete workflow." }); }
+      }
+      return { deleted, failed, scope };
+    },
+    onSuccess: ({ deleted, failed, scope }) => {
       invalidateWorkflowData();
-      setDraft(null);
-      setToastTone("success");
-      setToastMessage("Agentic workflow deleted.");
+      if (scope !== currentWorkspaceScope.current) return;
+      setSelectedActionWorkflowIds(current => current.filter(id => !deleted.includes(id)));
+      setToastTone(failed.length ? "error" : "success");
+      setToastMessage(`${deleted.length} workflow${deleted.length === 1 ? "" : "s"} deleted.${failed.length ? ` ${failed.length} could not be deleted and remain selected. ${failed[0].name}: ${failed[0].message}` : " Saved executions remain available."}`);
     },
     onError: (error) => {
       setToastTone("error");
@@ -506,7 +536,7 @@ export function AgenticWorkflowsPage() {
       reviewRequest.current = null;
       setReviewStartError("");
       openRun(run);
-      setToastTone("success"); setToastMessage("Review workflow started. Each specialist result will be saved as it finishes.");
+      setToastTone("success"); setToastMessage("Workflow started. Each step records its input, output and status.");
     },
     onError: (error, submission) => { if (`${submission.workflow.project_id}:${submission.workflow.app_type_id || ""}` === currentWorkspaceScope.current) setReviewStartError(error instanceof Error ? error.message : "The review could not start. Your input is retained; try again."); }
   });
@@ -635,7 +665,7 @@ export function AgenticWorkflowsPage() {
       label: "Status",
       width: 125,
       sortValue: (run) => run.status,
-      render: (run) => <span className="agent-workflow-status">{run.execution_mode === "review" ? "Review" : "Preview"} · <StatusBadge value={run.status || "queued"} /></span>
+      render: (run) => <span className="agent-workflow-status">{run.execution_mode === "review" ? "Execution" : "Preview"} · <StatusBadge value={run.status || "queued"} /></span>
     },
     {
       key: "trigger",
@@ -667,6 +697,7 @@ export function AgenticWorkflowsPage() {
     setSelectedRunId("");
     setReviewReadiness(null); setReviewStartError(""); reviewRequest.current = null;
     setDraft(nextDraft);
+    setRunInput(inspection ? prettyJson(inspection.input_payload) : isSprintAutomator(nextDraft.nodes) ? restoredSprintInput(nextDraft.settings) : DEFAULT_RUN_INPUT);
     setNodes(nextDraft.nodes.map((node) => ({ ...node, type: node.type || "agenticStep" })));
     setEdges(nextDraft.edges.map(decorateFlowEdge));
     setSelectedNodeId(nextDraft.nodes[0]?.id || "");
@@ -834,6 +865,26 @@ export function AgenticWorkflowsPage() {
     setEdges([]);
   };
 
+  const deleteSelectedWorkflows = async () => {
+    if (!canManageAgenticWorkflows || deleteMutation.isPending) return;
+    const scope = currentWorkspaceScope.current;
+    const selected = workflows.filter(workflow => selectedActionWorkflowIds.includes(workflow.id)).map(({ id, name }) => ({ id, name }));
+    if (!selected.length) return;
+    const names = selected.slice(0, 5).map(workflow => `“${workflow.name}”`).join(", ");
+    const confirmed = await confirmDelete({
+      title: `Delete ${selected.length === 1 ? "workflow" : `${selected.length} workflows`}?`,
+      confirmLabel: "Delete workflows",
+      message: `Delete ${names}${selected.length > 5 ? ` and ${selected.length - 5} more` : ""}? Saved executions are retained. Any running execution continues with its saved definition.`
+    });
+    if (confirmed && scope === currentWorkspaceScope.current) deleteMutation.mutate({ workflows: selected, scope });
+  };
+
+  const createFromTemplate = (template: (typeof WORKFLOW_TEMPLATES)[number]) => {
+    if (!projectId || !appTypeId || !canManageAgenticWorkflows || saveMutation.isPending) return;
+    const value = draftFromTemplate(template);
+    saveMutation.mutate({ ...value.draft, initialInput: value.input || DEFAULT_RUN_INPUT });
+  };
+
   const addWorkflowNode = (kind: WorkflowNodeKind, insertion?: NodeInsertion, agent?: ProjectAgent) => {
     try {
       let target = insertion;
@@ -956,7 +1007,7 @@ export function AgenticWorkflowsPage() {
       return null;
     }
 
-    try { return await saveMutation.mutateAsync(draft); }
+    try { return await saveMutation.mutateAsync({ ...draft, nodes, edges }); }
     catch { return null; }
   };
 
@@ -980,17 +1031,19 @@ export function AgenticWorkflowsPage() {
     const requestScope = workspaceScopeKey;
     setCheckingReview(true); setReviewStartError("");
     try {
+      const input = safeJsonParse(runInput);
       const workflow = canManageAgenticWorkflows ? await saveCurrentDraft() : draft.id ? await api.agenticWorkflows.get(draft.id) : null;
       if (!workflow) return;
-      const report = await api.agenticWorkflows.readiness(workflow.id);
+      const report = await api.agenticWorkflows.readiness(workflow.id, undefined, input);
       if (requestScope !== currentWorkspaceScope.current) return;
-      setReviewReadiness({ definition: reviewDefinitionKey(workflow.nodes, workflow.edges, workflow.status, workflow.trigger_kind, workflow.settings), workflow, report });
+      setReviewReadiness({ definition: reviewDefinitionKey(workflow.nodes, workflow.edges, workflow.status, workflow.trigger_kind, workflow.settings), input: JSON.stringify(input), workflow, report });
     } catch (error) {
       if (requestScope === currentWorkspaceScope.current) setReviewStartError(error instanceof Error ? error.message : "Could not check this workflow. Try again.");
     } finally { setCheckingReview(false); }
   };
 
   const readinessMatchesDraft = Boolean(draft && reviewReadiness && reviewReadiness.workflow.id === draft.id
+    && reviewReadiness.input === (() => { try { return JSON.stringify(safeJsonParse(runInput)); } catch { return "invalid"; } })()
     && reviewReadiness.definition === reviewDefinitionKey(nodes, edges, draft.status, draft.trigger_kind, draft.settings));
 
   const prepareAndExecute = async (targetNodeId?: string) => {
@@ -1001,9 +1054,9 @@ export function AgenticWorkflowsPage() {
       const input = safeJsonParse(runInput);
       const workflow = canManageAgenticWorkflows ? await saveCurrentDraft() : draft.id ? await api.agenticWorkflows.get(draft.id) : null;
       if (!workflow || requestScope !== currentWorkspaceScope.current) return;
-      const report = await api.agenticWorkflows.readiness(workflow.id, targetNodeId);
+      const report = await api.agenticWorkflows.readiness(workflow.id, targetNodeId, input);
       if (requestScope !== currentWorkspaceScope.current) return;
-      setReviewReadiness({ definition: reviewDefinitionKey(workflow.nodes, workflow.edges, workflow.status, workflow.trigger_kind, workflow.settings), workflow, report });
+      setReviewReadiness({ definition: reviewDefinitionKey(workflow.nodes, workflow.edges, workflow.status, workflow.trigger_kind, workflow.settings), input: JSON.stringify(input), workflow, report });
       if (!report.ready) return;
       const requestKey = JSON.stringify([workflow.id, workflow.name, workflow.description, workflow.settings, workflow.nodes.map(node => node.position), reviewDefinitionKey(workflow.nodes, workflow.edges, workflow.status, workflow.trigger_kind, workflow.settings), input, targetNodeId]);
       if (reviewRequest.current?.key !== requestKey) reviewRequest.current = { key: requestKey, id: crypto.randomUUID() };
@@ -1122,7 +1175,7 @@ export function AgenticWorkflowsPage() {
                   disabled={!projectId || !canRunAgenticWorkflows} integrationId={canViewIntegrations ? assistantIntegrationId : ""} integrations={llmIntegrations.filter(item => item.is_active)}
                   onAgentChange={agentId => { const agent = agentCatalog.find(item => item.id === agentId); if (agent) openAgentWorkbench(agent); }}
                   optionsContent={["automation-engineer","automation-repair"].includes(assistantAgentId) ? <div className="agent-automation-browser-options"><label><span>Start URL (uses this case’s saved URL when blank)</span><input type="url" value={String(agentInputs.start_url || "")} disabled={assistantMutation.isPending} onChange={event=>setAgentInputs(current=>({...current,start_url:event.target.value}))}/></label><label><input type="checkbox" checked={assistantAgentId === "automation-engineer" ? agentInputs.allow_browser_actions !== false : agentInputs.allow_browser_actions === true} disabled={assistantMutation.isPending} onChange={event=>setAgentInputs(current=>({...current,allow_browser_actions:event.target.checked}))}/>Perform steps in the browser (can click, type and submit forms)</label><p>{assistantAgentId === "automation-engineer" && agentInputs.allow_browser_actions !== false ? "Playwright MCP performs the scoped steps during development. Generated instructions and a passing Test Engine run are separate outcomes." : "Read-only when disabled: the agent inspects the page without performing its actions. Test execution is verified separately."}</p></div> : undefined}
-                  evidenceScope={agentInputs} evidenceScopeControl={<AgentEvidenceScope scopes={assistantContextScopes} values={agentInputs} disabled={assistantMutation.isPending} onChange={(key, value) => setAgentInputs(current => ({ ...current, [key]: value }))} />}
+                  evidenceScope={agentInputs} evidenceScopeControl={<AgentEvidenceScope projectId={projectId} appTypeId={appTypeId} scopes={assistantContextScopes} values={agentInputs} disabled={assistantMutation.isPending} onChange={(key, value) => { setAgentInputs(current => ({ ...current, [key]: value })); setAssistantSmartContext(null); }} />}
                   onContextScopesChange={values => { setAssistantContextScopes(values); setAssistantSmartContext(null); }} onIntegrationChange={canViewIntegrations ? setAssistantIntegrationId : undefined} onPromptChange={setAssistantPrompt}
                   onSmartContextChange={canUseKnowledge ? selection => { setAssistantSmartContext(selection); setAssistantContextScopes(current => current.includes("knowledge") ? current : [...current, "knowledge"]); } : undefined}
                   onSubmit={startAssistantReview} prompt={assistantPrompt} projectId={projectId} running={assistantMutation.isPending}
@@ -1154,7 +1207,7 @@ export function AgenticWorkflowsPage() {
       ) : null}
       {!draft && !selectedRun && activeSurface === "workflows" && canManageAgenticWorkflows && !emptyScope && <section className="studio-template-gallery" aria-label="Workflow templates">
         <header><div><span className="studio-caption">START FROM A TEMPLATE</span><h2>A useful workflow in a few steps</h2></div><button className="ghost-button" type="button" onClick={() => { openDraft(); setDraft(current => current ? { ...current, name: "Untitled workflow", description: "", nodes: [], edges: [] } : current); setNodes([]); setEdges([]); setSelectedNodeId(""); }}>Start from scratch</button></header>
-        <div>{WORKFLOW_TEMPLATES.map(template => <button className="studio-template-card" key={template.id} type="button" onClick={() => { const value = draftFromTemplate(template); openDraft(); setDraft(value.draft); setNodes(value.draft.nodes); setEdges(value.draft.edges.map(decorateFlowEdge)); setSelectedNodeId(value.draft.nodes[0]?.id || ""); setRunInput(value.input || DEFAULT_RUN_INPUT); }}><span>{template.category}</span><strong>{template.name}</strong><p>{template.description}</p><small>Use template →</small></button>)}</div>
+        <div>{WORKFLOW_TEMPLATES.map(template => <button className="studio-template-card" key={template.id} type="button" disabled={emptyScope || saveMutation.isPending} onClick={() => createFromTemplate(template)}><span>{template.category}</span><strong>{template.name}</strong><p>{template.description}</p><small>{saveMutation.isPending ? "Creating…" : "Create Workflow →"}</small></button>)}</div>
       </section>}
       {!draft && !selectedRun && (activeSurface === "workflows" || activeSurface === "runs") ? renderCatalog(
         <div className={activeSurface === "runs" ? "modal-backdrop workflow-history-backdrop" : "workflow-catalog-container"}><div className={activeSurface === "runs" ? "modal-card workflow-history-dialog page-agentic-workflows" : "workflow-catalog-container"} role={activeSurface === "runs" ? "dialog" : undefined} aria-modal={activeSurface === "runs" ? true : undefined} aria-label={activeSurface === "runs" ? "Workflow executions" : undefined} ref={activeSurface === "runs" ? workflowHistoryRef : undefined} tabIndex={activeSurface === "runs" ? -1 : undefined}>
@@ -1208,6 +1261,12 @@ export function AgenticWorkflowsPage() {
             </div>
             {activeTab === "workflows" ? (
               <div className="catalog-toolbar-actions" aria-label="Workflow actions">
+                {canManageAgenticWorkflows && selectedActionWorkflowIds.length > 0 && <button
+                  className="ghost-button danger-button"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => void deleteSelectedWorkflows()}
+                  type="button"
+                >{deleteMutation.isPending ? "Deleting…" : `Delete selected (${selectedActionWorkflowIds.length})`}</button>}
                 {canManageAgenticWorkflows ? (<button
                   className="primary-button catalog-selection-button"
                   disabled={emptyScope || !canManageAgenticWorkflows}
@@ -1284,7 +1343,7 @@ export function AgenticWorkflowsPage() {
               <DataTable
                 columns={runColumns}
                 rows={filteredRuns}
-                emptyMessage="No workflow previews yet. Save a definition, then preview its data flow."
+                emptyMessage="No workflow executions yet. Create a workflow, then run it to inspect its results."
                 enableColumnResize
                 enableHeaderColumnReorder
                 enableRowSelection
@@ -1322,7 +1381,7 @@ export function AgenticWorkflowsPage() {
                           <span className="tile-card-kicker">{formatTimestamp(run.created_at)}</span>
                           <strong>{run.workflow_name}</strong>
                         </div>
-                        <span className="agent-workflow-status">{run.execution_mode === "review" ? "Review" : "Preview"} · <StatusBadge value={run.status || "queued"} /></span>
+                        <span className="agent-workflow-status">{run.execution_mode === "review" ? "Execution" : "Preview"} · <StatusBadge value={run.status || "queued"} /></span>
                       </div>
                       <p className="tile-card-description" title={run.id}>{run.id}</p>
                       <div className="tile-card-facts">
@@ -1333,7 +1392,7 @@ export function AgenticWorkflowsPage() {
                     </div>
                   </button>
                 ))}
-                {!filteredRuns.length ? <div className="empty-state compact">No workflow previews yet. Save a definition, then preview its data flow.</div> : null}
+                {!filteredRuns.length ? <div className="empty-state compact">No workflow executions yet. Create a workflow, then run it to inspect its results.</div> : null}
               </div>
             )}
           </div>
@@ -1347,6 +1406,10 @@ export function AgenticWorkflowsPage() {
         editable={canManageAgenticWorkflows} canRun={canRunAgenticWorkflows}
         busy={saveMutation.isPending || checkingReview || executeReviewMutation.isPending || runMutation.isPending}
         error={reviewStartError} input={runInput} onInput={setRunInput}
+        inputSetup={isSprintAutomator(nodes) ? <SprintAutomatorSetup projectId={projectId} input={runInput} onInput={setRunInput} nodes={nodes}
+          onNodeChange={(id, patch) => setNodes(current => current.map(node => node.id === id ? { ...node, data: { ...node.data, ...patch } } : node))}
+          editable={canManageAgenticWorkflows} canRun={canRunAgenticWorkflows} busy={saveMutation.isPending || checkingReview || executeReviewMutation.isPending}
+          providers={llmProviderOptions} canViewSprints={can("requirement_iteration.view")} /> : undefined}
         onDraft={patch => setDraft(current => current ? { ...current, ...patch } : null)}
         onBack={closeDraft} onSave={() => void saveCurrentDraft()} onPreview={() => void runCurrentDraft()}
         onExecute={target => void prepareAndExecute(target)} onCheck={() => void checkReviewReadiness()}
@@ -1367,7 +1430,7 @@ export function AgenticWorkflowsPage() {
 
       {draft && selectedRunId && !selectedRun && createPortal(<div className="modal-backdrop"><div className="modal-card workflow-history-dialog" role="dialog" aria-modal="true" aria-label="Workflow execution details"><p role={selectedRunQuery.isError ? "alert" : "status"}>{selectedRunQuery.isError ? "Execution details could not be loaded." : "Loading execution…"}</p>{selectedRunQuery.isError ? <button className="ghost-button" type="button" onClick={() => void selectedRunQuery.refetch()}>Retry</button> : null}<button className="ghost-button" type="button" onClick={closeRun}>Back to workflow</button></div></div>, document.body)}
 
-      {selectedRun && createPortal(<div className="modal-backdrop"><div className="modal-card workflow-history-dialog page-agentic-workflows" role="dialog" aria-modal="true" aria-label="Workflow execution details" ref={workflowRunRef} tabIndex={-1}><WorkflowExecutionView run={selectedRun} onBack={closeRun} canRun={canRunAgenticWorkflows} canViewTraces={can("ops.view")}
+      {selectedRun && createPortal(<div className="modal-backdrop"><div className="modal-card workflow-history-dialog workflow-execution-dialog page-agentic-workflows" role="dialog" aria-modal="true" aria-label="Workflow execution details" ref={workflowRunRef} tabIndex={-1}><WorkflowExecutionView run={selectedRun} onBack={closeRun} canRun={canRunAgenticWorkflows} canViewTraces={can("ops.view")}
         stopping={cancelReviewMutation.isPending} onStop={() => cancelReviewMutation.mutate(selectedRun.id)}
         error={selectedRunQuery.error instanceof Error ? selectedRunQuery.error.message : undefined}
         onRefresh={() => void selectedRunQuery.refetch()}
@@ -1380,6 +1443,7 @@ export function AgenticWorkflowsPage() {
       {agentEditor && <AgentDefinitionEditor key={`${projectId}:${agentEditor.agent?.id || "new"}`} agent={agentEditor.agent} initial={agentEditor.initial} projectId={projectId} appTypeId={appTypeId} providers={llmProviderOptions} busy={saveAgentMutation.isPending} error={agentEditorError}
         onClose={() => setAgentEditor(null)} onSave={(definition, activate) => saveAgentMutation.mutate({ project_id: projectId, definition, activate, id: agentEditor.agent?.id, expected_version: agentEditor.agent?.current_version })} />}
       <ToastMessage message={toastMessage} onDismiss={() => setToastMessage("")} tone={toastTone} />
+      {confirmationDialog}
     </div>
   );
 }

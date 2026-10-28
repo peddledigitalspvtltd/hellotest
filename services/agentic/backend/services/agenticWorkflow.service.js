@@ -647,6 +647,23 @@ const redactDiagnostic = (value, secrets = [], depth = 0) => {
 
 exports.testApiAgent = async (input = {}) => {
   const method = normalizeApiTestMethod(input.method);
+  const effectful = !["GET", "HEAD", "OPTIONS"].includes(method);
+  const operationId = effectful ? `http-test-${uuid()}` : undefined;
+  if (input.connectionId || input.connection_id) {
+    const started = Date.now();
+    const result = await require("../workflows/connections").callHttp({
+      projectId: input.project_id,
+      data: { connectionId: input.connectionId || input.connection_id, apiUrl: input.url, apiMethod: method, apiBody: input.body, timeoutMs: input.timeoutMs,
+        ...(input.credential || input.auth ? { apiAuth: "inline-credential" } : {}) },
+      signal: input.signal,
+    });
+    const responseStyle = normalizeApiResponseStyle(input.responseStyle);
+    const body = Buffer.from(typeof result.data === "string" ? result.data : JSON.stringify(result.data));
+    return { ...result, ok: true, method, responseStyle, redirect_followed: false, durationMs: Date.now() - started,
+      truncated: body.length > API_TEST_RESPONSE_LIMIT_BYTES,
+      preview: parseApiResponsePreview(body.subarray(0, API_TEST_RESPONSE_LIMIT_BYTES), result.content_type, responseStyle),
+      headers: { "content-type": result.content_type } };
+  }
   const responseStyle = normalizeApiResponseStyle(input.responseStyle);
   const parsedUrl = normalizeApiTestUrl(input.url);
   const headers = new Headers({ Accept: "application/json, text/plain, */*" });
@@ -661,6 +678,7 @@ exports.testApiAgent = async (input = {}) => {
     credential: input.credential,
     authExpression: normalizeText(input.auth)
   });
+  if (Buffer.byteLength(bodyText) > 128 * 1024) throw workflowError("API test request bodies are limited to 128 KB.");
 
   if (bodyText && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -679,7 +697,10 @@ exports.testApiAgent = async (input = {}) => {
       || /(?:password|secret|token|api[-_]?key|authorization)/i.test(key)) publicUrl.searchParams.set(key, "[REDACTED]");
   }
 
+  let dispatched = false;
   try {
+    if (input.signal?.aborted) throw workflowError("The API test was cancelled.", 499);
+    dispatched = true;
     const response = await fetch(parsedUrl.toString(), {
       method,
       headers,
@@ -693,7 +714,7 @@ exports.testApiAgent = async (input = {}) => {
     return {
       ok: response.ok,
       status: response.status,
-      statusText: response.statusText,
+      statusText: redactDiagnostic(response.statusText, secrets),
       method,
       url: redactDiagnostic(publicUrl.toString(), secrets),
       responseStyle,
@@ -705,15 +726,18 @@ exports.testApiAgent = async (input = {}) => {
       },
       preview: redactDiagnostic(parseApiResponsePreview(previewBuffer, contentType, responseStyle), secrets),
       redirect_followed: false,
+      request: { method, response_received: true, ...(operationId ? { operation_id: operationId, postcondition_verified: false } : {}) },
+      ...(effectful && (response.status >= 500 || response.status === 408) ? { outcome_unknown: true, reconciliation_required: true, retryable: false } : {}),
       ...(response.status >= 300 && response.status < 400 ? { message: "The endpoint returned a redirect. Review the destination and test it explicitly." } : {})
     };
   } catch (error) {
-    if (input.signal?.aborted) throw workflowError("The API test was cancelled.", 499);
-    if (error?.name === "AbortError") {
-      throw new Error("API agent test timed out after 10 seconds.");
-    }
-
-    throw workflowError("Unable to reach the API endpoint. Check the URL, network connection, and authentication.", 502);
+    const failure = input.signal?.aborted ? workflowError("The API test was cancelled.", 499)
+      : error?.name === "AbortError" ? workflowError("API agent test timed out after 10 seconds.", 504)
+      : workflowError("Unable to reach the API endpoint. Check the URL, network connection, and authentication.", 502);
+    if (effectful && dispatched) Object.assign(failure, { code: "AGENT_HTTP_OUTCOME_UNKNOWN", outcome_unknown: true,
+      retryable: false, operation_id: operationId,
+      publicMessage: `${failure.publicMessage} The request may have changed the remote system. Verify its outcome before sending it again.` });
+    throw failure;
   } finally {
     clearTimeout(timeout);
     input.signal?.removeEventListener("abort", cancel);

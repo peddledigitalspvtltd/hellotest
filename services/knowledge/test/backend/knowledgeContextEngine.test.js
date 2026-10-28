@@ -342,3 +342,16 @@ test('a missing selected live fact releases its single candidate slot for permit
   assert.deepEqual(result.hits.map(item => item.chunk_id), ['supporting-passage']);
   assert.equal(result.retrieval.candidate_count, 1);
 });
+
+test('selected evidence scope survives every search round and prevents relationship expansion outside it', async () => {
+  const calls = [];
+  let expansions = 0;
+  const evidenceScope = { story_id: 'story-selected', sprint_id: 'sprint-selected' };
+  const dependencies = fixtures({
+    search: async args => { calls.push(args.filters); return { results: [{ query: 'release', result: { results: [hit('scope-proof')] } }], errors: [] }; },
+    assess: () => ({ requires_more_context: true }),
+    expandRelationships: async () => { expansions++; return { results: [hit('outside-scope')] }; }
+  });
+  await execution.run({}, () => engine.retrieve({ request: contracts.buildRetrievalRequest({ projectId: 'project-1', query: 'Investigate release risk', queryClass: 'INVESTIGATIVE', filters: { requested_scopes: ['knowledge'], evidence_scope: evidenceScope }, budgets: { max_rounds: 1 } }), user: { id: 'user-1' }, dependencies }));
+  assert.equal(expansions, 0); assert.equal(calls.length, 1); assert.deepEqual(calls[0].evidence_scope, evidenceScope);
+});

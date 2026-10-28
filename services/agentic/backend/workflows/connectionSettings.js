@@ -56,13 +56,17 @@ function normalize(input, previous = {}) {
   const tools = input.tools || [], methods = kind === "mcp" ? ["POST"] : input.methods || ["GET", "HEAD"];
   if (!Array.isArray(tools) || tools.length > 100 || tools.some(tool => typeof tool !== "string" || !/^[\w.:-]{1,128}$/.test(tool))) throw fail("Enter up to 100 valid tool names.");
   if (!Array.isArray(methods) || !methods.length || methods.some(method => !["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"].includes(method))) throw fail("Choose supported HTTP methods.");
-  const authType = input.authType || "none", header = input.header || "Authorization";
+  const authType = input.authType || "none", header = input.header || (authType === "header" ? "X-API-Key" : "Authorization");
   if (!["none", "bearer", "basic", "header"].includes(authType)) throw fail("Choose a supported authentication method.");
   if (!/^[A-Za-z0-9-]+$/.test(header) || /^(host|connection|content-length|transfer-encoding|cookie|set-cookie|accept|content-type|mcp-session-id|mcp-protocol-version|proxy-authorization)$/i.test(header)) throw fail("Choose a valid credential header.");
   const secretEnv = String(input.secretEnv || "").trim();
   if (authType === "bearer" && typeof input.secret === "string") {
     input = {...input, secret: input.secret.trim()};
     if (/^Bearer\s/i.test(input.secret)) throw fail("Enter only the token in the Bearer credential field; the Authorization prefix is added automatically.");
+  }
+  if (authType === "header" && header.toLowerCase() === "x-api-key" && typeof input.secret === "string") {
+    input = { ...input, secret: input.secret.trim() };
+    if (/^(?:Bearer|Basic)\s/i.test(input.secret)) throw fail("Enter only the API key for X-API-Key; authorization prefixes belong to Bearer or Basic authentication.");
   }
   if (secretEnv && !/^AGENTIC_SECRET_[A-Z0-9_]+$/.test(secretEnv)) throw fail("Secret environment references must begin with AGENTIC_SECRET_.");
   if (input.secret && (typeof input.secret !== "string" || input.secret.length > 8192 || /[\r\n]/.test(input.secret))) throw fail("Use a credential up to 8 KB without line breaks.");

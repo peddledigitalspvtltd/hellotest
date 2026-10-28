@@ -69,6 +69,37 @@ test('MCP redaction retains ContextPacket ACL provenance without retaining crede
  assert.deepEqual(safe.authorization,{project_scope_enforced:true,source_acl_enforced:true,allowed_record_permissions:['testcase.view']});assert.equal(safe.authorization_coverage.fully_visible_objects,2);assert.ok(!JSON.stringify(safe).includes('private'));
 });
 
+test('bounded MCP serialization preserves typed numeric UUID identities and citations while still redacting prose and secrets',()=>{
+ const real=load('backplane',{'@hellotest/platform/backend/src/db':fakeDb,'./auth':{permit,fail:(message,statusCode,code)=>Object.assign(new Error(message),{statusCode,code})}});
+ const project='12345678-1234-4abc-8def-0123456789ab',app='12345678-1234-4567-8abc-abcdefabcdef',source=`live-project-${project}-stories`,citation=`K-${app}`;
+ const safe=real.bounded({project_id:project,app_type_id:app,id:project,source_id:app,source_ref_id:project,requirement_ids:[project],source_ids:[app,source],evidence_ids:[citation],citation_ids:[`requirement:${project}`],
+  evidence:[{evidence_id:citation,canonical_id:app,source_id:source,source_ref_id:project,document_id:`live-project-${project}`,content:'Call +1 415-555-0100; card 4111 1111 1111 1111; password=fixture-secret'}],
+  relationship_evidence:[{source:source,target:app,evidence_ids:[citation]}],summary:project,notes:[project],custom_id:project,password:project,credential:{id:app},headers:{authorization:'Bearer fixture-token'}});
+ assert.equal(safe.project_id,project);assert.equal(safe.app_type_id,app);assert.equal(safe.id,project);assert.equal(safe.source_id,app);assert.equal(safe.source_ref_id,project);
+ assert.deepEqual(safe.requirement_ids,[project]);assert.deepEqual(safe.source_ids,[app,source]);assert.deepEqual(safe.evidence_ids,[citation]);assert.deepEqual(safe.citation_ids,[`requirement:${project}`]);
+ assert.deepEqual({...safe.evidence[0],content:undefined},{evidence_id:citation,canonical_id:app,source_id:source,source_ref_id:project,document_id:`live-project-${project}`,content:undefined});
+ assert.deepEqual(safe.relationship_evidence,[{source,target:app,evidence_ids:[citation]}]);
+ assert.notEqual(safe.summary,project);assert.notEqual(safe.notes[0],project);assert.notEqual(safe.custom_id,project,'unknown identifier-looking keys do not bypass prose policy');
+ assert.equal(Object.hasOwn(safe,'password'),false);assert.equal(Object.hasOwn(safe,'credential'),false);
+ assert.doesNotMatch(JSON.stringify(safe),/415-555-0100|4111 1111 1111 1111|fixture-secret|fixture-token/);
+ const invalid=real.bounded({project_id:'415-555-0100',source_ids:['4111 1111 1111 1111','source password=fixture-secret']});
+ assert.doesNotMatch(JSON.stringify(invalid),/415-555-0100|4111 1111 1111 1111|fixture-secret/,'typed fields preserve only validated identity syntax');
+});
+
+test('numeric UUID ContextPackets round-trip through the actual bounded serializer and strict gateway without relaxing scope checks',async()=>{
+ const real=load('backplane',{'@hellotest/platform/backend/src/db':fakeDb,'./auth':{permit,fail:(message,statusCode,code)=>Object.assign(new Error(message),{statusCode,code})}});
+ const project='12345678-1234-4abc-8def-0123456789ab';
+ const gateway=load('gateway',{'./auth':{principal:async(userId,projectId)=>({user:{id:userId},projectId})}});
+ let response={project_id:project,evidence:[{source_id:project,content:'Authorized selected-project evidence'}]};
+ gateway.installTransport(async()=>({packet:real.bounded(response)}));
+ const input={user:{id:'actor'},projectId:project,query:'Read selected Story'};
+ const result=await gateway.retrievePacket(input);assert.equal(result.project_id,project);assert.equal(result.evidence[0].source_id,project);
+ response={...response,project_id:'12345678-1234-4567-8abc-abcdefabcdef'};
+ await assert.rejects(gateway.retrievePacket(input),{code:'MCP_CONTEXT_SCOPE_MISMATCH'});
+ response={project_id:project,evidence:{}};
+ await assert.rejects(gateway.retrievePacket(input),{code:'MCP_CONTEXT_SCOPE_MISMATCH'});
+});
+
 test('catalog discovery avoids repeated permission queries and rechecks permissions on the next request',async()=>{
  let checks=0,allowed=true;const operations=[{id:'a',method:'GET',path:'/test-cases',permission:'testcase.view'},{id:'b',method:'GET',path:'/test-cases/:id',permission:'testcase.view'}];
  const real=load('backplane',{'@hellotest/platform/backend/src/db':fakeDb,'./auth':{permit:async(a,permission)=>{await permit(a);if(permission==='testcase.view'){checks++;if(!allowed)throw Object.assign(new Error('Denied'),{statusCode:403});}},fail:(message,statusCode,code)=>Object.assign(new Error(message),{statusCode,code})},'./registry':{all:()=>operations,revision:()=> 'revision'}});

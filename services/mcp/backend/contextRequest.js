@@ -2,7 +2,7 @@ const z = require('zod');
 
 const id = z.string().min(1).max(255);
 const evidenceScope = z.object(Object.fromEntries(
- ['story_id', 'test_case_id', 'execution_id', 'release_id', 'build', 'environment_id']
+ require('@hellotest/platform/shared/agentEvidenceScopeFields.json').map(field => field.key)
   .map(field => [field, id.optional()])
 )).strict();
 const filters = z.object({

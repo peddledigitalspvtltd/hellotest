@@ -311,6 +311,22 @@ function createPostgresAdapter({
     }
   };
 
+  // Short scoped reads temporarily change local query settings. Concurrent
+  // savepoints on the same client would overwrite those settings and releasing
+  // an earlier savepoint would discard later ones. Only callers opting into
+  // this method share a queue; independent transactions keep their parallelism.
+  const serializedTransaction = (callback) => async (...args) => {
+    const store = getActiveTransaction();
+    if (!store?.client) return transaction(callback)(...args);
+    const pending = Promise.resolve(store.scopedReadTail)
+      .catch(() => {})
+      .then(() => transaction(callback)(...args));
+    // A failed read rolls back its savepoint before the next read starts.
+    // Preserve its rejection for its caller without poisoning the shared queue.
+    store.scopedReadTail = pending.catch(() => {});
+    return pending;
+  };
+
   const getPoolStats = () => {
     const max = Number(pool.options?.max || poolConfig?.max || 10);
     const total = Number(pool.totalCount || 0);
@@ -337,7 +353,7 @@ function createPostgresAdapter({
     return closePromise;
   };
 
-  return { pool, query, prepare, transaction, getPoolStats, close };
+  return { pool, query, prepare, transaction, serializedTransaction, getPoolStats, close };
 }
 
 module.exports = {

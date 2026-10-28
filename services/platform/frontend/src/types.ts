@@ -1584,6 +1584,17 @@ export type AiArtifactAssuranceReview = {
   dimensions?: Array<Pick<AiArtifactAssuranceDimension, "id"> & Partial<Pick<AiArtifactAssuranceDimension, "explanation" | "evidence" | "recommendation">>>;
   insights?: AiArtifactAssuranceInsight[];
   limitations?: string[];
+  automation_readiness?: {
+    status: "ready" | "needs_input" | "unknown" | "not_applicable";
+    summary: string;
+    evidence_refs: string[];
+    missing_context: Array<{
+      kind: "api_contract" | "authentication" | "test_data" | "fixture" | "application_context" | "other";
+      reason: string;
+      evidence_refs: string[];
+      step_refs: string[];
+    }>;
+  };
 };
 
 export type AiArtifactAssuranceInput = {
@@ -2959,6 +2970,9 @@ export type AgentStructuredArtifact = {
   reproduction_steps?: string[]; expected_result?: string; actual_result?: string; severity?: string;
 };
 export type AgenticAssistantResult = {
+  no_changes_required?: boolean;
+  evidence_scope?: Record<string, string>;
+  primary_review?: { agent_id: string; summary?: string; findings?: AgenticAssistantResult['findings']; recommendations?: string[]; evidence_gaps?: string[] };
   sections?: Array<{title:string;body:string;citation_ids:string[]}>;
   tables?: Array<{title:string;columns:string[];rows:string[][];citation_ids:string[]}>;
   charts?: Array<{title:string;type:"bar";unit:string;series:Array<{label:string;value:number}>;citation_ids:string[]}>;
@@ -2966,7 +2980,7 @@ export type AgenticAssistantResult = {
   outcome_issues?: Array<string | {code:string;message:string;kind?:string;finding_ids?:string[];blocked?:boolean}>;
   artifacts?: AgentStructuredArtifact[];
   model_call_records?: Array<{name:string;trace_id:string|null;status:string;attempt:number}>;
-  agent_chain?: Array<{agent_id:string;name:string;status:string;trace_id?:string|null;kind?:AgentStructuredArtifact["kind"];reason?:string;detail?:string;artifact_count?:number}>;
+  agent_chain?: Array<{agent_id:string;name:string;status:string;trace_id?:string|null;kind?:AgentStructuredArtifact["kind"];reason?:string;detail?:string;artifact_count?:number;finding_ids?:string[];addressed_finding_ids?:string[];evidence_scope?:Record<string,string>;verification?:{status:'passed'|'needs_input';checks:Array<{id:string;passed:boolean;label:string}>}}>;
   automation_repair?: AutomationRepairSummary;
   quality_assessment?: QualityEvidenceReport;
   execution_status?: string;

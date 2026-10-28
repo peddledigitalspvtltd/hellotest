@@ -190,6 +190,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(requests[0].body.mode, 'agent'); assert.ok(!requests[0].body.context_scopes.includes('bugs'));
     assert.equal(await page.getByRole('button', { name: 'Accept agent output', exact: true }).count(), 0);
     await page.getByText('Limited evidence', { exact: true }).waitFor();
+    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/Review & approve/}).click();
     const proposals=page.getByRole('region',{name:'Structured agent proposals'});
     await page.getByRole('heading',{name:'Proposals for review'}).waitFor();
     await page.getByText('Acceptance Criteria:',{exact:true}).waitFor();
@@ -205,6 +206,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(await proposals.getByRole('button',{name:'Saved',exact:true}).isDisabled(),true,'Saved proposal cannot be accepted twice');
     await capture(page,screenshots+'/09-next-actions-story-desktop.png');await fit(page,390);await capture(page,screenshots+'/10-next-actions-story-mobile.png');await fit(page,1440);
     assert.equal((await page.evaluate(()=>window.workspaceCalls.writes)).length,1,'Explicit acceptance sends one domain proposal write');
+    await page.locator('.agent-outcome-panel').getByRole('tab',{name:'Overview',exact:true}).click();
     await page.getByText(result.evidence_gaps[0], { exact: true }).waitFor();
     const outcome=page.locator('.agent-outcome-panel');const outputTabs=outcome.getByRole('tablist',{name:'Output sections'});
     await outputTabs.getByRole('tab',{name:'Overview',exact:true}).focus();await page.keyboard.press('ArrowRight');
@@ -327,7 +329,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(await page.getByText('cited references', {exact:false}).count(),0);
     await page.locator('.agent-outcome-panel').getByRole('tab',{name:/Model calls/}).click();
     await page.getByText('Request to model',{exact:true}).waitFor();
-    await page.getByRole('navigation',{name:'Choose activity model call'}).getByRole('button',{name:'Story Architect',exact:true}).click();
+    await page.getByRole('navigation',{name:'Choose activity model call'}).getByRole('button',{name:/^Story Architect · completed$/}).click();
     await page.getByText('followup-call',{exact:true}).waitFor();
     await page.getByRole('button',{name:'Review brief',exact:true}).click();
     await page.goto(baseUrl + '?readonly=true&route=' + encodeURIComponent('/agentic-workflows?view=workbench&agent=test-designer&session=viewer-review'));

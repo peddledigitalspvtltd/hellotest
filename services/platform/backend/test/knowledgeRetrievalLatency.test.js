@@ -109,6 +109,7 @@ test("multi-query retrieval starts every lexical read and shares one bounded emb
 
 test("rejected embedding configuration uses a scoped cooldown without changing the integration", async (context) => {
   let calls = 0;
+  context.mock.method(db.pool, "query", async () => ({ rows: [], rowCount: 0 }));
   context.mock.method(globalThis, "fetch", async () => {
     calls++;
     return new Response(JSON.stringify({ error: "Model does not support embeddings" }), { status: 400 });

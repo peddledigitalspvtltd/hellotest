@@ -1,8 +1,62 @@
 [
-  {"key":"story_id","label":"Story ID","scopes":["stories","test-cases","automation","runs","bugs"]},
-  {"key":"test_case_id","label":"Test Case ID","scopes":["stories","test-cases","automation","runs","bugs"]},
-  {"key":"execution_id","label":"Run ID","scopes":["runs","bugs"]},
-  {"key":"release_id","label":"Release ID","scopes":["stories","test-cases","automation","runs","bugs"]},
-  {"key":"build","label":"Exact build","scopes":["runs","bugs"]},
-  {"key":"environment_id","label":"Environment ID","scopes":["runs","bugs"]}
+  {
+    "key": "story_id",
+    "label": "Story ID",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "automation",
+      "runs",
+      "bugs",
+      "knowledge"
+    ]
+  },
+  {
+    "key": "test_case_id",
+    "label": "Test Case ID",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "automation",
+      "runs",
+      "bugs",
+      "knowledge"
+    ]
+  },
+  {
+    "key": "execution_id",
+    "label": "Run ID",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "automation",
+      "runs",
+      "bugs",
+      "knowledge"
+    ]
+  },
+  {
+    "key": "release_id",
+    "label": "Release ID",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "automation",
+      "runs",
+      "bugs",
+      "knowledge"
+    ]
+  },
+  {
+    "key": "sprint_id",
+    "label": "Sprint ID",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "automation",
+      "runs",
+      "bugs",
+      "knowledge"
+    ]
+  }
 ]

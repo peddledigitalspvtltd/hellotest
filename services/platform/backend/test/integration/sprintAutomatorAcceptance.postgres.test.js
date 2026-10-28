@@ -36,7 +36,9 @@ test('Sprint draft acceptance uses native transactional writes, concurrent repla
     assert.equal((await db.prepare("SELECT to_regclass('public.workflow_draft_acceptances') AS name").get()).name,'workflow_draft_acceptances');
     console.log('Sprint acceptance fixture version-11 to version-12 CLI upgrade verified.');
     await independent.connect();
-    const projectId = randomUUID(), appId = randomUUID(), userId = randomUUID(), roleId = randomUUID(), sprintId = randomUUID(), storyId = randomUUID();
+    // This valid UUID previously matched the prose phone redactor in MCP.
+    // Exercise typed project identity preservation on every native pipeline run.
+    const projectId = '12345678-1234-4abc-8def-0123456789ab', appId = randomUUID(), userId = randomUUID(), roleId = randomUUID(), sprintId = randomUUID(), storyId = randomUUID();
     await db.prepare('INSERT INTO roles(id,name) VALUES (?,?)').run(roleId,'Sprint acceptance validation');
     await db.prepare("INSERT INTO users(id,email,password_hash,name,is_workspace_admin,status) VALUES (?,?,?,?,TRUE,'active')").run(userId,'sprint-validation@example.test','not-a-login','Sprint acceptance validation');
     await db.prepare('INSERT INTO projects(id,name,created_by) VALUES (?,?,?)').run(projectId,'Disposable Sprint validation',userId);
@@ -51,6 +53,7 @@ test('Sprint draft acceptance uses native transactional writes, concurrent repla
     app.register(require('../../src/plugins/errorHandler'));
     app.register(require('../../src/plugins/validator'));
     app.register(require('../../src/plugins/accessControl'));
+    app.register(require('../../../../mcp/backend/plugin'));
     app.addHook('preHandler', async req => {
       if (req.method === 'POST' && req.url === '/test-cases' && req.body?.title === 'Lock protected invoice') {
         nativeEntered.resolve();
@@ -60,6 +63,8 @@ test('Sprint draft acceptance uses native transactional writes, concurrent repla
     app.register(require('../../src/routes'));
     await app.ready();
     console.log('Sprint acceptance fixture native routes ready.');
+    const nativePipeline = await require('./sprintAutomatorPipeline.fixture')({app,db,projectId,appId,user,headers});
+    console.log(JSON.stringify(nativePipeline));
     const saveRun = async title => {
       const story = await storyService.getRequirement(storyId);
       const draft = { client_id:'draft-1', title, description:'Read the existing invoice and compare the declared response.', priority:2, test_case_type:'functional', authoring_mode:'structured', requirement_ids:[storyId], parameter_values:{}, steps:[{step_order:1,step_type:'web',action:'GET https://invoices.example/invoices/one',expected_result:'Response status equals 200 and amount equals 10'}] };
@@ -72,6 +77,7 @@ test('Sprint draft acceptance uses native transactional writes, concurrent repla
     const accept = (id, kind='manual') => app.inject({method:'POST',url:`/agentic-workflow-runs/${id}/drafts/accept`,headers,payload:{node_id:'automation',story_index:0,case_index:0,kind}});
     const casesNamed = async title => (await db.prepare('SELECT count(*)::INTEGER AS count FROM test_cases WHERE app_type_id=? AND title=?').get(appId,title)).count;
     const receiptsFor = async runId => (await db.prepare('SELECT count(*)::INTEGER AS count FROM workflow_draft_acceptances WHERE run_id=?').get(runId)).count;
+    console.log(JSON.stringify(await require('./sprintAutomaticPublication.fixture')({db,saveRun,casesNamed,receiptsFor,user,roleId,projectId,userId})));
 
     const parallelId = await saveRun('Concurrent invoice acceptance');
     const parallel = await Promise.all(Array.from({length:4},()=>accept(parallelId)));
@@ -88,6 +94,7 @@ test('Sprint draft acceptance uses native transactional writes, concurrent repla
     const replay = await accept(parallelId);assert.equal(replay.statusCode,200,replay.body);assert.equal(replay.json().id,manualId);assert.equal(replay.json().reused,true);
     const automation = await accept(parallelId,'automation');assert.equal(automation.statusCode,200,automation.body);
     assert.notEqual(automation.json().id,manualId);assert.equal(automation.json().verification_status,'unverified');
+    assert.equal((await db.prepare('SELECT count(*)::INTEGER AS count FROM automation_case_links WHERE automation_test_case_id=? AND manual_test_case_id=?').get(automation.json().id,manualId)).count,1,'Accepted automation retains its reviewed manual Test Case link');
     const automated = await db.prepare('SELECT automated,automation_status FROM test_cases WHERE id=?').get(automation.json().id);
     assert.equal(automated.automated,'yes');assert.equal(automated.automation_status,'incomplete');
     const persistedSteps = await db.prepare('SELECT step_type,api_request FROM test_steps WHERE test_case_id=? ORDER BY step_order').all(automation.json().id);
@@ -121,7 +128,24 @@ test('Sprint draft acceptance uses native transactional writes, concurrent repla
     } finally {await independent.query('ROLLBACK');releaseNative.resolve();}
     const locked = await accepting;assert.equal(locked.statusCode,200,locked.body);assert.equal(await casesNamed('Lock protected invoice'),1);assert.equal(await receiptsFor(lockId),1);
     await independent.query('UPDATE requirements SET description=$1,revision=revision+1 WHERE id=$2',['Writer proceeds after acceptance commit',storyId]);
-    console.log(JSON.stringify({existing_version_11_upgrade_verified:true,native_case_and_receipt_atomic:true,parallel_accepts:parallel.length,duplicate_cases:0,stale_story_rejected:true,receipt_failure_rolled_back_native_case:true,story_writer_blocked_until_acceptance_commit:true,provider_calls:0}));
+    const runtime=require('../../../../agentic/backend/services/agenticWorkflowExecution.service');
+    const terminalId=randomUUID();
+    await db.prepare("INSERT INTO agentic_workflow_runs(id,project_id,app_type_id,workflow_name,status,input_payload,workflow_snapshot,node_results,created_by) VALUES(?,?,?,'Terminal recovery','running',?,?,?,?)").run(terminalId,projectId,appId,{},{execution_mode:'review'},[],userId);
+    const terminalRun=await runtime._internals.store.get(terminalId),held=[];
+    try {
+      // Reproduce the production failure rather than mocking a database error:
+      // every normal application-pool connection remains checked out while the
+      // terminal writer must acquire its independent bounded connection.
+      for(let index=0;index<db.pool.options.max;index++)held.push(await db.pool.connect());
+      await runtime._internals.persistTerminal(terminalRun,'failed',[],{status:'failed',summary:'The context request stopped; terminal metadata recovered.'});
+      assert.equal((await held[0].query('SELECT status FROM agentic_workflow_runs WHERE id=$1',[terminalId])).rows[0].status,'failed');
+      assert.equal(db.pool.idleCount,0,'The primary application pool remains exhausted during recovery');
+      assert.equal(runtime._internals.active.size,0,'Terminal recovery never starts node or provider work');
+    } finally {for(const client of held)client.release();}
+    assert.equal((await runtime._internals.store.get(terminalId)).status,'failed','A separate bounded connection records terminal state when primary pool acquisition fails');
+    assert.equal(runtime._internals.pendingTerminals.has(terminalId),false);
+    assert.equal(await runtime._internals.store.saveTerminal(terminalId,'completed',[],{status:'completed'}),undefined,'Recovery cannot overwrite an already terminal record');
+    console.log(JSON.stringify({existing_version_11_upgrade_verified:true,native_case_and_receipt_atomic:true,parallel_accepts:parallel.length,duplicate_cases:0,stale_story_rejected:true,receipt_failure_rolled_back_native_case:true,story_writer_blocked_until_acceptance_commit:true,exhausted_main_pool_terminal_recovery:true,provider_calls:0}));
   } finally {
     releaseNative.resolve();
     await app?.close();

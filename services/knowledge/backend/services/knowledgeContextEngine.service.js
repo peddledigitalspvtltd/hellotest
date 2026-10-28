@@ -50,7 +50,7 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
     : Promise.resolve({ allowed: [], denied_ids: [], partial: false });
   const filters = request.filters || {};
   const pinned = array(filters.source_ids).length || array(filters.collection_ids).length;
-  const scopedLive = Array.isArray(filters.requested_scopes) && Object.keys(filters.evidence_scope || {}).length > 0;
+  const scopedLive = Object.keys(require('@hellotest/platform/backend/src/utils/agentEvidenceScopeSql').normalize(filters.evidence_scope)).length > 0;
   const nativeSourceKinds = unique(array(filters.requested_scopes).flatMap(scope => ({stories:['requirement'],'test-cases':['test_case'],automation:['test_case'],runs:['execution'],bugs:['bug']}[scope] || [])));
   const requestedScopes = array(filters.requested_scopes).length ? filters.requested_scopes : unique(array(filters.source_kinds).map(kind => PLAN_SCOPE_BY_SOURCE_KIND[kind]).filter(Boolean));
   const route = planContext({ prompt: request.query, mode: "chat", history, requestedScopes, agentId: filters.agent_id });
@@ -190,7 +190,7 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
           execution.emit("PARENT_EXPANSION", "started");
           expansionJobs.push({ stage: "PARENT_EXPANSION", job: stage((signal) => expandParents({ signal, timeoutMs: expansionTimeoutMs, maxCandidates: Math.max(0, budget.limits.max_candidates - candidateCount), projectId: request.project_id, user, hits, window: 1, limit: Math.min(8, budget.remaining().candidates), asOf: filters.as_of }), "PARENT_EXPANSION_TIMEOUT", expansionTimeoutMs) });
         }
-        if (expandRelationships && !pinned && !array(filters.source_kinds).length && !filters.as_of
+        if (expandRelationships && !scopedLive && !pinned && !array(filters.source_kinds).length && !filters.as_of
           && candidateCount < budget.limits.max_candidates && ["LOOKUP", "ANALYTICAL", "INVESTIGATIVE"].includes(request.query_class) && budget.reserve({ toolCalls: 1 })) {
           execution.emit("RELATIONSHIP_SEARCH", "started");
           expansionJobs.push({ stage: "RELATIONSHIP_SEARCH", job: stage((signal) => expandRelationships({ signal, timeoutMs: expansionTimeoutMs, mode: searchMode, maxCandidates: Math.max(0, budget.limits.max_candidates - candidateCount), projectId: request.project_id, app_type_id:filters.app_type_id,

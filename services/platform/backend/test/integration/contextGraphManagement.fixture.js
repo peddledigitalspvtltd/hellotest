@@ -67,7 +67,8 @@ exports.verify = async ({ app, db, user, headers }) => {
   const privateCandidate = (await call('GET', '/candidates')).json().candidates.find(item => item.id === privateProposal.json().id);
   await db.prepare("UPDATE ai_knowledge_security_bindings SET effect='DENY' WHERE id=?").run(`${hidden}-binding`);
   const privateQueue = await call('GET', '/candidates'); assert.ok(!privateQueue.body.includes('private design'));
-  assert.equal((await call('POST', `/candidates/${privateCandidate.id}/review`, { decision: 'approve', expected_revision: privateCandidate.review_revision })).statusCode, 409);
+  const hiddenReview = await call('POST', `/candidates/${privateCandidate.id}/review`, { decision: 'approve', expected_revision: privateCandidate.review_revision });
+  assert.equal(hiddenReview.statusCode, 409, hiddenReview.body);
   // A provider boundary is substituted; this test makes no paid model call.
   // Valid suggestions remain candidates; invented chunks and approval flags
   // cannot cross the domain contract into the factual graph.

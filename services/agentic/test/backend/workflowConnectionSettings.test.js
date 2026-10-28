@@ -239,6 +239,15 @@ test('Bearer credentials trim copy whitespace and reject duplicated authorizatio
  await assert.rejects(settings.preview({...input(),secret:'Bearer mcp1.test.signature'}),/only the token/);
 });
 
+test('API key connections default to X-API-Key, trim pasted keys and reject authorization prefixes', async t => {
+ const rows = setup(t);
+ const saved = await settings.save({ ...input(), kind: 'http', authType: 'header', secret: '  hellotest_personal-key  ' }, null, 'admin');
+ assert.equal(saved.header, 'X-API-Key');
+ assert.deepEqual(connections._internals.authHeaders(rows.get(saved.id)), { 'X-API-Key': 'hellotest_personal-key' });
+ assert.doesNotMatch(JSON.stringify(saved), /hellotest_personal-key/);
+ await assert.rejects(settings.preview({ ...input(), kind: 'http', authType: 'header', secret: 'Bearer hellotest_personal-key' }), /only the API key/);
+});
+
 test('MCP authentication diagnostics explain remediation without echoing remote secrets',async t=>{
  setup(t);
  for(const status of [401,403]){

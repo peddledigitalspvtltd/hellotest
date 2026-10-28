@@ -33,6 +33,69 @@ function fixture(content, finishReason = 'stop') {
   };
 }
 const story = { id: 'story', project_id: 'project', title: 'Invoice approval', description: 'An approver verifies an invoice.', acceptance_criteria: ['Approval records the approver.'] };
+const caseDraft = { id: 'case', title: 'Approve invoice', description: 'Review the invoice approval contract.',
+  steps: [{ id: 'authored-step', action: 'Submit approval', expected_result: 'The recorded approver is returned.' }] };
+const caseReview = readiness => ({ summary: 'Review invoice approval.', dimensions: [{ id: 'scenario-coverage', explanation: 'The approval scenario traces to its Story.', evidence: ['draft:test-case:case', 'requirement:story'] }],
+  ...(readiness === undefined ? {} : { automation_readiness: readiness }) });
+const ready = { status: 'ready', summary: 'The supplied Story establishes the required behavior and inputs.', evidence_refs: ['requirement:story'], missing_context: [] };
+
+test('native Test Case assurance requests typed suitability independently of review verification', async () => {
+  const readiness = { status: 'needs_input', summary: 'The draft proposes an API request without a supplied API contract.', evidence_refs: ['requirement:story'],
+    missing_context: [{ kind: 'api_contract', reason: 'Supply the request endpoint and supported response contract.', evidence_refs: ['draft:test-case:case', 'requirement:story'], step_refs: ['step:1'] }] };
+  const provider = fixture(JSON.stringify(caseReview(readiness)));
+  const result = await load('artifactAssurance.service', provider.overrides).reviewArtifact({ artifactType: 'test-case', savedArtifact: caseDraft,
+    linkedEvidence: [{ ...story, kind: 'requirement' }], projectId: 'project', assessAutomationReadiness: true });
+  assert.equal(result.verification.status, 'passed', 'Cited review validity does not mean suitability passed');
+  assert.deepEqual(result.assurance_review.automation_readiness, readiness);
+  assert.equal(provider.calls.length, 1);
+  const prompt = provider.calls[0].body.messages[1].content;
+  assert.match(prompt, /HELLOTEST_AI:ai\.quality\.test_case_assurance:artifactAssurance\.automationReadiness/);
+  const contract = JSON.parse(prompt.split('\n').at(-1));
+  assert.deepEqual(contract.product_evidence_refs, ['requirement:story']);
+  assert.deepEqual(contract.step_references, [{ ref: 'step:1', step_order: 1, step_id: 'authored-step' }]);
+  assert.deepEqual(contract.automation_readiness_contract.properties.status.enum, ['ready', 'needs_input', 'unknown', 'not_applicable']);
+  const expanded = require('./helpers/managedInstructions').expandManagedInstructions(prompt);
+  assert.match(expanded, /do not infer method, endpoint, authentication/);
+  assert.match(expanded, /product_evidence_refs/);
+});
+
+test('typed ready requires an independent supplied product reference', async () => {
+  const provider = fixture(JSON.stringify(caseReview(ready)));
+  const result = await load('artifactAssurance.service', provider.overrides).reviewArtifact({ artifactType: 'test-case', savedArtifact: caseDraft,
+    linkedEvidence: [{ ...story, kind: 'requirement' }], projectId: 'project', assessAutomationReadiness: true });
+  assert.deepEqual(result.assurance_review.automation_readiness, ready);
+  assert.deepEqual(result.verification.checks, ['output_shape', 'evidence_references']);
+});
+
+for (const [name, readiness, additionalContext] of [
+  ['absent assessment', undefined],
+  ['draft-only authority', { ...ready, evidence_refs: ['draft:test-case:case'] }],
+  ['reviewed model context as sole authority', { ...ready, evidence_refs: ['review:context'] }, 'Upstream AI review says the API returns status 200.'],
+  ['forged product reference', { ...ready, evidence_refs: ['requirement:foreign-story'] }],
+  ['free-text status', { ...ready, status: 'approved' }],
+  ['ready with unresolved dependencies', { ...ready, missing_context: [{ kind: 'fixture', reason: 'No fixture contract supplied.', evidence_refs: ['requirement:story'], step_refs: ['step:1'] }] }],
+  ['needs input without a cited gap', { ...ready, status: 'needs_input' }],
+  ['invented step reference', { ...ready, status: 'needs_input', missing_context: [{ kind: 'api_contract', reason: 'The endpoint is missing.', evidence_refs: ['requirement:story'], step_refs: ['invented-step'] }] }],
+  ['oversized assessment', { ...ready, summary: 'x'.repeat(801) }],
+  ['unexpected fields', { ...ready, approved: true }]
+]) {
+  test(`native suitability stays unknown for ${name}`, async () => {
+    const provider = fixture(JSON.stringify(caseReview(readiness)));
+    const result = await load('artifactAssurance.service', provider.overrides).reviewArtifact({ artifactType: 'test-case', savedArtifact: caseDraft,
+      linkedEvidence: [{ ...story, kind: 'requirement' }], projectId: 'project', assessAutomationReadiness: true, additionalContext });
+    assert.equal(result.assurance_review.automation_readiness.status, 'unknown');
+    assert.equal(result.verification.status, 'passed', 'A usable manual review survives an unavailable suitability assessment');
+    assert.equal(provider.calls.length, 1, 'Missing suitability does not trigger additional model work');
+  });
+}
+
+test('existing assurance consumers do not gain suitability semantics without opting in', async () => {
+  const provider = fixture(JSON.stringify(caseReview(ready)));
+  const result = await load('artifactAssurance.service', provider.overrides).reviewArtifact({ artifactType: 'test-case', savedArtifact: caseDraft,
+    linkedEvidence: [{ ...story, kind: 'requirement' }], projectId: 'project' });
+  assert.equal(Object.hasOwn(result.assurance_review, 'automation_readiness'), false);
+  assert.doesNotMatch(provider.calls[0].body.messages[1].content, /automation_readiness_contract/);
+});
 
 for (const artifactType of ['story', 'test-case']) {
   test(`${artifactType} assurance reads content blocks and keeps a valid cited dimension`, async () => {

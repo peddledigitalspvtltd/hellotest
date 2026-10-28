@@ -46,6 +46,8 @@ The direct API endpoint is `/mcp`; the browser reverse-proxy endpoint is `/api/m
 
 The server also publishes `hellotest://schema`, project operation and graph ontology resource templates, and an `investigate_failure` prompt. Every successful tool result carries a versioned envelope with its verified project and subject. **Connect & inspect** exposes the actual tool input/output schemas, supported protocols, resource templates and manual bearer connection contract. Discovery does not grant permission to call a tool.
 
+Bounded response serialization retains exact canonical UUIDs in declared identity and provenance fields, typed identifier arrays and supported source-reference forms. Numeric UUID segments must not be redacted as phone or card numbers: project scope checks and citation joins require the original identifiers. Prose and sensitive fields retain their normal redaction policy; malformed and foreign-project context packets still fail closed.
+
 The `investigate_failure` prompt resolves the published `ai.mcp.investigate_failure`
 Admin AI configuration on each request. Its editable guidance is returned
 separately from the caller's failure question. Retrieving the template invokes no

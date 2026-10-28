@@ -9,6 +9,8 @@ import { PageHeader } from "../src/shared/components/PageHeader";
 import { Panel } from "../src/shared/components/Panel";
 import { ToastMessage } from "../src/shared/components/ToastMessage";
 import { api } from "../src/lib/api";
+import { API_BASE_URL } from "../src/lib/httpClient";
+import { resolveServiceBase } from "../src/platform/lib/serviceEndpoints";
 import {
   AI_METRIC_CRITERIA_OVERRIDES_KEY,
   AI_METRIC_FORMULA_VALUES_KEY,
@@ -111,6 +113,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [autoExport, setAutoExport] = useState(false);
   const [projectAutomationSettings, setProjectAutomationSettings] = useState<ProjectAutomationSettings>(DEFAULT_PROJECT_AUTOMATION_SETTINGS);
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
+  const storiesApiBase = resolveServiceBase("/requirements", API_BASE_URL);
   const [apiKeyName, setApiKeyName] = useState("");
   const [apiKeyScope, setApiKeyScope] = useState<ApiKeyScope>("user");
   const [createdApiKey, setCreatedApiKey] = useState("");
@@ -118,7 +121,10 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [isCreatingApiKey, setIsCreatingApiKey] = useState(false);
   const [revokingApiKeyId, setRevokingApiKeyId] = useState("");
   const [deletingApiKeyId, setDeletingApiKeyId] = useState("");
-  const [expandedSettingsSections, setExpandedSettingsSections] = useState<Record<SettingsSectionId, boolean>>(DEFAULT_EXPANDED_SETTINGS_SECTIONS);
+  const [expandedSettingsSections, setExpandedSettingsSections] = useState<Record<SettingsSectionId, boolean>>(() => ({
+    ...DEFAULT_EXPANDED_SETTINGS_SECTIONS,
+    ...(typeof window !== "undefined" && window.location.hash === "#api-keys" ? { apiKeys: true } : {})
+  }));
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -153,6 +159,14 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     () => Object.fromEntries(apiKeyScopeOptions.map((scope) => [scope.value, scope.label])) as Record<ApiKeyScope, string>,
     [apiKeyScopeOptions]
   );
+
+  useEffect(() => {
+    const openLinkedSection = () => {
+      if (window.location.hash === "#api-keys") setExpandedSettingsSections(current => ({ ...current, apiKeys: true }));
+    };
+    window.addEventListener("hashchange", openLinkedSection);
+    return () => window.removeEventListener("hashchange", openLinkedSection);
+  }, []);
 
   useEffect(() => {
     setTheme(readWorkspaceTheme());
@@ -424,7 +438,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     const isExpanded = expandedSettingsSections[section];
 
     return (
-      <section className={isExpanded ? "settings-section is-expanded" : "settings-section is-collapsed"} key={section}>
+      <section className={isExpanded ? "settings-section is-expanded" : "settings-section is-collapsed"} id={section === "apiKeys" ? "api-keys" : undefined} key={section}>
         <div className="settings-section-heading settings-section-heading--with-action">
           <button
             aria-expanded={isExpanded}
@@ -557,6 +571,26 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                 </button>
               </div>
             ) : null}
+
+            <details className="settings-api-examples">
+              <summary>Use API keys with Stories and API nodes</summary>
+              <div className="detail-stack">
+                <p>Choose Read only to fetch Stories. Choose Design or User access to create and update Stories. Every request also requires your current project membership and Story permissions.</p>
+                <p>Send <code>X-API-Key: YOUR_API_KEY</code> or <code>Authorization: Bearer YOUR_API_KEY</code>. In an API node, store the key in a managed HTTP connection and select that connection for the node.</p>
+                <strong>List the selected Sprint's Stories</strong>
+                <code>{`GET ${storiesApiBase}/requirements?project_id=PROJECT_ID&sprint_id=SPRINT_ID&include_page=true&page_size=100`}</code>
+                <span>Read items from each page. Repeat with next_cursor as the cursor parameter until is_last is true.</span>
+                <strong>Create a Story</strong>
+                <code>{`POST ${storiesApiBase}/requirements
+Content-Type: application/json
+{"project_id":"PROJECT_ID","title":"Story title","description":"Story intent"}`}</code>
+                <strong>Update a Story</strong>
+                <code>{`PUT ${storiesApiBase}/requirements/STORY_ID
+Content-Type: application/json
+{"title":"Updated Story title","expected_revision":1}`}</code>
+                <span>Use the revision returned by the latest Story read. Sprint or Release assignment also requires permission to update delivery scope.</span>
+              </div>
+            </details>
 
             <div className="settings-api-scope-grid" aria-label="API key scopes">
               {apiKeyScopeOptions.map((scope) => (

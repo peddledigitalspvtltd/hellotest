@@ -19,6 +19,7 @@ async function reviewWorkflow(plan) {
         receipts.push(receipt);
         if (receipt.fatal) { status = 'failed'; reason = receipt.error_code; break; }
         if (receipt.needs_review) { status = 'needs_review'; break; }
+        if (receipt.needs_attention) status = 'needs_review';
       }
     });
   } catch (error) {

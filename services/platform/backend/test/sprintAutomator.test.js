@@ -46,7 +46,7 @@ const page = (res, items, next = null, total = 2) => { res.setHeader('content-ty
 test('Sprint Automator follows real authenticated HTTP cursor pages and feeds each native stage its exact per-Story output', async t => {
   const { requests, rows } = await setup(t, (req,res) => { const url = new URL(req.url, 'http://local'); page(res, [story(url.searchParams.has('cursor') ? 'story-b' : 'story-a')], url.searchParams.has('cursor') ? null : 'next-page'); });
   const reviews = [], generations = [], builds = [];
-  t.mock.method(assurance, 'reviewArtifact', async input => { reviews.push(input); return { assurance_review: { summary: `Review ${input.savedArtifact.id}`, dimensions: [], insights: [], limitations: [] }, verification: { status: 'passed' }, generation_mode: 'hybrid' }; });
+  t.mock.method(assurance, 'reviewArtifact', async input => { reviews.push(input); return { assurance_review: { summary: `Review ${input.savedArtifact.id}`, dimensions: [], insights: [], limitations: [], automation_readiness: {status:'ready',summary:'The reviewed API fixture supplies the automation inputs.',evidence_refs:[`draft:test-case:${input.savedArtifact.id}`],missing_context:[]} }, verification: { status: 'passed' }, generation_mode: 'hybrid' }; });
   t.mock.method(design, 'previewRequirementsTestCases', async input => { generations.push(input); return { generated: 1, cases: [{ client_id: 'draft-1', title: `Read ${input.requirements[0].id}`, description: 'Read the saved invoice', priority: 2, test_case_type: 'Functional', authoring_mode: 'structured', requirement_ids: [input.requirements[0].id], parameter_values: {}, steps: [{ action: 'GET /invoices/one', expected_result: 'Response status equals 200 and amount equals the saved invoice', step_type: 'manual' }] }] }; });
   t.mock.method(automation, 'previewAutomationDraft', async input => { builds.push(input); return { steps: input.draft.steps.map(step => ({ ...step, step_type: 'api', api_request: { method: 'GET', url: 'https://invoices.example/invoices/one', assertions: [{ type: 'status_code', expected: 200 }] } })), validation: { status: 'passed' }, verification_status: 'unverified', generation_mode: 'llm' }; });
   const run = await runtime.start(graph(), { request_id: 'sprint-first-run', input_payload: { sprint_id: 'sprint-a', integration_id: 'selected-model', max_cases_per_story: 2 } }, user);
@@ -75,13 +75,13 @@ test('Sprint Automator follows real authenticated HTTP cursor pages and feeds ea
 
 test('Stories pagination never silently truncates oversized Sprints or follows repeated cursors', async t => {
   await setup(t, (_req,res) => page(res, [story('story-a')], 'same-cursor', 2));
-  await assert.rejects(connections.callHttp({ projectId: 'project-a', data: { connectionId: 'stories-api', apiPagination: 'cursor', apiMethod: 'GET' }, signal: new AbortController().signal }), /stopped advancing/);
+  await assert.rejects(connections.callHttp({ projectId: 'project-a', data: { connectionId: 'stories-api', apiPagination: 'cursor', apiMethod: 'GET' }, signal: new AbortController().signal }), /duplicate record|stopped advancing/);
 });
 
 test('native tasks reject changed Stories, unassessed cases, cross-project scope and missing trigger Sprint before model calls', async t => {
   await setup(t, (_req,res) => page(res, []));
   const run = { id: 'run', project_id: 'project-a', app_type_id: 'app-a', input_payload: { sprint_id: 'sprint-a' } };
-  await assert.rejects(tasks.execute({ run, node: node('generate','artifactTask',{artifactTask:'test-case-generation'}), sources: [], user, signal: new AbortController().signal, onProgress: async()=>{}, context:{input:[{story_id:'story-a'}]} }), /completed Story assurance/);
+  await assert.rejects(tasks.execute({ run, node: node('generate','artifactTask',{artifactTask:'test-case-generation'}), sources: [], user, signal: new AbortController().signal, onProgress: async()=>{}, context:{input:[{story_id:'story-a',story_revision:tasks.revision(story('story-a'))}]} }), /completed Story assurance/);
   await assert.rejects(tasks.loadStory(run,user,{story_id:'story-a',story_revision:'old'}), { statusCode:409 });
   t.mock.method(stories, 'getRequirement', async id => ({...story(id),project_id:'other'}));
   await assert.rejects(tasks.loadStory(run,user,{story_id:'story-a'}), {statusCode:403});

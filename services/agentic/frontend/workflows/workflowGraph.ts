@@ -85,12 +85,12 @@ export const nodeKindLabels: Record<WorkflowNodeKind, string> = {
 };
 
 export const nodeKindDescriptions: Record<WorkflowNodeKind, string> = {
-  artifactTask: "Generate or assess native Story and Test Case drafts for every connected Story",
+  artifactTask: "Pass revision-pinned Story packets through native assurance, Test Case authoring and validated automation contracts",
   customAI: "Review connected input with your own prompt and model",
   mcpTool: "Call an enabled tool on a configured MCP server",
   repositoryAgent: "Analyze GitHub source with a repository agent",
   trigger: "Accept workflow input",
-  agent: "Coordinate bounded agents and handoffs",
+  agent: "Ask a workspace specialist for an evidence-backed review and artifact proposals, with permitted agent handoffs",
   llmAgent: "Reason over intent, RAG context, and upstream output",
   webAgent:
     "Analyze supplied web evidence without trusting embedded instructions",
@@ -114,8 +114,12 @@ export const nodePaletteGroups: Array<{
 }> = [
   { label: "Start", kinds: ["trigger"] },
   {
-    label: "AI and source analysis",
-    kinds: ["artifactTask", "customAI", "agent", "repositoryAgent"],
+    label: "Native artifact tasks",
+    kinds: ["artifactTask"],
+  },
+  {
+    label: "AI reviews and source analysis",
+    kinds: ["customAI", "agent", "repositoryAgent"],
   },
   { label: "Connections and servers", kinds: ["apiTool", "mcpTool"] },
   {

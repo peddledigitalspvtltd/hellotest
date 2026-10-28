@@ -21,7 +21,7 @@ const { ROUTE_PERMISSIONS } = require("../src/security/permissions.catalog");
 const { validateInput } = require("../src/plugins/validator");
 
 const user = { id: "agent-user", role: "member" };
-const input = { project_id: "project-a", user, agent_id: "story-architect", mode: "agent", prompt: "Review missing story acceptance criteria", context_scopes: ["stories", "knowledge"] };
+const input = { project_id: "project-a", user, agent_id: "quality-evaluator", mode: "agent", prompt: "Review missing story acceptance criteria", context_scopes: ["stories", "knowledge"] };
 const node = (id, kind = "agent", data = {}) => ({ id, data: { label: id, kind, ...data } });
 const storyHit = () => context._internals.makeLiveHit({ projectId: "project-a", scope: "stories", title: "Story coverage", content: JSON.stringify({ evidence_type: "authoritative_live_story_snapshot", total_records: 5, uncovered_records: 2, thin_coverage_records: 1 }) });
 
@@ -38,7 +38,7 @@ function setupAssistant(t, { model = { name: "Fixture model", model: "test-model
   t.mock.method(globalThis, "fetch", async (_url, request) => {
     const evidence = JSON.parse(JSON.parse(request.body).messages.at(-1).content).citation_contract;
     const citation = evidence.find(item => item.id.includes("stories"));
-    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ response: citation ? `Story coverage needs review [${citation.id}]` : "Task evidence is missing; supply current story evidence.", citation_ids: citation ? [citation.id] : [], findings: citation ? [{ title: "Story coverage", detail: "Review missing boundaries.", citation_ids: [citation.id] }] : [], deliverables: [], evidence_gaps: citation ? [] : ["Task-specific evidence is unavailable."] }) } }] }), { headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ response: citation ? `Story coverage needs review [${citation.id}]` : "Task evidence is missing; supply current story evidence.", citation_ids: citation ? [citation.id] : [], findings: citation ? [{ title: "Story coverage", detail: "Review missing boundaries.", requires_proposal: false, citation_ids: [citation.id] }] : [], deliverables: [], evidence_gaps: citation ? [] : ["Task-specific evidence is unavailable."] }) } }] }), { headers: { "content-type": "application/json" } });
   });
   t.mock.method(permissions, "hasPermission", async () => true);
   t.mock.method(flags, "areEnabled", async () => true);
@@ -79,11 +79,11 @@ test("missing models and provider failures record a failed review without a fall
   assert.equal(records.some(record => record.status === "completed"), false);
 });
 
-test("invalid model output exhausts the bounded repair budget and never becomes success", async t => {
+test("repeated identical invalid model output stops repair and never becomes success", async t => {
   const { records } = setupAssistant(t);
   const calls = t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ response: "Unverified result [invented]", citation_ids: ["invented"] }) } }] }), { headers: { "content-type": "application/json" } }));
   await assert.rejects(assistant.respond(input), { code: "AGENT_OUTPUT_INVALID" });
-  assert.equal(calls.mock.callCount(), 4);
+  assert.equal(calls.mock.callCount(), 2);
   assert.equal(records.at(-1).status, "failed");
   assert.equal(records.some(record => record.status === "completed"), false);
 });
@@ -238,13 +238,17 @@ test("specialist repairs one malformed model response without losing the evidenc
     requests.push(body);
     const payload = JSON.parse(body.messages.at(-1).content);
     const citation = payload.citation_contract.find((item) => item.id.includes("stories"));
-    const content = requests.length === 1 ? "invalid review json" : JSON.stringify({ response: `Two stories need coverage review [${citation.id}]`, citation_ids: [citation.id], findings: [{ title: "Story gaps", detail: "Two uncovered stories need review", citation_ids: [citation.id] }] });
+    const content = requests.length === 1 ? "invalid review json" : JSON.stringify({ response: `Two stories need coverage review [${citation.id}]`, citation_ids: [citation.id], findings: [{ title: "Story gaps", detail: "Two uncovered stories need review", requires_proposal: false, citation_ids: [citation.id] }] });
     return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { headers: { "content-type": "application/json" } });
   });
   const result = await assistant.respond(input);
   assert.ok(requests.length >= 2 && requests.length <= 4);
   assert.equal(requests.length, result.result.model_execution.model_calls);
-  assert.equal(requests[0].messages.at(-1).content, requests[1].messages.at(-1).content);
+  const firstPayload = JSON.parse(requests[0].messages.at(-1).content);
+  const { revision_feedback, ...repairPayload } = JSON.parse(requests[1].messages.at(-1).content);
+  assert.deepEqual(repairPayload, firstPayload);
+  assert.equal(revision_feedback.round, 1);
+  assert.equal(revision_feedback.issues[0].issue, 'valid_json_object_required');
   assert.match(requests[1].messages[0].content, /preceding attempt did not meet/);
   assert.equal(result.provenance.generation_mode, "llm");
   assert.equal(result.result.evaluation.method, "model_assessment");

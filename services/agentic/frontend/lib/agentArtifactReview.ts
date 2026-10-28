@@ -6,6 +6,8 @@ export function agentArtifactIssues(item: AgentStructuredArtifact): string[] {
   if (!item.title?.trim() || item.title.length > 255) issues.push('Add a title within 255 characters.');
   if (!item.description?.trim()) issues.push('Add a description.');
   if (!/^P[1-5]$/.test(item.priority)) issues.push('Choose a priority from P1 to P5.');
+  if (!Array.isArray(item.citation_ids) || !item.citation_ids.length || item.citation_ids.some(id => typeof id !== 'string' || !id.trim())) issues.push('Add recorded source references before accepting the proposal.');
+  if (item.target_id && (item.kind !== 'story' || !Number.isInteger(item.target_revision) || (item.target_revision || 0) < 1)) issues.push('A Story update requires its recorded target revision.');
   const completeList = (values?: string[]) => Boolean(values?.length && values.every(value => typeof value === 'string' && value.trim()));
   if (item.kind === 'story' && !completeList(item.acceptance_criteria)) issues.push('Add acceptance criteria.');
   if (item.kind === 'test_case' || item.kind === 'automation') {

@@ -40611,6 +40611,25 @@ body > .nested-modal-backdrop {
   white-space: nowrap;
 }
 
+.settings-api-examples {
+  margin-block: 16px;
+}
+
+.settings-api-examples > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.settings-api-examples .detail-stack {
+  margin-top: 12px;
+}
+
+.settings-api-examples code {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .settings-api-scope-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));

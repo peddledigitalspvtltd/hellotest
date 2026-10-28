@@ -570,6 +570,7 @@ const ROUTE_PERMISSION_RULES = [
   ["POST", "/agentic-workflows/:id/runs", "agentic_workflow.run"],
   ["POST", "/agentic-workflows/:id/executions", "agentic_workflow.run"],
   ["GET", "/agentic-workflows/:id/readiness", "agentic_workflow.view"],
+  ["POST", "/agentic-workflows/:id/readiness", "agentic_workflow.view"],
   ["POST", "/agentic-workflow-runs/:id/cancel", "agentic_workflow.run"],
   ["POST", "/agentic-workflow-runs/:id/drafts/accept", "agentic_workflow.run"],
   ["POST", "/agentic-assistant/sessions", "agentic_workflow.run"],

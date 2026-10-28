@@ -505,9 +505,13 @@ test('native assurance and Test Case generation forward workflow cancellation to
   await load('artifactAssurance.service', reviewFixture.overrides).reviewArtifact({ artifactType:'story',savedArtifact:story,user,projectId:'project',signal:controller.signal });
   assert.strictEqual(reviewFixture.calls[0].options.signal, controller.signal);
   const generationFixture = providerFixture({test_cases:[validCase]});
-  const service = load('requirementDesign.service', { ...generationFixture.overrides, './aiKnowledge.service':{buildKnowledgeContextPackage:async()=>({knowledge:[]})} });
-  await service.previewRequirementsTestCases({ requirements:[story],appType,user_id:user.id,signal:controller.signal });
+  const retrievals=[];
+  const service = load('requirementDesign.service', { ...generationFixture.overrides, './aiKnowledge.service':{buildKnowledgeContextPackage:async(_project,input)=>{retrievals.push(input);return{knowledge:[]};}} });
+  const evidence_scope={story_id:story.id,sprint_id:story.iteration_id};
+  await service.previewRequirementsTestCases({ requirements:[story],appType,user_id:user.id,evidence_scope,signal:controller.signal });
   assert.strictEqual(generationFixture.calls[0].options.signal, controller.signal);
+  assert.strictEqual(retrievals[0].signal,controller.signal);
+  assert.deepEqual(retrievals[0].evidence_scope,evidence_scope);
   controller.abort();
   await assert.rejects(service.previewRequirementsTestCases({requirements:[story],appType,user_id:user.id,signal:controller.signal}),{statusCode:499});
 });

@@ -403,7 +403,8 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
       restriction_reason: !knowledgeFeatureEnabled ? "feature_disabled" : "permission_denied"
     };
   }
-  const hasExplicitRagScope = [options.source_ids, options.collection_ids, options.source_kinds]
+  const evidenceScope = require('@hellotest/platform/backend/src/utils/agentEvidenceScopeSql').normalize(options.evidence_scope);
+  const hasExplicitRagScope = Object.keys(evidenceScope).length > 0 || [options.source_ids, options.collection_ids, options.source_kinds]
     .some((value) => Array.isArray(value) && value.length);
   const legacyKnowledge = hasExplicitRagScope ? [] : await exports.searchKnowledge(projectId, {
     app_type_id: options.app_type_id,
@@ -428,7 +429,8 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
         app_type_id: options.app_type_id || undefined,
         collection_ids: options.collection_ids,
         source_ids: options.source_ids,
-        source_kinds: options.source_kinds
+        source_kinds: options.source_kinds,
+        evidence_scope: evidenceScope
       },
       user: options.user,
       integrationId: options.integration_id,
@@ -470,7 +472,7 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
   }).slice(0, Math.min(20, Number(options.limit || 20)));
 
   const relatedContexts = [];
-  if (options.source_id) {
+  if (options.source_id && !Object.keys(evidenceScope).length) {
     const relations = await exports.getKnowledgeRelationsBySource(projectId, options.source_id, options.user);
     for (const relation of relations) {
       relatedContexts.push({
@@ -495,7 +497,8 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
       module_name: options.module_name || null,
       feature_name: options.feature_name || null,
       item_version: options.item_version || null,
-      priority: options.priority || null
+      priority: options.priority || null,
+      evidence_scope: evidenceScope
     },
     knowledge,
     related_context: relatedContexts,

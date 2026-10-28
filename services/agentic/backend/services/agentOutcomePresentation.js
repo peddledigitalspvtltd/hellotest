@@ -25,12 +25,20 @@ function presentationIssues(candidate, citations = []) {
       if (item.citation_ids != null && !list(item.citation_ids, 36, id => text(id, 255))) add(`${field}[${index}].citation_ids`, 'text_identifier_array_required');
       if (item.artifact_kind != null && !['story', 'test_case', 'defect', 'run', 'automation'].includes(item.artifact_kind)) add(`${field}[${index}].artifact_kind`, 'supported_artifact_kind_required');
       if (item.requires_proposal != null && typeof item.requires_proposal !== 'boolean') add(`${field}[${index}].requires_proposal`, 'boolean_required');
-      for (const key of ['observation', 'gap', 'impact', 'proposed_action', 'acceptance_check']) if (item[key] != null && typeof item[key] !== 'string') add(`${field}[${index}].${key}`, 'text_required');
+      if (item.priority != null && !['critical', 'high', 'medium', 'low', 'info'].includes(item.priority)) add(`${field}[${index}].priority`, 'supported_finding_priority_required');
+      if (item.type != null && !text(item.type, 80)) add(`${field}[${index}].type`, 'bounded_text_required');
+      for (const key of ['observation', 'gap', 'impact', 'proposed_action', 'acceptance_check']) if (item[key] != null && (typeof item[key] !== 'string' || item[key].length > 2400)) add(`${field}[${index}].${key}`, 'bounded_text_required');
     });
   }
   const ids = (Array.isArray(candidate.findings) ? candidate.findings : []).map((item, index) => item?.id || `finding-${index + 1}`);
   if (new Set(ids).size !== ids.length) add('findings', 'unique_finding_identifiers_required');
   const allowed = new Set(citations.map(item => item.id));
+  // Identifiers must resolve to the supplied context; a well-shaped reference
+  // must never be presented as evidence when it names an invented source.
+  for (const [path, ids] of [
+    ['citation_ids', candidate.citation_ids],
+    ...['findings', 'deliverables'].flatMap(field => Array.isArray(candidate[field]) ? candidate[field].map((item, index) => [`${field}[${index}].citation_ids`, item?.citation_ids]) : [])
+  ]) if (Array.isArray(ids) && ids.some(id => !allowed.has(id))) add(path, 'supplied_citations_required');
   const cited = item => list(item.citation_ids, 36, id => text(id, 255) && allowed.has(id)) && item.citation_ids.length > 0;
   for (const field of ['sections', 'tables', 'charts']) {
     if (candidate[field] == null) continue;

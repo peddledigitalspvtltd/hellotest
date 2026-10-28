@@ -597,6 +597,13 @@
 }
 .workflow-catalog-container { display:contents; }
 .workflow-history-dialog { position:relative; width:min(1200px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow:auto; padding:24px; }
+.modal-backdrop > .modal-card.workflow-history-dialog { width:min(1440px,calc(100vw - 32px)) !important; min-width:0 !important; max-width:calc(100vw - 32px) !important; }
+.modal-backdrop > .modal-card.workflow-history-dialog.workflow-execution-dialog { width:min(1360px,calc(100vw - 96px)) !important; height:min(860px,calc(100dvh - 80px)); min-width:0 !important; max-width:calc(100vw - 32px) !important; max-height:calc(100dvh - 32px); padding:0 !important; overflow:hidden !important; }
+.modal-backdrop > .modal-card.workflow-execution-dialog:has(> .studio-execution.is-maximized) { width:calc(100vw - 32px) !important; height:calc(100dvh - 32px); }
+.workflow-execution-dialog .studio-execution { height:100%; border:0; border-radius:inherit; }
+@media (max-width:800px) {
+  .modal-backdrop > .modal-card.workflow-history-dialog.workflow-execution-dialog { width:calc(100vw - 16px) !important; max-width:calc(100vw - 16px) !important; height:calc(100dvh - 24px); max-height:calc(100dvh - 24px); border-radius:12px; }
+}
 .workflow-history-close { float:right; margin-bottom:12px; }
 .workflow-history-dialog .agentic-workflows-toolbar { justify-content:flex-start !important; align-items:center; flex-wrap:wrap; gap:10px; }
 .workflow-history-dialog .catalog-toolbar-discovery { flex:0 1 auto; display:flex; align-items:center; gap:10px; }

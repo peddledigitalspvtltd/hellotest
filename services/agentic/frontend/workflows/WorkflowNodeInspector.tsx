@@ -1,6 +1,7 @@
 import { WorkflowOperationFields } from "./WorkflowOperationFields";
 import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
 import {
   IconX,
@@ -37,6 +38,7 @@ export type WorkflowNodeInspectorProps = {
   canRun: boolean;
   busy: boolean;
   expanded: boolean;
+  collapsible?: boolean;
   stale?: boolean;
   projectId: string;
   projectAgents?: ProjectAgent[];
@@ -60,12 +62,20 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
     "parameters",
   );
   const contentRef = useRef<HTMLDivElement>(null);
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
+  const wasExpanded = useRef(expanded);
   const [advanced, setAdvanced] = useState("");
   const [error, setError] = useState("");
   const root = useDialogFocus<HTMLElement>({
     active: expanded,
     onClose: props.onExpand,
   });
+  useEffect(() => {
+    // Moving the inspector into its portal replaces the original trigger.
+    // Return focus to the newly mounted trigger when the dialog collapses.
+    if (wasExpanded.current && !expanded) expandButtonRef.current?.focus();
+    wasExpanded.current = expanded;
+  }, [expanded]);
   useEffect(() => {
     setTab(run ? "output" : "parameters");
     setError("");
@@ -75,7 +85,8 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
   const kind = String(node.data.kind || "agent");
   const specialist = ["agent", "llmAgent", "customAI"].includes(kind) || (kind === "loop" && node.data.loopAction === "customAI");
   const canRetry = specialist || (["apiTool", "apiAgent", "webAgent"].includes(kind) && ["GET", "HEAD"].includes(kind === "webAgent" ? "GET" : String(node.data.apiMethod || "GET")));
-  const inputContext = result?.input as Record<string, unknown> | undefined;
+  const recordedInput = result && Object.prototype.hasOwnProperty.call(result, "input") ? result.input : result?.input_context;
+  const inputContext = recordedInput && typeof recordedInput === "object" && !Array.isArray(recordedInput) ? recordedInput as Record<string, unknown> : undefined;
   const progress = result?.progress as
     | {
         repository_run_id?: string;
@@ -90,6 +101,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
       }
     | undefined;
   const output = result?.output as Record<string, unknown> | undefined;
+  const splitData = expanded && tab !== "logs" && (!run || editable || tab !== "parameters");
   const field = (name: string, label: string, multiline = false) => (
     <label>
       <span>{label}</span>
@@ -118,15 +130,17 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           : "Workflow request"}
       </p>
       <WorkflowDataView
-        value={inputContext && Object.prototype.hasOwnProperty.call(inputContext, "input") ? inputContext.input : result?.input}
+        value={inputContext && Object.prototype.hasOwnProperty.call(inputContext, "input") ? inputContext.input : recordedInput}
         pathPrefix="$input"
+        defaultMode={run ? "json" : "readable"}
+        jsonLabel="Node input JSON"
         empty={
-          incoming.length
+          run ? "No input was recorded for this step." : incoming.length
             ? "Execute this step to receive upstream data. Required preceding steps will run first."
             : "The manual trigger receives your workflow input."
         }
       />
-      {inputContext && Object.prototype.hasOwnProperty.call(inputContext, "input") && <details><summary>Input context and prompt</summary><WorkflowDataView value={inputContext} /></details>}
+      {inputContext && Object.prototype.hasOwnProperty.call(inputContext, "input") && <details><summary>Recorded input context and prompt</summary><WorkflowDataView value={inputContext} defaultMode={run ? "json" : "readable"} jsonLabel="Recorded input context JSON" /></details>}
     </section>
   );
   const outputPane = (
@@ -184,12 +198,14 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
       )}
       <WorkflowDataView
         value={output}
+        defaultMode={run ? "json" : "readable"}
+        jsonLabel="Node output JSON"
         empty={
           result?.status === "running"
             ? "This step is running. Output appears here when it completes."
             : result?.status === "skipped"
               ? String(result.skip_reason || "This step was not reached.")
-              : undefined
+              : run ? "No output was recorded for this step." : undefined
         }
       />
       {output?.session_id && props.onOpenReview ? (
@@ -266,6 +282,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
             ))}
           </select>
         </label>
+        {kind === "artifactTask" && <p className="studio-caption">Uses the native Story and Test Case services. Connected Story packets move through each task. Sprint Automator saves generated Test Cases to the Library as AI generated and pending review when automatic publication is enabled.</p>}
         {kind === "artifactTask" && <label><span>Model connection</span><select value={String(node.data.llmIntegrationId || "")} onChange={event => props.onChange({ llmIntegrationId: event.target.value })}><option value="">Trigger model or configured feature default</option>{props.providers.filter(item => item.value).map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>}
         {specialist && (
           <>
@@ -392,7 +409,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         {field("summary", "Description", true)}
         <details>
           <summary>Execution settings</summary>
-          <label><span>Timeout (ms)</span><input type="number" min={1000} max={kind === "repositoryAgent" ? 180000 : kind === "agent" || kind === "customAI" ? 150000 : 70000} step={1000} value={String(node.data.timeoutMs ?? "")} onChange={event => props.onChange({ timeoutMs: event.target.value })} /></label>
+          <label><span>Timeout (ms)</span><input type="number" min={1000} max={kind === "artifactTask" ? 3600000 : kind === "repositoryAgent" ? 180000 : kind === "agent" || kind === "customAI" ? 150000 : 70000} step={1000} value={String(node.data.timeoutMs ?? "")} onChange={event => props.onChange({ timeoutMs: event.target.value })} /></label>
           <label>
             <span>On error</span>
             <select
@@ -496,7 +513,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         )}
     </section>
   );
-  return (
+  const inspector = (
     <>
       {expanded && (
         <div
@@ -508,7 +525,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
       <aside
         ref={root}
         tabIndex={-1}
-        className={`studio-inspector ${expanded ? "is-expanded" : ""}`}
+        className={`studio-inspector ${props.collapsible ? "is-execution-inspector" : ""} ${expanded ? "workflow-studio is-expanded" : ""}`}
         role={expanded ? "dialog" : undefined}
         aria-modal={expanded || undefined}
         aria-label={`Inspect ${node.data.label || node.id}`}
@@ -519,20 +536,22 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
             <strong>{String(node.data.label || "Node details")}</strong>
           </div>
           <button
+            ref={expandButtonRef}
             type="button"
             className="studio-icon-button"
             aria-label={
               expanded ? "Collapse node details" : "Expand node details"
             }
+            title={expanded ? "Collapse node details" : "Expand input and output"}
             onClick={props.onExpand}
           >
             <IconArrowsMaximize size={17} />
           </button>
-          {(editable || !run || expanded) && (
+          {(editable || !run || expanded || props.collapsible) && (
             <button
               type="button"
               className="studio-icon-button"
-              aria-label="Close node details"
+              aria-label={props.collapsible && !expanded ? "Hide node details" : "Close node details"}
               onClick={props.onClose}
             >
               <IconX size={18} />
@@ -553,12 +572,12 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         </nav>
         <div
           ref={contentRef}
-          className={`studio-inspector-content ${expanded && tab !== "logs" ? "is-three-pane" : ""}`}
+          className={`studio-inspector-content ${splitData ? run && !editable ? "is-two-pane" : "is-three-pane" : ""}`}
         >
-          {expanded && tab !== "logs" ? (
+          {splitData ? (
             <>
               {input}
-              {parameters}
+              {(!run || editable) && parameters}
               {outputPane}
             </>
           ) : tab === "input" ? (
@@ -604,4 +623,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
       </aside>
     </>
   );
+  // Expanded execution details must sit outside the execution dialog: its
+  // focus manager correctly makes the parent inert while this dialog is open.
+  return expanded ? createPortal(inspector, document.body) : inspector;
 }

@@ -1,7 +1,7 @@
 const { sanitizeAiText } = require('@hellotest/platform/backend/src/security/aiTextPolicy');
 const { reviewedContextForPacket } = require('./automationKnowledgeContext');
 const scopes = new Set(['stories','test-cases','automation','runs','bugs','knowledge']);
-const fields = new Set(['story_id','test_case_id','execution_id','release_id','build','environment_id']);
+const fields = new Set(require('@hellotest/platform/shared/agentEvidenceScopeFields.json').map(field => field.key));
 function normalizeAgentContext(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Object.assign(new Error('Agent context must be an object.'),{statusCode:400});
   const text=(value,max)=>sanitizeAiText(String(value || '').slice(0,max)).text;
@@ -16,8 +16,7 @@ function normalizeAgentContext(value = {}) {
   const inputs=value.inputs || {},smart=value.smart_context || {};
   if(typeof inputs!=='object'||Array.isArray(inputs)||typeof smart!=='object'||Array.isArray(smart))throw Object.assign(new Error('Evidence scope and Smart Context must be objects.'),{statusCode:400});
   return {context_scopes:Array.isArray(value.context_scopes)?list(value.context_scopes,6).filter(scope=>scopes.has(scope)):['automation','test-cases','stories','runs','knowledge'],
-    // These are exact-match identifiers, not prose. Redacting a numeric build
-    // as a phone number changes its scope; cleared fields must not reach MCP.
+    // Scope IDs must remain exact and cleared fields must not reach MCP.
     inputs:Object.fromEntries(Object.entries(inputs).filter(([key])=>fields.has(key)).map(([key,input])=>[key,selector(input)]).filter(([,input])=>input)),
     smart_context:{query:text(smart.query,2000),source_ids:list(smart.source_ids,100),source_kinds:list(smart.source_kinds,20,80),reviewed_context:text(smart.reviewed_context,12000)}};
 }

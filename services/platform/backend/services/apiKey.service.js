@@ -19,7 +19,7 @@ const API_KEY_SCOPES = [
   {
     value: "design",
     label: "Design",
-    description: "Requirements, test cases, suites, Shared Step Groups, and test data APIs."
+    description: "Read, create, and update Stories, test cases, suites, Shared Step Groups, and test data with your current permissions."
   },
   {
     value: "automation",
@@ -92,9 +92,10 @@ const hashApiKey = (value) => crypto.createHash("sha256").update(value).digest("
 
 const generateApiKey = () => `${API_KEY_PREFIX}${crypto.randomBytes(API_KEY_BYTES).toString("base64url")}`;
 
-const normalizeScope = (scope) => {
+const normalizeScope = (scope, { defaultToUser = false } = {}) => {
   const normalized = normalizeText(scope).toLowerCase();
-  return API_KEY_SCOPE_VALUES.has(normalized) ? normalized : "user";
+  if (!normalized && defaultToUser) return "user";
+  return API_KEY_SCOPE_VALUES.has(normalized) ? normalized : null;
 };
 
 const normalizeName = (name) => {
@@ -171,12 +172,13 @@ const createApiKey = async ({ user_id, name, scope }) => {
     throw createError("User is required.", 400);
   }
 
+  const normalizedScope = normalizeScope(scope, { defaultToUser: scope === undefined });
+  if (!normalizedScope) throw createError("Choose a supported API key scope.", 400);
+  const normalizedName = normalizeName(name);
   const apiKey = generateApiKey();
   const id = uuid();
   const keyHash = hashApiKey(apiKey);
   const keyPrefix = `${apiKey.slice(0, 14)}...`;
-  const normalizedScope = normalizeScope(scope);
-  const normalizedName = normalizeName(name);
 
   const row = await db.prepare(`
     INSERT INTO user_api_keys (id, user_id, name, key_hash, key_prefix, scope, is_active, created_at, updated_at)

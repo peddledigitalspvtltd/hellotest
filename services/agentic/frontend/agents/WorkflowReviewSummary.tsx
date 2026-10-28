@@ -15,13 +15,18 @@ export function WorkflowReviewSummary({ run, canStop, stopping, onStop, onOpenRe
   const completed = run.node_results.filter(step => step.status === "completed").length;
   const total = run.node_results.length;
   const summary = agentOutputText(run.output_payload?.summary || "The review is preparing its first step.");
+  const contract = (run.output_payload?.runtime_contract || run.workflow_snapshot?.runtime_contract) as { max_duration_ms?: unknown } | undefined;
+  const durationLimit = Number(contract?.max_duration_ms);
+  const limitLabel = Number.isFinite(durationLimit) && durationLimit > 0
+    ? `Up to ${Math.ceil(durationLimit / (durationLimit < 60_000 ? 1000 : 60_000))} ${durationLimit < 60_000 ? "seconds" : "minutes"}`
+    : "Saved execution";
   const reviews = run.node_results.filter(step => (step.output as Record<string, unknown> | undefined)?.session_id);
   return <section className="workflow-review-summary" aria-label="Review workflow progress">
     <div className="workflow-review-summary__header">
       <div><span className="workflow-review-kicker"><IconShieldCheck size={17} /> Evidence review</span><h2>{stateLabels[run.status] || run.status}</h2><p role="status">{summary}</p></div>
       {run.status === "running" && canStop && <button className="ghost-button" type="button" onClick={onStop} disabled={stopping}><IconPlayerStop size={16} />{stopping ? "Stopping…" : "Stop review"}</button>}
     </div>
-    <div className="workflow-review-progress"><span>{completed} of {total} steps completed</span><span><IconClock size={15} /> Up to 3 minutes</span></div>
+    <div className="workflow-review-progress"><span>{completed} of {total} steps completed</span><span><IconClock size={15} /> {limitLabel}</span></div>
     <progress max={Math.max(total, 1)} value={completed} aria-label="Completed review steps" />
     <ol className="workflow-review-steps">{run.node_results.map(step => <li key={String(step.node_id)} data-status={String(step.status)}>
       <button type="button" onClick={() => onSelectStep(String(step.node_id))}>

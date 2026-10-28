@@ -12,6 +12,47 @@ const DIMENSIONS = {
 const ASSURANCE_REQUEST_TIMEOUT_MS = 60_000;
 const ASSURANCE_REPAIR_TIMEOUT_MS = 60_000;
 const ASSURANCE_MAX_OUTPUT_TOKENS = 6_144;
+const READINESS_STATUSES = ['ready', 'needs_input', 'unknown', 'not_applicable'];
+const READINESS_CONTEXT_KINDS = ['api_contract', 'authentication', 'test_data', 'fixture', 'application_context', 'other'];
+const unknownReadiness = () => ({ status: 'unknown', summary: 'Automation suitability was not established by a complete, supported assessment.', evidence_refs: [], missing_context: [] });
+
+const readinessContract = (sourceRefs, stepRefs) => {
+  const refs = { type: 'array', maxItems: 6, uniqueItems: true, items: { type: 'string', enum: sourceRefs } };
+  return { type: 'object', additionalProperties: false, required: ['status', 'summary', 'evidence_refs', 'missing_context'], properties: {
+    status: { enum: READINESS_STATUSES }, summary: { type: 'string', minLength: 1, maxLength: 800 }, evidence_refs: refs,
+    missing_context: { type: 'array', maxItems: 8, items: { type: 'object', additionalProperties: false,
+      required: ['kind', 'reason', 'evidence_refs', 'step_refs'], properties: {
+        kind: { enum: READINESS_CONTEXT_KINDS }, reason: { type: 'string', minLength: 1, maxLength: 600 },
+        evidence_refs: { ...refs, minItems: 1 }, step_refs: { type: 'array', maxItems: Math.min(10, stepRefs.length), uniqueItems: true,
+          items: stepRefs.length ? { type: 'string', enum: stepRefs } : { type: 'string' } }
+      } } }
+  } };
+};
+
+// Suitability is distinct from verifying the review's schema/citations. A
+// missing or malformed suitability assessment cannot become permission to
+// generate automation, but it must not discard an otherwise usable review.
+const normalizeAutomationReadiness = (value, allowedRefs, allowedStepRefs, productRefs) => {
+  const raw = object(value);
+  const supportedRefs = (values, allowed, max) => Array.isArray(values) && values.length <= max
+    && values.every(ref => typeof ref === 'string' && allowed.has(ref)) ? [...new Set(values)] : null;
+  const refs = supportedRefs(raw.evidence_refs, allowedRefs, 6);
+  if (Object.keys(raw).some(key => !['status', 'summary', 'evidence_refs', 'missing_context'].includes(key))
+    || !READINESS_STATUSES.includes(raw.status) || typeof raw.summary !== 'string' || !raw.summary.trim()
+    || raw.summary.length > 800 || !refs || !Array.isArray(raw.missing_context) || raw.missing_context.length > 8) return unknownReadiness();
+  const gaps = [];
+  for (const item of raw.missing_context) {
+    const evidence = supportedRefs(item?.evidence_refs, allowedRefs, 6);
+    const steps = supportedRefs(item?.step_refs, allowedStepRefs, 10);
+    if (Object.keys(object(item)).some(key => !['kind', 'reason', 'evidence_refs', 'step_refs'].includes(key))
+      || !READINESS_CONTEXT_KINDS.includes(item?.kind) || typeof item.reason !== 'string' || !item.reason.trim()
+      || item.reason.length > 600 || !evidence?.length || !steps) return unknownReadiness();
+    gaps.push({ kind: item.kind, reason: item.reason.trim(), evidence_refs: evidence, step_refs: steps });
+  }
+  if ((raw.status !== 'unknown' && !refs.length) || (raw.status === 'ready' && (gaps.length || !refs.some(ref => productRefs.has(ref))))
+    || (raw.status === 'needs_input' && !gaps.length)) return unknownReadiness();
+  return { status: raw.status, summary: raw.summary.trim(), evidence_refs: refs, missing_context: gaps };
+};
 
 const normalizeBaseline = (value, allowedIds) => {
   const baseline = object(value);
@@ -28,7 +69,7 @@ const reviewItems = (value, idKey = "id") => Array.isArray(value)
   ? value
   : Object.entries(object(value)).map(([id, item]) => ({ ...object(item), [idKey]: object(item)[idKey] || id }));
 
-const normalizeReview = (value, dimensionIds, allowedRefs) => {
+const normalizeReview = (value, dimensionIds, allowedRefs, { assessAutomationReadiness = false, stepRefs = [], productRefs = new Set() } = {}) => {
   const raw = object(value?.assurance_review || value?.review || value?.response || value?.result || value);
   const allowedByLowerCase = new Map([...allowedRefs].map(ref => [ref.toLowerCase(), ref]));
   const evidence = value => {
@@ -61,7 +102,8 @@ const normalizeReview = (value, dimensionIds, allowedRefs) => {
   if (!summary || (!dimensions.length && !insights.length)) {
     throw Object.assign(new Error("AI assurance response did not contain an evidence-grounded review"), { code: "AI_ASSURANCE_REVIEW_INVALID" });
   }
-  return { summary, verdict: text(raw.verdict || raw.status, 240), dimensions, insights, limitations: list(raw.limitations || raw.evidence_gaps, 6, 500) };
+  return { summary, verdict: text(raw.verdict || raw.status, 240), dimensions, insights, limitations: list(raw.limitations || raw.evidence_gaps, 6, 500),
+    ...(assessAutomationReadiness ? { automation_readiness: normalizeAutomationReadiness(raw.automation_readiness, allowedRefs, new Set(stepRefs), productRefs) } : {}) };
 };
 
 const readReviewResponse = async (response) => {
@@ -82,7 +124,7 @@ const readReviewResponse = async (response) => {
   }
 };
 
-async function reviewArtifact({ artifactType, savedArtifact, proposedChange, baseline, linkedEvidence = [], user, projectId, integrationId, promptGuidance, additionalContext, reviewPurpose = 'assurance', signal }) {
+async function reviewArtifact({ artifactType, savedArtifact, proposedChange, baseline, linkedEvidence = [], user, projectId, integrationId, promptGuidance, additionalContext, reviewPurpose = 'assurance', assessAutomationReadiness = false, signal }) {
   if (signal?.aborted) throw Object.assign(new Error('Workflow cancelled.'), { statusCode: 499, publicMessage: 'Workflow cancelled.' });
   const featureKey = reviewPurpose === 'change-impact'
     ? (artifactType === 'story' ? 'ai.requirement.change_impact' : 'ai.test_case.change_impact')
@@ -100,6 +142,15 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
   if (reviewPurpose === 'change-impact') sources.push({ ref: `saved:${artifactType}:${savedArtifact.id}`, type: artifactType,
     content: artifactType === 'story' ? storyAiSnapshot(savedArtifact) : testCaseAiSnapshot(savedArtifact) });
   if (reviewedContext) sources.push({ ref: "review:context", type: "reviewed-context", content: reviewedContext });
+  const readinessRequested = artifactType === 'test-case' && assessAutomationReadiness === true;
+  const stepReferences = readinessRequested ? snapshot.steps.map((step, index) => ({ ref: `step:${index + 1}`, step_order: step.step_order,
+    ...(text(draft.steps?.[index]?.id, 255) ? { step_id: text(draft.steps[index].id, 255) } : {}) })) : [];
+  const stepRefs = [...new Set(stepReferences.map(step => step.ref))];
+  // Only linked Story snapshots currently carry an independent product
+  // contract. Reviewed context includes prior AI prose and user guidance;
+  // titles/statuses of other linked records cannot establish implementation.
+  const productRefs = new Set(sources.filter(source => source.type === 'requirement' && source.content).map(source => source.ref));
+  const normalization = { assessAutomationReadiness: readinessRequested, stepRefs, productRefs };
   const lockedScores = normalizeBaseline(baseline, dimensionIds);
   const prompt = [
     [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.1"),String(artifactType === "story" ? "Story" : "Test Case"),aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.2")].join(''),
@@ -108,7 +159,9 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.prompt.8"),
     [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.5"),String(JSON.stringify(text(promptGuidance, 12000))),""].join(''),
     [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.6"),String(JSON.stringify(lockedScores)),""].join(''),
-    [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.7"),String(JSON.stringify(sources)),""].join('')
+    [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.7"),String(JSON.stringify(sources)),""].join(''),
+    ...(readinessRequested ? [aiInstructionBlock('ai.quality.test_case_assurance', 'artifactAssurance.automationReadiness'),
+      JSON.stringify({ automation_readiness_contract: readinessContract(sources.map(source => source.ref), stepRefs), product_evidence_refs: [...productRefs], step_references: stepReferences })] : [])
   ].join("\n");
   const deadline = Date.now() + ASSURANCE_REQUEST_TIMEOUT_MS;
   let modelCalls = 0;
@@ -139,7 +192,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
         { role: "user", content: prompt }
       ], { operation: `quality-assurance.${artifactType}`, timeoutMs: ASSURANCE_REQUEST_TIMEOUT_MS, maxOutputTokens: ASSURANCE_MAX_OUTPUT_TOKENS }));
       originalContent = result.content;
-      review = normalizeReview(result.parsed, dimensionIds, allowedRefs);
+      review = normalizeReview(result.parsed, dimensionIds, allowedRefs, normalization);
     } catch (error) {
       const repairable = error instanceof SyntaxError || error?.code === "AI_ASSURANCE_REVIEW_INVALID";
       if (!repairable) throw error;
@@ -151,13 +204,15 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
         aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.repairPrompt.11"),
         [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.repairPrompt.segment.12"),String(text(JSON.stringify(sources), 32_000)),""].join(''),
         aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.repairPrompt.12"),
-        [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.repairPrompt.segment.13"),String(JSON.stringify(text(originalContent || error?.message, 16_000))),""].join('')
+        [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.repairPrompt.segment.13"),String(JSON.stringify(text(originalContent || error?.message, 16_000))),""].join(''),
+        ...(readinessRequested ? [aiInstructionBlock('ai.quality.test_case_assurance', 'artifactAssurance.automationReadiness'),
+          JSON.stringify({ automation_readiness_contract: readinessContract([...allowedRefs], stepRefs), product_evidence_refs: [...productRefs], step_references: stepReferences })] : [])
       ].join("\n");
       const repairedResult = await readReviewResponse(await request([
         { role: "system", content: aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.repairedResult.13") },
         { role: "user", content: repairPrompt }
       ], { operation: `quality-assurance.${artifactType}.repair`, timeoutMs: ASSURANCE_REPAIR_TIMEOUT_MS, maxOutputTokens: 3_072 }));
-      review = normalizeReview(repairedResult.parsed, dimensionIds, allowedRefs);
+      review = normalizeReview(repairedResult.parsed, dimensionIds, allowedRefs, normalization);
       repaired = true;
     }
     return { assurance_review: review, generation_mode: "hybrid", fallback_used: false, fallback_reason: null,

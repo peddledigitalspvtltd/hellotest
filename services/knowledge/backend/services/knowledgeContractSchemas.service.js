@@ -90,7 +90,7 @@ const filters = object({
   source_types: array(string(80), 20),
   requested_scopes: array(enumeration(['stories','test-cases','automation','runs','bugs','knowledge']),6),
   agent_id: id,
-  evidence_scope: object(Object.fromEntries(['story_id','test_case_id','execution_id','release_id','build','environment_id'].map(key => [key,id]))),
+  evidence_scope: object(Object.fromEntries(require('@hellotest/platform/shared/agentEvidenceScopeFields.json').map(field => field.key).map(key => [key,id]))),
   app_type_id: nullable(id),
   project: array(id),
   as_of: nullable(timestamp)

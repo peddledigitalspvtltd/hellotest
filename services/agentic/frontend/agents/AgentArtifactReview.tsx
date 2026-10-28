@@ -1,5 +1,6 @@
 import { GherkinEditor } from "@hellotest/testing/frontend/components/GherkinEditor";
 import { agentArtifactDestination, agentArtifactIssues, agentArtifactSavedRoute } from '../lib/agentArtifactReview';
+import { agentFindingProposals } from '../lib/agentOutcomeView';
 import { AiTestCaseDraftFields } from "@hellotest/ai/frontend/components/AiTestCaseDraftFields";
 import { AiTestCaseStepTable } from "@hellotest/ai/frontend/components/AiTestCaseStepTable";
 import '@hellotest/ai/frontend/components/AgenticAuthoringCanvas.css';
@@ -18,7 +19,7 @@ import './AgentWorkspace.css';
 const StoryAiDraftInspector = capabilityView<import('react').ComponentProps<typeof import('@hellotest/ai/frontend/components/StoryAiStudioContent')['StoryAiDraftInspector']>>('ai', 'StoryAiDraftInspector', () => import('@hellotest/ai/frontend/components/StoryAiStudioContent'), 'Story proposal');
 
 type Decision = 'accepted' | 'declined';
-export function AgentArtifactReview({ artifacts, chain, sessionId, findings = [], approvalBlocked }: { sessionId?: string; artifacts: AgentStructuredArtifact[]; chain: NonNullable<AgenticAssistantResult['agent_chain']>; findings?: NonNullable<AgenticAssistantResult['findings']>; approvalBlocked?: string }) {
+export function AgentArtifactReview({ artifacts, chain, sessionId, findings = [], approvalBlocked, proposalIndex = 0 }: { sessionId?: string; artifacts: AgentStructuredArtifact[]; chain: NonNullable<AgenticAssistantResult['agent_chain']>; findings?: NonNullable<AgenticAssistantResult['findings']>; approvalBlocked?: string; proposalIndex?: number }) {
   const [selected, setSelected] = useState(0);
   const [drafts, setDrafts] = useState(artifacts);
   const [decisions, setDecisions] = useState<Record<number, Decision>>({});
@@ -35,7 +36,6 @@ export function AgentArtifactReview({ artifacts, chain, sessionId, findings = []
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<Record<number, AgentProposalReceipt>>({});
   const receipts = useQuery({ queryKey: ['agent-proposals', sessionId], queryFn: () => agenticApi.agentProposals.list(sessionId!), enabled: Boolean(sessionId), retry: false });
-  useEffect(() => { if (receipts.data) setSaved(Object.fromEntries(receipts.data.map(item => [item.proposal_index, item.receipt]))); }, [receipts.data]);
   const accept = async () => {
     if (!sessionId || savingRef.current || saved[selected] || approvalBlocked) return;
     const index = selected;
@@ -49,7 +49,9 @@ export function AgentArtifactReview({ artifacts, chain, sessionId, findings = []
     } catch (error) { setNotice(error instanceof Error ? error.message : 'Unable to save. Check the destination before retrying.'); }
     finally { savingRef.current = false; setSaving(false); }
   };
-  useEffect(() => { setDrafts(artifacts); setCaseEditing(false); setSelected(0); setDecisions({}); setSaved({}); setNotice(''); }, [artifacts]);
+  useEffect(() => { setDrafts(artifacts); setCaseEditing(false); setSelected(0); setDecisions({}); setSaved({}); setNotice(''); }, [artifacts, sessionId]);
+  useEffect(() => { if (receipts.data) setSaved(Object.fromEntries(receipts.data.map(item => [item.proposal_index, item.receipt]))); }, [receipts.data, artifacts, sessionId]);
+  useEffect(() => { setSelected(Math.min(Math.max(0, proposalIndex), Math.max(0, artifacts.length - 1))); setCaseEditing(false); }, [proposalIndex, artifacts]);
   const item = drafts[selected] || drafts[0];
   if (!item) return null;
   const edit = (patch: Partial<AgentStructuredArtifact>) => {
@@ -63,13 +65,15 @@ export function AgentArtifactReview({ artifacts, chain, sessionId, findings = []
   const canAccept = can(item.kind === 'story' ? item.target_id ? 'requirement.update' : 'requirement.create' : item.kind === 'test_case' || item.kind === 'automation' ? 'testcase.create' : item.kind === 'run' ? 'run.create' : 'feedback.create') && (item.kind !== 'automation' || ['automation.view','automation.code.view','automation.build'].every(permission => can(permission)));
   const field = (label: string, value: string, update: (value: string) => void) => <label className="agent-proposal-field"><span>{label}</span><textarea aria-label={label} disabled={saving || Boolean(saved[selected])} value={value} onChange={event => update(event.target.value)} rows={3} /></label>;
   const listField = (label: string, values: string[] | undefined, update: (values: string[]) => void) => field(label, (values || []).join('\n'), value => update(value.split('\n')));
-  const addressed = findings.filter((finding, index) => item.addressed_finding_ids?.includes(finding.id || `finding-${index + 1}`));
+  const addressed = findings.filter((finding, index) => agentFindingProposals(finding, index, [item]).length > 0);
   return <section className="agent-structured-output" aria-label="Structured agent proposals">
     <header><div><h3>Proposals for review</h3><p>{chain.filter(a => a.status === 'completed').map(a => a.name).join(' → ')}</p></div><div className="agent-proposal-tools"><button className="ghost-button compact" aria-label={copied ? "Proposal copied" : "Copy proposal"} title="Copy proposal" type="button" onClick={async () => { try { await navigator.clipboard.writeText(JSON.stringify(item, null, 2)); setCopied(true); window.setTimeout(() => setCopied(false), 2000); } catch { setNotice('Clipboard access is unavailable.'); } }}>{copied ? 'Copied' : <IconCopy size={17} />}</button><button className="ghost-button compact" type="button" aria-label="Download proposal" title="Download proposal" onClick={() => { const url = URL.createObjectURL(new Blob([JSON.stringify(item, null, 2)], { type: 'application/json' })); const link = document.createElement('a'); link.href = url; link.download = 'agent-proposal.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}><IconDownload size={17} /></button></div></header>
     {notice && <p className="agent-proposal-notice" role="status">{notice}</p>}
     {approvalBlocked && <p className="agent-proposal-notice" role="alert">{approvalBlocked}</p>}
+    {!sessionId && <p className="agent-proposal-notice" role="status">This preview has no saved review session. Run the agent and open its saved outcome before accepting a proposal.</p>}
     <div className={drafts.every(draft=>draft.kind === "test_case") ? "ai-artifact-workspace" : "agent-structured-layout ai-artifact-workspace"}><nav className="ai-artifact-outline" aria-label="Choose proposal">{drafts.map((a, index) => <article className="ai-artifact-item" key={index} aria-current={index===selected ? "true" : undefined}><input type="radio" name="agent-proposal" aria-label={`Review ${a.title}`} checked={index===selected} onChange={()=>{setSelected(index);setCaseEditing(false);}}/><button type="button" key={index} aria-pressed={index === selected} onClick={() => { setSelected(index); setCaseEditing(false); setNotice(''); }}><strong>{a.title}</strong><small>{a.kind.replace('_', ' ')} · {a.priority} · {saved[index] ? 'Saved' : decisions[index] || 'Review required'}{a.kind === 'test_case' ? ` · ${a.authoring_mode === 'gherkin' ? 'Gherkin' : `${a.steps?.length || 0} steps`}` : ''}</small></button></article>)}</nav>
       <article className="ai-artifact-detail">
+        <p className="agent-proposal-provenance">Destination: {agentArtifactDestination(item.kind)}{item.target_id ? ` · update ${item.target_id} at revision ${item.target_revision || 'not recorded'}` : ' · create a draft'} · {item.citation_ids?.length || 0} source reference{item.citation_ids?.length === 1 ? '' : 's'}</p>
         {addressed.length > 0 && <section className="agent-proposal-addressed"><h4>Findings addressed</h4><ul>{addressed.map((finding, index) => <li key={finding.id || index}><strong>{finding.title}</strong><p>{finding.proposed_action || finding.gap || finding.detail}</p>{finding.acceptance_check && <small>Acceptance check: {finding.acceptance_check}</small>}</li>)}</ul></section>}
         {item.kind === 'automation' && <p className="agent-proposal-notice">Accepting saves a draft Automation Plan. Use Automation Engineer in the saved case to inspect the app, generate instructions and verify the script.</p>}
         {(item.kind === 'test_case' || item.kind === 'automation') && <header><span><IconSparkles size={13}/> Proposal · review before saving</span><div className="ai-artifact-detail__tools"><button type="button" disabled={locked} aria-label={caseEditing ? "Finish editing draft" : "Edit draft"} onClick={()=>setCaseEditing(current=>!current)}>{caseEditing ? <IconCheck size={15}/> : <IconEdit size={15}/>} {caseEditing ? "Done" : "Edit"}</button></div></header>}

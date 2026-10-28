@@ -19,12 +19,14 @@ test('every Studio specialist has the same intent and source policy in MCP routi
     assert.equal(policies[id].outputInstructions, profile.outputInstructions, id);
   }
 });
-test('scope identifiers are SQL parameters and exact case/story/run/build filters remain conjunctive', () => {
-  const scope = { story_id: "story' OR TRUE --", build: 'build-17', execution_id: 'run-3', environment_id: 'env-2' };
+test('evidence identifiers are bound and selected story, run, release and sprint stay conjunctive', () => {
+  const scope = { story_id: "story' OR TRUE --", sprint_id: 'sprint-17', execution_id: 'run-3', release_id: 'release-2', build: 'ignored', environment_id: 'ignored' };
   const story = scopes.predicate('story','requirements',scope), run = scopes.predicate('run','executions',scope);
-  assert.ok(!story.sql.includes(scope.story_id)); assert.deepEqual(story.params,[scope.story_id]);
-  assert.match(run.sql,/executions.id = \?.*executions.build = \?.*executions.test_environment_id = \?/);
-  assert.deepEqual(run.params,['run-3','build-17','env-2',scope.story_id]);
+  assert.ok(!story.sql.includes(scope.story_id)); assert.ok(story.params.includes(scope.story_id));
+  assert.match(run.sql,/executions.id = \?.*requirement_releases/s);
+  assert.match(run.sql,/requirement_iterations/); assert.ok(run.params.includes('sprint-17'));
+  assert.doesNotMatch(run.sql,/executions.build|test_environment_id/);
+  assert.deepEqual(scopes.normalize(scope), {story_id:scope.story_id,execution_id:'run-3',release_id:'release-2',sprint_id:'sprint-17'});
 });
 test('disk-backed transfer handles archives beyond the old 20 MB limit, hashes chunks and cleans its temporary source', async () => {
   const chunk = Buffer.alloc(1024*1024); chunk.writeUInt32LE(0x04034b50);

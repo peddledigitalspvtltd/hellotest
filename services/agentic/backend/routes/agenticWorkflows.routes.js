@@ -27,6 +27,18 @@ module.exports = async function (fastify) {
       reply.raw.removeListener("close", cancel);
     }
   };
+  fastify.get("/agentic-workflows/evidence-scope/options", { schema: { querystring: {
+    type: "object", additionalProperties: false, required: ["project_id", "field"],
+    properties: { project_id: { type: "string", minLength: 1, maxLength: 255 },
+      app_type_id: { type: "string", maxLength: 255 }, field: { enum: ["story_id", "test_case_id", "execution_id", "release_id", "sprint_id"] },
+      search: { type: "string", maxLength: 255 }, limit: { type: "integer", minimum: 1, maximum: 10 },
+      ...Object.fromEntries(require("@hellotest/platform/shared/agentEvidenceScopeFields.json").map(({ key }) => [key, { type: "string", maxLength: 255 }])) }
+  } } }, async req => {
+    await fastify.authenticate(req);
+    await requireProjectPermission(req, req.query.project_id, "agentic_workflow.view");
+    await validateApp(req.query.project_id, req.query.app_type_id);
+    return require("../services/agentEvidenceScopeOptions.service").options(req.query, req.user);
+  });
   fastify.post("/agentic-assistant/sessions", async (req, reply) => {
     await fastify.authenticate(req);
     fastify.validate({
@@ -269,6 +281,17 @@ module.exports = async function (fastify) {
     const workflow = await agenticWorkflowService.getWorkflow(req.params.id);
     await requireProjectPermission(req, workflow.project_id, "agentic_workflow.view");
     return workflowExecution.checkReadiness(workflow, req.query.target_node_id || "", req.user);
+  });
+
+  fastify.post("/agentic-workflows/:id/readiness", async (req) => {
+    await fastify.authenticate(req);
+    const workflow = await agenticWorkflowService.getWorkflow(req.params.id);
+    await requireProjectPermission(req, workflow.project_id, "agentic_workflow.view");
+    fastify.validate({
+      target_node_id: { required: false, type: "string", minLength: 1, maxLength: 160 },
+      input_payload: { required: true, type: "object" }
+    }, req.body || {});
+    return workflowExecution.checkReadiness(workflow, req.body.target_node_id || "", req.user, req.body.input_payload);
   });
 
   fastify.post("/agentic-workflows/:id/executions", async (req, reply) => {

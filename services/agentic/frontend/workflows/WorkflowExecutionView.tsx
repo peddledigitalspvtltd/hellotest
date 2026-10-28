@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { WorkflowExecutionLog, executionDuration } from "./WorkflowExecutionLog";
-import { IconArrowLeft, IconDownload, IconRefresh } from "@tabler/icons-react";
+import { IconArrowLeft, IconDownload, IconRefresh, IconArrowsMaximize, IconArrowsMinimize, IconLayoutSidebarLeftCollapse, IconLayoutSidebarRightCollapse, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import type {
   AgenticWorkflowNode,
   AgenticWorkflowEdge,
@@ -48,13 +48,25 @@ export function WorkflowExecutionView({
   onOpenReview: (agent: string, session: string) => void;
   onOpenSource: (agent: string, run: string) => void;
 }) {
-  const [tab, setTab] = useState<"steps" | "summary" | "logs">("steps"),
+  const [tab, setTab] = useState<"steps" | "results" | "summary" | "logs">("steps"),
     [selectedId, setSelectedId] = useState(""),
     [expanded, setExpanded] = useState(false);
+  const [stepsOpen, setStepsOpen] = useState(() => typeof window === "undefined" || window.matchMedia("(min-width: 1151px)").matches);
+  const [detailsOpen, setDetailsOpen] = useState(() => typeof window === "undefined" || window.matchMedia("(min-width: 801px)").matches);
+  const [maximized, setMaximized] = useState(false);
+  const stepsId = useId(), detailsId = useId();
+  const detailsRef = useRef<HTMLDivElement>(null), detailsToggleRef = useRef<HTMLButtonElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [exportNotice, setExportNotice] = useState("");
   const active = ["running", "queued"].includes(run.status);
-  useEffect(() => { setSelectedId(""); setExpanded(false); }, [run.id]);
+  useEffect(() => { setSelectedId(""); setExpanded(false); setTab("steps"); }, [run.id]);
   useEffect(() => setExportNotice(""), [run.id]);
+  useEffect(() => { if (contentRef.current) contentRef.current.scrollTop = 0; }, [tab, run.id]);
+  useEffect(() => {
+    if (selectedId && detailsOpen && window.matchMedia("(max-width: 800px)").matches) {
+      detailsRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [selectedId, detailsOpen, tab]);
   const exportRun = () => {
     const blob = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), run }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -86,19 +98,32 @@ export function WorkflowExecutionView({
       ? (run.workflow_snapshot.edges as AgenticWorkflowEdge[])
       : []
   ).map(decorateFlowEdge);
+  const inputRequiredNode = run.node_results.find(item => {
+    const output = item.output as Record<string, unknown> | undefined;
+    return (output?.verification as Record<string, unknown> | undefined)?.status === "needs_input";
+  })?.node_id;
   const selected =
     nodes.find((node) => node.id === selectedId) ||
     nodes.find((node) => ["failed", "interrupted", "cancelled"].includes(String(node.data.runStatus))) ||
     nodes.find((node) => node.data.runStatus === "running") ||
+    nodes.find((node) => node.id === inputRequiredNode) ||
     nodes.find((node) => node.data.kind === "output" && node.data.runStatus === "completed") ||
     nodes[0];
   const result = run.node_results.find((item) => item.node_id === selected?.id);
+  const selectedIndex = nodes.findIndex(node => node.id === selected?.id);
+  const completedCount = run.node_results.filter(item => item.status === "completed").length;
+  const hasSprintResults = run.node_results.some(item => {
+    const packets = (item.output as { data?: Array<{ cases?: unknown[] }> })?.data;
+    return item.node_type === "artifactTask" && Array.isArray(packets) && packets.some(packet => packet?.cases?.length);
+  });
+  const selectNode = (id: string) => { setSelectedId(id); setDetailsOpen(true); setTab("steps"); };
+  const hideDetails = () => { setDetailsOpen(false); detailsToggleRef.current?.focus(); };
   const runtime = run.workflow_snapshot.runtime_contract as
     | Record<string, unknown>
     | undefined;
   return (
     <section
-      className="workflow-studio studio-execution"
+      className={`workflow-studio studio-execution${maximized ? " is-maximized" : ""}`}
       aria-label="Workflow execution"
     >
       <header className="studio-header">
@@ -112,21 +137,21 @@ export function WorkflowExecutionView({
         </button>
         <div className="studio-title">
           <span>Agentic Studio / Executions</span>
-          <h2>{run.workflow_name}</h2>
+          <h2 title={run.workflow_name}>{run.workflow_name}</h2>
         </div>
         <span className="studio-status" role="status" data-status={run.status}>
           {run.status.replace(/_/g, " ")}
         </span>
         <button type="button" className="studio-icon-button" aria-label="Download execution snapshot" title="Download execution snapshot" onClick={exportRun} disabled={run.summary_only}><IconDownload size={18} /></button>
+        <button type="button" className="studio-icon-button studio-execution-resize" aria-label={maximized ? "Restore execution" : "Maximize execution"} title={maximized ? "Restore execution" : "Maximize execution"} onClick={() => setMaximized(value => !value)}>{maximized ? <IconArrowsMinimize size={18} /> : <IconArrowsMaximize size={18} />}</button>
         {onRetry && canRun && !["running", "queued"].includes(run.status) && (
-          <button className="ghost-button" type="button" onClick={onRetry}>
+          <button className="ghost-button" type="button" aria-label="Open in editor" title="Open in editor" onClick={onRetry}>
             <IconRefresh size={16} />
-            Open in editor
+            <span>Open in editor</span>
           </button>
         )}
       </header>
       <div className="studio-toolbar">
-        {canViewTraces && run.execution_mode === "review" && <a className="ghost-button compact" href={`/ops-telemetry?monitoring=ai&run_id=${encodeURIComponent(run.id)}`}>Model calls</a>}
         <nav aria-label="Execution views">
           <button
             type="button"
@@ -135,6 +160,7 @@ export function WorkflowExecutionView({
           >
             Steps & data
           </button>
+          {hasSprintResults && <button type="button" aria-pressed={tab === "results"} onClick={() => setTab("results")}>Results</button>}
           <button
             type="button"
             aria-pressed={tab === "summary"}
@@ -144,13 +170,14 @@ export function WorkflowExecutionView({
           </button>
           <button type="button" aria-pressed={tab === "logs"} onClick={() => setTab("logs")}>Execution log</button>
         </nav>
-        <span>
+        <span className="studio-execution-mode">
           {run.execution_mode !== "review"
             ? "Graph preview · simulated data"
             : runtime?.target_node_id
               ? "Partial execution · through selected step"
               : "Saved execution"}
         </span>
+        {canViewTraces && run.execution_mode === "review" && <a className="ghost-button compact" href={`/ops-telemetry?monitoring=ai&run_id=${encodeURIComponent(run.id)}`}>Model calls</a>}
         {canRun && run.status === "running" && (
           <button
             className="ghost-button"
@@ -162,6 +189,7 @@ export function WorkflowExecutionView({
           </button>
         )}
       </div>
+      <div ref={contentRef} className="studio-execution-content" role="region" tabIndex={0} aria-label="Execution content">
       {exportNotice && <p className="studio-export-notice" role="status">{exportNotice}</p>}
       {error && (
         <p className="studio-notice" role="alert">
@@ -171,6 +199,8 @@ export function WorkflowExecutionView({
           </button>
         </p>
       )}
+      <details className="studio-execution-context">
+      <summary><span>Run details</span><span>{run.status.replace(/_/g, " ")} · {completedCount}/{run.node_results.length} complete · <LiveDuration start={run.started_at || run.created_at} end={run.completed_at} active={active} /></span></summary>
       <p className="studio-execution-summary" role="status">
         {String(
           run.output_payload?.summary ||
@@ -185,9 +215,10 @@ export function WorkflowExecutionView({
         <span><strong>{run.node_results.filter(item => item.status === "failed").length}</strong>failed</span>
         <span><strong>{run.node_results.filter(item => item.status === "skipped").length}</strong>skipped</span>
       </div>
+      </details>
       {active && <div className="studio-run-progress"><progress aria-label="Recorded execution progress" max={Math.max(1, run.node_results.length)} value={run.summary_only || !run.node_results.length ? undefined : run.node_results.filter(item => ["completed", "failed", "skipped", "cancelled", "interrupted"].includes(String(item.status))).length} /><span>{run.status === "queued" ? "Waiting for a worker" : "Execution in progress"}</span></div>}
-      <WorkflowSprintDrafts key={run.id} run={run} />
-      {tab === "logs" ? <div className="studio-run-log"><WorkflowExecutionLog logs={logs} onSelectNode={id => { setSelectedId(id); setTab("steps"); }} /></div> : tab === "summary" ? (
+      {hasSprintResults && <div className="studio-execution-document" hidden={tab !== "results"}><WorkflowSprintDrafts key={run.id} run={run} /></div>}
+      {tab === "results" ? null : tab === "logs" ? <div className="studio-run-log"><WorkflowExecutionLog logs={logs} onSelectNode={selectNode} /></div> : tab === "summary" ? (
         <div className="studio-review-summary">
           <WorkflowReviewSummary
             run={run}
@@ -195,15 +226,18 @@ export function WorkflowExecutionView({
             stopping={stopping}
             onStop={onStop}
             onOpenReview={onOpenReview}
-            onSelectStep={(id) => {
-              setSelectedId(id);
-              setTab("steps");
-            }}
+            onSelectStep={selectNode}
           />
         </div>
       ) : (
-        <div className="studio-workspace has-library has-inspector">
-          <aside className="studio-execution-steps">
+        <>
+        <div className="studio-execution-layout-tools" role="group" aria-label="Execution layout">
+          <button type="button" aria-label={stepsOpen ? "Hide steps" : "Show steps"} aria-expanded={stepsOpen} aria-controls={stepsId} onClick={() => setStepsOpen(value => !value)}><IconLayoutSidebarLeftCollapse size={17} /><span>Steps</span><small>{run.node_results.length}</small></button>
+          <div className="studio-execution-step-navigation"><button type="button" className="studio-icon-button" aria-label="Previous step" disabled={selectedIndex <= 0} onClick={() => selectNode(nodes[selectedIndex - 1].id)}><IconChevronLeft size={17} /></button><span>{selectedIndex < 0 ? "No recorded steps" : `Step ${selectedIndex + 1} of ${nodes.length}`}</span><button type="button" className="studio-icon-button" aria-label="Next step" disabled={selectedIndex < 0 || selectedIndex >= nodes.length - 1} onClick={() => selectNode(nodes[selectedIndex + 1].id)}><IconChevronRight size={17} /></button></div>
+          <button ref={detailsToggleRef} type="button" aria-label={detailsOpen ? "Hide details" : "Show details"} aria-expanded={detailsOpen} aria-controls={detailsId} disabled={!selected} onClick={() => setDetailsOpen(value => !value)}><IconLayoutSidebarRightCollapse size={17} /><span>Node details</span></button>
+        </div>
+        <div className={`studio-execution-workspace${stepsOpen ? " steps-open" : ""}${detailsOpen && selected ? " details-open" : ""}`}>
+          {stepsOpen && <aside id={stepsId} className="studio-execution-steps" aria-label="Execution steps" tabIndex={0}>
             <header>
               <strong>Execution steps</strong>
               <small>
@@ -220,7 +254,7 @@ export function WorkflowExecutionView({
                   <button
                     type="button"
                     aria-pressed={selected?.id === item.node_id}
-                    onClick={() => setSelectedId(String(item.node_id))}
+                    onClick={() => selectNode(String(item.node_id))}
                   >
                     <span className="studio-step-number">{index + 1}</span>
                     <span>
@@ -241,8 +275,11 @@ export function WorkflowExecutionView({
             <p className="studio-caption">
               {run.started_at ? new Date(run.started_at).toLocaleString() : ""}
             </p>
-          </aside>
+          </aside>}
+          <div className="studio-execution-graph">
           <WorkflowCanvas
+            focusNodeId={selected?.id}
+            autoFitOnResize={false}
             nodes={nodes.map((node) => ({
               ...node,
               selected: node.id === selected?.id,
@@ -250,13 +287,18 @@ export function WorkflowExecutionView({
             edges={edges}
             nodesDraggable={false}
             nodesConnectable={false}
-            onNodeClick={(_, node) => setSelectedId(node.id)}
+            zoomOnScroll={false}
+            preventScrolling={false}
+            onNodeClick={(_, node) => selectNode(node.id)}
             onNodeDoubleClick={(_, node) => {
-              setSelectedId(node.id);
+              selectNode(node.id);
               setExpanded(true);
             }}
           />
-          {selected && (
+          <p className="studio-execution-graph-help">Drag to pan · Use + / − to zoom · Select a node for its data</p>
+          </div>
+          {selected && detailsOpen && (
+            <div id={detailsId} ref={detailsRef} className="studio-execution-details">
             <WorkflowNodeInspector
               key={run.id}
               node={selected}
@@ -281,14 +323,18 @@ export function WorkflowExecutionView({
               onChange={() => {}}
               onExecute={() => {}}
               onDelete={() => {}}
-              onClose={() => setExpanded(false)}
+              onClose={() => expanded ? setExpanded(false) : hideDetails()}
               onExpand={() => setExpanded((value) => !value)}
+              collapsible
               onOpenReview={onOpenReview}
               onOpenSource={onOpenSource}
             />
+            </div>
           )}
         </div>
+        </>
       )}
+      </div>
     </section>
   );
 }

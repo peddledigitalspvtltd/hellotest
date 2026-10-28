@@ -125,7 +125,7 @@ export function WorkflowOperationFields({
                     ? { mcpTool: "", mcpArguments: "{}" }
                     : {
                         apiUrl: selected?.url || "",
-                        apiMethod: selected?.methods[0] || "GET",
+                        apiMethod: data.apiResource === "sprintStories" || kind === "webAgent" ? "GET" : selected?.methods[0] || "GET",
                       }),
                 });
               }}
@@ -176,13 +176,13 @@ export function WorkflowOperationFields({
           {select(
             "apiMethod",
             "HTTP method",
-            (kind === "webAgent"
+            (kind === "webAgent" || data.apiResource === "sprintStories"
               ? ["GET"]
               : connection?.methods || ["GET", "HEAD"]
             ).map((value) => [value, value]),
             "GET",
           )}
-          {data.apiResource === "sprintStories" ? <p className="studio-caption">Reads /requirements for the trigger Sprint and current project, following every cursor page. Choose the HelloTest API base URL connection with an API key. Credentials stay on the server.</p> : null}
+          {data.apiResource === "sprintStories" ? <p className="studio-caption">Reads /api/requirements for the trigger Sprint and current project, following every cursor page. Choose the HelloTest API base connection with a key from Settings → API Keys. The complete Sprint must fit the 100 Story pipeline budget; larger Sprints stop with an explicit error. Credentials stay on the server.</p> : null}
           {field(
             "apiUrl",
             "Endpoint URL",
@@ -195,6 +195,7 @@ export function WorkflowOperationFields({
           <p className="studio-caption">
             Requests return the actual response as <code>data</code>. Redirects
             are not followed. Use <code>{"{{ $input.id }}"}</code> in the endpoint and <code>"$input.id"</code> in the JSON body.
+            {!["GET", "HEAD", "OPTIONS"].includes(String(data.apiMethod || "GET")) ? " This request can change the remote system and runs once. If its response is lost, verify the saved operation receipt and remote outcome before sending it again." : ""}
           </p>
         </>
       ) : null}

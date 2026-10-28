@@ -23,6 +23,12 @@ test('cited sections, rectangular text tables and finite signed charts have a na
   assert.ok(presentationIssues({ ...candidate, charts: [{ ...candidate.charts[0], series: [{ label: 'A', value: '2' }] }] }, citations).length);
   assert.ok(presentationIssues({ ...candidate, sections: [{ ...candidate.sections[0], citation_ids: ['invented'] }] }, citations).length);
 });
+test('finding details remain bounded and every named source resolves to the supplied evidence', () => {
+  const finding = { id: 'finding-1', title: 'Missing retry assertion', detail: 'The recorded case omits a retry check.', citation_ids: ['evidence-1'], priority: 'high' };
+  assert.deepEqual(presentationIssues({ ...base(), findings: [finding] }, citations), []);
+  for (const patch of [{ priority: { value: 'high' } }, { type: ['review'] }, { impact: 'x'.repeat(2401) }, { citation_ids: ['invented'] }]) assert.ok(presentationIssues({ ...base(), findings: [{ ...finding, ...patch }] }, citations).length);
+  assert.ok(presentationIssues({ ...base(), citation_ids: ['invented'] }, citations).some(issue => issue.path === 'citation_ids'));
+});
 test('revision retains whole untrusted output or an explicit omission within a bounded packet', () => {
   const small = revisionFeedback({ response: 'Draft', artifacts: [{ title: 'Proposal' }] }, [{ path: 'title', issue: 'required' }], 1);
   assert.equal(small.previous_draft.artifacts[0].title, 'Proposal');

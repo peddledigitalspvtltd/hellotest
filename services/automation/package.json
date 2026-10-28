@@ -43,6 +43,7 @@
     "./frontend/lib/repositoryEntries": "./frontend/lib/repositoryEntries.ts",
     "./frontend/lib/automationGherkin": "./frontend/lib/automationGherkin.ts",
     "./backend/lib/automationBrowserAgent": "./backend/lib/automationBrowserAgent.js",
+    "./backend/lib/automationBrowserParameters": "./backend/lib/automationBrowserParameters.js",
     "./backend/lib/automationObjectSourceContext": "./backend/lib/automationObjectSourceContext.js",
     "./frontend/components/AgentAutomationBuildAction": "./frontend/components/AgentAutomationBuildAction.tsx",
     "./backend/lib/automationBuildPipelineOptions": "./backend/lib/automationBuildPipelineOptions.js",

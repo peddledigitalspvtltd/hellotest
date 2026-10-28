@@ -9,20 +9,22 @@ const root = new URL('../../../platform/frontend/', import.meta.url);
 const base = (await readFile(new URL('agentWorkspace.test.mjs', import.meta.url), 'utf8')).match(/const fixture = `([\s\S]*?)`;\nconst specialists/)[1];
 const setup = `
 window.enablePreviewFixture();
+api.agenticWorkflows.update = async (id,input) => { window.previewWorkflow={...window.previewWorkflow,...input,id};return structuredClone(window.previewWorkflow); };
 window.acceptedDrafts = [];
 api.agenticWorkflows.acceptWorkflowDraft = async (id,input) => { window.acceptedDrafts.push({id,input}); return {id:'saved-'+input.kind,title:'Read saved invoice',kind:input.kind,saved:true}; };
 api.agenticWorkflows.getRun = async () => structuredClone(window.previewRecord);
 api.agenticWorkflows.connections = async () => [{id:'stories-api',name:'HelloTest Stories API',kind:'http',url:'https://testing.example/api',authenticated:true,methods:['GET'],tools:[]}];
-window.openSprintRun = async () => {
+window.openSprintRun = async (blocked=false,automatic=false) => {
   const {buildStoryAssuranceAnalysis,buildTestCaseAssuranceAnalysis}=await import('/services/ai/frontend/lib/artifactAssurance.ts');
   const story={id:'story-a',title:'Customer reads a saved invoice',description:'A customer reads a saved invoice so that the recorded amount can be confirmed.',acceptance_criteria:['Return status 200 and the saved amount.']};
   const draft={title:'Read saved invoice',description:'Given an existing invoice, read its saved amount.',steps:[{action:'GET /invoices/one',expected_result:'Response status equals 200 and amount equals 10',step_type:'manual'}]};
   const analysis=buildStoryAssuranceAnalysis({...story,linkedCaseCount:0,hasDeliveryContext:true,acceptanceCriteria:story.acceptance_criteria});
   const caseAnalysis=buildTestCaseAssuranceAnalysis({...draft,requirementCount:1,reviewStatus:'pending'});
   const packet={story_id:'story-a',story,story_assurance:{analysis},cases:[draft],case_assurance:[{analysis:caseAnalysis}],automation:[{steps:[{...draft.steps[0],step_type:'api',api_request:{method:'GET',url:'https://invoice.example/invoices/one',validations:[{kind:'status',expected:'200'}]}}],validation:{status:'passed'},verification_status:'unverified'}]};
+  if(blocked){packet.case_assurance[0].assurance_review={automation_readiness:{status:'needs_input',summary:'The Story does not specify the authentication endpoint.',evidence_refs:['requirement:story-a'],missing_context:[{kind:'api_contract',reason:'Provide the reviewed authentication API contract.',evidence_refs:['requirement:story-a'],step_refs:['step:1']}]}};packet.automation=[null];packet.automation_input_required=[{case_index:0,message:'Supply the missing API contract before generating automation.',required_context:['API endpoint for authentication']}];}
   const w=window.previewWorkflow;
-  window.previewRecord={id:'sprint-run',workflow_id:w.id,workflow_name:'Sprint Automator',project_id:'project',app_type_id:'app',status:'completed',execution_mode:'review',trigger_kind:'manual',workflow_snapshot:{...w,execution_mode:'review'},input_payload:{sprint_id:'sprint-a'},node_results:w.nodes.map(node=>({node_id:node.id,node_name:node.data.label,node_type:node.data.kind,status:'completed',attempts:1,output:node.data.artifactTask==='automation-engineer'?{data:[packet]}:{}})),output_payload:{summary:'Sprint drafts generated for review.'},created_at:'2026-10-22T10:00:00Z',started_at:'2026-10-22T10:00:00Z',completed_at:'2026-10-22T10:01:00Z'};
-  window.navigateWorkspace('/agentic-workflows?view=runs&workflow_run=sprint-run');
+  window.previewRecord={id:automatic?'sprint-automatic':blocked?'sprint-needs-input':'sprint-run',workflow_id:w.id,workflow_name:'Sprint Automator',project_id:'project',app_type_id:'app',status:blocked?'needs_review':'completed',execution_mode:'review',trigger_kind:'manual',workflow_snapshot:{...w,execution_mode:'review'},input_payload:{sprint_id:'sprint-a'},node_results:w.nodes.map(node=>({node_id:node.id,node_name:node.data.label,node_type:node.data.kind,status:'completed',attempts:1,output:node.data.artifactTask==='automation-engineer'?{data:[packet]}:automatic&&node.data.artifactTask==='test-case-generation'?{data:[packet],library_publication:{mode:'automatic',status:'saved',receipts:[{id:'auto-manual',story_id:'story-a',case_index:0,kind:'manual',saved:true,requires_review:true}]}}:{}})),output_payload:{summary:'Sprint drafts generated for review.'},created_at:'2026-10-22T10:00:00Z',started_at:'2026-10-22T10:00:00Z',completed_at:'2026-10-22T10:01:00Z'};
+  window.navigateWorkspace('/agentic-workflows?view=runs&workflow_run='+window.previewRecord.id);
 };
 `;
 const fixture = base.replace('const client = new QueryClient',setup+'\nconst client = new QueryClient');
@@ -45,7 +47,7 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     await page.getByText('Read all Sprint Stories',{exact:true}).click();
     await page.getByLabel('API connection',{exact:true}).selectOption('stories-api');
     await page.getByText(/following every cursor page/).waitFor();
-    await page.getByRole('button',{name:'Save',exact:true}).click();
+    await page.getByRole('button',{name:'Save changes',exact:true}).click();
     await page.waitForFunction(()=>Boolean(window.previewWorkflow));
     await page.evaluate(()=>window.openSprintRun());
     const drafts=page.getByRole('region',{name:'Sprint Test Case drafts'});
@@ -61,10 +63,29 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     await drafts.getByText('Generated automation · unverified',{exact:true}).click();
     await drafts.getByText('"step_type": "api"',{exact:false}).waitFor();
     await page.screenshot({path:'/tmp/hellotest-sprint-automator-desktop.png',fullPage:true});
+    await page.evaluate(()=>window.openSprintRun(true));
+    await drafts.getByText('Sprint drafts ready for review',{exact:true}).waitFor();
+    await drafts.locator('summary').filter({hasText:'Customer reads a saved invoice'}).click();
+    await drafts.getByText('Automation needs input',{exact:true}).waitFor();
+    await drafts.getByText('Automation readiness · Needs input',{exact:true}).waitFor();
+    await drafts.getByText('Provide the reviewed authentication API contract. (step:1)',{exact:true}).waitFor();
+    await drafts.getByText(/Required: API endpoint for authentication/).waitFor();
+    assert.equal(await drafts.getByRole('button',{name:'Accept Test Case into Library',exact:true}).isEnabled(),true);
+    assert.equal(await drafts.getByRole('button',{name:'Accept automation into Library',exact:true}).count(),0);
     await page.setViewportSize({width:390,height:1000});
     await page.evaluate(()=>{document.documentElement.dataset.theme='dark';});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+    await drafts.getByText('Automation readiness · Needs input',{exact:true}).scrollIntoViewIfNeeded();
     await page.screenshot({path:'/tmp/hellotest-sprint-automator-mobile.png',fullPage:true});
+    await page.evaluate(()=>window.openSprintRun(true,true));
+    await drafts.getByText('Sprint results and Library cases',{exact:true}).waitFor();
+    await drafts.locator('summary').filter({hasText:'Customer reads a saved invoice'}).click();
+    const receipt=drafts.getByRole('status').filter({hasText:'Saved AI generated Test Case · Pending review'});
+    await receipt.waitFor();
+    assert.equal(await receipt.getByRole('link',{name:'Open Library',exact:true}).getAttribute('href'),'/test-cases?case=auto-manual');
+    assert.equal(await drafts.getByRole('button',{name:'Accept Test Case into Library',exact:true}).count(),0);
+    assert.equal(await drafts.getByRole('button',{name:'Accept automation into Library',exact:true}).count(),0);
+    assert.equal(await page.evaluate(()=>window.acceptedDrafts.length),2,'Automatic publication must not call the human acceptance API');
     assert.deepEqual(errors,[]);
   } catch (failure) { if(page) { await writeFile("/tmp/hellotest-sprint-browser-dom.txt",await page.locator("body").innerText().catch(()=>"")); await page.screenshot({path:"/tmp/hellotest-sprint-browser-failure.png",fullPage:true}).catch(()=>{}); } throw failure; } finally {await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)]);}
 });

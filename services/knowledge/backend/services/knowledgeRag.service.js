@@ -2604,7 +2604,8 @@ const search = async ({
   const normalizedRequestedSourceKinds = requestedSourceKinds
     .map((kind) => kind === "product_help" ? kind : normalizeSourceKind(kind, { fallback: null }))
     .filter(Boolean);
-  const includeProductHelp = includeProductHelpBySource
+  const evidenceScope = require('@hellotest/platform/backend/src/utils/agentEvidenceScopeSql').normalize(normalizedFilters.evidence_scope);
+  const includeProductHelp = !Object.keys(evidenceScope).length && includeProductHelpBySource
     && (!requestedSourceKinds.length || normalizedRequestedSourceKinds.includes("product_help"));
   const sourceKinds = [...new Set(normalizedRequestedSourceKinds.filter((kind) => kind !== "product_help"))];
   const includePersistedSources = (!requestedSourceKinds.length || sourceKinds.length > 0)
@@ -2647,6 +2648,16 @@ const search = async ({
     clauses.push(`sources.id IN (${sourceIds.map(() => "?").join(", ")})`);
     filterParams.push(...sourceIds);
   }
+  const evidencePredicate = require('@hellotest/platform/backend/src/utils/agentEvidenceScopeSql').sourcePredicate('sources', evidenceScope, appTypeId);
+  if (evidencePredicate.sql) {
+    clauses.push(evidencePredicate.sql.replace(/^ AND /, ''));
+    filterParams.push(...evidencePredicate.params);
+  }
+  const readCandidates = (sql, params, activeSignal = signal, cap = 3500, reserveMs = visibilityReserveMs) => evidencePredicate.sql
+    ? require('./knowledgeScopedRead.service').all(sql, params, {
+      signal: activeSignal, timeoutMs: Math.min(cap, 3500, remainingMs(reserveMs))
+    })
+    : db.prepare(sql).all(...params);
   if (collectionIds.length) {
     clauses.push(`EXISTS (
       SELECT 1 FROM ai_knowledge_collection_sources scoped_collections
@@ -2675,9 +2686,11 @@ const search = async ({
   const exactIdentifiers = [...new Set((sanitizedQuery.text.match(/\b(?:AT[_-][0-9]+|[A-Z][A-Z0-9]{1,11}-\d+|(?:BUG|TC|TS|STORY|RUN|REQ)-?[A-Z0-9_-]+|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\b/gi) || []).map((value) => value.toUpperCase()))].slice(0, 10);
 
   const retrievalErrors = [];
-  const readStage = (task, code, cap = 3_500) => boundedRetrievalStage(task, {
-    signal, timeoutMs: Math.min(cap, remainingMs(visibilityReserveMs)), code
-  });
+  const readStage = (task, code, cap = 3_500) => {
+    const timeoutMs = Math.min(cap, remainingMs(visibilityReserveMs));
+    const deadline = Date.now() + timeoutMs;
+    return boundedRetrievalStage(activeSignal => task(activeSignal, deadline), { signal, timeoutMs, code });
+  };
   const localVector = usesEmbeddingsForMode(normalizedMode) ? localEmbedding(sanitizedQuery.text) : null;
   let queryEmbeddingResult = localVector ? { model: LOCAL_EMBEDDING_MODEL, vectors: [localVector], fallback: [localVector] } : null;
   let queryVector = localVector;
@@ -2687,17 +2700,17 @@ const search = async ({
   let qdrantResult = { configured: false, hits: [] };
   // Start exact and lexical reads before resolving/awaiting embeddings. Every
   // channel has its own bound, so an optional provider cannot discard fast SQL.
-  const lexicalPromise = includePersistedSources ? readStage(() => db.prepare(`
+  const lexicalPromise = includePersistedSources ? readStage((activeSignal) => readCandidates(`
     ${candidateProjection.replace("SELECT ", "SELECT ts_rank_cd(chunks.search_vector, plainto_tsquery('simple', ?)) AS lexical_rank, ")}
     WHERE ${clauses.join(" AND ")}
     ORDER BY lexical_rank DESC, chunks.created_at DESC
     LIMIT ?
-  `).all(
+  `, [
     sanitizedQuery.text,
     ...filterParams,
     normalizedMode === "keyword" || knowledgeVectorStore.isConfigured() || maxCandidates ? candidateLimit : MAX_FALLBACK_CANDIDATES
-  ), "LEXICAL_SEARCH_TIMEOUT") : Promise.resolve([]);
-  const directLookupPromise = includePersistedSources && exactIdentifiers.length ? readStage(() => db.prepare(`
+  ], activeSignal), "LEXICAL_SEARCH_TIMEOUT") : Promise.resolve([]);
+  const directLookupPromise = includePersistedSources && exactIdentifiers.length ? readStage((activeSignal) => readCandidates(`
     ${candidateProjection.replace("SELECT ", "SELECT 1::real AS lexical_rank, TRUE AS exact_match, ")}
     WHERE ${clauses.join(" AND ")}
       AND (
@@ -2708,9 +2721,10 @@ const search = async ({
       )
     ORDER BY chunks.chunk_index ASC
     LIMIT ?
-  `).all(...filterParams, ...exactIdentifiers, ...exactIdentifiers, ...exactIdentifiers, ...exactIdentifiers, Math.min(candidateLimit, exactIdentifiers.length * 12)), "DIRECT_LOOKUP_TIMEOUT") : Promise.resolve([]);
+  `, [...filterParams, ...exactIdentifiers, ...exactIdentifiers, ...exactIdentifiers, ...exactIdentifiers, Math.min(candidateLimit, exactIdentifiers.length * 12)], activeSignal), "DIRECT_LOOKUP_TIMEOUT") : Promise.resolve([]);
   const densePromise = usesEmbeddingsForMode(normalizedMode) && includePersistedSources
-    ? readStage(async (denseSignal) => {
+    ? readStage(async (denseSignal, channelDeadline) => {
+      const sqlTime = () => Math.max(0, channelDeadline - Date.now());
       const prepared = await (typeof preparedEmbedding === "function" ? preparedEmbedding() : preparedEmbedding);
       assertRetrievalActive(denseSignal);
       let embedding;
@@ -2735,13 +2749,13 @@ const search = async ({
       let mode = pgvectorAvailable ? "pgvector-exact+fts" : "degraded-local-jsonb-cosine+fts";
       if (knowledgeVectorStore.isConfigured()) {
         try {
-          const authorized = await db.prepare(`SELECT chunks.id
+          const authorized = await readCandidates(`SELECT chunks.id
             FROM ai_knowledge_chunks chunks
             JOIN ai_knowledge_documents documents ON documents.id = chunks.document_id
             JOIN ai_knowledge_sources sources ON sources.id = chunks.source_id
             JOIN ai_knowledge_index_states index_states ON index_states.document_id = documents.id
             WHERE ${clauses.join(" AND ")} ORDER BY chunks.id LIMIT 10001
-          `).all(...filterParams);
+          `, filterParams, denseSignal, sqlTime());
           assertRetrievalActive(denseSignal);
           projection = authorized.length > 10_000
             ? { configured: true, hits: [], degraded: true, authorization_scope_exceeded: true }
@@ -2755,12 +2769,12 @@ const search = async ({
           if (projection.hits.length) {
             const scores = new Map(projection.hits.map((hit) => [hit.chunk_id, Number(hit.score || 0)]));
             const ids = [...scores.keys()];
-            const rows = await db.prepare(`
+            const rows = await readCandidates(`
               ${candidateProjection.replace("SELECT ", "SELECT 0::real AS lexical_rank, ")}
               WHERE ${clauses.join(" AND ")}
                 AND chunks.id IN (${ids.map(() => "?").join(", ")})
                 AND chunks.embedding_model = ?
-            `).all(...filterParams, ...ids, embedding.model);
+            `, [...filterParams, ...ids, embedding.model], denseSignal, sqlTime());
             assertRetrievalActive(denseSignal);
             candidates = rows.map((candidate) => ({ ...candidate, dense_similarity: scores.get(candidate.chunk_id) || 0 }))
               .sort((left, right) => right.dense_similarity - left.dense_similarity);
@@ -2776,7 +2790,7 @@ const search = async ({
       // older uploaded documents may not yet have an external projection.
       if (pgvectorAvailable) {
         try {
-          const rows = await db.prepare(`
+          const rows = await readCandidates(`
             ${candidateProjection.replace("SELECT ", "SELECT (1 - (chunks.embedding_vector <=> ?::vector)) AS dense_similarity, 0::real AS lexical_rank, ")}
             WHERE ${clauses.join(" AND ")}
               AND chunks.embedding_vector IS NOT NULL
@@ -2784,7 +2798,7 @@ const search = async ({
               AND vector_dims(chunks.embedding_vector) = ?
             ORDER BY dense_similarity DESC
             LIMIT ?
-          `).all(vectorLiteral(vector), ...filterParams, embedding.model, vector.length, candidateLimit);
+          `, [vectorLiteral(vector), ...filterParams, embedding.model, vector.length, candidateLimit], denseSignal, sqlTime());
           assertRetrievalActive(denseSignal);
           const union = new Map([...candidates, ...rows].map((candidate) => [candidate.chunk_id, candidate]));
           candidates = [...union.values()].sort((left, right) => Number(right.dense_similarity || 0) - Number(left.dense_similarity || 0)).slice(0, candidateLimit);
@@ -2943,15 +2957,15 @@ const search = async ({
   }
 
   const selectedSourceIds = normalizeFilterIds(scored.map((hit) => hit.source_id).filter((id) => id !== "hellotest-product-help"));
-  const partialSources = selectedSourceIds.length ? await boundedRetrievalStage(() => db.prepare(`SELECT DISTINCT sources.id
+  const partialSources = selectedSourceIds.length ? await boundedRetrievalStage((activeSignal) => readCandidates(`SELECT DISTINCT sources.id
     FROM ai_knowledge_sources sources
     JOIN ai_knowledge_documents documents ON documents.source_id = sources.id
     JOIN ai_knowledge_chunks chunks ON chunks.document_id = documents.id
     JOIN ai_knowledge_index_states index_states ON index_states.document_id = documents.id
     WHERE sources.project_id = ? AND sources.extraction_status = 'ready' AND index_states.required_indexes_ready = TRUE
       ${asOf ? "AND documents.effective_from <= ?::timestamptz AND (documents.effective_to IS NULL OR documents.effective_to > ?::timestamptz)" : "AND documents.is_active = TRUE"}
-      AND sources.id IN (${selectedSourceIds.map(() => "?").join(",")}) AND NOT (${fragmentAcl.sql})`
-  ).all(normalizedProjectId, ...(asOf ? [asOf, asOf] : []), ...selectedSourceIds, ...fragmentAcl.params), { signal, timeoutMs: Math.min(750, remainingMs()), code: "VISIBILITY_CHECK_TIMEOUT" }).catch((error) => {
+      AND sources.id IN (${selectedSourceIds.map(() => "?").join(",")}) AND NOT (${fragmentAcl.sql})`,
+  [normalizedProjectId, ...(asOf ? [asOf, asOf] : []), ...selectedSourceIds, ...fragmentAcl.params], activeSignal, 750, 0), { signal, timeoutMs: Math.min(750, remainingMs()), code: "VISIBILITY_CHECK_TIMEOUT" }).catch((error) => {
     assertRetrievalActive(signal);
     retrievalErrors.push(error.code || "VISIBILITY_CHECK_UNAVAILABLE");
     return selectedSourceIds.map((id) => ({ id }));

@@ -415,6 +415,7 @@ exports.previewRequirementsTestCases = async ({
   external_links,
   images,
   authoring_mode,
+  evidence_scope,
   signal
 }) => {
   if (signal?.aborted) throw Object.assign(new Error("Workflow cancelled."), { statusCode: 499, publicMessage: "Workflow cancelled." });
@@ -449,6 +450,8 @@ exports.previewRequirementsTestCases = async ({
     query: knowledgeQuery,
     module_name: appType.module_name || null,
     feature_name: appType.feature_name || null,
+    evidence_scope,
+    signal,
     user: user_id ? { id: user_id } : undefined
   }) : { knowledge: [] };
 

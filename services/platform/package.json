@@ -213,7 +213,8 @@
     "./backend/services/aiAttachmentAccess.service": "./backend/services/aiAttachmentAccess.service.js",
     "./backend/src/utils/aiGenerationContracts": "./backend/src/utils/aiGenerationContracts.js",
     "./frontend/src/shared/lib/catalogDescriptionSummary": "./frontend/src/shared/lib/catalogDescriptionSummary.js",
-    "./backend/src/utils/aiReferenceImages": "./backend/src/utils/aiReferenceImages.js"
+    "./backend/src/utils/aiReferenceImages": "./backend/src/utils/aiReferenceImages.js",
+    "./backend/src/utils/agentEvidenceScopeSql": "./backend/src/utils/agentEvidenceScopeSql.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs platform",

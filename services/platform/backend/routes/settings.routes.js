@@ -48,7 +48,8 @@ module.exports = async function (fastify) {
     return settingsService.updateWorkspacePreferences(req.user.id, req.body.preferences);
   });
 
-  fastify.get("/settings/api-keys", async (req) => {
+  fastify.get("/settings/api-keys", async (req, reply) => {
+    reply.header("Cache-Control", "no-store");
     await fastify.authenticate(req);
     await fastify.requirePermission("api_key.manage")(req);
     return {
@@ -57,13 +58,14 @@ module.exports = async function (fastify) {
     };
   });
 
-  fastify.post("/settings/api-keys", async (req) => {
+  fastify.post("/settings/api-keys", async (req, reply) => {
+    reply.header("Cache-Control", "no-store");
     await fastify.authenticate(req);
     await fastify.requirePermission("api_key.manage")(req);
 
     fastify.validate({
       name: { required: true, type: "string", minLength: 2 },
-      scope: { required: false, type: "string" }
+      scope: { required: false, type: "string", enum: apiKeyService.API_KEY_SCOPES.map(({ value }) => value) }
     }, req.body);
 
     return apiKeyService.createApiKey({

@@ -37,6 +37,11 @@ function parseObject(value, label) {
     throw connections.fail(`${label} must be at most 16 KB.`);
   return parsed;
 }
+function parseRequestBody(value) {
+  if (typeof value !== "string" || Buffer.byteLength(value) > 128 * 1024) throw connections.fail("Request body must be JSON text within 128 KB.");
+  try { return JSON.parse(value); }
+  catch { throw connections.fail("Request body must be valid JSON."); }
+}
 function readPath(root, path) {
   const parts = String(path || "")
     .replace(/^\$/, "")
@@ -76,6 +81,18 @@ function mapValues(template, context, depth = 0) {
 }
 const inputValue = output => output && Object.hasOwn(output, "data") ? output.data
   : output && Object.hasOwn(output, "request") ? output.request : output;
+// Preserve connection order, append arrays one level, and retain each source's
+// range so a merge never confuses completion order with data provenance.
+function appendInputs(sources) {
+  const data = [], source_items = [];
+  for (const source of sources) {
+    const value = inputValue(source.output);
+    const items = Array.isArray(value) ? value : [value];
+    source_items.push({ node_id: source.node_id, ...(source.output_key ? { output_key: source.output_key } : {}), start_index: data.length, item_count: items.length });
+    data.push(...items);
+  }
+  return { data, source_items };
+}
 const contextFor = (run, sources) => ({
   request: run.input_payload,
   input: Object.hasOwn(run, "iteration_input") ? run.iteration_input : !sources.length ? run.input_payload : sources.length === 1 ? inputValue(sources[0].output) : sources.map(source => inputValue(source.output)),
@@ -152,7 +169,7 @@ function validate(node) {
     check(() => parseObject(data.mcpArguments || "{}", "Tool arguments"));
   }
   if (["apiTool", "apiAgent", "webAgent"].includes(kind)) {
-    if (data.apiBody) check(() => parseObject(data.apiBody, "Request body"));
+    if (data.apiBody && !["GET", "HEAD"].includes(String(data.apiMethod || "GET").toUpperCase())) check(() => parseRequestBody(data.apiBody));
     if (!data.apiUrl && !data.connectionId)
       errors.push("Enter an endpoint or select a connection.");
     if (data.apiAuth || data.credentialId)
@@ -219,6 +236,8 @@ async function execute({
     endpoint.searchParams.set("sprint_id", String(run.input_payload.sprint_id));
     endpoint.searchParams.set("include_page", "true");
     endpoint.searchParams.set("page_size", "20");
+    // The whole selected Sprint must fit the native Story pipeline budget.
+    // Pagination never returns a successful prefix of a larger Sprint.
     return connections.callHttp({ projectId: run.project_id, data: { ...data, apiUrl: endpoint.toString(), apiMethod: "GET", apiPagination: "cursor", apiMaxItems: 100 }, signal });
   }
   if (kind === "customAI")
@@ -232,7 +251,7 @@ async function execute({
       data: {
         ...data,
         apiUrl: interpolate(data.apiUrl, context, true),
-        apiBody: data.apiBody ? JSON.stringify(mapValues(parseObject(data.apiBody, "Request body"), context)) : "",
+        apiBody: data.apiBody && !["GET", "HEAD"].includes(String(data.apiMethod || "GET").toUpperCase()) ? JSON.stringify(mapValues(parseRequestBody(data.apiBody), context)) : "",
         apiMethod: kind === "webAgent" ? "GET" : data.apiMethod,
       },
       signal,
@@ -416,5 +435,5 @@ module.exports = {
   KINDS,
   validate,
   execute,
-  _internals: { parseObject, readPath, mapValues, condition, contextFor, inputValue, interpolate },
+  _internals: { parseObject, readPath, mapValues, condition, contextFor, inputValue, appendInputs, interpolate },
 };

@@ -24,6 +24,12 @@ test('automation proposals remain Plans and route to the saved automation case',
   assert.deepEqual(agentArtifactIssues({...plan,start_url:'http://localhost:8080/checkout'}),[]);
   assert.equal(agentArtifactSavedRoute('automation','case 1'),'/automation?case=case%201');
 });
+test('approval requires source attribution and versioned Story update targets',()=>{
+  const story={...base,kind:'story',acceptance_criteria:['One order after retry.']};
+  assert.match(agentArtifactIssues({...story,citation_ids:[]}).join(' '),/source references/);
+  assert.match(agentArtifactIssues({...story,target_id:'story-1'}).join(' '),/target revision/);
+  assert.deepEqual(agentArtifactIssues({...story,target_id:'story-1',target_revision:2}),[]);
+});
 test('customizing an authoring specialist retains its declared output rather than silently becoming a prose reviewer',()=>{
   const catalog=JSON.parse(readFileSync(new URL('../../shared/agentOutcomeContracts.json',import.meta.url),'utf8'));
   const definitions=load('../../frontend/agents/agentDefinitions.ts',{'../../shared/agentOutcomeContracts.json':{default:catalog},'../workflows/specialistProfiles':{specialistDefaults:()=>({skills:[],allowedTools:[],knowledgeScope:'stories'}),specialistProfiles:{}}});

@@ -14,7 +14,8 @@ function summary(result, digest) {
   return { node_id: result.node_id, kind: result.node_type, status: result.status, result_hash: digest,
     matched: result.node_type === 'condition' ? result.output?.matched : undefined,
     fatal: Boolean(result.fatal), error_code: result.error_details?.code,
-    needs_review: result.output?.readiness?.status === 'insufficient_evidence' || result.output?.verification?.status === 'needs_input' };
+    needs_review: result.output?.readiness?.status === 'insufficient_evidence',
+    needs_attention: result.output?.verification?.status === 'needs_input' };
 }
 async function restore(runId, receipts) {
   checkIdentity(runId);
@@ -35,6 +36,7 @@ async function restore(runId, receipts) {
       specialist_id: node.data.agentId, status: 'queued', execution_mode: 'review', attempts: 0, logs: [] };
   });
   run.output_payload = { execution_mode: 'review', status: 'running', requires_human_review: true,
+    project_changes_applied: run.node_results.some(item => item.output?.library_publication?.receipts?.some(receipt => receipt.saved === true && typeof receipt.id === 'string' && receipt.id.trim())),
     runtime_contract: run.workflow_snapshot.runtime_contract, total_steps: run.node_results.length,
     completed_steps: run.node_results.filter(item => item.status === 'completed').length };
   return run;
@@ -104,7 +106,7 @@ async function publishReview({ runId, receipts, status, reason }) {
   const target = run.workflow_snapshot.runtime_contract.target_node_id;
   const hasOutput = target ? run.node_results.some(item => item.node_id === target && item.status === 'completed')
     : run.node_results.some(item => item.node_type === 'output' && item.status === 'completed');
-  if (status === 'completed' && (!hasOutput || reviews.some(item => item.readiness?.status !== 'ready_for_review') || run.node_results.some(item => item.status === 'failed' || item.output?.readiness?.status === 'limited'))) status = 'needs_review';
+  if (status === 'completed' && (!hasOutput || reviews.some(item => item.readiness?.status !== 'ready_for_review') || run.node_results.some(item => item.status === 'failed' || item.output?.readiness?.status === 'limited' || item.output?.verification?.status === 'needs_input'))) status = 'needs_review';
   const unacknowledged = await db.prepare('SELECT node_id FROM workflow_node_receipts WHERE run_id=?').all(runId);
   run.node_results = run.node_results.map(item => {
     if (item.status !== 'queued') return item;
@@ -117,6 +119,7 @@ async function publishReview({ runId, receipts, status, reason }) {
     summary: status === 'completed' ? 'Review workflow completed. Results are ready for human review.' : status === 'needs_review' ? 'Review the evidence gaps and recovery results before acting.' : `Review execution ${status}. Completed results are preserved.`,
     reviews,review_session_ids:reviews.map(item=>item.session_id).filter(Boolean),
     results:run.node_results.filter(item=>item.node_type==='output'&&item.status==='completed').map(item=>({node_id:item.node_id,output:item.output}))};
+  output.summary = runtime().terminalSummary(run,status,run.node_results,output.summary);
   await runtime().store.save(runId,status,run.node_results,output);
   return { status };
 }

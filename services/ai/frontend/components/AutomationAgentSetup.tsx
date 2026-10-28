@@ -13,7 +13,7 @@ export function AutomationAgentSetup({agentId,projectId,appTypeId,testCaseId,pro
  const pinned={...value.inputs,...(testCaseId?{test_case_id:testCaseId}:{})};
  return <div className="automation-agent-setup"><AgenticCommandComposer agents={HELLOTEST_AGENT_CATALOG.filter(agent=>agent.id===agentId)} agentId={agentId} onAgentChange={()=>undefined}
   projectId={projectId} appTypeId={appTypeId} contextScopes={value.scopes} onContextScopesChange={scopes=>onChange({...value,scopes,smart:null})}
-  evidenceScope={pinned} evidenceScopeControl={<AgentEvidenceScope scopes={value.scopes} values={pinned} disabled={disabled||running} readOnlyFields={testCaseId?["test_case_id"]:[]} onChange={(key,input)=>onChange({...value,inputs:{...value.inputs,[key]:input}})}/>}
+  evidenceScope={pinned} evidenceScopeControl={<AgentEvidenceScope projectId={projectId} appTypeId={appTypeId} scopes={value.scopes} values={pinned} disabled={disabled||running} readOnlyFields={testCaseId?["test_case_id"]:[]} onChange={(key,input)=>onChange({...value,inputs:{...value.inputs,[key]:input},smart:null})}/>}
   integrationId={value.integrationId} integrations={integrations} onIntegrationChange={integrationId=>onChange({...value,integrationId})}
   smartContext={value.smart} onSmartContextChange={smart=>onChange({...value,smart,scopes:value.scopes.includes("knowledge")?value.scopes:[...value.scopes,"knowledge"]})}
   prompt={prompt} promptLabel={agentId==="automation-engineer"?"Build instructions (optional)":"Repair instructions (optional)"} onPromptChange={onPromptChange}

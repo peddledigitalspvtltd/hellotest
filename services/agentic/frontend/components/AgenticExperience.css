@@ -1607,9 +1607,39 @@ html body .agent-outcome-panel { min-width: 0; padding: 24px; border: 1px solid 
 .agent-model-calls { display: grid; gap: 16px; min-width: 0; }
 .agent-command-evidence-scope { position: relative; display: inline-block; flex: 0 0 auto; }
 .agent-command-evidence-scope > summary { display: flex; align-items: center; cursor: pointer; min-height: 32px; padding: 6px 10px; font-size: 12px; }
-.agent-command-evidence-scope__menu { position: absolute; z-index: 20; inset-inline-start: 0; top: calc(100% + 8px); width: min(340px, 80vw); max-height: 65vh; overflow-y: auto; display: grid; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--app-surface, var(--card-bg)); box-shadow: var(--shadow); }
-.agent-command-evidence-scope__menu label { display: grid; gap: 4px; }
-.agent-command-evidence-scope__menu input { width: 100%; box-sizing: border-box; }
+.agent-command-evidence-scope__menu { box-sizing: border-box; position: fixed; z-index: 2100; overflow-y: auto; display: grid; gap: 12px; padding: 14px; border: 1px solid var(--app-border, #dce5e8); border-radius: 12px; background: var(--app-surface, #fff); color: var(--app-text, #182b35); box-shadow: 0 12px 38px #122e3b24; font: 12px/1.5 Inter, system-ui, sans-serif; }
+.agent-command-evidence-scope__menu > p { margin: 0; color: var(--app-text-muted, #5d6f79); }
+.agent-evidence-scope-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.agent-evidence-scope-heading > strong { font-size: 14px; }
+.agent-command-evidence-scope__menu button { box-sizing: border-box; font: inherit; cursor: pointer; color: inherit; }
+.agent-evidence-scope-heading > button, .agent-evidence-scope-clear { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-width: 30px; min-height: 32px; border: 0; border-radius: 6px; background: transparent; padding: 4px; box-shadow: none; }
+.agent-evidence-scope-heading > button:hover, .agent-evidence-scope-clear:hover { background: var(--app-surface-muted, #f1f5f6); }
+.agent-evidence-scope-fields { display: grid; gap: 8px; min-width: 0; }
+.agent-evidence-scope-field { min-width: 0; border: 1px solid var(--app-border, #dce5e8); border-radius: 8px; overflow: hidden; }
+.agent-evidence-scope-field-row { display: flex; align-items: center; min-width: 0; }
+.agent-command-evidence-scope__menu .agent-evidence-scope-field-trigger { display: flex; flex: 1 1 auto; align-items: center; gap: 10px; width: 0; min-width: 0; min-height: 42px; padding: 9px 10px; border: 0; border-radius: 0; background: transparent; text-align: left; box-shadow: none; }
+.agent-evidence-scope-field-trigger > span:first-child { display: grid; flex: 0 0 auto; gap: 2px; font-weight: 600; }
+.agent-evidence-scope-field-trigger small { font-size: 10px; font-weight: 400; color: var(--app-text-muted, #5d6f79); }
+.agent-evidence-scope-field-trigger > svg { flex: 0 0 auto; }
+.agent-evidence-scope-value { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; font-size: 11px; color: var(--app-text-muted, #5d6f79); }
+.agent-evidence-scope-field-trigger:hover:not(:disabled), .agent-evidence-scope-field-trigger[aria-expanded=true] { background: var(--app-surface-muted, #f1f5f6); }
+.agent-evidence-scope-field-trigger:disabled { cursor: default; opacity: .75; }
+.agent-evidence-scope-picker { border-top: 1px solid var(--app-border, #dce5e8); padding: 8px; }
+.agent-evidence-scope-search { display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 1px solid var(--app-border, #dce5e8); border-radius: 6px; }
+.agent-evidence-scope-search > svg { flex: 0 0 auto; color: var(--app-text-muted, #5d6f79); }
+.agent-command-evidence-scope__menu .agent-evidence-scope-search input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 34px; padding: 5px 0; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; box-shadow: none; }
+.agent-evidence-scope-search:focus-within { outline: 2px solid var(--app-accent, #087e83); outline-offset: 1px; }
+.agent-evidence-scope-search input:focus-visible { outline: none; }
+.agent-evidence-scope-options { display: grid; gap: 3px; min-width: 0; max-height: 240px; overflow-y: auto; margin-top: 6px; }
+.agent-command-evidence-scope__menu .agent-evidence-scope-options > button { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 42px; padding: 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; box-shadow: none; }
+.agent-evidence-scope-options > button > span { display: grid; min-width: 0; gap: 2px; overflow-wrap: anywhere; }
+.agent-evidence-scope-options code, .agent-evidence-scope-options small { font-size: 10px; color: var(--app-text-muted, #5d6f79); white-space: normal; overflow-wrap: anywhere; }
+.agent-evidence-scope-options > button.is-active, .agent-evidence-scope-options > button:hover { background: var(--app-surface-muted, #f1f5f6); }
+.agent-evidence-scope-options > button[aria-selected=true] { color: var(--app-accent, #087e83); }
+.agent-evidence-scope-status { padding: 6px 3px; margin: 6px 0 0; color: var(--app-text-muted, #5d6f79); font-size: 11px; }
+.agent-evidence-scope-status > p { margin-top: 0; }
+.agent-command-evidence-scope__menu button:focus-visible { outline: 2px solid var(--app-accent, #087e83); outline-offset: -2px; }
+@media (max-width: 640px) { .agent-command-evidence-scope__menu .agent-evidence-scope-search input { font-size: 16px; } }
 .agent-activity-event .llm-trace-detail { margin-top: 12px; }
 
 .agent-command-evidence-scope > summary { gap: 6px; border: 1px solid var(--line, #dcdfe4); border-radius: 7px; background: transparent; color: var(--text-primary, #172b4d); font: inherit; font-size: .76rem; list-style: none; }
@@ -1639,3 +1669,29 @@ html body .agent-outcome-panel { min-width: 0; padding: 24px; border: 1px solid 
 
 .agent-automation-browser-options { display: grid; gap: 12px; }
 .agent-automation-browser-options input[type=url] { width: 100%; min-width: 0; }
+
+/* Outcome sections describe the actual assessment, drafts and completion state. */
+.agent-outcome-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 10px 16px; }
+.agent-outcome-toolbar > span, .agent-outcome-selection-hint, .agent-proposal-provenance { color: var(--app-text-muted, #5d6f79); font-size: 12px; line-height: 1.55; }
+.agent-outcome-toolbar .agent-brief-icon-actions { margin-left: auto; }
+.agent-outcome-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 16px; }
+.agent-outcome-facts > div { min-width: 0; padding: 10px 12px; border: 1px solid var(--line, #dce5e8); border-radius: 8px; }
+.agent-outcome-facts dt { color: var(--app-text-muted, #5d6f79); font-size: 11px; }
+.agent-outcome-facts dd { margin: 6px 0 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.agent-outcome-source-link { justify-self: start; max-width: 100%; padding: 2px 0; border: 0; background: transparent; color: var(--app-accent, #087e83); font: inherit; font-size: 12px; line-height: 1.6; text-align: left; cursor: pointer; white-space: normal; }
+.agent-outcome-source-link:hover { text-decoration: underline; }
+.agent-outcome-source-link:focus-visible { outline: 2px solid var(--app-accent, #087e83); outline-offset: 3px; }
+.agent-outcome-empty { margin: 0; padding: 14px 0; color: var(--app-text-muted, #5d6f79); font-size: 13px; line-height: 1.6; }
+.agent-outcome-panel .agent-outcome-deliverables { padding-bottom: 16px; }
+.agent-outcome-deliverables > h3 { margin: 10px 0 0; font-size: 14px; }
+.agent-outcome-panel .agent-outcome-recommendation-review { padding: 18px 16px; }
+.agent-outcome-sequence > h4 { margin: 18px 0 0; font-size: 13px; }
+.agent-handoff-list details { margin-top: 10px; font-size: 12px; }
+.agent-model-calls { padding: 16px; }
+.agent-model-calls > p { margin: 0; color: var(--app-text-muted, #5d6f79); font-size: 13px; line-height: 1.6; }
+.agent-model-calls .agent-outcome-facts { margin: 0; }
+.agent-model-calls > nav > button { white-space: normal; height: auto; text-align: left; }
+@media (max-width: 700px) {
+  .agent-outcome-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .agent-outcome-toolbar { align-items: flex-start; }
+}

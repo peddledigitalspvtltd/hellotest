@@ -16,7 +16,7 @@ export type WorkflowTemplate = {
   task?: string;
 };
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
-  { id: "sprint-automator", name: "Sprint Automator", category: "Data flow", description: "Read every Story in a Sprint through a managed API connection, assess Stories, generate and assess Test Cases, then produce automation drafts for acceptance." },
+  { id: "sprint-automator", name: "Sprint Automator", category: "Data flow", description: "Read Sprint Stories, generate and assess Test Cases, save them into the Library as AI generated and pending review, and prepare automation when its inputs are ready." },
   {
     id: "foreach",
     name: "Process a list of items",
@@ -107,11 +107,11 @@ export function draftFromTemplate(template: WorkflowTemplate): {
       ["test-case-generation", "artifactTask", { label: "AI Test Case Generator", artifactTask: "test-case-generation" }],
       ["test-case-assurance", "artifactTask", { label: "AI Test Case Quality Assurance", artifactTask: "test-case-assurance" }],
       ["automation-engineer", "artifactTask", { label: "AI Automation Engineer", artifactTask: "automation-engineer" }],
-      ["sprint-output", "output", { label: "Review Sprint drafts" }],
+      ["sprint-output", "output", { label: "Sprint results and Library cases" }],
     ];
     draft.nodes = definitions.map(([id, kind, data], index) => ({ id, type: "agenticStep", position: { x: 80 + index * 310, y: 140 }, data: { ...buildNodeDefaults(kind as Parameters<typeof buildNodeDefaults>[0], index), ...data } }));
     draft.edges = draft.nodes.slice(1).map((node, index) => createFlowEdge(draft.nodes[index].id, node.id));
-    draft.settings = { execution_mode: "review", maxDurationMs: 3600000 };
+    draft.settings = { execution_mode: "review", maxDurationMs: 3600000, template_id: "sprint-automator", library_publication_mode: "automatic", requires_human_review: false, processing_mode: "sequential" };
     return { draft, input: JSON.stringify({ sprint_id: "", integration_id: "", max_cases_per_story: 5, authoring_mode: "structured", automation_start_url: "", generation_instructions: "" }, null, 2) };
   }
   if (["foreach", "custom"].includes(template.id)) {

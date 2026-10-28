@@ -20,7 +20,11 @@ type AgenticApiAgentTestInput = {
 };
 
 export type AgentProposalReceipt = { id: string; kind: 'story' | 'test_case' | 'defect' | 'run' | 'automation'; updated: boolean; proposal_index: number; saved: boolean; reused?: boolean };
+export type AgentEvidenceScopeOption = { id: string; label: string; description?: string };
 export const agenticApi = {
+  evidenceScope: {
+    options: (query: { project_id: string; app_type_id?: string; field: string; search?: string; limit?: number; story_id?: string; test_case_id?: string; execution_id?: string; release_id?: string; sprint_id?: string }, options?: { signal?: AbortSignal }) => request<{ items: AgentEvidenceScopeOption[]; has_more: boolean }>(`/agentic-workflows/evidence-scope/options${toQueryString(query)}`, { signal: options?.signal, cache: 'no-store' }),
+  },
   agentProposals: {
     list: (sessionId: string) => request<Array<{ proposal_index: number; receipt: AgentProposalReceipt }>>(`/agentic-assistant/sessions/${encodeURIComponent(sessionId)}/proposals`, { cache: 'no-store' }),
     accept: (sessionId: string, input: { index: number; artifact: AgentStructuredArtifact; app_type_id?: string }) => request<AgentProposalReceipt>(`/agentic-assistant/sessions/${encodeURIComponent(sessionId)}/proposals/accept`, { method: 'POST', body: JSON.stringify(input) })
@@ -220,8 +224,10 @@ agenticWorkflows: {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    readiness: (id: string, targetNodeId?: string) =>
-      request<AgenticWorkflowReadiness>(`/agentic-workflows/${encodeURIComponent(id)}/readiness${toQueryString({ target_node_id: targetNodeId })}`, { cache: "no-store" }),
+    readiness: (id: string, targetNodeId?: string, inputPayload?: Record<string, unknown>) =>
+      inputPayload === undefined
+        ? request<AgenticWorkflowReadiness>(`/agentic-workflows/${encodeURIComponent(id)}/readiness${toQueryString({ target_node_id: targetNodeId })}`, { cache: "no-store" })
+        : request<AgenticWorkflowReadiness>(`/agentic-workflows/${encodeURIComponent(id)}/readiness`, { method: "POST", body: JSON.stringify({ target_node_id: targetNodeId, input_payload: inputPayload }), cache: "no-store" }),
     execute: (id: string, input: { request_id: string; input_payload: Record<string, unknown>; target_node_id?: string }) =>
       request<AgenticWorkflowRun>(`/agentic-workflows/${encodeURIComponent(id)}/executions`, { method: "POST", body: JSON.stringify(input) }),
     acceptWorkflowDraft: (id: string, input: { node_id: string; story_index: number; case_index: number; kind: "manual" | "automation" }) =>

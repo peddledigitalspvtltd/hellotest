@@ -151,6 +151,10 @@ async function accessControlPlugin(fastify) {
         throw createError("This account is suspended", 403);
       }
 
+      if (!await featureFlagService.areEnabled(["hellotest.api.keys"], { user })) {
+        throw Object.assign(createError("API key access is disabled for the workspace.", 403), { code: "FEATURE_DISABLED" });
+      }
+
       req.user = user;
       req.apiKey = apiKey;
       req.authMethod = "api_key";
