@@ -3,7 +3,10 @@ FROM node:20-alpine AS build
 WORKDIR /app/services/platform/frontend
 
 COPY services/platform/frontend/package.json services/platform/frontend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# Avoid esbuild's install-time binary rewrite/exec (ETXTBSY on Docker).
+# Keep its platform package and validate the native API after npm exits.
+RUN npm ci --ignore-scripts --include=optional --no-audit --no-fund \
+    && node -e "const esbuild = require('esbuild'); esbuild.transformSync('const value: number = 1', { loader: 'ts' }); console.log('Verified esbuild ' + esbuild.version);"
 
 COPY services/platform/frontend .
 COPY services /app/services
