@@ -59,8 +59,11 @@ const compactText = (value, max = 4000) => String(value ?? "").replace(/[\u0000-
 const uniqueStrings = (value, max = 100, itemMax = 255) => [...new Set(asArray(value).filter(item => typeof item === "string").map(item => compactText(item, itemMax)).filter(Boolean))].slice(0, max);
 const boundedInt = (value, fallback, min, max) => Number.isFinite(Number(value)) ? Math.max(min, Math.min(max, Math.floor(Number(value)))) : fallback;
 const hash = value => createHash("sha256").update(String(value ?? "")).digest("hex");
-// Bound evidence with UTF-8 bytes; no tokenizer-specific undercount can exceed the ceiling.
-const estimateTokens = value => Buffer.byteLength(String(value ?? ""), "utf8");
+// This contract exposes token budgets, rather than byte budgets. Counting each
+// byte as a token left ordinary native records with only a JSON prefix after
+// protocol metadata. Keep a conservative estimate; provider limits and actual
+// usage remain enforced/recorded at the shared model boundary.
+const estimateTokens = value => Math.ceil(Buffer.byteLength(String(value ?? ""), "utf8") / 3);
 const iso = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
 const contractFields = type => ({
   contract_type: type,
@@ -342,7 +345,9 @@ const buildContextPacket = ({ retrievalRequest, interpretedRequest, evidence, re
       truncated = true;
       tokenTruncated = true;
       const contentPoints=excerptScope?Array.from(content):null;
-      const cut=length=>contentPoints?contentPoints.slice(0,length).join(''):content.slice(0,length);
+      const nativeJson = item.authoritative_live && !excerptScope;
+      const cut=length=>nativeJson ? require('@hellotest/platform/backend/src/utils/llmContextFallback').compactEvidenceText(content,length)
+        : contentPoints?contentPoints.slice(0,length).join(''):content.slice(0,length);
       const scopeFor=value=>{
         const length=Array.from(value).length;
         const segments=excerptScope.segments.filter(part=>part.content_start<length).map(part=>({...part,content_end:Math.min(length,part.content_end),source_end:part.source_start+Math.min(length,part.content_end)-part.content_start}));

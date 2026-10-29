@@ -33,17 +33,19 @@ const authorizeFreshEvidence = async ({ projectId, user, hits, asOf, signal = ex
   const livePermissions = {
     "project-overview": [], stories: ["requirement.view", "testcase.view"],
     "test-cases": ["testcase.view", "requirement.view", "suite.view", "shared_step.view"], runs: ["run.view", "result.view"],
+    "run-failures": ["run.view", "result.view", "testcase.view", "comment.view", "attachment.view"],
     "execution-context": ["environment.view", "configuration.view"],
     "object-repository": ["automation.view"], bugs: ["feedback.view"]
   };
-  const corePermissions = { stories: ["requirement.view"], "test-cases": ["testcase.view"], runs: ["run.view"], "execution-context": [] };
+  const corePermissions = { stories: ["requirement.view"], "test-cases": ["testcase.view"], runs: ["run.view"], "run-failures": ["run.view", "result.view", "testcase.view"], "execution-context": [] };
   const storySupportPermissions = ['comment.view', 'attachment.view'];
   const permissionAccess = await getOptionalEvidenceAccess(user, projectId, [...new Set([...Object.values(livePermissions).flat(), ...storySupportPermissions])]);
   checkActive();
   for (const hit of live) {
     const sourceId = hit.source_id || hit.citation?.source_id || "";
     const prefix = `live-project-${projectId}-`;
-    const scope = sourceId.startsWith(prefix) ? sourceId.slice(prefix.length) : null;
+    const nativeScope = sourceId.startsWith(prefix) ? sourceId.slice(prefix.length) : null;
+    const scope = /^run-failure-(?:[1-9]|1[0-9]|20)$/.test(nativeScope || '') ? 'run-failures' : nativeScope;
     let requirements = Object.hasOwn(livePermissions, scope) ? livePermissions[scope] : null;
     // Current server snapshots declare the collaborators they actually include.
     // Old or truncated snapshots retain the conservative combined requirements.
@@ -273,7 +275,12 @@ const retrieveDirect = (input) => execution.run({ signal: input.signal || execut
   execution.emit("QUERY_RECEIVED", "completed");
   if (filters.as_of) await knowledgeAuthorization.assertHistoricalAccess(input.user, input.projectId);
   const started = Date.now();
-  const planning = Array.isArray(filters.requested_scopes) && !filters.requested_scopes.length ? {mode:"disabled",plan:null,reason:"NO_REQUESTED_CONTEXT"} : await require("./knowledgeIntentPlanning.service").planIntent({ request, user: input.user,
+  // Exact native record reads already have a host-owned scope and intent. A
+  // second model must not delay or erase that authoritative evidence packet.
+  const scopedNativeRead = Object.keys(filters.evidence_scope || {}).length > 0 && Array.isArray(filters.requested_scopes)
+    && filters.requested_scopes.length > 0;
+  const planning = Array.isArray(filters.requested_scopes) && !filters.requested_scopes.length ? {mode:"disabled",plan:null,reason:"NO_REQUESTED_CONTEXT"}
+    : scopedNativeRead ? {mode:"scoped_native",plan:null,reason:null} : await require("./knowledgeIntentPlanning.service").planIntent({ request, user: input.user,
     integration: input.integration, integrationId: input.integrationId, history: input.history, signal: input.signal || execution.current()?.signal });
   const intentModelCalls = Number(execution.current().modelStats.calls || 0);
   const retrievalRequest = { ...request, budgets: { ...request.budgets,

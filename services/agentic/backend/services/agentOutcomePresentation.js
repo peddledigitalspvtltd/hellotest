@@ -8,7 +8,7 @@ function presentationIssues(candidate, citations = []) {
   const add = (path, issue) => { if (issues.length < 20) issues.push({ path, issue }); };
   if (!record(candidate)) return [{ path: '$', issue: 'object_required' }];
   if (candidate.no_changes_required != null && typeof candidate.no_changes_required !== 'boolean') add('no_changes_required', 'boolean_required');
-  if (!text(candidate.response, 32000)) add('response', 'nonempty_text_required');
+  if (!text(candidate.response, 32000)) add('response', 'nonempty_string_required');
   for (const field of ['headline', 'executive_summary', 'activity_summary']) {
     if (candidate[field] != null && !text(candidate[field], field === 'headline' ? 300 : 2400)) add(field, 'text_required');
   }

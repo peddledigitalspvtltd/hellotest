@@ -107,4 +107,29 @@ const sanitizeAiText = (value) => {
   };
 };
 
-module.exports = { MAX_EXTRACTED_TEXT_CHARS, normalizeText, fingerprint, redactSensitiveData, neutralizePromptInjection, sanitizeAiText };
+// Native identity fields are protocol data, not prose. Mask only canonical
+// UUIDs in declared ID fields while applying the normal policy to the entire
+// serialized packet. The same digits in descriptions still get redacted.
+function sanitizeAiEvidence(value) {
+  let parsed;
+  try { parsed = typeof value === 'string' ? JSON.parse(value) : value; }
+  catch { return sanitizeAiText(value); }
+  const ids = new Map();
+  const canonicalUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const identityField = /^(?:id|(?:project|app_type|story|requirement|test_case|execution|run|result|snapshot_step|step|release|sprint|iteration|suite|entity|target|source_ref)_ids?)$/;
+  const mask = (item, field = '', depth = 0) => {
+    if (depth > 30) return '[Depth limit]';
+    if (typeof item === 'string' && identityField.test(field) && canonicalUuid.test(item)) {
+      const token = `IDENTITY${crypto.randomUUID().replace(/-/g, '')}END`;
+      ids.set(token, item); return token;
+    }
+    if (Array.isArray(item)) return item.map(entry => mask(entry, field, depth + 1));
+    if (item && typeof item === 'object') return Object.fromEntries(Object.entries(item).map(([key, entry]) => [key, mask(entry, key, depth + 1)]));
+    return item;
+  };
+  const result = sanitizeAiText(JSON.stringify(mask(parsed)));
+  for (const [token, id] of ids) result.text = result.text.replaceAll(token, id);
+  return result;
+}
+
+module.exports = { MAX_EXTRACTED_TEXT_CHARS, normalizeText, fingerprint, redactSensitiveData, neutralizePromptInjection, sanitizeAiText, sanitizeAiEvidence };

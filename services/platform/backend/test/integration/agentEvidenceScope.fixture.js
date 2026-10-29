@@ -11,7 +11,12 @@ exports.verify=async()=>{
  assert.equal(foreign.counts.test_cases,0,'An identifier cannot escape the current project/application');
  const result=await require('@hellotest/knowledge/backend/services/knowledgeRetrieval.service').retrieveSearch({projectId:'mcp-p-a',appTypeId:'mcp-app-a',user:actor.user,query:'A visible case',filters:{agent_id:'test-designer',requested_scopes:['test-cases'],evidence_scope:{test_case_id:'mcp-case-a'},source_kinds:['test_case']},budgets:{max_context_tokens:5000,deadline_ms:12000}});
  assert.equal(result.retrieval.context_transport,'mcp');
+ assert.equal(result.retrieval.intent_planning_mode,'scoped_native','An exact native read must not depend on another model planning call');
  assert.equal(result.retrieval.live_context_counts.test_cases,1,'Typed evidence scope must survive MCP, normalization, contract validation and retrieval');
+ const small=await require('@hellotest/knowledge/backend/services/knowledgeRetrieval.service').retrieveSearch({projectId:'mcp-p-a',appTypeId:'mcp-app-a',user:actor.user,query:'Review the exact selected case',filters:{agent_id:'test-designer',requested_scopes:['test-cases','knowledge'],evidence_scope:{test_case_id:'mcp-case-a'}},budgets:{max_context_tokens:2000,deadline_ms:12000}});
+ const snapshots=small.results.filter(item=>item.source_kind==='live_project').map(item=>JSON.parse(item.content));
+ assert.ok(snapshots.some(item=>item.records?.some(row=>row.id==='mcp-case-a')),'The default 2,000-token budget must retain a usable native record rather than a JSON prefix');
+ assert.equal(small.retrieval.intent_planning_mode,'scoped_native','Knowledge-enabled successors use the same exact scoped query without a redundant model planner');
 };
 
 exports.verifyIntersections=async({app,db,headers})=>{

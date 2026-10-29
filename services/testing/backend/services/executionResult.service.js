@@ -45,7 +45,7 @@ const getPrimarySuiteForTestCase = db.prepare(`
 `);
 
 const getExecutionCaseSnapshot = db.prepare(`
-  SELECT test_case_id, test_case_title, suite_id, suite_name
+  SELECT test_case_id, test_case_title, suite_id, suite_name, automated
   FROM execution_case_snapshots
   WHERE execution_id = ? AND test_case_id = ?
 `);
@@ -96,6 +96,9 @@ exports.createExecutionResult = async (data) => {
   }
 
   const snapshotCase = await getExecutionCaseSnapshot.get(execution_id, test_case_id);
+  if (data.require_explicit_start && snapshotCase?.automated === 'yes' && status !== 'pending') {
+    throw lifecycleError('TestEngine records automated case outcomes. Manual result creation is disabled.', 'AUTOMATED_CASE_ENGINE_OWNED');
+  }
 
   // Validate app type
   const appType = await db.prepare(`
@@ -312,6 +315,13 @@ exports.updateExecutionResult = async (id, data) => {
     const execution = await db.prepare(`SELECT * FROM executions WHERE id = ? FOR UPDATE`).get(identity.execution_id);
     const existing = await db.prepare(`SELECT * FROM execution_results WHERE id = ? FOR UPDATE`).get(id);
     if (!existing) throw new Error("Execution result not found");
+
+    if (data.require_explicit_start) {
+      const snapshot = await getExecutionCaseSnapshot.get(existing.execution_id, existing.test_case_id);
+      if (snapshot?.automated === 'yes' && ['status', 'logs', 'duration_ms', 'error'].some(key => data[key] !== undefined && data[key] !== existing[key])) {
+        throw lifecycleError('TestEngine owns automated case results and execution logs. Add comments or attachments to annotate its evidence.', 'AUTOMATED_CASE_ENGINE_OWNED');
+      }
+    }
 
     const currentRevision = assertExpectedRevision(existing.revision, data.expected_revision, "Execution result");
     const status = data.status || existing.status;

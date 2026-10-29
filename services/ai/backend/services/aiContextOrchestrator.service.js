@@ -3,7 +3,7 @@ const db = require("@hellotest/platform/backend/src/db");
 const obsDb = require("@hellotest/platform/backend/src/obsDb");
 const execution = require("@hellotest/knowledge/backend/services/knowledgeExecution.service");
 const permissionService = require("@hellotest/platform/backend/services/permission.service");
-const { sanitizeAiText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
+const { sanitizeAiEvidence } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
 const { storyAiSnapshot } = require("@hellotest/platform/backend/src/utils/aiArtifactContext");
 
 const CONTEXT_SCOPES = Object.freeze(["stories", "test-cases", "automation", "runs", "bugs", "knowledge"]);
@@ -397,7 +397,7 @@ const serializeBoundedEvidence = (content, maxChars = MAX_LIVE_EVIDENCE_CHARS) =
 
 const makeLiveHit = ({ projectId, scope, title, content, score = 0.96 }) => {
   const bounded = serializeBoundedEvidence(content);
-  const sanitized = sanitizeAiText(bounded);
+  const sanitized = sanitizeAiEvidence(bounded);
   const sanitizedText = serializeBoundedEvidence(sanitized.text);
   const contentHash = fingerprint(`${projectId}:${scope}:${sanitizedText}`);
   const chunkId = `live-${scope}-${contentHash}`;
@@ -552,7 +552,9 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
         coverage_policy: canViewCoverage ? "Zero linked Test Cases is uncovered. One linked Test Case is flagged as thin coverage, not automatically sufficient. Domain sufficiency still requires acceptance-boundary review." : "Test Case coverage is unavailable with current access; no coverage conclusion can be drawn.",
         coverage_gaps: canViewCoverage ? coverageGaps.map(story => ({ id: story.id, title: normalizeText(story.title, 180), priority: story.priority })) : [],
         thin_coverage_examples: canViewCoverage ? thinCoverage.map(story => ({ id: story.id, title: normalizeText(story.title, 180), priority: story.priority })) : [],
-        records: selected.map(story => ({ ...storyAiSnapshot(story, { textLimit: 600, itemLimit: 200, listLimit: 4 }), revision: story.revision,
+        records: selected.map(story => ({ ...storyAiSnapshot(story, evidenceScope.story_id
+          ? { textLimit: 6000, itemLimit: 1000, listLimit: 20 }
+          : { textLimit: 600, itemLimit: 200, listLimit: 4 }), revision: story.revision,
           ...(canViewCoverage ? { linked_test_case_count: Number(story.linked_test_case_count || 0) } : {}) }))
       }, null, 2),
       score: liveEvidenceScore(contextRoute, "stories", 0.96)
@@ -565,9 +567,14 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       const placeholders = supportIds.map(() => '?').join(',');
       const canViewComments = await canView('comment.view');
       const canViewAttachments = await canView('attachment.view');
-      const relatedScope = withApp('story', 'related');
+      // The relationship to a selected owner is the scope witness. Requiring
+      // the neighbour to have the owner's ID suppresses all related Stories.
+      const relatedFilter = scoped.predicate('story', 'related', { ...evidenceScope, story_id: undefined });
+      const relatedApp = scoped.applicationPredicate('story', 'related', appTypeId);
+      const relatedScope = { sql: relatedFilter.sql + relatedApp.sql, params: [...relatedFilter.params, ...relatedApp.params] };
       const related = await safeRows(`
-        SELECT owner.id AS story_id, related.id, related.display_id, related.title, related.status, relations.relation
+        SELECT owner.id AS story_id, related.id, related.display_id, related.title,
+          LEFT(related.description, 4000) AS description, related.status, relations.relation
         FROM requirement_relations relations
         JOIN requirements owner ON owner.id IN (${placeholders}) AND owner.project_id = ?
           AND (owner.id = relations.requirement_id OR owner.id = relations.related_requirement_id)
@@ -806,6 +813,11 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       }, null, 2),
       score: liveEvidenceScore(contextRoute, "runs", 0.96)
     }));
+    const failures = await require('./agentFailureEvidence').collect({ projectId, appTypeId,
+      runIds: selected.map(run => run.id), evidenceScope, canView, read: safeRows });
+    for (const [index, failure] of failures.entries()) hits.push(makeLiveHit({ projectId,
+      scope: `run-failure-${index + 1}`, title: `Failed case: ${failure.title}`,
+      content: failure, score: liveEvidenceScore(contextRoute, 'runs', 0.99) }));
     execution.emit("READING_RUNS", "completed", { evidence_count: selected.length,
       message: `Read ${counts.runs} Test Run${counts.runs === 1 ? "" : "s"} and selected ${selected.length} relevant outcome${selected.length === 1 ? "" : "s"}.` });
 

@@ -103,8 +103,9 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
     // indexed queries could consume every slot before the failed run or pinned
     // Story was added, silently losing the very evidence the user selected.
     const remainingCandidates = Math.max(0, budget.limits.max_candidates - candidateCount);
+    const scopedRunDetails = Object.keys(filters.evidence_scope || {}).length > 0 && array(route.live_scopes).includes('runs');
     const liveCandidateBudget = liveEnabled
-      ? Math.min(Math.max(1, array(route.live_scopes).length), Math.max(1, Math.floor(remainingCandidates / 2)), remainingCandidates)
+      ? Math.min(Math.max(scopedRunDetails ? 12 : 1, array(route.live_scopes).length), Math.max(1, Math.floor(remainingCandidates / 2)), remainingCandidates)
       : 0;
     const indexedCandidateBudget = remainingCandidates - liveCandidateBudget;
     if (!budget.consumeRound(queries.length, liveEnabled ? 2 : 1)) break;

@@ -250,8 +250,8 @@ test('worker reuses matching cached analysis and preserves source evidence witho
   const complete = updates.find(update => update.sql.includes('result = ?'));
   assert.equal(complete.args[0], 'completed'); assert.equal(complete.args[6], 'cached-run');
   assert.equal(complete.args[2].findings.test_cases[0].evidence[0].line, 12);
-  assert.equal(review.mock.callCount(), 0, 'Repository extraction does not require a model');
-  assert.equal(complete.args[2].llm_review, undefined);
+  assert.equal(review.mock.callCount(), 1, 'Cached source extraction still requires a fresh model review');
+  assert.equal(complete.args[2].llm_review.session_id, 'fresh-model-review');
   assert.equal(cached.llm_review, undefined, 'A new run must not mutate the cached result');
   assert.ok(complete.sql.includes("lease_token = ? AND status = 'running'"));
 });
@@ -708,7 +708,7 @@ test('mobile publication route enforces mobile API-key scope before invoking pub
   }
 });
 
-test('repository knowledge retains standard source findings when optional model review fails', async t => {
+test('repository knowledge fails explicitly when its model review fails without returning extraction as an AI outcome', async t => {
   scope(t); const updates = []; const cached = result('repository_knowledge');
   t.mock.method(require('../../../agentic/backend/services/agenticAssistant.service'), 'respond', async input => {
     assert.match(input.prompt, /documentation outline/);
@@ -726,11 +726,7 @@ test('repository knowledge retains standard source findings when optional model 
   const current = run({status:'running',agent_type:'repository_knowledge'});
   current.input.llm_integration_id = 'model';
   await service._internals.performRun(current, new AbortController());
-  const final = updates.find(update => update.sql.includes('result = ?'));
-  assert.equal(final.args[0], 'partial');
-  assert.equal(final.args[2].summary.generation_mode, 'deterministic');
-  assert.equal(final.args[2].findings.knowledge.length, 1);
-  assert.equal(final.args[2].llm_review, undefined);
-  assert.ok(final.args[2].warnings.some(warning => warning.code === 'MODEL_REVIEW_UNAVAILABLE'));
-  assert.ok(!JSON.stringify(final.args[2]).includes('private provider failure'));
+  assert.equal(updates.some(update => update.sql.includes('result = ?')),false);
+  assert.ok(updates.some(update => update.sql.includes("SET status = 'failed'")));
+  assert.equal(cached.findings.knowledge.length,1,'Source evidence is retained independently of the failed model run.');
 });

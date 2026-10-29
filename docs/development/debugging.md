@@ -257,6 +257,14 @@ For agent output, compare the specialist's `outputInstructions` in `services/age
 
 The repository inspection agent occupies 4311. Start the host Playwright execution/recorder on 4313 with `local-run/bin/start-host-recorder.sh`. Its `/health` and `/api/v1/capabilities` must identify Playwright support; an inspection-agent listener on 4311 is not an execution engine. The API default is `HELLOTEST_LOCAL_RUN_ENGINE_URL=http://host.docker.internal:4313`, while browser-facing connections use `http://localhost:4313`. Override both runner and API ports together. Test Runs leaves local resolution to the server; it must not point local execution at remote port 4301. Live sessions come from dispatched, project-bound run metadata and include a run ID; they do not fall back to another active browser.
 
+For a hosted API, `host.docker.internal` refers to the deployment host. It cannot reach a browser user's computer. Configure `HELLOTEST_LOCAL_RUN_ENGINE_URL` with a full runner address reachable from the API, and `HELLOTEST_LOCAL_CALLBACK_BASE_URL` with the HelloTest origin reachable from that runner. The callback builder appends `/api/testengine/callbacks/runs`. The runner and API must share the configured TestEngine secret. Pairing the inspection-only agent does not establish this execution connection.
+
+Main schema version 13 freezes each case's `automated` ownership in run snapshots. Apply `npm --prefix services/platform/backend run migrate` before starting an API in verification mode. Manual Start, timer and outcome writes reject engine-owned cases, including cases with no result yet. Comments, attachments and traceability remain separate from engine-owned results.
+
+Queue polling scans past blocked pages and coordinates execution slots across worker classes. Expired leases do not count themselves or other expired jobs as active workers. A dispatch rejection fails the Run explicitly; it must not leave a running receipt with no queued engine job.
+
+Jobs whose parent Run has finished are retained as aborted instead of being leased and rejected forever. Starting an already-leased job rechecks its parent and commits a cancellation receipt if the Run ended before execution began.
+
 For an isolated live-link database check, use `EXECUTION_LIVE_POSTGRES=1 node --test services/automation/test/backend/executionLiveSessions.postgres.test.js` with matching `DATABASE_URL` and `OBS_DATABASE_URL` pointing to an empty disposable database named `agent_verify_live_sessions_*`. The test uses the native schema and verifies project/run isolation, URL sanitization and completed-session removal. Real provider smoke checks must use controlled targets; they do not establish that a customer's saved steps, selectors or target credentials are valid.
 
 ## Automation source, options and callback verification

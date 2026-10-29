@@ -1373,14 +1373,14 @@ async function planExecutionDispatch(execution, options = {}) {
         && Boolean(normalizeApiRequest(stepSnapshot.api_request)?.url)
       );
 
-    if (caseRecord?.automated !== "yes" && !isApiOnlyRunnableCase) {
+    if ((caseSnapshot.automated ?? caseRecord?.automated) !== "yes" && !isApiOnlyRunnableCase) {
       manualCaseCount += 1;
       continue;
     }
 
     automatedCaseCount += 1;
 
-    if (!isApiOnlyRunnableCase && caseRecord.automation_status && caseRecord.automation_status !== "ready") {
+    if (!isApiOnlyRunnableCase && caseRecord?.automation_status && caseRecord.automation_status !== "ready") {
       warnings.push(`${caseSnapshot.test_case_title}: automation is incomplete because a required repository object is missing or still needs review.`);
       if (!allowIncompleteAutomation) {
         unsupportedAutomatedCaseCount += 1;
@@ -2079,13 +2079,15 @@ const arePriorCasesComplete = async (executionId, testCaseId, suiteId, suiteScop
 const getActiveJobCountForPolicy = async (candidate) => {
   const policy = candidate.payload?.execution_policy || {};
   const suiteScoped = Boolean(policy.suite_parallel_override && policy.suite_id);
-  const params = [candidate.execution_id];
+  const params = [candidate.execution_id, candidate.id];
   let query = `
     SELECT payload
     FROM test_engine_jobs
     WHERE execution_id = ?
+      AND id <> ?
       AND completed_at IS NULL
       AND status IN ('leased', 'running')
+      AND (lease_expires_at IS NULL OR lease_expires_at >= CURRENT_TIMESTAMP)
   `;
 
   const result = await obsDb.query(query, params);
@@ -2099,7 +2101,24 @@ const getActiveJobCountForPolicy = async (candidate) => {
   }).length;
 };
 
+const queuedJobParentState = async candidate => {
+  const parent = await db.prepare('SELECT status, ended_at FROM executions WHERE id = ?').get(candidate.execution_id);
+  if (!parent || parent.ended_at || !['queued','running','retrying'].includes(parent.status)) {
+    await obsDb.prepare(`UPDATE test_engine_jobs SET status = 'aborted', completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
+      lease_expires_at = NULL, leased_by = NULL, updated_at = CURRENT_TIMESTAMP,
+      last_error = 'The parent Run is finished or unavailable; queued work was cancelled.' WHERE id = ?`).run(candidate.id);
+    return 'finished';
+  }
+  return parent.status === 'queued' ? 'waiting' : 'active';
+};
+
 const isQueuedJobLeaseEligible = async (candidate) => {
+  // Serial/parallel limits span all worker classes. Coordinate on the run as
+  // well as locking job rows so two workers cannot both observe a free slot.
+  const lock = await obsDb.prepare("SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0)) AS acquired")
+    .get(`testengine-lease:${candidate.execution_id}`);
+  if (!lock?.acquired) return false;
+  if (await queuedJobParentState(candidate) !== 'active') return false;
   const payload = normalizeJsonValue(candidate.payload, {});
   const policy = payload?.execution_policy || {};
   const parallelEnabled = normalizeBoolean(policy.parallel_enabled, false);
@@ -2148,12 +2167,25 @@ const attachPriorCapturesForLease = async (job) => {
   };
 };
 
+// A blocked serial case must not hide runnable jobs in other executions behind
+// the first page. Cursor order matches the locked SQL order, including ties.
+const scanEligibleJobs = async (readPage, isEligible) => {
+  let cursor = null;
+  while (true) {
+    const rows = await readPage(cursor);
+    for (const row of rows) if (await isEligible(row)) return row;
+    if (rows.length < 50) return null;
+    const last = rows[rows.length - 1];
+    cursor = { created_at: last.created_at, id: last.id };
+  }
+};
+
 const leaseNextQueuedJobTransaction = obsDb.transaction(async ({ worker_id, engine_host, lease_seconds, engine_class } = {}) => {
   const normalizedWorkerId = normalizeText(worker_id) || "testengine-worker";
   const normalizedEngineHost = normalizeEngineHostUrl(engine_host);
   const normalizedEngineClass = normalizeEngineClass(engine_class, null);
   const safeLeaseSeconds = Math.max(30, Number(lease_seconds) || DEFAULT_LEASE_SECONDS);
-  const findCandidate = async (scopedEngineHost = null) => {
+  const findCandidate = async (scopedEngineHost = null) => scanEligibleJobs(async cursor => {
     const params = [];
     let query = `
       SELECT *
@@ -2179,17 +2211,15 @@ const leaseNextQueuedJobTransaction = obsDb.transaction(async ({ worker_id, engi
       params.push(scopedEngineHost);
     }
 
+    if (cursor) {
+      query += ` AND (created_at, id) > (?, ?)`;
+      params.push(cursor.created_at, cursor.id);
+    }
     query += ` ORDER BY created_at ASC, id ASC LIMIT 50 FOR UPDATE SKIP LOCKED`;
 
     const result = await obsDb.query(query, params);
-    for (const row of result.rows) {
-      if (await isQueuedJobLeaseEligible(row)) {
-        return row;
-      }
-    }
-
-    return null;
-  };
+    return result.rows;
+  }, isQueuedJobLeaseEligible);
 
   let row = await findCandidate(normalizedEngineHost);
 
@@ -2361,6 +2391,10 @@ exports.startQueuedJob = withQueuedJobLock(async ({ job_id, worker_id } = {}) =>
   if (receipt) throw Object.assign(new Error("Finished jobs cannot start another execution."), {
     code: "TESTENGINE_JOB_FINISHED", statusCode: 409, receipt
   });
+  const parentState = await queuedJobParentState(job);
+  // Commit the cancellation receipt. Throwing here would roll it back, leaving
+  // the same stale job to be leased and rejected on every poll indefinitely.
+  if (parentState !== 'active') return {job_id:job.id,status:parentState === 'finished'?'aborted':'queued',reason:'PARENT_RUN_NOT_RUNNING'};
   const normalizedWorkerId = normalizeText(worker_id) || job.leased_by || "testengine-worker";
   const leaseExpiresAt = new Date(Date.now() + DEFAULT_LEASE_SECONDS * 1000).toISOString();
   const runtimeState = parseRuntimeState(job.runtime_state);
@@ -2943,6 +2977,7 @@ exports.failQueuedJob = async ({ job_id, message } = {}) => {
 };
 
 exports.getQueuedJob = getQueuedJob;
+exports._internals = { scanEligibleJobs };
 exports.planExecutionDispatch = planExecutionDispatch;
 exports.queueExecutionDispatch = queueExecutionDispatch;
 exports.runExecutionDirectLocal = runExecutionDirectLocal;

@@ -3671,6 +3671,7 @@ export type KnowledgeOverview = {
 };
 
 export type ExecutionCaseSnapshot = {
+  automated?: "yes" | "no" | null;
   test_data_options?: TestDataOptions;
   expected_iterations?: number;
   execution_id: string;

@@ -19,6 +19,9 @@ async function applyCaseLifecycle(input, actorId, ensureOnly = false) {
     const frozenExecution = await executionService.getExecution(input.execution_id, true);
     const snapshot = frozenExecution.case_snapshots?.find(row => row.test_case_id === input.test_case_id);
     if (!snapshot) throw lifecycleError("The case is not part of this run's frozen scope.", "CASE_NOT_IN_RUN", 404);
+    if (!ensureOnly && snapshot.automated === 'yes') {
+      throw lifecycleError('TestEngine owns this automated case. Inspect its queued job or engine result instead of starting or marking it manually.', 'AUTOMATED_CASE_ENGINE_OWNED');
+    }
     const keyIndex = typeof input.data_set_iteration_key === "string" ? Number(input.data_set_iteration_key.match(/:(\d+)$/)?.[1]) - 1 : null;
     const requestedIndex = input.data_set_iteration_index ?? (Number.isInteger(keyIndex) && keyIndex >= 0 ? keyIndex : null);
     const iteration = executionService.resolveExecutionCaseDataSetIteration(frozenExecution, snapshot, requestedIndex);

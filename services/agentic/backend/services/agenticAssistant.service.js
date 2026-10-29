@@ -3,6 +3,7 @@ const { getOptionalEvidenceAccess } = require("@hellotest/platform/backend/servi
 const crypto = require("crypto");
 const artifacts = require("./agentArtifacts");
 const presentation = require("./agentOutcomePresentation");
+const responseContract = require("./agentResponseContract");
 const agentRegistry = require("../agents/agentRegistry.service");
 const agentContract = require("../agents/agentDefinition");
 const { policy: specialistPolicy, instructionFor } = require("../workflows/specialistPolicy");
@@ -16,7 +17,7 @@ const workspaceTransactionService = require("@hellotest/platform/backend/service
 const aiContextOrchestrator = require("@hellotest/ai/backend/services/aiContextOrchestrator.service");
 const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llmHttpClient");
 const { getCompletionContent: completionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
-const { sanitizeAiText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
+const { sanitizeAiText, sanitizeAiEvidence } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
 const execution = require("@hellotest/knowledge/backend/services/knowledgeExecution.service");
 const evidenceScopes = require("@hellotest/platform/backend/src/utils/agentEvidenceScopeSql");
 
@@ -200,7 +201,7 @@ function outputErrorIssues(error) {
     ? 'valid_json_object_required' : 'native_artifact_fields_or_references_invalid' }];
 }
 
-const normalizeResult = (candidate, fallback, citations = [], { allowUncited = false, artifactTargets = [], requireMetadata = false, testCaseTypes } = {}) => {
+const normalizeResult = (candidate, fallback, citations = [], { allowUncited = false, artifactTargets = [], requireMetadata = false, testCaseTypes, pinnedStoryId } = {}) => {
   if (presentation.presentationIssues(candidate, citations).length) return fallback;
   const evaluation = toPlainRecord(candidate?.evaluation);
   const recommendations = Array.isArray(candidate?.recommendations) ? candidate.recommendations : [];
@@ -230,7 +231,7 @@ const normalizeResult = (candidate, fallback, citations = [], { allowUncited = f
     activity_summary: normalizeText(candidate?.activity_summary, 2_000) || "",
     findings,
     deliverables,
-    artifacts: artifacts.normalizeArtifacts(candidate.artifacts, citations, artifactTargets, { requireMetadata, testCaseTypes }),
+    artifacts: artifacts.normalizeArtifacts(candidate.artifacts, citations, artifactTargets, { requireMetadata, testCaseTypes, pinnedStoryId }),
     ...presentation.normalizePresentation(candidate),
     no_changes_required: candidate.no_changes_required === true,
     recommendations: recommendations.map((item) => normalizeText(item, 1_200)).filter(Boolean).slice(0, 8),
@@ -266,6 +267,7 @@ const buildEvidenceReadiness = ({ context, contextRoute, limitations = [] }) => 
     ["authoritative_live_story_snapshot", "stories"],
     ["authoritative_live_test_case_snapshot", "test-cases"],
     ["authoritative_live_execution_snapshot", "runs"],
+    ["authoritative_live_execution_failures", "runs"],
     ["authoritative_live_execution_context", "runs"],
     ["authoritative_live_bug_snapshot", "bugs"],
     ["authoritative_live_object_repository_snapshot", "automation"]
@@ -511,10 +513,25 @@ const buildBoundedAgentPromptPayload = ({ mode, prompt, context, citations, cont
 };
 
 const requestLlmResult = async ({ user, projectId, integration, agent, mode, prompt, context, citations, history, contextRoute, knowledgeRetrieval, promptPayload, deadline = Date.now() + MODEL_TIMEOUT_MS, repair = false, budget = { used: 0, max: 2 } }) => {
+  if (Object.keys(evidenceScopes.normalize(contextRoute?.evidence_scope)).length) {
+    const scopedEvidence = Object.values(context).flat().some(item => {
+      const kind = item?.source_kind || item?.citation?.source_kind;
+      if (!kind || ['task_input', 'workflow_input', 'task_context'].includes(kind)) return false;
+      if (kind !== 'live_project') return Boolean(item.content?.trim());
+      try {
+        const snapshot = JSON.parse(item.content);
+        return Boolean(snapshot.records?.length || snapshot.result_id || Number(snapshot.returned_records) > 0 || Number(snapshot.total_records) > 0);
+      } catch { return false; }
+    });
+    if (!scopedEvidence) throw Object.assign(agentError('The selected evidence could not be retrieved in the current project and application. Refresh the scope or check source access before retrying.', 422), {
+      code: 'AGENT_EVIDENCE_UNAVAILABLE', statusCode: 422
+    });
+  }
   const messages = [
     {
       role: "system",
       content: [
+        JSON.stringify({ agent_intent: { name: agent.name, objective: agent.objective, deliverable: agent.outputInstructions }, response_schema: responseContract.schema }),
         agent.customObjective || "",
         agent.instructions || "",
         ...(agent.skills || []).map(skill => [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.2"),String(skill.name),": ",String(instructionFor(skill,agent.configurationKey)),""].join('')),
@@ -798,6 +815,10 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
   if (!projectId || !normalizedPrompt) throw agentError("project_id and prompt are required");
   if (!await permissionService.hasPermission(user, "agentic_workflow.run", projectId)) throw agentError("Permission required: agentic_workflow.run", 403);
   await projectService.getProject(projectId, user?.id);
+  if (appTypeId) {
+    const app = await appTypeService.getAppType(appTypeId);
+    if (!app || app.project_id !== projectId) throw agentError('The selected application does not belong to this project.', 403);
+  }
   if (integration_id && !await permissionService.hasPermission(user,'integration.view',projectId)) throw agentError('Model selection requires integration access.',403);
   const registered = workflow_policy?.agent_definition || (String(agent_id || "").startsWith("agent-") ? await agentRegistry.resolve(agent_id, agent_version, projectId) : null);
   if (agent_id && !registered && !AGENT_CATALOG[agent_id]) throw agentError("Choose a supported workspace specialist.");
@@ -819,6 +840,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
   const configuration = require('@hellotest/platform/backend/services/aiConfiguration.service');
   const governedProfile = await configuration.resolve(configuration.featureId(agent.configurationKey, 'ai.agentic.workflow'));
   const executionPolicy = governedProfile.config.agent_execution || configuration.catalog.find(item => item.id === 'ai.agentic.workflow').defaults.agent_execution;
+  agent.outputInstructions = governedProfile.config.prompt;
   agent.limits = {
     ...agent.limits,
     max_model_calls: Math.min(agent.limits.max_model_calls, executionPolicy.max_model_calls),
@@ -966,14 +988,14 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       context_route: contextRoute
     };
     if (workflow_policy?.connected_input && Object.keys(workflow_policy.connected_input).length) {
-      const supplied = sanitizeAiText(JSON.stringify(workflow_policy.connected_input || {}).slice(0, 16000));
+      const supplied = sanitizeAiEvidence(JSON.stringify(workflow_policy.connected_input || {}).slice(0, 16000));
       context.workflow_input = [{ id: "K-workflow-input", title: "Supplied workflow input (unverified)",
         content: supplied.text, risk_flags: supplied.risk_flags,
         citation: { id: "K-workflow-input", label: "Supplied workflow input (unverified)", source_kind: "workflow_input" },
       }];
     }
     if (!workflow_policy.connected_input && Object.keys(runtimeInputs).length) {
-      const inputSnapshot = sanitizeAiText(JSON.stringify(runtimeInputs).slice(0, 16000));
+      const inputSnapshot = sanitizeAiEvidence(JSON.stringify(runtimeInputs).slice(0, 16000));
       context.task_input = [{ id: "K-task-input", title: "Supplied task scope (unverified)", content: inputSnapshot.text, citation: { id: "K-task-input", label: "Supplied task scope (unverified)", source_kind: "task_input" } }];
     }
     if (policy.context) {
@@ -1126,7 +1148,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         outcome_preview: Object.fromEntries(['headline', 'executive_summary', 'findings', 'artifacts', 'sections', 'tables', 'charts'].map(key => [key, currentResult[key]])) });
     };
     let result = baseline, modelObservation = null, repairPatch = null, contextReductionUsed = false;
-    let revisionRound = 0, outcomeRevisionRounds = 0, previousCandidate = null, previousRejectedHash = null;
+    let revisionRound = 0, outcomeRevisionRounds = 0, previousCandidate = null, previousRejectedHash = null, lastOutputIssues = [];
     const rejectedHashes = new Set();
     while (budget.used < budget.max && Date.now() < deadline && revisionRound <= executionPolicy.max_revision_rounds) {
       const repair = revisionRound > 0;
@@ -1144,7 +1166,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         const explicitAbstention = !candidate.findings?.length && !candidate.deliverables?.length && candidate.evidence_gaps?.length > 0;
         const candidateCitations = candidate._suppliedEvidenceIds ? suppliedCitations.filter(citation => candidate._suppliedEvidenceIds.has(citation.id)) : suppliedCitations;
         issues = presentation.presentationIssues(candidate, candidateCitations);
-        result = normalizeResult(candidate, baseline, candidateCitations, { allowUncited: explicitAbstention || agent.acceptance.require_evidence === false, artifactTargets, requireMetadata: true, testCaseTypes });
+        result = normalizeResult(candidate, baseline, candidateCitations, { allowUncited: explicitAbstention || agent.acceptance.require_evidence === false, artifactTargets, requireMetadata: true, testCaseTypes, pinnedStoryId:evidenceScope.story_id });
         if (result === baseline && !issues.length) issues = [{ path: 'citation_ids', issue: 'only_supplied_evidence_may_support_nonempty_claims' }];
         if (result !== baseline) {
           const outcomeIssues = artifacts.outcomeIssues(result, outcomeContract).filter(issue => outcomeContract.mode === 'author'
@@ -1161,6 +1183,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         issues = outputErrorIssues(failure);
       }
       if (result !== baseline) break;
+      lastOutputIssues = issues;
       previousCandidate = candidate || null;
       previousRejectedHash = previousCandidate ? fingerprint(previousCandidate) : null;
       if (previousRejectedHash && rejectedHashes.has(previousRejectedHash)) break;
@@ -1169,8 +1192,8 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       boundedPayload.revision_feedback = revisionFeedback(previousCandidate, issues, revisionRound);
       if (budget.used < budget.max && revisionRound <= executionPolicy.max_revision_rounds) await appendEvent(transactionId, { level: "warning", phase: "outcome.revision", message: "The outcome needs a correction. The agent is receiving the specific contract issues.", details: { revision_round: revisionRound, issues, model_calls: budget.used, model_max_calls: budget.max, progress: 72 } });
     }
-    if (result === baseline) throw agentContract.fail("The model did not return a valid result with permitted evidence references. No fallback answer was produced.", "AGENT_OUTPUT_INVALID");
-    const followupPlan = ((registered || !policy.custom_task) ? artifacts.planFollowups(normalizedAgentId, requestedScopes, result) : []).slice(0, executionPolicy.max_followups);
+    if (result === baseline) throw responseContract.invalidOutput(lastOutputIssues);
+    const followupPlan = ((registered || !policy.custom_task) ? artifacts.planFollowups(normalizedAgentId, requestedScopes, result, {refineExisting:outcomeContract.refine_existing_proposals}) : []).slice(0, executionPolicy.max_followups);
     result.outcome_contract = outcomeContract;
     result.evidence_scope = evidenceScope;
     const primaryReview = {agent_id:normalizedAgentId,summary:result.executive_summary,findings:result.findings,recommendations:result.recommendations,evidence_gaps:result.evidence_gaps};
@@ -1182,6 +1205,11 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       const followupId = handoff.agent_id;
       const profile=specialistProfiles[followupId];
       const handoffFindings = primaryReview.findings.filter(finding => handoff.finding_ids.includes(finding.id));
+      const previousProposals = (result.artifacts || []).filter(artifact => artifact.kind === handoff.kind);
+      // A required refinement must succeed before its drafts can be approved.
+      // Keep the original review visible, but never substitute an earlier draft
+      // when the successor fails or the run exhausts its budget.
+      if (handoff.refine_existing) result.artifacts = (result.artifacts || []).filter(artifact => artifact.kind !== handoff.kind);
       if (budget.used >= budget.max || Date.now()+5000 >= deadline || (result.artifacts?.length || 0) >= 8) {
         result.agent_chain.push({agent_id:followupId,name:profile.name,status:"needs_input",kind:handoff.kind,reason:handoff.reason,detail:"The run reached its model-call, time or proposal limit before this follow-up could execute."});
         continue;
@@ -1213,7 +1241,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         const handoffPayload = JSON.parse(buildBoundedAgentPromptPayload({ mode: normalizedMode, prompt: normalizedPrompt, context: successorContext, citations: successorCitations, contextRoute: successorRoute, knowledgeRetrieval: fresh.retrieval }));
         let revalidatedFindings = handoffFindings;
         handoffPayload.previous_specialist_review = { agent_id: normalizedAgentId, findings: handoffFindings, provenance: 'untrusted_prior_model_review' };
-        handoffPayload.completed_proposals = (result.artifacts || []).filter(artifact => artifact.kind === handoff.kind);
+        handoffPayload.completed_proposals = [...(result.artifacts || []), ...(handoff.refine_existing ? previousProposals : [])];
         handoffPayload.requested_outcome = { ...handoff, max_artifacts: 8 - (result.artifacts?.length || 0) };
         if (['test_case', 'automation'].includes(handoff.kind)) handoffPayload.application_contract = { test_case_types: await loadCaseTypes() };
         const successorIds = new Set(Object.values(handoffPayload.bounded_workspace_context).flat().map(item => item.citation?.id || item.id));
@@ -1225,7 +1253,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         handoffPayload.test_case_targets = successorTargets.filter(target => target.kind === 'test_case');
         const successorPolicy = specialistPolicy({ agentId: followupId });
         const followupIntegration = integration_id ? integration : await agentRegistry.resolveModel(projectId, user?.id, definition?.integration_id, `ai.agentic.${followupId}`);
-        const successorAgent = { configurationKey: `ai.agentic.${followupId}`, name: profile.name, objective: profile.description, outputInstructions: profile.outputInstructions,
+        const successorAgent = { configurationKey: `ai.agentic.${followupId}`, name: profile.name, objective: profile.description, outputInstructions: successorConfiguration.prompt,
           instructions: aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.successor"), skills: successorPolicy.skills, guardrails: successorPolicy.guardrails, acceptance: { require_evidence: true }, limits: { max_model_calls: successorExecution.max_model_calls, max_output_tokens: Math.min(agent.limits.max_output_tokens, successorConfiguration.max_output_tokens) } };
         const successorContract = { ...artifacts.outcomeContract(followupId), context_scopes: successorScopes };
         handoffPayload.outcome_contract = successorContract;
@@ -1239,7 +1267,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
             candidate = await requestLlmResult({user,projectId,integration:followupIntegration,agent:successorAgent,mode:normalizedMode,prompt:normalizedPrompt,context:successorContext,citations:successorSupplied,history:[],contextRoute:successorRoute,knowledgeRetrieval:fresh.retrieval,promptPayload:JSON.stringify(handoffPayload),deadline:successorDeadline,budget,repair:correction > 0});
             contextReductionUsed ||= Boolean(candidate._model?.context_reduced);
             const retainedCitations = candidate._suppliedEvidenceIds ? successorSupplied.filter(citation=>candidate._suppliedEvidenceIds.has(citation.id)) : successorSupplied;
-            next = normalizeResult(candidate,baseline,retainedCitations,{artifactTargets:successorTargets,requireMetadata:true,testCaseTypes});
+            next = normalizeResult(candidate,baseline,retainedCitations,{artifactTargets:successorTargets,requireMetadata:true,testCaseTypes,pinnedStoryId:evidenceScope.story_id});
             revalidatedFindings = handoffFindings.map(original => {
               const reviewed = next.findings?.find(finding => finding.id === original.id);
               return reviewed ? {...original,...reviewed,artifact_kind:original.artifact_kind,requires_proposal:original.requires_proposal} : original;
@@ -1269,8 +1297,9 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         }
         suppliedCitations = [...new Map([...suppliedCitations, ...successorSupplied].map(citation => [citation.id, citation])).values()];
         citations.push(...successorSupplied.filter(citation => !citations.some(existing => existing.id === citation.id)));
-        if(next===baseline||!next.artifacts?.length||next.artifacts.some(a=>a.kind!==handoff.kind)||(result.artifacts?.length||0)+next.artifacts.length>8)throw Object.assign(new Error("The follow-up returned no complete structured proposals addressing its findings."),{code:"AI_INVALID_RESPONSE"});
-        result.artifacts=[...(result.artifacts||[]),...next.artifacts];authoredRecommendations.push(...next.recommendations);completedKinds.push(handoff.kind);result.deliverables=[...(result.deliverables||[]),...(next.deliverables||[])].slice(0,20);
+        const retainedArtifacts = (result.artifacts || []).filter(artifact => !handoff.refine_existing || artifact.kind !== handoff.kind);
+        if(next===baseline||!next.artifacts?.length||next.artifacts.some(a=>a.kind!==handoff.kind)||retainedArtifacts.length+next.artifacts.length>8)throw Object.assign(new Error("The follow-up returned no complete structured proposals addressing its findings."),{code:"AI_INVALID_RESPONSE"});
+        result.artifacts=[...retainedArtifacts,...next.artifacts];authoredRecommendations.push(...next.recommendations);completedKinds.push(handoff.kind);result.deliverables=[...(result.deliverables||[]),...(next.deliverables||[])].slice(0,20);
         result.findings = result.findings.map(finding => revalidatedFindings.find(reviewed => reviewed.id === finding.id) || finding);
         result.citation_ids=[...new Set([...result.citation_ids,...next.citation_ids])];
         result.evidence_gaps=[...new Set([...result.evidence_gaps,...next.evidence_gaps])].slice(0,8);
@@ -1289,7 +1318,9 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     result.readiness = buildEvidenceReadiness({ context, contextRoute, limitations });
     result.evidence_gaps = [...new Set([...(result.evidence_gaps || []), ...result.readiness.limitations])].slice(0, 8);
     result.verification = agentContract.verify(result, suppliedCitations, agent.acceptance);
-    const outcomeIssues = artifacts.outcomeIssues(result, outcomeContract);
+    const finalOutcomeContract = {...outcomeContract, supplemental_artifact_kinds: [...new Set(completedKinds)]};
+    const outcomeIssues = artifacts.outcomeIssues(result, finalOutcomeContract);
+    result.outcome_contract = finalOutcomeContract;
     result.outcome_issues = outcomeIssues;
     result.verification.checks.push({ id: 'declared_outcome', passed: !outcomeIssues.length, label: 'The declared agent outcome has complete proposals or an evidence-backed no-change conclusion.' });
     if (outcomeIssues.length) {
@@ -1385,12 +1416,12 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       phase: "failed",
       message: execution.current()?.signal?.aborted ? "The review was cancelled or exceeded its deadline." : "The agent review could not be completed. Retry the review.",
       status: "failed",
-      metadata: { progress: 100, failure: true, error_code: error.code || "AGENT_EXECUTION_FAILED", error_message: error.publicMessage || "The model review failed.", cancelled: Boolean(execution.current()?.signal?.aborted) },
+      metadata: { progress: 100, failure: true, error_code: error.code || "AGENT_EXECUTION_FAILED", error_message: error.publicMessage || "The model review failed.", validation_errors: error.validation_errors || [], cancelled: Boolean(execution.current()?.signal?.aborted) },
       details: { progress: 100 }
     }).catch(() => null);
     await workspaceTransactionService.updateTransaction(transactionId, {
       status: "failed", completed_at: new Date().toISOString(),
-      metadata: { progress: 100, failure: true, error_code: error.code || "AGENT_EXECUTION_FAILED", error_message: error.publicMessage || "The model review failed.", cancelled: Boolean(execution.current()?.signal?.aborted) }
+      metadata: { progress: 100, failure: true, error_code: error.code || "AGENT_EXECUTION_FAILED", error_message: error.publicMessage || "The model review failed.", validation_errors: error.validation_errors || [], cancelled: Boolean(execution.current()?.signal?.aborted) }
     }).catch(() => null);
     throw error;
   } finally { await automationBrowser?.close(); }

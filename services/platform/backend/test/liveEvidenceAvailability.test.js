@@ -11,6 +11,16 @@ const agent = require("../../../agentic/backend/services/agenticAssistant.servic
 const actor = { id: "reviewer" };
 const projectId = "project-one";
 
+test('native UUID identity survives redaction while identical prose numbers and secrets remain redacted', () => {
+  const id = '12345678-1234-4234-8234-123456789012';
+  const hit = orchestrator._internals.makeLiveHit({projectId,scope:'stories',title:'Story',content:{
+    evidence_type:'authoritative_live_story_snapshot',records:[{id,revision:3,description:`Contact ${id}. password=private-secret-value`}]}});
+  const snapshot = JSON.parse(hit.content);
+  assert.equal(snapshot.records[0].id,id);
+  assert.doesNotMatch(snapshot.records[0].description,/private-secret-value|123456789012/);
+  assert.match(snapshot.records[0].description,/REDACTED/);
+});
+
 function fixture(t, { grants, flags = {}, support = false }) {
   const queries = [];
   const access = new Set(["knowledge.view", ...grants]);

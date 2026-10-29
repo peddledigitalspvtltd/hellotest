@@ -34,6 +34,7 @@ const compactEvidenceText = (value, maximum = 500) => {
   if (typeof value !== 'string' || value.length <= maximum) return value;
   let parsed;
   try { parsed = JSON.parse(value); } catch { return boundedText(value, maximum); }
+  if (String(parsed?.evidence_type || '').startsWith('authoritative_')) return require('./compactNativeEvidence')(parsed, maximum);
   const arrays = [];
   const visit = (node, depth = 0) => {
     if (depth > 6) return '[Omitted nested evidence]';

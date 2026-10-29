@@ -23,6 +23,7 @@ function outcomeContract(agentId, definition) {
     artifact_kinds: output ? output.kind === 'review' ? [] : [output.kind] : builtin.artifact_kinds || [],
     minimum_artifacts: output ? output.minimum_artifacts : builtin.minimum_artifacts || 0,
     findings_require_proposals: output ? output.kind === 'review' : builtin.findings_require_proposals === true,
+    refine_existing_proposals: !output && builtin.refine_existing_proposals === true,
     allow_clean_review: !output && builtin.allow_clean_review === true,
     typed_repair: !output && builtin.typed_repair === true,
     context_scopes: definition?.context_scopes || profiles[selectedId]?.scopes || [] };

@@ -11,9 +11,9 @@ const NOW = Date.parse("2026-09-10T10:00:00Z");
 const identity = { execution_id: "run", test_case_id: "case" };
 const jsonFields = new Set(["external_references", "defects", "case_defects", "step_defects", "lifecycle_history", "data_set_row_snapshot"]);
 const decode = (field, value) => jsonFields.has(field) && typeof value === "string" ? JSON.parse(value) : value;
-function database(context, { status = "running", rows = [], dataSet } = {}) {
+function database(context, { status = "running", rows = [], dataSet, automated = 'no' } = {}) {
   const state = { run: { id: "run", project_id: "project", app_type_id: "app", status, trigger: "manual", revision: 1 }, rows, writes: [] };
-  const snapshot = { execution_id: "run", test_case_id: "case", test_case_title: "Payment case", suite_id: null, ...dataSet };
+  const snapshot = { execution_id: "run", test_case_id: "case", test_case_title: "Payment case", suite_id: null, automated, ...dataSet };
   context.mock.timers.enable({ apis: ["Date"], now: NOW });
   context.mock.method(executions, "getExecution", async () => ({ ...state.run, case_snapshots: [snapshot] }));
   for (const [name, method] of [["requirementDefect.service", "syncAutomaticDefectsForTestCase"], ["testCaseDefect.service", "syncAutomaticDefectsForTestCase"]]) context.mock.method(require(sourceFile(`${name}`, "services")), method, async () => undefined);
@@ -84,6 +84,25 @@ test("evidence ensure does not start a timer, including on finished runs", async
   assert.equal((await lifecycle.ensureExecutionCaseResult(identity, "qa")).id, initial.id);
   assert.equal(state.writes.length, writes, "Read/ensure of an existing case never writes lifecycle state");
   await assert.rejects(lifecycle.transitionExecutionCase({ ...identity, action: "start" }, "qa"), { code: "RUN_FINISHED" });
+});
+
+test('automatic cases reject every manual timer and outcome transition before a result exists', async context => {
+  const state = database(context, { automated: 'yes' });
+  for (const action of ['start', 'pause', 'resume', 'pass', 'fail', 'block', 'skip', 'abort', 'reset']) {
+    await assert.rejects(lifecycle.transitionExecutionCase({ ...identity, action }, 'qa'), { code: 'AUTOMATED_CASE_ENGINE_OWNED' });
+  }
+  assert.equal(state.writes.length, 0);
+  assert.equal((await lifecycle.ensureExecutionCaseResult(identity, 'qa')).status, 'pending', 'Evidence attachment can still obtain a stable result identity.');
+});
+
+test('manual result APIs cannot override engine-owned statuses or logs', async context => {
+  const state = database(context, { automated: 'yes' });
+  state.run.trigger = 'ci';
+  await assert.rejects(results.createExecutionResult({ ...identity,app_type_id:'app',status:'passed',require_explicit_start:true }),{code:'AUTOMATED_CASE_ENGINE_OWNED'});
+  const pending = await lifecycle.ensureExecutionCaseResult(identity,'qa');
+  for (const patch of [{status:'passed'},{logs:'{"stepStatuses":{"step":"passed"}}'},{duration_ms:999}]) {
+    await assert.rejects(results.updateExecutionResult(pending.id,{...patch,require_explicit_start:true}),{code:'AUTOMATED_CASE_ENGINE_OWNED'});
+  }
 });
 
 test("manual lifecycle persists elapsed segments and actor history across requests and resets", async context => {

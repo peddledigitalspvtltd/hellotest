@@ -119,7 +119,7 @@ async function loadExecutionMetrics(executionIds) {
 }
 
 const getCaseSnapshotsForExecution = db.prepare(`
-  SELECT execution_id, test_case_id, test_case_title, test_case_description, external_references, suite_id, suite_name, module_id, module_name, priority, status, parameter_values, parameter_template_values, test_data_options, execution_hooks, suite_parameter_values, suite_parameter_template_values, test_data_set_id, test_data_set_name, test_data_set_snapshot, data_set_source, sort_order, assigned_to, assigned_to_ids, assignment_source
+  SELECT execution_id, test_case_id, test_case_title, test_case_description, automated, external_references, suite_id, suite_name, module_id, module_name, priority, status, parameter_values, parameter_template_values, test_data_options, execution_hooks, suite_parameter_values, suite_parameter_template_values, test_data_set_id, test_data_set_name, test_data_set_snapshot, data_set_source, sort_order, assigned_to, assigned_to_ids, assignment_source
   FROM execution_case_snapshots
   WHERE execution_id = ?
   ORDER BY sort_order ASC, test_case_title ASC
@@ -1124,6 +1124,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         test_case_id: suiteCase.test_case_id,
         test_case_title: suiteCase.test_case_title,
         test_case_description: suiteCase.test_case_description,
+        automated: suiteCase.automated,
         external_references: normalizeStoredReferenceList(suiteCase.external_references),
         suite_id: suiteRow.suite_id,
         suite_name: suiteRow.suite_name,
@@ -1189,6 +1190,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         test_case_id: directCase.test_case_id,
         test_case_title: directCase.test_case_title,
         test_case_description: directCase.test_case_description,
+        automated: directCase.automated,
         external_references: normalizeStoredReferenceList(directCase.external_references),
         suite_id: directCase.suite_id || null,
         suite_name: directCase.suite_name || null,
@@ -2055,19 +2057,7 @@ exports.startExecution = async (id, options = {}) => {
       }
 
       if (!testEngineIntegration) {
-        const canContinueManually = dispatchPlan.manual_case_count > 0 || dispatchPlan.unsupported_automated_case_count > 0;
-
-        if (!canContinueManually) {
-          throw Object.assign(new Error("Configure an active Test Engine integration for this project before starting automated runs."), { statusCode: 409 });
-        }
-
-        dispatchPlan.warnings = [
-          ...(dispatchPlan.warnings || []),
-          `${dispatchPlan.eligible_automated_case_count} automated case${dispatchPlan.eligible_automated_case_count === 1 ? "" : "s"} could not be handed off because no active Test Engine integration is configured. Manual step execution remains available.`
-        ];
-        dispatchPlan.unsupported_automated_case_count += dispatchPlan.eligible_automated_case_count;
-        dispatchPlan.eligible_automated_case_count = 0;
-        dispatchPlan.eligibleCases = [];
+        throw Object.assign(new Error("Configure an active Test Engine integration for this project before starting automated runs."), { statusCode: 409, code: 'TESTENGINE_REQUIRED' });
       }
 
       shouldMarkAsCi =
@@ -2109,7 +2099,7 @@ exports.startExecution = async (id, options = {}) => {
             initiatedBy: options.initiated_by || null
           });
     } catch (error) {
-      if(options.execution_mode === "local" && error.code !== "LOCAL_DISPATCH_UNCERTAIN") {
+      if(error.code !== "LOCAL_DISPATCH_UNCERTAIN") {
         await db.prepare("UPDATE executions SET status = 'failed', ended_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'running'").run(id);
         throw error;
       }

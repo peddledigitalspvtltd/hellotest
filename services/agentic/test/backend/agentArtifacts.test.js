@@ -40,6 +40,21 @@ test('completed authoring removes already performed recommendations and preserve
  assert.deepEqual(remainingRecommendations(['Complete the story acceptance criteria.','Add test cases for retry.','Verify runtime evidence.'],['Review the Story proposal.'],['story']),['Add test cases for retry.','Verify runtime evidence.','Review the Story proposal.']);
 });
 
+test('a scoped Story proposal always updates its exact evidenced target, even when the model omits target_id',()=>{
+ const targets=[{id:'story-1',revision:4,citation_id:'K-story-1'},{id:'story-neighbour',revision:7,citation_id:'K-story-1'}];
+ const draft={kind:'story',title:'Checkout',description:'Preserved intent',acceptance_criteria:['Exactly one order after retry.'],citation_ids:['K-story-1']};
+ const artifact=normalizeArtifacts([draft],citations,targets,{pinnedStoryId:'story-1'})[0];
+ assert.equal(artifact.target_id,'story-1');assert.equal(artifact.target_revision,4);
+ assert.throws(()=>normalizeArtifacts([{...draft,target_id:'story-neighbour'}],citations,targets,{pinnedStoryId:'story-1'}));
+ assert.throws(()=>normalizeArtifacts([draft],citations,[],{pinnedStoryId:'story-1'}));
+});
+
+test('required refinement schedules a successor despite a primary draft',()=>{
+ const result={citation_ids:['K-story-1'],artifacts:[{kind:'story'}],findings:[{id:'gap-1',title:'Retry gap',detail:'Define the retry boundary.',artifact_kind:'story',requires_proposal:true,citation_ids:['K-story-1']}]};
+ const plan=planFollowups('story-architect',['stories'],result,{refineExisting:true});
+ assert.equal(plan[0].agent_id,'story-completion');assert.equal(plan[0].refine_existing,true);assert.deepEqual(plan[0].finding_ids,['gap-1']);
+});
+
 test('each successor receives only its supported domain findings and ignores unsupported recommendation text',()=>{
  const result={citation_ids:['story-source','test-source'],findings:[
   {title:'Missing story acceptance boundary',detail:'Clarify the retry requirement.',citation_ids:['story-source','invented']},

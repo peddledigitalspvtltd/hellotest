@@ -2593,7 +2593,8 @@ const statements = [
   ...require('@hellotest/knowledge/backend/vectorProjectionSchema'),
   ...require('./automationCaseIdentitySchema'),
   ...require('./automationCaseDeletionSchema'),
-  ...require('./automationStartUrlSchema')
+  ...require('./automationStartUrlSchema'),
+  ...require('./executionCaseOwnershipSchema')
 ];
 
 const executeStatements = () => db.transaction(async () => {

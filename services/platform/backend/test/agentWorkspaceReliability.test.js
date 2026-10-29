@@ -55,6 +55,42 @@ function setupAssistant(t, { model = { name: "Fixture model", model: "test-model
   return { events, records };
 }
 
+test('configured intent and a typed response contract reach the provider', async t => {
+  setupAssistant(t);
+  const configuration = require('../services/aiConfiguration.service');
+  t.mock.method(configuration, 'resolve', async id => ({ config: { ...configuration.catalog.find(item => item.id === id).defaults, prompt: 'Configured intent: identify concrete acceptance gaps.' } }));
+  await assistant.respond(input);
+  const requests = globalThis.fetch.mock.calls.map(call => JSON.parse(call.arguments[1].body));
+  const system = requests[0].messages.filter(message => message.role === 'system').map(message => message.content).join('\n');
+  assert.match(system, /Configured intent: identify concrete acceptance gaps/);
+  assert.match(system, /response_schema/);
+  assert.match(system, /"response":\{"type":"string"/);
+});
+
+test('nested model responses fail with actionable field errors and no generated replacement', async t => {
+  const { records } = setupAssistant(t);
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ choices: [{ message: { content: JSON.stringify({ response: { findings: [] }, findings: [], citation_ids: [], deliverables: [], artifacts: [], evidence_gaps: [] }) } }] }));
+  await assert.rejects(assistant.respond(input), error => error.code === 'AGENT_OUTPUT_INVALID' && error.validation_errors.some(issue => issue.path === 'response') && /nonempty_string_required/.test(error.message));
+  assert.equal(records.at(-1).status, 'failed');
+  assert.ok(records.at(-1).metadata.validation_errors.some(issue => issue.path === 'response'));
+});
+
+test('a foreign application fails before retrieval or a model request', async t => {
+  setupAssistant(t);
+  t.mock.method(appTypes, 'getAppType', async () => ({ id: 'foreign-app', project_id: 'other-project' }));
+  await assert.rejects(assistant.respond({ ...input, app_type_id: 'foreign-app' }), { statusCode: 403 });
+  assert.equal(globalThis.fetch.mock.callCount(), 0);
+  assert.equal(context.buildLiveProjectEvidence.mock.callCount(), 0);
+});
+
+test('selected identifiers cannot substitute for unavailable native evidence', async t => {
+  const { records } = setupAssistant(t);
+  t.mock.method(context,'buildLiveProjectEvidence',async()=>({hits:[],counts:{stories:0}}));
+  await assert.rejects(assistant.respond({...input,inputs:{story_id:'missing-story'}}),{code:'AGENT_EVIDENCE_UNAVAILABLE'});
+  assert.equal(globalThis.fetch.mock.callCount(),0,'No model receives just the selected ID as task evidence.');
+  assert.equal(records.at(-1).status,'failed');
+});
+
 test("a project name is not sufficient evidence for a specialist review", () => {
   const project = context._internals.makeLiveHit({ projectId: "project-a", scope: "project-overview", title: "Project", content: JSON.stringify({ evidence_type: "authoritative_live_project_record", project: { name: "Demo" } }) });
   const workspace = { live_project: [{ ...project, content: project.content }] };
@@ -91,7 +127,7 @@ test("repeated identical invalid model output stops repair and never becomes suc
 test("a published agent enforces its input contract, skills and one-call budget", async t => {
   setupAssistant(t);
   const contract = require("../../../agentic/backend/agents/agentDefinition");
-  const definition = contract.normalize({ name: "Release gate", objective: "Review the supplied release.", instructions: "Identify unsupported boundaries.", required_inputs: ["release_id"], skills: [{ id: "boundaries", name: "Boundaries", instructions: "Assess retry boundaries." }], allowed_tools: [], context_scopes: [], limits: { max_model_calls: 1 }, acceptance: { minimum_findings: 1 } });
+  const definition = contract.normalize({ name: "Release gate", objective: "Review the supplied release.", instructions: "Identify unsupported boundaries.", required_inputs: ["release_note"], skills: [{ id: "boundaries", name: "Boundaries", instructions: "Assess retry boundaries." }], allowed_tools: [], context_scopes: [], limits: { max_model_calls: 1 }, acceptance: { minimum_findings: 1 } });
   t.mock.method(require("../../../agentic/backend/agents/agentRegistry.service"), "resolve", async () => ({ id: "agent-fixture", version: 3, definition, definition_hash: contract.definitionHash(definition) }));
   const requests = [];
   t.mock.method(globalThis, "fetch", async (_url, request) => {
@@ -100,7 +136,7 @@ test("a published agent enforces its input contract, skills and one-call budget"
   });
   await assert.rejects(assistant.respond({ ...input, agent_id: "agent-fixture" }), { code: "AGENT_INPUT_REQUIRED" });
   assert.equal(requests.length, 0);
-  const review = await assistant.respond({ ...input, agent_id: "agent-fixture", agent_version: 3, inputs: { release_id: "r1" } });
+  const review = await assistant.respond({ ...input, agent_id: "agent-fixture", agent_version: 3, inputs: { release_note: "r1" } });
   assert.match(JSON.stringify(requests[0].messages), /Assess retry boundaries/);
   assert.equal(review.result.verification.status, "needs_input");
   assert.equal(review.result.readiness.status, "insufficient_evidence");
@@ -110,7 +146,7 @@ test("a published agent enforces its input contract, skills and one-call budget"
   assert.equal(review.result.model_execution.provider_request_id, "provider-observation");
   assert.equal(review.result.model_execution.usage.total_tokens, 85);
   const invalid = t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: "{invalid-json" } }] }), { headers: { "content-type": "application/json" } }));
-  await assert.rejects(assistant.respond({ ...input, agent_id: "agent-fixture", inputs: { release_id: "r1" } }), { code: "AGENT_OUTPUT_INVALID" });
+  await assert.rejects(assistant.respond({ ...input, agent_id: "agent-fixture", inputs: { release_note: "r1" } }), { code: "AGENT_OUTPUT_INVALID" });
   assert.equal(invalid.mock.callCount(), 1);
 });
 

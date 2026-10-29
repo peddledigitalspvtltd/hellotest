@@ -1653,7 +1653,6 @@ export function DesignPage() {
         execution_mode: executionStartMode === "local" && canRunLocalAutomation
           ? "local"
           : executionStartMode === "remote" && canRunRemoteAutomation ? "remote" : "manual",
-        engine_base_url: executionStartMode === "local" && canRunLocalAutomation ? "http://host.docker.internal:4301" : undefined,
         parallel_enabled: canConfigureParallelAutomation && executionParallelEnabled || undefined,
         parallel_count: canConfigureParallelAutomation && executionParallelEnabled ? executionParallelCount : undefined,
         execution_hooks: executionHookDraft.length ? executionHookDraft : undefined,

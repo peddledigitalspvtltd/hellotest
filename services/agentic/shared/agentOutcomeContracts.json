@@ -4,7 +4,7 @@
   "custom_kinds": ["review", "story", "test_case", "defect", "run", "automation"],
   "agents": {
     "quality-orchestrator": {"mode":"review","findings_require_proposals":true},
-    "story-architect": {"mode":"author","artifact_kinds":["story"],"minimum_artifacts":1},
+    "story-architect": {"mode":"author","artifact_kinds":["story"],"minimum_artifacts":1,"refine_existing_proposals":true},
     "story-completion": {"mode":"author","artifact_kinds":["story"],"minimum_artifacts":1,"allow_clean_review":true},
     "story-grooming": {"mode":"review","findings_require_proposals":true},
     "story-assurance": {"mode":"review","findings_require_proposals":true},

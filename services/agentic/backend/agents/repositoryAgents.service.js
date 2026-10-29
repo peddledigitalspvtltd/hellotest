@@ -73,7 +73,7 @@ async function createRun(input, user, { file, requestKey } = {}) {
   const selection = require("../services/qualityAgentContracts").contextSelection({...input,context_scopes:input.context_scopes || require("@hellotest/platform/shared/agentContextPolicies.json")[agentType].scopes});
   const reviewFocus = cleanText(input.goal,2000);
   if(input.llm_integration_id && !await permissionService.hasPermission(user,'integration.view',projectId))throw error('Model selection requires integration access.',403);
-  const model = input.llm_integration_id ? await agentRegistry.resolveModel(projectId, user.id, input.llm_integration_id) : null;
+  const model = await agentRegistry.resolveModel(projectId, user.id, input.llm_integration_id || undefined, `ai.agentic.repository.${agentType}`);
   const runtime = await compiler.runtimeStatus();
   if (!runtime.available) throw error(runtime.detail, 503);
   const version = await compiler.compilerVersion();
@@ -241,9 +241,10 @@ async function performRun(run, controller) {
     result.warnings = result.warnings.filter(warning => !['MODEL_REVIEW_PARTIAL','MODEL_REVIEW_UNAVAILABLE'].includes(warning.code));
     result.summary = { ...result.summary, generation_mode: 'deterministic', model_review_session_id: null, model_reviewed_findings: 0 };
     let reviewLimited = false;
-    if (run.input.llm_integration_id) {
+    {
     onStage({ id: 'model_review', label: 'LLM source review', status: 'running', detail: 'Reviewing extracted source evidence with the configured model.' });
-    const batches = require('./reviewBatches').reviewBatches(findings);
+    const extractedBatches = require('./reviewBatches').reviewBatches(findings);
+    const batches = extractedBatches.length ? extractedBatches : [[]];
     const reviews = []; let reviewedCount = 0;
     // A finite model budget controls cost, independently of upload size. Every
     // omitted batch remains visible as unreviewed; source extraction is retained.
@@ -275,16 +276,8 @@ async function performRun(run, controller) {
     onStage(modelStage);
     result.stages = [...result.stages.filter(stage => stage.id !== 'model_review'), modelStage];
     } catch (failure) {
-      if (signal.aborted || [401, 403].includes(failure.statusCode) || (!reviews.length && run.agent_type !== 'repository_knowledge')) throw failure;
-      // Keep the validated compiler artifacts; a failed optional model review
-      // must not discard standard source-backed knowledge or imply LLM success.
-      reviewLimited = true;
-      result.llm_reviews = reviews; result.llm_review = reviews[0];
-      result.warnings.push({ code: 'MODEL_REVIEW_UNAVAILABLE', message: 'The model review was unavailable. Standard source-backed knowledge is retained and requires human review.' });
-      result.summary = { ...result.summary, generation_mode: reviews.length ? 'llm-partial' : 'deterministic', model_reviewed_findings: reviewedCount, model_fallback_code: failure.code || 'MODEL_REVIEW_UNAVAILABLE' };
-      const modelStage = { id: 'model_review', label: 'LLM source review', status: 'partial', detail: 'Source-backed findings retained; remaining model reviews unavailable.' };
-      onStage(modelStage);
-      result.stages = [...result.stages.filter(stage => stage.id !== 'model_review'), modelStage];
+      // Extraction is evidence, never a replacement for the requested AI review.
+      throw failure;
     }
     }
     const status = result.summary.status === 'partial' || !findings.length || reviewLimited ? 'partial' : 'completed';

@@ -20,6 +20,40 @@ exports.verify = async ({ db }) => {
       await db.query("INSERT INTO feedback(id,project_id,title,user_id,message,linked_test_run_id,linked_requirement_ids,linked_test_case_ids) VALUES ('quality-defect-a','mcp-p-a','Duplicate checkout','mcp-a','Two orders observed','quality-run-a','[\"quality-story-a\"]','[\"quality-case-a\"]'),('quality-defect-shared-run','mcp-p-a','Unrelated profile issue','mcp-a','Profile failure in the same run','quality-run-a','[\"quality-story-b\"]','[\"quality-case-b\"]'),('quality-defect-other-run','mcp-p-a','Checkout in another run','mcp-a','Historical checkout failure','quality-run-b','[\"quality-story-a\"]','[\"quality-case-a\"]')");
 
       const user = (await require('@hellotest/mcp/backend/auth').principal('mcp-a', 'mcp-p-a', 'quality-scope-fixture')).user;
+      const failureLogs = { stepStatuses: { 'quality-snapshot-a': 'failed' }, stepNotes: { 'quality-snapshot-a': 'Observed two orders after retry' }, stepEvidence: { 'quality-snapshot-a': { dataUrl: 'data:image/png;base64,NOT_FOR_MODEL' } } };
+      await db.prepare('UPDATE execution_results SET logs = ? WHERE id = ?').run(JSON.stringify(failureLogs), 'quality-attempt-a');
+      const orchestrator = require('@hellotest/ai/backend/services/aiContextOrchestrator.service');
+      const live = await orchestrator.buildLiveProjectEvidence({ projectId: 'mcp-p-a', appTypeId: 'mcp-app-a', user,
+        prompt: 'Draft a defect from this failed checkout run', requestedScopes: ['runs'],
+        evidenceScope: { execution_id: 'quality-run-a', story_id: 'quality-story-a' } });
+      const failures = live.hits.map(hit => JSON.parse(hit.content)).filter(item => item.evidence_type === 'authoritative_live_execution_failures');
+      assert.equal(failures.length, 1);
+      assert.equal(failures[0].test_case_id, 'quality-case-a');
+      assert.equal(failures[0].title, 'Retry checkout');
+      assert.equal(failures[0].steps[0].action, 'Repeat checkout');
+      assert.equal(failures[0].steps[0].expected_result, 'Exactly one order remains');
+      assert.equal(failures[0].steps[0].observed_status, 'failed');
+      assert.equal(failures[0].steps[0].note, 'Observed two orders after retry');
+      assert.equal(failures[0].steps[0].evidence_available, true);
+      assert.doesNotMatch(JSON.stringify(failures), /NOT_FOR_MODEL|Unrelated profile/);
+      const failurePacket = await require('@hellotest/knowledge/backend/services/knowledgeRetrieval.service').retrieveSearch({ projectId:'mcp-p-a', appTypeId:'mcp-app-a', user,
+        query:'Show failed checkout steps', filters:{agent_id:'bug-reporter',requested_scopes:['runs'],source_kinds:['execution'],evidence_scope:{execution_id:'quality-run-a',story_id:'quality-story-a'}},
+        budgets:{max_context_tokens:8000,max_evidence_items:12,deadline_ms:12000} });
+      assert.ok(failurePacket.results.some(hit=>JSON.parse(hit.content).evidence_type==='authoritative_live_execution_failures'), 'Failed-step evidence must survive MCP authorization and packet assembly, not just a direct database read.');
+
+      await db.query("UPDATE requirements SET description = repeat('Detailed checkout intent. ', 50) WHERE id = 'quality-story-a'");
+      await db.query("UPDATE requirements SET description = 'Profile behaviour supports checkout identity.' WHERE id = 'quality-story-b'");
+      await db.query("INSERT INTO requirement_relations(requirement_id,related_requirement_id) VALUES ('quality-story-a','quality-story-b')");
+      const storyLive = await orchestrator.buildLiveProjectEvidence({ projectId: 'mcp-p-a', appTypeId: 'mcp-app-a', user,
+        prompt: 'Review the selected Story', requestedScopes: ['stories'], evidenceScope: { story_id: 'quality-story-a' } });
+      const storySnapshots = storyLive.hits.map(hit => JSON.parse(hit.content));
+      const selectedStory = storySnapshots.find(item => item.evidence_type === 'authoritative_live_story_snapshot');
+      assert.deepEqual(selectedStory.records.map(item => item.id), ['quality-story-a']);
+      assert.ok(selectedStory.records[0].description.length > 600, 'Exact Story context retains detailed intent.');
+      const support = storySnapshots.find(item => item.evidence_type === 'authoritative_live_story_support');
+      assert.equal(support.related_items[0].id, 'quality-story-b');
+      assert.equal(support.related_items[0].description, 'Profile behaviour supports checkout identity.');
+      assert.deepEqual(require('../../../../agentic/backend/services/agentArtifacts').storyTargets({ live_project: storyLive.hits }).map(item => item.id), ['quality-story-a'], 'Related context never becomes a mutation target.');
       const quality = require('@hellotest/ai/backend/services/qualityEvidence.service');
       const input = { story_id: 'quality-story-a', test_case_id: 'quality-case-a', execution_id: 'quality-run-a', release_id: 'quality-release-a', sprint_id: 'quality-sprint-a' };
       const read = scopes => quality.collect({ projectId: 'mcp-p-a', appTypeId: 'mcp-app-a', user, input, scopes, existingTransaction: true });

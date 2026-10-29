@@ -60,9 +60,11 @@ function createQualityAgentService(deps) {
     const limitations=['No live application DOM has been inspected during planning. Review selectors and assertions before execution.'];
     if (input.kind==='web') {
       if (Array.isArray(input.steps)) steps=C.normalizeSteps(input.steps,target_url);
-      else if (goal && proposePlan && !options.mission) {
-        try { const proposed=await proposePlan({...input,target_url,goal,options},user); if (proposed) {steps=C.normalizeSteps(proposed.steps,target_url);grounding=proposed.grounding||[];source='model';generation_mode='llm';} }
-        catch(error) {if(error.statusCode===403)throw error;limitations.push('Model planning was unavailable or invalid. Add explicit browser steps to execute this goal.');}
+      else if (goal && !options.mission) {
+        if (!proposePlan) throw C.fail('Configure an AI model for browser goal planning, or supply explicit reviewed steps.',503,'QUALITY_AGENT_MODEL_REQUIRED');
+        const proposed=await proposePlan({...input,target_url,goal,options},user);
+        if (!proposed) throw C.fail('The model did not return a browser plan. No fallback plan was produced.',422,'QUALITY_AGENT_PLAN_INVALID');
+        steps=C.normalizeSteps(proposed.steps,target_url);grounding=proposed.grounding||[];source='model';generation_mode='llm';
       }
       if (!goal && !steps.length) steps=[{id:'step-1',label:'Verify the selected page',action:'assert_url',url:target_url}];
       if (goal && !steps.length && !options.mission) limitations.push('This goal has no executable steps yet. Add concrete selectors and observable assertions before running.');

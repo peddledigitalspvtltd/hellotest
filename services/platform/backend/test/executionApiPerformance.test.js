@@ -6,15 +6,15 @@ const snapshots = require("../../../testing/backend/services/executionSnapshot.r
 const knowledge = require("../../../knowledge/backend/services/aiKnowledge.service");
 const permissions = require("../services/permission.service");
 
-test("1,000 case and 5,000 step snapshots use 24 bounded inserts preserving every value", async t => {
+test("1,000 case and 5,000 step snapshots use 25 bounded inserts preserving every value", async t => {
   const statements = [];
   t.mock.method(db, "prepare", sql => ({ run: async (...values) => { statements.push({ sql, values }); } }));
   const caseSnapshots = Array.from({ length: 1000 }, (_, index) => ({ execution_id: "run", test_case_id: `case-${index}`,
-    test_case_title: `Case ${index}`, sort_order: index + 1, parameter_values: { answer: index }, assigned_to: "actor" }));
+    test_case_title: `Case ${index}`, automated: index % 2 ? 'yes' : 'no', sort_order: index + 1, parameter_values: { answer: index }, assigned_to: "actor" }));
   const stepSnapshots = Array.from({ length: 5000 }, (_, index) => ({ execution_id: "run", test_case_id: `case-${Math.floor(index / 5)}`,
     snapshot_step_id: `step-${index}`, step_order: index % 5 + 1, api_request: { method: "GET", url: `https://example.test/${index}` } }));
   await snapshots.persist({ caseSnapshots, stepSnapshots });
-  assert.equal(statements.length, 24);
+  assert.equal(statements.length, 25);
   assert.ok(statements.every(statement => statement.values.length <= 6000));
   const readRows = statement => {
     const columns = statement.sql.match(/\(([^)]+)\)/)[1].split(/,\s*/);
@@ -30,12 +30,14 @@ test("1,000 case and 5,000 step snapshots use 24 bounded inserts preserving ever
   assert.deepEqual(cases[999].parameter_template_values, { answer: 999 });
   assert.deepEqual(cases[999].test_data_options, {});
   assert.equal(cases[999].sort_order, 1000);
+  assert.equal(cases[999].automated, 'yes');
+  assert.equal(cases[998].automated, 'no');
   assert.deepEqual(cases[999].assigned_to_ids, ['actor']);
   const steps = statements.filter(statement => /execution_step_snapshots/.test(statement.sql)).flatMap(readRows);
   assert.equal(steps.at(-1).api_request.url, "https://example.test/4999");
   assert.deepEqual(steps.at(-1).shared_parameter_values, {});
   assert.deepEqual(steps.at(-1).shared_parameter_sensitive_names, []);
-  t.diagnostic("Snapshot writes: 6000 -> 24 (99.6% fewer database round trips), max 6000 bind parameters.");
+  t.diagnostic("Snapshot writes: 6000 -> 25 (99.6% fewer database round trips), max 6000 bind parameters.");
 });
 
 test("snapshot failure rolls back the owning transaction without submitting later chunks", async t => {

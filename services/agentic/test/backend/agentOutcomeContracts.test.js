@@ -34,6 +34,14 @@ test('a cited builtin improvement may explicitly establish no change, while cust
  assert.ok(outcomeIssues(clean,outcomeContract('agent-custom',custom)).length);
 });
 
+test('validated successor outputs supplement an author without replacing its required primary proposal',()=>{
+ const contract={...outcomeContract('story-architect'),supplemental_artifact_kinds:['test_case']};
+ const story={kind:'story',title:'Checkout',citation_ids:['case-source']};
+ assert.deepEqual(outcomeIssues(review({artifacts:[story,caseDraft]}),contract),[]);
+ assert.ok(outcomeIssues(review({artifacts:[caseDraft]}),contract).some(issue=>issue.code==='AGENT_OUTCOME_PROPOSAL_REQUIRED'));
+ assert.ok(outcomeIssues(review({artifacts:[story,{...caseDraft,kind:'defect'}]}),contract).some(issue=>issue.code==='AGENT_OUTCOME_KIND_MISMATCH'));
+});
+
 test('custom output contracts are immutable typed settings with bounded authoring counts',()=>{
  const base={name:'Custom author',objective:'Prepare the configured native outcome.'};
  assert.deepEqual(definition.normalize(base).output_contract,{kind:'review',minimum_artifacts:0},'saved legacy definitions retain review semantics');

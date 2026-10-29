@@ -4075,7 +4075,7 @@ export function ExecutionsPage() {
       const response = await startExecution.mutateAsync({
         id: selectedExecution.id,
         options: mode === "local"
-          ? { execution_mode: "local", engine_base_url: "http://host.docker.internal:4301" }
+          ? { execution_mode: "local" }
           : mode === "remote"
             ? { execution_mode: "remote" }
             : undefined
@@ -4784,8 +4784,9 @@ export function ExecutionsPage() {
     ? resultForCaseInstance(selectedExecutionCaseInstance)
     : null;
   const isSelectedResultDerived = selectedExecutionResult?.derived === true;
+  const isSelectedCaseAutomated = selectedExecutionCaseSnapshot?.automated === 'yes';
   const isSelectedCaseTimerActive = selectedExecutionResult?.status === "running" && Boolean(selectedExecutionResult.timer_started_at);
-  const canRecordSelectedCase = !isSelectedResultDerived && selectedExecutionResult?.status === "running" && Boolean(selectedExecutionResult.started_at || selectedExecutionStartMode !== "manual");
+  const canRecordSelectedCase = !isSelectedCaseAutomated && !isSelectedResultDerived && selectedExecutionResult?.status === "running" && Boolean(selectedExecutionResult.started_at || selectedExecutionStartMode !== "manual");
   const selectedExecutionCaseEffectiveUser = selectedExecutionCase?.assigned_user || selectedExecution?.assigned_user || null;
   const selectedExecutionCaseExplicitAssigneeId = selectedExecutionCase?.assignment_source === "case" ? selectedExecutionCase.assigned_to || "" : "";
   const selectedExecutionCaseReadableTitle = selectedExecutionCase
@@ -4809,6 +4810,10 @@ export function ExecutionsPage() {
 
   const handleCaseLifecycle = async (action: ExecutionCaseLifecycleAction) => {
     if (!selectedExecution || !selectedExecutionCaseInstance || caseLifecycleAction) return;
+    if (isSelectedCaseAutomated) {
+      showError(new Error('TestEngine starts and reports this automated case. Check its queue and engine results.'), 'Automated case');
+      return;
+    }
     if (isSelectedResultDerived) {
       showError(new Error("Open the linked automation result to inspect its evidence, or create a separate manual run."), "This outcome comes from automation");
       return;
@@ -8472,12 +8477,12 @@ export function ExecutionsPage() {
                   <div className="execution-case-lifecycle" data-status={selectedCaseStatusLabel} aria-label="Case execution controls">
                     <div className="execution-case-clock" aria-label="Current attempt active time" title="Active time for this attempt. Earlier attempts remain included in the run total."><IconClock size={19} aria-hidden="true" /><span className="execution-case-clock-label">Active time</span><strong>{formatDuration(selectedCaseDurationMs, "0s")}</strong><StatusBadge value={selectedCaseStatusLabel === "running" ? "in_progress" : selectedCaseStatusLabel === "queued" ? "pending" : selectedCaseStatusLabel} /></div>
                     <div className="execution-case-lifecycle-actions">
-                      {canExecuteRuns && canManageRunResults && !isSelectedResultDerived ? (<button className="execution-case-run-button is-primary" disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || Boolean(caseLifecycleAction)} onClick={() => void handleCaseLifecycle(isSelectedCaseTimerActive ? "pause" : selectedCaseStatusLabel === "paused" ? "resume" : "start")} type="button">
+                      {canExecuteRuns && canManageRunResults && !isSelectedResultDerived ? (<button className="execution-case-run-button is-primary" title={isSelectedCaseAutomated ? 'TestEngine owns execution of this automated case.' : undefined} disabled={isSelectedCaseAutomated || !canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || Boolean(caseLifecycleAction)} onClick={() => void handleCaseLifecycle(isSelectedCaseTimerActive ? "pause" : selectedCaseStatusLabel === "paused" ? "resume" : "start")} type="button">
                         {isSelectedCaseTimerActive ? <IconPlayerPause size={17} /> : <IconPlayerPlay size={17} />}
                         <span>{caseLifecycleAction ? "Saving…" : isSelectedCaseTimerActive ? "Pause case" : selectedCaseStatusLabel === "paused" ? "Resume case" : ["queued", "pending", "running"].includes(selectedCaseStatusLabel) ? "Start case" : "Start new attempt"}</span>
                       </button>) : null}
                       <label className="execution-case-outcome-control"><span className="sr-only">Set case outcome</span>
-                        <select aria-label="Set case outcome" value="" disabled={isSelectedResultDerived || !canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || Boolean(caseLifecycleAction)} onChange={(event) => { if (event.target.value) void handleCaseLifecycle(event.target.value as ExecutionCaseLifecycleAction); }}>
+                        <select aria-label="Set case outcome" value="" disabled={isSelectedCaseAutomated || isSelectedResultDerived || !canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || Boolean(caseLifecycleAction)} onChange={(event) => { if (event.target.value) void handleCaseLifecycle(event.target.value as ExecutionCaseLifecycleAction); }}>
                           <option value="" disabled>Set outcome…</option>
                           <option value="block">Blocked</option><option value="skip">N/A</option><option value="abort">Aborted</option><option value="reset">Unexecuted</option>
                         </select>
@@ -8485,6 +8490,7 @@ export function ExecutionsPage() {
                     </div>
                   </div>
 
+                  {isSelectedCaseAutomated ? <p role="status">TestEngine starts this automated case and records its outcome. Refresh the run to follow its queue and results.</p> : null}
                   {isSelectedResultDerived ? <section className="execution-case-context" aria-label="Linked automation outcome"><div className="execution-case-context-heading"><strong>Outcome from {selectedExecutionResult?.source_display_id || "linked automation"}</strong><span>This manual case is covered by an automation result. Evidence and instructions belong to the source automation case.</span></div><button className="ghost-button compact" type="button" onClick={() => {
                     if (selectedExecutionResult?.source_test_case_id) focusExecutionCase(selectedExecutionResult.source_test_case_id, selectedExecutionResult.execution_id);
                   }}>Open automation evidence<OpenIcon size={16} /></button></section> : null}

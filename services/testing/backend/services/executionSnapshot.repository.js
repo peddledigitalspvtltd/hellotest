@@ -5,7 +5,7 @@ const { groupRows, placeholdersFor } = require("@hellotest/platform/backend/src/
 // The caller owns the transaction so every chunk rolls back with the run.
 const BATCH_SIZE = 250;
 const CASE_COLUMNS = [
-  "execution_id", "test_case_id", "test_case_title", "test_case_description", "external_references",
+  "execution_id", "test_case_id", "test_case_title", "test_case_description", "automated", "external_references",
   "suite_id", "suite_name", "module_id", "module_name", "priority", "status", "parameter_values",
   "parameter_template_values", "test_data_options", "execution_hooks", "suite_parameter_values", "suite_parameter_template_values",
   "test_data_set_id", "test_data_set_name", "test_data_set_snapshot", "data_set_source", "sort_order",
@@ -19,6 +19,7 @@ const STEP_COLUMNS = [
 const caseValues = (snapshot) => {
   const normalized = {
     ...snapshot,
+    automated: snapshot.automated === 'yes' ? 'yes' : snapshot.automated === 'no' ? 'no' : null,
     external_references: snapshot.external_references || [],
     parameter_values: snapshot.parameter_values || {},
     test_data_options: snapshot.test_data_options || {},
@@ -39,8 +40,9 @@ const caseValues = (snapshot) => {
 
 async function insertRows(table, columns, rows, valuesFor) {
   const placeholders = `(${columns.map(() => "?").join(", ")})`;
-  for (let offset = 0; offset < rows.length; offset += BATCH_SIZE) {
-    const chunk = rows.slice(offset, offset + BATCH_SIZE);
+  const rowBatchSize = Math.min(BATCH_SIZE, Math.floor(6000 / columns.length));
+  for (let offset = 0; offset < rows.length; offset += rowBatchSize) {
+    const chunk = rows.slice(offset, offset + rowBatchSize);
     await db.prepare(`INSERT INTO ${table} (${columns.join(", ")})
       VALUES ${chunk.map(() => placeholders).join(", ")}`)
       .run(...chunk.flatMap(valuesFor));

@@ -3,6 +3,31 @@ const test = require("node:test");
 const k = require("../../backend/services/knowledgeContracts.service");
 const { evaluateKnowledgeFixtures } = require("../../backend/services/knowledgeEvaluation.service");
 const fixtures = require("../../../platform/backend/eval/knowledge/fixtures.json");
+
+test('native snapshots stay valid JSON with exact identities across token compaction and MCP sanitization', () => {
+  const id='12345678-1234-4234-8234-123456789012';
+  const snapshot={evidence_type:'authoritative_live_story_snapshot',evidence_permissions:['requirement.view'],returned_records:1,total_records:1,
+    coverage_policy:'Coverage guidance. '.repeat(200),records:[{id,revision:7,title:'Checkout retry',description:'Retry preserves the original order. '.repeat(100),acceptance_criteria:['A retry cannot create a second order.']}]};
+  const result=k.buildContextPacket({retrievalRequest:k.buildRetrievalRequest({projectId:'p',query:'Review selected Story',budgets:{max_context_tokens:2000}}),
+    evidence:[{source_id:'live-project-p-stories',source_kind:'live_project',citation:{id:'K-story'},content:JSON.stringify(snapshot)}]});
+  assert.equal(result.evidence.length,1);
+  const bounded=JSON.parse(result.evidence[0].content);
+  assert.equal(bounded.records[0].id,id);assert.equal(bounded.records[0].revision,7);
+  assert.ok(bounded.records[0].description.length>0);assert.equal(bounded.context_window.bounded,true);
+  assert.ok(result.coverage.context_tokens_estimated<=2000);
+  const sanitized=require('../../../mcp/backend/backplane').sanitize(result);
+  assert.equal(JSON.parse(sanitized.evidence[0].content).records[0].id,id,'The protocol sanitizer cannot redact an embedded native ID.');
+});
+
+test('bounded Run evidence retains a late failed step and reports omitted reproduction steps accurately',()=>{
+ const compact=require('../../../platform/backend/src/utils/compactNativeEvidence');
+ const original={evidence_type:'authoritative_live_execution_failures',evidence_permissions:['run.view','result.view','testcase.view'],execution_id:'run',test_case_id:'case',result_id:'attempt',
+   steps:Array.from({length:20},(_,index)=>({id:'step-'+index,order:index+1,action:'Perform the recorded action. '.repeat(12),expected_result:'Expected observable behaviour. '.repeat(8),observed_status:index===19?'failed':'passed',note:index===19?'Final assertion failed.':''})),coverage:{total_steps:20,omitted_steps:0}};
+ const reduced=JSON.parse(compact(original,1600));
+ assert.ok(reduced.steps.some(step=>step.id==='step-19'&&step.observed_status==='failed'));
+ assert.equal(reduced.coverage.omitted_steps,20-reduced.steps.length);
+ assert.ok(reduced.context_window.omitted_items.steps>0);
+});
 const request = (budgets = {}) => k.buildRetrievalRequest({
   projectId: "project",
   tenantId: "tenant",

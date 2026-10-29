@@ -60,8 +60,8 @@ test('typed 12-step plan is preserved and excessive or arbitrary-code plans reje
   const run=await f.service.createRun({...input,goal:'Verify result summaries',reviewed_plan:{reviewed:true,goal:'Verify result summaries',steps}},user);assert.equal(run.plan.steps.length,12);await f.service.processQueuedRuns();assert.equal(JSON.parse(f.calls[0].init.body).options.approved_steps.length,12);
   assert.throws(()=>C.normalizeSteps([...steps,steps[0]],input.target_url),/twelve/);assert.throws(()=>C.normalizeSteps([{action:'evaluate',code:'arbitrary()'}],input.target_url),/supported/);
 });
-test('unreviewed goal cannot silently become a smoke test; unavailable planner returns editable empty plan',async()=>{
-  const f=fixture();const plan=await f.service.plan({...input,goal:'Verify checkout'},user);assert.equal(plan.source,'preset');assert.deepEqual(plan.steps,[]);assert.match(plan.limitations.join(' '),/no executable steps/);
+test('unreviewed goal cannot silently become a smoke test or an empty plan when the model is unavailable',async()=>{
+  const f=fixture();await assert.rejects(()=>f.service.plan({...input,goal:'Verify checkout'},user),e=>e.code==='QUALITY_AGENT_MODEL_REQUIRED');
   await assert.rejects(()=>f.service.createRun({...input,goal:'Verify checkout'},user),e=>e.code==='QUALITY_AGENT_PLAN_REQUIRED');
   const preset=await f.service.plan(input,user);assert.equal(preset.steps[0].action,'assert_url');
 });

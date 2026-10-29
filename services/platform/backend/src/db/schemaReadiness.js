@@ -1,9 +1,9 @@
 // Compatibility receipts are written only after a complete migration commits.
 // Versions are minimum additive-schema versions; destructive changes require a
 // separately reviewed compatibility/rolling-deployment plan.
-// Version 12 adds persisted native workflow draft acceptance receipts. Existing
-// version-11 databases must run the normal additive migration before verify.
-const REQUIRED_SCHEMA_VERSION = 12;
+// Version 13 freezes manual/automation ownership in execution snapshots.
+// Existing databases must run the normal additive migration before verify.
+const REQUIRED_SCHEMA_VERSION = 13;
 const requiredVersion = component => component === "main" ? REQUIRED_SCHEMA_VERSION : 2;
 const missing = component => Object.assign(new Error(`The ${component} database needs migration. Run npm --prefix services/platform/backend run migrate before starting API profiles.`), { code: "SCHEMA_MIGRATION_REQUIRED", statusCode: 503 });
 async function verifySchema(db, component) {

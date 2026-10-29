@@ -15,11 +15,11 @@ const sensitive = /password|passwd|secret|api.?key|credential|authorization|cook
 // only declared fields with exact UUID/reference syntax, never their content.
 const uuidSource='[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
 const canonicalUuid=new RegExp(`^${uuidSource}$`,'i');
-const identityFields=new Set(['id','project_id','tenant_id','app_type_id','user_id','subject','entity_id','ref_id','story_id','requirement_id','test_case_id','suite_id','test_suite_id','iteration_id','sprint_id','release_id','version_id','run_id','execution_id','defect_id','bug_id','packet_id','context_packet_id','request_id','query_id','trace_id','session_id','transaction_id','plan_id','collection_id']);
+const identityFields=new Set(['id','project_id','tenant_id','app_type_id','user_id','subject','entity_id','ref_id','story_id','requirement_id','test_case_id','suite_id','test_suite_id','iteration_id','sprint_id','release_id','version_id','run_id','execution_id','result_id','snapshot_step_id','step_id','defect_id','bug_id','packet_id','context_packet_id','request_id','query_id','trace_id','session_id','transaction_id','plan_id','collection_id']);
 const provenanceFields=new Set(['source_id','source_ref_id','canonical_id','parent_canonical_id','source_canonical_id','target_canonical_id','knowledge_id','fragment_id','document_id','parent_document_id','chunk_id','evidence_id','ref','source','target']);
 const identityArrays=new Set(['story_ids','requirement_ids','test_case_ids','suite_ids','run_ids','execution_ids','defect_ids','collection_ids']);
 const provenanceArrays=new Set(['source_ids','document_ids','chunk_ids','evidence_ids','citation_ids','stale_sources','denied_ids']);
-const sourceReference=new RegExp(`^(?:K-${uuidSource}|(?:requirement|test_case|execution|bug|knowledge_item|text|chat|file|url):${uuidSource}|live-project-${uuidSource}(?:-(?:project-overview|stories|test-cases|runs|execution-context|object-repository|bugs|automation|knowledge))?)$`,'i');
+const sourceReference=new RegExp(`^(?:K-${uuidSource}|(?:requirement|test_case|execution|bug|knowledge_item|text|chat|file|url):${uuidSource}|live-project-${uuidSource}(?:-(?:project-overview|stories|test-cases|runs|run-failure-[1-9][0-9]?|execution-context|object-repository|bugs|automation|knowledge))?)$`,'i');
 function sanitize(value, depth=0, field='') {
  if(depth>12)return '[Depth limit]';
  if(value instanceof Date)return value.toISOString();
@@ -28,7 +28,8 @@ function sanitize(value, depth=0, field='') {
  if(typeof value==='string'){
   const identity=identityFields.has(field)||identityArrays.has(field),provenance=provenanceFields.has(field)||provenanceArrays.has(field);
   if(((identity||provenance)&&canonicalUuid.test(value))||(provenance&&sourceReference.test(value)))return value;
-  return require('@hellotest/platform/backend/src/security/aiTextPolicy').sanitizeAiText(value).text.slice(0,12000);
+  const policy=require('@hellotest/platform/backend/src/security/aiTextPolicy');
+  return (field==='content'?policy.sanitizeAiEvidence(value):policy.sanitizeAiText(value)).text.slice(0,12000);
  }
  if(Array.isArray(value))return value.slice(0,100).map(item=>sanitize(item,depth+1,identityArrays.has(field)||provenanceArrays.has(field)?field:''));
  if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).flatMap(([key,item])=>{

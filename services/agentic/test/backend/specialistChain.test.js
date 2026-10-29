@@ -57,7 +57,7 @@ test('object-shaped output receives concrete bounded revision feedback before an
  assert.equal(f.requests.length,2);assert.equal(reply.result.response,valid.response);
  const second=JSON.parse(f.requests[1].messages.at(-1).content);
  assert.equal(second.request,'Review the checkout evidence.');
- assert.deepEqual(second.revision_feedback.issues,[{path:'response',issue:'nonempty_text_required'}]);
+ assert.deepEqual(second.revision_feedback.issues,[{path:'response',issue:'nonempty_string_required'}]);
  assert.equal(second.revision_feedback.draft_status,'untrusted_proposal');
  assert.ok(f.events.some(event=>event.phase==='outcome.revision'));
  assert.doesNotMatch(JSON.stringify(reply.result),/\[object Object\]/);
@@ -66,11 +66,23 @@ test('an author must revise comments into the promised complete Story proposal w
  const sequence=[],f=fixture({sequence});
  sequence.push(f.reviewer,{...f.author,artifacts:f.author.artifacts.map(item=>({...item,addressed_finding_ids:['finding-1']}))});
  const reply=await f.service.respond({project_id:'p',user:{id:'u'},agent_id:'story-architect',context_scopes:['stories'],prompt:'Create a checkout Story proposal.'});
- assert.equal(f.requests.length,2);assert.equal(reply.result.verification.status,'passed');
+ assert.equal(f.requests.length,3);assert.equal(reply.result.verification.status,'passed');
  assert.equal(reply.result.artifacts[0].target_revision,3);
  assert.deepEqual(reply.result.artifacts[0].addressed_finding_ids,['finding-1']);
  const feedback=JSON.parse(f.requests[1].messages.at(-1).content).revision_feedback;
  assert.ok(feedback.issues.some(issue=>issue.code==='AGENT_OUTCOME_PROPOSAL_REQUIRED'));
+ assert.equal(reply.result.agent_chain.at(-1).agent_id,'story-completion');
+ assert.equal(reply.result.artifacts.length,1,'The refined proposal replaces the original draft');
+});
+
+test('required Story refinement cannot fall back to the primary draft when the successor fails',async()=>{
+ const sequence=[],f=fixture({sequence});
+ sequence.push({...f.author,artifacts:f.author.artifacts.map(item=>({...item,addressed_finding_ids:['finding-1']}))},new Error('Provider unavailable'));
+ const reply=await f.service.respond({project_id:'p',user:{id:'u'},agent_id:'story-architect',context_scopes:['stories'],prompt:'Improve the selected Story.',inputs:{story_id:'story-checkout'}});
+ assert.equal(reply.result.agent_chain.at(-1).status,'needs_input');
+ assert.equal(reply.result.artifacts.length,0);
+ assert.equal(reply.result.verification.status,'needs_input');
+ assert.equal(reply.result.primary_review.findings.length,1);
 });
 test('a repeated invalid model draft stops instead of spending all remaining calls',async()=>{
  const sequence=[],f=fixture({sequence});const invalid={...f.reviewer,response:{invalid:true}};sequence.push(invalid,invalid,invalid);

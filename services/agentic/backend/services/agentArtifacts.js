@@ -8,7 +8,7 @@ const CONTRACT = aiInstructionBlock("ai.agentic.workflow", "agentArtifacts.nativ
 const fail=validation_path=>Object.assign(new Error('The model returned an invalid structured artifact.'),{code:'AI_INVALID_RESPONSE',...(validation_path?{validation_path}:{})});
 const text=(v,max=8000)=>{if(typeof v!=='string'||!v.trim()||v.length>max)throw fail();return v.trim();};
 const strings=(v,max=30)=>{if(!Array.isArray(v)||!v.length||v.length>max)throw fail();return v.map(s=>text(s,4000));};
-function normalizeArtifacts(value,citations,targets = [], {requireMetadata = false,testCaseTypes} = {}) {
+function normalizeArtifacts(value,citations,targets = [], {requireMetadata = false,testCaseTypes,pinnedStoryId} = {}) {
  if(value==null)return [];
  if(!Array.isArray(value)||value.length>8)throw fail();
  const allowed=new Set(citations.map(c=>c.id));
@@ -23,8 +23,10 @@ function normalizeArtifacts(value,citations,targets = [], {requireMetadata = fal
   if(a.addressed_finding_ids!=null){if(!Array.isArray(a.addressed_finding_ids)||a.addressed_finding_ids.length>20)throw fail();artifact.addressed_finding_ids=[...new Set(a.addressed_finding_ids.map(id=>text(id,120)))];}
   if(a.kind==='story') {
    artifact.acceptance_criteria=strings(a.acceptance_criteria);
-   if(a.target_id != null) {
-    const target = targets.find(t => t.id === a.target_id && t.kind !== 'test_case' && ids.includes(t.citation_id));
+   const targetId = a.target_id ?? pinnedStoryId;
+   if (pinnedStoryId && targetId !== pinnedStoryId) throw fail(path('target_id'));
+   if(targetId != null) {
+    const target = targets.find(t => t.id === targetId && t.kind !== 'test_case' && ids.includes(t.citation_id));
     if(!target || !Number.isInteger(target.revision) || target.revision < 1) throw fail();
     artifact.target_id = target.id; artifact.target_revision = target.revision;
    }
@@ -70,7 +72,7 @@ function normalizeArtifacts(value,citations,targets = [], {requireMetadata = fal
 }
 // Route only evidence-backed work from the review, never arbitrary agent IDs supplied by a model.
 const AUTHOR_KINDS = { 'story-completion': 'story', 'story-architect': 'story', 'test-designer': 'test_case', 'bug-reporter': 'defect', 'run-planner': 'run', 'automation-engineer': 'automation' };
-function planFollowups(agentId, scopes, result, {max=3} = {}) {
+function planFollowups(agentId, scopes, result, {max=3,refineExisting=false} = {}) {
  if (agentId === 'repository-curator' || agentId.startsWith('browser-')) return [];
  const scope = new Set(scopes);
  const supported = new Set(result.citation_ids || []);
@@ -84,9 +86,10 @@ function planFollowups(agentId, scopes, result, {max=3} = {}) {
  const planned = [];
  const add = (id, matching) => {
   const kind = AUTHOR_KINDS[id];
-  if (id===agentId || !matching.length || !kind || planned.some(p => p.kind === kind) || result.artifacts?.some(a => a.kind === kind)) return;
+  const existing = result.artifacts?.filter(a => a.kind === kind) || [];
+  if (id===agentId || !matching.length || !kind || planned.some(p => p.kind === kind) || (existing.length && !refineExisting)) return;
   const finding_ids=[...new Set(matching.map(f=>f.id).filter(id=>typeof id==='string'&&id))];
-  planned.push({ agent_id: id, kind, reason:profiles[id]?.description||id, citation_ids: [...new Set(matching.flatMap(f => (f.citation_ids || []).filter(id => supported.has(id))))],...(finding_ids.length?{finding_ids}:{}),typed:matching.some(f=>f.artifact_kind===kind) });
+  planned.push({ agent_id: id, kind, reason:profiles[id]?.description||id, ...(existing.length ? {refine_existing:true} : {}), citation_ids: [...new Set(matching.flatMap(f => (f.citation_ids || []).filter(id => supported.has(id))))],...(finding_ids.length?{finding_ids}:{}),typed:matching.some(f=>f.artifact_kind===kind) });
  };
  if (scope.has('stories'))
   add('story-completion', actionable.filter(f => matches(f,'story',/story|stories|acceptance|requirement|ambigu/i)));
@@ -125,7 +128,8 @@ function outcomeIssues(result, contract) {
  if(contract.mode==='author'&&!clean){
   const allowed=new Set(contract.artifact_kinds||[]),count=artifacts.filter(item=>allowed.has(item.kind)).length;
   if(count<(contract.minimum_artifacts||1))add('AGENT_OUTCOME_PROPOSAL_REQUIRED',`The requested ${[...allowed].join('/')} output requires at least ${contract.minimum_artifacts||1} complete structured proposal(s), or specific missing evidence. Review comments do not satisfy this output.`,{kind:[...allowed][0]});
-  if(artifacts.some(item=>!allowed.has(item.kind)))add('AGENT_OUTCOME_KIND_MISMATCH','Return only the artifact kind selected in this authoring contract.');
+  const supplemental=new Set(contract.supplemental_artifact_kinds||[]);
+  if(artifacts.some(item=>!allowed.has(item.kind)&&!supplemental.has(item.kind)))add('AGENT_OUTCOME_KIND_MISMATCH','Return only the selected artifact kind or an independently validated successor proposal.');
  }
  const byId=new Map(findings.filter(f=>typeof f.id==='string'&&f.id).map(f=>[f.id,f]));
  if(byId.size!==findings.filter(f=>typeof f.id==='string'&&f.id).length)add('AGENT_OUTCOME_FINDING_CONTRACT_INVALID','Each finding must have a unique identity so its evidence and proposal coverage remain unambiguous.');
