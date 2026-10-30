@@ -5,9 +5,58 @@ const {aiInstructionBlock}=require('../src/utils/aiInstructionBlocks');
 function load(file,overrides){const local=createRequire(file),module={exports:{}};new Function('require','module','exports',fs.readFileSync(file,'utf8'))(id=>Object.hasOwn(overrides,id)?overrides[id]:local(id),module,module.exports);return module.exports;}
 const runtime=(configs={},overrides={})=>load(require.resolve('../src/utils/aiFeatureRuntime'),{'../../services/aiConfiguration.service':{...configuration,resolve:async id=>{const item=configuration.catalog.find(item=>item.id===id);assert.ok(item,id);const config={...structuredClone(item.defaults),...configs[id]};return {...item,config,published_version:3,fingerprint:configuration.hash(config)};}},...overrides});
 const request=(messages,extras={})=>({body:JSON.stringify({model:'provider-model',messages,...extras})});
+for (const source of ['legacy','published']) test(`Test Case generation replaces a persisted ${source} NFR-only prompt after publishing the current default`,async()=>{
+ const id='ai.test_case.design',item=configuration.catalog.find(feature=>feature.id===id);
+ const nfrPrompt='You are a Senior QA Architect specializing in Non-Functional Testing. Testing mode: NFR_ONLY. Generate ONLY NFR test cases. If no sufficiently evidenced NFR exists, return {"applicable_domain":"general","testCases":[]}.';
+ const customized={...structuredClone(item.defaults),prompt:nfrPrompt,temperature:0.35,max_output_tokens:6000};
+ let record=source==='published'?{revision:4,published:{version:3,config:customized}}:null;
+ const service=load(require.resolve('../services/aiConfiguration.service'),{'../src/db':{prepare:()=>({
+  get:async key=>key===`ai_feature_configuration:${id}`&&record?{value:record}:undefined,
+  all:async()=>[{key:'workspace_governed_preference:ai_prompt_registry_overrides',value:source==='legacy'?{[id]:nfrPrompt}:{}}]
+ })}});
+ const rt=load(require.resolve('../src/utils/aiFeatureRuntime'),{'../../services/aiConfiguration.service':service});
+ const task={generation_request:{user_request:'Generate positive end-to-end registration cases with confirmation email and welcome-page checks.'},stories:[{title:'User Registration Process',description:'Register a new user and confirm their email.'}]};
+ const input=request([{role:'system',content:aiInstructionBlock(id,'format.structured')},{role:'user',content:JSON.stringify(task)}]);
+ const oldProfile=await service.resolve(id);
+ assert.equal(oldProfile.configuration_source,source==='legacy'?'legacy_override':'published');
+ assert.deepEqual(oldProfile.legacy_override_fields,source==='legacy'?['prompt']:[]);
+ const before=await rt.apply(input,{featureKey:id});
+ assert.equal(before.options.traceContext.configuration_source,oldProfile.configuration_source);
+ assert.match(JSON.parse(before.init.body).messages[0].content,/Testing mode: NFR_ONLY/,'A deployment preserves administrator-saved coverage instructions');
+ assert.deepEqual(JSON.parse(JSON.parse(before.init.body).messages[1].content),task,'The workflow already supplies its functional intent');
+ // Publish a prompt-only reset while retaining the existing controls. The
+ // legacy row intentionally remains: publication must supersede it at runtime.
+ record={revision:(record?.revision||0)+1,published:{version:(record?.published.version||0)+1,config:{...oldProfile.config,prompt:item.defaults.prompt}}};
+ const after=await rt.apply(input,{featureKey:id});
+ const resolved=await service.resolve(id),body=JSON.parse(after.init.body);
+ assert.doesNotMatch(body.messages[0].content,/NFR_ONLY/);
+ assert.ok(body.messages[0].content.includes(item.defaults.prompt));
+ assert.deepEqual(JSON.parse(body.messages[1].content),task);
+ assert.equal(after.options.traceContext.configuration_version,record.published.version);
+ assert.equal(after.options.traceContext.configuration_source,'published');
+ assert.equal(resolved.configuration_source,'published');
+ assert.deepEqual(resolved.legacy_override_fields,[]);
+ assert.equal(after.options.traceContext.configuration_hash,resolved.fingerprint);
+ for(const key of Object.keys(oldProfile.config).filter(key=>key!=='prompt'))assert.deepEqual(resolved.config[key],oldProfile.config[key],key);
+});
 test('all catalog defaults validate and operation aliases are unambiguous',()=>{
  const keys=new Set();for(const item of configuration.catalog){assert.deepEqual(configuration.validate(item.defaults,item.id),item.defaults);for(const key of [item.id,...item.aliases]){assert.ok(!keys.has(key),key);keys.add(key);}}
  const published=require('../../shared/aiPromptDefaults.json');for(const item of published)assert.equal(item.value,configuration.catalog.find(feature=>feature.id===item.key).defaults.prompt);
+});
+test('recognized stock legacy prompt migrations identify the effective default while preserving provider override provenance',async()=>{
+ const id='ai.test_case.design',item=configuration.catalog.find(feature=>feature.id===id),old=item.prompt_default_migrations[0];
+ assert.ok(old);
+ for(const provider of [null,'reviewed-project-provider']){
+  const service=load(require.resolve('../services/aiConfiguration.service'),{'../src/db':{prepare:()=>({get:async()=>undefined,all:async()=>[
+   {key:'workspace_governed_preference:ai_prompt_registry_overrides',value:{[id]:old}},
+   {key:'workspace_governed_preference:ai_prompt_registry_llm_overrides',value:provider?{[id]:provider}:{}}
+  ]})}});
+  const profile=await service.resolve(id);
+  assert.equal(profile.config.prompt,item.defaults.prompt);
+  assert.equal(profile.configuration_source,provider?'legacy_override':'instance_default');
+  assert.deepEqual(profile.legacy_override_fields,provider?['integration_id']:[]);
+  if(provider)assert.equal(profile.config.integration_id,provider);
+ }
 });
 test('API runtime instructions migrate recognized stock guidance and retain reviewed custom Admin blocks',async()=>{
  const id='ai.automation.keyword_generation',key='aiAutomationBuilder.prompt.45',item=configuration.catalog.find(item=>item.id===id);

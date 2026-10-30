@@ -122,11 +122,18 @@ function effective(item, record, legacy={}, parent=null, instructionSources=[]) 
     base.instruction_blocks = Object.fromEntries(Object.entries(item.defaults.instruction_blocks).map(([key,value])=>[key,parent.config.instruction_blocks?.[key] || value]));
   }
   const oldPrompt = legacy.ai_prompt_registry_overrides?.[item.id];
-  if (typeof oldPrompt === 'string' && oldPrompt.trim()) base.prompt=item.prompt_default_migrations?.includes(oldPrompt)?item.defaults.prompt:oldPrompt.slice(0,item.maxLength);
+  const legacyFields = [];
+  if (typeof oldPrompt === 'string' && oldPrompt.trim()) {
+    const migratedDefault=item.prompt_default_migrations?.includes(oldPrompt);
+    base.prompt=migratedDefault?item.defaults.prompt:oldPrompt.slice(0,item.maxLength);
+    if(!migratedDefault)legacyFields.push('prompt');
+  }
   const oldIntegration = legacy.ai_prompt_registry_llm_overrides?.[item.id];
-  if (typeof oldIntegration==='string' && oldIntegration.trim()) base.integration_id=oldIntegration;
+  if (typeof oldIntegration==='string' && oldIntegration.trim()) {base.integration_id=oldIntegration;legacyFields.push('integration_id');}
   const config=record?.published?adaptStored(item,record.published.config,base.instruction_blocks):base;
   return { ...item, defaults: copy(item.defaults), config, revision:record?.revision || 0,
+    configuration_source:record?.published?'published':legacyFields.length?'legacy_override':inherited?'inherited':'instance_default',
+    legacy_override_fields:record?.published?[]:legacyFields,
     inherited_from:inherited?{id:parent.id,version:parent.published_version,fingerprint:parent.fingerprint}:null,
     published_version:record?.published?.version || 0, published_at:record?.published?.at || null,
     draft:record?.draft?{...record.draft,config:adaptStored(item,record.draft.config,base.instruction_blocks)}:null, history:record?.history || [], fingerprint:hash(config) };

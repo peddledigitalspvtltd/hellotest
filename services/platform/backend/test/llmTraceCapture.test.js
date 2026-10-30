@@ -22,6 +22,22 @@ test('trace sanitizer redacts secrets and hidden reasoning and bounds payloads w
   assert.ok(result.truncated); assert.ok(result.redacted); assert.ok(text.length < 97000);
 });
 
+test('retained calls identify the configuration actually used before and after a prompt publication',async()=>{
+ const f=fixture();
+ const configurations=[{configuration_source:'legacy_override',configuration_version:0,configuration_hash:'a'.repeat(64)},
+  {configuration_source:'published',configuration_version:1,configuration_hash:'b'.repeat(64)}];
+ await context.run({project_id:'project',actor_id:'actor'},async()=>{
+  for(const traceContext of configurations){
+   const trace=await f.capture.begin({url:'https://llm.test',init:{body:JSON.stringify({model:'fixture',messages:[{role:'user',content:'PRIVATE_STORY'}]})},options:{traceContext}});
+   await f.capture.finish(trace,{response:Response.json({choices:[{message:{content:'Draft'}}]})});
+  }
+ });
+ for(const [index,expected] of configurations.entries())for(const metadata of [f.writes[index*2].values[17],f.writes[index*2+1].values[8]]){
+  for(const [key,value] of Object.entries(expected))assert.equal(metadata[key],value);
+  assert.doesNotMatch(JSON.stringify(metadata),/PRIVATE_STORY|messages/);
+ }
+});
+
 test('deadline expiry before fetch is captured as nondispatched even when trace logging consumes the budget',async t=>{
  for(const expireAt of ['context','trace']){
   let now=1_000_000,fetches=0;const events=[];

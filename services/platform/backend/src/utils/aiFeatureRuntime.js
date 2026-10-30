@@ -141,7 +141,7 @@ async function apply(init, options={}) {
     init={...init,headers};payload.model=integration.model;options={...options,integration};
   }
 
-  const traceContext={...options.traceContext,feature:id,feature_group:profile.group,configuration_version:profile.published_version,configuration_hash:profile.fingerprint,instruction_versions:Object.fromEntries([...profiles].map(([key,value])=>[key,{version:value.published_version,hash:value.fingerprint,...(value.inherited_from ? {inherited_from:value.inherited_from} : {})}]))};
+  const traceContext={...options.traceContext,feature:id,feature_group:profile.group,configuration_source:profile.configuration_source,configuration_version:profile.published_version,configuration_hash:profile.fingerprint,instruction_versions:Object.fromEntries([...profiles].map(([key,value])=>[key,{version:value.published_version,hash:value.fingerprint,...(value.inherited_from ? {inherited_from:value.inherited_from} : {})}]))};
   if(!Array.isArray(payload.messages))return {init,options:{...options,traceContext}};
   // Native contracts carry runtime field IDs, permitted enum values and specialist
   // schemas. They complement the managed task instructions; they never grant access.

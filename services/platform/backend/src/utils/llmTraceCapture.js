@@ -92,7 +92,7 @@ async function begin({ url, init, options, correctionOf }) {
   const raw = typeof init.body === 'string' ? init.body : '';
   const parsed = parse(raw);
   const request = sanitize(parsed);
-  const profileCapture = { scope: scope.project_id ? "project" : "instance", request_stage:options.traceStage||'provider_dispatch',request_utf8_bytes:Buffer.byteLength(raw,'utf8'),configuration_version: scope.configuration_version ?? null, configuration_hash: scope.configuration_hash || null, feature_group: scope.feature_group || null, instruction_versions:scope.instruction_versions||null, mcp_context: scope.mcp_context || options.mcpContextStatus || null, ...generationCorrelation(scope) };
+  const profileCapture = { scope: scope.project_id ? "project" : "instance", request_stage:options.traceStage||'provider_dispatch',request_utf8_bytes:Buffer.byteLength(raw,'utf8'),configuration_source: scope.configuration_source || null, configuration_version: scope.configuration_version ?? null, configuration_hash: scope.configuration_hash || null, feature_group: scope.feature_group || null, instruction_versions:scope.instruction_versions||null, mcp_context: scope.mcp_context || options.mcpContextStatus || null, ...generationCorrelation(scope) };
   const trace = { profileCapture, id: randomUUID(), started: Date.now(), request, scope,model:parsed.model||options.integration?.model||null };
   trace.saved = await write(`INSERT INTO llm_request_traces
     (id, project_id, actor_id, request_id, trace_id, run_id, node_id, session_id, operation, feature,

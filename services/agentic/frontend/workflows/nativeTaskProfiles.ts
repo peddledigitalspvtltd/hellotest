@@ -10,6 +10,13 @@ export function nativeTaskDefaults(id: string): AgenticWorkflowNodeData {
     ...(id === "automation-engineer" ? { inspectBrowser: true } : {}) } : {};
 }
 
+/** An explicit reset replaces guidance without changing execution settings. */
+export function nativeTaskResetPatch(id: string): Partial<AgenticWorkflowNodeData> {
+  const defaults = nativeTaskDefaults(id);
+  return { task: defaults.task, instructions: defaults.instructions, guardrails: defaults.guardrails, prompt: "",
+    ...(id === "test-case-generation" ? { generationInstructions: "" } : {}) };
+}
+
 /** Backfill old definitions without replacing any saved or intentionally empty guidance. */
 export function withNativeTaskDefaults(data: AgenticWorkflowNodeData): AgenticWorkflowNodeData {
   if (data.kind !== "artifactTask") return data;

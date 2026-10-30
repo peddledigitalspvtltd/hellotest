@@ -4,7 +4,7 @@ import { IconPlugConnected, IconRefresh } from "@tabler/icons-react";
 import type { AgenticWorkflowNodeData } from "@hellotest/platform/frontend/src/types";
 import { agenticApi } from "../api.client";
 import { WorkflowConditionFields } from "./WorkflowConditionFields";
-import { nativeTaskDefaults, nativeTaskProfiles } from "./nativeTaskProfiles";
+import { nativeTaskDefaults, nativeTaskProfiles, nativeTaskResetPatch } from "./nativeTaskProfiles";
 import { sprintStoriesUrl } from "./sprintStoriesUrl";
 export function WorkflowOperationFields({
   data,
@@ -110,11 +110,8 @@ export function WorkflowOperationFields({
           {field("task", "Task", true)}
           {field("instructions", "Instructions", true)}
           {field("guardrails", "Guardrails", true)}
-          <button type="button" className="ghost-button" onClick={() => {
-            const defaults = nativeTaskDefaults(String(data.artifactTask || "story-assurance"));
-            onChange({ task: defaults.task, instructions: defaults.instructions, guardrails: defaults.guardrails, prompt: "" });
-          }}>Restore task defaults</button>
-          <p className="studio-caption">Saved with this node. Project access, source traceability and output validation are always enforced. Shared model contracts and quality metrics are configurable in AI Controls.</p>
+          <button type="button" className="ghost-button" onClick={() => onChange(nativeTaskResetPatch(String(data.artifactTask || "story-assurance")))}>Restore task defaults</button>
+          <p className="studio-caption">Saved node edits persist across deployments. Project access, source traceability and output validation are always enforced. Shared model contracts and quality metrics are configurable in AI Controls.</p>
         </div>
         {data.artifactTask === "test-case-generation" && <div className="studio-parameter-group">
           <h4>Case generation</h4>
