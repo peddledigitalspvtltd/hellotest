@@ -34,6 +34,7 @@ export type WorkflowNodeInspectorProps = {
   incoming: AgenticWorkflowNode[];
   result?: Record<string, unknown>;
   run?: AgenticWorkflowRun | null;
+  workflowInput?: string;
   editable: boolean;
   canRun: boolean;
   busy: boolean;
@@ -57,6 +58,10 @@ export type WorkflowNodeInspectorProps = {
 };
 export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
   const { node, result, run, editable, expanded, incoming } = props;
+  let triggerInput = run?.input_payload;
+  if (!triggerInput && props.workflowInput) {
+    try { const parsed: unknown = JSON.parse(props.workflowInput); if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) triggerInput = parsed as Record<string, unknown>; } catch { /* Keep the user's invalid trigger text in its editor. */ }
+  }
   const registeredAgent = props.projectAgents?.find(agent => agent.id === node.data.agentId);
   const [tab, setTab] = useState<"parameters" | "input" | "output" | "logs">(
     "parameters",
@@ -134,6 +139,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         pathPrefix="$input"
         defaultMode={run ? "json" : "readable"}
         jsonLabel="Node input JSON"
+        copyJsonLabel="Copy input JSON"
         empty={
           run ? "No input was recorded for this step." : incoming.length
             ? "Execute this step to receive upstream data. Required preceding steps will run first."
@@ -200,6 +206,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         value={output}
         defaultMode={run ? "json" : "readable"}
         jsonLabel="Node output JSON"
+        copyJsonLabel="Copy output JSON"
         empty={
           result?.status === "running"
             ? "This step is running. Output appears here when it completes."
@@ -282,7 +289,6 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
             ))}
           </select>
         </label>
-        {kind === "artifactTask" && <p className="studio-caption">Uses the native Story and Test Case services. Connected Story packets move through each task. Sprint Automator saves generated Test Cases to the Library as AI generated and pending review when automatic publication is enabled.</p>}
         {kind === "artifactTask" && <label><span>Model connection</span><select value={String(node.data.llmIntegrationId || "")} onChange={event => props.onChange({ llmIntegrationId: event.target.value })}><option value="">Trigger model or configured feature default</option>{props.providers.filter(item => item.value).map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>}
         {specialist && (
           <>
@@ -392,6 +398,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           data={node.data}
           projectId={props.projectId}
           canRun={props.canRun}
+          triggerInput={triggerInput}
           onChange={props.onChange}
         />
         {kind === "trigger" && (

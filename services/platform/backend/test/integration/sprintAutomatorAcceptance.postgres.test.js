@@ -32,9 +32,9 @@ test('Sprint draft acceptance uses native transactional writes, concurrent repla
     const migration = await execFile(process.execPath,[require.resolve('../../src/migrate')],{env:process.env,timeout:180000});
     assert.match(migration.stdout,/Database migrations completed/);
     await schema.verifySchema(db,'main');
-    assert.equal((await db.prepare("SELECT version FROM runtime_schema_receipts WHERE component='main'").get()).version,12);
+    assert.equal((await db.prepare("SELECT version FROM runtime_schema_receipts WHERE component='main'").get()).version,schema.REQUIRED_SCHEMA_VERSION);
     assert.equal((await db.prepare("SELECT to_regclass('public.workflow_draft_acceptances') AS name").get()).name,'workflow_draft_acceptances');
-    console.log('Sprint acceptance fixture version-11 to version-12 CLI upgrade verified.');
+    console.log(`Sprint acceptance fixture version-11 to version-${schema.REQUIRED_SCHEMA_VERSION} CLI upgrade verified.`);
     await independent.connect();
     // This valid UUID previously matched the prose phone redactor in MCP.
     // Exercise typed project identity preservation on every native pipeline run.

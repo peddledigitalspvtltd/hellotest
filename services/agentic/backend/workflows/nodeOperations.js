@@ -64,7 +64,7 @@ function mapValues(template, context, depth = 0) {
   if (depth > 12) throw connections.fail("Field mapping is too deeply nested.");
   if (
     typeof template === "string" &&
-    /^\$(input|request|item|nodes)(\.|$)/.test(template)
+    /^\$(input|request|item|nodes|iteration)(\.|$)/.test(template)
   )
     return readPath(context, template) ?? null;
   if (Array.isArray(template))
@@ -81,6 +81,7 @@ function mapValues(template, context, depth = 0) {
 }
 const inputValue = output => output && Object.hasOwn(output, "data") ? output.data
   : output && Object.hasOwn(output, "request") ? output.request : output;
+const sourceValue = (source, internal = false) => inputValue(internal && source.execution_context ? source.execution_context : source.output);
 // Preserve connection order, append arrays one level, and retain each source's
 // range so a merge never confuses completion order with data provenance.
 function appendInputs(sources) {
@@ -93,22 +94,71 @@ function appendInputs(sources) {
   }
   return { data, source_items };
 }
-const contextFor = (run, sources) => ({
-  request: run.input_payload,
-  input: Object.hasOwn(run, "iteration_input") ? run.iteration_input : !sources.length ? run.input_payload : sources.length === 1 ? inputValue(sources[0].output) : sources.map(source => inputValue(source.output)),
-  nodes: Object.fromEntries(sources.flatMap(source => [[source.node_id, source.output], ...(source.output_key && source.output_key !== source.node_id ? [[source.output_key, source.output]] : [])])),
-  item: Object.hasOwn(run, "iteration_input") ? run.iteration_input : run.input_payload?.item ?? null,
-});
+// Object inputs combine recursively. Identical shared fields are kept once;
+// arrays append in connection order. A conflicting scalar is an explicit list
+// of alternatives, never an implicit last-writer-wins overwrite. Source labels
+// remain available through $nodes and every conflict has inspectable provenance.
+function mergeInputs(sources, { internal = false } = {}) {
+  const conflicts = [];
+  const merge = (entries, path = []) => {
+    if (entries.every(entry => isDeepStrictEqual(entry.value, entries[0].value))) return entries[0].value;
+    if (path.length < 12 && entries.every(entry => object(entry.value))) {
+      const keys = [...new Set(entries.flatMap(entry => Object.keys(entry.value)))];
+      return Object.fromEntries(keys.map(key => [key, merge(entries.filter(entry => Object.hasOwn(entry.value, key)).map(entry => ({ ...entry, value: entry.value[key] })), [...path, key])]));
+    }
+    if (entries.every(entry => Array.isArray(entry.value))) return entries.flatMap(entry => entry.value);
+    conflicts.push({ path: path.length ? path.join(".") : "$", node_ids: entries.map(entry => entry.node_id) });
+    return entries.map(entry => entry.value);
+  };
+  return { data: sources.length ? merge(sources.map(source => ({ node_id: source.node_id, value: sourceValue(source, internal) }))) : {}, conflicts };
+}
+function mergeExecutionContext(sources) {
+  if (!sources.length || sources.some(source => !Array.isArray(source.execution_context?.data))) return null;
+  const packets = new Map();
+  const combine = (left, right, path) => {
+    if (isDeepStrictEqual(left, right)) return left;
+    if (path.length < 12 && object(left) && object(right)) return Object.fromEntries([...new Set([...Object.keys(left), ...Object.keys(right)])].map(key => [key,
+      !Object.hasOwn(left, key) ? right[key] : !Object.hasOwn(right, key) ? left[key] : combine(left[key], right[key], [...path,key])]));
+    throw Object.assign(connections.fail(`Connected native branches contain conflicting Story lineage at ${path.join(".")}. Rejoin matching Story revisions and drafts before continuing.`, 409), { code: "WORKFLOW_LINEAGE_CONFLICT" });
+  };
+  for (const source of sources) for (const packet of source.execution_context.data) {
+    if (!object(packet) || typeof packet.story_id !== "string" || !packet.story_id) throw connections.fail("A native execution checkpoint is missing its Story identity.", 409);
+    packets.set(packet.story_id, packets.has(packet.story_id) ? combine(packets.get(packet.story_id), packet, [packet.story_id]) : packet);
+  }
+  return { data: [...packets.values()] };
+}
+function contextFor(run, sources, { internal = false } = {}) {
+  const nativeContext = internal ? mergeExecutionContext(sources) : null;
+  const combined = sources.length > 1 ? mergeInputs(sources, { internal }) : null;
+  return {
+    request: run.input_payload,
+    input: Object.hasOwn(run, "iteration_input") ? run.iteration_input : nativeContext ? nativeContext.data : !sources.length ? run.input_payload : sources.length === 1 ? sourceValue(sources[0], internal) : combined.data,
+    nodes: Object.fromEntries(sources.flatMap(source => [[source.node_id, source.output], ...(source.output_key && source.output_key !== source.node_id ? [[source.output_key, source.output]] : [])])),
+    item: Object.hasOwn(run, "iteration_input") ? run.iteration_input : run.input_payload?.item ?? null,
+    ...(Object.hasOwn(run, "iteration_index") ? { iteration: { index: run.iteration_index, number: run.iteration_index + 1, total: run.iteration_total ?? null } } : {}),
+    ...(combined ? { merge: { mode: "combine_fields", conflicts: combined.conflicts } } : {}),
+  };
+}
 function interpolate(value, context, encode = false) {
-  return String(value || "").replace(/\{\{\s*(\$(?:input|request|item|nodes)(?:\.[\w-]+)*)\s*\}\}/g, (_, path) => {
+  return String(value || "").replace(/\{\{\s*(\$(?:input|request|item|nodes|iteration)(?:\.[\w-]+)*)\s*\}\}/g, (_, path) => {
     const resolved = readPath(context, path);
     if (resolved == null || typeof resolved === "object") throw connections.fail(`The value at ${path} must be text, a number or a boolean.`);
     return encode ? encodeURIComponent(String(resolved)) : String(resolved);
   });
 }
 function condition(data, context) {
+  if (data.conditions != null) {
+    if (!Array.isArray(data.conditions) || !data.conditions.length || data.conditions.length > 20 || data.conditions.some(item => !object(item) || item.conditions != null)) throw connections.fail("Use 1–20 simple conditions.");
+    if (data.conditionCombinator && !["all", "any"].includes(data.conditionCombinator)) throw connections.fail("Combine conditions using all or any.");
+    // Validate all comparisons, including comparisons skipped by boolean
+    // short-circuiting, before choosing a branch.
+    const matches = data.conditions.map(item => condition(item, context));
+    return data.conditionCombinator === "any" ? matches.some(Boolean) : matches.every(Boolean);
+  }
   const actual = readPath(context, data.conditionPath || "input.status");
-  if (data.conditionOperator === "exists") return actual !== undefined && actual !== null;
+  const exists = actual !== undefined && actual !== null;
+  const empty = !exists || actual === "" || ((Array.isArray(actual) || object(actual)) && Object.keys(actual).length === 0);
+  if (["exists", "notExists", "isEmpty", "notEmpty", "isTrue", "isFalse"].includes(data.conditionOperator)) return ({ exists, notExists: !exists, isEmpty: empty, notEmpty: !empty, isTrue: actual === true, isFalse: actual === false })[data.conditionOperator];
   let expected;
   try {
     expected = JSON.parse(data.conditionValue || "true");
@@ -131,6 +181,13 @@ function condition(data, context) {
             actual.some(
               (value) => isDeepStrictEqual(value, expected),
             );
+    case "notContains":
+      return typeof actual === "string" && typeof expected === "string" ? !actual.includes(expected)
+        : Array.isArray(actual) && !actual.some(value => isDeepStrictEqual(value, expected));
+    case "startsWith":
+      return typeof actual === "string" && typeof expected === "string" && actual.startsWith(expected);
+    case "endsWith":
+      return typeof actual === "string" && typeof expected === "string" && actual.endsWith(expected);
     case "greater":
       return (
         typeof actual === "number" &&
@@ -143,6 +200,10 @@ function condition(data, context) {
         typeof expected === "number" &&
         actual < expected
       );
+    case "greaterOrEqual":
+      return typeof actual === "number" && typeof expected === "number" && actual >= expected;
+    case "lessOrEqual":
+      return typeof actual === "number" && typeof expected === "number" && actual <= expected;
     default:
       throw connections.fail("Choose a supported comparison.");
   }
@@ -189,6 +250,8 @@ function validate(node) {
       "MCP calls cannot be automatically retried. Set retries to zero.",
     );
   if (kind === "loop") {
+    if (data.loopBatchSize != null && data.loopBatchSize !== "" && Number(data.loopBatchSize) !== 1)
+      errors.push("For each processes one item at a time. Batch size must be 1; cyclic or parallel batches are not supported.");
     if (!["transform", "customAI", "storyPackets"].includes(data.loopAction || "transform"))
       errors.push("Choose field mapping or AI review for each item.");
     if (
@@ -201,6 +264,7 @@ function validate(node) {
       errors.push("Describe the AI task for each item.");
   }
   if (kind === "artifactTask" && !require("./artifactTasks").TASKS.has(data.artifactTask)) errors.push("Choose a native artifact task.");
+  if (kind === "artifactTask" && data.artifactTask === "automation-engineer" && data.readinessPolicy != null && !["verify-inputs", "require-ready"].includes(data.readinessPolicy)) errors.push("Choose whether Automation Engineer verifies inputs or requires a ready assurance assessment.");
   if (data.apiPagination && !["none", "cursor"].includes(data.apiPagination)) errors.push("Choose supported cursor pagination.");
   if (data.apiResource === "sprintStories" && !data.connectionId) errors.push("Select a managed HelloTest HTTP API connection with an API key.");
   if (
@@ -222,7 +286,7 @@ async function execute({
 }) {
   const data = node.data || {},
     kind = data.kind || node.type;
-  const context = contextFor(run, sources);
+  const context = contextFor(run, sources, { internal: kind === "artifactTask" });
   if (kind === "artifactTask") return require("./artifactTasks").execute({ run, node, sources, user, signal, onProgress, context });
   if (data.apiResource === "sprintStories") {
     require("./artifactTasks").checkInput(run);
@@ -309,23 +373,26 @@ async function execute({
     const max = Number(data.loopMaxIterations);
     if (items.length > max)
       throw connections.fail(
-        `For each received ${items.length} items; its limit is ${max}. Split the input or increase the limit (maximum 10).`,
+        `For each received ${items.length} items; its limit is ${max}. Split the input or increase the limit (maximum ${data.loopAction === "storyPackets" ? 100 : 10}).`,
       );
     const results = [];
     const mapping = ["customAI", "storyPackets"].includes(data.loopAction) ? null : parseObject(data.transformMapping || "{}", "Field mapping");
     if (data.loopAction === "storyPackets") {
       require("./artifactTasks").checkInput(run);
       const packets = [];
-      for (const item of items) {
+      for (const [index, item] of items.entries()) {
+        if (signal?.aborted) throw connections.fail("Iteration cancelled.", 499);
+        await onProgress?.({ percent: Math.round(index / Math.max(1, items.length) * 100), current_item: index + 1, total_items: items.length });
         const story = await require("./artifactTasks").loadStory(run, user, item);
         if (packets.some(packet => packet.story_id === story.id)) throw connections.fail("The Stories API returned a duplicate Story. Retry against a stable Sprint scope.", 409);
         packets.push({ story_id: story.id, story_revision: require("./artifactTasks").revision(story) });
       }
+      await onProgress?.({ percent: 100, current_item: items.length, total_items: items.length });
       return { data: packets, processed: packets.length, for_each: "story", requires_human_review: true };
     }
     for (let index = 0; index < items.length; index++) {
-      if (signal.aborted) throw connections.fail("Iteration cancelled.", 499);
-      await onProgress({
+      if (signal?.aborted) throw connections.fail("Iteration cancelled.", 499);
+      await onProgress?.({
         percent: Math.round((index / items.length) * 100),
         current_item: index + 1,
         total_items: items.length,
@@ -342,6 +409,7 @@ async function execute({
                 ...run,
                 iteration_input: items[index],
                 iteration_index: index,
+                iteration_total: items.length,
               },
               {
                 ...node,
@@ -351,12 +419,12 @@ async function execute({
           : {
               data: mapValues(
                 mapping,
-                { ...context, item: items[index] },
+                { ...context, input: items[index], item: items[index], iteration: { index, number: index + 1, total: items.length } },
               ),
             };
       results.push({ index, ...value });
     }
-    await onProgress({
+    await onProgress?.({
       percent: 100,
       current_item: items.length,
       total_items: items.length,
@@ -435,5 +503,5 @@ module.exports = {
   KINDS,
   validate,
   execute,
-  _internals: { parseObject, readPath, mapValues, condition, contextFor, inputValue, appendInputs, interpolate },
+  _internals: { parseObject, readPath, mapValues, condition, contextFor, inputValue, appendInputs, mergeInputs, mergeExecutionContext, interpolate },
 };

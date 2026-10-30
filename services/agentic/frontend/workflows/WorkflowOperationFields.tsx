@@ -3,15 +3,20 @@ import { useQuery } from "@tanstack/react-query";
 import { IconPlugConnected, IconRefresh } from "@tabler/icons-react";
 import type { AgenticWorkflowNodeData } from "@hellotest/platform/frontend/src/types";
 import { agenticApi } from "../api.client";
+import { WorkflowConditionFields } from "./WorkflowConditionFields";
+import { nativeTaskDefaults, nativeTaskProfiles } from "./nativeTaskProfiles";
+import { sprintStoriesUrl } from "./sprintStoriesUrl";
 export function WorkflowOperationFields({
   data,
   projectId,
   canRun,
+  triggerInput,
   onChange,
 }: {
   data: AgenticWorkflowNodeData;
   projectId: string;
   canRun: boolean;
+  triggerInput?: Record<string, unknown>;
   onChange: (patch: Partial<AgenticWorkflowNodeData>) => void;
 }) {
   const kind = String(data.kind);
@@ -97,9 +102,24 @@ export function WorkflowOperationFields({
   return (
     <>
       {kind === "artifactTask" ? <>
-        {select("artifactTask", "Native task", [["story-assurance", "AI Story Assurance"], ["test-case-generation", "AI Test Case Generator"], ["test-case-assurance", "AI Test Case Quality Assurance"], ["automation-engineer", "AI Automation Engineer"]], "story-assurance")}
-        {field("prompt", "Optional task guidance", true)}
-        <p className="studio-caption">Processes each connected Story packet with the native feature contract. Instructions and metrics use Admin AI Controls. Generated cases and automation remain drafts until accepted into the library.</p>
+        <label><span>Native task</span><select aria-label="Native task" value={String(data.artifactTask || "story-assurance")} onChange={event => onChange({ ...nativeTaskDefaults(event.target.value), prompt: "" })}>
+          {Object.entries(nativeTaskProfiles).map(([value, profile]) => <option key={value} value={value}>{profile.label}</option>)}
+        </select></label>
+        <div className="studio-parameter-group">
+          {field("task", "Task", true)}
+          {field("instructions", "Instructions", true)}
+          {field("guardrails", "Guardrails", true)}
+          <button type="button" className="ghost-button" onClick={() => {
+            const defaults = nativeTaskDefaults(String(data.artifactTask || "story-assurance"));
+            onChange({ task: defaults.task, instructions: defaults.instructions, guardrails: defaults.guardrails, prompt: "" });
+          }}>Restore task defaults</button>
+          <p className="studio-caption">Saved with this node. Project access, source traceability and output validation are always enforced. Shared model contracts and quality metrics are configurable in AI Controls.</p>
+        </div>
+        {data.artifactTask === "automation-engineer" && <label className="studio-checkbox"><input type="checkbox" checked={data.inspectBrowser !== false} onChange={event => onChange({ inspectBrowser: event.target.checked })} /><span>Inspect the browser before building</span><small>Uses the trigger Start URL in read-only mode. API-only cases use their contracts directly.</small></label>}
+        {data.artifactTask === "automation-engineer" && <>
+          {select("readinessPolicy", "Readiness handling", [["verify-inputs", "Automation Engineer verifies inputs"], ["require-ready", "Require a ready assurance assessment"]], "verify-inputs")}
+          <p className="studio-caption">The builder checks prior findings against the selected Story. Missing dependencies and invalid automation remain explicit failures.</p>
+        </>}
       </> : null}
       {usesConnection ? (
         <div className="studio-parameter-group">
@@ -124,7 +144,7 @@ export function WorkflowOperationFields({
                   ...(kind === "mcpTool"
                     ? { mcpTool: "", mcpArguments: "{}" }
                     : {
-                        apiUrl: selected?.url || "",
+                        apiUrl: data.apiResource === "sprintStories" ? sprintStoriesUrl(selected?.url || "", projectId, String(triggerInput?.sprint_id || "")) : selected?.url || "",
                         apiMethod: data.apiResource === "sprintStories" || kind === "webAgent" ? "GET" : selected?.methods[0] || "GET",
                       }),
                 });
@@ -182,8 +202,10 @@ export function WorkflowOperationFields({
             ).map((value) => [value, value]),
             "GET",
           )}
-          {data.apiResource === "sprintStories" ? <p className="studio-caption">Reads /api/requirements for the trigger Sprint and current project, following every cursor page. Choose the HelloTest API base connection with a key from Settings → API Keys. The complete Sprint must fit the 100 Story pipeline budget; larger Sprints stop with an explicit error. Credentials stay on the server.</p> : null}
-          {field(
+          {data.apiResource === "sprintStories" ? <>
+            <label><span>Endpoint URL</span><textarea aria-label="Endpoint URL" rows={3} readOnly spellCheck={false} value={sprintStoriesUrl(String(data.apiUrl || connection?.url || ""), projectId, String(triggerInput?.sprint_id || ""))} placeholder="Choose the HelloTest API connection" /></label>
+            <p className="studio-caption">Current project and trigger Sprint. All cursor pages are read, up to 100 Stories. Larger Sprints stop with an explicit limit. Authentication uses the managed connection.</p>
+          </> : field(
             "apiUrl",
             "Endpoint URL",
             false,
@@ -258,31 +280,11 @@ export function WorkflowOperationFields({
           ) : null}
         </>
       ) : null}
-      {kind === "condition" ? (
-        <>
-          {field("conditionPath", "Value path", false, "input.status")}
-          {select(
-            "conditionOperator",
-            "Comparison",
-            [
-              ["equals", "Equals"],
-              ["notEquals", "Does not equal"],
-              ["exists", "Exists"],
-              ["contains", "Contains"],
-              ["greater", "Greater than"],
-              ["less", "Less than"],
-            ],
-            "equals",
-          )}
-          {data.conditionOperator !== "exists"
-            ? field("conditionValue", "Compare with JSON", false, '"passed"')
-            : null}
-          <p className="studio-caption">
-            Connect the labelled true and false ports to separate branches. The
-            unselected branch is skipped.
-          </p>
-        </>
-      ) : null}
+      {kind === "condition" ? <WorkflowConditionFields data={data} onChange={onChange} /> : null}
+      {kind === "aggregator" ? <>
+        {select("mergeMode", "Merge inputs", [["waitAllAppend", "Wait for all · append items"], ["waitAllMerge", "Wait for all · combine fields"]], "waitAllAppend")}
+        <p className="studio-caption">Waits for connected branches. Combine fields preserves conflicting values in connection order instead of overwriting them.</p>
+      </> : null}
       {kind === "loop" ? (
         <>
           {field("loopSourceKey", "Items path", false, "input.items")}

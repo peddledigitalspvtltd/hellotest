@@ -8,10 +8,44 @@ const profiles = {};
 new Function('require', 'exports', ts.transpileModule(readFileSync(new URL('../../frontend/workflows/specialistProfiles.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true }
 }).outputText)(() => JSON.parse(readFileSync(new URL('../../shared/workflowSpecialists.json', import.meta.url), 'utf8')), profiles);
+const nativeProfiles = {};
+new Function('require', 'exports', ts.transpileModule(readFileSync(new URL('../../frontend/workflows/nativeTaskProfiles.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true }
+}).outputText)(() => JSON.parse(readFileSync(new URL('../../shared/workflowNativeTasks.json', import.meta.url), 'utf8')), nativeProfiles);
 const graph = {};
 new Function('require', 'exports', ts.transpileModule(readFileSync(new URL('../../frontend/workflows/workflowGraph.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
-}).outputText)(name => name === './specialistProfiles' ? profiles : name === '@xyflow/react' ? { MarkerType: { ArrowClosed: 'arrowclosed' } } : { isRovoIntegrationId: value => value.startsWith('rovo:') }, graph);
+}).outputText)(name => name === './specialistProfiles' ? profiles : name === './nativeTaskProfiles' ? nativeProfiles : name === '@xyflow/react' ? { MarkerType: { ArrowClosed: 'arrowclosed' } } : { isRovoIntegrationId: value => value.startsWith('rovo:') }, graph);
+
+test('Sprint template snapshots the correct editable intent for each native task', () => {
+  const templates = {};
+  new Function('require', 'exports', ts.transpileModule(readFileSync(new URL('../../frontend/workflows/workflowTemplates.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+  }).outputText)(name => name === './workflowGraph' ? graph : name === './nativeTaskProfiles' ? nativeProfiles : profiles, templates);
+  const { draft } = templates.draftFromTemplate(templates.WORKFLOW_TEMPLATES.find(item => item.id === 'sprint-automator'));
+  const tasks = draft.nodes.filter(node => node.data.kind === 'artifactTask');
+  assert.equal(tasks.length, 4);
+  assert.equal(new Set(tasks.map(node => node.data.task)).size, 4);
+  for (const {data} of tasks) {
+    const profile = nativeProfiles.nativeTaskProfiles[data.artifactTask];
+    assert.equal(data.task, profile.task);
+    assert.equal(data.instructions, profile.instructions);
+    assert.equal(data.guardrails, profile.guardrails);
+  }
+  assert.equal(draft.settings.library_publication_mode, 'automatic');
+  assert.equal(tasks.find(node => node.data.artifactTask === 'automation-engineer').data.readinessPolicy, 'verify-inputs');
+  assert.equal(draft.settings.requires_human_review, false);
+});
+
+test('opening legacy native tasks preserves user guidance and intentionally empty fields', () => {
+  const native = data => graph.normalizeWorkflowNodeDirectLlm({id:'native',position:{x:0,y:0},data:{kind:'artifactTask',artifactTask:'automation-engineer',...data}}).data;
+  assert.equal(native({prompt:'Use the approved data fixture'}).instructions, 'Use the approved data fixture');
+  const customized = native({task:'Build invoice automation',instructions:'Keep the existing assertions',guardrails:'',inspectBrowser:false});
+  assert.equal(customized.task, 'Build invoice automation');
+  assert.equal(customized.instructions, 'Keep the existing assertions');
+  assert.equal(customized.guardrails, '');
+  assert.equal(customized.inspectBrowser, false);
+});
 
 test('opening an intentionally empty or disconnected saved definition never invents default nodes or edges', () => {
   const draft = graph.createWorkflowDraft({ id: 'empty', name: 'Empty workflow', nodes: [], edges: [], settings: {}, status: 'draft', trigger_kind: 'manual' });

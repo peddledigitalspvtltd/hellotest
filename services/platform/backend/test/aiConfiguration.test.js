@@ -19,6 +19,16 @@ test('API runtime instructions migrate recognized stock guidance and retain revi
   assert.equal((await service.resolve(id)).config.instruction_blocks[key],expected);
  }
 });
+test('conditional API field guidance upgrades recognized stock templates without changing reviewed provider instructions',async()=>{
+ const id='ai.automation.keyword_generation',key='automationBuild.apiRuntime',item=configuration.catalog.find(item=>item.id===id);
+ const previous=item.instruction_default_migrations[key].at(-1),current=item.defaults.instruction_blocks[key];
+ assert.match(current,/for auth.type none emit only/);assert.match(current,/Omit operator on status/);
+ for(const [text,expected] of [[previous,current],['Reviewed API authentication and assertion policy.','Reviewed API authentication and assertion policy.']]){
+  const config={...structuredClone(item.defaults),instruction_blocks:{...item.defaults.instruction_blocks,[key]:text}};
+  const service=load(require.resolve('../services/aiConfiguration.service'),{'../src/db':{prepare:()=>({get:async()=>({value:{published:{version:1,config}}})})}});
+  assert.equal((await service.resolve(id)).config.instruction_blocks[key],expected);
+ }
+});
 test('invalid sampling, recursive context, arbitrary config keys and unsafe schema fail before publish',()=>{
  const item=configuration.catalog[0],base=structuredClone(item.defaults);
  for(const patch of [{temperature:3},{max_output_tokens:0},{integration_id:[]},{context:{...base.context,required:true,mode:'none'}},{arbitrary_command:'exec'},{output_schema:{type:'object',properties:{value:{$ref:'https://outside.test/schema'}}}},{output_schema:{type:'object',properties:{value:{pattern:'(x+)+$'}}}}])assert.throws(()=>configuration.validate({...base,...patch},item.id),{statusCode:400});

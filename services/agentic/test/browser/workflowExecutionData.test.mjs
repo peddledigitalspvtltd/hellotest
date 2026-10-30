@@ -77,7 +77,7 @@ test('execution dialog shows actual read-only node JSON, bounds large records an
     await select('Large recorded output');
     assert.equal((await output.inputValue()).length,100000,'large JSON editor renders bounded character pages');
     await dialog.getByRole('button',{name:'Next JSON page',exact:true}).click();assert.match(await output.inputValue(),/RECORDED_END/);
-    await dialog.getByRole('button',{name:'Copy data as JSON',exact:true}).click();
+    await dialog.getByRole('button',{name:'Copy output JSON',exact:true}).click();
     assert.deepEqual(await page.evaluate(()=>JSON.parse(window.copiedJson)),await page.evaluate(()=>window.largeRecordedOutput),'copy includes the entire actual recorded value');
     await dialog.getByRole('button',{name:'Execution log',exact:true}).click();
     await dialog.getByRole('group',{name:'Execution log format',exact:true}).getByRole('button',{name:'JSON',exact:true}).click();

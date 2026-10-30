@@ -41,6 +41,7 @@ test("all seven HTTP methods reach the actual endpoint once with managed API-key
       sources: [{ node_id: "previous", output: { data: { id: "row A/1", quantity: 3, name: "Invoice" } } }] });
     assert.equal(result.status, 200);
     assert.equal(result.request.method, method);
+    assert.equal(result.request.url, `${base}/row%20A%2F1`);
     assert.equal(result.request.response_received, true);
     if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
       assert.match(result.request.operation_id, /^http-/);
@@ -204,4 +205,34 @@ test("durable operation identity reuses a received write and blocks replay of an
   await assert.rejects(invoke(lost), { outcome_unknown: true, retryable: false });
   await assert.rejects(invoke(lost), { code: "AGENT_OPERATION_OUTCOME_UNKNOWN", outcome_unknown: true });
   assert.equal(received.length, 2, "Neither a completed nor an ambiguous operation can cause a second remote write");
+});
+
+test("Sprint Stories HTTP resolves the complete selected Sprint URL and records pagination URLs", async t => {
+  const requested=[];
+  const {base,data}=await fixture(t,(req,res)=>{
+    requested.push(new URL(req.url,base));
+    const last=requested.length===2;
+    json(res,{items:[{id:last?'story-two':'story-one'}],total:2,is_last:last,next_cursor:last?null:'page-two'});
+  });
+  t.mock.method(require('@hellotest/platform/backend/services/permission.service'),'hasPermission',async()=>true);
+  t.mock.method(require('@hellotest/platform/backend/services/featureFlag.service'),'areEnabled',async()=>true);
+  const result=await operations.execute({run:{project_id:'project-a',app_type_id:'web',input_payload:{sprint_id:'Sprint / A'}},
+    node:{data:{kind:'apiTool',...data,apiResource:'sprintStories',apiUrl:`${base}/requirements?project_id=wrong&sprint_id=wrong`}},sources:[],user:{id:'reviewer'}});
+  assert.equal(requested.length,2);
+  assert.equal(requested[0].pathname,'/api/requirements');
+  assert.equal(requested[0].searchParams.get('project_id'),'project-a');
+  assert.equal(requested[0].searchParams.get('sprint_id'),'Sprint / A');
+  assert.equal(requested[0].searchParams.get('include_page'),'true');
+  assert.equal(requested[1].searchParams.get('cursor'),'page-two');
+  assert.equal(result.request.url,requested[0].toString());
+  assert.equal(result.request.last_page_url,requested[1].toString());
+  assert.deepEqual(result.data.items.map(row=>row.id),['story-one','story-two']);
+});
+
+test("request URL diagnostics preserve configured endpoint identity while redacting query credentials",()=>{
+  const value=connections.redact({request:{url:'http://127.0.0.1:3000/requirements?project_id=project-a&api_key=private-value&access_token=private-token'},data:{url:'client IP 192.168.1.1'}});
+  const endpoint=new URL(value.request.url);
+  assert.equal(endpoint.host,'127.0.0.1:3000');assert.equal(endpoint.searchParams.get('project_id'),'project-a');
+  assert.equal(endpoint.searchParams.get('api_key'),'[REDACTED]');assert.equal(endpoint.searchParams.get('access_token'),'[REDACTED]');
+  assert.doesNotMatch(JSON.stringify(value),/private-value|private-token|192\.168\.1\.1/);
 });

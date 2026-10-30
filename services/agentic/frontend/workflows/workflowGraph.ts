@@ -1,5 +1,6 @@
 import { MarkerType } from "@xyflow/react";
 import { specialistDefaults } from "./specialistProfiles";
+import { nativeTaskDefaults, withNativeTaskDefaults } from "./nativeTaskProfiles";
 import { isRovoIntegrationId } from "@hellotest/integration/frontend/lib/rovo";
 import type {
   AgenticWorkflow,
@@ -292,7 +293,7 @@ export const buildNodeDefaults = (
   }
 
   if (kind === "artifactTask") {
-    return { ...base, label: "AI Story Assurance", artifactTask: "story-assurance", timeoutMs: "1800000", retryCount: "0", outputKey: "" };
+    return { ...base, ...nativeTaskDefaults("story-assurance"), timeoutMs: "1800000", retryCount: "0", outputKey: "" };
   }
 
   if (kind === "loop") {
@@ -300,12 +301,11 @@ export const buildNodeDefaults = (
       ...base,
       label: "For each item",
       loopSourceKey: "input.items",
-      loopBatchSize: "1",
       loopMaxIterations: "10",
       loopAction: "transform",
       transformMapping: '{\n  "item": "$item"\n}',
       summary:
-        "Iterate over a selected item array with clear batch and iteration limits.",
+        "Process a selected item array sequentially within a bounded item limit.",
     };
   }
 
@@ -625,6 +625,7 @@ export function runMatchesDraft(
 export const normalizeWorkflowNodeDirectLlm = (
   node: AgenticWorkflowNode,
 ): AgenticWorkflowNode => {
+  node = { ...node, data: withNativeTaskDefaults(node.data) };
   if (!isRovoIntegrationId(String(node.data.llmIntegrationId || ""))) {
     return { ...node, type: node.type || "agenticStep" };
   }
@@ -706,6 +707,12 @@ export const buildN8nPayload = (
         parameters: {
           summary: node.data.summary || "",
           prompt: node.data.prompt || "",
+          task: node.data.task || "",
+          instructions: node.data.instructions ?? "",
+          guardrails: node.data.guardrails ?? "",
+          artifactTask: node.data.artifactTask || "",
+          inspectBrowser: node.data.inspectBrowser ?? true,
+          readinessPolicy: node.data.readinessPolicy || "verify-inputs",
           model: node.data.model || "",
           llmIntegrationId: node.data.llmIntegrationId || "",
           credentialId: node.data.credentialId || "",
@@ -744,9 +751,11 @@ export const buildN8nPayload = (
           },
           loop: {
             sourceKey: node.data.loopSourceKey || "",
-            batchSize: node.data.loopBatchSize || "",
+            action: node.data.loopAction || "",
             maxIterations: node.data.loopMaxIterations || "",
           },
+          condition: { conditions: node.data.conditions || [{ conditionPath: node.data.conditionPath, conditionOperator: node.data.conditionOperator, conditionValue: node.data.conditionValue }], combinator: node.data.conditionCombinator || "all" },
+          transformMapping: node.data.transformMapping || "",
           tool: {
             name: node.data.toolName || "",
             policy: node.data.toolPolicy || "approved-tools-only",
@@ -760,6 +769,9 @@ export const buildN8nPayload = (
             auth: node.data.apiAuth || "",
             responseStyle: node.data.apiResponseStyle || "json",
             body: node.data.apiBody || "",
+            connectionId: node.data.connectionId || "",
+            resource: node.data.apiResource || "",
+            pagination: node.data.apiPagination || "none",
           },
         },
       };

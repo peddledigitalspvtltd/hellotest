@@ -115,7 +115,7 @@ async function verifyInteractions(page,dialog){
  assert.ok(Math.abs((await dialog.boundingBox()).width-regularWidth)<=2);
  await dialog.getByRole('button',{name:'Results',exact:true}).click();
  assert.equal(await dialog.locator('.studio-execution-workspace').count(),0,'Results has its own tab instead of displacing the graph');
- await content.getByText('Partial refunds with clear receipts · 1 Test Cases',{exact:true}).click();
+ await content.getByText('Partial refunds with clear receipts · 1 Test Case',{exact:true}).click();
  const headerBefore=(await dialog.locator('.studio-execution > .studio-header').boundingBox()).y;
  await content.hover();await page.mouse.wheel(0,5000);
  await page.waitForFunction(()=>document.querySelector('[aria-label="Execution content"]')?.scrollTop>0);
@@ -159,7 +159,7 @@ async function verifyInteractions(page,dialog){
  const mobileDialog=await dialog.boundingBox();assert.ok(mobileOutput.y<mobileDialog.y+mobileDialog.height,'mobile node data is reachable inside its scroll body');
  measurements.mobileNode=await capture(page,'after-mobile-node-output');
  await dialog.getByRole('button',{name:'Results',exact:true}).click();
- await content.getByText('Partial refunds with clear receipts · 1 Test Cases',{exact:true}).click();
+ await content.getByText('Partial refunds with clear receipts · 1 Test Case',{exact:true}).click();
  await content.hover();await page.mouse.wheel(0,10000);await content.focus();await content.press('End');
  await page.waitForFunction(()=>{const element=document.querySelector('[aria-label="Execution content"]');return element&&element.scrollHeight-element.scrollTop-element.clientHeight<=3;});
  state=await scrollState(content);assert.ok(state.total-state.top-state.height<=3,'mobile Results bottom is reachable');

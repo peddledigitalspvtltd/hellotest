@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { WorkflowExecutionLog, executionDuration } from "./WorkflowExecutionLog";
-import { IconArrowLeft, IconDownload, IconRefresh, IconArrowsMaximize, IconArrowsMinimize, IconLayoutSidebarLeftCollapse, IconLayoutSidebarRightCollapse, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import { IconArrowLeft, IconDownload, IconRefresh, IconArrowsMaximize, IconArrowsMinimize, IconLayoutSidebarLeftCollapse, IconLayoutSidebarRightCollapse, IconChevronLeft, IconChevronRight, IconFocusCentered } from "@tabler/icons-react";
 import type {
   AgenticWorkflowNode,
   AgenticWorkflowEdge,
@@ -35,6 +35,7 @@ export function WorkflowExecutionView({
   onRefresh,
   onOpenReview,
   onOpenSource,
+  presentation = "history",
 }: {
   run: AgenticWorkflowRun;
   onBack: () => void;
@@ -47,20 +48,35 @@ export function WorkflowExecutionView({
   onRefresh: () => void;
   onOpenReview: (agent: string, session: string) => void;
   onOpenSource: (agent: string, run: string) => void;
+  presentation?: "history" | "live";
 }) {
   const [tab, setTab] = useState<"steps" | "results" | "summary" | "logs">("steps"),
     [selectedId, setSelectedId] = useState(""),
     [expanded, setExpanded] = useState(false);
-  const [stepsOpen, setStepsOpen] = useState(() => typeof window === "undefined" || window.matchMedia("(min-width: 1151px)").matches);
-  const [detailsOpen, setDetailsOpen] = useState(() => typeof window === "undefined" || window.matchMedia("(min-width: 801px)").matches);
+  const [stepsOpen, setStepsOpen] = useState(() => presentation !== "live" && (typeof window === "undefined" || window.matchMedia("(min-width: 1151px)").matches));
+  const [detailsOpen, setDetailsOpen] = useState(() => presentation !== "live" && (typeof window === "undefined" || window.matchMedia("(min-width: 801px)").matches));
+  const [following, setFollowing] = useState(presentation === "live");
   const [maximized, setMaximized] = useState(false);
   const stepsId = useId(), detailsId = useId();
   const detailsRef = useRef<HTMLDivElement>(null), detailsToggleRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLElement>(null);
   const [exportNotice, setExportNotice] = useState("");
   const active = ["running", "queued"].includes(run.status);
-  useEffect(() => { setSelectedId(""); setExpanded(false); setTab("steps"); }, [run.id]);
+  useEffect(() => { setSelectedId(""); setExpanded(false); setTab("steps"); setFollowing(presentation === "live"); }, [run.id, presentation]);
   useEffect(() => setExportNotice(""), [run.id]);
+  useEffect(() => {
+    if (presentation === "live") {
+      rootRef.current?.focus({ preventScroll: true });
+      rootRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [run.id, presentation]);
+  useEffect(() => {
+    if (!maximized) return;
+    const restore = (event: KeyboardEvent) => { if (event.key === "Escape" && !(event.target as Element)?.closest('[role="dialog"]')) setMaximized(false); };
+    window.addEventListener("keydown", restore);
+    return () => window.removeEventListener("keydown", restore);
+  }, [maximized]);
   useEffect(() => { if (contentRef.current) contentRef.current.scrollTop = 0; }, [tab, run.id]);
   useEffect(() => {
     if (selectedId && detailsOpen && window.matchMedia("(max-width: 800px)").matches) {
@@ -89,7 +105,7 @@ export function WorkflowExecutionView({
       ...node.data,
       runStatus: String(
         run.node_results.find((result) => result.node_id === node.id)?.status ||
-          "not run",
+          "pending",
       ),
     },
   }));
@@ -97,7 +113,17 @@ export function WorkflowExecutionView({
     Array.isArray(run.workflow_snapshot.edges)
       ? (run.workflow_snapshot.edges as AgenticWorkflowEdge[])
       : []
-  ).map(decorateFlowEdge);
+  ).map(decorateFlowEdge).map(edge => {
+    const source = nodes.find(node => node.id === edge.source)?.data.runStatus;
+    const target = nodes.find(node => node.id === edge.target)?.data.runStatus;
+    const state = target === "running" && source === "completed" ? "running"
+      : source === "completed" && target === "completed" ? "completed"
+      : target === "failed" ? "failed"
+      : ["skipped", "cancelled", "interrupted"].includes(String(target)) ? "inactive" : "pending";
+    return { ...edge, animated: false, className: `studio-execution-edge is-${state}` };
+  });
+  const runningNode = nodes.find(node => node.data.runStatus === "running");
+  const followNode = runningNode || (active ? nodes.find(node => ["pending", "queued"].includes(String(node.data.runStatus))) : undefined);
   const inputRequiredNode = run.node_results.find(item => {
     const output = item.output as Record<string, unknown> | undefined;
     return (output?.verification as Record<string, unknown> | undefined)?.status === "needs_input";
@@ -116,27 +142,29 @@ export function WorkflowExecutionView({
     const packets = (item.output as { data?: Array<{ cases?: unknown[] }> })?.data;
     return item.node_type === "artifactTask" && Array.isArray(packets) && packets.some(packet => packet?.cases?.length);
   });
-  const selectNode = (id: string) => { setSelectedId(id); setDetailsOpen(true); setTab("steps"); };
+  const selectNode = (id: string) => { setSelectedId(id); setDetailsOpen(true); setTab("steps"); setFollowing(false); };
   const hideDetails = () => { setDetailsOpen(false); detailsToggleRef.current?.focus(); };
   const runtime = run.workflow_snapshot.runtime_contract as
     | Record<string, unknown>
     | undefined;
   return (
     <section
-      className={`workflow-studio studio-execution${maximized ? " is-maximized" : ""}`}
+      ref={rootRef}
+      tabIndex={-1}
+      className={`workflow-studio studio-execution${presentation === "live" ? " is-live" : ""}${maximized ? " is-maximized" : ""}`}
       aria-label="Workflow execution"
     >
       <header className="studio-header">
         <button
           type="button"
           className="studio-icon-button"
-          aria-label="Back"
+          aria-label={presentation === "live" ? "Back to workflow editor" : "Back"}
           onClick={onBack}
         >
           <IconArrowLeft size={19} />
         </button>
         <div className="studio-title">
-          <span>Agentic Studio / Executions</span>
+          <span>Agentic Studio / {presentation === "live" ? "Live execution" : "Executions"}</span>
           <h2 title={run.workflow_name}>{run.workflow_name}</h2>
         </div>
         <span className="studio-status" role="status" data-status={run.status}>
@@ -158,7 +186,7 @@ export function WorkflowExecutionView({
             aria-pressed={tab === "steps"}
             onClick={() => setTab("steps")}
           >
-            Steps & data
+            {presentation === "live" ? "Execution canvas" : "Steps & data"}
           </button>
           {hasSprintResults && <button type="button" aria-pressed={tab === "results"} onClick={() => setTab("results")}>Results</button>}
           <button
@@ -175,17 +203,17 @@ export function WorkflowExecutionView({
             ? "Graph preview · simulated data"
             : runtime?.target_node_id
               ? "Partial execution · through selected step"
-              : "Saved execution"}
+              : active ? "Live execution" : "Saved execution"}
         </span>
         {canViewTraces && run.execution_mode === "review" && <a className="ghost-button compact" href={`/ops-telemetry?monitoring=ai&run_id=${encodeURIComponent(run.id)}`}>Model calls</a>}
-        {canRun && run.status === "running" && (
+        {canRun && active && (
           <button
             className="ghost-button"
             disabled={stopping}
             type="button"
             onClick={onStop}
           >
-            {stopping ? "Stopping…" : "Stop review"}
+            {stopping ? "Stopping…" : "Stop execution"}
           </button>
         )}
       </div>
@@ -233,7 +261,7 @@ export function WorkflowExecutionView({
         <>
         <div className="studio-execution-layout-tools" role="group" aria-label="Execution layout">
           <button type="button" aria-label={stepsOpen ? "Hide steps" : "Show steps"} aria-expanded={stepsOpen} aria-controls={stepsId} onClick={() => setStepsOpen(value => !value)}><IconLayoutSidebarLeftCollapse size={17} /><span>Steps</span><small>{run.node_results.length}</small></button>
-          <div className="studio-execution-step-navigation"><button type="button" className="studio-icon-button" aria-label="Previous step" disabled={selectedIndex <= 0} onClick={() => selectNode(nodes[selectedIndex - 1].id)}><IconChevronLeft size={17} /></button><span>{selectedIndex < 0 ? "No recorded steps" : `Step ${selectedIndex + 1} of ${nodes.length}`}</span><button type="button" className="studio-icon-button" aria-label="Next step" disabled={selectedIndex < 0 || selectedIndex >= nodes.length - 1} onClick={() => selectNode(nodes[selectedIndex + 1].id)}><IconChevronRight size={17} /></button></div>
+          {presentation === "live" && active ? <button type="button" className="studio-follow-execution" aria-pressed={following} onClick={() => setFollowing(value => !value)}><IconFocusCentered size={16} /><span>{following ? "Following execution" : "Follow execution"}</span></button> : <div className="studio-execution-step-navigation"><button type="button" className="studio-icon-button" aria-label="Previous step" disabled={selectedIndex <= 0} onClick={() => selectNode(nodes[selectedIndex - 1].id)}><IconChevronLeft size={17} /></button><span>{selectedIndex < 0 ? "No recorded steps" : `Step ${selectedIndex + 1} of ${nodes.length}`}</span><button type="button" className="studio-icon-button" aria-label="Next step" disabled={selectedIndex < 0 || selectedIndex >= nodes.length - 1} onClick={() => selectNode(nodes[selectedIndex + 1].id)}><IconChevronRight size={17} /></button></div>}
           <button ref={detailsToggleRef} type="button" aria-label={detailsOpen ? "Hide details" : "Show details"} aria-expanded={detailsOpen} aria-controls={detailsId} disabled={!selected} onClick={() => setDetailsOpen(value => !value)}><IconLayoutSidebarRightCollapse size={17} /><span>Node details</span></button>
         </div>
         <div className={`studio-execution-workspace${stepsOpen ? " steps-open" : ""}${detailsOpen && selected ? " details-open" : ""}`}>
@@ -279,6 +307,7 @@ export function WorkflowExecutionView({
           <div className="studio-execution-graph">
           <WorkflowCanvas
             focusNodeId={selected?.id}
+            followNodeId={following ? followNode?.id : undefined}
             autoFitOnResize={false}
             nodes={nodes.map((node) => ({
               ...node,
@@ -295,7 +324,7 @@ export function WorkflowExecutionView({
               setExpanded(true);
             }}
           />
-          <p className="studio-execution-graph-help">Drag to pan · Use + / − to zoom · Select a node for its data</p>
+          <div className="studio-execution-graph-help"><span>Drag to pan · Select a node for its data</span><span className="studio-execution-legend"><i data-status="running" />Running<i data-status="completed" />Complete<i data-status="pending" />Pending</span></div>
           </div>
           {selected && detailsOpen && (
             <div id={detailsId} ref={detailsRef} className="studio-execution-details">

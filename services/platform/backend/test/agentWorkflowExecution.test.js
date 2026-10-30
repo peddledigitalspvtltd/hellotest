@@ -831,3 +831,116 @@ test('saved receipt summaries deduplicate cases and distinguish pending review f
   const failed=runtime._internals.terminalSummary({},'failed',nodes,'The workflow stopped.');
   assert.equal(runtime._internals.terminalSummary({},'failed',nodes,failed),failed,'Recovery cannot duplicate the saved-case summary');
 });
+
+test('fan-in combines fields without overwriting conflicts and preserves named source references', async t => {
+  setup(t);
+  const graph = { ...workflow(), nodes: [node('request','trigger'),
+    node('a','transform',{outputKey:'first',transformMapping:JSON.stringify({scope:{sprint:'same'},status:'ready',left:false,items:[1]})}),
+    node('b','transform',{transformMapping:JSON.stringify({scope:{sprint:'same',app:'web'},status:'blocked',right:0,items:[2]})}),
+    node('combine','transform',{transformMapping:'{"merged":"$input","original":"$nodes.first.data.status"}'}),node('finish','output')],
+    edges:[{source:'request',target:'a'},{source:'request',target:'b'},{source:'a',target:'combine'},{source:'b',target:'combine'},{source:'combine',target:'finish'}] };
+  const run = await runtime.start(graph,{input_payload:{}},user), done = await finished(run.id);
+  assert.equal(done.status,'completed');
+  const combined = done.node_results.find(row=>row.node_id==='combine');
+  assert.deepEqual(combined.output.data,{merged:{scope:{sprint:'same',app:'web'},status:['ready','blocked'],left:false,right:0,items:[1,2]},original:'ready'});
+  assert.deepEqual(combined.input.merge,{mode:'combine_fields',conflicts:[{path:'status',node_ids:['a','b']}]});
+});
+
+test('merge combine-fields waits for branches and preserves null, empty and nested values', async t => {
+  setup(t);
+  const graph = { ...workflow(), nodes:[node('request','trigger'),
+    node('a','transform',{transformMapping:'{"one":null,"nested":{"empty":[],"same":true}}'}),
+    node('b','transform',{transformMapping:'{"two":"","nested":{"zero":0,"same":true}}'}),
+    node('merge','aggregator',{mergeMode:'waitAllMerge'}),node('finish','output')],
+    edges:[{source:'request',target:'a'},{source:'request',target:'b'},{source:'a',target:'merge'},{source:'b',target:'merge'},{source:'merge',target:'finish'}] };
+  const run=await runtime.start(graph,{input_payload:{}},user),done=await finished(run.id);
+  const result=done.node_results.find(row=>row.node_id==='merge');
+  assert.equal(done.status,'completed'); assert.equal(result.input.merge_mode,'waitAllMerge');
+  assert.deepEqual(result.output.data,{one:null,nested:{empty:[],same:true,zero:0},two:''});
+  assert.deepEqual(result.output.merge_conflicts,[]);
+});
+
+test('native execution checkpoints stay out of node output while downstream native tasks receive complete lineage', async t => {
+  setup(t);
+  const tasks=require('../../../agentic/backend/workflows/artifactTasks');
+  const contexts=[];
+  t.mock.method(tasks,'execute',async({node,context})=>{
+    contexts.push(context);
+    const owned={artifact_task:node.data.artifactTask,data:[{story_id:'story-a',own_result:node.id}],verification:{status:'passed'}};
+    const lineage={data:[{story_id:'story-a',story_revision:'r1',...(node.id==='generate'?{cases:[{title:'First case'}]}:{story_assurance:{summary:'Ready'}})}]};
+    return {__workflow_result:{output:owned,context:lineage}};
+  });
+  const graph={...workflow(),nodes:[node('request','trigger'),node('assure','artifactTask',{artifactTask:'story-assurance'}),node('generate','artifactTask',{artifactTask:'test-case-generation'}),node('finish','output')],
+    edges:[{source:'request',target:'assure'},{source:'assure',target:'generate'},{source:'generate',target:'finish'}]};
+  const run=await runtime.start(graph,{input_payload:{sprint_id:'sprint-a'}},user),done=await finished(run.id);
+  assert.equal(done.status,'completed');
+  const assure=done.node_results[1],generate=done.node_results[2];
+  assert.deepEqual(contexts[1].input,assure.execution_context.data);
+  assert.deepEqual(generate.input.input,assure.execution_context.data,'Input inspector records the actual hydrated native task input');
+  assert.equal(generate.input.input_mode,'native_task_context');
+  assert.equal(generate.output.data[0].story_assurance,undefined);
+  assert.deepEqual(done.node_results.at(-1).output.data,generate.output.data);
+});
+
+test('For each supports current input and iteration metadata with an empty list completing cleanly', async t => {
+  setup(t);
+  const graph=workflow();graph.nodes[1]=node('story','loop',{loopSourceKey:'input.items',loopAction:'transform',loopMaxIterations:2,transformMapping:'{"id":"$input.id","number":"$iteration.number","count":"$iteration.total"}'});
+  const run=await runtime.start(graph,{input_payload:{items:[{id:'A'},{id:'B'}]}},user),done=await finished(run.id);
+  assert.deepEqual(done.node_results[1].output.data,[{id:'A',number:1,count:2},{id:'B',number:2,count:2}]);
+  const emptyRun=await runtime.start(graph,{input_payload:{items:[]}},user),empty=await finished(emptyRun.id);
+  assert.equal(empty.status,'completed');assert.deepEqual(empty.node_results[1].output.data,[]);assert.equal(empty.node_results[1].progress.percent,100);
+});
+
+test('conditions support typed empty and comparison checks plus validated all/any groups',()=>{
+  const {condition}=require('../../../agentic/backend/workflows/nodeOperations')._internals;
+  const context={input:{empty:[],zero:0,ready:false,title:'Sprint alpha'}};
+  assert.equal(condition({conditionPath:'input.empty',conditionOperator:'isEmpty'},context),true);
+  assert.equal(condition({conditionPath:'input.zero',conditionOperator:'notEmpty'},context),true);
+  assert.equal(condition({conditionPath:'input.ready',conditionOperator:'isFalse'},context),true);
+  assert.equal(condition({conditionPath:'input.zero',conditionOperator:'greaterOrEqual',conditionValue:'0'},context),true);
+  const checks=[{conditionPath:'input.title',conditionOperator:'startsWith',conditionValue:'"Sprint"'},{conditionPath:'input.absent',conditionOperator:'exists'}];
+  assert.equal(condition({conditions:checks,conditionCombinator:'all'},context),false);
+  assert.equal(condition({conditions:checks,conditionCombinator:'any'},context),true);
+  assert.throws(()=>condition({conditions:[checks[0],{conditionOperator:'invented'}],conditionCombinator:'any'},context),/supported comparison/);
+});
+
+test('passive merge and log preserve native lineage without exposing or duplicating upstream task output',async t=>{
+  setup(t);
+  const tasks=require('../../../agentic/backend/workflows/artifactTasks');
+  const received=[];
+  t.mock.method(tasks,'execute',async({node,context})=>{
+    received.push(context.input);
+    return {__workflow_result:{output:{artifact_task:node.data.artifactTask,data:[{result:node.id}]},context:{data:[{story_id:'story-a',story_revision:'same',...(node.id==='a'?{story_assurance:{summary:'assessed'}}:node.id==='b'?{cases:[{title:'Case'}]}:{finished:true})}]}}};
+  });
+  const graph={...workflow(),nodes:[node('request','trigger'),node('a','artifactTask',{artifactTask:'story-assurance'}),node('b','artifactTask',{artifactTask:'test-case-generation'}),node('merge','aggregator',{mergeMode:'waitAllMerge'}),node('log','log'),node('next','artifactTask',{artifactTask:'test-case-assurance'}),node('finish','output')],
+    edges:[{source:'request',target:'a'},{source:'request',target:'b'},{source:'a',target:'merge'},{source:'b',target:'merge'},{source:'merge',target:'log'},{source:'log',target:'next'},{source:'next',target:'finish'}]};
+  const run=await runtime.start(graph,{input_payload:{sprint_id:'sprint-a'}},user),done=await finished(run.id);
+  assert.equal(done.status,'completed');
+  assert.deepEqual(received.at(-1),[{story_id:'story-a',story_revision:'same',story_assurance:{summary:'assessed'},cases:[{title:'Case'}]}]);
+  const log=done.node_results.find(row=>row.node_id==='log');
+  assert.deepEqual(log.output.data,[{result:'a'},{result:'b'}]);
+  assert.equal(JSON.stringify(log.output).includes('story_assurance'),false);
+});
+
+test('native branch fan-in rejects changed revisions or case arrays instead of silently selecting one',()=>{
+  const {mergeExecutionContext}=require('../../../agentic/backend/workflows/nodeOperations')._internals;
+  const sources=[{node_id:'a',execution_context:{data:[{story_id:'s',story_revision:'r1',cases:[{title:'original'}]}]}},
+    {node_id:'b',execution_context:{data:[{story_id:'s',story_revision:'r2',cases:[{title:'changed'}]}]}}];
+  assert.throws(()=>mergeExecutionContext(sources),{code:'WORKFLOW_LINEAGE_CONFLICT'});
+  sources[1].execution_context.data[0].story_revision='r1';
+  assert.throws(()=>mergeExecutionContext(sources),{code:'WORKFLOW_LINEAGE_CONFLICT'});
+  sources[1].execution_context.data[0].cases=[{title:'original'}];
+  assert.equal(mergeExecutionContext(sources).data.length,1);
+});
+
+test('For each rejects unimplemented batch sizes instead of ignoring the setting',()=>{
+  const graph=workflow();graph.nodes[1]=node('story','loop',{loopSourceKey:'input.items',loopAction:'transform',loopMaxIterations:2,transformMapping:'{}'});
+  for(const batch of [undefined,'',1,'1']) {
+    graph.nodes[1].data.loopBatchSize=batch;
+    assert.equal(runtime.readiness(graph).ready,true,String(batch));
+  }
+  for(const batch of [0,2,'10','invalid']) {
+    graph.nodes[1].data.loopBatchSize=batch;
+    assert.match(runtime.readiness(graph).blockers.map(item=>item.message).join(' '),/one item at a time/);
+  }
+});

@@ -11,7 +11,7 @@ const execution = require("@hellotest/knowledge/backend/services/knowledgeExecut
 // fail readiness before a run starts; no simulated output is passed as real data.
 const operations = require("../workflows/nodeOperations");
 const { policy: specialistPolicy } = require("../workflows/specialistPolicy");
-const { contextFor, appendInputs } = operations._internals;
+const { contextFor, appendInputs, mergeInputs, mergeExecutionContext } = operations._internals;
 const events = require("../workflows/runtimeEvents");
 const MODE = "review";
 const MAX_DURATION_MS = 180_000;
@@ -224,7 +224,7 @@ function readiness(workflow, targetNodeId = "") {
     if (data.onError && !["stop", "errorOutput"].includes(data.onError)) add(node, "Choose Stop workflow or Route to error handler.");
     if (data.onError === "errorOutput" && !outgoing.some(edge => nodes.some(next => next.id === edge.target && kindOf(next) === "errorHandler"))) add(node, "Connect an Error handler before routing failures.");
     for (const message of operations.validate(node)) add(node, message);
-    if (data.mergeMode && data.mergeMode !== "waitAllAppend") add(node, "Review execution collects every connected result. Choose Wait for all, append items.");
+    if (data.mergeMode && !["waitAllAppend", "waitAllMerge"].includes(data.mergeMode)) add(node, "Choose Wait for all with append items or combine fields.");
     const maxTimeout = kind === "artifactTask" ? MAX_ARTIFACT_DURATION_MS : kind === "repositoryAgent" ? MAX_DURATION_MS : kind === "agent" || kind === "customAI" ? 150_000 : 70_000;
     if (data.timeoutMs != null && (!Number.isFinite(Number(data.timeoutMs)) || Number(data.timeoutMs) < 1_000 || Number(data.timeoutMs) > maxTimeout)) add(node, `Choose a step timeout between 1,000 and ${maxTimeout.toLocaleString("en-US")} milliseconds.`);
     if (data.retryCount != null && (!Number.isInteger(Number(data.retryCount)) || Number(data.retryCount) < 0 || Number(data.retryCount) > 2)) add(node, "Review steps support zero, one or two retries within their timeout.");
@@ -363,7 +363,7 @@ function compactUpstream(run, node) {
   }).map(edge => edge.source);
   return ids.map(id => {
     const prior = run.node_results.find(result => result.node_id === id);
-    return { node_id: id, output_key: run.workflow_snapshot.nodes.find(item => item.id === id)?.data?.outputKey, node_name: prior.node_name, status: prior.status, output: prior.output, error: prior.error, error_details: prior.error_details, input: prior.status === "failed" ? prior.input : undefined, attempts: prior.attempts };
+    return { node_id: id, output_key: run.workflow_snapshot.nodes.find(item => item.id === id)?.data?.outputKey, node_name: prior.node_name, status: prior.status, output: prior.output, execution_context: prior.execution_context, error: prior.error, error_details: prior.error_details, input: prior.status === "failed" ? prior.input : undefined, attempts: prior.attempts };
   }).filter(source => source.status !== "skipped");
 }
 
@@ -438,7 +438,8 @@ async function executeNodeTask(run, node, user, signal, onAttempt, onProgress, o
       }
     };
     visit(node.id);
-    return { reviews: collectReviews(run.node_results.filter(item => ancestors.has(item.node_id) && item.status === "completed")), ...(kind === 'output' ? { data: contextFor(run, sources).input } : appendInputs(sources)), sources: sources.map(source => ({ node_id: source.node_id, node_name: source.node_name, output_key: source.output_key, status: source.status })), requires_human_review: true };
+    const combined = node.data?.mergeMode === "waitAllMerge" ? mergeInputs(sources) : null;
+    return { reviews: collectReviews(run.node_results.filter(item => ancestors.has(item.node_id) && item.status === "completed")), ...(kind === 'output' ? { data: contextFor(run, sources).input } : combined ? { data: combined.data, merge_conflicts: combined.conflicts } : appendInputs(sources)), sources: sources.map(source => ({ node_id: source.node_id, node_name: source.node_name, output_key: source.output_key, status: source.status })), requires_human_review: true };
   }
   const data = object(node.data);
   if (kind === "customAI") return executeNode(run, { ...node, data: { ...data, kind: "agent", agentId: "quality-evaluator", customTask: true } }, user, signal, onAttempt, onProgress, onEvent);
@@ -556,8 +557,9 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
   result.started_at = new Date().toISOString();
   const upstream = compactUpstream(run, node);
   result.input = {
-    input_mode: "connected_results", ...contextFor(run, upstream),
-    ...(kindOf(node) === 'aggregator' ? { merge_mode: 'waitAllAppend' } : {}),
+    input_mode: kindOf(node) === "artifactTask" ? "native_task_context" : "connected_results",
+    ...contextFor(run, upstream, { internal: kindOf(node) === "artifactTask" }),
+    ...(kindOf(node) === 'aggregator' ? { merge_mode: node.data?.mergeMode || 'waitAllAppend' } : {}),
     source_node_ids: upstream.map(source => source.node_id),
     // Keep inspectable data bounded. Full upstream output is stored on its own node.
     upstream: upstream.map(source => ({ node_id: source.node_id, status: source.status,
@@ -567,7 +569,7 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
   events.log(result, { event: "node_started", message: "Started the node with its connected input." });
   await persist();
   try {
-    const output = await executeNode(run, node, user, signal,
+    const returned = await executeNode(run, node, user, signal,
       async (attempt, detail = {}) => {
         result.attempts += 1;
         events.log(result, { event: "attempt_started", attempt, ...detail, message: `${detail.item_index == null ? "" : `Item ${detail.item_index + 1}: `}attempt ${attempt} started.` });
@@ -578,9 +580,20 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
         result.progress = progress; await persist();
       },
       async event => { events.log(result, event); await persist(); });
+    // Native artifact work keeps its revision-bound lineage in the recorded
+    // execution checkpoint. The public node output contains only that node's
+    // result; downstream native tasks explicitly hydrate the internal context.
+    const native = kindOf(node) === "artifactTask" ? returned?.__workflow_result : null;
+    const output = native ? native.output : returned;
+    if (native && (!native.output || !native.context || typeof native.output !== "object" || typeof native.context !== "object")) throw error("The native task returned an invalid execution checkpoint.", 502);
     const outputLimit = run.workflow_snapshot.nodes.some(item => item.data?.kind === "artifactTask") ? 2 * 1024 * 1024 : 128 * 1024;
-    if (Buffer.byteLength(JSON.stringify(output)) > outputLimit) throw error(`Node output exceeded ${outputLimit / 1024} KB. Reduce the Sprint scope or number of cases per Story.`, 422);
+    if (Buffer.byteLength(JSON.stringify(native || output)) > outputLimit) throw error(`Node output exceeded ${outputLimit / 1024} KB. Reduce the Sprint scope or number of cases per Story.`, 422);
     result.output = output;
+    if (native) result.execution_context = native.context;
+    else if (["condition", "log", "aggregator", "output"].includes(kindOf(node))) {
+      const inherited = mergeExecutionContext(upstream);
+      if (inherited) result.execution_context = inherited;
+    }
   } catch (failure) {
     if (signal.aborted || [401,403,499].includes(failure.statusCode) || node.data?.onError !== "errorOutput") throw failure;
     result.status = "failed";

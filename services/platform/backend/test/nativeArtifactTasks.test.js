@@ -20,7 +20,7 @@ function setup(t) {
 }
 const run = () => ({id:'workflow-run',project_id:'project',app_type_id:'app',input_payload:{sprint_id:'sprint',integration_id:'trigger-model',generation_instructions:'Trigger case objective'}});
 const packet = () => ({story_id:story.id,story_revision:tasks.revision(story)});
-const execute = (task, input, {controller=new AbortController(),data={},onProgress=async()=>{}}={}) => tasks.execute({run:run(),node:{id:task,data:{artifactTask:task,...data}},user:{id:'actor'},sources:[],signal:controller.signal,onProgress,context:{input}});
+const execute = async (task, input, {controller=new AbortController(),data={},onProgress=async()=>{}}={}) => (await tasks.execute({run:run(),node:{id:task,data:{artifactTask:task,...data}},user:{id:'actor'},sources:[],signal:controller.signal,onProgress,context:{input}})).__workflow_result.context;
 
 test('native task chain preserves per-Story findings, guidance, exact scope and node model override', async t => {
   setup(t);
@@ -42,9 +42,73 @@ test('native task chain preserves per-Story findings, guidance, exact scope and 
   assert.match(reviewed[1].additionalContext,/Review assertion precision[\s\S]*Review only story-a/);
   assert.equal(reviewed[1].assessAutomationReadiness,true);
   assert.match(built[0].additional_context,/Preserve exact amount assertion[\s\S]*Use the declared invoice origin[\s\S]*Review only draft-1/);
+  assert.match(built[0].additional_context,/selected_story/);
+  assert.ok(built[0].additional_context.includes(story.title));
+  assert.ok(built[0].additional_context.includes(story.description));
+  assert.ok(built[0].additional_context.includes(story.acceptance_criteria[0]));
   assert.equal(fourth.data[0].automation[0].verification_status,'unverified');
   assert.equal(fourth.data[0].story_assurance.story_revision,tasks.revision(story));
   assert.equal(fourth.requires_human_review,true);
+});
+
+test('every native task passes saved task, instructions and guardrails to its actual model entry point', async t => {
+  setup(t);
+  const guidance={task:'Assess the selected invoice intent',instructions:'Prefer explicit amount boundaries',guardrails:'Report unsupported tax behavior as an evidence gap',prompt:'Retired prompt must not override saved instructions'};
+  const reviews=[],generations=[],builds=[];
+  t.mock.method(assurance,'reviewArtifact',async input=>{reviews.push(input);return review('Grounded invoice assessment');});
+  t.mock.method(design,'previewRequirementsTestCases',async input=>{generations.push(input);return {cases:[draft()]};});
+  t.mock.method(automation,'previewAutomationDraft',async input=>{builds.push(input);return {steps:input.draft.steps,validation:{status:'passed'},verification_status:'unverified'};});
+  const first=await execute('story-assurance',[packet()],{data:guidance});
+  const second=await execute('test-case-generation',first.data,{data:guidance});
+  const third=await execute('test-case-assurance',second.data,{data:guidance});
+  await execute('automation-engineer',third.data,{data:guidance});
+  for (const text of [...reviews.map(input=>input.promptGuidance),generations[0].additional_context,builds[0].additional_context]) {
+    assert.match(text,/Task:\nAssess the selected invoice intent/);
+    assert.match(text,/Instructions:\nPrefer explicit amount boundaries/);
+    assert.match(text,/Guardrails:\nReport unsupported tax behavior as an evidence gap/);
+    assert.doesNotMatch(text,/Retired prompt/);
+  }
+  assert.equal(builds[0].inspect_browser,true);
+});
+
+test('native public output owns only its stage while pinned lineage remains internal', async t => {
+  setup(t);
+  t.mock.method(assurance,'reviewArtifact',async()=>review('Review invoice draft'));
+  const item=draft(),upstream={...packet(),story_assurance:{...review('Story review'),story_id:story.id},cases:[item],test_case_generation:{cases:[item],verification:{status:'passed'}}};
+  const result=await tasks.execute({run:run(),node:{data:{artifactTask:'test-case-assurance'}},user:{id:'actor'},signal:new AbortController().signal,onProgress:async()=>{},context:{input:[upstream]}});
+  const {output,context}=result.__workflow_result;
+  assert.equal(output.data[0].cases,undefined);assert.equal(output.data[0].story_assurance,undefined);
+  assert.equal(output.data[0].story.title,story.title);
+  assert.equal(output.data[0].case_assurance[0].client_id,item.client_id);assert.equal(output.data[0].case_assurance[0].case_index,0);
+  assert.deepEqual(context.data[0].cases,[item]);assert.equal(context.data[0].case_assurance[0].case_fingerprint,tasks.fingerprint(item));
+});
+
+test('native stages bind the exact Story scope and supplied evidence without generic gateway retrieval or scope leakage', async t => {
+  setup(t);
+  const trace=require('../src/utils/llmTraceContext'),gateway=require('../../../mcp/backend/gateway');
+  const observed=[];
+  const inspect=async stage=>{
+    const current=trace.current();observed.push({stage,...current});
+    assert.equal(current.project_id,'project');assert.equal(current.app_type_id,'app');assert.equal(current.actor_id,'actor');
+    assert.equal(current.mcp_context_depth,1);assert.equal(current.mcp_context,'supplied_native_evidence');
+    assert.deepEqual(current.evidence_scope,{sprint_id:'sprint',story_id:story.id});
+    assert.equal(current.native_evidence.story_revision,tasks.revision(story));
+    const request={body:JSON.stringify({messages:[{role:'user',content:'Exact supplied Story and case evidence'}]})};
+    const options={mcpContextPolicy:{mode:'mcp',required:true}};
+    assert.equal(await gateway.enrichChatRequest(request,options),request,'No broad enrichment or intent planning can alter the scoped request');
+    assert.equal(options.mcpContextStatus,'supplied_native_evidence');
+  };
+  t.mock.method(assurance,'reviewArtifact',async input=>{await inspect(input.artifactType);return review('Exact scoped review');});
+  t.mock.method(design,'previewRequirementsTestCases',async input=>{await inspect('generation');assert.deepEqual(input.evidence_scope,{sprint_id:'sprint',story_id:story.id});return {cases:[draft()]};});
+  t.mock.method(automation,'previewAutomationDraft',async input=>{await inspect('automation');return {steps:input.draft.steps,validation:{status:'passed'},verification_status:'unverified'};});
+  await trace.run({run_id:'parent-run',node_id:'parent-node',evidence_scope:{story_id:'wrong-previous-story'}},async()=>{
+    const first=await execute('story-assurance',[packet()]);
+    const second=await execute('test-case-generation',first.data);
+    const third=await execute('test-case-assurance',second.data);
+    await execute('automation-engineer',third.data);
+    assert.deepEqual(trace.current().evidence_scope,{story_id:'wrong-previous-story'},'Per-Story context cannot leak into its parent or next stage');
+  });
+  assert.equal(observed.length,4);assert.ok(observed.every(item=>item.run_id==='parent-run'&&item.node_id==='parent-node'));
 });
 
 test('native stages reject forged success, wrong Story cases, duplicate packets and incomplete automation', async t => {
@@ -170,14 +234,14 @@ test('finite aliases preserve native literal values, normalized key precedence a
   assert.equal(resolver.projectText('Use @t.first'),'Use @t.second','workflow preflight must not introduce recursive runtime substitution');
 });
 
-test('automation requires explicit evidence-grounded ready assurance rather than review shape verification', async t => {
+test('require-ready policy preserves the explicit evidence-grounded upstream readiness gate', async t => {
   setup(t);
   const item=draft(), assessed={...packet(),cases:[item],case_assurance:[{...review('Assessed case'),case_fingerprint:tasks.fingerprint(item)}]};
   const build=t.mock.method(automation,'previewAutomationDraft',async input=>({steps:input.draft.steps,validation:{status:'passed'},verification_status:'unverified'}));
   const missing={kind:'api_contract',reason:'Supply the reviewed invoice endpoint and response contract.',evidence_refs:['draft:test-case:fixture'],step_refs:['step:1']};
   for(const readiness of [undefined,{status:'unknown',summary:'No readiness conclusion was available.',evidence_refs:[],missing_context:[]},{status:'not_applicable',summary:'Manual review only.',evidence_refs:[],missing_context:[]},{status:'needs_input',summary:'The API contract is absent.',evidence_refs:[],missing_context:[missing]},{status:'ready'}]) {
     assessed.case_assurance[0].assurance_review.automation_readiness=readiness;
-    const output=await execute('automation-engineer',[assessed]);
+    const output=await execute('automation-engineer',[assessed],{data:{readinessPolicy:'require-ready'}});
     assert.equal(output.verification.status,'needs_input');
     assert.deepEqual(output.data[0].automation,[null]);
     assert.deepEqual(output.data[0].cases,[item]);
@@ -188,11 +252,35 @@ test('automation requires explicit evidence-grounded ready assurance rather than
   }
   assert.equal(build.mock.callCount(),0);
   assessed.case_assurance[0].assurance_review.automation_readiness=ready();
-  const output=await execute('automation-engineer',[assessed]);
+  const output=await execute('automation-engineer',[assessed],{data:{readinessPolicy:'require-ready'}});
   assert.equal(output.verification.status,'passed');assert.equal(build.mock.callCount(),1);
   assessed.cases[0]={...item,title:'Changed after review'};
   await assert.rejects(execute('automation-engineer',[assessed]),{statusCode:409});
   assert.equal(build.mock.callCount(),1);
+});
+
+test('verify-inputs lets the successor assess uncertain upstream findings against exact pinned source while retaining real dependency failures', async t => {
+  setup(t);
+  const item=draft(),assessed={...packet(),cases:[item],case_assurance:[{...review('Uncertain upstream'),case_fingerprint:tasks.fingerprint(item)}]};
+  assessed.case_assurance[0].assurance_review.automation_readiness={status:'unknown',summary:'The endpoint might be missing.',evidence_refs:[`requirement:${story.id}`],missing_context:[]};
+  let blocked=false;
+  const build=t.mock.method(automation,'previewAutomationDraft',async input=>{
+    assert.match(input.additional_context,/"readiness_policy":"verify-inputs"/);
+    assert.match(input.additional_context,/"status":"unknown"/);
+    const evidence=JSON.parse(input.additional_context.split('\n\n').at(-1)).selected_story;
+    assert.equal(evidence.ref,`requirement:${story.id}`);assert.equal(evidence.story_revision,tasks.revision(story));
+    assert.equal(evidence.content.title,story.title);assert.equal(evidence.content.description,story.description);
+    assert.deepEqual(evidence.content.acceptance_criteria,story.acceptance_criteria);
+    if(blocked)throw Object.assign(new Error('A genuine fixture contract is absent'),{statusCode:422,code:'AUTOMATION_DEPENDENCY_MISSING',blocked_steps:[{step_id:'draft-step-1',reason:'Supply the invoice fixture contract.',required_context:['Invoice fixture contract'],required_parameters:[]}]});
+    return {steps:input.draft.steps,validation:{status:'passed'},verification_status:'unverified'};
+  });
+  const generated=await execute('automation-engineer',[assessed]);
+  assert.equal(build.mock.callCount(),1);assert.equal(generated.verification.status,'passed');assert.equal(generated.readiness_policy,'verify-inputs');
+  assert.equal(generated.data[0].case_assurance[0].assurance_review.automation_readiness.status,'unknown','The successor does not rewrite upstream model findings into ready');
+  blocked=true;const missing=await execute('automation-engineer',[assessed]);
+  assert.equal(build.mock.callCount(),2);assert.equal(missing.verification.status,'needs_input');assert.equal(missing.data[0].automation[0],null);
+  assert.match(missing.data[0].automation_input_required[0].blocked_steps[0].reason,/invoice fixture contract/);
+  await assert.rejects(execute('automation-engineer',[assessed],{data:{readinessPolicy:'always-ready'}}),/Choose verify-inputs or require-ready/);
 });
 
 test('only declared native input errors become review gaps; provider, access, cancellation and incomplete builds still fail', async t => {
@@ -247,7 +335,7 @@ test('workflow runtime retains the output for native automation input gaps while
   const receipt=await accept(app,req,saved);
   assert.equal(receipt.id,'saved-manual');assert.equal(writes.length,1);
   await assert.rejects(accept(app,{...req,body:{...req.body,kind:'automation'}},saved),{statusCode:409});
-  const unassessed=structuredClone(saved);unassessed.node_results.find(item=>item.node_id==='automation-engineer').output.data[0].case_assurance[0].verification.status='needs_input';
+  const unassessed=structuredClone(saved);unassessed.node_results.find(item=>item.node_id==='automation-engineer').execution_context.data[0].case_assurance[0].verification.status='needs_input';
   await assert.rejects(accept(app,req,unassessed),{statusCode:409});
   assert.equal(writes.length,1);
 });

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import type { AgenticWorkflowNode, AgenticWorkflowNodeData } from "@hellotest/platform/frontend/src/types";
 import { agenticApi } from "../api.client";
+import { sprintStoriesUrl } from "./sprintStoriesUrl";
 import "./SprintAutomatorSetup.css";
 
 type Props = {
@@ -34,6 +35,7 @@ export function SprintAutomatorSetup(props: Props) {
   const id = useId();
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
+  const [generationOpen, setGenerationOpen] = useState(false);
   const parsed = configuration(props.input);
   const values = parsed.value || {};
   const sprintId = text(values.sprint_id);
@@ -73,7 +75,7 @@ export function SprintAutomatorSetup(props: Props) {
     const connection = availableConnections.find(item => item.id === value);
     if (value && !connection) return;
     sourceNodes.forEach(node => props.onNodeChange(node.id, {
-      connectionId: connection?.id || "", apiUrl: connection?.url || "", apiMethod: "GET", apiPagination: "cursor",
+      connectionId: connection?.id || "", apiUrl: sprintStoriesUrl(connection?.url || "", props.projectId, sprintId), apiMethod: "GET", apiPagination: "cursor",
       apiAuth: "", credentialId: "", retryCount: "0",
       ...(connection?.timeoutMs ? { timeoutMs: String(connection.timeoutMs) } : {}),
     }));
@@ -86,6 +88,7 @@ export function SprintAutomatorSetup(props: Props) {
     try { const url = new URL(startUrl); invalidStartUrl = !["http:", "https:"].includes(url.protocol) || Boolean(url.username || url.password); }
     catch { invalidStartUrl = true; }
   }
+  useEffect(() => { if (invalidCases || invalidStartUrl) setGenerationOpen(true); }, [invalidCases, invalidStartUrl]);
   return <section className="sprint-automator-setup" aria-labelledby={`${id}-heading`} aria-busy={props.busy}>
     <header><div><h3 id={`${id}-heading`}>Sprint Automator setup</h3><p>Choose a Sprint and API connection, then configure the drafts generated for each Story.</p></div><span className="sprint-setup-limit">Up to 100 Stories</span></header>
     {parsed.error && <p className="sprint-setup-error" role="alert">{parsed.error}</p>}
@@ -119,6 +122,8 @@ export function SprintAutomatorSetup(props: Props) {
         {!sourceNodes.length && <p className="sprint-setup-error" role="alert">Add the Read all Sprint Stories node to bind this connection.</p>}
       </div>
     </div>
+    <details className="sprint-setup-options" open={generationOpen} onToggle={event => setGenerationOpen(event.currentTarget.open)}>
+    <summary><span>Generation options</span><small>{invalidCases || invalidStartUrl ? "Needs attention" : `${caseCount} Test Cases per Story · ${(text(values.authoring_mode) || "structured") === "gherkin" ? "Gherkin" : "Structured steps"}`}</small></summary>
     <div className="sprint-setup-grid sprint-setup-generation">
       <label><span>Generation model</span><select aria-label="Generation model" value={integrationId} disabled={inputDisabled} onChange={event => patchInput({ integration_id: event.target.value })}>
         <option value="">Use configured project model</option>
@@ -130,5 +135,6 @@ export function SprintAutomatorSetup(props: Props) {
       <label><span>Browser Start URL (optional)</span><input aria-label="Browser Start URL (optional)" type="url" value={startUrl} placeholder="https://your-application.example" aria-invalid={invalidStartUrl} disabled={inputDisabled} onChange={event => patchInput({ automation_start_url: event.target.value })} /><small>{invalidStartUrl ? "Enter a complete HTTP or HTTPS URL without embedded credentials." : "Required for generated browser actions. Leave blank for API-only cases."}</small></label>
     </div>
     <label className="sprint-setup-guidance"><span>Generation guidance (optional)</span><textarea aria-label="Generation guidance (optional)" rows={2} value={text(values.generation_instructions)} disabled={inputDisabled} placeholder="Coverage priorities, test data constraints, or specific outcomes to verify" onChange={event => patchInput({ generation_instructions: event.target.value })} /></label>
+    </details>
   </section>;
 }

@@ -46,11 +46,12 @@ function WorkflowJsonEditor({ text, label }: { text: string; label: string }) {
 }
 
 /** Text uses the application's sanitized renderer; all JSON values are escaped by React. */
-export function WorkflowDataView({ value, empty = "No data yet. Execute this step to inspect its result.", pathPrefix, defaultMode = "readable", jsonLabel = "Data JSON" }: { value: unknown; empty?: string; pathPrefix?: string; defaultMode?: "readable" | "json"; jsonLabel?: string }) {
+export function WorkflowDataView({ value, empty = "No data yet. Execute this step to inspect its result.", pathPrefix, defaultMode = "readable", jsonLabel = "Data JSON", copyJsonLabel = "Copy data as JSON" }: { value: unknown; empty?: string; pathPrefix?: string; defaultMode?: "readable" | "json"; jsonLabel?: string; copyJsonLabel?: string }) {
   const [mode, setMode] = useState<"readable" | "json" | "fields" | "table">(defaultMode);
   const [copied, setCopied] = useState("");
   const [copyError, setCopyError] = useState("");
   const formatted = useMemo(() => value === undefined ? "" : JSON.stringify(value, null, 2), [value]);
+  useEffect(() => { setCopied(""); setCopyError(""); }, [formatted]);
   if (value === undefined) return <p className="studio-empty">{empty}</p>;
   const object = value && typeof value === "object" ? value as Record<string, unknown> : null;
   const response = object?.response || object?.summary;
@@ -63,7 +64,7 @@ export function WorkflowDataView({ value, empty = "No data yet. Execute this ste
     catch { setCopyError("Could not access the clipboard. Select and copy the value manually."); }
   };
   return <div className="studio-data">
-    <div className="studio-data-toolbar"><span>{items ? `${items.length} items` : value === null ? "null" : object ? `${Object.keys(object).length} fields` : typeof value}</span><button type="button" className="studio-icon-button" aria-label="Copy data as JSON" onClick={() => void copy(formatted, "data")}>{copied === "data" ? <IconCheck size={14} /> : <IconCopy size={14} />}</button></div>
+    <div className="studio-data-toolbar"><span>{items ? `${items.length} items` : value === null ? "null" : object ? `${Object.keys(object).length} fields` : typeof value}</span><button type="button" className="studio-icon-button" aria-label={copyJsonLabel} title={copied === "data" ? "JSON copied" : copyJsonLabel} onClick={() => void copy(formatted, "data")}>{copied === "data" ? <IconCheck size={14} /> : <IconCopy size={14} />}</button></div>
     <div className="studio-data-tabs" role="group" aria-label="Data format">
       <button type="button" aria-pressed={mode === "readable"} onClick={() => setMode("readable")}>Readable</button>
       <button type="button" aria-pressed={mode === "json"} onClick={() => setMode("json")}>JSON</button>

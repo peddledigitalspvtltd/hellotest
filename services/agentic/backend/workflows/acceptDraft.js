@@ -9,7 +9,7 @@ async function accept(app, req, run) {
   const { node_id: nodeId, story_index: storyIndex, case_index: caseIndex, kind = 'manual' } = req.body || {};
   if (!['manual', 'automation'].includes(kind) || !Number.isInteger(storyIndex) || storyIndex < 0 || !Number.isInteger(caseIndex) || caseIndex < 0) throw fail('Choose a recorded Story, Test Case and draft kind.');
   const node = run.node_results.find(row => row.node_id === nodeId && row.node_type === 'artifactTask' && row.status === 'completed');
-  const packet = node?.output?.data?.[storyIndex];
+  const packet = (node?.execution_context || node?.output)?.data?.[storyIndex];
   const draft = packet?.cases?.[caseIndex];
   if (!draft || !packet.case_assurance?.[caseIndex] || packet.case_assurance[caseIndex].verification?.status !== 'passed' || packet.case_assurance[caseIndex].case_fingerprint !== tasks.fingerprint(draft)) throw fail('Choose a recorded, assessed Test Case draft.', 409);
   if (!packet.story_revision || !Array.isArray(draft.requirement_ids) || draft.requirement_ids.length !== 1 || draft.requirement_ids[0] !== packet.story_id) throw fail('The recorded draft is missing its selected Story revision or traceability. Run the native workflow again.', 409);
@@ -134,7 +134,7 @@ async function publishNodeArtifacts({ run, node, user, signal }) {
   if (definition?.data?.kind !== 'artifactTask' || !['test-case-generation', 'automation-engineer'].includes(task)) return null;
   if (!result || result.output?.artifact_task !== task || result.output.generation_mode !== 'native'
     || !['passed', 'needs_input', 'not_required'].includes(result.output.verification?.status)) throw fail('Publish only completed native artifact task output.', 409);
-  const packets = result.output.data;
+  const packets = (result.execution_context || result.output).data;
   if (!Array.isArray(packets) || packets.length > tasks.MAX_STORIES) throw fail('The native publication checkpoint is invalid.', 409);
   const receipts = [], seen = new Set();
   const summary = status => ({ mode: 'automatic', status, receipts,
@@ -154,7 +154,7 @@ async function publishNodeArtifacts({ run, node, user, signal }) {
         if (automated == null) continue;
         const assessed = packet.case_assurance?.[caseIndex];
         if (assessed?.verification?.status !== 'passed' || assessed.case_fingerprint !== tasks.fingerprint(draft)
-          || assessed.assurance_review?.automation_readiness?.status !== 'ready'
+          || (definition.data.readinessPolicy === 'require-ready' && assessed.assurance_review?.automation_readiness?.status !== 'ready')
           || automated.case_fingerprint !== tasks.fingerprint(draft) || automated.validation?.status !== 'passed'
           || automated.verification_status !== 'unverified' || !Array.isArray(automated.steps) || !automated.steps.length) {
           throw fail('Automatic automation publication requires an assessed, validated and unverified native draft.', 409);

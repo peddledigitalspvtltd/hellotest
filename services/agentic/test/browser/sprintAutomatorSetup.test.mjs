@@ -40,6 +40,7 @@ test('guided Sprint setup saves and restores input, invalidates stale readiness 
     await page.getByRole('button', { name: /Data flow Sprint Automator/ }).click();
     const setupPanel = page.locator('.sprint-automator-setup');
     await setupPanel.waitFor();
+    assert.equal(await setupPanel.locator('.sprint-setup-options').getAttribute('open'), null, 'secondary options start collapsed to leave room for the canvas');
     await setupPanel.getByLabel('Sprint', { exact: true }).locator('option[value="sprint-a"]').waitFor({ state: 'attached' });
     assert.equal(await setupPanel.getByLabel('Stories API connection').getByRole('option').count(), 2);
     await setupPanel.getByLabel('Search Sprints').fill('Beta');
@@ -49,6 +50,7 @@ test('guided Sprint setup saves and restores input, invalidates stale readiness 
     await setupPanel.getByLabel('Sprint', { exact: true }).selectOption('sprint-b');
     await setupPanel.getByLabel('Search Sprints').fill('');
     await setupPanel.getByLabel('Stories API connection').selectOption('stories-api');
+    await setupPanel.getByText('Generation options', { exact: true }).click();
     await setupPanel.getByLabel('Generation model').selectOption('model');
     await setupPanel.getByLabel('Test Cases per Story').fill('7');
     await setupPanel.getByLabel('Test Case format').selectOption('gherkin');
@@ -60,7 +62,7 @@ test('guided Sprint setup saves and restores input, invalidates stale readiness 
     const saved = await page.evaluate(() => structuredClone(window.previewWorkflow));
     assert.deepEqual(saved.settings.sprint_input_defaults, { sprint_id: 'sprint-b', integration_id: 'model', max_cases_per_story: 7, authoring_mode: 'gherkin', automation_start_url: 'https://invoice.example/app', generation_instructions: 'Prioritize invoice amount boundaries.' });
     const apiNode = saved.nodes.find(node => node.data.apiResource === 'sprintStories');
-    assert.equal(apiNode.data.connectionId, 'stories-api'); assert.equal(apiNode.data.apiUrl, 'https://testing.example/api'); assert.equal(apiNode.data.apiMethod, 'GET'); assert.equal(apiNode.data.retryCount, '0');
+    assert.equal(apiNode.data.connectionId, 'stories-api'); assert.equal(new URL(apiNode.data.apiUrl).origin, 'https://testing.example'); assert.equal(new URL(apiNode.data.apiUrl).pathname, '/api/requirements'); assert.equal(new URL(apiNode.data.apiUrl).searchParams.get('sprint_id'), 'sprint-b'); assert.equal(apiNode.data.apiMethod, 'GET'); assert.equal(apiNode.data.retryCount, '0');
     await page.getByRole('button', { name: 'Back to workflows', exact: true }).click();
     await page.locator('.agentic-catalog-stage').getByText('Sprint Automator', { exact: true }).click();
     assert.equal(await setupPanel.getByLabel('Sprint', { exact: true }).inputValue(), 'sprint-b');

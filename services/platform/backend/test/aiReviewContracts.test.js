@@ -67,6 +67,46 @@ test('typed ready requires an independent supplied product reference', async () 
   assert.deepEqual(result.verification.checks, ['output_shape', 'evidence_references']);
 });
 
+test('literal linked API specification reaches readiness intact without requiring optional fixtures or execution evidence', async () => {
+  const contractStory={...story,description:'GET http://api:3000/health/ready requires no authentication, request body, fixture data, browser or parameters. The ready-state response is HTTP 200 JSON with ok=true, probe="readiness", status="ready" and service="hellotest-api".',
+    acceptance_criteria:['GET http://api:3000/health/ready returns HTTP 200.','JSON has ok=true, probe="readiness", status="ready" and service="hellotest-api".','Authentication, request body and test-data inputs are explicitly absent.']};
+  const contractCase={...caseDraft,steps:[{step_type:'api',action:'GET http://api:3000/health/ready',expected_result:'HTTP 200; JSON ok=true, probe="readiness", status="ready", service="hellotest-api".'}]};
+  const provider=fixture(JSON.stringify(caseReview(ready)));
+  const result=await load('artifactAssurance.service',provider.overrides).reviewArtifact({artifactType:'test-case',savedArtifact:contractCase,linkedEvidence:[{...contractStory,kind:'requirement'}],projectId:'project',assessAutomationReadiness:true});
+  assert.equal(result.assurance_review.automation_readiness.status,'ready');
+  const prompt=provider.calls[0].body.messages[1].content;
+  for(const literal of ['GET http://api:3000/health/ready','no authentication, request body, fixture data, browser or parameters','service=\\"hellotest-api\\"'])assert.ok(prompt.includes(literal),literal);
+  assert.doesNotMatch(prompt,/context_limits/,'These source fields fit their limits without clipping');
+  const expanded=require('./helpers/managedInstructions').expandManagedInstructions(prompt);
+  assert.match(expanded,/A linked Story description, acceptance criteria or executable specification may supply the API contract directly/);
+  assert.match(expanded,/Explicitly absent inputs are resolved requirements/);
+  assert.match(expanded,/do not manufacture findings to justify a heuristic/);
+});
+
+for(const [artifactType,reviewPurpose,featureKey] of [
+  ['story','assurance','ai.quality.story_assurance'],['test-case','assurance','ai.quality.test_case_assurance'],
+  ['story','change-impact','ai.requirement.change_impact'],['test-case','change-impact','ai.test_case.change_impact']
+]) test(`${featureKey} uses its own managed main and repair instructions`,async()=>{
+  const ref=`draft:${artifactType}:${artifactType==='story'?'story':'case'}`;
+  const dimensionId=artifactType==='story'?'design-maturity':'scenario-coverage';
+  let requests=0;
+  const provider=fixture('unused');
+  provider.overrides['../utils/llmHttpClient'].fetchLlmWithRetry=async(url,init,policy)=>{
+    const body=JSON.parse(init.body);provider.calls.push({url,body,policy});requests++;
+    return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(requests===1?{summary:'Missing citations',dimensions:[{id:dimensionId,explanation:'Review the contract.'}]}:{summary:'Review the supplied contract.',dimensions:[{id:dimensionId,explanation:'Review the contract.',evidence:[ref]}]})}}]}));
+  };
+  const result=await load('artifactAssurance.service',provider.overrides).reviewArtifact({artifactType,reviewPurpose,savedArtifact:artifactType==='story'?story:caseDraft,projectId:'project'});
+  assert.equal(result.response_repaired,true);assert.equal(provider.calls.length,2);
+  for(const call of provider.calls){
+    assert.equal(call.policy.featureKey,featureKey);
+    const markers=JSON.stringify(call.body).match(/HELLOTEST_AI:[^:]+:[^⟧]+/g)||[];
+    assert.ok(markers.length>3);
+    assert.ok(markers.every(marker=>marker.startsWith(`HELLOTEST_AI:${featureKey}:`)),JSON.stringify(markers));
+    const expanded=require('./helpers/managedInstructions').expandManagedInstructions(JSON.stringify(call.body));
+    assert.doesNotMatch(expanded,/HELLOTEST_AI:/,'Every selected profile supplies its managed contract defaults');
+  }
+});
+
 for (const [name, readiness, additionalContext] of [
   ['absent assessment', undefined],
   ['draft-only authority', { ...ready, evidence_refs: ['draft:test-case:case'] }],

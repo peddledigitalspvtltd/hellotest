@@ -19,6 +19,17 @@ test('completion attempts are bounded and never return a partially validated cas
  await assert.rejects(completeAutomationBuild({steps,validate,maxAttempts:100,generate:async()=>{attempts++;return {steps:[candidate('one')]};}}),error=>{assert.equal(error.code,'AUTOMATION_BUILD_INCOMPLETE');assert.equal(error.completed_sections,1);assert.deepEqual(error.pending_step_ids,['two']);return true;});
  assert.equal(attempts,3);
 });
+test('incomplete generation retains bounded sanitized native validation feedback without exposing raw provider JSON',async()=>{
+ await assert.rejects(completeAutomationBuild({steps:[steps[0]],maxAttempts:1,generate:async()=>({steps:[candidate('one')]}),validate:()=>{throw new Error('API key location must be header or query. Bearer private-feedback-token');}}),error=>{
+  assert.equal(error.code,'AUTOMATION_BUILD_INCOMPLETE');assert.equal(error.validation_feedback.length,1);
+  assert.equal(error.validation_feedback[0].step_id,'one');assert.match(error.publicMessage,/API key location must be header or query/);
+  assert.doesNotMatch(JSON.stringify({message:error.publicMessage,feedback:error.validation_feedback}),/private-feedback-token/);return true;
+ });
+ await assert.rejects(completeAutomationBuild({steps:[steps[0]],maxAttempts:1,generate:async()=>'{PRIVATE_RAW_RESPONSE',parse:JSON.parse,validate}),error=>{
+  assert.equal(error.code,'AUTOMATION_BUILD_INCOMPLETE');assert.match(error.publicMessage,/not valid JSON/);
+  assert.doesNotMatch(JSON.stringify(error.validation_feedback),/PRIVATE_RAW_RESPONSE/);return true;
+ });
+});
 test('malformed JSON output can recover but authorization and cancellation are never generation retries',async()=>{
  let calls=0;
  const result=await completeAutomationBuild({steps,validate,parse:JSON.parse,generate:async()=>++calls===1?'invalid':JSON.stringify({steps:steps.map(step=>candidate(step.id))})});assert.equal(result.completion_attempts,2);

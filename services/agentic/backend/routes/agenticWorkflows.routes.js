@@ -3,6 +3,7 @@ const agenticAssistantService = require("../services/agenticAssistant.service");
 const workflowExecution = require("../services/agenticWorkflowExecution.service");
 const appTypeService = require("@hellotest/platform/backend/public/applicationAccess");
 const projectService = require("@hellotest/platform/backend/public/projectAccess");
+const { publicRun } = require('../workflows/executionReadAccess');
 
 module.exports = async function (fastify) {
   const requireProjectPermission = async (req, projectId, permission) => {
@@ -304,7 +305,7 @@ module.exports = async function (fastify) {
       input_payload: { required: false, type: "object" }
     }, req.body || {});
     const run = await workflowExecution.start(workflow, req.body || {}, req.user);
-    return reply.code(202).send(run);
+    return reply.code(202).send(await publicRun(run, req.user));
   });
 
   fastify.post("/agentic-workflow-runs/:id/drafts/accept", async (req) => {
@@ -318,7 +319,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const run = await agenticWorkflowService.getWorkflowRun(req.params.id);
     await requireProjectPermission(req, run.project_id, "agentic_workflow.run");
-    return workflowExecution.cancel(run, req.user);
+    return publicRun(await workflowExecution.cancel(run, req.user), req.user);
   });
 
   fastify.get("/agentic-workflow-runs", async (req) => {
@@ -335,7 +336,7 @@ module.exports = async function (fastify) {
       if (req.query.project_id && req.query.project_id !== workflow.project_id) throw Object.assign(new Error("Workflow must belong to the selected project."), { statusCode: 400 });
     }
 
-    return agenticWorkflowService.listWorkflowRuns({
+    const runs = await agenticWorkflowService.listWorkflowRuns({
       project_id: req.query.project_id,
       app_type_id: req.query.app_type_id,
       workflow_id: req.query.workflow_id,
@@ -344,12 +345,14 @@ module.exports = async function (fastify) {
       limit: req.query.limit,
       summary_only: req.query.summary_only === true || req.query.summary_only === "true"
     });
+    const accessCache = new Map();
+    return Promise.all(runs.map(run => publicRun(run, req.user, accessCache)));
   });
 
   fastify.get("/agentic-workflow-runs/:id", async (req) => {
     await fastify.authenticate(req);
     const run = await agenticWorkflowService.getWorkflowRun(req.params.id);
     await requireProjectPermission(req, run.project_id, "agentic_workflow.view");
-    return run;
+    return publicRun(run, req.user);
   });
 };

@@ -29,6 +29,12 @@
 .sprint-automator-setup .sprint-setup-error { color: var(--danger-color, #b72d3f); }
 .sprint-automator-setup > .sprint-setup-error { margin: 0 0 12px; }
 .sprint-setup-guidance { margin-top: 14px; }
+.sprint-setup-options > summary { display:flex; align-items:center; gap:12px; padding-top:12px; font-size:12px; cursor:pointer; list-style:inside; }
+.sprint-setup-options > summary::before { content:"▸"; font-size:11px; }
+.sprint-setup-options[open] > summary::before { content:"▾"; }
+.sprint-setup-options > summary > small { margin-left:auto; text-align:right; }
+.sprint-setup-options > summary:focus-visible { outline:2px solid var(--accent-color,#466ff5); outline-offset:3px; }
+.sprint-setup-options:not([open]) > :not(summary) { display:none; }
 :root[data-theme="dark"] .sprint-automator-setup input,
 :root[data-theme="dark"] .sprint-automator-setup select,
 :root[data-theme="dark"] .sprint-automator-setup textarea { background: #111d2a !important; color: #edf4ff !important; border-color: #415166 !important; }

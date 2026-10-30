@@ -133,6 +133,7 @@ export function AgenticWorkflowsPage() {
   const [inspectedRun, setInspectedRun] = useState<AgenticWorkflowRun | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState(() => searchParams.get("view") === "runs" ? searchParams.get("workflow_run") || "" : "");
+  const [runPresentation, setRunPresentation] = useState<"history" | "live">("history");
   const [testingApiNodeId, setTestingApiNodeId] = useState("");
   const [runInput, setRunInput] = useState(DEFAULT_RUN_INPUT);
   const [reviewReadiness, setReviewReadiness] = useState<{ definition: string; input: string; workflow: AgenticWorkflow; report: AgenticWorkflowReadiness } | null>(null);
@@ -314,7 +315,7 @@ export function AgenticWorkflowsPage() {
       return run;
     },
     enabled: Boolean(projectId && selectedRunId) && canViewAgenticWorkflows,
-    refetchInterval: query => query.state.data?.status === "running" ? 2000 : false
+    refetchInterval: query => ["queued", "running"].includes(query.state.data?.status || "") ? 2000 : false
   });
 
   const assistantSessionsQuery = useQuery({
@@ -535,8 +536,8 @@ export function AgenticWorkflowsPage() {
       queryClient.setQueryData<AgenticWorkflowRun[]>(["agentic-workflow-runs", projectId, appTypeId], current => [run, ...asArray(current).filter(item => item.id !== run.id)]);
       reviewRequest.current = null;
       setReviewStartError("");
-      openRun(run);
-      setToastTone("success"); setToastMessage("Workflow started. Each step records its input, output and status.");
+      openRun(run, "live");
+      setToastMessage("");
     },
     onError: (error, submission) => { if (`${submission.workflow.project_id}:${submission.workflow.app_type_id || ""}` === currentWorkspaceScope.current) setReviewStartError(error instanceof Error ? error.message : "The review could not start. Your input is retained; try again."); }
   });
@@ -848,14 +849,18 @@ export function AgenticWorkflowsPage() {
     setSelectedNodeId(nextNodes[0].id);
   };
 
-  const openRun = (run: AgenticWorkflowRun) => {
+  const openRun = (run: AgenticWorkflowRun, presentation: "history" | "live" = "history") => {
+    setRunPresentation(presentation);
+    if (!run.summary_only) queryClient.setQueryData(["agentic-workflow-run", run.project_id, run.app_type_id || "", run.id], run);
     setSelectedRunId(run.id);
     setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", draft ? "workflows" : "runs"); next.set("workflow_run", run.id); next.delete("agent"); next.delete("run"); next.delete("session"); return next; });
   };
 
   const closeRun = () => {
+    if (runPresentation === "live" && selectedRun?.workflow_id === draft?.id) setInspectedRun(selectedRun);
     setSelectedRunId("");
-    setSearchParams(current => { const next = new URLSearchParams(current); next.delete("workflow_run"); next.delete("quality_run"); next.set("view", "workflows"); return next; }, { replace: true });
+    setRunPresentation("history");
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete("workflow_run"); next.delete("quality_run"); next.set("view", draft ? "workflows" : "runs"); return next; }, { replace: true });
   };
 
   const closeDraft = () => {
@@ -1099,7 +1104,7 @@ export function AgenticWorkflowsPage() {
     setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", view); next.delete("surface"); next.delete("agent"); next.delete("run"); next.delete("session"); return next; });
   };
   const workflowHistoryRef = useDialogFocus<HTMLDivElement>({ active: activeSurface === "runs" && !selectedRun && !draft, onClose: () => openHubSurface("workflows") });
-  const workflowRunRef = useDialogFocus<HTMLDivElement>({ active: Boolean(selectedRun), onClose: closeRun });
+  const workflowRunRef = useDialogFocus<HTMLDivElement>({ active: Boolean(selectedRun) && runPresentation === "history", onClose: closeRun });
   const newSpecialistReview = () => {
     setAssistantReply(null); setSelectedAssistantSessionId(""); setAssistantNotice(""); setAssistantResultTab("brief");
     setSearchParams(current => { const next = new URLSearchParams(current); next.delete("session"); return next; }, { replace: true });
@@ -1399,7 +1404,7 @@ export function AgenticWorkflowsPage() {
         </Panel></div></div>
       ) : null}
 
-      {draft && <WorkflowStudio
+      {draft && !(selectedRun && runPresentation === "live") && <WorkflowStudio
         key={`${workspaceScopeKey}:${draft.id || "new"}`}
         projectAgents={projectAgents.filter(agent => agent.active_version && !agent.archived)} onAddAgent={(agent, insertion) => addWorkflowNode("agent", insertion, agent)}
         draft={draft} nodes={nodes} edges={edges} selectedNodeId={selectedNodeId}
@@ -1430,7 +1435,15 @@ export function AgenticWorkflowsPage() {
 
       {draft && selectedRunId && !selectedRun && createPortal(<div className="modal-backdrop"><div className="modal-card workflow-history-dialog" role="dialog" aria-modal="true" aria-label="Workflow execution details"><p role={selectedRunQuery.isError ? "alert" : "status"}>{selectedRunQuery.isError ? "Execution details could not be loaded." : "Loading execution…"}</p>{selectedRunQuery.isError ? <button className="ghost-button" type="button" onClick={() => void selectedRunQuery.refetch()}>Retry</button> : null}<button className="ghost-button" type="button" onClick={closeRun}>Back to workflow</button></div></div>, document.body)}
 
-      {selectedRun && createPortal(<div className="modal-backdrop"><div className="modal-card workflow-history-dialog workflow-execution-dialog page-agentic-workflows" role="dialog" aria-modal="true" aria-label="Workflow execution details" ref={workflowRunRef} tabIndex={-1}><WorkflowExecutionView run={selectedRun} onBack={closeRun} canRun={canRunAgenticWorkflows} canViewTraces={can("ops.view")}
+      {selectedRun && runPresentation === "live" && <WorkflowExecutionView key={selectedRun.id} run={selectedRun} presentation="live" onBack={closeRun} canRun={canRunAgenticWorkflows} canViewTraces={can("ops.view")}
+        stopping={cancelReviewMutation.isPending} onStop={() => cancelReviewMutation.mutate(selectedRun.id)}
+        error={selectedRunQuery.error instanceof Error ? selectedRunQuery.error.message : undefined}
+        onRefresh={() => void selectedRunQuery.refetch()}
+        onOpenReview={(agent, session) => { closeRun(); closeDraft(); openAssistantSession(agent, session); }}
+        onOpenSource={(agent, run) => { if (isRepositoryAgentType(agent)) { closeRun(); closeDraft(); openRepositoryAgent(agent, run); } }}
+      />}
+
+      {selectedRun && runPresentation === "history" && createPortal(<div className="modal-backdrop"><div className="modal-card workflow-history-dialog workflow-execution-dialog page-agentic-workflows" role="dialog" aria-modal="true" aria-label="Workflow execution details" ref={workflowRunRef} tabIndex={-1}><WorkflowExecutionView key={selectedRun.id} run={selectedRun} onBack={closeRun} canRun={canRunAgenticWorkflows} canViewTraces={can("ops.view")}
         stopping={cancelReviewMutation.isPending} onStop={() => cancelReviewMutation.mutate(selectedRun.id)}
         error={selectedRunQuery.error instanceof Error ? selectedRunQuery.error.message : undefined}
         onRefresh={() => void selectedRunQuery.refetch()}

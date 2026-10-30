@@ -96,7 +96,15 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     assert.doesNotMatch(saved.body,new RegExp(apiKey.key));
     const node=(id,kind,data={})=>({id,type:'agenticStep',data:{label:id,kind,...data}});
     const nodes=[node('request','trigger'),node('stories','apiTool',{connectionId:connection.id,apiResource:'sprintStories',apiMethod:'GET',timeoutMs:70000}),node('each','loop',{loopAction:'storyPackets',loopSourceKey:'input.items',loopMaxIterations:100}),...['story-assurance','test-case-generation','test-case-assurance','automation-engineer'].map(task=>node(task,'artifactTask',{artifactTask:task,timeoutMs:1800000})),node('finish','output')];
-    const workflow={id:randomUUID(),project_id:projectId,app_type_id:appId,name:'Disposable native pipeline',trigger_kind:'manual',status:'draft',settings:{maxDurationMs:3600000},nodes,edges:nodes.slice(1).map((item,index)=>({source:nodes[index].id,target:item.id}))};
+    const workflows=require('../../../../agentic/backend/services/agenticWorkflow.service');
+    const created=await workflows.createWorkflow({project_id:projectId,app_type_id:appId,name:'Disposable native pipeline',trigger_kind:'manual',status:'draft',settings:{maxDurationMs:3600000},nodes,edges:nodes.slice(1).map((item,index)=>({source:nodes[index].id,target:item.id}))},user.id);
+    for (const node of created.nodes.filter(node=>node.data.kind==='artifactTask')) {
+      assert.ok(node.data.task?.trim());assert.ok(node.data.instructions?.trim());assert.ok(node.data.guardrails?.trim());
+    }
+    const customInstructions='Use only the selected invoice Story and make its saved amount assertion explicit.';
+    const workflow=await workflows.updateWorkflow(created.id,{nodes:created.nodes.map(node=>node.id==='story-assurance'?{...node,data:{...node.data,instructions:customInstructions,guardrails:''}}:node)},user.id);
+    const persisted=(await db.prepare('SELECT nodes FROM agentic_workflows WHERE id=?').get(workflow.id)).nodes.find(node=>node.id==='story-assurance').data;
+    assert.equal(persisted.instructions,customInstructions);assert.equal(persisted.guardrails,'');
     const input={request_id:randomUUID(),input_payload:{sprint_id:sprintId,integration_id:integrationId,max_cases_per_story:1,generation_instructions:'Draft native invoice Test Cases using the selected Story only.'}};
     const readiness=await runtime.checkReadiness(workflow,'',user,input.input_payload);
     assert.equal(readiness.ready,true,JSON.stringify(readiness.blockers));
@@ -105,7 +113,9 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     await runtime._internals.active.get(started.id)?.promise;
     const completed=await runtime._internals.store.get(started.id);
     assert.equal(completed.status,'completed',JSON.stringify({project_id:projectId,app_type_id:appId,output:completed.output_payload,failures:completed.node_results.filter(row=>row.status==='failed').map(row=>({id:row.node_id,error:row.error,logs:row.logs?.slice(-2)})),provider_failures:failures}));
-    const final=completed.node_results.find(row=>row.node_id==='automation-engineer').output;
+    const finalNode=completed.node_results.find(row=>row.node_id==='automation-engineer');
+    assert.equal(finalNode.output.data[0].story_assurance,undefined,'Public automation output contains only its own stage');
+    const final=finalNode.execution_context;
     assert.deepEqual(final.data.map(packet=>packet.story_id).sort(),storyIds.sort());
     for(const packet of final.data) {
       assert.equal(packet.story_assurance.integration.id,integrationId);
@@ -127,6 +137,7 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     assert.ok(calls.every(call=>call.model==='native-http-fixture'));
     assert.ok(calls.every(call=>!call.text.includes(apiKey.key)),'Settings API credentials must never reach the model');
     assert.deepEqual(failures,[]);
+    assert.ok(calls.filter(call=>call.kind==='story-assurance').every(call=>call.text.includes(customInstructions)),'The persisted node instructions must reach its real provider request.');
     const manual=await app.inject({method:'POST',url:`/agentic-workflow-runs/${started.id}/drafts/accept`,headers,payload:{node_id:'automation-engineer',story_index:0,case_index:0,kind:'manual'}});
     assert.equal(manual.statusCode,200,manual.body);
     const automated=await app.inject({method:'POST',url:`/agentic-workflow-runs/${started.id}/drafts/accept`,headers,payload:{node_id:'automation-engineer',story_index:0,case_index:0,kind:'automation'}});
@@ -143,7 +154,7 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     assert.equal(blockedNode.status,'completed');assert.equal(blockedNode.output.verification.status,'needs_input');
     const blockedIndex=blockedNode.output.data.findIndex(packet=>packet.automation_input_required?.length);
     assert.ok(blockedIndex>=0);
-    const blockedPacket=blockedNode.output.data[blockedIndex];
+    const blockedPacket=blockedNode.execution_context.data[blockedIndex];
     assert.equal(blockedPacket.automation[0],null);
     assert.equal(blockedPacket.automation_input_required[0].code,'AUTOMATION_DEPENDENCY_MISSING');
     assert.match(blockedPacket.automation_input_required[0].blocked_steps[0].required_context[0],/authentication endpoint/);
@@ -158,14 +169,15 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     incompleteReadiness = true;
     const beforeReadiness=(await db.prepare('SELECT count(*)::INTEGER AS count FROM test_cases WHERE app_type_id=?').get(appId)).count;
     const automationCalls=calls.filter(call=>call.kind==='automation').length;
-    const readinessStart=await runtime.start(workflow,{...input,request_id:randomUUID()},user);runningId=readinessStart.id;
+    const strictReadinessWorkflow={...workflow,nodes:workflow.nodes.map(node=>node.data.artifactTask==='automation-engineer'?{...node,data:{...node.data,readinessPolicy:'require-ready'}}:node)};
+    const readinessStart=await runtime.start(strictReadinessWorkflow,{...input,request_id:randomUUID()},user);runningId=readinessStart.id;
     await runtime._internals.active.get(readinessStart.id)?.promise;
     const readinessRun=await runtime._internals.store.get(readinessStart.id);
     assert.equal(readinessRun.status,'needs_review',JSON.stringify(readinessRun.output_payload));
     const readinessNode=readinessRun.node_results.find(row=>row.node_id==='automation-engineer');
     assert.equal(readinessNode.status,'completed');assert.equal(readinessNode.output.verification.status,'needs_input');
-    assert.deepEqual(readinessNode.output.data.map(packet=>packet.case_assurance[0].assurance_review.automation_readiness.status).sort(),['needs_input','unknown']);
-    assert.ok(readinessNode.output.data.every(packet=>packet.automation[0]===null && packet.automation_input_required.length===1 && packet.case_assurance[0].case_fingerprint===nativeTasks.fingerprint(packet.cases[0])));
+    assert.deepEqual(readinessNode.execution_context.data.map(packet=>packet.case_assurance[0].assurance_review.automation_readiness.status).sort(),['needs_input','unknown']);
+    assert.ok(readinessNode.execution_context.data.every(packet=>packet.automation[0]===null && packet.automation_input_required.length===1 && packet.case_assurance[0].case_fingerprint===nativeTasks.fingerprint(packet.cases[0])));
     assert.equal(calls.filter(call=>call.kind==='automation').length,automationCalls,'Unknown and needs_input assurance must never dispatch automation model requests.');
     const readinessManual=await app.inject({method:'POST',url:`/agentic-workflow-runs/${readinessStart.id}/drafts/accept`,headers,payload:{node_id:'automation-engineer',story_index:0,case_index:0,kind:'manual'}});
     assert.equal(readinessManual.statusCode,200,readinessManual.body);
@@ -175,7 +187,7 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     // Sprint Automator's explicit automatic policy publishes generated cases
     // before downstream work. Other workflows above keep manual acceptance.
     expectAutomaticPublication = true;
-    const automaticWorkflow = { ...workflow, id: randomUUID(), settings: { ...workflow.settings,
+    const automaticWorkflow = { ...strictReadinessWorkflow, id: randomUUID(), settings: { ...workflow.settings,
       template_id: 'sprint-automator', library_publication_mode: 'automatic', requires_human_review: false } };
     const autoInput = { ...input, request_id: randomUUID() };
     const automationBefore = calls.filter(call=>call.kind==='automation').length;
@@ -194,7 +206,7 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
       assert.ok(saved.ai_generated_at); assert.ok(saved.source_idempotency_key.startsWith(`workflow-draft:${autoBlocked.id}:`));
       assert.equal(receipt.approved, undefined); assert.equal(receipt.requires_review, true);
     }
-    assert.equal(calls.filter(call=>call.kind==='automation').length, automationBefore, 'Readiness gaps do not prevent manual publication or dispatch automation');
+    assert.equal(calls.filter(call=>call.kind==='automation').length, automationBefore, 'Strict readiness gaps retain manual publication without dispatching automation');
     const autoCount = (await db.prepare('SELECT COUNT(*)::integer AS count FROM test_cases WHERE source_idempotency_key LIKE ?').get(`workflow-draft:${autoBlocked.id}:%`)).count;
     const callsBeforeReplay = calls.length;
     assert.equal((await runtime.start(automaticWorkflow, autoInput, user)).id, autoBlocked.id);
@@ -215,8 +227,21 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
       assert.equal(saved.automation_status, 'incomplete'); assert.equal(saved.review_status, 'pending'); assert.equal(saved.ai_generation_review_status, 'pending');
       assert.equal((await db.prepare('SELECT COUNT(*)::integer AS count FROM automation_case_links WHERE automation_test_case_id=?').get(receipt.id)).count,1);
     }
+    // Default successor behavior independently checks the pinned source. A
+    // conservative or absent upstream readiness verdict cannot substitute for
+    // the real builder's own executable contract validation.
+    incompleteReadiness = true;
+    const independentWorkflow={...automaticWorkflow,id:randomUUID(),nodes:automaticWorkflow.nodes.map(node=>node.data.artifactTask==='automation-engineer'?{...node,data:{...node.data,readinessPolicy:'verify-inputs'}}:node)};
+    const independentStart=await runtime.start(independentWorkflow,{...input,request_id:randomUUID()},user);runningId=independentStart.id;
+    await runtime._internals.active.get(independentStart.id)?.promise;
+    const independentRun=await runtime._internals.store.get(independentStart.id);
+    assert.equal(independentRun.status,'completed',JSON.stringify(independentRun.output_payload));
+    const independentNode=independentRun.node_results.find(row=>row.node_id==='automation-engineer');
+    assert.deepEqual(independentNode.execution_context.data.map(packet=>packet.case_assurance[0].assurance_review.automation_readiness.status).sort(),['needs_input','unknown']);
+    assert.equal(independentNode.output.library_publication.automation_cases_saved,2);
+    assert.ok(independentNode.output.data.every(packet=>packet.automation[0].validation.status==='passed'&&packet.automation[0].verification_status==='unverified'));
     assert.deepEqual(failures, []);
-    return {native_services_real:true,settings_credential_http_real:true,stories:final.data.length,model_provider:'local HTTP response fixture',model_calls:calls.length,request_replay_extra_calls:0,other_workflows_keep_manual_publication:true,native_acceptances:4,automatic_pending_review_manual_cases:4,automatic_unverified_automation_cases:2,known_native_dependency_retains_assessed_manual_draft:true,unknown_and_missing_readiness_extra_automation_calls:0,readiness_manual_acceptance_preserved:true,blocked_automation_acceptance_rejected:true};
+    return {native_services_real:true,settings_credential_http_real:true,stories:final.data.length,model_provider:'local HTTP response fixture',model_calls:calls.length,request_replay_extra_calls:0,other_workflows_keep_manual_publication:true,native_acceptances:4,automatic_pending_review_manual_cases:6,automatic_unverified_automation_cases:4,known_native_dependency_retains_assessed_manual_draft:true,strict_unknown_and_missing_readiness_extra_automation_calls:0,independent_native_generation_resolves_upstream_readiness:true,readiness_manual_acceptance_preserved:true,blocked_automation_acceptance_rejected:true};
   } finally {
     const active=runningId&&runtime._internals.active.get(runningId);
     active?.controller.abort();await active?.promise;

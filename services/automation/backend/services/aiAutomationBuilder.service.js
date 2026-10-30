@@ -2454,9 +2454,10 @@ const normalizeLlmBuild = (payload, steps, cacheRows, startUrl, grounding) => {
   };
 };
 
-/** Workflow previews use the native section validator without saving a case,
- * opening a browser, or making any request to the application under test. */
-exports.previewAutomationDraft = async ({ draft, project_id, app_type_id, app_type_kind = 'web', user_id, integration_id, additional_context, signal } = {}) => {
+/** Develop an unsaved complete case using the same native completion, browser
+ * inspection and portable source contracts as the Automation Engineer. No
+ * partial section is published; the caller receives one validated whole case. */
+exports.previewAutomationDraft = async ({ draft, project_id, app_type_id, app_type_kind = 'web', user_id, integration_id, additional_context, inspect_browser = false, signal } = {}) => {
   if (!project_id || !app_type_id || !user_id || !draft || typeof draft !== 'object') throw Object.assign(new Error('Supply the project, application, actor and Test Case draft for automation preview.'), {statusCode:400});
   const access = await getOptionalEvidenceAccess({id:user_id}, project_id, ['automation.ai','automation.build']);
   if (!access['automation.ai'] || !access['automation.build']) throw Object.assign(new Error('Automation preview requires AI and build access.'), {statusCode:403});
@@ -2476,15 +2477,61 @@ exports.previewAutomationDraft = async ({ draft, project_id, app_type_id, app_ty
   if (!integration) throw Object.assign(new Error('Configure an active LLM integration before generating automation.'),{statusCode:422});
   const resolver=require('../lib/automationBrowserParameters').createBrowserParameterResolver({testCase:draft,caseValues:draft.parameter_values||{},privateParameterNames:draft.test_data_options?.private_parameter_names||[],steps,materialize:false});
   const promptSteps=resolver.projectSteps(steps).map(step=>JSON.parse(resolver.projectPrivateText(JSON.stringify(step),{preserveReferences:true})));
-  const prompt = buildPrompt({testCase:resolver.projectCase({...draft,project_id,app_type_id,app_type_kind}),steps:promptSteps,cacheRows:[],knowledgeRows:[],capturedActions:[],capturedNetwork:[],startUrl,buildContext:{generation_mode:'draft_preview',verification_status:'unverified'},additionalContext:resolver.projectText(normalizeRichText(additional_context))});
-  const build = await completeAutomationBuild({steps,displaySteps:promptSteps,sequential:true,availableParameters:resolver.availableParameterNames,feedbackInstruction:aiInstructionBlock(featureKey,'automationBuild.completionFeedback'),validateOutcome:payload=>require('@hellotest/platform/backend/src/utils/aiFeatureRuntime').validateValue(payload,featureProfile),validate:(payload,required)=>normalizeLlmBuild(payload,required,[],startUrl,{appTypeKind:app_type_kind,apiOrigins:navigationOrigins(startUrl,additional_context,steps),origins:navigationOrigins(startUrl,additional_context,steps)}),generate:async({feedback,feedbackInstruction})=>{
-    if(signal?.aborted)throw signal.reason;
+  const observations = [];
+  let browser;
+  const assertAccess = async () => {
+    if (signal?.aborted) throw signal.reason || Object.assign(new Error('Automation generation cancelled.'), {name:'AbortError'});
     const current=await getOptionalEvidenceAccess({id:user_id},project_id,['automation.ai','automation.build']);
     if(!current['automation.ai']||!current['automation.build'])throw Object.assign(new Error('Automation preview access changed.'),{statusCode:403});
-    return requestChatCompletion({integration,featureKey,prompt:[prompt,feedbackInstruction,JSON.stringify(feedback)].join('\n\n'),signal});
-  },parse:extractJsonPayload});
-  const nativeSteps=build.updates.map(update=>({...update.step,step_type:update.step_type,automation_code:update.automation_code,api_request:update.api_request}));
-  return {draft:{...draft,automated:'yes',automation_status:'incomplete',steps:nativeSteps},steps:nativeSteps,automation_start_url:draft.automation_start_url || null,summary:build.summary,verification_status:'unverified',validation:{status:'passed',checks:['native_request_contract','step_runtime_and_order','existing_assertions_preserved']},generation_mode:'llm',integration:{id:integration.id,name:integration.name,model:integration.model},completion_attempts:build.completion_attempts,side_effects:{cases_saved:0,target_requests:0,browser_actions:0}};
+  };
+  try {
+    if (inspect_browser && startUrl && steps.some(step => step.step_type === 'web')) {
+      const engine = await resolveTestEngineIntegration({project_id,app_type_id});
+      browser = await connectAutomationBrowser({integration:engine,startUrl,allowBrowserActions:false,signal});
+      const call = browser.call;
+      browser.projectPromptText = value => require('../lib/automationBrowserParameters').referenceKey(value) ? resolver.projectText(value) : resolver.projectPrivateText(value);
+      browser.projectPrivateText = resolver.projectPrivateText;
+      browser.canonicalizeParameterArguments = resolver.canonicalArguments;
+      browser.call = async (name, args) => {
+        await assertAccess();
+        try { return resolver.redactResult(await call(name, resolver.resolve(name,args))); }
+        catch (error) { throw resolver.redactError(error); }
+      };
+    }
+    const prompt = buildPrompt({featureKey,testCase:resolver.projectCase({...draft,project_id,app_type_id,app_type_kind}),steps:promptSteps,cacheRows:[],knowledgeRows:[],capturedActions:[],capturedNetwork:[],startUrl,buildContext:{generation_mode:'complete_case_draft',verification_status:'unverified',browser_policy:{transport:browser?'playwright_mcp':'not_requested',interaction_mode:browser?'read_only':'not_configured'}},additionalContext:resolver.projectText(normalizeRichText(additional_context))});
+    const complete = async (input, remainingMs = LLM_TIMEOUT_MS) => {
+      await assertAccess();
+      return requestChatCompletion({integration,featureKey,prompt:input,signal,timeoutMs:Math.min(LLM_TIMEOUT_MS,remainingMs)});
+    };
+    const validate = (payload, required) => {
+      const build=normalizeLlmBuild(payload,required,[],startUrl,{appTypeKind:app_type_kind,apiOrigins:navigationOrigins(startUrl,additional_context,steps),origins:navigationOrigins(startUrl,additional_context,steps)});
+      for (const update of build.updates) if (update.step_type==='web' && normalizeRichText(update.step.expected_result)
+        && !require('../lib/automationGeneratedProgram').hasExecutableAssertion(update.automation_code)) {
+        throw new Error(`Step ${update.step.step_order} needs an executable assertion for its authored expected result.`);
+      }
+      return build;
+    };
+    const validateOutcome = async payload => {
+      if (typeof payload?.summary !== 'string' || !payload.summary.trim()) throw Object.assign(new Error('The complete automation response needs its own nonempty summary.'),{code:'AI_MANAGED_SCHEMA_INVALID'});
+      await require('@hellotest/platform/backend/src/utils/aiFeatureRuntime').validateValue(payload,featureProfile);
+    };
+    const build = await completeAutomationBuild({steps,displaySteps:promptSteps,sequential:false,availableParameters:resolver.availableParameterNames,feedbackInstruction:aiInstructionBlock(featureKey,'automationBuild.completionFeedback'),validateOutcome,validate,generate:async({attempt,feedback,feedbackInstruction})=>{
+      const input = [prompt,feedbackInstruction,JSON.stringify(feedback)].join('\n\n');
+      if (!browser) return complete(input);
+      return runAutomationBrowserAgent({featureKey,prompt:input,browser,startUrl:attempt===1?startUrl:undefined,complete,parse:extractJsonPayload,generationMode:'case',initialObservations:observations,onObservation:observation=>{observations.push(observation);}});
+    },parse:value=>typeof value==='string'?extractJsonPayload(value):value});
+    await assertAccess();
+    const nativeSteps=build.updates.map(update=>({...update.step,step_type:update.step_type,automation_code:update.automation_code,api_request:update.api_request}));
+    const nativeDraft={...draft,automated:'yes',status:'draft',automation_status:'incomplete',steps:nativeSteps};
+    const hasMobile=nativeSteps.some(step=>['android','ios'].includes(step.step_type));
+    const executable = hasMobile ? null : await createArtifactContent({testCase:nativeDraft,updates:build.updates,values:resolver.publicParameterValues,baseURL:startUrl||''});
+    return {draft:nativeDraft,steps:nativeSteps,automation_start_url:startUrl || null,summary:build.summary,
+      instructions:nativeSteps.map(step=>({step_order:step.step_order,action:step.action,expected_result:step.expected_result,runtime:step.step_type})),
+      executable:executable?{filename:'automation.spec.ts',language:'typescript',framework:'playwright',code:executable}:null,
+      verification_status:'unverified',validation:{status:'passed',checks:['native_request_contract','step_runtime_and_order','expected_result_assertions','existing_assertions_preserved','whole_case_completion']},generation_mode:'llm',integration:{id:integration.id,name:integration.name,model:integration.model},completion_attempts:build.completion_attempts,
+      browser_evidence:{transport:browser?'playwright_mcp':'not_requested',interaction_mode:browser?'read_only':'not_configured',observation_count:observations.filter(item=>item.mcp_call!==false).length},
+      side_effects:{cases_saved:0,target_requests:observations.filter(item=>item.tool==='browser_navigate'&&item.mcp_call!==false).length,browser_actions:0}};
+  } finally { await browser?.close(); }
 };
 
 

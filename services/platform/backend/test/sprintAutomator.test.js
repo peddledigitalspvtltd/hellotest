@@ -66,9 +66,12 @@ test('Sprint Automator follows real authenticated HTTP cursor pages and feeds ea
   const output = saved.node_results.find(item => item.node_id === 'automation-engineer').output;
   assert.equal(output.data.length, 2); assert.equal(output.data[0].automation[0].steps[0].step_type, 'api');
   assert.equal(output.data[0].automation[0].verification_status, 'unverified');
-  assert.equal(output.data[0].story_assurance.comparison.score_delta, 0);
+  assert.equal(output.data[0].story_assurance, undefined, 'Automation output does not duplicate upstream Story assurance');
+  assert.equal(output.data[0].cases, undefined, 'Automation output contains its own artifact, not the upstream Test Cases');
+  const lineage = saved.node_results.find(item => item.node_id === 'automation-engineer').execution_context;
+  assert.equal(lineage.data[0].story_assurance.comparison.score_delta, 0);
   const baseline = await tasks._internals.metrics();
-  assert.deepEqual(output.data[0].story_assurance.baseline, tasks._internals.storyBaseline(baseline, story('story-a')));
+  assert.deepEqual(lineage.data[0].story_assurance.baseline, tasks._internals.storyBaseline(baseline, story('story-a')));
   assert.doesNotMatch(JSON.stringify({ saved, generations, reviews, builds }), /sprint-private-key-never-model-context/);
   assert.equal(saved.output_payload.runtime_contract.max_duration_ms, 3600000);
 });

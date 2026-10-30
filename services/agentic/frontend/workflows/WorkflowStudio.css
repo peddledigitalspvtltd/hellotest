@@ -130,6 +130,12 @@
   flex-direction: column;
   background: var(--surface-muted, #f7f9fc);
 }
+.workflow-studio .studio-code-editor > textarea {
+  box-sizing:border-box; width: 100%; min-width: 0; height: 360px; min-height:180px; max-height:70dvh; resize: vertical; border: 0;
+  padding: 14px; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--studio-ink); background: var(--studio-paper); tab-size: 2; overflow:auto; white-space:pre; opacity:1; -webkit-text-fill-color:var(--studio-ink);
+}
+.workflow-studio .studio-code-editor > textarea[readonly] { font:12px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace !important; color:var(--studio-ink) !important; background:var(--studio-paper) !important; }
 .studio-canvas {
   flex: 1;
   min-width: 0;
@@ -239,11 +245,22 @@
 }
 .studio-node[data-status="completed"] {
   border-color: #35a383;
+  border-style: solid;
 }
+.studio-node:is([data-status="pending"], [data-status="queued"]) { border-style:dashed; }
 .studio-node[data-status="running"] {
   border-color: var(--studio-accent);
   box-shadow: 0 0 0 4px #5068dd18;
 }
+.studio-node-progress { position:absolute; inset:-2px; width:calc(100% + 4px); height:calc(100% + 4px); overflow:visible; pointer-events:none; }
+.studio-node-progress rect { fill:none; stroke:var(--studio-accent); stroke-width:2.5; stroke-dasharray:5 5; animation:studio-running-dashes 1s linear infinite; }
+@keyframes studio-running-dashes { to { stroke-dashoffset:-20; } }
+.studio-execution-edge .react-flow__edge-path { stroke-dasharray:5 6; stroke:var(--studio-muted); opacity:.55; }
+.studio-execution-edge.is-completed .react-flow__edge-path { stroke-dasharray:none; stroke:#35a383; opacity:1; }
+.studio-execution-edge.is-running .react-flow__edge-path { stroke:var(--studio-accent); stroke-width:2; opacity:1; animation:studio-running-dashes 1s linear infinite; }
+.studio-execution-edge.is-failed .react-flow__edge-path { stroke:#da6464; opacity:1; }
+.studio-execution-edge.is-inactive .react-flow__edge-path { opacity:.25; }
+@media (prefers-reduced-motion:reduce) { .studio-node-progress rect,.studio-execution-edge.is-running .react-flow__edge-path { animation:none; } }
 .studio-node[data-status="failed"] {
   border-color: #da6464;
 }
@@ -1218,7 +1235,14 @@
 .studio-execution-graph { display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--surface-muted,#f7f9fc); }
 .studio-execution-graph > .studio-canvas { flex:1; height:auto; }
 .studio-execution-graph .react-flow__controls { display:flex; }
-.studio-execution-graph-help { margin:0; padding:10px 12px; font-size:10px; line-height:1.5; color:var(--studio-muted); border-top:1px solid var(--border); background:var(--studio-paper); }
+.studio-execution-graph-help { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin:0; padding:10px 12px; font-size:10px; line-height:1.5; color:var(--studio-muted); border-top:1px solid var(--border); background:var(--studio-paper); }
+.studio-execution-legend { display:inline-flex; align-items:center; gap:6px; }
+.studio-execution-legend i { width:13px; height:9px; border:1px dashed var(--studio-muted); border-radius:3px; margin-left:6px; }
+.studio-execution-legend i[data-status="completed"] { border-style:solid; border-color:#35a383; }
+.studio-execution-legend i[data-status="running"] { border-color:var(--studio-accent); background:color-mix(in srgb,var(--studio-accent) 12%,transparent); }
+.studio-execution-layout-tools > button.studio-follow-execution[aria-pressed="true"] { color:var(--studio-accent); border-color:var(--studio-accent); }
+.studio-execution.is-live { height:calc(100dvh - 164px); min-height:500px; }
+.studio-execution.is-live.is-maximized { position:fixed; inset:16px; height:auto; z-index:1000; box-shadow:0 12px 80px #172b4d30; }
 .studio-execution-details { display:flex; min-width:0; min-height:0; scroll-margin-top:55px; }
 .studio-execution-details > .studio-inspector { flex:1; width:100%; }
 .studio-execution-details .studio-inspector-content { max-height:none; }

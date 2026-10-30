@@ -109,7 +109,7 @@ export function WorkflowStudio(props: Props) {
   const matchingProjectAgents = props.nodes.length ? (props.projectAgents || []).filter(agent => `${(agent.active_definition || agent.definition).name} ${(agent.active_definition || agent.definition).description}`.toLowerCase().includes(query.trim().toLowerCase())) : [];
   const selected = props.nodes.find((node) => node.id === props.selectedNodeId);
   useEffect(() => {
-    if (props.error || props.readiness?.blockers.length) setReadinessOpen(true);
+    if (props.error || props.readiness) setReadinessOpen(true);
   }, [props.error, props.readiness]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -486,6 +486,7 @@ export function WorkflowStudio(props: Props) {
           {selected && (
             <WorkflowNodeInspector
               {...props.inspector}
+              workflowInput={props.input}
               node={selected}
               incoming={props.nodes.filter((node) =>
                 props.edges.some(

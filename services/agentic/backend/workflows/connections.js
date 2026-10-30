@@ -142,12 +142,22 @@ function authHeaders(connection) {
 function redact(value, connection) {
   const secret = connection?.secretEnv ? process.env[connection.secretEnv] : connection?.encryptedSecret ? settings.credential(connection) : "";
   const secrets = [secret, ...Object.values(settings.headers(connection))].filter(Boolean);
-  return JSON.parse(JSON.stringify(value, (key, item) => {
+  return JSON.parse(JSON.stringify(value, function (key, item) {
     if (/^(authorization|cookie|set-cookie|password|secret|token|api[-_]?key|access[-_]?token)$/i.test(key)) return "[REDACTED]";
     if (typeof item !== "string") return item;
     // Redact before JSON escaping so credentials containing quotes/backslashes
     // cannot reappear in an endpoint's echo or diagnostic response.
     for (const secret of secrets) for (const token of [secret, Buffer.from(secret).toString("base64")]) item = item.split(token).join("[REDACTED]");
+    // This is the endpoint the user configured, rather than model evidence.
+    // Preserve its host and record IDs so the complete request remains useful
+    // in the node inspector; credential query parameters remain redacted.
+    if (this === value?.request && ["url", "last_page_url"].includes(key)) {
+      try {
+        const endpoint = new URL(item);
+        for (const name of [...endpoint.searchParams.keys()]) if (/authorization|cookie|password|secret|token|api[-_]?key|access[-_]?key/i.test(name)) endpoint.searchParams.set(name, "[REDACTED]");
+        return endpoint.toString();
+      } catch { return "[REDACTED_ENDPOINT]"; }
+    }
     return sanitizeAiText(item).text;
   }));
 }
@@ -294,6 +304,7 @@ async function callHttp({ projectId, data, signal }) {
     data.apiUrl,
   );
   const method = String(data.apiMethod || "GET").trim().toUpperCase();
+  const initialUrl = url.toString();
   const allowed = connection?.methods || ["GET", "HEAD"];
   if (
     !allowed.includes(method) ||
@@ -337,7 +348,7 @@ async function callHttp({ projectId, data, signal }) {
     let content;
     try { content = JSON.parse(response.body); } catch { content = response.body; }
     result = { status: response.status, data: content, content_type: response.headers["content-type"] || "",
-      request: { method, response_received: true, ...(operationId ? { operation_id: operationId, postcondition_verified: false } : {}) } };
+      request: { method, url: initialUrl, ...(url.toString() !== initialUrl ? { last_page_url: url.toString() } : {}), response_received: true, ...(operationId ? { operation_id: operationId, postcondition_verified: false } : {}) } };
     if (!paginated) return redact(result, connection);
     if (!content || !Array.isArray(content.items) || typeof content.is_last !== "boolean") throw httpFailure("The paginated API must return items, is_last and next_cursor. Enable include_page=true for Stories.", 502, "AGENT_HTTP_PAGINATION_INVALID", { retryable: false });
     if (data.apiResource === "sprintStories" && (!Number.isInteger(content.total) || content.total < 0)) throw fail("The Stories API must return a valid total count.", 502);

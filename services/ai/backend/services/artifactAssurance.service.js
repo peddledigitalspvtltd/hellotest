@@ -153,14 +153,15 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
   const normalization = { assessAutomationReadiness: readinessRequested, stepRefs, productRefs };
   const lockedScores = normalizeBaseline(baseline, dimensionIds);
   const prompt = [
-    [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.1"),String(artifactType === "story" ? "Story" : "Test Case"),aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.2")].join(''),
-    aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.prompt.1"),
-    [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.3"),String(JSON.stringify(dimensionIds)),aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.4")].join(''),
-    aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.prompt.8"),
-    [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.5"),String(JSON.stringify(text(promptGuidance, 12000))),""].join(''),
-    [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.6"),String(JSON.stringify(lockedScores)),""].join(''),
-    [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.prompt.segment.7"),String(JSON.stringify(sources)),""].join(''),
-    ...(readinessRequested ? [aiInstructionBlock('ai.quality.test_case_assurance', 'artifactAssurance.automationReadiness'),
+    [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.1"),String(artifactType === "story" ? "Story" : "Test Case"),aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.2")].join(''),
+    aiInstructionBlock(featureKey, "artifactAssurance.prompt.1"),
+    ...(artifactType === 'test-case' ? [aiInstructionBlock(featureKey, 'artifactAssurance.caseApplicability')] : []),
+    [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.3"),String(JSON.stringify(dimensionIds)),aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.4")].join(''),
+    aiInstructionBlock(featureKey, "artifactAssurance.prompt.8"),
+    [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.5"),String(JSON.stringify(text(promptGuidance, 12000))),""].join(''),
+    [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.6"),String(JSON.stringify(lockedScores)),""].join(''),
+    [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.7"),String(JSON.stringify(sources)),""].join(''),
+    ...(readinessRequested ? [aiInstructionBlock(featureKey, 'artifactAssurance.automationReadiness'),
       JSON.stringify({ automation_readiness_contract: readinessContract(sources.map(source => source.ref), stepRefs), product_evidence_refs: [...productRefs], step_references: stepReferences })] : [])
   ].join("\n");
   const deadline = Date.now() + ASSURANCE_REQUEST_TIMEOUT_MS;
@@ -188,7 +189,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     let originalContent = "";
     try {
       const result = await readReviewResponse(await request([
-        { role: "system", content: aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.result.9") },
+        { role: "system", content: aiInstructionBlock(featureKey, "artifactAssurance.result.9") },
         { role: "user", content: prompt }
       ], { operation: `quality-assurance.${artifactType}`, timeoutMs: ASSURANCE_REQUEST_TIMEOUT_MS, maxOutputTokens: ASSURANCE_MAX_OUTPUT_TOKENS }));
       originalContent = result.content;
@@ -198,18 +199,19 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       if (!repairable) throw error;
       originalContent = originalContent || text(error?.reviewContent, 16_000);
       const repairPrompt = [
-        aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.repairPrompt.10"),
-        [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.repairPrompt.segment.8"),String(JSON.stringify(dimensionIds)),aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.repairPrompt.segment.9")].join(''),
-        [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.repairPrompt.segment.10"),String(JSON.stringify([...allowedRefs])),aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.repairPrompt.segment.11")].join(''),
-        aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.repairPrompt.11"),
-        [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.repairPrompt.segment.12"),String(text(JSON.stringify(sources), 32_000)),""].join(''),
-        aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.repairPrompt.12"),
-        [aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.service.repairPrompt.segment.13"),String(JSON.stringify(text(originalContent || error?.message, 16_000))),""].join(''),
-        ...(readinessRequested ? [aiInstructionBlock('ai.quality.test_case_assurance', 'artifactAssurance.automationReadiness'),
+        aiInstructionBlock(featureKey, "artifactAssurance.repairPrompt.10"),
+        ...(artifactType === 'test-case' ? [aiInstructionBlock(featureKey, 'artifactAssurance.caseApplicability')] : []),
+        [aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.8"),String(JSON.stringify(dimensionIds)),aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.9")].join(''),
+        [aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.10"),String(JSON.stringify([...allowedRefs])),aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.11")].join(''),
+        aiInstructionBlock(featureKey, "artifactAssurance.repairPrompt.11"),
+        [aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.12"),String(text(JSON.stringify(sources), 32_000)),""].join(''),
+        aiInstructionBlock(featureKey, "artifactAssurance.repairPrompt.12"),
+        [aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.13"),String(JSON.stringify(text(originalContent || error?.message, 16_000))),""].join(''),
+        ...(readinessRequested ? [aiInstructionBlock(featureKey, 'artifactAssurance.automationReadiness'),
           JSON.stringify({ automation_readiness_contract: readinessContract([...allowedRefs], stepRefs), product_evidence_refs: [...productRefs], step_references: stepReferences })] : [])
       ].join("\n");
       const repairedResult = await readReviewResponse(await request([
-        { role: "system", content: aiInstructionBlock("ai.quality.story_assurance", "artifactAssurance.repairedResult.13") },
+        { role: "system", content: aiInstructionBlock(featureKey, "artifactAssurance.repairedResult.13") },
         { role: "user", content: repairPrompt }
       ], { operation: `quality-assurance.${artifactType}.repair`, timeoutMs: ASSURANCE_REPAIR_TIMEOUT_MS, maxOutputTokens: 3_072 }));
       review = normalizeReview(repairedResult.parsed, dimensionIds, allowedRefs, normalization);

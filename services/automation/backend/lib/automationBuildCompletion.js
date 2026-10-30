@@ -1,5 +1,6 @@
 const MAX_COMPLETION_ATTEMPTS = 3;
 const {normalizeParameterKey}=require('@hellotest/platform/backend/src/utils/stepParameterResolution');
+const {sanitizeAiText}=require('@hellotest/platform/backend/src/security/aiTextPolicy');
 const specification=value=>String(value||'').replace(/\s+/g,' ').trim();
 function matchManualCoverage(steps,manualSteps) {
   const coverage=new Map(),used=new Map();
@@ -188,10 +189,10 @@ async function completeAutomationBuild({steps,manualSteps=[],displaySteps=steps,
       return task;
     };
     try {raw=await generate({attempt,sectionAttempt,completionOnly,activeStepId:sequential&&!completionOnly?activeWork.stepId:undefined,activeManualStepIds:sequential&&!completionOnly?[...activeWork.manualIds]:undefined,feedback,feedbackInstruction,onPartial});}
-    catch(error) {if(error.code!=='AI_INVALID_JSON')throw error;failures.push({message:String(error.message||'Invalid JSON response').slice(0,500)});}
+    catch(error) {if(error.code!=='AI_INVALID_JSON')throw error;failures.push({code:'AI_INVALID_JSON',message:'The provider response was not valid JSON.'});}
     finally {partialOpen=false;await partialQueue;}
     if(partialFailure)throw partialFailure;
-    if(!failures.length)try {payload=parse(raw);} catch(error) {failures.push({message:String(error.message||'Invalid JSON response').slice(0,500)});}
+    if(!failures.length)try {payload=parse(raw);} catch(error) {failures.push({code:'AI_INVALID_JSON',message:'The provider response was not valid JSON.'});}
     const receipt = await consume(payload, attempt);
     failures.push(...receipt.validation_errors);
     if(accepted.size===steps.length&&coverage.size===manualSteps.length&&!failures.length) {
@@ -208,6 +209,12 @@ async function completeAutomationBuild({steps,manualSteps=[],displaySteps=steps,
     // It must not mark every future row as needing attention.
     if(!sequential||!workComplete()||failures.length)await onProgress({phase:'automation.agent.incomplete',level:'warning',message:`${accepted.size} of ${steps.length} sections have validated instructions; ${coverage.size} of ${manualSteps.length} linked manual steps are mapped. ${sectionAttempt<limit?'Continuing with the current work.':'The bounded completion attempts are exhausted; existing instructions are retained.'}`,details:{attempt,max_attempts:requestLimit,completed_sections:accepted.size,total_sections:steps.length,pending_step_ids:steps.filter(step=>!accepted.has(step.id)).map(step=>step.id),missing_manual_step_ids:manualSteps.filter(step=>!coverage.has(step.id)).map(step=>step.id),validation_errors:failures,...activeDetails}});
   }
-  throw Object.assign(new Error(`Automation generation is incomplete: ${accepted.size} of ${steps.length} sections validated and ${coverage.size} of ${manualSteps.length} linked manual steps mapped after ${attemptsMade} requests. Existing instructions were retained.`),{code:'AUTOMATION_BUILD_INCOMPLETE',statusCode:422,completed_sections:accepted.size,saved_sections:saved.size,saved_step_ids:[...saved],total_sections:steps.length,pending_step_ids:steps.filter(step=>!accepted.has(step.id)).map(step=>step.id),missing_manual_step_ids:manualSteps.filter(step=>!coverage.has(step.id)).map(step=>step.id)});
+  const validationFeedback=failures.slice(0,5).map(failure=>({
+    ...(byId.has(failure.step_id)?{step_id:failure.step_id}:{}),
+    ...(typeof failure.code==='string'&&/^[A-Z][A-Z_]{1,79}$/.test(failure.code)?{code:failure.code}:{}),
+    message:sanitizeAiText(String(failure.message||'The generated instructions did not satisfy the native contract.')).text.slice(0,500)
+  }));
+  const publicMessage=`Automation generation is incomplete: ${accepted.size} of ${steps.length} sections validated.${validationFeedback.length?' '+validationFeedback.map(item=>item.message).join(' '):' Check the unfinished section mappings and linked manual coverage.'}`.slice(0,2000);
+  throw Object.assign(new Error(`Automation generation is incomplete: ${accepted.size} of ${steps.length} sections validated and ${coverage.size} of ${manualSteps.length} linked manual steps mapped after ${attemptsMade} requests. Existing instructions were retained.`),{code:'AUTOMATION_BUILD_INCOMPLETE',statusCode:422,publicMessage,validation_feedback:validationFeedback,completed_sections:accepted.size,saved_sections:saved.size,saved_step_ids:[...saved],total_sections:steps.length,pending_step_ids:steps.filter(step=>!accepted.has(step.id)).map(step=>step.id),missing_manual_step_ids:manualSteps.filter(step=>!coverage.has(step.id)).map(step=>step.id)});
 }
 module.exports={completeAutomationBuild,MAX_COMPLETION_ATTEMPTS,matchManualCoverage};

@@ -4,6 +4,7 @@ const { validateWorkflowGraph } = require("@hellotest/platform/backend/src/utils
 const { readResponsePrefix } = require("@hellotest/platform/backend/src/utils/boundedResponse");
 const { sanitizeAiText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
 const { mapWithConcurrency } = require("@hellotest/platform/backend/src/utils/boundedConcurrency");
+const { withNativeTaskDefaults } = require("../workflows/taskProfiles");
 
 const workflowError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode, publicMessage: message });
 
@@ -249,7 +250,7 @@ const hydrateWorkflow = (workflow) => {
 
   return {
     ...workflow,
-    nodes: normalizeArray(parseJsonValue(workflow.nodes, [])),
+    nodes: withNativeTaskDefaults(normalizeArray(parseJsonValue(workflow.nodes, []))),
     edges: normalizeArray(parseJsonValue(workflow.edges, [])),
     settings: normalizeObject(parseJsonValue(workflow.settings, {})),
     n8n_payload: normalizeObject(parseJsonValue(workflow.n8n_payload, {})),
@@ -319,9 +320,9 @@ function buildWorkflowRecord(input = {}, existing = null, actorId = null) {
     trigger_kind: Object.prototype.hasOwnProperty.call(input, "trigger_kind")
       ? normalizeTriggerKind(input.trigger_kind)
       : existing?.trigger_kind || "manual",
-    nodes: Object.prototype.hasOwnProperty.call(input, "nodes")
+    nodes: withNativeTaskDefaults(Object.prototype.hasOwnProperty.call(input, "nodes")
       ? normalizeArray(input.nodes)
-      : existing?.nodes || [],
+      : existing?.nodes || []),
     edges: Object.prototype.hasOwnProperty.call(input, "edges")
       ? normalizeArray(input.edges)
       : existing?.edges || [],

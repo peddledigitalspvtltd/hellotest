@@ -7,7 +7,7 @@ const utils=require('../../../platform/backend/src/utils/testStepAutomation');
 const {requiresAutomationStartUrl}=require('../../../platform/backend/src/utils/automationStartUrl');
 const {executeApiRequestStep}=require('../../backend/services/apiRequestExecution.service');
 
-function loadBuilder({response,dbWrites=[],requests=[],denied=false}={}){
+function loadBuilder({response,dbWrites=[],requests=[],denied=false,browserFixture}={}){
  const file=path.resolve(__dirname,'../../backend/services/aiAutomationBuilder.service.js');
  const original=require('node:module').createRequire(file),exports={};
  const db={prepare:sql=>({get:async()=>({id:'app',type:'unified'}),all:async()=>[],run:async()=>{dbWrites.push(sql);}})};
@@ -23,7 +23,9 @@ function loadBuilder({response,dbWrites=[],requests=[],denied=false}={}){
   if(id.endsWith('/aiConfiguration.service'))return {resolve:async()=>({config:{}})};
   if(id.endsWith('/aiFeatureRuntime'))return {validateValue:async()=>{}};
   if(id.endsWith('/automationBrowserParameters'))return original(id);
-  if(id.endsWith('/automationGeneratedProgram')||id.endsWith('/automationGenerationGrounding')||id.endsWith('/automationBuildCompletion')||id.endsWith('/automationStartUrl')||id.endsWith('/automationKnowledgeContext'))return original(id);
+  if(id.endsWith('/automationBrowserAgent')&&browserFixture)return browserFixture;
+  if(id.endsWith('/integration.service'))return {getActiveIntegrationByTypeForProject:async()=>({base_url:'http://engine.fixture',config:{}})};
+  if(id.endsWith('/automationGeneratedProgram')||id.endsWith('/automationGenerationGrounding')||id.endsWith('/automationBuildCompletion')||id.endsWith('/automationStartUrl')||id.endsWith('/automationKnowledgeContext')||id.endsWith('/automationPortableArtifact'))return original(id);
   if(id==='crypto')return require('node:crypto');
   return {};
  },exports);
@@ -67,11 +69,79 @@ test('workflow previews return validated native API drafts without writes or tar
  await assert.rejects(loadBuilder({denied:true}).previewAutomationDraft({draft:{steps:[{action:'POST /orders'}]},project_id:'project',app_type_id:'app',user_id:'actor'}),{statusCode:403});
 });
 
+test('native API completion corrects conditional auth and validation fields while preserving the complete evidenced response contract',async()=>{
+ const requests=[];
+ const builder=loadBuilder({requests,response:attempt=>({summary:'Read API readiness',steps:[{step_id:'draft-step-1',step_type:'api',api_request:{method:'GET',url:'https://api.fixture/health/ready',auth:attempt===1?{type:'none',location:null}:{type:'none'},validations:[{kind:'status',expected:'200',...(attempt<3?{operator:'eq'}:{})},{kind:'json_path',target:'$.ok',expected:'true',operator:'eq'},{kind:'json_path',target:'$.probe',expected:'"readiness"',operator:'eq'}]}}]})});
+ const result=await builder.previewAutomationDraft({draft:{title:'API readiness',steps:[{action:'GET https://api.fixture/health/ready with no authentication or body',expected_result:'HTTP 200 and JSON ok=true, probe="readiness"'}]},project_id:'project',app_type_id:'app',user_id:'actor'});
+ assert.equal(requests.length,3);assert.match(JSON.stringify(requests[1]),/API key location must be header or query/);
+ assert.match(JSON.stringify(requests[2]),/Use operators on JSON-path assertions/);
+ assert.deepEqual(result.steps[0].api_request.auth,{type:'none'});assert.equal(result.steps[0].api_request.validations.length,3);
+ const instructions=JSON.stringify(requests[0]);assert.match(instructions,/for auth.type none emit only/);assert.match(instructions,/Omit operator on status/);
+});
+
 test('API Gherkin fixtures require their real setup contract instead of a browser URL or fabricated request',async()=>{
  const requests=[];
  const builder=loadBuilder({requests,response:{blocked_steps:[{step_id:'draft-step-1',dependency_type:'external_context',reason:'The existing invoice needs a supplied setup request or seeded fixture reference.',required_context:['Authorized invoice fixture or setup API contract'],required_parameters:[]}]}});
  await assert.rejects(builder.previewAutomationDraft({draft:{title:'Read invoice',gherkin_document:'Feature: Invoice\nScenario: Read\nGiven an existing invoice\nWhen I GET /invoices/one\nThen status equals 200',steps:[{action:'an existing invoice',step_type:'manual',gherkin_keyword:'Given',gherkin_role:'scenario'},{action:'I GET /invoices/one',step_type:'manual',expected_result:'status equals 200',gherkin_keyword:'When',gherkin_role:'scenario'}]},project_id:'project',app_type_id:'app',user_id:'actor'}),error=>error.code==='AUTOMATION_DEPENDENCY_MISSING'&&/setup request|seeded fixture/.test(error.message));
  assert.equal(requests.length,1);assert.match(requests[0].messages[0].content,/"type": "api"/);
+});
+
+test('workflow develops the whole case in one completion and emits the shared executable Playwright artifact',async()=>{
+ const requests=[];
+ const builder=loadBuilder({requests,response:{summary:'Read then inspect the invoice',steps:[
+  {step_id:'draft-step-1',step_type:'api',api_request:{method:'GET',url:'https://api.fixture/invoices/one',validations:[{kind:'status',expected:'200'}]}},
+  {step_id:'draft-step-2',step_type:'web',automation_code:'await expect(page.getByRole("heading", {name:"Invoice one"})).toBeVisible();'}
+ ]}});
+ const result=await builder.previewAutomationDraft({draft:{title:'Invoice journey',automation_start_url:'https://api.fixture/invoices/one',parameter_values:{'t.api_token':'private-not-exported'},steps:[
+  {action:'GET https://api.fixture/invoices/one',expected_result:'Status equals 200'},
+  {action:'Inspect the invoice heading',expected_result:'Invoice one is visible'}
+ ]},project_id:'project',app_type_id:'app',user_id:'actor'});
+ assert.equal(requests.length,1,'Whole-case authoring requests every mapping together');
+ assert.match(requests[0].messages[0].content,/draft-step-1[\s\S]*draft-step-2/);
+ assert.equal(result.instructions.length,2);assert.equal(result.instructions[1].expected_result,'Invoice one is visible');
+ assert.equal(result.executable.filename,'automation.spec.ts');assert.equal(result.executable.framework,'playwright');
+ assert.match(result.executable.code,/from '@playwright\/test'/);assert.match(result.executable.code,/api\.request/);assert.match(result.executable.code,/Invoice one/);
+ assert.match(result.executable.code,/QAIRA_DATA_JSON/);assert.doesNotMatch(result.executable.code,/private-not-exported/);
+ assert.equal(result.draft.status,'draft');assert.equal(result.verification_status,'unverified');
+});
+
+test('workflow browser inspection uses the native MCP pipeline, closes the session and publishes no section drafts',async()=>{
+ const calls=[],requests=[];
+ const builder=loadBuilder({requests,browserFixture:{
+  connectAutomationBrowser:async options=>{calls.push(['connect',options]);return {tools:[],call:async()=>({}),close:async()=>{calls.push(['closed']);}};},
+  runAutomationBrowserAgent:async options=>{calls.push(['agent',options]);await options.onObservation({tool:'browser_navigate',mcp_call:true});return options.complete(options.prompt);}
+ },response:{summary:'Invoice heading',steps:[{step_id:'draft-step-1',step_type:'web',automation_code:'await expect(page.getByRole("heading", {name:"Invoice"})).toBeVisible();'}]}});
+ const result=await builder.previewAutomationDraft({draft:{title:'Invoice',automation_start_url:'https://ui.fixture/invoice',steps:[{action:'Read the Invoice heading',expected_result:'Invoice is visible'}]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true});
+ assert.equal(calls[0][0],'connect');assert.equal(calls[0][1].allowBrowserActions,false);
+ assert.equal(calls[1][0],'agent');assert.equal(calls[1][1].generationMode,'case');assert.equal(calls[1][1].onPartialBuild,undefined);
+ assert.equal(calls.at(-1)[0],'closed');assert.equal(requests.length,1);
+ assert.equal(result.browser_evidence.transport,'playwright_mcp');assert.equal(result.browser_evidence.observation_count,1);
+ assert.equal(result.side_effects.cases_saved,0);assert.equal(result.side_effects.browser_actions,0);
+ assert.equal(result.verification_status,'unverified','Inspection never claims case execution');
+});
+
+test('MCP inspection failures stop automation without a model fallback and close an opened session on provider failure',async()=>{
+ const requests=[],closed=[];
+ const draft={title:'Invoice',automation_start_url:'https://ui.fixture/invoice',steps:[{action:'Read Invoice',expected_result:'Invoice visible'}]};
+ await assert.rejects(loadBuilder({requests,browserFixture:{connectAutomationBrowser:async()=>{throw Object.assign(new Error('MCP unavailable'),{code:'MCP_UNAVAILABLE'});}}}).previewAutomationDraft({draft,project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true}),{code:'MCP_UNAVAILABLE'});
+ assert.equal(requests.length,0);
+ await assert.rejects(loadBuilder({requests,browserFixture:{connectAutomationBrowser:async()=>({tools:[],close:async()=>{closed.push(true);}}),runAutomationBrowserAgent:async()=>{throw new Error('provider unavailable');}}}).previewAutomationDraft({draft,project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true}),/provider unavailable/);
+ assert.deepEqual(closed,[true]);
+});
+
+test('a generated action without its authored expected-result assertion cannot become a validated workflow draft',async()=>{
+ const requests=[];
+ const builder=loadBuilder({requests,response:attempt=>({summary:'Inspect invoice',steps:[{step_id:'draft-step-1',step_type:'web',automation_code:attempt===1?'await page.getByRole("button", {name:"Invoice"}).click();':'await page.getByRole("button", {name:"Invoice"}).click(); await expect(page.getByRole("heading", {name:"Invoice"})).toBeVisible();'}]})});
+ const result=await builder.previewAutomationDraft({draft:{title:'Invoice',automation_start_url:'https://ui.fixture/invoice',steps:[{action:'Open Invoice',expected_result:'Invoice heading visible'}]},project_id:'project',app_type_id:'app',user_id:'actor'});
+ assert.equal(requests.length,2);assert.match(JSON.stringify(requests[1]),/needs an executable assertion/);
+ assert.match(result.steps[0].automation_code,/toBeVisible/);assert.equal(result.validation.status,'passed');
+});
+
+test('missing whole-case model content remains an explicit failure instead of a generated fallback summary',async()=>{
+ const requests=[];
+ const builder=loadBuilder({requests,response:{steps:[{step_id:'draft-step-1',step_type:'api',api_request:{method:'GET',url:'https://api.fixture/invoice',validations:[{kind:'status',expected:'200'}]}}]}});
+ await assert.rejects(builder.previewAutomationDraft({draft:{title:'Invoice',steps:[{action:'GET https://api.fixture/invoice',expected_result:'Status equals 200'}]},project_id:'project',app_type_id:'app',user_id:'actor'}),{code:'AUTOMATION_BUILD_INCOMPLETE'});
+ assert.ok(requests.length>1&&requests.length<=6);assert.match(JSON.stringify(requests.at(-1)),/nonempty summary/);
 });
 
 test('real API execution sends authenticated JSON requests and validates schema, headers and chained captures',async t=>{

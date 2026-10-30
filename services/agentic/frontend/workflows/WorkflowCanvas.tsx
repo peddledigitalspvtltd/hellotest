@@ -55,6 +55,7 @@ function WorkflowNode({
       data-status={status}
     >
       {kind !== "trigger" && <Handle type="target" position={Position.Left} />}
+      {status === "running" && <svg className="studio-node-progress" aria-hidden="true"><rect x="1.5" y="1.5" width="calc(100% - 3px)" height="calc(100% - 3px)" rx="12" /></svg>}
       <span className="studio-node-icon">
         <WorkflowNodeIcon kind={kind} size={23} />
       </span>
@@ -140,8 +141,19 @@ function FocusSelectedStep({ id }: { id: string }) {
   const { fitView } = useReactFlow();
   return <ControlButton title="Focus selected step" aria-label="Focus selected step" onClick={() => void fitView({ nodes: [{ id }], padding: 0.35, minZoom: 0.6, maxZoom: 1, duration: 200 })}><IconFocusCentered size={16} /></ControlButton>;
 }
+function FollowExecution({ id }: { id?: string }) {
+  const initialized = useNodesInitialized();
+  const { fitView, getNode } = useReactFlow();
+  useEffect(() => {
+    if (!initialized || !id || !getNode(id)) return;
+    // The camera follows a new running step, never every polling update. Users
+    // can still pan/zoom while the same step runs or disable following entirely.
+    void fitView({ nodes: [{ id }], padding: 0.45, minZoom: 0.8, maxZoom: 1.05, duration: 350 });
+  }, [id, initialized, fitView, getNode]);
+  return null;
+}
 export function WorkflowCanvas(
-  { onInsert, focusNodeId, autoFitOnResize = true, ...props }: ReactFlowProps<AgenticWorkflowNode, AgenticWorkflowEdge> & { onInsert?: (insertion: NodeInsertion) => void; focusNodeId?: string; autoFitOnResize?: boolean },
+  { onInsert, focusNodeId, followNodeId, autoFitOnResize = true, ...props }: ReactFlowProps<AgenticWorkflowNode, AgenticWorkflowEdge> & { onInsert?: (insertion: NodeInsertion) => void; focusNodeId?: string; followNodeId?: string; autoFitOnResize?: boolean },
 ) {
   const container = useRef<HTMLDivElement>(null);
   return (
@@ -158,6 +170,7 @@ export function WorkflowCanvas(
         edges={props.edges?.map(edge => ({ ...edge, type: onInsert && props.nodes?.find(node => node.id === edge.target)?.data.kind !== "errorHandler" ? "workflow" : edge.type }))}
       >
         <FitCanvas container={container} enabled={autoFitOnResize} />
+        <FollowExecution id={followNodeId} />
         <Background gap={22} size={1} />
         <Controls showInteractive={false}>{focusNodeId && <FocusSelectedStep id={focusNodeId} />}</Controls>
         <MiniMap pannable zoomable nodeColor="var(--studio-accent)" />

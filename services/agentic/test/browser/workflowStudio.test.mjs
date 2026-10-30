@@ -125,7 +125,8 @@ test('Agentic Studio supports templates, node authoring, actual step IO, executi
   await page.getByRole('button',{name:'Execute step',exact:true}).click();
   await page.getByRole('alert').filter({hasText:'Worker temporarily unavailable'}).waitFor();
   await page.getByRole('button',{name:'Execute step',exact:true}).click();await page.getByRole('region',{name:'Workflow execution',exact:true}).waitFor();
-  const execution=page.getByRole('dialog',{name:'Workflow execution details',exact:true});
+  const execution=page.getByRole('region',{name:'Workflow execution',exact:true});
+  await execution.getByRole('button',{name:'Show steps',exact:true}).click();
   assert.equal(requests.length,2);assert.equal(requests[0].request_id,requests[1].request_id);assert.equal(requests[1].target_node_id,'task-story');
   await execution.locator('.studio-execution-steps button').filter({hasText:'Story assurance'}).click();await execution.getByRole('button',{name:'Input',exact:true}).click();
   assert.match(await page.getByRole('textbox',{name:'Node input JSON',exact:true}).inputValue(),/"passed": false/);
@@ -154,7 +155,7 @@ test('Agentic Studio supports templates, node authoring, actual step IO, executi
   await page.evaluate(()=>{window.executionRecords[0].node_results.find(step=>step.node_id==='task-story').output=null;window.queryClient.invalidateQueries({queryKey:['agentic-workflow-run']});});
   await execution.getByRole('button',{name:'JSON',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('textarea[aria-label="Node output JSON"]')?.value==='null');
-  await page.getByRole('button',{name:'Open in editor',exact:true}).click();await page.getByRole('button',{name:'Executions (1)',exact:true}).click();await page.locator('.studio-history-row').waitFor();await page.getByLabel('Filter execution status',{exact:true}).selectOption('failed');assert.equal(await page.locator('.studio-history-row').count(),0);await page.getByLabel('Filter execution status',{exact:true}).selectOption('completed');await page.locator('.studio-history-row').waitFor();
+  await page.getByRole('button',{name:'Back to workflow editor',exact:true}).click();await page.getByRole('button',{name:'Executions (1)',exact:true}).click();await page.locator('.studio-history-row').waitFor();await page.getByLabel('Filter execution status',{exact:true}).selectOption('failed');assert.equal(await page.locator('.studio-history-row').count(),0);await page.getByLabel('Filter execution status',{exact:true}).selectOption('completed');await page.locator('.studio-history-row').waitFor();
   await page.getByRole('button',{name:'Back to workflows',exact:true}).click();await page.getByRole('button',{name:/Source agents Build API test cases/}).click();await page.getByRole('button',{name:'Workflow input',exact:true}).click();assert.match(await page.getByRole('textbox',{name:'Workflow input JSON'}).inputValue(),/repository_url/);
   await page.setViewportSize({width:390,height:900});await page.evaluate(()=>{document.documentElement.dataset.theme='dark';getComputedStyle(document.body).backgroundColor;document.getAnimations().forEach(animation=>{try{animation.finish();}catch{}});});await page.screenshot({path:output+'/04-mobile-dark.png',fullPage:true});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
   await page.close();
