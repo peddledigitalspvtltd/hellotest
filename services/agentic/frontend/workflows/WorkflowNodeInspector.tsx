@@ -21,6 +21,8 @@ import { projectAgentNode, type ProjectAgent } from "../agents/agentDefinitions"
 import { WorkflowSkills } from "./WorkflowSkills";
 import { specialistDefaults } from "./specialistProfiles";
 import { WorkflowDataView } from "./WorkflowDataView";
+import { WorkflowNodeModelCalls } from "./WorkflowNodeModelCalls";
+import { WorkflowLibraryReviewActions } from "./WorkflowLibraryReviewActions";
 import { WorkflowExecutionLog, executionDuration } from "./WorkflowExecutionLog";
 import { EXECUTABLE_NODE_KINDS } from "./WorkflowCanvas";
 import {
@@ -63,7 +65,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
     try { const parsed: unknown = JSON.parse(props.workflowInput); if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) triggerInput = parsed as Record<string, unknown>; } catch { /* Keep the user's invalid trigger text in its editor. */ }
   }
   const registeredAgent = props.projectAgents?.find(agent => agent.id === node.data.agentId);
-  const [tab, setTab] = useState<"parameters" | "input" | "output" | "logs">(
+  const [tab, setTab] = useState<"parameters" | "input" | "output" | "logs" | "model calls">(
     "parameters",
   );
   const contentRef = useRef<HTMLDivElement>(null);
@@ -106,7 +108,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
       }
     | undefined;
   const output = result?.output as Record<string, unknown> | undefined;
-  const splitData = expanded && tab !== "logs" && (!run || editable || tab !== "parameters");
+  const splitData = expanded && !["logs", "model calls"].includes(tab) && (!run || editable || tab !== "parameters");
   const field = (name: string, label: string, multiline = false) => (
     <label>
       <span>{label}</span>
@@ -152,6 +154,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
   const outputPane = (
     <section className="studio-inspector-pane" aria-label="Node output">
       <h3>Output</h3>
+      {run && node.data.kind === "artifactTask" && node.data.artifactTask === "test-case-generation" && <WorkflowLibraryReviewActions run={run} nodeId={node.id} />}
       {props.stale && (
         <p className="studio-notice">
           The definition has changed. Run again to refresh this result.
@@ -289,7 +292,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
             ))}
           </select>
         </label>
-        {kind === "artifactTask" && <label><span>Model connection</span><select value={String(node.data.llmIntegrationId || "")} onChange={event => props.onChange({ llmIntegrationId: event.target.value })}><option value="">Trigger model or configured feature default</option>{props.providers.filter(item => item.value).map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>}
+        {kind === "artifactTask" && <label><span>Model connection</span><select aria-label="Model connection" value={String(node.data.llmIntegrationId || "")} onChange={event => props.onChange({ llmIntegrationId: event.target.value })}><option value="">Use configured project model</option>{props.providers.filter(item => item.value).map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>}
         {specialist && (
           <>
             {kind !== "customAI" && kind !== "loop" && (
@@ -566,14 +569,14 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           )}
         </header>
         <nav aria-label="Node details">
-          {(["parameters", "input", "output", "logs"] as const).map((item) => (
+          {(["parameters", "input", "output", "logs", "model calls"] as const).map((item) => (
             <button
               key={item}
               type="button"
               aria-pressed={tab === item}
               onClick={() => setTab(item)}
             >
-              {item[0].toUpperCase() + item.slice(1)}
+              {item === "model calls" ? "Model calls" : item[0].toUpperCase() + item.slice(1)}
             </button>
           ))}
         </nav>
@@ -591,6 +594,8 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
             input
           ) : tab === "output" ? (
             outputPane
+          ) : tab === "model calls" ? (
+            <section className="studio-inspector-pane"><WorkflowNodeModelCalls key={`${run?.id}:${node.id}`} projectId={props.projectId} runId={run?.id} nodeId={node.id} live={run?.status === "running" || run?.status === "queued"} /></section>
           ) : tab === "logs" ? (
             <section className="studio-inspector-pane">
               <h3>Execution log</h3>

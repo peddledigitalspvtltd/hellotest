@@ -1,6 +1,7 @@
 const db = require("@hellotest/platform/backend/src/db");
 const { normalizeScheduledAt } = require("@hellotest/platform/backend/src/utils/automationSchedule");
 const { normalizeAutomationStartUrl, requiresAutomationStartUrl } = require("@hellotest/platform/backend/src/utils/automationStartUrl");
+const { resolveAutomationCaseSteps } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 const { captureStartUrlReview, assertQueuedStartUrlReview } = require('@hellotest/automation/backend/services/automationQueuedStartUrl.service');
 const obsDb = require("@hellotest/platform/backend/src/obsDb");
 const { randomUUID: uuid, createHash } = require("crypto");
@@ -545,6 +546,7 @@ exports.queueAutomationBuild = db.transaction(async ({
   const explicitStartUrl = start_url !== undefined;
   const normalizedStartUrl = normalizeAutomationStartUrl(start_url);
   const selectedCases = await db.prepare(`SELECT source.id, source.automated, source.automation_start_url,
+      source.test_data_options,
       target.id AS linked_automation_test_case_id, target.automation_start_url AS linked_automation_start_url
     FROM test_cases source
     LEFT JOIN test_cases target ON target.app_type_id=source.app_type_id
@@ -586,11 +588,12 @@ exports.queueAutomationBuild = db.transaction(async ({
     }
     if(Object.keys(values).length)valuesByCase[row.id]=values;
   }
-  const steps = await db.prepare(`SELECT test_case_id,step_type FROM test_steps
+  const steps = await db.prepare(`SELECT test_case_id,step_type,step_order,action,automation_code,api_request FROM test_steps
     WHERE test_case_id IN(SELECT jsonb_array_elements_text(?::jsonb)) FOR SHARE`).all(JSON.stringify(selectedCases.map(row => row.id)));
+  const platformsByCaseId = new Map(selectedCases.map(testCase => [testCase.id, resolveAutomationCaseSteps(testCase, steps.filter(step => step.test_case_id === testCase.id), {appTypeKind:appType.type})]));
   const startUrlsByCaseId = Object.fromEntries(selectedCases.map(testCase => [testCase.id,
     normalizeAutomationStartUrl(explicitStartUrl ? normalizedStartUrl : testCase.automation_start_url || testCase.linked_automation_start_url, {
-      required: requiresAutomationStartUrl({ appTypeKind: appType.type, steps: steps.filter(step => step.test_case_id === testCase.id) })
+      required: requiresAutomationStartUrl({ appTypeKind: platformsByCaseId.get(testCase.id).automation_case_type, steps: platformsByCaseId.get(testCase.id).steps })
     })
   ]));
   const startUrlReviewsByCaseId = Object.fromEntries(selectedCases.map(testCase => [testCase.id, captureStartUrlReview(testCase,
@@ -634,6 +637,7 @@ exports.queueAutomationBuild = db.transaction(async ({
       verification_driver,
       start_url: explicitStartUrl ? normalizedStartUrl : undefined,
       start_urls_by_case_id: startUrlsByCaseId,
+      automation_case_types_by_case_id: Object.fromEntries([...platformsByCaseId].map(([id,platform])=>[id,platform.automation_case_type])),
       start_url_reviews_by_case_id: startUrlReviewsByCaseId,
       test_environment_id,
       test_configuration_id,
@@ -850,15 +854,17 @@ async function runAutomationBuild(job,executionGuard) {
   const aiAutomationBuilderService = require("@hellotest/automation/backend/services/aiAutomationBuilder.service");
   const payload = parseJsonValue(job.payload, {});
   const ids = Array.isArray(payload.test_case_ids) ? payload.test_case_ids : [];
-  const targets = await db.prepare(`SELECT source.id,app_types.type AS app_type_kind
+  const targets = await db.prepare(`SELECT source.id,app_types.type AS app_type_kind,source.test_data_options
     FROM test_cases source JOIN app_types ON app_types.id=source.app_type_id
     WHERE source.app_type_id=? AND (source.id IN(SELECT jsonb_array_elements_text(?::jsonb))
       OR (?::boolean AND COALESCE(source.automated,'no') <> 'yes' AND app_types.type IN('api','web','android','ios','unified')))
     ORDER BY source.id`).all(payload.app_type_id, JSON.stringify(ids), ids.length === 0);
   for (const target of targets) {
     await executionGuard?.ensureOwnership();
-    const steps = await db.prepare('SELECT step_type FROM test_steps WHERE test_case_id=? ORDER BY step_order,id').all(target.id);
-    const required = requiresAutomationStartUrl({ appTypeKind: target.app_type_kind, steps });
+    const steps = await db.prepare('SELECT step_type,step_order,action,automation_code,api_request FROM test_steps WHERE test_case_id=? ORDER BY step_order,id').all(target.id);
+    const platform = resolveAutomationCaseSteps(target, steps, {appTypeKind:target.app_type_kind});
+    if (payload.automation_case_types_by_case_id?.[target.id] && payload.automation_case_types_by_case_id[target.id] !== platform.automation_case_type) throw Object.assign(new Error('An automation case type changed after this batch was queued. Review the selected platforms and start a new build.'), {code:'AUTOMATION_CASE_TYPE_CHANGED',statusCode:409,nonRetryable:true});
+    const required = requiresAutomationStartUrl({ appTypeKind: platform.automation_case_type, steps: platform.steps });
     const desiredStartUrl = normalizeAutomationStartUrl(payload.start_urls_by_case_id?.[target.id] ?? payload.start_url, { required });
     await assertQueuedStartUrlReview({ sourceCaseId: target.id, appTypeId: payload.app_type_id, review: payload.start_url_reviews_by_case_id?.[target.id], desiredStartUrl, required });
   }

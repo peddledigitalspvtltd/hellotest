@@ -22,6 +22,7 @@ function recorderFixture({ steps = [], kind = "unified", configuration = null, r
     if(name.endsWith('/repositoryScreenIdentity'))return require('../../backend/lib/repositoryScreenIdentity');
     if (name === "crypto") return require("node:crypto");
     if (name.endsWith("/testStepAutomation")) return require("../../../platform/backend/src/utils/testStepAutomation");
+    if (name.endsWith("/automationCaseType")) return require("../../../platform/backend/src/utils/automationCaseType");
     if (name.endsWith("/mobileRecorderPlan")) return { resolveMobileRecorderPlatform, buildMobileRecorderPlan };
     if (name.endsWith("/mobileRecorderPersistence.service")) return { persistMobileRecorderPlan };
     if (name.endsWith("/mobileFeature")) return require("../../../platform/backend/src/utils/mobileFeature");

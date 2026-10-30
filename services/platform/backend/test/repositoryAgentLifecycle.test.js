@@ -171,6 +171,49 @@ test('queue capacity rejects additional analyses before uploading source', async
   await assert.rejects(service.createRun({ project_id: 'project-a', app_type_id: 'app-a', agent_type: 'api_tests' }, user, { file: { filename: 'source.zip', buffer: zip } }), { statusCode: 429 });
 });
 
+test('repository jobs persist workflow trace scope only from trusted runtime options', async t => {
+  scope(t); let saved;
+  t.mock.method(storage, 'putObject', async () => ({ bucket: 'private' }));
+  database(t, (sql, _method, args) => {
+    if (sql.startsWith('SELECT count(*)')) return { total: 0 };
+    if (sql.startsWith('INSERT INTO repository_agent_runs')) {
+      saved = run({ id: args[0], input: args[5], status: 'queued' }); return { changes: 1 };
+    }
+    if (sql === 'SELECT * FROM repository_agent_runs WHERE id = ?') return structuredClone(saved);
+    return unreachable(sql);
+  });
+  const input = { project_id: 'project-a', app_type_id: 'app-a', agent_type: 'api_tests', workflow_trace: { run_id: 'spoofed-run', node_id: 'spoofed-node' } };
+  const options = { file: { filename: 'source.zip', buffer: zip } };
+  await service.createRun(input, user, options);
+  assert.equal(saved.input.workflow_trace, undefined, 'A request cannot claim a workflow node');
+  const workflowTrace = { run_id: 'host-workflow-run', node_id: 'host-source-node' };
+  await service.createRun(input, user, { ...options, workflowTrace });
+  assert.deepEqual(saved.input.workflow_trace, workflowTrace, 'Worker restarts retain the exact owning run and node');
+});
+
+test('queued repository reviews restore their own workflow scope and clear unrelated worker context', async t => {
+  scope(t);
+  const trace = require('../src/utils/llmTraceContext'), observed = [];
+  t.mock.method(require('../../../agentic/backend/services/agenticAssistant.service'), 'respond', async () => {
+    observed.push(trace.current());
+    return { transaction: { id: 'fresh-review' }, result: { response: 'Source reviewed.', verification: { status: 'passed' } }, provenance: { generation_mode: 'llm' } };
+  });
+  t.mock.method(storage, 'getObject', async () => Readable.from([zip]));
+  database(t, sql => {
+    if (sql.includes('FROM users')) return { ...user, status: 'active' };
+    if (sql.startsWith('SELECT id, result')) return { id: 'cache', result: result() };
+    if (sql.startsWith('UPDATE')) return { changes: 1 };
+    return unreachable(sql);
+  });
+  for (const workflowTrace of [{ run_id: 'owning-run', node_id: 'owning-node' }, undefined]) {
+    const current = run({ status: 'running' });
+    if (workflowTrace) current.input.workflow_trace = workflowTrace;
+    await trace.run({ run_id: 'unrelated-run', node_id: 'unrelated-node', session_id: 'unrelated-session' }, () => service._internals.performRun(current, new AbortController()));
+    assert.equal(trace.current().run_id, undefined, 'Worker execution leaves the outer task context intact');
+  }
+  assert.deepEqual(observed.map(scope => [scope.run_id, scope.node_id, scope.session_id]), [['owning-run', 'owning-node', null], [null, null, null]]);
+});
+
 test('failed queue insertion removes uploaded source but ambiguous commit retains it for recovery', async t => {
   for (const ambiguous of [false, true]) {
     scope(t); let saved; const removed = [];

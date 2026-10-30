@@ -1,5 +1,6 @@
 const vm = require("node:vm");
-const { normalizeGeneratedProgram } = require('../lib/automationGeneratedProgram');
+const { normalizeGeneratedProgram, hasExecutableAssertion } = require('../lib/automationGeneratedProgram');
+const { validateGeneratedApiRequest } = require('@hellotest/platform/backend/src/utils/testStepAutomation');
 
 /** Compile source without executing it before an engine job is allocated. */
 function inspectExecutablePlan(steps) {
@@ -13,8 +14,8 @@ function inspectExecutablePlan(steps) {
     const prefix = `Step ${step.order || step.step_order || "?"}`;
     if (step.step_type === "api") {
       const request = step.api_request;
-      if (!request || typeof request.url !== "string" || !request.url.trim()) issues.push(`${prefix}: an API request URL is required.`);
-      if (request?.method && !["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(request.method)) issues.push(`${prefix}: the HTTP method is unsupported.`);
+      try { validateGeneratedApiRequest(request, { stepOrder: step.order || step.step_order, expectedResult: step.expected_result }); }
+      catch (error) { issues.push(`${prefix}: ${error.message}`); }
       continue;
     }
     const executable = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/[^\n]*$/gm, "").trim();
@@ -30,6 +31,9 @@ function inspectExecutablePlan(steps) {
         }
       }
       new vm.Script(`(async function () {\n${body}\n})`, { filename: `automation-step-${step.id || "unknown"}.js` });
+      if (step.step_type === 'web' && String(step.expected_result || '').trim() && !hasExecutableAssertion(body)) {
+        issues.push(`${prefix}: the expected result needs an executable assertion in its saved instructions.`);
+      }
     }
     catch (error) { issues.push(`${prefix}: invalid JavaScript (${error.message}).`); }
   }

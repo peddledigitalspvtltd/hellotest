@@ -15,6 +15,7 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
   let blockAutomation = false;
   let incompleteReadiness = false;
   let expectAutomaticPublication = false;
+  let multiCaseMode = false;
   const providerCredential = 'disposable-native-provider-credential';
   const provider = http.createServer(async (req, res) => {
     try {
@@ -37,14 +38,17 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
         kind = 'test-case-generation';
         assert.equal(design.stories.length, 1);
         const source = design.stories[0], color = source.title.includes('blue') ? 'blue' : 'red';
-        result = { testCases:[{ title:`Read ${color} invoice`, description:`Read the saved ${color} invoice and compare its response.`, priority:2, test_case_type:'functional', authoring_mode:'structured', requirement_refs:[source.ref], parameter_values:{}, steps:[{step_type:'api',action:`GET https://invoices.example/pipeline-${color}`,expected_result:'Response status equals 200 and amount equals 10'}] }] };
+        if (multiCaseMode) assert.equal(design.application_contract.max_cases,3,'The saved generation node limit overrides the legacy trigger limit');
+        result = { testCases:Array.from({length:multiCaseMode?3:1},(_,index)=>({ title:`Read ${color} invoice${multiCaseMode?` variant ${index+1}`:''}`, description:`Read the saved ${color} invoice and compare its response.`, priority:2, test_case_type:'functional', authoring_mode:'structured', requirement_refs:[source.ref], parameter_values:{}, steps:[{step_type:'api',action:`GET https://invoices.example/pipeline-${color}`,expected_result:'Response status equals 200 and amount equals 10'}] })) };
       } else if (intent) {
         kind = 'knowledge-intent';
         result = { search_queries:[String(intent.question).slice(0,700)], source_kinds:['requirement'], information_needs:['Recorded invoice acceptance behavior'], stop_if_sufficient:true };
       } else if (/draft-step-1/.test(text) && /native api_request/.test(text)) {
         kind = 'automation';
         const color = text.includes('/pipeline-blue') ? 'blue' : 'red';
-        result = blockAutomation && color === 'blue'
+        const variant=multiCaseMode?Number(text.match(/Read (?:red|blue) invoice variant (\d)/)?.[1]):null;
+        result = multiCaseMode && color==='red' && variant===2 ? {summary:'This middle case has incomplete generated instructions.',steps:[]}
+          : blockAutomation && color === 'blue'
           ? {blocked_steps:[{step_id:'draft-step-1',dependency_type:'external_context',reason:'Authentication request contract is missing.',required_context:['Authorized authentication endpoint and method'],required_parameters:[]}]}
           : { summary:`Generated the ${color} invoice native API request.`, steps:[{step_id:'draft-step-1',step_type:'api',api_request:{method:'GET',url:`https://invoices.example/pipeline-${color}`,body_mode:'none',headers:[],validations:[{kind:'status',expected:'200'},{kind:'json_path',target:'$.amount',operator:'eq',expected:'10'}]}}], learned_locators:[], manual_coverage:[] };
       } else if (draftRef) {
@@ -55,7 +59,7 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
           if (expectAutomaticPublication) {
             const generated = await db.prepare("SELECT COUNT(*)::integer AS count FROM test_cases WHERE app_type_id=? AND source_idempotency_key LIKE ? AND automated='no'")
               .get(appId, `workflow-draft:${runningId}:%`);
-            assert.equal(generated.count, 2, 'Generated Library cases must already exist before assurance or automation starts');
+            assert.equal(generated.count, multiCaseMode?6:2, 'Generated Library cases must already exist before assurance or automation starts');
           }
           const productRef=text.match(/"ref"\s*:\s*"(requirement:[0-9a-f-]+)"/i)?.[1];
           assert.ok(productRef,'Native readiness must cite the supplied product Story, not only its generated case.');
@@ -240,8 +244,30 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     assert.deepEqual(independentNode.execution_context.data.map(packet=>packet.case_assurance[0].assurance_review.automation_readiness.status).sort(),['needs_input','unknown']);
     assert.equal(independentNode.output.library_publication.automation_cases_saved,2);
     assert.ok(independentNode.output.data.every(packet=>packet.automation[0].validation.status==='passed'&&packet.automation[0].verification_status==='unverified'));
+    // A case-specific generation failure preserves the earlier full case and
+    // proceeds to the later case, including real native Library publication.
+    // The pinned node limit deliberately differs from the legacy trigger.
+    multiCaseMode=true;incompleteReadiness=false;
+    const multipleWorkflow={...independentWorkflow,id:randomUUID(),nodes:independentWorkflow.nodes.map(node=>node.data.artifactTask==='test-case-generation'
+      ? {...node,data:{...node.data,maxCasesPerStory:3,authoringMode:'structured',generationInstructions:''}}:node)};
+    const multipleStart=await runtime.start(multipleWorkflow,{...input,request_id:randomUUID()},user);runningId=multipleStart.id;
+    await runtime._internals.active.get(multipleStart.id)?.promise;
+    const multipleRun=await runtime._internals.store.get(multipleStart.id);
+    assert.equal(multipleRun.status,'needs_review',JSON.stringify(multipleRun.output_payload));
+    const multipleNode=multipleRun.node_results.find(row=>row.node_id==='automation-engineer');
+    assert.equal(multipleNode.status,'completed');assert.equal(multipleNode.output.outcome,'automation_partial');
+    assert.equal(multipleNode.output.failed_case_count,1);
+    const red=multipleNode.execution_context.data.find(packet=>packet.story.title.includes('red'));
+    assert.deepEqual(red.automation.map(item=>Boolean(item)),[true,false,true]);
+    assert.equal(red.automation_failures[0].case_index,1);assert.equal(red.automation_failures[0].code,'AUTOMATION_BUILD_INCOMPLETE');
+    assert.deepEqual(red.automation_progress,{completed:2,failed:1,needs_input:0,processed:3,total:3});
+    assert.equal(multipleRun.node_results.find(row=>row.node_id==='test-case-generation').output.library_publication.manual_cases_saved,6);
+    assert.equal(multipleNode.output.library_publication.automation_cases_saved,5);
+    const publicationReplay=await require('../../../../agentic/backend/workflows/acceptDraft').publishNodeArtifacts({run:multipleRun,node:{id:'automation-engineer'},user});
+    assert.equal(publicationReplay.receipts.length,5);assert.ok(publicationReplay.receipts.every(receipt=>receipt.reused));
+    assert.equal((await db.prepare('SELECT COUNT(*)::integer AS count FROM test_cases WHERE source_idempotency_key LIKE ?').get(`workflow-draft:${multipleRun.id}:%`)).count,11);
     assert.deepEqual(failures, []);
-    return {native_services_real:true,settings_credential_http_real:true,stories:final.data.length,model_provider:'local HTTP response fixture',model_calls:calls.length,request_replay_extra_calls:0,other_workflows_keep_manual_publication:true,native_acceptances:4,automatic_pending_review_manual_cases:6,automatic_unverified_automation_cases:4,known_native_dependency_retains_assessed_manual_draft:true,strict_unknown_and_missing_readiness_extra_automation_calls:0,independent_native_generation_resolves_upstream_readiness:true,readiness_manual_acceptance_preserved:true,blocked_automation_acceptance_rejected:true};
+    return {native_services_real:true,settings_credential_http_real:true,stories:final.data.length,model_provider:'local HTTP response fixture',model_calls:calls.length,request_replay_extra_calls:0,other_workflows_keep_manual_publication:true,native_acceptances:4,automatic_pending_review_manual_cases:12,automatic_unverified_automation_cases:9,known_native_dependency_retains_assessed_manual_draft:true,strict_unknown_and_missing_readiness_extra_automation_calls:0,independent_native_generation_resolves_upstream_readiness:true,readiness_manual_acceptance_preserved:true,blocked_automation_acceptance_rejected:true,all_cases_attempted_after_middle_failure:true,partial_success_library_receipts_idempotent:true,node_generation_limit_overrides_legacy_trigger:true};
   } finally {
     const active=runningId&&runtime._internals.active.get(runningId);
     active?.controller.abort();await active?.promise;

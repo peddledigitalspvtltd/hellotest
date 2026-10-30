@@ -265,16 +265,17 @@ export function mergeAssuranceReview(baseline, review) {
     return {
         ...baseline,
         summary: review.summary?.trim() || baseline.summary,
-        verdict: review.verdict?.trim() || baseline.verdict,
+        verdict: baseline.verdict,
         dimensions: baseline.dimensions.map(item => {
             const refinement = narrative.get(item.id);
             return refinement ? {
                 ...item,
                 explanation: refinement.explanation?.trim() || item.explanation,
-                recommendation: refinement.recommendation?.trim() || item.recommendation
+                recommendation: refinement.recommendation?.trim() || item.recommendation,
+                ...(refinement.evidence?.length ? { review_evidence: [...refinement.evidence] } : {})
             } : item;
         }),
-        insights: review.insights?.length ? review.insights : baseline.insights,
+        insights: Array.isArray(review.insights) ? review.insights : baseline.insights,
         limitations: [...new Set([...baseline.limitations, ...(review.limitations || [])])]
     };
 }

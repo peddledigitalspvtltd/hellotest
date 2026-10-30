@@ -175,7 +175,8 @@ exports.listPage = async (query = {}) => {
     tc.ai_generation_source, tc.ai_generation_review_status, tc.ai_generation_job_id, tc.ai_generated_at,
     tc.created_by, tc.created_at, tc.updated_by, tc.updated_at` : 'tc.*';
   const includeTotal = picker ? yes(query.include_total) : query.include_total !== false && query.include_total !== 'false';
-  const pageSql = `SELECT ${projection}, COALESCE(tc.updated_at, tc.created_at)::text AS cursor_activity FROM test_cases tc WHERE ${pageWhere} ORDER BY ${order} LIMIT ? ${membership ? 'OFFSET ?' : ''}`;
+  const pageSql = `SELECT ${projection}, CASE WHEN tc.automated='yes' THEN NULLIF(tc.test_data_options->>'automation_case_type','') ELSE NULL END AS automation_case_type,
+    COALESCE(tc.updated_at, tc.created_at)::text AS cursor_activity FROM test_cases tc WHERE ${pageWhere} ORDER BY ${order} LIMIT ? ${membership ? 'OFFSET ?' : ''}`;
   const [rows, count] = await Promise.all([
     db.prepare(picker ? pickerPageSql(pageSql) : pageSql).all(...pageParams),
     includeTotal ? db.prepare(`SELECT COUNT(*)::int AS total FROM test_cases tc WHERE ${where}`).get(...params) : Promise.resolve(null)

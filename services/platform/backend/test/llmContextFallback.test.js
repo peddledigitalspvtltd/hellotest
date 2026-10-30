@@ -112,7 +112,7 @@ test('Story case generation retains acceptance criteria, user guidance and exact
         if(options.featureKey==='ai.authoring.request_validation')return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({decision:'accept',explanation:'Request matches Test Case authoring.',suggestions:[]})}}]}),{headers:{'content-type':'application/json'}});
         observed = { body: JSON.parse(init.body), fallback: expandManagedInstructions(options.contextFallbackContent) };
         options.onContextFallback();
-        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ testCases: [{ title: 'Valid sign in', requirement_refs: ['R1'], steps: [{ action: 'Submit credentials', expected_result: 'Dashboard opens' }] }] }) } }] }), { headers: { 'content-type': 'application/json' } });
+        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ testCases: [{ title: 'Valid sign in', description: 'Sign in using an authorized account and reach the account home.', priority: 3, test_case_type: 'functional', parameter_values: {}, requirement_refs: ['R1'], steps: [{ action: 'Submit supplied credentials', expected_result: 'Dashboard opens' }] }] }) } }] }), { headers: { 'content-type': 'application/json' } });
       } };
       return require(sourceFile(id, "services"));
     }

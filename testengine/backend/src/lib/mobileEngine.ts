@@ -43,6 +43,12 @@ export async function executeMobileSteps(
 
   const platform = steps[0]?.step_type;
   if (!steps.length || !["android", "ios"].includes(platform) || steps.some((step) => step.step_type !== platform)) throw new Error("A mobile execution block must contain one native platform.");
+  const mobileSnapshot: Partial<NonNullable<EngineRunEnvelope["mobile_engine"]>> = envelope.mobile_engine || {};
+  const {platforms,...common}=mobileSnapshot;
+  const target=platforms?.[platform as "android"|"ios"];
+  if(platforms&&!target)throw new Error(`The ${platform} execution block has no matching frozen mobile target.`);
+  if((target?.platform_name&&target.platform_name!==platform)||(!platforms&&common.platform_name&&common.platform_name!==platform))throw new Error(`The ${platform} execution block does not match its frozen mobile target.`);
+  const mobileOptions={...common,...target,platform_name:platform};
   const payload = await requestEngineService<MobileExecutionResult>({
     url: appendPath(configuration.baseUrl, "/api/v1/mobile/execute"),
     service: "Mobile Engine",
@@ -57,12 +63,12 @@ export async function executeMobileSteps(
         execution_session_key: executionSessionKey,
         platform_name: platform,
         artifact_policy: envelope.artifact_policy,
-        provider: envelope.mobile_engine?.active || "local-appium",
-        appium_server_url: envelope.mobile_engine?.appium_server_url || undefined,
-        device_name: envelope.mobile_engine?.device_name || undefined,
-        platform_version: envelope.mobile_engine?.platform_version || undefined,
-        app: envelope.mobile_engine?.app || undefined,
-        config: { ...envelope.mobile_engine, platform_name: platform },
+        provider: mobileOptions.active || "local-appium",
+        appium_server_url: mobileOptions.appium_server_url || undefined,
+        device_name: mobileOptions.device_name || undefined,
+        platform_version: mobileOptions.platform_version || undefined,
+        app: mobileOptions.app || undefined,
+        config: mobileOptions,
         object_repository: envelope.object_repository || [],
         parameter_values: toParameterValuesRecord(buildInitialContext(envelope, capturedValues)),
         steps: steps.map(step => ({ ...step, parameter_values: toParameterValuesRecord(buildInitialContext(envelope, capturedValues, step)) }))

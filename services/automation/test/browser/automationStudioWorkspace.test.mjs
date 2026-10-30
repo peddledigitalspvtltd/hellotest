@@ -175,6 +175,7 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     await page.getByRole('button',{name:'Create automation case',exact:true}).click();
     const create=page.getByRole('dialog',{name:'Create automation case',exact:true});
     await create.getByLabel('Automation case name',{exact:true}).fill('Checkout flow');
+    await create.getByLabel('Automation case type',{exact:true}).selectOption('web');
     await create.getByRole('button',{name:'Author steps',exact:true}).click();
     await create.getByRole('button',{name:'Add precondition',exact:true}).click();
     await create.getByLabel('Draft precondition 1 action',{exact:true}).fill('Prepare customer');

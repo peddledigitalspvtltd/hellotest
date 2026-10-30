@@ -577,6 +577,18 @@ export function StoryGroomingWorkspace({
                 </ul>
               </details>
             ) : <MissingState title="Readiness checks unavailable" detail="Refresh the brief, then review readiness with the team." />}
+            {readiness.measurement_adjustments?.length ? <details className="story-grooming-readiness-details">
+              <summary>{readiness.measurement_adjustments.length} source completeness adjustments <IconArrowRight /></summary>
+              <p className="story-grooming-readiness-helper">Source measurements limit planning readiness separately from the model review. A missing source signal does not establish that a topic is required; confirm its applicability with the team.</p>
+              <ul className="story-grooming-measurements" aria-label="Measured readiness adjustments">
+                {readiness.measurement_adjustments.map(adjustment => <li key={adjustment.check_id}>
+                  <b>{adjustment.label}</b>
+                  <small>Model: {adjustment.model_status} · Measured: {adjustment.measured_status} · Applied: {adjustment.applied_status}</small>
+                  <p>{adjustment.reason}</p>
+                  <p><strong>Model assessment:</strong> {readiness.model_checks?.find(check => check.id === adjustment.check_id)?.detail || "No explanation supplied."}</p>
+                </li>)}
+              </ul>
+            </details> : null}
           </article>
         </div>
 

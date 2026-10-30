@@ -1,5 +1,6 @@
 export type AutomationAgentContextOptions = { context_scopes?: string[]; inputs?: Record<string,string>; smart_context?: {query?:string;source_ids?:string[];source_kinds?:string[];reviewed_context?:string} };
-export type TestDataOptions = { parameter_overrides?: string[]; private_parameter_names?: string[]; override_shared_sections?: boolean; shared_data_kind?: "steps" | "sections"; override_lower_scopes?: boolean; override_test_case_data?: boolean; override_suite_data?: boolean; override_shared_steps?: boolean; runtime_policy?: { version: number; case?: TestDataOptions; suite?: TestDataOptions; run?: TestDataOptions } };
+export type AutomationCaseType = "web" | "api" | "android" | "ios" | "unified";
+export type TestDataOptions = { automation_case_type?: AutomationCaseType; parameter_overrides?: string[]; private_parameter_names?: string[]; override_shared_sections?: boolean; shared_data_kind?: "steps" | "sections"; override_lower_scopes?: boolean; override_test_case_data?: boolean; override_suite_data?: boolean; override_shared_steps?: boolean; runtime_policy?: { version: number; case?: TestDataOptions; suite?: TestDataOptions; run?: TestDataOptions } };
 export type DataSetValidation = { valid: boolean; missing_parameters: string[]; required_parameters: string[]; available_parameters: string[]; iteration_count?: number; reason?: string; test_data_set_id?: string; data_set_id?: string };
 export type User = {
   id: string;
@@ -1382,6 +1383,18 @@ export type StoryGroomingReadiness = {
   gaps: string[];
   next_actions: string[];
   evidence_refs?: string[];
+  model_checks?: StoryGroomingReadinessCheck[];
+  measured_checks?: StoryGroomingReadinessCheck[];
+  measurement_adjustments?: Array<{
+    check_id: string;
+    label: string;
+    model_status: StoryGroomingReadinessCheckStatus;
+    measured_status: StoryGroomingReadinessCheckStatus;
+    applied_status: StoryGroomingReadinessCheckStatus;
+    reason: string;
+    applicability?: "unconfirmed" | "documented";
+    evidence_refs?: string[];
+  }>;
 };
 
 export type StoryGroomingWalkthrough = {
@@ -1548,6 +1561,7 @@ export type AiArtifactAssuranceDimension = {
   status: AiAssuranceDimensionStatus;
   explanation: string;
   evidence: string[];
+  review_evidence?: string[];
   recommendation: string;
   frameworks?: string[];
 };
@@ -1559,6 +1573,9 @@ export type AiArtifactAssuranceInsight = {
   explanation: string;
   evidence: string[];
   recommendation: string;
+  kind?: "business_ambiguity" | "missing_context" | "artifact_quality" | "traceability" | "change_impact" | "automation_input";
+  affected_fields?: string[];
+  step_refs?: string[];
 };
 
 export type AiArtifactAssuranceAnalysis = {
@@ -1599,6 +1616,7 @@ export type AiArtifactAssuranceReview = {
 
 export type AiArtifactAssuranceInput = {
   project_id: string;
+  review_purpose?: "assurance" | "change-impact";
   proposed_change?: Record<string, unknown>;
   integration_id?: string;
   prompt_guidance?: string;
@@ -2108,6 +2126,7 @@ export type CaseExecutionHook = {
 };
 
 export type TestCase = {
+  automation_case_type?: AutomationCaseType;
   execution_hooks?: CaseExecutionHook[];
   test_data_options?: TestDataOptions;
   linked_requirements?: Array<{ id: string; display_id?: string | null; title: string }>;

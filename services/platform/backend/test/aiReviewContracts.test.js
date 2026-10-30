@@ -4,6 +4,7 @@ const test = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createRequire } = require('node:module');
+const { groomingCandidate } = require('./helpers/groomingCandidate');
 
 process.env.NODE_ENV = 'test';
 function load(name, overrides) {
@@ -157,14 +158,28 @@ test('assurance accepts common provider aliases for nested reviews and citations
   const provider = fixture(JSON.stringify({ review: {
     executive_summary: 'Review the approval evidence.',
     dimensions: { 'industry-standards': { finding: 'The draft records an approver.', citation_ids: [{ citation_id: 'DRAFT:STORY:STORY' }], action: 'Keep the approver criterion.' } },
-    findings: [{ label: 'Confirm rejection handling', detail: 'The draft does not describe rejection.', evidence_refs: ['draft:story:story'] }]
+    findings: [{ label: 'Confirm rejection handling', detail: 'The draft does not describe rejection.', evidence_refs: ['draft:story:story'], action: 'Confirm whether rejection is in scope and record its observable outcome.' }]
   } }));
   const service = load('artifactAssurance.service', provider.overrides);
   const result = await service.reviewArtifact({ artifactType: 'story', savedArtifact: story, projectId: 'project', user: { id: 'user' } });
   assert.equal(result.fallback_used, false);
   assert.equal(result.assurance_review.dimensions[0].evidence[0], 'draft:story:story');
   assert.equal(result.assurance_review.insights[0].title, 'Confirm rejection handling');
+  assert.equal(result.assurance_review.insights[0].priority, 'medium', 'Only an absent legacy priority receives the compatibility default');
   assert.equal(provider.calls.length, 1);
+});
+
+for (const [name, patch] of [
+  ['invalid supplied legacy priority', { priority: 'critical-approved' }],
+  ['missing legacy recommendation', { recommendation: undefined }],
+  ['missing legacy finding title', { title: undefined }],
+  ['missing legacy explanation', { explanation: undefined }],
+  ['missing legacy citation', { evidence: [] }]
+]) test(`meaningful assurance findings require repair for ${name}`, async () => {
+  const provider = fixture(JSON.stringify({ ...caseReview(), insights: [{ id: 'legacy-gap', title: 'Clarify the result', explanation: 'The approval result is ambiguous.', evidence: ['draft:test-case:case'], recommendation: 'State the observable stored approver value.', ...patch }] }));
+  await assert.rejects(load('artifactAssurance.service', provider.overrides).reviewArtifact({ artifactType: 'test-case', savedArtifact: caseDraft,
+    linkedEvidence: [{ ...story, kind: 'requirement' }], projectId: 'project' }), { code: 'AI_ASSURANCE_REVIEW_INVALID' });
+  assert.equal(provider.calls.length, 2, 'A meaningful finding cannot silently disappear or receive an invented severity');
 });
 
 test('assurance repairs a usable review whose first response omitted citation fields', async () => {
@@ -197,7 +212,7 @@ function groomingOverrides(provider) {
   };
 }
 test('Grooming accepts content blocks without losing grounded model output', async () => {
-  const provider = fixture([{ type: 'text', text: JSON.stringify({ layman: { explanation: 'An approver verifies the invoice before approval.', evidence_refs: ['requirement:story'] } }) }]);
+  const provider = fixture([{ type: 'text', text: JSON.stringify(groomingCandidate({ layman: { explanation: 'An approver verifies the invoice before approval.', analogy: '', evidence_refs: ['requirement:story'] } })) }]);
   const service = load('requirementWorkspace.service', groomingOverrides(provider));
   const result = await service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' } });
   assert.equal(result.grooming.layman.explanation, 'An approver verifies the invoice before approval.');
@@ -240,7 +255,7 @@ test('Smart Run reserves sufficient response space and reads structured content 
 });
 
 test('Grooming reviews unsaved draft content while preserving persisted scope and identity', async () => {
-  const provider = fixture(JSON.stringify({ layman: { explanation: 'Review the current draft.', evidence_refs: ['requirement:story'] } }));
+  const provider = fixture(JSON.stringify(groomingCandidate({ layman: { explanation: 'Review the current draft.', analogy: '', evidence_refs: ['requirement:story'] } })));
   const service = load('requirementWorkspace.service', groomingOverrides(provider));
   const result = await service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' }, proposedChange: {
     id: 'other-story', project_id: 'other-project', title: 'Current draft', description: 'UNSAVED_DRAFT_SENTINEL', acceptance_criteria: ['UNSAVED_ACCEPTANCE_SENTINEL'], specification_content: 'UNSAVED_SPEC_SENTINEL'
@@ -258,7 +273,8 @@ test('Grooming reviews unsaved draft content while preserving persisted scope an
 test('An empty Grooming object fails instead of claiming model refinement', async () => {
   const provider = fixture('{}');
   const service = load('requirementWorkspace.service', groomingOverrides(provider));
-  await assert.rejects(service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' } }), { code: 'AI_ASSESSMENT_FAILED' });
+  await assert.rejects(service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' } }), { code: 'AI_GROOMING_OUTPUT_INVALID' });
+  assert.equal(provider.calls.length, 2);
 });
 
 test('assurance rejects forged references after exactly one repair', async () => {
@@ -275,4 +291,185 @@ test('assurance requires a configured model before making a request', async () =
   const service = load('artifactAssurance.service', provider.overrides);
   await assert.rejects(service.reviewArtifact({ artifactType: 'story', savedArtifact: story, projectId: 'project' }), { code: 'AI_MODEL_REQUIRED' });
   assert.equal(provider.calls.length, 0);
+});
+
+test('Test Case assurance retains the linked Story title, long description, acceptance and specification together', async () => {
+  const linkedStory = { ...story, title: 'FULL_STORY_TITLE', description: `${'Product detail. '.repeat(110)}LATE_PRODUCT_RULE`,
+    acceptance_criteria: ['A1', 'A2', 'A3', 'A4', 'FIFTH_ACCEPTANCE_RULE'], specification_content: 'EXECUTABLE_SPEC_CONTEXT' };
+  const provider = fixture(JSON.stringify(caseReview()));
+  await load('artifactAssurance.service', provider.overrides).reviewArtifact({ artifactType: 'test-case', savedArtifact: { ...caseDraft, parameter_values: { invoice_number: 'SYNTHETIC-INV-001' } },
+    linkedEvidence: [{ ...linkedStory, kind: 'requirement' }], projectId: 'project' });
+  const prompt = provider.calls[0].body.messages[1].content;
+  for (const value of ['FULL_STORY_TITLE', 'LATE_PRODUCT_RULE', 'FIFTH_ACCEPTANCE_RULE', 'EXECUTABLE_SPEC_CONTEXT', 'SYNTHETIC-INV-001']) assert.ok(prompt.includes(value), value);
+  const expanded = require('./helpers/managedInstructions').expandManagedInstructions(prompt);
+  assert.match(expanded, /corresponding observable expected result|corresponding observable expected|observable per-step outcomes/);
+  assert.match(expanded, /synthetic/);
+  assert.match(expanded, /focused positive case/);
+});
+
+test('typed assurance findings retain exact field and step locations and actionable recommendations', async () => {
+  const finding = { id: 'assertion-gap', priority: 'high', kind: 'artifact_quality', title: 'Make the approval result observable',
+    explanation: 'The expected result does not state which recorded field proves approval.', evidence: ['draft:test-case:case', 'requirement:story'],
+    affected_fields: ['steps'], step_refs: ['step:1'], recommendation: 'Assert the recorded approver equals the submitted approver; completion is an explicit action/result pair.' };
+  const provider = fixture(JSON.stringify({ ...caseReview(), insights: [finding] }));
+  const result = await load('artifactAssurance.service', provider.overrides).reviewArtifact({ artifactType: 'test-case', savedArtifact: caseDraft,
+    linkedEvidence: [{ ...story, kind: 'requirement' }], projectId: 'project' });
+  assert.deepEqual(result.assurance_review.insights, [finding]);
+  const contract = JSON.parse(provider.calls[0].body.messages[1].content.split('\n').at(-1));
+  assert.deepEqual(contract.step_references, [{ ref: 'step:1', step_order: 1, step_id: 'authored-step' }]);
+  assert.ok(contract.review_contract.insights[0].affected_fields.includes('parameter_values'));
+  assert.deepEqual(contract.evidence_boundary, { linked_records_available: 1, linked_records_included: 1, omitted_linked_records: 0, content_scope: 'bounded_supplied_only' });
+});
+
+for (const [name, patch] of [
+  ['a nonexistent step', { step_refs: ['step:99'] }],
+  ['a fabricated field', { affected_fields: ['imaginary_approval'] }],
+  ['an unsupported priority', { priority: 'blocker-approved' }],
+  ['no concrete recommendation', { recommendation: '' }],
+  ['an unsupported category', { kind: 'passed' }]
+]) test(`assurance rejects ${name} after one bounded repair`, async () => {
+  const provider = fixture(JSON.stringify({ ...caseReview(), insights: [{ id: 'finding', priority: 'medium', kind: 'artifact_quality', title: 'Review expected result',
+    explanation: 'The result is ambiguous.', evidence: ['draft:test-case:case'], affected_fields: ['steps'], step_refs: ['step:1'], recommendation: 'State the observable approval outcome.', ...patch }] }));
+  await assert.rejects(load('artifactAssurance.service', provider.overrides).reviewArtifact({ artifactType: 'test-case', savedArtifact: caseDraft,
+    linkedEvidence: [{ ...story, kind: 'requirement' }], projectId: 'project' }), { code: 'AI_ASSURANCE_REVIEW_INVALID' });
+  assert.equal(provider.calls.length, 2);
+});
+
+test('Story impact sends bounded authorized Test Case bodies and downstream relationship metadata to the reviewer', async () => {
+  const queries = [], reviews = [];
+  const linkedCases = Array.from({ length: 10 }, (_, i) => ({ id: `case-${i}`, title: `Scenario ${i}`, description: `CASE_DESCRIPTION_${i}` }));
+  const service = load('qualityAssistance.service', {
+    '../db': { prepare(sql) { return {
+      get: async () => story,
+      all: async (...args) => {
+        queries.push({ sql, args });
+        if (/SELECT test_cases\.\*/.test(sql)) return linkedCases;
+        if (/SELECT test_steps\.\*/.test(sql)) return linkedCases.slice(0, 6).map(item => ({ test_case_id: item.id, step_order: 1, action: `SUBMIT_${item.id}`, expected_result: 'Approval is recorded.' }));
+        if (/SELECT DISTINCT test_suites/.test(sql)) return [{ id: 'suite', name: 'Invoice suite' }];
+        if (/SELECT DISTINCT executions/.test(sql)) return [{ id: 'run', status: 'running' }];
+        if (/SELECT DISTINCT automation_learning_cache/.test(sql)) return [{ id: 'locator', test_case_id: 'case-0', locator_intent: 'Approve button', confidence: 0.8 }];
+        assert.fail(sql);
+      }
+    }; } },
+    './entityScope.service': { requireEntityPermission: async () => ({ projectId: 'project' }) },
+    './optionalEvidenceAccess.service': { getOptionalEvidenceAccess: async (_user, _project, codes) => Object.fromEntries(codes.map(code => [code, true])) },
+    './artifactAssurance.service': { reviewArtifact: async args => { reviews.push(args); return {}; } }
+  });
+  const result = await service.previewRequirementImpact({ requirementId: 'story', user: { id: 'reviewer' }, proposedChange: { acceptance_criteria: ['Changed approval condition'] } });
+  const review = reviews[0];
+  assert.equal(result.impact.totals.test_cases, 10, 'The UI retains all linked records');
+  assert.equal(review.linkedEvidence.filter(item => item.kind === 'test-case').length, 8);
+  assert.deepEqual(review.linkedEvidence[0].steps[0], { test_case_id: 'case-0', step_order: 1, action: 'SUBMIT_case-0', expected_result: 'Approval is recorded.' });
+  assert.equal(review.linkedEvidence[0].description, 'CASE_DESCRIPTION_0');
+  assert.ok(review.linkedEvidence.some(item => item.kind === 'test-suite' && item.id === 'suite'));
+  assert.deepEqual(review.linkedEvidence.find(item => item.kind === 'execution').context, { status: 'running', relationship: 'contains_linked_test_case', results_included: false });
+  assert.equal(review.linkedEvidence.find(item => item.kind === 'automation-asset').context.execution_verified, false);
+  assert.equal(review.evidenceBoundary.totals.test_cases, 10);
+  assert.equal(review.evidenceBoundary.included.test_case_step_sets, 6);
+  const stepQuery = queries.find(item => /SELECT test_steps\.\*/.test(item.sql));
+  assert.match(stepQuery.sql, /app_types\.project_id = \?/);
+  assert.deepEqual(stepQuery.args, [...linkedCases.slice(0, 6).map(item => item.id), 'project']);
+});
+
+test('Story and Test Case review controls migrate stock guidance and preserve reviewed custom prompts', async () => {
+  const catalog = require('../../shared/aiFeatureCatalog.json');
+  for (const id of ['ai.requirement.grooming', 'ai.requirement.change_impact', 'ai.test_case.change_impact', 'ai.quality.story_assurance', 'ai.quality.test_case_assurance']) {
+    const profile = catalog.find(item => item.id === id);
+    const key = id === 'ai.requirement.grooming' ? 'requirementWorkspace.buildGroomingPrompt.26' : 'artifactAssurance.prompt.8';
+    const legacy = { ...structuredClone(profile.defaults), prompt: profile.prompt_default_migrations.at(-1),
+      instruction_blocks: { ...profile.defaults.instruction_blocks, [key]: profile.instruction_default_migrations[key].at(-1) } };
+    for (const [config, expectedPrompt, expectedBlock] of [
+      [legacy, profile.defaults.prompt, profile.defaults.instruction_blocks[key]],
+      [{ ...legacy, prompt: 'Our reviewed product criteria.', instruction_blocks: { ...legacy.instruction_blocks, [key]: 'Our reviewed output guidance.' } }, 'Our reviewed product criteria.', 'Our reviewed output guidance.']
+    ]) {
+      const service = load('aiConfiguration.service', { '../src/db': { prepare: () => ({ get: async () => ({ value: { published: { version: 1, config } } }) }) } });
+      const resolved = await service.resolve(id);
+      assert.equal(resolved.config.prompt, expectedPrompt, id);
+      assert.equal(resolved.config.instruction_blocks[key], expectedBlock, id);
+      if (id !== 'ai.requirement.grooming') assert.equal(resolved.config.instruction_blocks['artifactAssurance.reviewFocus'], profile.defaults.instruction_blocks['artifactAssurance.reviewFocus']);
+    }
+  }
+});
+
+for (const artifactType of ['story', 'test-case']) for (const purpose of [undefined, 'assurance', 'change-impact']) {
+  const expected = purpose === 'assurance' ? `ai.quality.${artifactType === 'story' ? 'story' : 'test_case'}_assurance` : `ai.${artifactType === 'story' ? 'requirement' : 'test_case'}.change_impact`;
+  test(`${artifactType} review endpoint service selects ${expected} for ${purpose || 'legacy omitted purpose'}`, async () => {
+    const id = artifactType === 'story' ? story.id : caseDraft.id;
+    const provider = fixture(JSON.stringify({ summary: 'Review the exact current draft.', dimensions: [{ id: artifactType === 'story' ? 'design-maturity' : 'scenario-coverage', explanation: 'The supplied behavior remains the review boundary.', evidence: [`draft:${artifactType}:${id}`] }], insights: [] }));
+    const reviewer = load('artifactAssurance.service', provider.overrides);
+    const service = load('qualityAssistance.service', {
+      '../db': { prepare: () => ({ get: async () => artifactType === 'story' ? story : caseDraft, all: async () => [] }) },
+      './entityScope.service': { requireEntityPermission: async () => ({ projectId: 'project' }) },
+      './optionalEvidenceAccess.service': { getOptionalEvidenceAccess: async (_user, _project, codes) => Object.fromEntries(codes.map(code => [code, false])) },
+      './artifactAssurance.service': reviewer
+    });
+    const input = { user: { id: 'reviewer' }, reviewPurpose: purpose, proposedChange: { description: 'CURRENT_DRAFT_CONTEXT' } };
+    if (artifactType === 'story') await service.previewRequirementImpact({ ...input, requirementId: id });
+    else await service.previewTestCaseImpact({ ...input, testCaseId: id });
+    assert.equal(provider.calls.length, 1);
+    assert.equal(provider.calls[0].policy.featureKey, expected);
+    assert.ok(provider.calls[0].body.messages.every(message => !message.content.includes('HELLOTEST_AI:') || ![...message.content.matchAll(/HELLOTEST_AI:([^:]+):/g)].some(match => match[1] !== expected)));
+    assert.match(provider.calls[0].body.messages[1].content, /CURRENT_DRAFT_CONTEXT/);
+    assert.equal(provider.calls[0].body.messages[1].content.includes('"ref":"saved:'), purpose !== 'assurance', 'Only impact requires a saved-versus-draft snapshot');
+  });
+}
+
+test('assurance repair receives the actual validation failure and unambiguous source/category JSON schema', async () => {
+  const provider = fixture('unused');
+  provider.overrides['../utils/llmHttpClient'].fetchLlmWithRetry = async (url, init, policy) => {
+    const body = JSON.parse(init.body); provider.calls.push({ body, policy });
+    const finding = { id: 'data-gap', priority: 'medium', kind: provider.calls.length === 1 ? 'data-reliability' : 'artifact_quality',
+      title: 'Clarify repeatable setup', explanation: 'The case does not state its initial approval state.', evidence: ['draft:test-case:case'],
+      affected_fields: ['steps'], step_refs: ['step:1'], recommendation: 'State the initial invoice approval state before submission.' };
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ ...caseReview(), insights: [finding] }) } }] }));
+  };
+  const result = await load('artifactAssurance.service', provider.overrides).reviewArtifact({ artifactType: 'test-case', savedArtifact: caseDraft,
+    linkedEvidence: [{ ...story, kind: 'requirement' }], projectId: 'project' });
+  assert.equal(provider.calls.length, 2);
+  assert.equal(result.response_repaired, true);
+  assert.equal(result.assurance_review.insights[0].kind, 'artifact_quality');
+  const prompt = require('./helpers/managedInstructions').expandManagedInstructions(provider.calls[1].body.messages[1].content);
+  const data = prompt.split('\n').flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } }).find(value => value.review_validation_error);
+  assert.equal(data.review_validation_error.code, 'AI_ASSURANCE_REVIEW_INVALID');
+  assert.match(data.review_validation_error.message, /unsupported finding category/);
+  const properties = data.review_output_schema.properties.insights.items.properties;
+  assert.ok(properties.kind.enum.includes('artifact_quality'));
+  assert.ok(!properties.kind.enum.includes('data-reliability'));
+  assert.deepEqual(properties.step_refs.items.enum, ['step:1']);
+  assert.ok(!properties.evidence.items.enum.includes('step:1'));
+  assert.ok(prompt.includes('data-reliability'), 'The prior meaningful finding remains available for a precise repair');
+  assert.match(prompt, /Correct that specific validation problem/);
+});
+
+test('linked Test Case wrapper and body share private-data projection and disclose unloaded steps', async () => {
+  const provider = fixture(JSON.stringify({ summary: 'Review the supplied Story.', dimensions: [{ id: 'design-maturity', explanation: 'Only loaded case content supports comparison.', evidence: ['draft:story:story'] }], insights: [] }));
+  await load('artifactAssurance.service', provider.overrides).reviewArtifact({ artifactType: 'story', savedArtifact: story, projectId: 'project', linkedEvidence: [
+    { id: 'case-full', kind: 'test-case', title: 'Submit PRIVATE_LINKED_LITERAL', description: 'Reuse @t.account_hint.', steps: [{ action: 'Enter PRIVATE_LINKED_LITERAL', expected_result: 'The request is accepted.' }],
+      parameter_values: { account_hint: 'PRIVATE_LINKED_LITERAL' }, test_data_options: { private_parameter_names: ['account_hint'] } },
+    { id: 'case-unloaded', kind: 'test-case', title: 'Unloaded steps case', description: 'Its steps were not retrieved.' }
+  ] });
+  const prompt = provider.calls[0].body.messages[1].content;
+  assert.doesNotMatch(prompt, /PRIVATE_LINKED_LITERAL/);
+  assert.match(prompt, /private_parameter_values_omitted/);
+  assert.match(prompt, /"unavailable_fields":\["steps"\]/);
+  assert.doesNotMatch(prompt, /"id":"case-unloaded"[^\n]*?"steps":\[\]/, 'Unretrieved steps cannot imply an authored empty body');
+  const data = JSON.parse(prompt.split('\n').at(-1));
+  const Ajv = require('ajv'); const validate = new Ajv({ strict: false }).compile(data.review_output_schema);
+  assert.equal(validate({ summary: 'An empty narrative is not a supported review.', dimensions: [], insights: [], limitations: [] }), false);
+  assert.equal(validate({ summary: 'A cited dimension supports the review.', dimensions: [{ id: 'design-maturity', explanation: 'The specified behavior is observable.', evidence: ['draft:story:story'], recommendation: 'Preserve the observable behavior.' }], insights: [], limitations: [] }), true);
+});
+
+for (const findings of [['The intended rejection behavior is missing.'], 'The expected result is ambiguous.']) test('meaningful unstructured assurance findings require bounded repair', async () => {
+  const provider = fixture(JSON.stringify({ ...caseReview(), insights: findings }));
+  await assert.rejects(load('artifactAssurance.service', provider.overrides).reviewArtifact({ artifactType: 'test-case', savedArtifact: caseDraft,
+    linkedEvidence: [{ ...story, kind: 'requirement' }], projectId: 'project' }), { code: 'AI_ASSURANCE_REVIEW_INVALID' });
+  assert.equal(provider.calls.length, 2);
+});
+
+test('linked legacy Gherkin remains canonical context when description and cached structured steps are unavailable', async () => {
+  const provider = fixture(JSON.stringify({ summary: 'Compare canonical linked coverage.', dimensions: [{ id: 'design-maturity', explanation: 'The linked specification supplies reviewable behavior.', evidence: ['test-case:legacy-gherkin'] }], insights: [] }));
+  await load('artifactAssurance.service', provider.overrides).reviewArtifact({ artifactType: 'story', savedArtifact: story, projectId: 'project', linkedEvidence: [{ id: 'legacy-gherkin', kind: 'test-case', title: 'Canonical approval', description: null, authoring_mode: 'gherkin', gherkin_document: 'Feature: LINKED_CANONICAL_SPEC\nScenario: Approve\n Given a pending invoice\n When approved\n Then its approver is recorded' }] });
+  const prompt = provider.calls[0].body.messages[1].content;
+  assert.match(prompt, /LINKED_CANONICAL_SPEC/);
+  assert.doesNotMatch(prompt, /metadata_only/);
 });

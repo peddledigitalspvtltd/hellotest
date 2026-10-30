@@ -3,6 +3,7 @@ const {createBatchJobLease}=require('@hellotest/testing/backend/services/batchJo
 const db = require("@hellotest/platform/backend/src/db");
 const { normalizeScheduledAt } = require("@hellotest/platform/backend/src/utils/automationSchedule");
 const { normalizeAutomationStartUrl, requiresAutomationStartUrl } = require("@hellotest/platform/backend/src/utils/automationStartUrl");
+const { resolveAutomationCaseSteps } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 const { captureStartUrlReview, assertQueuedStartUrlReview } = require('./automationQueuedStartUrl.service');
 const obsDb = require("@hellotest/platform/backend/src/obsDb");
 const { randomUUID: uuid } = require("crypto");
@@ -188,9 +189,10 @@ exports.queueGeneratorJob = db.transaction(async ({
     currentTarget=await db.prepare(`SELECT id,automation_start_url FROM test_cases WHERE app_type_id=? AND source_idempotency_key=? AND automated='yes' FOR SHARE`).get(testCase.app_type_id,`automation-builder:${testCaseId}`);
     if(observed.target_id&&observed.target_id!==currentTarget?.id)throw Object.assign(new Error('The linked automation case changed while this build was being queued. Refresh the case before starting a new build.'),{statusCode:409,code:'AUTOMATION_TARGET_CHANGED'});
   }
-  const steps = await db.prepare('SELECT step_type FROM test_steps WHERE test_case_id=? ORDER BY step_order,id FOR SHARE').all(testCaseId);
+  const steps = await db.prepare('SELECT step_type,step_order,action,automation_code,api_request FROM test_steps WHERE test_case_id=? ORDER BY step_order,id FOR SHARE').all(testCaseId);
+  const platform = resolveAutomationCaseSteps(testCase, steps, { appTypeKind: testCase.app_type_kind });
   const resolvedStartUrl = normalizeAutomationStartUrl(start_url !== undefined ? start_url : testCase.automation_start_url || currentTarget?.automation_start_url, {
-    required: requiresAutomationStartUrl({ appTypeKind: testCase.app_type_kind, steps })
+    required: requiresAutomationStartUrl({ appTypeKind: platform.automation_case_type, steps: platform.steps })
   });
 
   const transaction = await workspaceTransactionService.createTransaction({
@@ -231,6 +233,7 @@ exports.queueGeneratorJob = db.transaction(async ({
     title: testCase.title,
     app_type_id: testCase.app_type_id,
     app_type_kind: testCase.app_type_kind,
+    automation_case_type: platform.automation_case_type,
     integration_id: normalizeText(integration_id),
     start_url: resolvedStartUrl,
     start_url_review: captureStartUrlReview(testCase, currentTarget),
@@ -364,14 +367,16 @@ exports.runLeasedJob = async ({ job_id, worker_id, agent_plan, llm_model } = {})
   try {
     const currentCase = await selectCaseWithScope.get(payload.test_case_id || job.test_case_id);
     if (!currentCase) throw new Error('Test case not found');
-    const currentSteps = await db.prepare('SELECT step_type FROM test_steps WHERE test_case_id=? ORDER BY step_order,id').all(currentCase.id);
+    const currentSteps = await db.prepare('SELECT step_type,step_order,action,automation_code,api_request FROM test_steps WHERE test_case_id=? ORDER BY step_order,id').all(currentCase.id);
+    const platform = resolveAutomationCaseSteps(currentCase, currentSteps, { appTypeKind: currentCase.app_type_kind });
+    if (payload.automation_case_type && payload.automation_case_type !== platform.automation_case_type) throw Object.assign(new Error('The automation case type changed after this build was queued. Review the current platform and start a new build.'), { code: 'AUTOMATION_CASE_TYPE_CHANGED', statusCode: 409, nonRetryable: true });
     // Historical queued jobs must not adopt a later live target. The URL
     // reviewed at queue time is the only permitted generation entry point.
     const jobStartUrl = normalizeAutomationStartUrl(payload.start_url, {
-      required: requiresAutomationStartUrl({ appTypeKind: currentCase.app_type_kind, steps: currentSteps })
+      required: requiresAutomationStartUrl({ appTypeKind: platform.automation_case_type, steps: platform.steps })
     });
     await assertQueuedStartUrlReview({ sourceCaseId: currentCase.id, appTypeId: currentCase.app_type_id, review: payload.start_url_review, desiredStartUrl: jobStartUrl,
-      required: requiresAutomationStartUrl({ appTypeKind: currentCase.app_type_kind, steps: currentSteps }) });
+      required: requiresAutomationStartUrl({ appTypeKind: platform.automation_case_type, steps: platform.steps }) });
     const result = await aiAutomationBuilderService.buildAutomationForCase({
       test_case_id: payload.test_case_id || job.test_case_id,
       integration_id: payload.integration_id,

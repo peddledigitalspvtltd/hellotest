@@ -264,7 +264,15 @@ function validate(node) {
       errors.push("Describe the AI task for each item.");
   }
   if (kind === "artifactTask" && !require("./artifactTasks").TASKS.has(data.artifactTask)) errors.push("Choose a native artifact task.");
+  if (kind === 'artifactTask' && data.artifactTask === 'test-case-generation') {
+    try { require('./generationNodeOptions').generationOptions(data); }
+    catch (error) { errors.push(error.publicMessage || 'Check the Test Case Generator settings.'); }
+  }
   if (kind === "artifactTask" && data.artifactTask === "automation-engineer" && data.readinessPolicy != null && !["verify-inputs", "require-ready"].includes(data.readinessPolicy)) errors.push("Choose whether Automation Engineer verifies inputs or requires a ready assurance assessment.");
+  if (kind === 'artifactTask' && data.artifactTask === 'automation-engineer') {
+    try { require('./automationNodeInputs').validateNodeOptions(data); }
+    catch (error) { errors.push(error.publicMessage || 'Check the Automation input settings.'); }
+  }
   if (data.apiPagination && !["none", "cursor"].includes(data.apiPagination)) errors.push("Choose supported cursor pagination.");
   if (data.apiResource === "sprintStories" && !data.connectionId) errors.push("Select a managed HelloTest HTTP API connection with an API key.");
   if (

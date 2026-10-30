@@ -4,6 +4,7 @@ import test from "node:test";
 import ts from "typescript";
 import { mapCaseHooksToExecutionHooks, mapExecutionHooksToRunHooks } from "../../../testing/frontend/lib/runHooks.ts";
 import { caseParameterSaveOptions } from "../../../platform/frontend/src/shared/lib/parameterPrivacy.ts";
+import { resolveAutomationCaseType } from "../../frontend/lib/automationRuntime.ts";
 import { applyAutomationStepOptions, parseAutomationStepOptions } from "../../frontend/lib/automationStepOptions.ts";
 
 const transpile = (source) => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
@@ -19,7 +20,7 @@ function metadataFixture() {
   const lastAutomationCaseDraftSeedRef = { current: null };
   const setters = Object.fromEntries(["CaseDraft", "TestCaseParameterValues", "SuiteLinkDraftIds", "CaseRequirementIds", "CaseModuleIds", "CaseDataSetId", "AutomationManualLinkDraftIds", "SelectedExecutionDataSetId", "OverrideSharedSteps", "ExecutionHookDraft"].map((key) => [`set${key}`, (value) => { state[key] = typeof value === "function" ? value(state[key]) : value; }]));
   const refresh = (activeCase) => {
-    const context = { mapExecutionHooksToRunHooks, activeCase, selectedCaseId: activeCase?.id || "", projectId: "project", lastAutomationCaseDraftSeedRef, ...setters, ...helpers, normalizeAutomationParameterValues: (value) => value || {}, formatParameterText: (value) => JSON.stringify(value || {}) };
+    const context = { resolveAutomationCaseType, automatedSteps: [], selectedRuntimeType: "web", mapExecutionHooksToRunHooks, activeCase, selectedCaseId: activeCase?.id || "", projectId: "project", lastAutomationCaseDraftSeedRef, ...setters, ...helpers, normalizeAutomationParameterValues: (value) => value || {}, formatParameterText: (value) => JSON.stringify(value || {}) };
     new Function(...Object.keys(context), `${effectScript}\neffect();`)(...Object.values(context));
   };
   return { state, refresh };
@@ -73,7 +74,7 @@ test("module or suite failure after metadata save returns success and refreshes 
     canViewTestData: true, overrideSharedSteps: true, session: {user:{id:"author"}}, hasPermission:()=>true,
     canUseAutomationBuilder: true, canUpdateAutomationCase: true, isAutomationCaseDetailReady: true,
     activeCase: { id: "case", revision: 4, module_ids: [] },
-    caseDraft: { title: "Saved title", description: "", status: "active", priority: "3", parameterText: "" },
+    detailIncompatibleRuntimes: [], caseDraft: { automationCaseType: "web", title: "Saved title", description: "", status: "active", priority: "3", parameterText: "" },
     testCaseParameterValues: {}, suiteLinkDraftIds: ["suite"], caseRequirementIds: [], caseModuleIds: ["module"], caseDataSetId: "", automationManualLinkDraftIds: [],
     selectedParameterSuite: { id: "suite" }, suiteParameterValues: { "s.tenant": "unsaved" }, automationModules: [],
     normalizeAutomationParameterValues: (values) => values, parseParameterText: () => ({}),
@@ -113,4 +114,61 @@ test('shared section options replace only metadata while preserving full program
  const updated=applyAutomationStepOptions(`// @hellotest-options optional\n${program}`,{skip:true,optional:false,screenshotOnFailure:true});
  assert.equal(updated,`// @hellotest-options screenshotOnFailure skip\n${program}`);
  assert.equal(applyAutomationStepOptions(updated,{skip:false,optional:false,screenshotOnFailure:false}),program);
+});
+
+test("metadata-only save without Test Data access preserves every saved parameter value and option", async () => {
+  const start = page.indexOf("  const updateAutomationCase = useMutation({");
+  const fnStart = page.indexOf("mutationFn:", start) + "mutationFn:".length;
+  const fnEnd = page.indexOf("\n    onSuccess:", fnStart);
+  const script = transpile(`const mutation = ${page.slice(fnStart, fnEnd).trim().replace(/,$/, "")};`);
+  let saved;
+  const context = {
+    canUpdateAutomationCase:true, isAutomationCaseDetailReady:true, canViewTestData:false,
+    activeCase:{id:"case",revision:1,module_ids:[],parameter_values:{password:"protected",user:"saved"}},
+    caseDraft:{automationCaseType:"web",title:"Changed metadata",description:"",status:"active",priority:"3"},
+    detailIncompatibleRuntimes:[], selectedParameterSuite:null,
+    suiteLinkDraftIds:[], caseRequirementIds:[], caseModuleIds:[], automationManualLinkDraftIds:[], executionHookDraft:[],
+    mapCaseHooksToExecutionHooks,
+    api:{testCases:{update:async (id,input)=>{saved=input;return {revision:2};}}}
+  };
+  await new Function(...Object.keys(context), `${script}\nreturn mutation;`)(...Object.values(context))();
+  assert.equal(saved.title,"Changed metadata");
+  assert.equal(saved.automation_case_type,"web");
+  for (const key of ["parameter_values","test_data_options","test_data_set_ids"]) assert.equal(Object.hasOwn(saved,key),false,key+" must be omitted without access");
+});
+
+function recorderFixture(flush) {
+  const start = page.indexOf("const startRecorder = useMutation({");
+  const fnStart = page.indexOf("mutationFn:", start) + "mutationFn:".length;
+  const fnEnd = page.indexOf("\n    onSuccess:", fnStart);
+  const script = transpile(`const mutation = ${page.slice(fnStart, fnEnd).trim().replace(/,$/, "")};`);
+  const calls = [];
+  const context = {
+    canUseRecorder:true, activeCase:{id:"case"}, recorderSession:null, canRecordCurrentPlan:true,
+    startUrl:"https://fixture.example.test", automationStartUrlRequired:true,
+    reviewedAutomationStartUrl: value=>value,
+    flushAutomationBuildParameters: async ids=>{calls.push(["flush",ids]);await flush();},
+    rememberAutomationBuildDrafts:()=>calls.push(["remember"]),
+    recorderOriginRef:{current:null}, projectId:"project", appTypeId:"app", recordingTargetStepId:"step",
+    selectedParameterSuiteId:"selected-suite", selectedExecutionEnvironmentId:"env", selectedExecutionConfigurationId:"config", selectedExecutionDataSetId:"data",
+    api:{testCases:{startRecorderSession: async (id,input)=>{calls.push(["start",id,input]);return {id:"recorder"};}}}
+  };
+  return {calls,mutation:new Function(...Object.keys(context), `${script}\nreturn mutation;`)(...Object.values(context))};
+}
+
+test("recorder waits for edited case and suite parameters before snapshotting its selected data context", async () => {
+  let resolveFlush;
+  const fixture=recorderFixture(()=>new Promise(resolve=>{resolveFlush=resolve;}));
+  const pending=fixture.mutation({recorder_mode:"local",recorder_target:"web"});
+  assert.deepEqual(fixture.calls,[["flush",["case"]]],"recording cannot start with old parameter defaults");
+  resolveFlush();await pending;
+  assert.deepEqual(fixture.calls.map(call=>call[0]),["flush","remember","start"]);
+  const input=fixture.calls.at(-1)[2];
+  assert.equal(input.test_suite_id,"selected-suite");assert.equal(input.test_environment_id,"env");assert.equal(input.test_data_set_id,"data");
+});
+
+test("recorder never launches or replaces its origin if saving edited parameters fails", async () => {
+  const fixture=recorderFixture(async()=>{throw new Error("Parameter revision conflict");});
+  await assert.rejects(fixture.mutation({recorder_mode:"local",recorder_target:"web"}),/Parameter revision conflict/);
+  assert.deepEqual(fixture.calls,[["flush",["case"]]]);
 });

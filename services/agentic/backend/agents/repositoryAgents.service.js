@@ -65,7 +65,7 @@ async function listRuns({ project_id, app_type_id, agent_type, status, page = 1 
   ]);
   return { items, total: count.total, has_more: currentPage * 20 < count.total };
 }
-async function createRun(input, user, { file, requestKey } = {}) {
+async function createRun(input, user, { file, requestKey, workflowTrace } = {}) {
   const projectId = cleanText(input.project_id), appTypeId = cleanText(input.app_type_id) || null;
   const agentType = input.agent_type;
   if (!AGENTS.some(agent => agent.id === agentType)) throw error('Choose a supported repository agent.');
@@ -107,6 +107,11 @@ async function createRun(input, user, { file, requestKey } = {}) {
       const busy = await db.prepare("SELECT count(*)::integer AS total FROM repository_agent_runs WHERE project_id = ? AND created_by = ? AND status IN ('queued','running')").get(projectId, user.id);
       if (busy.total >= 3) throw error('Three of your repository analyses are already queued or running. Wait for one to finish or cancel it.', 429);
       const payload = { ...selection, goal: reviewFocus, request_hash: requestHash, source, llm_integration_id: model?.id || null };
+      // Only the host workflow runtime supplies these options. Request-body
+      // fields cannot attribute an unrelated repository job to a workflow node.
+      if (workflowTrace && [workflowTrace.run_id, workflowTrace.node_id].every(value => typeof value === 'string' && value.length > 0 && value.length <= 255)) {
+        payload.workflow_trace = { run_id: workflowTrace.run_id, node_id: workflowTrace.node_id };
+      }
       if (file) {
         const objectName = `repository-agents/${projectId}/${id}/source.zip`;
         const stored = await objectStorage.putObject({ objectName, stream: file.archivePath ? require('node:fs').createReadStream(file.archivePath) : file.buffer, mimeType: 'application/zip' });
@@ -253,11 +258,13 @@ async function performRun(run, controller) {
     for (const [batchIndex,sample] of batches.entries()) {
     if (batchIndex >= maxReviewBatches) break;
     if (signal.aborted) throw error('Analysis was cancelled.',409);
-    const review = await assistant.respond({ user, project_id: run.project_id, app_type_id: run.app_type_id,
+    const review = await require('@hellotest/platform/backend/src/utils/llmTraceContext').run({
+      run_id: run.input.workflow_trace?.run_id || null, node_id: run.input.workflow_trace?.node_id || null, session_id: null
+    }, () => assistant.respond({ user, project_id: run.project_id, app_type_id: run.app_type_id,
       agent_id: 'quality-evaluator', mode: 'agent', integration_id: run.input.llm_integration_id,
       prompt: run.input.goal || aiInstructionBlock(`ai.agentic.repository.${run.agent_type}`, "repository.reviewRequest"),
       smart_context: run.input.smart_context, inputs: run.input.evidence_scope, context_scopes: run.input.context_scopes || [], workflow_policy: { configuration_key: `ai.agentic.repository.${run.agent_type}`, agent_name: AGENTS.find(item=>item.id===run.agent_type).name, custom_task: true, skills: [], allowed_tools: run.input.context_scopes?.length ? ['project_evidence','knowledge_search'] : [], context_scopes: run.input.context_scopes || [], guardrails: '',
-        connected_input: { source, findings: sample, total_findings: findings.length, included_findings: sample.length, coverage_complete: batches.length === 1, batch: batchIndex + 1, batch_count: batches.length, prior_batch_summaries: reviews.slice(-3).map(item => ({ batch: item.batch, summary: cleanText(item.executive_summary,600) })) } }, signal });
+        connected_input: { source, findings: sample, total_findings: findings.length, included_findings: sample.length, coverage_complete: batches.length === 1, batch: batchIndex + 1, batch_count: batches.length, prior_batch_summaries: reviews.slice(-3).map(item => ({ batch: item.batch, summary: cleanText(item.executive_summary,600) })) } }, signal }));
     if (signal.aborted) throw error('Analysis was cancelled.', 409);
     if (review.provenance?.generation_mode !== 'llm') throw error('Source analysis requires a model-generated review.', 422);
     reviews.push({ session_id: review.transaction.id, batch: batchIndex + 1, finding_ids: sample.map(item => item.id), ...review.result, provenance: review.provenance });

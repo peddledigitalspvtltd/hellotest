@@ -384,6 +384,10 @@
 .story-grooming-readiness-details > summary svg { width: 17px; height: 17px; transition: transform 160ms ease; }
 .story-grooming-readiness-details[open] > summary svg { transform: rotate(90deg); }
 .story-grooming-readiness-details .story-grooming-checks { margin-top: 9px; }
+.story-grooming-measurements { display: grid; gap: 12px; padding-left: 18px; font-size: 0.78rem; }
+.story-grooming-measurements li > b, .story-grooming-measurements li > small { display: block; }
+.story-grooming-measurements li > small { margin-top: 4px; color: var(--ws2-text-muted, #626f86); }
+.story-grooming-measurements p { margin: 5px 0; }
 
 .story-grooming-checks {
   display: grid;

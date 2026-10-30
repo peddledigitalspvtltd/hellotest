@@ -1,5 +1,6 @@
 const { randomUUID } = require("crypto");
 const {normalizeDataOptions}=require('./scopedTestData');
+const { resolveAutomationCaseType } = require('./automationCaseType');
 
 const buildAutomationCaseBlueprint = ({ source, steps = [], createdBy, createGroupId = randomUUID }) => {
   const groups = new Map();
@@ -15,6 +16,7 @@ const buildAutomationCaseBlueprint = ({ source, steps = [], createdBy, createGro
     parameter_values: {},
     test_data_options: normalizeDataOptions({...sourceDataOptions,override_shared_sections:sourceDataOptions.override_shared_steps},"sections"),
     automated: "yes",
+    automation_case_type: resolveAutomationCaseType(source, { steps }),
     automation_status: "incomplete",
     manual_test_case_ids: [source.id],
     requirement_ids: source.requirement_ids?.length ? source.requirement_ids : [source.requirement_id].filter(Boolean),

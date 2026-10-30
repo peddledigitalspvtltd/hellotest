@@ -23,9 +23,9 @@ function fixture({ queueFails = false, reviewFails = false, reviewCancels = fals
   ];
   const context = {
     canUseAutomationBuilder: true, canCreateAutomationCase: true, canUseAutomationAi: true, canUseRecorder: true, appTypeId: "app", projectId: "project",
-    automationCreateMetadata: { title: "Customer journey", description: "Selected metadata", priority: "1", status: "draft", requirementIds: ["story"], suiteIds: ["suite"], moduleIds: ["module"], dataSetId: "data" },
+    automationCreateMetadata: { automationCaseType: "web", title: "Customer journey", description: "Selected metadata", priority: "1", status: "draft", requirementIds: ["story"], suiteIds: ["suite"], moduleIds: ["module"], dataSetId: "data" },
     automationCreateManualCaseIds: sources.map((item) => item.testCase.id),
-    automationCreationMode: "ai",
+    automationCreationMode: "ai", creationIncompatibleRuntimes: [],
     automationCreateSteps: [{ id: "draft", action: "sign out", expected_result: "session closed", step_type: "web", precondition: false }],
     createSourcesQuery: { data: sources },
     automationModules: [{ id: "module", name: "Accounts" }],
@@ -63,6 +63,8 @@ test("automation creation copies every source plan, preserves groups, and saves 
   assert.equal(payload.steps[1].reusable_group_id, "shared-login");
   assert.equal(payload.steps[1].expected_result, "access granted");
   assert.equal(payload.description, "Selected metadata");
+  assert.equal(payload.automation_case_type, "web");
+  assert.equal(payload.test_case_type, "functional");
   assert.equal(payload.priority, 1);
   assert.equal(payload.status, "draft");
   assert.deepEqual(payload.test_data_set_ids, ["data"]);
@@ -81,7 +83,7 @@ test("automation creation copies every source plan, preserves groups, and saves 
 });
 
 test("creation with multiple suites leaves selection to source resolution instead of choosing the first suite", async () => {
-  const { calls, mutation } = fixture({ overrides: { automationCreateMetadata: { title: "Multi-suite case", description: "Login", priority: "1", status: "draft", requirementIds: [], suiteIds: ["east", "west"], moduleIds: [], dataSetId: "" } } });
+  const { calls, mutation } = fixture({ overrides: { automationCreateMetadata: { automationCaseType: "web", title: "Multi-suite case", description: "Login", priority: "1", status: "draft", requirementIds: [], suiteIds: ["east", "west"], moduleIds: [], dataSetId: "" } } });
   await mutation();
   assert.equal(calls.reviewed[0].selections.test_suite_id, undefined);
   assert.deepEqual(calls.created[0].suite_ids, ["east", "west"]);
@@ -155,7 +157,7 @@ test('description-only creation can plan the flow while a truly empty request is
   await mutation();
   assert.deepEqual(calls.created[0].steps, []);
   assert.match(calls.queued[0].additional_context, /Selected metadata/);
-  const empty = fixture({ mission: '', overrides: { automationCreateManualCaseIds: [], automationCreateSteps: [], builderContext: '', automationCreateMetadata: { title: 'Missing flow', description: '<p> </p>', status: 'draft' } } });
+  const empty = fixture({ mission: '', overrides: { automationCreateManualCaseIds: [], automationCreateSteps: [], builderContext: '', automationCreateMetadata: { automationCaseType: "web", title: 'Missing flow', description: '<p> </p>', status: 'draft' } } });
   await assert.rejects(empty.mutation(), /Describe the requested flow/);
   assert.equal(empty.calls.created.length, 0);
 });
@@ -163,4 +165,13 @@ test('description-only creation can plan the flow while a truly empty request is
 test('creation carries the explicit reviewed verification choice into the durable job',async()=>{
  const {mutation,calls}=fixture({overrides:{buildPipelineOptions:{verification_mode:'verify_repair',browser_driver:'mcp'}}});
  await mutation();assert.equal(calls.queued[0].verification_mode,'verify_repair');assert.equal(calls.queued[0].browser_driver,'mcp');
+});
+
+test('creation requires a platform and rejects incompatible source plans before creating records', async () => {
+  const missing = fixture({overrides:{automationCreateMetadata:{title:"Missing platform"}}});
+  await assert.rejects(missing.mutation(), /Select an automation case type/);
+  assert.equal(missing.calls.created.length, 0);
+  const mixed = fixture({overrides:{creationIncompatibleRuntimes:["web"]}});
+  await assert.rejects(mixed.mutation(), /does not support web steps/);
+  assert.equal(mixed.calls.created.length, 0);
 });

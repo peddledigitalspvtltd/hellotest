@@ -28,6 +28,7 @@ const isCall = node => node?.type === 'CallExpression' && !node.optional;
 const nativeSelector = value => bounded(value) && value.trim()
   && !/^(?:page\.|playwrightPage\.)?(?:getBy\w+|locator)\s*\(/.test(value.trim())
   && !/\.(?:(?:first|last)\(\s*\)|nth\(\s*\d+\s*\))$/.test(value.trim()) ? value : null;
+const scopedReference=value=>typeof value==='string'&&/^@[tsr]\.(?:[A-Za-z][A-Za-z0-9_-]*|\[(?:\\.|[^\]\\\r\n])+\])$/i.test(value);
 
 // A parameter expression is a reference, not JS to execute or a value to copy
 // into a tool request. The existing authorized resolver supplies its value.
@@ -47,6 +48,25 @@ function inputValue(node) {
     : `@${normalized[0]}.[${name.replace(/\\/g, '\\\\').replace(/\]/g, '\\]')}]`;
   return bounded(reference) ? reference : null;
 }
+
+// Only the compiler's string concatenation is a template: fixed literal
+// segments and String(params[fixed scoped key]). No JS expression is run.
+function compositeInputValue(node){
+  let references=0,literals=0;
+  const read=part=>{
+    if(part?.type==='BinaryExpression'&&part.operator==='+'){
+      const left=read(part.left),right=read(part.right);return left===null||right===null?null:left+right;
+    }
+    const value=quoted(part);if(bounded(value)){literals++;return value;}
+    if(isCall(part)&&part.callee?.type==='Identifier'&&part.callee.name==='String'&&part.arguments.length===1
+      &&part.arguments[0]?.type==='MemberExpression'&&part.arguments[0].object?.name==='params'){
+      const reference=inputValue(part.arguments[0]);if(reference){references++;return reference;}
+    }
+    return null;
+  };
+  const value=read(node);return references&&literals&&bounded(value)?value:null;
+}
+const assertionInputValue=node=>inputValue(node)??compositeInputValue(node);
 
 function locator(node, aliases) {
   if (node?.type === 'Identifier') return aliases.get(node.name) || null;
@@ -93,8 +113,9 @@ function locator(node, aliases) {
 }
 
 function absoluteUrl(node) {
-  const value = quoted(node);
+  const value = inputValue(node);
   if (!bounded(value)) return null;
+  if(scopedReference(value))return value;
   try {
     const url = new URL(value);
     return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? value : null;
@@ -137,11 +158,11 @@ function assertion(call, aliases) {
       const value = literalUrlPattern(call.arguments[0]);
       return value === null ? null : { name: 'browser_assert', arguments: { assertion: 'url_contains', value } };
     }
-    const value = matcher === 'toHaveURL' ? absoluteUrl(call.arguments[0]) : inputValue(call.arguments[0]);
+    const value = matcher === 'toHaveURL' ? absoluteUrl(call.arguments[0]) : assertionInputValue(call.arguments[0]);
     if (value === null) return null;
     return { name: 'browser_assert', arguments: { assertion: matcher === 'toHaveURL' ? 'url' : 'title_normalized',
       // Playwright resolves a literal absolute URL before its exact check.
-      value: matcher === 'toHaveURL' ? new URL(value).href : value } };
+      value: matcher === 'toHaveURL' && !scopedReference(value) ? new URL(value).href : value } };
   }
   const targetLocator = locator(target, aliases);
   if (!targetLocator || targetLocator.length > MAX_STRING) return null;
@@ -154,7 +175,7 @@ function assertion(call, aliases) {
     return count?.type === 'Literal' && Number.isInteger(count.value) && count.value >= 0 && count.value <= 2_000
       ? { name: 'browser_assert', arguments: { assertion: 'count', locator: targetLocator, value: String(count.value) } } : null;
   }
-  const valueCondition = valueConditions.get(matcher), value = inputValue(call.arguments[0]);
+  const valueCondition = valueConditions.get(matcher), value = matcher==='toHaveValue'?inputValue(call.arguments[0]):assertionInputValue(call.arguments[0]);
   return valueCondition && value !== null
     ? { name: 'browser_assert', arguments: { assertion: valueCondition, locator: targetLocator, value } } : null;
 }
@@ -197,7 +218,7 @@ function expandRecordedAliases(node, aliases) {
 function recordedAssertion(call, aliases) {
   if (!isCall(call)) return null;
   const recordedValue = node => {
-    const value = inputValue(node);
+    const value = assertionInputValue(node);
     return value && node?.type === 'MemberExpression' && node.object?.name === 'params'
       ? `params[${JSON.stringify(normalizeParameterKey(value))}]` : value;
   };
@@ -233,6 +254,14 @@ function recordedAssertion(call, aliases) {
   if (!assertion) return null;
   const expected = assertion === 'text' ? comparison.right : comparison.arguments[0];
   let value = inputValue(expected);
+  if(value===null){
+    const pending=[expected];
+    while(pending.length&&value===null){
+      const node=pending.pop();if(!node||typeof node!=='object')continue;
+      value=compositeInputValue(node);
+      for(const item of Object.values(node))if(Array.isArray(item))pending.push(...item);else if(item&&typeof item==='object')pending.push(item);
+    }
+  }
   if (value === null) {
     // Normalized scoped values compile as String(params[key]).replace(...).
     // Locate the candidate binding, then let exact recompilation prove every

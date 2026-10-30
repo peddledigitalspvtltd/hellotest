@@ -4,16 +4,17 @@ import { AddIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/co
 import { RichTextEditor } from "@hellotest/platform/frontend/src/platform/components/RichTextEditor";
 import { GherkinStepTextField } from "@hellotest/testing/frontend/components/GherkinStepTextField";
 import { StepParameterizedText } from "@hellotest/testing/frontend/components/StepParameterizedText";
-import type { TestStepType } from "@hellotest/platform/frontend/src/types";
+import { AUTOMATION_CASE_TYPES } from "../lib/automationRuntime";
+import type { AutomationCaseType, TestStepType } from "@hellotest/platform/frontend/src/types";
 import type { StepParameterDefinition } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
 import "./AutomationAuthoring.css";
 
 export type AutomationMetadata = {
-  title: string; description: string; status: string; priority: string;
+  title: string; description: string; status: string; priority: string; automationCaseType: AutomationCaseType | "";
   manualCaseIds: string[]; requirementIds: string[]; moduleIds: string[]; suiteIds: string[]; dataSetId: string;
 };
 export const emptyAutomationMetadata: AutomationMetadata = {
-  title: "", description: "", status: "active", priority: "3", manualCaseIds: [], requirementIds: [], moduleIds: [], suiteIds: [], dataSetId: ""
+  title: "", description: "", automationCaseType: "", status: "active", priority: "3", manualCaseIds: [], requirementIds: [], moduleIds: [], suiteIds: [], dataSetId: ""
 };
 type LinkOption = { id: string; title: string; detail?: string };
 
@@ -56,6 +57,7 @@ export function AutomationCaseMetadata({ value, onChange, manualCases, requireme
     <div className="automation-metadata-primary">
       <label className="form-field"><span>Automation case name</span><input autoComplete="off" disabled={disabled} onChange={(event) => onChange({ title: event.target.value })} placeholder="e.g. Customer completes checkout" required value={value.title} /></label>
     </div>
+    <label className="form-field"><span>Automation case type <span aria-hidden="true">*</span></span><select aria-label="Automation case type" required disabled={disabled} onChange={event => onChange({automationCaseType: event.target.value as AutomationCaseType})} value={value.automationCaseType}><option disabled value="">Select a case type</option>{AUTOMATION_CASE_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select>{value.automationCaseType ? <small className="muted">{AUTOMATION_CASE_TYPES.find(type => type.value === value.automationCaseType)?.description}</small> : null}</label>
     <div className="form-field"><label htmlFor={`${id}-description`}>Description</label><RichTextEditor aria-label="Automation case description" appearance="canonical" disabled={disabled} id={`${id}-description`} onChange={(description) => onChange({ description })} placeholder="What should this automation verify?" rows={2} value={value.description} /></div>
     <RecordLinks disabled={disabled} label="Test cases" onChange={(manualCaseIds) => onChange({ manualCaseIds })} options={manualCases} value={value.manualCaseIds} />
     {compact ? <details className="automation-metadata-advanced"><summary>Coverage, status & test data</summary>{advanced}</details> : advanced}
@@ -80,7 +82,7 @@ export function AutomationDraftPlan({ value, onChange, availableParameters, para
         <summary><span>{index + 1}</span><strong><StepParameterizedText text={step.action} values={parameterValues} fallback={precondition ? "New precondition" : "New step"} /></strong><small>{step.step_type.toUpperCase()}</small></summary>
         <div className="automation-draft-behavior-fields"><label className="form-field"><span>Action</span><GherkinStepTextField availableParameters={availableParameters} parameterValues={parameterValues} ariaLabel={`Draft ${precondition ? "precondition" : "step"} ${index + 1} action`} onChange={(action) => update(step.id, { action })} value={step.action} /></label><label className="form-field"><span>Expected result</span><GherkinStepTextField availableParameters={availableParameters} parameterValues={parameterValues} ariaLabel={`Draft ${precondition ? "precondition" : "step"} ${index + 1} expected result`} onChange={(expected_result) => update(step.id, { expected_result })} value={step.expected_result} /></label><div className="action-row"><select aria-label={`Draft step ${index + 1} type`} onChange={(event) => update(step.id, { step_type: event.target.value as TestStepType })} value={step.step_type}>{Array.from(new Set([...allowedStepTypes, step.step_type])).map((type) => <option key={type} value={type} disabled={!allowedStepTypes.includes(type)}>{type === "ios" ? "iOS" : type === "api" ? "API" : type[0].toUpperCase() + type.slice(1)}</option>)}</select><button aria-label={`Remove draft step ${index + 1}`} className="ghost-button compact" onClick={() => onChange(value.filter((item) => item.id !== step.id))} type="button"><TrashIcon size={14} />Remove</button></div></div>
       </details>)}
-      <button className="ghost-button compact" onClick={() => onChange([...value, { id: crypto.randomUUID(), action: "", expected_result: "", step_type: allowedStepTypes.includes(defaultStepType) ? defaultStepType : allowedStepTypes[0] || "web", precondition }])} type="button"><AddIcon size={14} />{precondition ? "Add precondition" : "Add step"}</button>
+      <button className="ghost-button compact" disabled={!allowedStepTypes.length} onClick={() => onChange([...value, { id: crypto.randomUUID(), action: "", expected_result: "", step_type: allowedStepTypes.includes(defaultStepType) ? defaultStepType : allowedStepTypes[0] || "web", precondition }])} type="button"><AddIcon size={14} />{precondition ? "Add precondition" : "Add step"}</button>
     </section>)}
   </div>;
 }

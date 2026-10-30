@@ -21,6 +21,7 @@ const { createLlmProviderError } = require("@hellotest/platform/backend/src/util
 const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llmHttpClient");
 const { getCompletionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
 const { parseAiJson } = require("@hellotest/platform/backend/src/utils/aiJsonResponse");
+const { validateNativeArtifactOutput } = require("@hellotest/platform/backend/src/utils/aiGenerationContracts");
 const { assertExpectedRevision } = require("@hellotest/platform/backend/src/utils/revision");
 const { storyAdditionalFields } = require("@hellotest/platform/backend/src/utils/storyAcceptanceCriteria");
 const { normalizeStoryImportRow } = require("@hellotest/platform/backend/src/utils/storyImportRow");
@@ -748,6 +749,18 @@ const normalizeStoryAiReview = (value, acceptedBy) => {
   };
 };
 
+const assertCompleteAiReviewedStory = (review, story) => {
+  if (review == null) return;
+  if (!["ai-story-create", "ai-story-complete"].includes(review?.capability)) return;
+  try {
+    validateNativeArtifactOutput("ai.requirement.optimization", story);
+  } catch (error) {
+    const message = "An accepted AI Story must include a title, description and at least one observable acceptance criterion. Complete these fields before saving.";
+    throw Object.assign(new Error(message), { statusCode: 422, code: "AI_STORY_REVIEW_INCOMPLETE", publicMessage: message,
+      validation_errors: error.validation_errors });
+  }
+};
+
 const buildRequirementCreationPrompt = ({ additionalContext, externalLinks, imageNames, maxRequirements, priority, status, evidenceCatalog, promptGuidance = "" }) => [
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.28"),
   "{",
@@ -756,7 +769,7 @@ const buildRequirementCreationPrompt = ({ additionalContext, externalLinks, imag
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.33"),
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.36"),
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.34"),
-  '    "acceptance_criteria": [],',
+  '    "acceptance_criteria": ["criterion"],',
   '    "risks": [],',
   '    "open_questions": [],',
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.40"),
@@ -847,9 +860,11 @@ const normalizeRequirementCreationCandidate = (candidate, index, defaults) => {
   const title = (normalizeText(candidate?.title) || "").slice(0, 255);
   const description = (normalizeText(candidate?.description) || "").slice(0, 12_000);
   const acceptanceCriteria = normalizeTextList(candidate?.acceptance_criteria, 12, 1200);
-  const unsupportedCoreField = title && !fieldEvidence.title.length || description && !fieldEvidence.description.length;
-  if (!title || unsupportedCoreField) return null;
-  const unsupportedFields = acceptanceCriteria.length && !fieldEvidence.acceptance_criteria.length ? ["acceptance criteria"] : [];
+  const unsupportedCoreField = !fieldEvidence.title.length || !fieldEvidence.description.length || !fieldEvidence.acceptance_criteria.length;
+  // Grounding is part of the required Story contract. Do not turn an invalid
+  // model draft into an apparently complete Story by silently emptying criteria.
+  if (!title || !description || !acceptanceCriteria.length || unsupportedCoreField) return null;
+  const unsupportedFields = [];
   const normalized = {
     client_id: normalizeText(candidate?.client_id) || `ai-req-${index + 1}`,
     title,
@@ -857,7 +872,7 @@ const normalizeRequirementCreationCandidate = (candidate, index, defaults) => {
     external_references: normalizeReferenceList(defaults.externalLinks).slice(0, 20),
     priority: fieldEvidence.priority.length ? clampNumber(candidate?.priority, 1, 5, defaults.priority) : defaults.priority,
     status: fieldEvidence.status.length ? (normalizeText(candidate?.status) || defaults.status).slice(0, 100) : defaults.status,
-    acceptance_criteria: unsupportedFields.length ? [] : acceptanceCriteria,
+    acceptance_criteria: acceptanceCriteria,
     risks: normalizeTextList(candidate?.risks, 8, 800),
     open_questions: normalizeTextList(candidate?.open_questions, 8, 800),
     change_summary: normalizeTextList(candidate?.change_summary, 8, 800),
@@ -865,9 +880,7 @@ const normalizeRequirementCreationCandidate = (candidate, index, defaults) => {
     evidence_refs: evidenceRefs,
     field_evidence: fieldEvidence,
     unsupported_fields: unsupportedFields,
-    limitations: unsupportedFields.length
-      ? [`No allowed field-level evidence was returned for: ${unsupportedFields.join(", ")}. Review these fields as ungrounded suggestions.`]
-      : []
+    limitations: []
   };
   const evaluation = evaluateStoryCandidate(normalized);
   return { ...normalized, quality_score: evaluation.score / 100, evaluation };
@@ -1492,6 +1505,9 @@ exports.createRequirement = async ({ project_id, title, description, acceptance_
   if (!project_id || !title) {
     throw new Error("Missing required fields");
   }
+  assertCompleteAiReviewedStory(ai_review, { title, description,
+    acceptance_criteria: acceptance_criteria ?? additional_fields?.acceptance_criteria,
+    priority: priority ?? 3 });
 
   const project = await db.prepare(`
     SELECT id FROM projects WHERE id = ?
@@ -1606,6 +1622,10 @@ exports.updateRequirement = async (id, data) => {
     const existing = await db.prepare(`SELECT * FROM requirements WHERE id = ? FOR UPDATE`).get(id);
     if (!existing) throw new Error("Requirement not found");
     const currentRevision = assertExpectedRevision(existing.revision, data.expected_revision, "Story");
+    const nextAdditionalFields = storyAdditionalFields(data.additional_fields, data.acceptance_criteria, parseStoredJson(existing.additional_fields, {}));
+    assertCompleteAiReviewedStory(data.ai_review, { title: data.title ?? existing.title,
+      description: data.description ?? existing.description, acceptance_criteria: nextAdditionalFields.acceptance_criteria,
+      priority: data.priority ?? existing.priority ?? 3 });
 
     if (data.project_id) {
       const project = await db.prepare(`SELECT id FROM projects WHERE id = ?`).get(data.project_id);
@@ -1640,7 +1660,7 @@ exports.updateRequirement = async (id, data) => {
       data.gherkin_scenarios !== undefined
         ? normalizeTextList(data.gherkin_scenarios, 20, 4_000)
         : normalizeStoredTextList(existing.gherkin_scenarios),
-      storyAdditionalFields(data.additional_fields, data.acceptance_criteria, parseStoredJson(existing.additional_fields, {})),
+      nextAdditionalFields,
       data.ai_review !== undefined
         ? normalizeStoryAiReview(data.ai_review, data.updated_by ?? existing.updated_by ?? existing.created_by)
         : parseStoredJson(existing.ai_review, null),
@@ -1704,7 +1724,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
   const imageNames = safeImages.map((image) => image.name);
   const knowledge = await aiKnowledgeService.buildKnowledgeContextPackage(requirement.project_id, {
     app_type_id: requirement.app_type_id || null,
-    query: requirement.description || requirement.title,
+    query: [requirement.title, requirement.description].filter(Boolean).join("\n"),
     module_name: requirement.module_name || null,
     feature_name: requirement.feature_name || null,
     user: evidenceUser || undefined
@@ -1721,6 +1741,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
     userId: user_id || user?.id,
     usageKey: "ai.requirement.optimization"
   });
+  requireAiAssessment({ integration });
   const inputFingerprint = storyRequestFingerprint({
     capability: "requirement-completion-preview",
     project_id: requirement.project_id,
@@ -1736,12 +1757,9 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
     evidence_snapshot: evidence.map((item) => ({ ref: item.ref, content_ref: storyRequestFingerprint(item.excerpt || item.title) }))
   });
   let suggestion;
-  let fallbackUsed = false;
-  let fallbackReason = null;
   const contextState = { reduced: false };
 
-  if (integration) {
-    try {
+  try {
       const content = await requestRequirementOptimization({
         integration,
         contextState,
@@ -1764,32 +1782,13 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
         })
       });
       suggestion = extractJsonPayload(content);
-    } catch (error) {
-      if (error?.code === 'AI_VISION_UNSUPPORTED') throw error;
-      fallbackUsed = true;
-      fallbackReason = "The configured AI provider could not return a valid evidence-backed Story completion; no generated Story changes were proposed.";
-      suggestion = {
-        ...buildDeterministicRequirementOptimization(requirement, additionalContext, externalLinks, imageNames, [`story:${requirement.id}`]),
-        fallback_used: true,
-        fallback_reason: fallbackReason
-      };
-    }
-  } else {
-    fallbackUsed = true;
-    fallbackReason = "No active LLM integration is configured; no generated Story changes were proposed.";
-    suggestion = {
-      ...buildDeterministicRequirementOptimization(requirement, additionalContext, externalLinks, imageNames, [`story:${requirement.id}`]),
-      fallback_reason: fallbackReason
-    };
-  }
-
-  requireAiAssessment({ integration, failed: fallbackUsed });
-  if (fallbackUsed) {
-    evidence.filter((item) => item.type === "reference-image").forEach((item) => {
-      item.citation_allowed = false;
-      item.trust = "manual-review-only";
-      item.limitation = "The deterministic fallback did not inspect this image; it cannot support a proposed Story change.";
-    });
+      validateNativeArtifactOutput("ai.requirement.optimization", suggestion);
+  } catch (error) {
+    if (typeof error?.publicMessage === "string" && error.publicMessage.trim()) throw error;
+    if (["AI_VISION_UNSUPPORTED", "LLM_AUTHENTICATION_FAILED", "LLM_QUOTA_EXCEEDED", "LLM_RATE_LIMITED", "LLM_RATE_LIMIT_REQUEST_TOO_LARGE", "LLM_REQUEST_TOO_LARGE"].includes(error?.code)) throw error;
+    const message = "The configured model did not return a complete Story with a title, description and evidence-backed acceptance criteria. Your saved Story is unchanged. Add the intended behavior and expected outcome, or select another configured model.";
+    throw Object.assign(new Error(message), { statusCode: 502, code: "AI_STORY_RESPONSE_INVALID", publicMessage: message,
+      ...(Array.isArray(error?.validation_errors) ? { validation_errors: error.validation_errors } : {}) });
   }
   const allowedEvidenceRefs = new Set(evidence.filter((item) => item.citation_allowed).map((item) => item.ref));
   const allEvidenceRefs = new Set(evidence.map((item) => item.ref));
@@ -1805,17 +1804,19 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
   const savedDescription = requirement.description || "";
   const savedPriority = requirement.priority ?? 3;
   const savedStatus = requirement.status || "open";
+  const savedAcceptanceCriteria = normalizeTextList(requirement.acceptance_criteria, 100, 2000);
   const proposedTitle = normalizeText(suggestion.title) || requirement.title;
   const proposedDescription = normalizeText(suggestion.description) || savedDescription;
   const proposedPriority = Number.isFinite(Number(suggestion.priority)) ? clampNumber(suggestion.priority, 1, 5, savedPriority) : savedPriority;
   const proposedStatus = normalizeText(suggestion.status) || savedStatus;
   const proposedAcceptanceCriteria = normalizeTextList(suggestion.acceptance_criteria, 12, 1200);
+  const acceptanceCriteriaChanged = JSON.stringify(proposedAcceptanceCriteria) !== JSON.stringify(savedAcceptanceCriteria);
   const unsupportedFields = [
     proposedTitle !== requirement.title && !fieldEvidence.title.length ? "title" : null,
     proposedDescription !== savedDescription && !fieldEvidence.description.length ? "description" : null,
     proposedPriority !== savedPriority && !fieldEvidence.priority.length ? "priority" : null,
     proposedStatus !== savedStatus && !fieldEvidence.status.length ? "status" : null,
-    proposedAcceptanceCriteria.length && !fieldEvidence.acceptance_criteria.length ? "acceptance criteria" : null
+    acceptanceCriteriaChanged && !fieldEvidence.acceptance_criteria.length ? "acceptance criteria" : null
   ].filter(Boolean);
   const normalizedSuggestion = {
     title: proposedTitle !== requirement.title && !fieldEvidence.title.length ? requirement.title : proposedTitle,
@@ -1826,7 +1827,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
       ...normalizeStoredReferenceList(requirement.external_references),
       ...externalLinks
     ]),
-    acceptance_criteria: proposedAcceptanceCriteria.length && !fieldEvidence.acceptance_criteria.length ? [] : proposedAcceptanceCriteria,
+    acceptance_criteria: acceptanceCriteriaChanged && !fieldEvidence.acceptance_criteria.length ? savedAcceptanceCriteria : proposedAcceptanceCriteria,
     risks: normalizeTextList(suggestion.risks, 8, 800),
     open_questions: normalizeTextList(suggestion.open_questions, 8, 800),
     change_summary: normalizeTextList(suggestion.change_summary, 8, 800),
@@ -1835,16 +1836,23 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
     unsupported_fields: unsupportedFields,
     no_changes_proposed: Boolean(suggestion.no_changes_proposed)
   };
+  try {
+    validateNativeArtifactOutput("ai.requirement.optimization", normalizedSuggestion);
+  } catch (error) {
+    const message = "The model did not provide a complete, evidence-backed Story proposal. Add the intended behavior and observable acceptance outcomes before retrying. Your saved Story is unchanged.";
+    throw Object.assign(new Error(message), { statusCode: 422, code: "AI_STORY_EVIDENCE_REQUIRED", publicMessage: message,
+      validation_errors: error.validation_errors });
+  }
   const savedReferences = normalizeStoredReferenceList(requirement.external_references);
   const hasSupportedChange = normalizedSuggestion.title !== requirement.title
     || normalizedSuggestion.description !== savedDescription
     || normalizedSuggestion.priority !== savedPriority
     || normalizedSuggestion.status !== savedStatus
-    || normalizedSuggestion.acceptance_criteria.length > 0
+    || JSON.stringify(normalizedSuggestion.acceptance_criteria) !== JSON.stringify(savedAcceptanceCriteria)
     || normalizedSuggestion.external_references.some((ref) => !savedReferences.includes(ref));
-  normalizedSuggestion.no_changes_proposed = normalizedSuggestion.no_changes_proposed || !hasSupportedChange;
+  normalizedSuggestion.no_changes_proposed = !hasSupportedChange;
   const evaluation = evaluateStoryCandidate(normalizedSuggestion);
-  const limitations = storyEvidenceLimitations(evidence, fallbackReason || suggestion.fallback_reason || null);
+  const limitations = storyEvidenceLimitations(evidence);
   if (!evidenceAccess["testcase.view"]) limitations.push("Linked Test Case evidence is unavailable under the current access settings; Story completion uses the remaining permitted context.");
   if (unsupportedFields.length) {
     limitations.push(`Unsupported model changes were discarded for: ${unsupportedFields.join(", ")}. The saved Story values remain unchanged for those fields.`);
@@ -1853,7 +1861,6 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
     profile: "story-complete",
     sourceCount: evidence.length,
     outputCount: 1,
-    fallbackUsed,
     limitationCount: limitations.length
   });
 
@@ -1878,9 +1885,9 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
     review_status: "awaiting_review",
     context_reduced: contextState.reduced,
     context_reduction_reason: contextState.reduced ? "The provider rejected the full context size; a shorter evidence context was used. Review the proposal against the original Story and attachments." : null,
-    generation_mode: fallbackUsed ? "deterministic" : "llm",
-    fallback_used: fallbackUsed,
-    fallback_reason: fallbackReason || suggestion.fallback_reason || null,
+    generation_mode: "llm",
+    fallback_used: false,
+    fallback_reason: null,
     request_id: requestId,
     input_fingerprint: inputFingerprint,
     requires_human_review: true,
@@ -1892,12 +1899,12 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
       request_id: requestId,
       input_fingerprint: inputFingerprint,
       evidence_refs: evidence.map((item) => item.ref),
-      provider: fallbackUsed ? "HelloTest evidence-preserving fallback" : integration?.name || null,
-      model: fallbackUsed ? null : integration?.model || null,
-      attempted_provider: fallbackUsed ? integration?.name || null : null,
+      provider: integration?.name || null,
+      model: integration?.model || null,
+      attempted_provider: null,
       context_reduced: contextState.reduced,
       context_reduction_reason: contextState.reduced ? "The provider rejected the full context size; a shorter evidence context was used. Review the proposal against the original Story and attachments." : null,
-      generation_mode: fallbackUsed ? "deterministic" : "llm",
+      generation_mode: "llm",
       generated_at: new Date().toISOString()
     }
   };
@@ -1930,8 +1937,8 @@ exports.previewRequirementCreation = async ({
   }
   const missingEvidenceError = () => {
     const message = safeImages.length
-      ? 'The model did not return a Story supported by the supplied image evidence. Try a clearer screenshot, add a short description of the intended behavior, or select another vision-capable model.'
-      : 'The model did not return a Story supported by the supplied product context. Add the intended behavior and expected outcome, or select another configured model.';
+      ? 'The model did not return a complete Story with a title, description and observable acceptance criteria supported by the supplied image evidence. Try a clearer screenshot, add a short description of the intended behavior, or select another vision-capable model.'
+      : 'The model did not return a complete Story with a title, description and observable acceptance criteria supported by the supplied product context. Add the intended behavior and expected outcome, or select another configured model.';
     return Object.assign(new Error(message), { statusCode:422, code:'AI_STORY_EVIDENCE_REQUIRED', publicMessage:message });
   };
   const knowledgePackage = additionalContext
@@ -1964,8 +1971,6 @@ exports.previewRequirementCreation = async ({
     status: defaultStatus
   });
   let rawCandidates;
-  const fallbackUsed = false;
-  const fallbackReason = null;
   const contextState = { reduced: false };
 
   try {
@@ -1991,6 +1996,7 @@ exports.previewRequirementCreation = async ({
         })
       });
       if (!Array.isArray(result?.requirements)) throw new Error('Missing Story draft array');
+      validateNativeArtifactOutput("ai.requirement.creation", result);
       rawCandidates = result.requirements;
   } catch (error) {
     // Keep classified, sanitized provider/configuration failures actionable.
@@ -2002,7 +2008,8 @@ exports.previewRequirementCreation = async ({
     if (['AI_VISION_UNSUPPORTED','LLM_AUTHENTICATION_FAILED','LLM_QUOTA_EXCEEDED','LLM_RATE_LIMITED','LLM_RATE_LIMIT_REQUEST_TOO_LARGE','LLM_REQUEST_TOO_LARGE'].includes(error?.code)) throw error;
     if (error?.code === 'AI_NATIVE_CONTRACT_INVALID' && error.validation_errors?.length && error.validation_errors.every(item=>item.field==='requirements')) throw missingEvidenceError();
     const message = 'The configured model did not return a valid Story response. Retry or select another configured model; image inputs require a vision-capable model.';
-    throw Object.assign(new Error(message), { statusCode:502, code:'AI_STORY_RESPONSE_INVALID', publicMessage:message });
+    throw Object.assign(new Error(message), { statusCode:502, code:'AI_STORY_RESPONSE_INVALID', publicMessage:message,
+      ...(Array.isArray(error?.validation_errors) ? { validation_errors: error.validation_errors } : {}) });
   }
   const allowedEvidenceRefs = new Set(evidence.filter((item) => item.citation_allowed).map((item) => item.ref));
 
@@ -2018,15 +2025,13 @@ exports.previewRequirementCreation = async ({
     .filter((candidate, index, all) => all.findIndex(item => item.title.toLowerCase() === candidate.title.toLowerCase() && item.description === candidate.description) === index);
   const requirements = normalizeCandidates(rawCandidates);
   if (!requirements.length) throw missingEvidenceError();
+  validateNativeArtifactOutput("ai.requirement.creation", { requirements });
 
-  const limitations = storyEvidenceLimitations(evidence, fallbackReason);
-  const unsupportedDraftCount = requirements.filter((candidate) => candidate.unsupported_fields.length).length;
-  if (unsupportedDraftCount) limitations.push(`${unsupportedDraftCount} draft${unsupportedDraftCount === 1 ? " had" : "s had"} unsupported acceptance criteria removed before review.`);
+  const limitations = storyEvidenceLimitations(evidence);
   const processing = buildStoryProcessingSnapshot({
     profile: "story-create",
     sourceCount: evidence.length,
     outputCount: requirements.length,
-    fallbackUsed,
     limitationCount: limitations.length
   });
 
@@ -2038,8 +2043,8 @@ exports.previewRequirementCreation = async ({
     integration: integration
       ? { id: integration.id, name: integration.name, type: integration.type, model: integration.model }
       : null,
-    fallback_used: fallbackUsed,
-    fallback_reason: fallbackReason,
+    fallback_used: false,
+    fallback_reason: null,
     request_id: requestId,
     input_fingerprint: inputFingerprint,
     evidence,
@@ -2048,7 +2053,7 @@ exports.previewRequirementCreation = async ({
     review_status: "awaiting_review",
     context_reduced: contextState.reduced,
     context_reduction_reason: contextState.reduced ? "The provider rejected the full context size; a shorter evidence context was used. Review the proposal against the original Story and attachments." : null,
-    generation_mode: fallbackUsed ? "deterministic" : "llm",
+    generation_mode: "llm",
     requires_human_review: true,
     preview_only: true,
     provenance: {
@@ -2057,12 +2062,12 @@ exports.previewRequirementCreation = async ({
       request_id: requestId,
       input_fingerprint: inputFingerprint,
       evidence_refs: evidence.map((item) => item.ref),
-      provider: fallbackUsed ? "HelloTest evidence-preserving fallback" : integration?.name || null,
-      model: fallbackUsed ? null : integration?.model || null,
-      attempted_provider: fallbackUsed ? integration?.name || null : null,
+      provider: integration?.name || null,
+      model: integration?.model || null,
+      attempted_provider: null,
       context_reduced: contextState.reduced,
       context_reduction_reason: contextState.reduced ? "The provider rejected the full context size; a shorter evidence context was used. Review the proposal against the original Story and attachments." : null,
-      generation_mode: fallbackUsed ? "deterministic" : "llm",
+      generation_mode: "llm",
       generated_at: new Date().toISOString()
     }
   };

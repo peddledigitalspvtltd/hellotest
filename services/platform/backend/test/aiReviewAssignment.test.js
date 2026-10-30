@@ -8,7 +8,7 @@ const { createRequire } = require("node:module");
 const requirement = { id: "story", title: "Checkout", external_references: ["STORY-1"] };
 const appType = { id: "app", project_id: "project", name: "Web" };
 const candidate = {
-  title: "Checkout succeeds", requirement_ids: ["story"], reviewer_id: "model-suggested-reviewer", review_status: "accepted",
+  title: "Checkout succeeds", description: "Complete a purchase and confirm its successful outcome.", priority: 3, test_case_type: "functional", requirement_ids: ["story"], reviewer_id: "model-suggested-reviewer", review_status: "accepted",
   authoring_mode: "gherkin", gherkin_document: "Feature: Checkout\nScenario: Purchase\nWhen checking out\nThen purchase succeeds",
   parameter_values: { email: "buyer@example.test" }, steps: [{ action: "Check out", expected_result: "Purchase succeeds" }]
 };

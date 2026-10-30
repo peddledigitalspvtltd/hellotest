@@ -103,7 +103,8 @@ const sanitizeIntegration = (integration) => {
         mobile_access_key: maskSecret(config.mobile_access_key),
         device_name: config.device_name || null,
         platform_version: config.platform_version || null,
-        android_app: config.android_app || null
+        android_app: config.android_app || null,
+        ...Object.fromEntries(['ios_app','app','udid','bundle_id','ios_bundle_id','android_device_name','ios_device_name','android_platform_version','ios_platform_version','android_udid','ios_udid','android_app_package','android_app_activity','appium_server_url','app_package','app_activity','active_mobile_engine','mobile_recorder_mode'].map(key=>[key,config[key]||null]))
       }
     };
   }

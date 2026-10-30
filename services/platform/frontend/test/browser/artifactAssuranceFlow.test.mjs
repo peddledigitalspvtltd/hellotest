@@ -16,7 +16,7 @@ test('Actual Story and Test Case assurance reviews use edited inputs and keep de
   let consoleErrors = [];
   const files = [];
   try {
-    browser = await chromium.launch({ executablePath: process.env.CHROME_EXECUTABLE || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
+    browser = await chromium.launch({ ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}), headless: true });
     for (const kind of ['story', 'case']) {
       const source = await readFile(new URL(kind === 'story' ? '../../../../manual/test/browser/storyPlanningAssignments.test.mjs' : '../../../../testing/test/browser/testCaseDataSets.test.mjs', import.meta.url), 'utf8');
       let fixture = runInNewContext(source.match(/const fixture\s*=\s*(`[\s\S]*?`);/)[1]);
@@ -32,7 +32,7 @@ api.${entity}.previewImpact=async(id,input)=>{window.assuranceRequests.push(stru
 ${kind === 'story' ? 'requirement' : 'test_case'}:{id,display_id:'ART-1',title:input.proposed_change.title},
 impact:{risk_level:'low',requirements:[],test_cases:[],test_suites:[],test_runs:[],automation_assets:[],object_repository_items:[],totals:{}},risk_signals:[],
 generated_at:new Date().toISOString(),fallback_used:window.assuranceFallback,fallback_reason:window.assuranceFallback?'Provider temporarily unavailable.':null,
-assurance_review:window.assuranceFallback?undefined:{summary:'Review the unsaved checkout recovery path.',dimensions:[{id:input.assurance_baseline.dimensions[0].id,explanation:'AI explained the live draft evidence.',recommendation:'Verify the recovery outcome.',score:100,status:'strong'}]}
+assurance_review:window.assuranceFallback?undefined:{summary:input.review_purpose==='change-impact'?'Actual model impact interpretation.':'Review the unsaved checkout recovery path.',insights:input.review_purpose==='change-impact'?[{id:'impact-1',priority:'high',kind:'change_impact',title:'Review the changed recovery outcome',explanation:'The proposed draft changes the saved recovery behavior.',recommendation:'Update the linked recovery assertion for the proposed rule.',evidence:['draft:story:saved-story'],affected_fields:['acceptance_criteria'],step_refs:[]}]:[],dimensions:[{id:input.assurance_baseline.dimensions[0].id,explanation:'AI explained the live draft evidence.',recommendation:'Verify the recovery outcome.',score:100,status:'strong'}]}
 }};
 `;
       if (kind === 'story') fixture = fixture.replace('const mode=new URLSearchParams', injected + `
@@ -98,6 +98,7 @@ context:{scope:{project_id:'project',project_key:'P'},bounded:true,limits:{},inc
       await workspace.getByText('Review the unsaved checkout recovery path.', { exact: true }).waitFor();
       const input = await page.evaluate(() => window.assuranceRequests[0]);
       assert.equal(input.integration_id, 'llm-b');
+      assert.equal(input.review_purpose, 'assurance', 'Quality Analyze must select the actual assurance profile');
       assert.match(input.prompt_guidance, /Review the current retry recovery/);
       assert.equal(input.additional_context, 'Reviewed support context: retry must preserve the address.');
       assert.equal(input.assurance_baseline.overall_score, Number(baseline));
@@ -116,14 +117,31 @@ context:{scope:{project_id:'project',project_key:'P'},bounded:true,limits:{},inc
         await workspace.getByRole('tab', { name: 'Impact analysis', exact: true }).click();
         const impact = workspace.getByRole('region', { name: 'AI Impact Analysis', exact: true });
         await impact.waitFor();
+        await impact.getByText('Actual model impact interpretation.', { exact: true }).waitFor();
         assert.match(await impact.innerText(), /Unsaved checkout Story/);
         assert.equal(await impact.locator('.story-impact-evidence').count(), 1);
-        assert.equal(await page.evaluate(() => window.assuranceRequests.length), 1, 'Opening the current impact reuses the reviewed draft without another model request');
+        assert.equal(await page.evaluate(() => window.assuranceRequests.length), 2, 'Impact is an independent review, not a recycled quality result');
+        assert.equal(await page.evaluate(() => window.assuranceRequests[1].review_purpose), 'change-impact');
+        await impact.getByText('Actual model impact interpretation.', { exact: true }).waitFor();
+        await impact.getByText('Review the changed recovery outcome', { exact: true }).waitFor();
         await workspace.getByRole('tab', { name: 'Quality review', exact: true }).click();
         await workspace.getByRole('tab', { name: 'Impact analysis', exact: true }).click();
         await impact.waitFor();
-        assert.equal(await page.evaluate(() => window.assuranceRequests.length), 1);
+        assert.equal(await page.evaluate(() => window.assuranceRequests.length), 2, 'Opening unchanged impact reuses only the impact cache');
         await workspace.getByRole('tab', { name: 'Quality review', exact: true }).click();
+        await workspace.getByText('Review the unsaved checkout recovery path.', { exact: true }).waitFor();
+      } else {
+        await workspace.getByRole('button', { name: 'Inspect impact', exact: true }).click();
+        const impact = page.getByRole('dialog', { name: 'Preview Test Case change impact', exact: true });
+        await impact.getByText('Actual model impact interpretation.', { exact: true }).waitFor();
+        await impact.getByText('Review the changed recovery outcome', { exact: true }).waitFor();
+        assert.equal(await page.evaluate(() => window.assuranceRequests[1].review_purpose), 'change-impact');
+        await impact.getByRole('button', { name: 'Close Test Case change impact', exact: true }).click();
+        await workspace.getByRole('button', { name: 'Inspect impact', exact: true }).click();
+        await impact.getByText('Actual model impact interpretation.', { exact: true }).waitFor();
+        assert.equal(await page.evaluate(() => window.assuranceRequests.length), 2);
+        await impact.getByRole('button', { name: 'Close Test Case change impact', exact: true }).click();
+        await workspace.getByText('Review the unsaved checkout recovery path.', { exact: true }).waitFor();
       }
       await workspace.getByLabel('AI review prompt', { exact: true }).fill('Review a changed focus on retry recovery.');
       await workspace.getByText('Draft changed.', { exact: true }).waitFor();

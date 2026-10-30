@@ -6,15 +6,17 @@ const sharedStepSyncService = require("./sharedStepSync.service");
 const apiRequestExecutionService = require("@hellotest/automation/backend/services/apiRequestExecution.service");
 const mobileFeatureService = require("@hellotest/platform/backend/services/mobileFeature.service");
 const { containsMobileStepPayload } = require("@hellotest/platform/backend/src/utils/mobileFeature");
+const { storedAutomationCaseType, resolveAutomationCaseSteps } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 const {
   normalizeApiRequest,
+  validateAuthoredApiRequest,
   normalizeRichText,
   normalizeTestStepType,
   parseJsonValue
 } = require("@hellotest/platform/backend/src/utils/testStepAutomation");
 
 const selectTestCase = db.prepare(`
-  SELECT id, app_type_id, authoring_mode, parameter_values, test_data_options
+  SELECT id, app_type_id, automated, authoring_mode, parameter_values, test_data_options
   FROM test_cases
   WHERE id = ?
 `);
@@ -196,6 +198,10 @@ const assertMobileStepMutationEnabled = async (testCaseId, payload) => {
     await mobileFeatureService.assertMobileFeatureEnabled();
   }
 };
+const assertCaseStepRuntime = (testCase, steps) => {
+  // Legacy plans remain editable until they explicitly select a platform.
+  if (testCase.automated === 'yes' && storedAutomationCaseType(testCase)) resolveAutomationCaseSteps(testCase, steps);
+};
 
 exports.createTestStep = async ({
   test_case_id,
@@ -214,7 +220,9 @@ exports.createTestStep = async ({
     throw new Error("Missing required fields");
   }
 
-  await ensureTestCase(test_case_id);
+  const testCase = await ensureTestCase(test_case_id);
+  assertCaseStepRuntime(testCase, [{ step_order, action, expected_result, step_type, automation_code, api_request }]);
+  validateAuthoredApiRequest(api_request, { stepOrder:step_order });
   await assertMobileStepMutationEnabled(test_case_id, { step_type });
 
   const id = uuid();
@@ -252,9 +260,11 @@ exports.createTestStep = async ({
 };
 
 exports.createTestSteps = async ({ test_case_id, insertion_index = 0, steps = [] } = {}) => {
-  await ensureTestCase(test_case_id);
+  const testCase = await ensureTestCase(test_case_id);
   if (!Array.isArray(steps) || !steps.length) throw new Error("Select at least one step to insert");
   if (steps.length > 100) throw new Error("Insert at most 100 steps at a time");
+  assertCaseStepRuntime(testCase, steps);
+  steps.forEach((step,index)=>validateAuthoredApiRequest(step.api_request,{stepOrder:index+1}));
   await assertMobileStepMutationEnabled(test_case_id, steps);
 
   const existingSteps = await listStepsForCase(test_case_id);
@@ -357,8 +367,10 @@ exports.updateTestStep = async (id, data = {}, options = {}) => {
   const previousSteps = existing.reusable_group_id ? await listStepsForCase(existing.test_case_id) : undefined;
   const nextTestCaseId = data.test_case_id ?? existing.test_case_id;
   const nextStepOrder = data.step_order !== undefined ? normalizeStepOrder(data.step_order, existing.step_order) : existing.step_order;
+  if (data.api_request !== undefined) validateAuthoredApiRequest(data.api_request, {stepOrder:nextStepOrder});
   const sourceTestCase = await ensureTestCase(existing.test_case_id);
   const targetTestCase = await ensureTestCase(nextTestCaseId);
+  assertCaseStepRuntime(targetTestCase, [{ ...existing, ...data }]);
   if (sourceTestCase.app_type_id !== targetTestCase.app_type_id) {
     throw new Error("Test Steps can only move between Test Cases in the same app type");
   }
@@ -544,6 +556,7 @@ exports.duplicateTestSteps = async ({ test_case_id, source_test_case_id = test_c
     const ids = new Set(step_ids);
     const selectedSteps = sourceSteps.filter(step => ids.has(step.id));
     if (selectedSteps.length !== ids.size) throw copyError("All copied sections must belong to the source case.");
+    assertCaseStepRuntime(target, selectedSteps);
     await assertMobileStepMutationEnabled(test_case_id, selectedSteps);
     if (!as_standalone && selectedSteps.some(step => step.group_id && sourceSteps.some(other => other.group_id === step.group_id && !ids.has(other.id)))) throw copyError("Copy the complete group, or copy a section as a standalone section.");
     const anchor = insert_after_step_id ? existingSteps.find(step => step.id === insert_after_step_id) : source_test_case_id === test_case_id ? selectedSteps.at(-1) : existingSteps.at(-1);
@@ -629,6 +642,7 @@ exports.insertSharedStepGroup = async ({ test_case_id, shared_step_group_id, ins
     if (!sharedSteps.length) {
       throw new Error("Shared Step Group does not contain any steps");
     }
+    assertCaseStepRuntime(testCase, sharedSteps);
     await assertMobileStepMutationEnabled(test_case_id, sharedSteps);
 
     const existingSteps = await listStepsForCase(test_case_id);

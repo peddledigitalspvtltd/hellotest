@@ -11,6 +11,7 @@
     "README.md"
   ],
   "exports": {
+    "./backend/public/workflowModelCalls": "./backend/public/workflowModelCalls.js",
     "./backend": "./backend/service.manifest.js",
     "./backend/services/opsTelemetry.service": "./backend/services/opsTelemetry.service.js",
     "./client": "./frontend/api.client.ts",

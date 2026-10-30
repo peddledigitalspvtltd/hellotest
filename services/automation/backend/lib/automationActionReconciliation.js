@@ -42,7 +42,7 @@ function requestSignature(request) {
   const keys = own(tools, request?.name), args = request?.arguments;
   if (!keys || !args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length !== keys.length
     || keys.some(key => !Object.hasOwn(args, key) || typeof args[key] !== 'string' || args[key].length > 2000)) return null;
-  const canonical = keys.map(key => [key, key === 'url' ? literalUrl(args[key])
+  const canonical = keys.map(key => [key, key === 'url' ? navigationUrlIdentity(args[key])
     : key === 'locator' ? requestedLocator(args[key]) : actionValueIdentity(args[key])]);
   if (canonical.some(([, value]) => value === null)) return null;
   return hash(JSON.stringify([request.name, canonical]));
@@ -120,7 +120,7 @@ function callRoot(node) {
   return node?.name;
 }
 function requestActionKey(request) {
-  if (request.name === 'browser_navigate') { const url = literalUrl(request.arguments.url); return url ? actionKey(request.name, ['url', url]) : null; }
+  if (request.name === 'browser_navigate') { const url = navigationUrlIdentity(request.arguments.url); return url ? actionKey(request.name, ['url', url]) : null; }
   const target = requestedLocator(request.arguments.locator);
   return target ? actionKey(request.name, target, request.arguments.value ?? request.arguments.key) : null;
 }
@@ -129,6 +129,11 @@ function literalUrl(value) {
   if (typeof value !== 'string' || !value || value.length > 2000) return null;
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : null; }
   catch { return null; }
+}
+
+function navigationUrlIdentity(value){
+  const reference=actionValueIdentity(value);
+  return Array.isArray(reference)?reference:literalUrl(value);
 }
 
 function candidateActions(source) {

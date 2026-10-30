@@ -9,6 +9,10 @@ const { completeAutomationBuild } = require("../lib/automationBuildCompletion");
 const {canonicalizeRepositoryRows,canonicalPageUrl,repositoryInputMetadata}=require("../lib/repositoryScreenIdentity");
 const {sameRecordedLocator}=require("../lib/automationLocatorIdentity");
 const {normalizeGeneratedProgram,preserveGeneratedAssertions}=require("../lib/automationGeneratedProgram");
+const { resolveAutomationCaseType, resolveAutomationCaseSteps, automationStepType, storedAutomationCaseType } = require('@hellotest/platform/backend/src/utils/automationCaseType');
+const { runtimeSpecialist, runtimeSpecialistInstructions } = require('../lib/automationRuntimeSpecialist');
+const { assertApiParameterBindings, apiParameterBindingContext } = require('../lib/automationApiParameterContract');
+const { automationExpectedResultTemplate } = require('../lib/automationExpectedResultTemplate');
 const {navigationOrigins,validateNavigationGrounding,validateApiRequestGrounding,scopeRepositoryToTarget,buildNavigationOrigins}=require('../lib/automationGenerationGrounding');
 const {normalizeAutomationStartUrl,requiresAutomationStartUrl}=require('@hellotest/platform/backend/src/utils/automationStartUrl');
 const { loadAutomationStoryContext, loadAutomationManualContext, manualContextKey, automationPromptParameters, loadAutomationParameterContext, resolveAutomationStartUrl } = require("../lib/automationBuildContext");
@@ -855,7 +859,7 @@ const buildObjectRepositoryEntry = (action) => {
     object_role: role,
     object_label: label,
     keyword: inferKeywordForAction(action),
-    parameter_hint: role === "field" ? inferRecorderFillValue(action) : role === "file" ? "@t.uploadFilePath" : null
+    parameter_hint: role === "field" || role === "file" ? recorderParameterHint(action) : null
   };
 };
 
@@ -901,7 +905,8 @@ const buildAiRecorderRepositoryNameSuggestions = async ({
   actions,
   integrationId,
   userId,
-  transactionId
+  transactionId,
+  projectPrompt = value => value
 }) => {
   const pages = [];
   const fields = [];
@@ -975,7 +980,7 @@ const buildAiRecorderRepositoryNameSuggestions = async ({
   try {
     const content = await requestChatCompletion({
       integration,
-      prompt: buildRecorderRepositoryNamingPrompt({ pages, fields, testCase }),
+      prompt: projectPrompt(buildRecorderRepositoryNamingPrompt({ pages, fields, testCase })),
       featureKey: 'ai.automation.dom_extraction'
     });
     const payload = extractJsonPayload(content);
@@ -1074,7 +1079,8 @@ const buildRecorderRepositoryModel = async ({
   integrationId,
   userId,
   transactionId,
-  platform = "web"
+  platform = "web",
+  projectPrompt
 } = {}) => {
   const actions = normalizeCapturedActions(capturedActions).filter((action) => isRecorderRepositoryLocator(action.locator));
   const existingRows = await loadRepositoryRowsForNaming(testCase);
@@ -1084,7 +1090,8 @@ const buildRecorderRepositoryModel = async ({
     actions,
     integrationId,
     userId,
-    transactionId
+    transactionId,
+    projectPrompt
   });
   const screenByPageKey = new Map();
   const screens = new Map();
@@ -1145,7 +1152,7 @@ const buildRecorderRepositoryModel = async ({
         object_label: inferObjectLabel(action),
         action,
         keyword: inferRecorderKeywordForPlatform(action, platform),
-        parameter_hint: inferObjectRole(action) === "field" ? inferRecorderFillValue(action) : inferObjectRole(action) === "file" ? "@t.uploadFilePath" : null,
+        parameter_hint: ['field','file'].includes(inferObjectRole(action)) ? recorderParameterHint(action) : null,
         page_url: normalizeText(action.url),
         page_key: screenName,
         page_identity: pageKey,
@@ -1186,7 +1193,7 @@ const buildRecorderRepositoryModel = async ({
       object_role: role,
       object_label: inferObjectLabel(action),
       keyword: inferRecorderKeywordForPlatform(action, platform),
-      parameter_hint: role === "field" ? inferRecorderFillValue(action) : role === "file" ? "@t.uploadFilePath" : null,
+      parameter_hint: role === "field" || role === "file" ? recorderParameterHint(action) : null,
       page_url: normalizeText(action.url),
       page_key: screenName,
       page_identity: pageKey,
@@ -1226,6 +1233,8 @@ const summarizeStep = (step) => ({
   type: inferAutomationStepType(step),
   action: step.action || "",
   expected_result: step.expected_result || "",
+  ...(step.parameterized_expected_result ? {parameterized_expected_result:step.parameterized_expected_result} : {}),
+  ...(step.parameter_bindings ? {parameter_bindings:step.parameter_bindings} : {}),
   group: { id: step.group_id, name: step.group_name, kind: step.group_kind, shared_group_id: step.reusable_group_id },
   has_existing_automation: Boolean(normalizeRichText(step.automation_code) || normalizeApiRequest(step.api_request)),
   existing_automation_code: normalizeRichText(step.automation_code),
@@ -1308,7 +1317,7 @@ const normalizeCapturedActions = (actions = []) =>
       url: normalizeText(action?.url),
       locator: normalizeText(action?.locator),
       text: normalizeText(action?.text),
-      value: normalizeText(action?.value),
+      value: typeof action?.value === 'string' ? action.value.replace(/\r\n/g, '\n') : null,
       page_id: normalizeText(action?.page_id || action?.pageId),
       page_title: normalizeText(action?.page_title || action?.pageTitle),
       x: action?.x != null && String(action.x).trim() && Number.isFinite(Number(action.x)) ? Number(action.x) : null,
@@ -1446,26 +1455,15 @@ const WEB_TYPE_OPTIONS_CODE = keywordOptionsCode({
 });
 
 const inferRecorderFillValue = (action) => {
-  const targetText = `${action.locator || ""} ${action.text || ""}`.toLowerCase();
-  const value = normalizeRichText(action.value);
+  // A recorder captures actual data, including a deliberately empty input.
+  // Parameter names come from the mapped source step, never field-name guesses.
+  return typeof action.value === 'string' ? action.value : '';
+};
 
-  if (/\b(password|secret|token|otp|passcode)\b/.test(targetText)) {
-    return "@t.password";
-  }
-
-  if (/\b(email)\b/.test(targetText)) {
-    return value || "@t.email";
-  }
-
-  if (/\b(user|username|login)\b/.test(targetText)) {
-    return value || "@t.username";
-  }
-
-  if (/\b(search|query)\b/.test(targetText)) {
-    return value || "@t.search";
-  }
-
-  return value || "@t.value";
+const recorderParameterHint = action => {
+  const {referenceKey,parameterReference}=require('../lib/automationBrowserParameters');
+  const name=referenceKey(inferRecorderFillValue(action));
+  return name?parameterReference(name):null;
 };
 
 const describeRecorderTarget = (action, fallback, repositoryModel) =>
@@ -1614,7 +1612,7 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
   }
 
   if (type === "upload") {
-    const value = normalizeRichText(action.value) || "@t.uploadFilePath";
+    const value = typeof action.value === 'string' ? action.value : '';
 
     if (target) {
       return {
@@ -1648,7 +1646,7 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
   }
 
   if (type === "select") {
-    const value = normalizeRichText(action.value) || normalizeRichText(action.text) || "@t.value";
+    const value = typeof action.value === 'string' ? action.value : normalizeRichText(action.text) || '';
 
     if (target) {
       return {
@@ -2048,7 +2046,8 @@ const buildAiRecorderMappings = async ({
   integrationId,
   userId,
   additionalContext,
-  transactionId
+  transactionId,
+  projectPrompt = value => value
 }) => {
   let integration = null;
 
@@ -2080,13 +2079,13 @@ const buildAiRecorderMappings = async ({
     const content = await requestChatCompletion({
       integration,
       featureKey: "ai.automation.recorder_mapping",
-      prompt: buildRecorderMappingPrompt({
+      prompt: projectPrompt(buildRecorderMappingPrompt({
         testCase,
         manualSteps,
         stepCandidates,
         capturedActions,
         additionalContext: normalizeRichText(additionalContext)
-      })
+      }))
     });
     const normalized = normalizeRecorderAiMappings(extractJsonPayload(content), manualSteps, stepCandidates);
 
@@ -2149,6 +2148,8 @@ const buildPrompt = ({
     "",
     aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.45"),
     aiInstructionBlock("ai.automation.keyword_generation", "automationBuild.apiRuntime"),
+    runtimeSpecialistInstructions(steps.map(step => inferAutomationStepType(step))),
+    JSON.stringify({automation_case_type:resolveAutomationCaseType(testCase,{steps,appTypeKind:testCase.app_type_kind}),runtime_specialists:[...new Set(steps.map(step=>inferAutomationStepType(step)))].map(runtimeSpecialist).filter(Boolean)}),
     "",
     aiInstructionBlock("ai.automation.keyword_generation", "aiAutomationBuilder.prompt.66"),
     "{",
@@ -2403,9 +2404,10 @@ const normalizeLlmBuild = (payload, steps, cacheRows, startUrl, grounding) => {
   const byStepId = new Map();
 
   candidates.forEach((candidate) => {
-    const normalized = normalizeStepCandidate(candidate, stepsById, stepsByOrder, grounding?.appTypeKind);
+    const normalized = normalizeStepCandidate(candidate, stepsById, stepsByOrder, grounding?.automationCaseType || grounding?.appTypeKind);
     if (!normalized || byStepId.has(normalized.step.id)) throw new Error("Automation output contains an unknown or duplicate step. Retry generation.");
-    if (normalized.step_type !== inferAutomationStepType(normalized.step, {appTypeKind:grounding?.appTypeKind})) throw new Error("Automation output changed a step runtime. Keep web, API and native steps in their original runtime.");
+    const expectedType = grounding?.automationCaseType ? automationStepType(normalized.step, grounding.automationCaseType) : inferAutomationStepType(normalized.step, {appTypeKind:grounding?.appTypeKind});
+    if (normalized.step_type !== expectedType) throw new Error("Automation output changed a step runtime. Keep web, API and native steps in their original runtime.");
     byStepId.set(normalized.step.id, normalized);
   });
 
@@ -2418,11 +2420,13 @@ const normalizeLlmBuild = (payload, steps, cacheRows, startUrl, grounding) => {
       try {automationCode=normalizeGeneratedProgram(automationCode,{runtime:stepType});if(stepType==='web')preserveGeneratedAssertions(step.automation_code,automationCode,{parameters:grounding?.parameters,resolveParameter:grounding?.resolveAssertionParameter});}
       catch(error){throw Object.assign(new Error(`Step ${step.step_order}: ${error.message}`),error.code==='AUTOMATION_GENERATED_ASSERTION_NOT_PRESERVED'?{code:error.code}:{});}
       if(stepType==='web'&&grounding)validateNavigationGrounding(automationCode,grounding.origins,{parameters:grounding.parameters,resolveText:grounding.resolveText});
+      if (stepType === 'web' && normalizeRichText(step.expected_result) && !require('../lib/automationGeneratedProgram').hasExecutableAssertion(automationCode)) throw Object.assign(new Error(`Step ${step.step_order} needs an executable assertion for its authored expected result.`), { code: 'AUTOMATION_EXPECTED_RESULT_ASSERTION_REQUIRED' });
       const runtimeNames = stepType === "web" ? ["page", "expect", "web", "params", "capture", "playwrightPage"] : ["android", "ios", "mobile", "driver", "browser", "$", "params", "capture"];
       try { new (Object.getPrototypeOf(async function () {}).constructor)(...runtimeNames, automationCode); }
       catch { throw new Error(`Step ${step.step_order} contains invalid JavaScript. Retry generation.`); }
     }
     if (stepType === "api" && !candidate?.api_request?.url) throw new Error(`Step ${step.step_order} needs a complete API request.`);
+    if (stepType === 'api' && grounding?.parameters) assertApiParameterBindings(step, candidate.api_request, grounding.parameters);
     if (stepType === "api" && grounding?.apiOrigins) validateApiRequestGrounding(candidate.api_request,grounding.apiOrigins,grounding.resolveText);
 
     return {
@@ -2457,7 +2461,7 @@ const normalizeLlmBuild = (payload, steps, cacheRows, startUrl, grounding) => {
 /** Develop an unsaved complete case using the same native completion, browser
  * inspection and portable source contracts as the Automation Engineer. No
  * partial section is published; the caller receives one validated whole case. */
-exports.previewAutomationDraft = async ({ draft, project_id, app_type_id, app_type_kind = 'web', user_id, integration_id, additional_context, inspect_browser = false, signal } = {}) => {
+exports.previewAutomationDraft = async ({ draft, runtime_parameter_values = {}, project_id, app_type_id, app_type_kind = 'web', user_id, integration_id, additional_context, inspect_browser = false, signal } = {}) => {
   if (!project_id || !app_type_id || !user_id || !draft || typeof draft !== 'object') throw Object.assign(new Error('Supply the project, application, actor and Test Case draft for automation preview.'), {statusCode:400});
   const access = await getOptionalEvidenceAccess({id:user_id}, project_id, ['automation.ai','automation.build']);
   if (!access['automation.ai'] || !access['automation.build']) throw Object.assign(new Error('Automation preview requires AI and build access.'), {statusCode:403});
@@ -2468,15 +2472,21 @@ exports.previewAutomationDraft = async ({ draft, project_id, app_type_id, app_ty
   if (!source.length || source.length > 200) throw Object.assign(new Error('Automation preview needs between 1 and 200 authored Test Case steps.'),{statusCode:422});
   const apiFixture=step=>!normalizeRichText(step.automation_code)&&(!step.step_type||['manual','web'].includes(step.step_type))&&(step.gherkin_keyword==='Given'||step.gherkin_role==='background'&&step.gherkin_keyword==='And')&&/\b(?:existing|exists|available|configured|valid|authenticated|precondition|fixture|API)\b/i.test(step.action||'')&&!/\b(?:browser|page|screen|dashboard|button|tab|window|click|tap|type|fill|enter|select|navigate|browse|visit|hover|scroll)\b/i.test(step.action||'')&&!/^(?:I\s+)?open\b/i.test(step.action||'');
   const apiScenario=source.some(step=>step.gherkin_keyword==='When'&&inferAutomationStepType(step)==='api')&&source.every(step=>inferAutomationStepType(step)==='api'||apiFixture(step));
-  const steps = source.map((step,index)=>({...step,id:typeof step.id==='string'&&step.id?step.id:`draft-step-${index+1}`,step_order:index+1,step_type:inferAutomationStepType(step,{appTypeKind:apiScenario&&apiFixture(step)?'api':app_type_kind})}));
-  const startUrl=normalizeAutomationStartUrl(draft.automation_start_url,{required:requiresAutomationStartUrl({appTypeKind:app_type_kind,steps})});
+  const platform = resolveAutomationCaseSteps(draft, source.map((step,index)=>({...step,id:typeof step.id==='string'&&step.id?step.id:`draft-step-${index+1}`,step_order:index+1,step_type:apiScenario&&apiFixture(step)?'api':step.step_type})), { appTypeKind:app_type_kind });
+  const automationCaseType = platform.automation_case_type;
+  const steps = platform.steps;
+  const startUrl=normalizeAutomationStartUrl(draft.automation_start_url,{required:requiresAutomationStartUrl({appTypeKind:automationCaseType,steps})});
   if (new Set(steps.map(step=>step.id)).size !== steps.length) throw Object.assign(new Error('Draft step identifiers must be unique.'),{statusCode:422});
   const featureKey = 'ai.agentic.automation-engineer';
   const featureProfile=await require('@hellotest/platform/backend/services/aiConfiguration.service').resolve(featureKey);
   const integration = await resolveLlmIntegration(integration_id,{userId:user_id,projectId:project_id,usageKey:featureKey});
   if (!integration) throw Object.assign(new Error('Configure an active LLM integration before generating automation.'),{statusCode:422});
-  const resolver=require('../lib/automationBrowserParameters').createBrowserParameterResolver({testCase:draft,caseValues:draft.parameter_values||{},privateParameterNames:draft.test_data_options?.private_parameter_names||[],steps,materialize:false});
-  const promptSteps=resolver.projectSteps(steps).map(step=>JSON.parse(resolver.projectPrivateText(JSON.stringify(step),{preserveReferences:true})));
+  const resolver=require('../lib/automationBrowserParameters').createBrowserParameterResolver({testCase:draft,caseValues:{...(draft.parameter_values||{}),...runtime_parameter_values},privateParameterNames:[...(draft.test_data_options?.private_parameter_names||[]),...Object.keys(runtime_parameter_values)],steps,materialize:false});
+  const promptSteps=resolver.projectSteps(steps).map((step,index)=>({
+    ...JSON.parse(resolver.projectPrivateText(JSON.stringify(step),{preserveReferences:true})),
+    ...automationExpectedResultTemplate(steps[index],resolver),
+    ...(step.step_type==='api'?{parameter_bindings:apiParameterBindingContext(steps[index],resolver.promptValues)}:{})
+  }));
   const observations = [];
   let browser;
   const assertAccess = async () => {
@@ -2498,13 +2508,13 @@ exports.previewAutomationDraft = async ({ draft, project_id, app_type_id, app_ty
         catch (error) { throw resolver.redactError(error); }
       };
     }
-    const prompt = buildPrompt({featureKey,testCase:resolver.projectCase({...draft,project_id,app_type_id,app_type_kind}),steps:promptSteps,cacheRows:[],knowledgeRows:[],capturedActions:[],capturedNetwork:[],startUrl,buildContext:{generation_mode:'complete_case_draft',verification_status:'unverified',browser_policy:{transport:browser?'playwright_mcp':'not_requested',interaction_mode:browser?'read_only':'not_configured'}},additionalContext:resolver.projectText(normalizeRichText(additional_context))});
+    const prompt = buildPrompt({featureKey,testCase:resolver.projectCase({...draft,automation_case_type:automationCaseType,project_id,app_type_id,app_type_kind}),steps:promptSteps,cacheRows:[],knowledgeRows:[],capturedActions:[],capturedNetwork:[],startUrl,buildContext:{generation_mode:'complete_case_draft',verification_status:'unverified',browser_policy:{transport:browser?'playwright_mcp':'not_requested',interaction_mode:browser?'read_only':'not_configured'}},additionalContext:resolver.projectText(normalizeRichText(additional_context))});
     const complete = async (input, remainingMs = LLM_TIMEOUT_MS) => {
       await assertAccess();
       return requestChatCompletion({integration,featureKey,prompt:input,signal,timeoutMs:Math.min(LLM_TIMEOUT_MS,remainingMs)});
     };
     const validate = (payload, required) => {
-      const build=normalizeLlmBuild(payload,required,[],startUrl,{appTypeKind:app_type_kind,apiOrigins:navigationOrigins(startUrl,additional_context,steps),origins:navigationOrigins(startUrl,additional_context,steps)});
+      const build=normalizeLlmBuild(payload,required,[],startUrl,{appTypeKind:app_type_kind,automationCaseType,parameters:resolver.promptValues,apiOrigins:navigationOrigins(startUrl,additional_context,steps),origins:navigationOrigins(startUrl,additional_context,steps)});
       for (const update of build.updates) if (update.step_type==='web' && normalizeRichText(update.step.expected_result)
         && !require('../lib/automationGeneratedProgram').hasExecutableAssertion(update.automation_code)) {
         throw new Error(`Step ${update.step.step_order} needs an executable assertion for its authored expected result.`);
@@ -2522,15 +2532,24 @@ exports.previewAutomationDraft = async ({ draft, project_id, app_type_id, app_ty
     },parse:value=>typeof value==='string'?extractJsonPayload(value):value});
     await assertAccess();
     const nativeSteps=build.updates.map(update=>({...update.step,step_type:update.step_type,automation_code:update.automation_code,api_request:update.api_request}));
-    const nativeDraft={...draft,automated:'yes',status:'draft',automation_status:'incomplete',steps:nativeSteps};
+    if (resolver.projectPrivateText(JSON.stringify(nativeSteps),{preserveReferences:true}) !== JSON.stringify(nativeSteps)) throw Object.assign(new Error('Generated automation contains a private input literal. Regenerate it using its exact scoped parameter reference.'),{
+      code:'AUTOMATION_PRIVATE_VALUE_IN_SOURCE',statusCode:422,publicMessage:'Generated automation contains a private input literal. Regenerate it using its exact scoped parameter reference.'});
+    const nativeDraft=JSON.parse(resolver.projectPrivateText(JSON.stringify({...draft,automation_case_type:automationCaseType,test_data_options:{...parseJsonValue(draft.test_data_options,{}),automation_case_type:automationCaseType},parameter_values:resolver.publicParameterValues,automated:'yes',status:'draft',automation_status:'incomplete',steps:nativeSteps}),{preserveReferences:true}));
     const hasMobile=nativeSteps.some(step=>['android','ios'].includes(step.step_type));
     const executable = hasMobile ? null : await createArtifactContent({testCase:nativeDraft,updates:build.updates,values:resolver.publicParameterValues,baseURL:startUrl||''});
-    return {draft:nativeDraft,steps:nativeSteps,automation_start_url:startUrl || null,summary:build.summary,
+    return {draft:nativeDraft,steps:nativeSteps,parameter_values:resolver.publicParameterValues,
+      parameter_bindings:{private_parameter_references:resolver.privateParameterNames,required_external_parameters:resolver.referencedParameterNames(nativeSteps).filter(name=>resolver.privateParameterNames.includes(name)||/^[ts]\./.test(name)&&!Object.hasOwn(resolver.publicParameterValues,name))},
+      automation_start_url:startUrl || null,summary:resolver.projectPrivateText(build.summary),
       instructions:nativeSteps.map(step=>({step_order:step.step_order,action:step.action,expected_result:step.expected_result,runtime:step.step_type})),
       executable:executable?{filename:'automation.spec.ts',language:'typescript',framework:'playwright',code:executable}:null,
       verification_status:'unverified',validation:{status:'passed',checks:['native_request_contract','step_runtime_and_order','expected_result_assertions','existing_assertions_preserved','whole_case_completion']},generation_mode:'llm',integration:{id:integration.id,name:integration.name,model:integration.model},completion_attempts:build.completion_attempts,
       browser_evidence:{transport:browser?'playwright_mcp':'not_requested',interaction_mode:browser?'read_only':'not_configured',observation_count:observations.filter(item=>item.mcp_call!==false).length},
       side_effects:{cases_saved:0,target_requests:observations.filter(item=>item.tool==='browser_navigate'&&item.mcp_call!==false).length,browser_actions:0}};
+  } catch(error) {
+    resolver.redactError(error);
+    for (const key of ['publicMessage','blocked_steps','validation_feedback']) if (error[key] != null) error[key] = typeof error[key] === 'string'
+      ? resolver.projectPrivateText(error[key]) : JSON.parse(resolver.projectPrivateText(JSON.stringify(error[key])));
+    throw error;
   } finally { await browser?.close(); }
 };
 
@@ -2698,6 +2717,7 @@ const applyBuild = async ({ build, executionGuard, createdBy, progressiveState, 
       const currentCase = await db.prepare(caseSql).get(caseId);
       if (build.app_type_id !== undefined && (!currentCase || currentCase.app_type_id !== build.app_type_id || currentCase.project_id !== build.project_id)) throw Object.assign(new Error('The automation case application or project changed while the agent was building. Existing instructions were retained; refresh before building again.'), { statusCode: 409, code: 'AUTOMATION_TARGET_CHANGED' });
       if (build.case_start_url !== undefined && (currentCase.automation_start_url || null) !== build.case_start_url) throw Object.assign(new Error('Start URL changed while the agent was building. Existing instructions were retained; retry using the reviewed target.'), { statusCode: 409, code: 'AUTOMATION_START_URL_CHANGED' });
+      if (build.case_platform_key !== undefined && storedAutomationCaseType(currentCase) !== build.case_platform_key) throw Object.assign(new Error('The automation case type changed while the agent was building. Existing instructions were retained; rebuild using the current platform.'), { statusCode: 409, code: 'AUTOMATION_CASE_TYPE_CHANGED' });
       if (build.manual_context) {
         const links = await db.prepare('SELECT manual_test_case_id FROM automation_case_links WHERE automation_test_case_id = ? ORDER BY manual_test_case_id').all(caseId);
         if (JSON.stringify(links.map(row => row.manual_test_case_id)) !== JSON.stringify(build.manual_link_ids)) throw new Error('Linked manual cases changed while the agent was building. Existing instructions were retained; retry using the current linked cases.');
@@ -2803,23 +2823,30 @@ const buildCaseCore = async ({
   const reviewedParameterState=await require('./automationBuildParameterPlan.service').loadState({testCase,userId:created_by,test_environment_id,test_configuration_id,test_data_set_id,test_suite_id,parameter_values:buildParameterValues,expectedKey:parameter_plan_key});
   test_suite_id ??= reviewedParameterState.plan.test_suite_id;
   let steps = await selectStepsForCase.all(test_case_id);
+  const selectedPlatform = resolveAutomationCaseSteps(testCase, steps, { appTypeKind: testCase.app_type_kind });
+  const automationCaseType = selectedPlatform.automation_case_type;
 
-  if (isMobileAppType(testCase.app_type_kind) || steps.some((step) => ["android", "ios"].includes(step.step_type))) {
+  if (['android','ios'].includes(automationCaseType) || selectedPlatform.steps.some((step) => ["android", "ios"].includes(step.step_type))) {
     await mobileFeatureService.assertMobileFeatureEnabled();
     const mobileAccess = await getOptionalEvidenceAccess({ id: created_by }, testCase.project_id, ["mobile.manage"]);
     if (!mobileAccess["mobile.manage"]) throw Object.assign(new Error("Mobile management permission is required to build native automation."), { statusCode: 403 });
   }
 
-  const browserBuild=requiresAutomationStartUrl({appTypeKind:testCase.app_type_kind,steps});
+  const browserBuild=requiresAutomationStartUrl({appTypeKind:automationCaseType,steps:selectedPlatform.steps});
   const selectedStartUrl=normalizeAutomationStartUrl(start_url!=null?start_url:testCase.automation_start_url,{required:browserBuild});
   const preparedTarget = await automationCasePreparationService.prepareAutomationTarget({ testCaseId: test_case_id, createdBy: created_by, aiGenerated: true, startUrl:selectedStartUrl });
   if (preparedTarget.test_case_id !== test_case_id) {
     test_case_id = preparedTarget.test_case_id;
     testCase = await selectCaseWithScope.get(test_case_id);
     steps = await selectStepsForCase.all(test_case_id);
+    resolveAutomationCaseSteps(testCase, steps, { appTypeKind: testCase.app_type_kind });
   }
+  const preparedPlatform = resolveAutomationCaseSteps(testCase, steps, { appTypeKind: testCase.app_type_kind });
+  if (preparedPlatform.automation_case_type !== automationCaseType) throw Object.assign(new Error('The linked automation case uses a different platform than the reviewed source. Open the automation case, review its steps and build using its selected type.'), { code: 'AUTOMATION_CASE_TYPE_CHANGED', statusCode: 409, nonRetryable: true });
+  const reviewedPlatformKey = storedAutomationCaseType(testCase);
   const reviewedNavigation = await require('../lib/automationBuildStartUrl').resolveBuildStartUrl({testCase,steps,startUrl:selectedStartUrl,userId:created_by,startUrlReview:start_url_review});
   testCase=await selectCaseWithScope.get(test_case_id);
+  if (storedAutomationCaseType(testCase) !== reviewedPlatformKey) throw Object.assign(new Error('The automation case type changed before generation started. Review the current platform and start a new build.'), { code: 'AUTOMATION_CASE_TYPE_CHANGED', statusCode: 409, nonRetryable: true });
   if((testCase.automation_start_url||null)!==reviewedNavigation.savedStartUrl)throw Object.assign(new Error('Start URL changed before generation started. Submit a new build with the current target.'),{statusCode:409,code:'AUTOMATION_START_URL_CHANGED'});
   const needsFlowPlanning=!steps.length;
   if(needsFlowPlanning)require('../lib/automationFlowPlanning').assertFlowPlanningFeature(buildFeature(ai_feature));
@@ -2855,7 +2882,7 @@ const buildCaseCore = async ({
   const manualLinkIds=(await db.prepare('SELECT manual_test_case_id FROM automation_case_links WHERE automation_test_case_id = ? ORDER BY manual_test_case_id').all(test_case_id)).map(row=>row.manual_test_case_id);
   buildContext.story_context = contextPolicy.mode !== "none" && contextSelection.context_scopes.includes("stories") ? await loadAutomationStoryContext({ caseId: test_case_id, projectId: testCase.project_id, userId: created_by }) : {stories:[],related_stories:[]};
   buildContext.retrieval = {transport:knowledgeRows.context_transport,scopes:contextSelection.context_scopes,limitations:knowledgeRows.limitations,coverage:knowledgeRows.coverage,reviewed_context:knowledgeRows.reviewed_context,supplemental_limitations:knowledgeRows.supplemental_limitations};
-  buildContext.case_metadata = {id:testCase.id,title:testCase.title,description:testCase.description,authoring_mode:testCase.authoring_mode,gherkin_document:testCase.gherkin_document,preconditions:testCase.preconditions,priority:testCase.priority,labels:safeJson(testCase.labels,[])};
+  buildContext.case_metadata = {id:testCase.id,title:testCase.title,description:testCase.description,automation_case_type:automationCaseType,allowed_step_types:selectedPlatform.allowed_step_types,authoring_mode:testCase.authoring_mode,gherkin_document:testCase.gherkin_document,preconditions:testCase.preconditions,priority:testCase.priority,labels:safeJson(testCase.labels,[])};
   let navigation = resolveAutomationStartUrl({startUrl:selectedStartUrl,caseUrl:testCase.automation_start_url,environmentUrl:buildContext.environment?.base_url,steps,required:browserBuild});
   let startUrl = navigation.url;
   buildContext.browser_policy={transport:'playwright_mcp',interaction_mode:startUrl?(allow_browser_actions===true?'interactive':'read_only'):'not_configured',entry_url:startUrl,entry_origin:startUrl?new URL(startUrl).origin:null,target_source:navigation.source,entry_url_is_authoritative:browserBuild,verification_status:'unverified'};
@@ -2909,14 +2936,21 @@ const buildCaseCore = async ({
   let dataSnapshot=await require('../lib/automationBuildDataSnapshot').prepareBuildDataSnapshot({testCase,projectId:testCase.project_id,userId:created_by,generatedValues:browserParameters.generatedCaseValues,authoredValues:browserParameters.reviewedCaseValues,defaultedValues:browserParameters.defaultedCaseValues,parameterOverrides:parameterContext.parameter_overrides,privateNames:browserParameters.privateParameterNames});
   const inputContext={selection:{test_environment_id,test_configuration_id,test_data_set_id,test_suite_id},source_key:browserParameters.inputSourceKey};
   const progressiveState={steps:structuredClone(steps),parameter_context_key:parameterContext.source_key,input_context:inputContext,data_snapshot:dataSnapshot};
-  const buildIdentity={manual_context:buildContext.linked_manual_cases,manual_link_ids:manualLinkIds,parameter_context_key:parameterContext.source_key,input_context:inputContext,data_snapshot:dataSnapshot,project_id:testCase.project_id,app_type_id:testCase.app_type_id,case_start_url:reviewedNavigation.savedStartUrl};
+  const buildIdentity={manual_context:buildContext.linked_manual_cases,manual_link_ids:manualLinkIds,parameter_context_key:parameterContext.source_key,input_context:inputContext,data_snapshot:dataSnapshot,project_id:testCase.project_id,app_type_id:testCase.app_type_id,case_start_url:reviewedNavigation.savedStartUrl,case_platform_key:storedAutomationCaseType(testCase)};
   const promptCase=browserParameters.projectCase(testCase);
-  const projectBuildSteps=source=>browserParameters.projectSteps(source).map(step=>({...step,step_type:inferAutomationStepType(step,{appTypeKind:testCase.app_type_kind})}));
+  const projectBuildSteps=source=>browserParameters.projectSteps(source).map((step,index)=>{const type=automationStepType(step,automationCaseType);return {...step,step_type:type,...automationExpectedResultTemplate(source[index],browserParameters),...(type==='api'?{parameter_bindings:apiParameterBindingContext(source[index],browserParameters.promptValues)}:{})};});
   let promptSteps=projectBuildSteps(steps);
   navigation=resolveAutomationStartUrl({startUrl:selectedStartUrl,caseUrl:testCase.automation_start_url,environmentUrl:browserParameters.projectText(buildContext.environment?.base_url),steps:promptSteps,required:browserBuild});
   startUrl=navigation.url;
   buildContext.browser_policy={...buildContext.browser_policy,interaction_mode:startUrl?(allow_browser_actions===true?'interactive':'read_only'):'not_configured',entry_url:startUrl,entry_origin:startUrl?new URL(startUrl).origin:null};
   const promptBuildContext=browserParameters.projectBuildContext(buildContext);
+  for(const manualCase of promptBuildContext.linked_manual_cases){
+    const sourceCase=buildContext.linked_manual_cases.find(item=>item.id===manualCase.id);
+    for(const step of manualCase.steps){
+      const sourceStep=sourceCase?.steps.find(item=>item.id===step.id);
+      Object.assign(step,automationExpectedResultTemplate(sourceStep,browserParameters));
+    }
+  }
   if(transaction_id)try{
     const artifact=await require('./automationAgentActivity.service').createBuildData(transaction_id,browserParameters.buildData({testCaseId:test_case_id,steps,manualCases:buildContext.linked_manual_cases}));
     await progress({phase:'automation.agent.data',message:'Prepared the linked case data for this build.',details:artifact});
@@ -2964,14 +2998,14 @@ const buildCaseCore = async ({
     const access=await getOptionalEvidenceAccess({id:created_by},testCase.project_id,permissions);
     if(permissions.some(permission=>!access[permission]))throw Object.assign(new Error('Automation build or test context access changed. Existing instructions were retained.'),{statusCode:403});
   };
-  const completeBuild=async(input,remainingMs=LLM_TIMEOUT_MS,traceOptions={})=>{await assertBuildContextAccess();const attempt=completionAttempt;if(!planningFlow&&!generationModelCalls.has(attempt))generationModelCalls.set(attempt,[]);return require("@hellotest/platform/backend/src/utils/llmTraceContext").run({project_id:testCase.project_id,actor_id:created_by,session_id:transaction_id,completion_attempt:attempt,test_case_id,generation_scope:traceOptions.generationScope||(planningFlow?'flow_plan':completionActiveStepId?'section_attempt':'case_attempt'),generation_section_ids:completionSectionIds,section_attempt:completionSectionAttempt,
+  const completeBuild=async(input,remainingMs=LLM_TIMEOUT_MS,traceOptions={})=>{await assertBuildContextAccess();const specialist=runtimeSpecialist(promptSteps.find(step=>step.id===completionActiveStepId)?.step_type);const specialistInstructions=runtimeSpecialistInstructions(specialist?[specialist.id]:planningFlow?selectedPlatform.allowed_step_types:promptSteps.map(step=>step.step_type));const attempt=completionAttempt;if(!planningFlow&&!generationModelCalls.has(attempt))generationModelCalls.set(attempt,[]);return require("@hellotest/platform/backend/src/utils/llmTraceContext").run({project_id:testCase.project_id,actor_id:created_by,session_id:transaction_id,completion_attempt:attempt,test_case_id,generation_scope:traceOptions.generationScope||(planningFlow?'flow_plan':completionActiveStepId?'section_attempt':'case_attempt'),generation_section_ids:completionSectionIds,section_attempt:completionSectionAttempt,
     on_llm_trace:transaction_id?record=>{
       // Bind previews to the actual response being consumed, before the optional
       // event sink. One case-level response can develop several sections.
       if(!planningFlow&&record.status==="succeeded"&&record.dispatched&&typeof record.call_id==="string")generationModelCalls.set(attempt,[...new Set([...(generationModelCalls.get(attempt)||[]),record.call_id])]);
-      return appendEvent(transaction_id,require("@hellotest/platform/backend/src/utils/agentModelTrace").modelTraceEvent(record,{name:"Automation engineer",caseId:test_case_id}));
+      return appendEvent(transaction_id,require("@hellotest/platform/backend/src/utils/agentModelTrace").modelTraceEvent(record,{name:specialist?.name||"Automation engineer",caseId:test_case_id}));
     }:undefined,
-    automation_case_generation:true,automation_actor_phase:traceOptions.browserActor===true,automation_browser_loop:Boolean(browser)||planningFlow,mcp_context_depth:1,mcp_context:knowledgeRows.knowledge.length?"retrieved":knowledgeRows.context_transport === "not_required"?"not_required":"unavailable"},()=>{generationRequested=true;return requestChatCompletion({integration,featureKey:buildFeature(ai_feature),prompt:input,signal:execution_guard?.signal,timeoutMs:Math.min(LLM_TIMEOUT_MS,remainingMs),maxAttempts:traceOptions.generationScope==='verification_repair'?1:undefined,beforeDispatch:assertBuildContextAccess,activeGoal:traceOptions.browserActor===true?promptSteps.find(step=>step.id===completionActiveStepId):undefined,onCapacityWait:details=>progress({phase:'automation.agent.model.capacity.wait',message:'The model provider requested a short wait. Retaining the current browser and completed actions before retrying the rejected request.',details:{...details,active_step_id:completionActiveStepId}})});} );};
+    automation_case_generation:true,automation_specialist:specialist?.id||null,automation_case_type:automationCaseType,automation_actor_phase:traceOptions.browserActor===true,automation_browser_loop:Boolean(browser)||planningFlow,mcp_context_depth:1,mcp_context:knowledgeRows.knowledge.length?"retrieved":knowledgeRows.context_transport === "not_required"?"not_required":"unavailable"},()=>{generationRequested=true;return requestChatCompletion({integration,featureKey:buildFeature(ai_feature),prompt:[specialistInstructions,input].filter(Boolean).join("\n\n"),signal:execution_guard?.signal,timeoutMs:Math.min(LLM_TIMEOUT_MS,remainingMs),maxAttempts:traceOptions.generationScope==='verification_repair'?1:undefined,beforeDispatch:assertBuildContextAccess,activeGoal:traceOptions.browserActor===true?promptSteps.find(step=>step.id===completionActiveStepId):undefined,onCapacityWait:details=>progress({phase:'automation.agent.model.capacity.wait',message:'The model provider requested a short wait. Retaining the current browser and completed actions before retrying the rejected request.',details:{...details,active_step_id:completionActiveStepId}})});} );};
   try {
     if(allow_browser_actions===true&&browserBuild&&!needsFlowPlanning){
       try {
@@ -2984,7 +3018,7 @@ const buildCaseCore = async ({
       try{require('../lib/automationBuildInputPreflight').assertBuildInputs(steps,browserParameters);}
       catch(error){completionActiveStepId=error.active_step_id;await progress({phase:'automation.agent.dependencies',level:'warning',message:error.message,details:{blocked_steps:error.blocked_steps,active_step_id:error.active_step_id,generation_provider_requests:0,browser_actions:0}});throw error;}
     }
-    if (startUrl && (needsFlowPlanning&&browserBuild||steps.some((step) => inferAutomationStepType(step, {appTypeKind:testCase.app_type_kind}) === "web"))) {
+    if (startUrl && (needsFlowPlanning&&browserBuild||steps.some((step) => automationStepType(step,automationCaseType) === "web"))) {
       const engine = await resolveTestEngineIntegration(testCase);
       browser = await connectAutomationBrowser({ integration: engine, startUrl, allowBrowserActions: allow_browser_actions === true, signal:execution_guard?.signal });
       const callBrowser=browser.call;
@@ -3004,7 +3038,7 @@ const buildCaseCore = async ({
       await appendEvent(transaction_id, { phase: "automation.agent.context", message: "Generating from the supplied case and repository context. No live web inspection was requested." });
     }
     if(needsFlowPlanning){
-      const allowedTypes=testCase.app_type_kind==='unified'?['web','api','android','ios']:[normalizeTestStepType(testCase.app_type_kind,'web')];
+      const allowedTypes=selectedPlatform.allowed_step_types;
       const flowPlanning=require('../lib/automationFlowPlanning');
       const planningCase={...promptCase};
       for(const field of ['title','description','gherkin_document','preconditions'])if(typeof testCase[field]==='string')planningCase[field]=flowPlanning.projectFlowPlanningBrief(testCase[field],browserParameters);
@@ -3036,8 +3070,8 @@ const buildCaseCore = async ({
       catch(error){if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;await appendEvent(transaction_id,{phase:'automation.agent.data.unavailable',level:'warning',message:'The optional planned-data display could not be stored. Generation continues with the same fixed values.'}).catch(()=>{});}
       await progress({phase:'automation.agent.flow.planned',message:`Prepared ${steps.length} draft manual actions. Each will be performed, generated and saved in order.`,details:{flow_source:'agent_brief',total_sections:steps.length,verification_status:'unverified'}});
     }
-    build = await completeAutomationBuild({steps,manualSteps:buildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),displaySteps:promptSteps,displayManualSteps:promptBuildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),sequential:browserBuild||steps.some(step=>inferAutomationStepType(step,{appTypeKind:testCase.app_type_kind})==='api')||buildContext.linked_manual_cases.length>0,progressionPolicy,availableParameters:browserParameters.availableParameterNames,feedbackInstruction:aiInstructionBlock(buildFeature(ai_feature),"automationBuild.completionFeedback"),
-      validate:(payload,requiredSteps)=>normalizeLlmBuild(payload,requiredSteps,cacheRows,startUrl,{appTypeKind:testCase.app_type_kind,apiOrigins:navigationOrigins(startUrl,additional_context,steps,capturedNetwork,knowledgeRows.knowledge,promptBuildContext),origins:buildNavigationOrigins({startUrl,additionalContext:additional_context,observations:browserObservations}),parameters:browserParameters.promptValues,resolveText:browserParameters.projectText,
+    build = await completeAutomationBuild({steps,manualSteps:buildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),displaySteps:promptSteps,displayManualSteps:promptBuildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),sequential:browserBuild||steps.some(step=>automationStepType(step,automationCaseType)==='api')||buildContext.linked_manual_cases.length>0,progressionPolicy,availableParameters:browserParameters.availableParameterNames,feedbackInstruction:aiInstructionBlock(buildFeature(ai_feature),"automationBuild.completionFeedback"),
+      validate:(payload,requiredSteps)=>normalizeLlmBuild(payload,requiredSteps,cacheRows,startUrl,{appTypeKind:testCase.app_type_kind,automationCaseType,apiOrigins:navigationOrigins(startUrl,additional_context,steps,capturedNetwork,knowledgeRows.knowledge,promptBuildContext),origins:buildNavigationOrigins({startUrl,additionalContext:additional_context,observations:browserObservations}),parameters:browserParameters.promptValues,resolveText:browserParameters.projectText,
         resolveAssertionParameter:key=>browserParameters.resolve('browser_assert',{value:require('../lib/automationBrowserParameters').parameterReference(key)}).value}),
       validateOutcome:payload=>require('@hellotest/platform/backend/src/utils/aiFeatureRuntime').validateValue(payload,featureProfile),
       onProgress:async event=>{await execution_guard?.ensureOwnership();return progress(event);},
@@ -3381,19 +3415,27 @@ const finalizeRecorderBuild = async ({
   capturedNetwork,
   integrationId,
   additionalContext,
-  targetStepId
+  targetStepId,
+  parameterSelection = {}
 }) => {
+  const caseSteps = await selectStepsForCase.all(testCase.id);
+  const existingSteps = targetStepId ? caseSteps.filter((step) => step.id === targetStepId) : caseSteps;
+  const parameterContext=await loadAutomationParameterContext({testCase,projectId:testCase.project_id,userId:createdBy});
+  const recorderParameters=await require('../lib/automationBrowserParameters').loadBrowserParameterResolver({testCase,projectId:testCase.project_id,userId:createdBy,
+    caseValues:parameterContext.runtime_parameter_values,privateParameterNames:parameterContext.private_parameter_names,parameterOverrides:parameterContext.parameter_overrides,
+    steps:existingSteps,materialize:false,allowUnselectedSuite:true,...parameterSelection});
+  const {bindRecorderParameterCandidates,recorderPromptProjector}=require('../lib/automationRecorderParameters');
+  const projectPrompt=recorderPromptProjector({actions:capturedActions,resolver:recorderParameters});
   const repositoryModel = await buildRecorderRepositoryModel({
     testCase,
     capturedActions,
     integrationId,
     userId: createdBy,
     transactionId,
-    platform: "web"
+    platform: "web",
+    projectPrompt
   });
-  const stepCandidates = buildRecorderStepCandidates(capturedActions, repositoryModel);
-  const caseSteps = await selectStepsForCase.all(testCase.id);
-  const existingSteps = targetStepId ? caseSteps.filter((step) => step.id === targetStepId) : caseSteps;
+  let stepCandidates = buildRecorderStepCandidates(capturedActions, repositoryModel);
   let recorderMappings = [];
   let mappingSource = existingSteps.length ? "fallback" : "created";
   let aiMappingFallbackReason = null;
@@ -3422,7 +3464,8 @@ const finalizeRecorderBuild = async ({
       integrationId,
       userId: createdBy,
       additionalContext,
-      transactionId
+      transactionId,
+      projectPrompt
     });
 
     if (aiMappings.mappings.length) {
@@ -3465,6 +3508,9 @@ const finalizeRecorderBuild = async ({
     }
   }
 
+  const bound=bindRecorderParameterCandidates({candidates:stepCandidates,mappings:recorderMappings,actions:capturedActions,resolver:recorderParameters,
+    rebuildCandidate:(action,order)=>buildRecorderStepCandidate(action,order,repositoryModel)});
+  stepCandidates=bound.candidates;recorderMappings=bound.mappings;
   const appliedSteps = await applyRecorderSteps({
     testCase,
     stepCandidates,
@@ -3493,6 +3539,8 @@ const finalizeRecorderBuild = async ({
       mime_type: "text/typescript; charset=utf-8",
       content: await createArtifactContent({
         testCase,
+        values:recorderParameters.exportParameterValues,
+        sensitiveNames:recorderParameters.privateParameterNames,
         repositoryRows: await listLearningCacheRows({projectId:testCase.project_id,appTypeId:testCase.app_type_id,limit:MAX_CACHE_ROWS}),
         updates: appliedSteps.map((step) => ({
           step: {
@@ -5007,6 +5055,7 @@ exports.startRecorderSession = async ({
   test_environment_id,
   test_configuration_id,
   test_data_set_id,
+  test_suite_id,
   target_step_id,
   created_by
 } = {}) => {
@@ -5023,6 +5072,8 @@ exports.startRecorderSession = async ({
   }
 
   const steps = await selectStepsForCase.all(testCaseId);
+  const platform = resolveAutomationCaseSteps(testCase, steps, { appTypeKind: testCase.app_type_kind });
+  if (platform.automation_case_type === 'api') throw Object.assign(new Error('API automation uses the request editor or API Automation Engineer. Browser recording is unavailable for API-only cases.'), { statusCode: 422, code: 'AUTOMATION_RECORDER_RUNTIME_MISMATCH' });
   const targetStepId = normalizeText(target_step_id);
 
   if (targetStepId && !steps.some((step) => step.id === targetStepId)) {
@@ -5036,12 +5087,21 @@ exports.startRecorderSession = async ({
   });
   const integration = await resolveTestEngineIntegration(testCase);
   const recorderMode = normalizeText(recorder_mode) === "local" ? "local" : "remote";
-  const targetStep = targetStepId ? steps.find((step) => step.id === targetStepId) : null;
+  const targetStep = targetStepId ? platform.steps.find((step) => step.id === targetStepId) : null;
   if (targetStep?.step_type === "api") throw new Error("Use the request editor for API steps; choose a Web or native step for recording.");
   const recorderTarget = targetStep ? (isMobileAppType(targetStep.step_type) ? "mobile" : "web")
-    : isMobileRecorderTarget(recorder_target) || isMobileAppType(testCase.app_type_kind)
-      || (steps.some((step) => isMobileAppType(step.step_type)) && !steps.some((step) => step.step_type === "web")) ? "mobile" : "web";
-  const mobilePlatform = recorderTarget === "mobile" ? resolveMobileRecorderPlatform({ applicationPlatform: testCase.app_type_kind, steps, targetStepId, configuration: buildContext.configuration || integration.config }) : null;
+    : isMobileRecorderTarget(recorder_target) || isMobileAppType(platform.automation_case_type)
+      || (platform.steps.some((step) => isMobileAppType(step.step_type)) && !platform.steps.some((step) => step.step_type === "web")) ? "mobile" : "web";
+  if (!platform.allowed_step_types.some(type => recorderTarget === 'mobile' ? ['android','ios'].includes(type) : type === 'web')) throw Object.assign(new Error('The selected recorder does not match this automation case type.'), { statusCode: 422, code: 'AUTOMATION_RECORDER_RUNTIME_MISMATCH' });
+  let recorderSuiteId=null;
+  if(test_suite_id){
+    const parameters=await loadAutomationParameterContext({testCase,projectId:testCase.project_id,userId:created_by});
+    const selected=await require('../lib/automationBrowserParameters').loadBrowserParameterResolver({testCase,projectId:testCase.project_id,userId:created_by,
+      caseValues:parameters.runtime_parameter_values,privateParameterNames:parameters.private_parameter_names,parameterOverrides:parameters.parameter_overrides,
+      test_suite_id,materialize:false,steps});
+    recorderSuiteId=selected.test_suite_id;
+  }
+  const mobilePlatform = recorderTarget === "mobile" ? resolveMobileRecorderPlatform({ applicationPlatform: platform.automation_case_type, steps: platform.steps, targetStepId, configuration: buildContext.configuration || integration.config }) : null;
 
   if (recorderTarget === "mobile") {
     await mobileFeatureService.assertMobileFeatureEnabled();
@@ -5106,9 +5166,11 @@ exports.startRecorderSession = async ({
       current_phase: "recorder.running",
       progress_percent: 20,
       test_case_id: testCase.id,
+      automation_case_type: platform.automation_case_type,
       test_environment_id: buildContext.environment?.id || null,
       test_configuration_id: buildContext.configuration?.id || null,
       test_data_set_id: buildContext.data_set?.id || null,
+      test_suite_id: recorderSuiteId,
       recorder_session_id: session.id,
       recorder_started_at: session.started_at || new Date().toISOString(),
       recorder_last_activity_at: session.last_activity_at || session.started_at || null,
@@ -5202,13 +5264,16 @@ exports.finishRecorderSession = async ({
   if (transaction && (metadata.test_case_id !== testCaseId || metadata.recorder_session_id !== sessionId)) throw new Error("The recorder transaction does not belong to this case and session.");
   let targetStepId = normalizeText(target_step_id) || normalizeText(metadata.target_step_id);
   const targetSteps = await selectStepsForCase.all(testCaseId);
+  const platform = resolveAutomationCaseSteps(testCase, targetSteps, { appTypeKind: testCase.app_type_kind });
+  if (platform.automation_case_type === 'api' || metadata.automation_case_type && metadata.automation_case_type !== platform.automation_case_type) throw Object.assign(new Error('The automation case type no longer matches this recording. Existing steps were retained; review the platform before saving recorded actions.'), { statusCode: 409, code: 'AUTOMATION_CASE_TYPE_CHANGED' });
 
   if (targetStepId && !targetSteps.some((step) => step.id === targetStepId)) {
     throw new Error("The selected recorder target step does not belong to this test case.");
   }
   const requestedTarget = normalizeText(metadata.recorder_target) || normalizeText(recorder_target);
   const target = requestedTarget ? (isMobileRecorderTarget(requestedTarget) ? "mobile" : "web")
-    : isMobileAppType(testCase.app_type_kind) || targetSteps.some((step) => step.id === targetStepId && isMobileAppType(step.step_type)) ? "mobile" : "web";
+    : isMobileAppType(platform.automation_case_type) || platform.steps.some((step) => step.id === targetStepId && isMobileAppType(step.step_type)) ? "mobile" : "web";
+  if (!platform.allowed_step_types.some(type => target === 'mobile' ? ['android','ios'].includes(type) : type === 'web')) throw Object.assign(new Error('The recording runtime is incompatible with this automation case type.'), { statusCode: 422, code: 'AUTOMATION_RECORDER_RUNTIME_MISMATCH' });
   if (target === "mobile") {
     await mobileFeatureService.assertMobileFeatureEnabled();
     const access = await getOptionalEvidenceAccess({ id: created_by }, testCase.project_id, ["mobile.manage"]);
@@ -5338,7 +5403,8 @@ exports.finishRecorderSession = async ({
     capturedNetwork,
     integrationId: integration_id,
     additionalContext: additional_context,
-    targetStepId
+    targetStepId,
+    parameterSelection:{test_environment_id:metadata.test_environment_id||undefined,test_configuration_id:metadata.test_configuration_id||undefined,test_data_set_id:metadata.test_data_set_id||undefined,test_suite_id:metadata.test_suite_id||undefined}
   });
 
   return {
@@ -5359,7 +5425,7 @@ exports.connectCaseBrowser = async ({projectId,appTypeId,user,caseId,environment
   const permissions=["automation.view","automation.code.view","automation.ai","testcase.view",...(allowBrowserActions?["automation.build"]:[]),...(environmentId?["environment.view"]:[])];
   const access=await getOptionalEvidenceAccess(user,projectId,permissions);
   if(permissions.some(key=>!access[key]))throw Object.assign(new Error("Automation browser evidence requires case, code, AI and selected environment access; browser interactions also require build permission."),{statusCode:403});
-  const steps=await selectStepsForCase.all(caseId);
+  const steps=resolveAutomationCaseSteps(testCase,await selectStepsForCase.all(caseId),{appTypeKind:testCase.app_type_kind}).steps;
   if(!steps.some(step=>normalizeTestStepType(step.step_type,"web")==="web"))throw Object.assign(new Error("Playwright MCP supports web sections; API-only or native mobile cases use their own runtime."),{statusCode:422});
   const buildContext=await resolveBuildContext({testCase,test_environment_id:environmentId});
   const url=resolveAutomationStartUrl({startUrl,caseUrl:testCase.automation_start_url,steps,required:true}).url;

@@ -1,6 +1,6 @@
 const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const { splitGenerationContext, generationRetrievalQuery } = require('@hellotest/platform/backend/src/utils/aiGenerationContext');
-const { caseOutputSchema, stepOutputSchema } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
+const { caseOutputSchema, stepOutputSchema, validateNativeArtifactOutput } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { validateAuthoringIntent } = require('@hellotest/platform/backend/src/utils/aiAuthoringIntent');
 const aiLlmSelectionService = require("@hellotest/integration/backend/services/aiLlmSelection.service");
@@ -218,17 +218,17 @@ const buildStepRephrasePrompt = ({ requirement, appType, currentCase, step, addi
   selected_step:step
 });
 
-const normalizePreview = (payload, currentCase, fallbackStepType, authoringMode = "structured") => {
-  const title = normalizeText(payload?.title) || currentCase.title || null;
+const normalizePreview = (payload, fallbackStepType, authoringMode = "structured") => {
+  const title = normalizeText(payload?.title);
 
   if (!title) {
     throw Object.assign(new Error("AI authoring response is missing a title"), { statusCode: 502 });
   }
   if (title.length > 255) throw Object.assign(new Error("AI authoring returned a title longer than 255 characters. Generate a shorter title."), { statusCode: 502 });
 
-  const parameter_values = normalizeParameterValues(
-    payload?.parameter_values || payload?.parameterValues || payload?.test_data || payload?.testData
-  );
+  const description = normalizeRichText(payload?.description);
+  if (!description) throw Object.assign(new Error("AI authoring response is missing a description"), { statusCode: 502, code: 'AI_NATIVE_CONTRACT_INVALID' });
+  const parameter_values = normalizeParameterValues(payload.parameter_values);
 
   if (authoringMode === "gherkin") {
     const gherkin_document = normalizeText(payload?.gherkin_document || payload?.gherkinDocument);
@@ -243,9 +243,9 @@ const normalizePreview = (payload, currentCase, fallbackStepType, authoringMode 
     return {
       summary: normalizeRichText(payload?.summary),
       title,
-      priority: payload?.priority ?? currentCase.priority ?? 3,
-      test_case_type: payload?.test_case_type ?? currentCase.test_case_type,
-      description: normalizeRichText(payload?.description),
+      priority: payload.priority,
+      test_case_type: payload.test_case_type,
+      description,
       authoring_mode: "gherkin",
       gherkin_document,
       parameter_values,
@@ -264,9 +264,9 @@ const normalizePreview = (payload, currentCase, fallbackStepType, authoringMode 
   return {
     summary: normalizeRichText(payload?.summary),
     title,
-    priority: payload?.priority ?? currentCase.priority ?? 3,
-    test_case_type: payload?.test_case_type ?? currentCase.test_case_type,
-    description: normalizeRichText(payload?.description),
+    priority: payload.priority,
+    test_case_type: payload.test_case_type,
+    description,
     authoring_mode: "structured",
     gherkin_document: null,
     parameter_values,
@@ -277,12 +277,15 @@ const normalizePreview = (payload, currentCase, fallbackStepType, authoringMode 
 };
 
 const normalizeStepPreview = (payload, currentStep, fallbackStepType) => {
+  if (!normalizeRichText(payload?.action) || !normalizeRichText(payload?.expected_result ?? payload?.expectedResult)) {
+    throw Object.assign(new Error("AI step rephrase must return an action and its expected result"), { statusCode: 502, code: 'AI_NATIVE_CONTRACT_INVALID' });
+  }
   const [step] = normalizeSteps([
     {
       step_order: currentStep.step_order,
       step_type: payload?.step_type || payload?.stepType || currentStep.step_type,
-      action: payload?.action ?? currentStep.action,
-      expected_result: payload?.expected_result ?? payload?.expectedResult ?? currentStep.expected_result
+      action: payload.action,
+      expected_result: payload.expected_result ?? payload.expectedResult
     }
   ], fallbackStepType);
 
@@ -307,6 +310,9 @@ exports.previewCaseAuthoring = async ({
 
   if (!appType) {
     throw new Error("An app type is required for AI authoring");
+  }
+  if (requirement?.project_id && appType.project_id && requirement.project_id !== appType.project_id) {
+    throw Object.assign(new Error('The linked Story must belong to the application project.'), { statusCode: 403, code: 'AI_STORY_SCOPE_INVALID' });
   }
 
   const fallbackStepType = DEFAULT_STEP_TYPE_BY_APP_TYPE[appType.type] || "web";
@@ -359,9 +365,9 @@ exports.previewCaseAuthoring = async ({
   catch {
     throw Object.assign(new Error('The model returned an invalid Test Case response. Retry or select another configured model; your existing Test Case is unchanged.'), { statusCode: 502, code: 'AI_TEST_CASE_RESPONSE_INVALID' });
   }
-  const preview = normalizePreview(parsed, currentCase, fallbackStepType, authoringMode);
+  validateNativeArtifactOutput('ai.case_authoring.full_case', parsed, { testCaseTypes });
+  const preview = normalizePreview(parsed, fallbackStepType, authoringMode);
   preview.reference_attachment_ids = (contextState.referenceAttachments || []).map(item => item.id);
-  preview.test_case_type ||= currentCase.test_case_type || typeField.default_value;
   if (!testCaseTypes.includes(preview.test_case_type)) throw Object.assign(new Error('AI authoring selected an unavailable Test Case type. Choose an active type configured by an administrator.'),{statusCode:502,code:'AI_NATIVE_CONTRACT_INVALID'});
   if (!Number.isSafeInteger(preview.priority)||preview.priority<1||preview.priority>5) throw Object.assign(new Error('AI authoring returned an invalid priority.'),{statusCode:502,code:'AI_NATIVE_CONTRACT_INVALID'});
 
@@ -410,10 +416,11 @@ exports.rephraseTestStep = async ({
     parameter_values: normalizeParameterValues(boundedCase.parameter_values),
     steps: []
   };
+  const [safeSelectedStep = {}] = testCaseAiSnapshot({ ...test_case, authoring_mode: 'structured', steps: [step] }, { stepLimit: 1, itemLimit: 4000 }).steps;
   const currentStep = {
     step_order: Number.isFinite(Number(step?.step_order)) ? Number(step.step_order) : 1,
-    action: normalizeRichText(step?.action)?.slice(0, 4000),
-    expected_result: normalizeRichText(step?.expected_result || step?.expectedResult)?.slice(0, 4000),
+    action: normalizeRichText(safeSelectedStep.action),
+    expected_result: normalizeRichText(safeSelectedStep.expected_result),
     step_type: normalizeTestStepType(step?.step_type || step?.stepType, fallbackStepType)
   };
 

@@ -107,7 +107,7 @@ async function planAutomationFlow({ featureKey, context, allowedTypes = ['web'],
         ...(feedback ? { validation_feedback: feedback } : {}) })].join('\n\n');
     try {
       const response = planningBrowser
-        ? await runAutomationBrowserAgent({ featureKey, phase: 'flow_plan', prompt, browser: planningBrowser, startUrl: attempt === 1 ? startUrl : undefined, complete: completePlanning, parse: parsePlanning, onProgress, onObservation: observe, initialObservations: ledger, maxTurns: 3, maxCalls: Math.max(0, limits.browser_calls - browserCalls), deadlineMs: deadline })
+        ? await runAutomationBrowserAgent({ featureKey, phase: 'flow_plan', prompt, browser: planningBrowser, startUrl: attempt === 1 ? startUrl : undefined, navigationActions:[context?.user_request], complete: completePlanning, parse: parsePlanning, onProgress, onObservation: observe, initialObservations: ledger, maxTurns: 3, maxCalls: Math.max(0, limits.browser_calls - browserCalls), deadlineMs: deadline })
         : parsePlanning(await completePlanning(prompt, deadline - Date.now()));
       const rows = normalizeFlowPlan(response, { allowedTypes });
       parameterContract.validate(rows);

@@ -5,6 +5,9 @@ function normalizeDataOptions(value = {}, sharedKind) {
   if (typeof value === 'string') { try { value = JSON.parse(value); } catch { value = {}; } }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Object.assign(new Error('Test data options must be an object.'), { statusCode: 400 });
   const result = {};
+  // Automation platform is part of the versioned case metadata. Preserve it
+  // when data controls are normalized or edited independently of the Plan.
+  if (value.automation_case_type != null) result.automation_case_type = require('./automationCaseType').normalizeAutomationCaseType(value.automation_case_type, { required: true });
   for (const key of ['override_lower_scopes', 'override_shared_steps', 'override_shared_sections', 'override_test_case_data', 'override_suite_data']) {
     if (value[key] !== undefined && typeof value[key] !== 'boolean') throw Object.assign(new Error(`Test data option ${key} must be true or false.`), { statusCode: 400 });
     result[key] = value[key] === undefined && ['override_test_case_data', 'override_suite_data'].includes(key) ? value.override_lower_scopes !== false : value[key] !== false;

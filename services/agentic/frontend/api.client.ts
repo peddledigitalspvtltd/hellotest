@@ -237,11 +237,15 @@ agenticWorkflows: {
     listRuns: (query?: { project_id?: string; app_type_id?: string; workflow_id?: string; status?: string; limit?: number; summary_only?: boolean }, options?: { signal?: AbortSignal }) =>
       request<AgenticWorkflowRun[]>(`/agentic-workflow-runs${toQueryString(query)}`, { signal: options?.signal }),
     getRun: (id: string, options?: { signal?: AbortSignal }) =>
-      request<AgenticWorkflowRun>(`/agentic-workflow-runs/${encodeURIComponent(id)}`, { signal: options?.signal, cache: "no-store" })
+      request<AgenticWorkflowRun>(`/agentic-workflow-runs/${encodeURIComponent(id)}`, { signal: options?.signal, cache: "no-store" }),
+    nodeModelCalls: (runId: string, nodeId: string, cursor?: string, signal?: AbortSignal) =>
+      request<import('@hellotest/trace/client').LlmTracePage>(`/agentic-workflow-runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/model-calls${toQueryString({ cursor })}`, { signal, cache: 'no-store' }),
+    nodeModelCall: (runId: string, nodeId: string, callId: string, signal?: AbortSignal) =>
+      request<import('@hellotest/trace/client').LlmTrace>(`/agentic-workflow-runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/model-calls/${encodeURIComponent(callId)}`, { signal, cache: 'no-store' })
   }
 };
 
-export type WorkflowConnection = { id: string; name: string; kind: "http" | "mcp"; url: string; authenticated: boolean; builtin?: boolean; authenticationMode?: "current-user" | "managed-credential"; methods: string[]; tools: string[]; toolDefinitions?: McpToolDefinition[]; timeoutMs?: number; transport?: string; serverInfo?: { name: string; version: string }; discovered_at?: string };
+export type WorkflowConnection = { id: string; name: string; kind: "http" | "mcp"; url: string; authenticated: boolean; authType?: "none" | "bearer" | "basic" | "header"; username?: string; builtin?: boolean; authenticationMode?: "current-user" | "managed-credential"; methods: string[]; tools: string[]; toolDefinitions?: McpToolDefinition[]; timeoutMs?: number; transport?: string; serverInfo?: { name: string; version: string }; discovered_at?: string };
 export type WorkflowConnectionSettingsInput = {
   name: string; kind: "mcp" | "http"; url: string; project_id: string; tools: string[]; methods: string[];
   authType: "none" | "bearer" | "basic" | "header"; header: string; secretEnv: string; secret?: string;

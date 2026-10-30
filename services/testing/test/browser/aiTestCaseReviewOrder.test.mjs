@@ -23,11 +23,11 @@ const integration={id:'model',name:'Review model',type:'llm',model:'Configured m
 let item={id:'case1',display_id:'TC-1',app_type_id:'a',title:'Existing checkout case',description:'Keep the saved intent.',suite_ids:[],module_ids:[],requirement_ids:[],labels:[],external_references:[],automated:'no',authoring_mode:'structured',test_case_type:'functional',priority:1,status:'active',review_status:'not_requested',revision:1,author_id:'author',parameter_values:{},test_data_set_ids:[],detail_complete:true,step_count:2};
 const steps=[{id:'s1',test_case_id:'case1',step_order:1,action:'Open checkout',expected_result:'Checkout opens',step_type:'web',automation_code:'',api_request:null},{id:'s2',test_case_id:'case1',step_order:2,action:'Complete checkout',expected_result:'Receipt appears',step_type:'web',automation_code:'',api_request:null}];
 api.testCases.listPage=async()=>({items:[item],next_cursor:null,is_last:true});api.testCases.list=async()=>[item];api.testCases.get=async()=>item;api.testSteps.list=async()=>steps;
-const candidate=(id,title)=>({client_id:id,title,description:'Review '+id,priority:3,authoring_mode:'structured',parameter_values:{'r.customer':'reviewer'},requirement_ids:[],requirement_titles:[],steps:[{step_order:1,step_type:'web',action:id+' first action',expected_result:id+' first outcome'},{step_order:2,step_type:'api',action:id+' second action',expected_result:id+' second outcome'}],step_count:2});
+const candidate=(id,title)=>({client_id:id,title,description:'Review '+id,priority:3,authoring_mode:'structured',test_case_type:'functional',parameter_values:{customer:'reviewer'},requirement_ids:[],requirement_titles:[],steps:[{step_order:1,step_type:'web',action:id+' first action',expected_result:id+' first outcome'},{step_order:2,step_type:'api',action:id+' second action',expected_result:id+' second outcome'}],step_count:2});
 window.accepted=[];window.updates=[];window.requests=[];
 api.testCases.previewDesignedCases=async input=>{window.requests.push(input);return {generated:3,cases:[candidate('alpha','Alpha scenario'),candidate('beta','Beta scenario'),candidate('gamma','Gamma scenario')],integration,requirements:[],app_type:{id:'a',name:'Web'}}};
 api.testCases.acceptDesignedCases=async input=>{window.accepted.push(input);return {created:[]}};
-api.testCases.previewCaseAuthoring=async input=>{window.requests.push(input);const draft=candidate('improved','Improved checkout');const {priority,...preview}=draft;return {case:{...preview,parameter_count:1},requirement:null,integration,app_type:{id:'a',name:'Web'}}};
+api.testCases.previewCaseAuthoring=async input=>{window.requests.push(input);const draft={...candidate('improved','Improved checkout'),priority:item.priority};return {case:{...draft,parameter_count:1},requirement:null,integration,app_type:{id:'a',name:'Web'}}};
 api.testCases.update=async(id,input)=>{window.updates.push(input);item={...item,...input,revision:item.revision+1};return item};
 const client=new QueryClient({defaultOptions:{queries:{retry:false}}});client.setQueryData(['feature-flags'],flags);
 const initial=new URLSearchParams(location.search).get('flow')==='improve'?'/test-cases?case=case1':'/test-cases';
@@ -112,6 +112,9 @@ test('generation review preserves edits, selected identities and reordered cases
     await dialog.getByRole('textbox', { name: 'Step 1 expected result', exact: true }).fill('Reviewed beta second outcome');
     await page.screenshot({ path: '/tmp/qaira-ai-case-review/generation-review-desktop.png', fullPage: true });
     await verifyMobileEditor(page, dialog, 'generation-review');
+    await dialog.getByRole('textbox', {name:'Description',exact:true}).fill('');
+    await expect(accept).toBeDisabled();
+    await dialog.getByRole('textbox', {name:'Description',exact:true}).fill('Reviewed description for beta');
     await accept.click();
     await page.waitForFunction(() => window.accepted.length === 1);
     const payload = await page.evaluate(() => window.accepted[0]);
@@ -122,7 +125,7 @@ test('generation review preserves edits, selected identities and reordered cases
       { step_order: 1, step_type: 'api', action: 'beta second action', expected_result: 'Reviewed beta second outcome' },
       { step_order: 2, step_type: 'web', action: 'beta first action', expected_result: 'Edited beta first outcome' }
     ]);
-    assert.deepEqual(payload.cases[0].parameter_values, { 'r.customer': 'reviewer' });
+    assert.deepEqual(payload.cases[0].parameter_values, { customer: 'reviewer' });
     assert.equal((await page.evaluate(() => window.requests[0])).requirement_ids.length, 0, 'A Story remains optional');
   });
 });
@@ -162,6 +165,6 @@ test('improve review keeps source priority, edited fields and step order through
       { step_order: 1, step_type: 'api', action: 'improved second action', expected_result: 'Improved API response is recorded' },
       { step_order: 2, step_type: 'web', action: 'Reviewed first action', expected_result: 'improved first outcome' }
     ]);
-    assert.deepEqual(update.parameter_values, { 'r.customer': 'reviewer' });
+    assert.deepEqual(update.parameter_values, { 't.customer': 'reviewer' });
   });
 });

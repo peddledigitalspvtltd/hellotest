@@ -282,13 +282,16 @@ export function StoryAiDraftInspector({
         <div className="story-studio-description-card__body">
           <textarea
             data-ai-auto-size aria-label="Story description"
+            aria-invalid={editable && !draft.description.trim()}
             onChange={(event) => onDescriptionChange?.(event.target.value)}
             readOnly={!editable}
+            required={editable}
             ref={descriptionRef}
             rows={Math.max(3, Math.min(8, Math.ceil((draft.description.length || 80) / 90)))}
             placeholder="No description has been added yet."
             value={draft.description}
           />
+          {editable && !draft.description.trim() ? <small className="story-studio-inspector__title-error" role="alert">Add a description before accepting this Story.</small> : null}
           {criteria.length || editable && onAcceptanceCriteriaChange ? (
             <div className={criteria.length ? "story-studio-criteria" : "story-studio-criteria is-empty"}>
               <strong>Acceptance Criteria:</strong>
@@ -300,9 +303,11 @@ export function StoryAiDraftInspector({
                         <>
                           <textarea
                             data-ai-auto-size aria-label={`Acceptance criterion ${index + 1}`}
+                            aria-invalid={!criterion.trim()}
                             onChange={(event) => onAcceptanceCriteriaChange(criteria.map((item, itemIndex) => itemIndex === index ? event.target.value : item))}
                             placeholder="Describe a testable outcome"
                             rows={Math.max(1, Math.min(3, Math.ceil((criterion.length || 40) / 78)))}
+                            required
                             value={criterion}
                           />
                           <button
@@ -321,6 +326,7 @@ export function StoryAiDraftInspector({
               ) : (
                 <p className="story-studio-criteria__empty">No acceptance criteria yet.</p>
               )}
+              {editable && !criteria.some(criterion => criterion.trim()) ? <small className="story-studio-inspector__title-error" role="alert">Add at least one observable acceptance criterion before acceptance.</small> : null}
               {editable && onAcceptanceCriteriaChange ? (
                 <button
                   className="story-studio-inline-action story-studio-criteria-add"

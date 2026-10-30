@@ -1,7 +1,7 @@
 const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const dropdownCatalog = require('@hellotest/platform/backend/services/dropdownCatalog.service');
 const { splitGenerationContext, generationRetrievalQuery } = require('@hellotest/platform/backend/src/utils/aiGenerationContext');
-const { caseOutputSchema } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
+const { caseOutputSchema, validateNativeArtifactOutput } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { validateAuthoringIntent } = require('@hellotest/platform/backend/src/utils/aiAuthoringIntent');
 const testCaseService = require("@hellotest/testing/backend/services/testCase.service");
@@ -35,6 +35,11 @@ const normalizeTextList = (values = []) => {
 
 const uniqueById = (items = []) => Array.from(new Map(items.filter(Boolean).map((item) => [item.id, item])).values());
 const normalizeAuthoringMode = (value) => String(value || "").trim().toLowerCase() === "gherkin" ? "gherkin" : "structured";
+const assertStoryProject = (requirements, appType) => {
+  if (requirements.some(story => story.project_id && appType.project_id && story.project_id !== appType.project_id)) {
+    throw Object.assign(new Error('Selected Stories must belong to the application project.'), { statusCode: 403, code: 'AI_STORY_SCOPE_INVALID' });
+  }
+};
 
 const normalizeParameterValues = (values = {}) => {
   if (!values || typeof values !== "object" || Array.isArray(values)) return {};
@@ -75,21 +80,6 @@ const normalizeSteps = (steps = []) => {
     }));
 };
 
-const normalizeRequirementRefs = (item = {}) => {
-  const raw =
-    item?.requirement_ids ||
-    item?.requirementIds ||
-    item?.requirement_refs ||
-    item?.requirementRefs ||
-    [];
-
-  if (Array.isArray(raw)) {
-    return normalizeTextList(raw).map((value) => value.toUpperCase());
-  }
-
-  return normalizeTextList(String(raw).split(",")).map((value) => value.toUpperCase());
-};
-
 const normalizeRequirementTitles = (item = {}) => {
   const raw = item?.requirement_titles || item?.requirementTitles || item?.requirements || [];
 
@@ -102,20 +92,30 @@ const normalizeRequirementTitles = (item = {}) => {
 
 const resolveCaseRequirements = (item, requirements = []) => {
   const uniqueRequirements = uniqueById(requirements);
-
-  if (!uniqueRequirements.length) {
-    return [];
-  }
-
   const explicitIds = normalizeTextList(item?.requirement_ids || item?.requirementIds || []);
+  const suppliedRefs = normalizeTextList(item?.requirement_refs || item?.requirementRefs || []).map(ref => ref.toUpperCase());
+  const permittedIds = new Set(uniqueRequirements.map(requirement => requirement.id));
+  if (explicitIds.some(id => !permittedIds.has(id))) {
+    throw Object.assign(new Error('Generated Test Case refers to a Story outside the selected evidence.'), { statusCode: 502, code: 'AI_NATIVE_CONTRACT_INVALID' });
+  }
+  const referenceMap = new Map(buildRequirementReferenceMap(uniqueRequirements).map(requirement => [requirement.ref.toUpperCase(), requirement]));
+  if (suppliedRefs.some(ref => !referenceMap.has(ref))) {
+    throw Object.assign(new Error('Generated Test Case contains an unknown selected Story reference.'), { statusCode: 502, code: 'AI_NATIVE_CONTRACT_INVALID' });
+  }
+  if (!uniqueRequirements.length) return [];
   const resolvedById = uniqueRequirements.filter((requirement) => explicitIds.includes(requirement.id));
 
   if (resolvedById.length) {
+    if (suppliedRefs.length) {
+      const referencedIds = new Set(suppliedRefs.map(ref => referenceMap.get(ref).id));
+      if (referencedIds.size !== resolvedById.length || resolvedById.some(requirement => !referencedIds.has(requirement.id))) {
+        throw Object.assign(new Error('Generated Test Case contains conflicting Story identifiers and references.'), { statusCode: 502, code: 'AI_NATIVE_CONTRACT_INVALID' });
+      }
+    }
     return resolvedById;
   }
 
-  const referenceMap = new Map(buildRequirementReferenceMap(uniqueRequirements).map((requirement) => [requirement.ref.toUpperCase(), requirement]));
-  const resolvedByRef = normalizeRequirementRefs(item)
+  const resolvedByRef = suppliedRefs
     .map((ref) => referenceMap.get(ref))
     .filter(Boolean)
     .map((match) => uniqueRequirements.find((requirement) => requirement.id === match.id))
@@ -137,15 +137,6 @@ const resolveCaseRequirements = (item, requirements = []) => {
   }
 
   return [];
-};
-
-const buildGherkinDocument = ({ title, steps }) => {
-  const lines = [`Feature: ${title}`, "", `  Scenario: ${title}`];
-  steps.forEach((step) => {
-    if (step.action) lines.push(`    When ${step.action}`);
-    if (step.expected_result) lines.push(`    Then ${step.expected_result}`);
-  });
-  return lines.join("\n");
 };
 
 const isValidGherkinDocument = (value) =>
@@ -171,6 +162,15 @@ const normalizeCaseDraft = (item, index, {
     throw Object.assign(new Error(`Generated test case ${index + 1} is missing a title`), { statusCode: 502 });
   }
   if (title.length > 255) throw Object.assign(new Error(`Generated test case ${index + 1} has a title longer than 255 characters`), { statusCode: 502 });
+  // Revalidate edited previews before Library writes as well as provider output.
+  // A save cannot turn an incomplete model proposal into a complete case.
+  validateNativeArtifactOutput('ai.case_authoring.full_case', item);
+  const description = normalizeText(item?.description);
+  if (!description) throw Object.assign(new Error(`Generated test case ${index + 1} is missing a description`), { statusCode: 502, code: 'AI_NATIVE_CONTRACT_INVALID' });
+  if (!item?.parameter_values || typeof item.parameter_values !== 'object' || Array.isArray(item.parameter_values)
+      || Object.entries(item.parameter_values).some(([name, value]) => !name.trim() || /^@|^[tsr]\./i.test(name) || typeof value !== 'string')) {
+    throw Object.assign(new Error(`Generated test case ${index + 1} must include a parameter_values object with case-owned names and string data values`), { statusCode: 502, code: 'AI_NATIVE_CONTRACT_INVALID' });
+  }
 
   const resolvedRequirements = resolveCaseRequirements(item, requirements);
 
@@ -181,7 +181,7 @@ const normalizeCaseDraft = (item, index, {
   const steps = normalizeSteps(item?.steps);
   const resolvedAuthoringMode = normalizeAuthoringMode(authoringMode || item?.authoring_mode || item?.authoringMode);
   const gherkinDocument = resolvedAuthoringMode === "gherkin"
-    ? normalizeText(item?.gherkin_document || item?.gherkinDocument || item?.gherkin) || buildGherkinDocument({ title, steps })
+    ? normalizeText(item?.gherkin_document)
     : null;
 
   if (resolvedAuthoringMode === "gherkin" && !isValidGherkinDocument(gherkinDocument)) {
@@ -195,15 +195,15 @@ const normalizeCaseDraft = (item, index, {
   return {
     title,
     reference_attachment_ids: acceptReferenceEvidence ? referenceEvidence.referenceIds(item?.reference_attachment_ids) : [],
-    description: normalizeText(item?.description),
-    priority: Number.isFinite(Number(item?.priority)) ? Math.round(Math.max(1, Math.min(5, Number(item.priority)))) : 3,
-    test_case_type: normalizeText(item?.test_case_type) || undefined,
+    description,
+    priority: item.priority,
+    test_case_type: normalizeText(item.test_case_type),
     applicable_domain: normalizeText(item?.applicable_domain || item?.applicableDomain || item?.domain) || applicableDomain,
     requirement_ids: resolvedRequirements.map((requirement) => requirement.id),
     requirement_titles: resolvedRequirements.map((requirement) => requirement.title),
     authoring_mode: resolvedAuthoringMode,
     gherkin_document: gherkinDocument,
-    parameter_values: normalizeParameterValues(item?.parameter_values || item?.parameterValues || item?.test_data || item?.testData),
+    parameter_values: normalizeParameterValues(item.parameter_values),
     steps
   };
 };
@@ -297,7 +297,7 @@ const requestChatCompletion = async ({ integration, content, fallbackContent, co
         }
       ]
     })
-  }, { integration, operation: "requirement-design.generate", persistReferenceImages:true, referenceImageNames:imageNames,
+  }, { integration, operation: "requirement-design.generate", featureKey: "ai.test_case.design", persistReferenceImages:true, referenceImageNames:imageNames,
     onReferenceAttachments: items => { if (contextState) contextState.referenceAttachments = items; },
     nativeArtifactTestCaseTypes:testCaseTypes, contextRetrievalQuery:generationRetrievalQuery(content), contextFallbackContent: fallbackContent, contextFallbackInstructions: aiInstructionBlock("ai.test_case.design","recovery.context_size"), onContextFallback: () => { if (contextState) contextState.reduced = true; } });
 
@@ -375,7 +375,9 @@ const requestGeneratedCases = async ({
         })
       : await requestChatCompletion({ integration, content: prompt, fallbackContent, contextState, authoringMode, testCaseTypes, signal });
 
-    return normalizeGeneratedCases(extractJsonPayload(content), maxCases, requirements, authoringMode);
+    const parsed = extractJsonPayload(content);
+    validateNativeArtifactOutput('ai.test_case.design', parsed, { testCaseTypes });
+    return normalizeGeneratedCases(parsed, maxCases, requirements, authoringMode);
   } catch (error) {
     const emptyNativeResult = error?.code === 'AI_NATIVE_CONTRACT_INVALID'
       && error.validation_errors?.length === 1 && error.validation_errors[0].path === ''
@@ -420,6 +422,7 @@ exports.previewRequirementsTestCases = async ({
 }) => {
   if (signal?.aborted) throw Object.assign(new Error("Workflow cancelled."), { statusCode: 499, publicMessage: "Workflow cancelled." });
   const scopedRequirements = uniqueById(requirements);
+  assertStoryProject(scopedRequirements, appType);
 
   if (scopedRequirements.length > 10) throw Object.assign(new Error("Preview Test Cases for at most ten Stories at a time."), { statusCode: 400 });
   if (Number(max_cases) > 10) throw Object.assign(new Error("Generate at most ten Test Cases per preview; use smaller batches for additional coverage."), { statusCode: 400 });
@@ -471,7 +474,6 @@ exports.previewRequirementsTestCases = async ({
     signal
   });
   for (const candidate of generatedCases) {
-    candidate.test_case_type ||= typeField.default_value;
     if (!testCaseTypes.includes(candidate.test_case_type)) throw Object.assign(new Error('Generated Test Case uses an unavailable type configured by the administrator.'),{statusCode:502,code:'AI_NATIVE_CONTRACT_INVALID'});
   }
 
@@ -543,6 +545,7 @@ exports.acceptGeneratedTestCases = async ({
   created_by
 }) => {
   const scopedRequirements = uniqueById(requirements);
+  assertStoryProject(scopedRequirements, appType);
   const acceptedCases = normalizeAcceptedCases(cases, scopedRequirements);
   // Validate every supplied source before creating any case. Model-produced
   // IDs never confer access or cross the project boundary.

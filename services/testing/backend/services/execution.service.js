@@ -41,6 +41,13 @@ const assertRunEditable = (execution) => {
 };
 const resolveExecutionStartMode = (execution, requestedMode) => ["local", "remote"].includes(requestedMode)
   ? requestedMode : execution.trigger === "local" ? "local" : execution.trigger === "ci" ? "remote" : "manual";
+const assertExecutableDispatchPlan = plan => {
+  if (!(plan.unsupported_automated_case_count > 0)) return;
+  throw Object.assign(new Error(`Automation is not executable for ${plan.unsupported_automated_case_count} selected case(s). ${plan.warnings.join(' ')}`), {
+    statusCode: 409, code: 'AUTOMATION_NOT_EXECUTABLE',
+    details: { unsupported_automated_case_count: plan.unsupported_automated_case_count, warnings: plan.warnings }
+  });
+};
 
 // Count cases once, reducing the newest result for each data iteration before
 // reducing a case. Defect references remain actual links, never failed counts.
@@ -2021,6 +2028,8 @@ exports.startExecution = async (id, options = {}) => {
   if (!skipTestEngineDispatch) {
     dispatchPlan = await testEngineDispatchService.planExecutionDispatch(execution,options.execution_mode === "local" ? {allowIncompleteAutomation:true,allowApiCasesWithoutAutomation:true} : {});
 
+    assertExecutableDispatchPlan(dispatchPlan);
+
     if (dispatchPlan.eligible_automated_case_count > 0) {
       testEngineIntegration = await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id);
       localEngineBaseUrl = options.execution_mode === "local"
@@ -2158,6 +2167,7 @@ exports.startLocalExecution = async (id, options = {}) => {
     allowIncompleteAutomation: true,
     allowApiCasesWithoutAutomation: true
   });
+  assertExecutableDispatchPlan(dispatchPlan);
 
   if (!dispatchPlan.eligible_automated_case_count) {
     throw new Error("Local run requires a recorded automated web test case or an API test case with saved API request steps.");

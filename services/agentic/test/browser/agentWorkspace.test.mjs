@@ -46,6 +46,7 @@ api.workspaceTransactions.get = async (id, options) => { window.workspaceCalls.l
 api.repositoryAgents.list = async () => ({ items: [], total: 0, has_more: false });
 for (const name of ['testCases', 'issues', 'knowledgeRepo', 'agenticWorkflows']) for (const method of ['create', 'update', 'delete']) if (api[name]?.[method]) api[name][method] = async input => { window.workspaceCalls.writes.push({ name, method, input }); throw new Error('This fixture does not publish assets.'); };
 window.enablePreviewFixture = () => {
+  api.agenticWorkflows.readiness = async () => ({ready:true,execution_mode:'review',blockers:[],warnings:[],limits:{max_steps:20,max_specialists:20,timeout_ms:3600000,input_limit_bytes:16384},steps:[]});
   api.agenticWorkflows.create = async payload => { window.previewWorkflow = { id: 'workflow-preview', ...payload, created_at: '2026-09-10T10:00:00Z' }; window.workspaceCalls.writes.push({ name: 'workflow', method: 'create', input: payload }); return structuredClone(window.previewWorkflow); };
   api.agenticWorkflows.list = async () => window.previewWorkflow ? [structuredClone(window.previewWorkflow)] : [];
   api.agenticWorkflows.listRuns = async () => window.previewRecord ? [structuredClone(window.previewRecord)] : [];

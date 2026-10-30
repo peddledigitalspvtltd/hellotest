@@ -1,3 +1,4 @@
+const { resolveAutomationCaseType } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 const db = require('@hellotest/platform/backend/src/db');
 const { createToken } = require('@hellotest/platform/backend/src/utils/token');
 const tasks = require('./artifactTasks');
@@ -34,7 +35,7 @@ async function accept(app, req, run) {
     // manual-to-automation relationship rather than creating an unrelated case.
     const manualReceipt = kind === 'automation' ? await db.prepare('SELECT request_hash,receipt FROM workflow_draft_acceptances WHERE run_id=? AND story_id=? AND case_index=? AND kind=? AND project_id=?').get(run.id, packet.story_id, caseIndex, 'manual', run.project_id) : null;
     const payload = { app_type_id: run.app_type_id, title: draft.title, description: draft.description, priority: draft.priority, test_case_type: draft.test_case_type, status: 'draft', requirement_ids: [story.id], authoring_mode: draft.authoring_mode, gherkin_document: draft.gherkin_document, parameter_values: draft.parameter_values || {}, steps: draft.steps, ai_generation_source: 'interactive', ai_generation_review_status: 'pending', review_status: 'pending', reviewer_id: req.user.id,
-      ...(kind === 'automation' ? { automated: 'yes', automation_status: 'incomplete', automation_start_url: automated.automation_start_url || automated.start_url || undefined, steps: automated.steps, parameter_values: automated.parameter_values || draft.parameter_values || {}, ...(manualReceipt?.receipt?.id ? { manual_test_case_ids: [manualReceipt.receipt.id] } : {}) } : {}) };
+      ...(kind === 'automation' ? { automated: 'yes', automation_status: 'incomplete', automation_case_type: resolveAutomationCaseType(automated,{steps:automated.steps}), automation_start_url: automated.automation_start_url || automated.start_url || undefined, steps: automated.steps, parameter_values: automated.parameter_values || draft.parameter_values || {}, ...(manualReceipt?.receipt?.id ? { manual_test_case_ids: [manualReceipt.receipt.id] } : {}) } : {}) };
     const response = await app.inject({ method: 'POST', url: '/test-cases', headers: { authorization: `Bearer ${createToken(req.user)}` }, payload });
     let body; try { body = response.json(); } catch { throw fail('The Test Case service returned an invalid receipt.', 502); }
     if (response.statusCode >= 400) throw fail(body.publicMessage || body.error || body.message || 'The Test Case could not be accepted.', response.statusCode);
@@ -101,7 +102,7 @@ async function publishCase({ run, nodeId, packet, draft, caseIndex, kind, automa
       steps: draft.steps, ai_generation_source: 'interactive', ai_generation_review_status: 'pending',
       review_status: 'pending', reviewer_id: actor.id, author_id: actor.id, created_by: actor.id, updated_by: actor.id,
       source_idempotency_key: `workflow-draft:${key}`,
-      ...(kind === 'automation' ? { automated: 'yes', automation_status: 'incomplete',
+      ...(kind === 'automation' ? { automated: 'yes', automation_status: 'incomplete', automation_case_type: resolveAutomationCaseType(automated,{steps:automated.steps}),
         automation_start_url: automated.automation_start_url || automated.start_url || undefined,
         steps: automated.steps, parameter_values: automated.parameter_values || draft.parameter_values || {},
         manual_test_case_ids: [manual.receipt.id] } : {}) };
@@ -145,7 +146,7 @@ async function publishNodeArtifacts({ run, node, user, signal }) {
   for (const packet of packets) {
     if (!packet?.story_revision || seen.has(packet.story_id)) throw fail('Publish each revision-pinned Story once.', 409);
     seen.add(packet.story_id);
-    tasks._internals.assertDrafts(packet.cases, packet.story_id, Number(stored.input_payload.max_cases_per_story || 5));
+    tasks._internals.assertDrafts(packet.cases, packet.story_id, require('./generationNodeOptions').pinnedGenerationOptions(stored).maxCases);
     if (packet.test_case_generation?.verification?.status !== 'passed'
       || tasks.fingerprint(packet.test_case_generation.cases) !== tasks.fingerprint(packet.cases)) throw fail('The generated cases changed after native validation.', 409);
     for (const [caseIndex, draft] of packet.cases.entries()) {

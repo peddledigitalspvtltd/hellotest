@@ -11,7 +11,7 @@ export function createPlaywrightCodeBindings(page: Page, options: {
 }) {
   const originals = new WeakMap<object, object>();
   const proxies = new WeakMap<object, object>();
-  const interpolateMethods = new Set(["getByRole", "getByText", "getByLabel", "getByPlaceholder", "getByTestId", "getByTitle", "getByAltText", "fill", "type", "press", "pressSequentially", "selectOption", "filter"]);
+  const interpolateMethods = new Set(["getByRole", "getByText", "getByLabel", "getByPlaceholder", "getByTestId", "getByTitle", "getByAltText", "fill", "type", "press", "pressSequentially", "insertText", "selectOption", "filter", "waitForURL"]);
   const selectorMethods = new Set(["click", "dblclick", "fill", "type", "press", "check", "uncheck", "selectOption", "setInputFiles", "hover", "focus", "textContent", "innerText", "inputValue", "getAttribute", "waitForSelector"]);
   const semanticSelector = (value: string) => /^(?:page\.)?(?:getBy\w+|locator)\s*\(|^(?:role|label|placeholder|text|testid|data-testid|title|alt|alttext)=/.test(value);
   const transform = (value: unknown, interpolate = false): any => {
@@ -28,21 +28,33 @@ export function createPlaywrightCodeBindings(page: Page, options: {
     }
     return value;
   };
+  const keyboards = new WeakSet<object>();
   const wrap = (target: any): any => {
     if (!target || typeof target !== "object") return target;
     // Requests, responses, handles and arbitrary evaluate results keep their native values.
     const isLocator = typeof target.count === "function" && typeof target.click === "function";
     const isPageOrFrame = typeof target.goto === "function" && typeof target.locator === "function";
     const isFrameLocator = typeof target.frameLocator === "function" && typeof target.getByRole === "function";
-    if (!isLocator && !isPageOrFrame && !isFrameLocator) return target;
+    if (!isLocator && !isPageOrFrame && !isFrameLocator && !keyboards.has(target)) return target;
     if (proxies.has(target)) return proxies.get(target);
     const proxy = new Proxy(target, {
       get(native, key) {
         const value = Reflect.get(native, key, native);
+        if (isPageOrFrame && key === "keyboard" && value && typeof value === "object") {
+          keyboards.add(value);
+          return wrap(value);
+        }
         if (typeof value !== "function" || key === "constructor") return value;
         return (...input: unknown[]) => {
           const name = String(key);
           const args = input.map((arg) => transform(arg, interpolateMethods.has(name)));
+          // File payload buffers are data, never parameterized source. Only
+          // path inputs (including path arrays) use the same late binding as
+          // the instruction upload helper.
+          if (name === "setInputFiles") {
+            const index = isPageOrFrame ? 1 : 0;
+            if (typeof args[index] === "string" || Array.isArray(args[index]) && args[index].every((entry: unknown) => typeof entry === "string")) args[index] = transform(args[index], true);
+          }
           if (name === "locator" && typeof args[0] === "string") {
             args[0] = options.resolveLocator(options.interpolate(args[0]));
             if (isPageOrFrame && semanticSelector(args[0])) {

@@ -1,7 +1,7 @@
 export { buildAutomationRepositoryFields, preparePlaywrightRepository } from "./automationRepository.mjs";
 import { prepareAutomationExportSource, automationExportRuntimeUsage } from "./automationExportSource.mjs";
 import { parseApiRequestSource } from "./apiRequestSource.mjs";
-import { buildApiValidationAssertionCode } from "./apiValidation.mjs";
+import { buildApiValidationAssertionCode, apiAssertionParameterExpression } from "./apiValidation.mjs";
 import { hasConfiguredCaseExecutionHooks } from "./automationCaseExecutionHooks.mjs";
 // The export is deliberately independent of the application's injected runtime.
 const runtime = String.raw `
@@ -84,7 +84,7 @@ function runtimeFor(page: Page, request: APIRequestContext, context: BrowserCont
   // resolves data and repository references just like web.* instructions.
   const originals = new WeakMap<object,RuntimeValue>();
   const proxies = new WeakMap<object,RuntimeValue>();
-  const interpolateMethods = new Set(['getByRole','getByText','getByLabel','getByPlaceholder','getByTestId','getByTitle','getByAltText','fill','type','press','pressSequentially','selectOption','filter']);
+  const interpolateMethods = new Set(['getByRole','getByText','getByLabel','getByPlaceholder','getByTestId','getByTitle','getByAltText','fill','type','press','pressSequentially','insertText','selectOption','filter','waitForURL']);
   const selectorMethods = new Set(['click','dblclick','fill','type','press','check','uncheck','selectOption','setInputFiles','hover','focus','textContent','innerText','inputValue','getAttribute','waitForSelector']);
   const transform = (value: RuntimeValue, interpolate = false): RuntimeValue => {
     if (typeof value === 'string') return interpolate ? text(value) : value;
@@ -94,18 +94,24 @@ function runtimeFor(page: Page, request: APIRequestContext, context: BrowserCont
     if (Object.getPrototypeOf(value) === Object.prototype) return Object.fromEntries(Object.entries(value).map(([key,entry]) => [key,transform(entry,interpolate)]));
     return value;
   };
+  const keyboards = new WeakSet<object>();
   const wrapPage = (target: RuntimeValue): RuntimeValue => {
     if (!target || typeof target !== 'object') return target;
     const isPage = typeof target.goto === 'function' && typeof target.locator === 'function';
     const isLocator = typeof target.count === 'function' && typeof target.click === 'function';
     const isFrameLocator = typeof target.frameLocator === 'function' && typeof target.getByRole === 'function';
-    if (!isPage && !isLocator && !isFrameLocator) return target;
+    if (!isPage && !isLocator && !isFrameLocator && !keyboards.has(target)) return target;
     if (proxies.has(target)) return proxies.get(target);
     const proxy = new Proxy(target,{get(native,key) {
       const method=Reflect.get(native,key,native);
+      if(isPage && key === 'keyboard' && method && typeof method === 'object'){keyboards.add(method);return wrapPage(method);}
       if (typeof method !== 'function' || key === 'constructor') return method;
       return (...input: RuntimeValue[]) => {
         const name=String(key),args=input.map(value => transform(value,interpolateMethods.has(name)));
+        if(name === 'setInputFiles'){
+          const index=isPage ? 1 : 0;
+          if(typeof args[index] === 'string' || Array.isArray(args[index]) && args[index].every((entry: RuntimeValue) => typeof entry === 'string'))args[index]=transform(args[index],true);
+        }
         if (name === 'locator' && typeof args[0] === 'string') {
           const resolved=repositoryTarget(args[0]);
           if (/^(?:page\.)?(?:getBy\w+|locator)\s*\(|^(?:role|text|label|placeholder|title|alt|alttext|testid|data-testid)=/.test(resolved)) {
@@ -231,10 +237,13 @@ function exportValidation(validation) {
     const raw = validation.expected || "";
     let expected = JSON.stringify(raw);
     if (validation.kind === "json_path") {
+        if (apiAssertionParameterExpression(raw)) expected = `parseApiExpected(${apiAssertionParameterExpression(raw)})`;
+        else {
         try {
             expected = JSON.stringify(JSON.parse(raw));
         }
         catch { }
+        }
     }
     const operator = validation.operator || "eq";
     if (operator === "exists")
@@ -308,7 +317,7 @@ export function buildPlaywrightArtifact({ testCase, steps, rows: data = [{}], se
         const executed = screenshot ? `try {\n${section}\n  if (executionOptions.screenshotOnSuccess) await attachScreenshot(${JSON.stringify(`section-${step.step_order}-completed`)});\n} catch (error) {\n  if (executionOptions.screenshotOnFailure${options.includes("screenshotOnFailure") ? " || true" : ""}) await attachScreenshot(${JSON.stringify(`section-${step.step_order}-failed`)});\n  throw error;\n}` : section;
         return `  // #region ${region}\n  // Section ${String(step.step_order).replace(/[\r\n]/g, " ")} [${String(step.id).replace(/[\r\n]/g, " ")}]\n  for (const key of Object.keys(params)) delete params[key];\n  Object.assign(params,sectionRows[iteration][${sectionIndex}],overrides,captured);\n${executed}\n  // #endregion`;
     });
-    const schemaSupport = usesSchema ? "import Ajv from 'ajv';\nconst ajv = new Ajv();\nconst validateJsonSchema = (body: unknown, schema: object) => ({valid: Boolean(ajv.validate(schema,body))});\n" : "";
+    const schemaSupport = usesSchema ? "import Ajv from 'ajv';\nconst ajv = new Ajv();\nconst validateJsonSchema = (body: unknown, schema: object) => ({valid: Boolean(schema && typeof schema === 'object' && !Array.isArray(schema) && Object.keys(schema).length && ajv.validate(schema,body))});\n" : "";
     const exportNotes = [...new Set(dependencies)].filter(module => !module.startsWith("node:")).map(module => /^\.{0,2}\//.test(module) ? `// External helper file required: ${module.replace(/[\r\n]/g, " ")} — copy it to the matching path beside this spec; its source was not included in the saved section.` : `// External dependency: ${module.replace(/[\r\n]/g, " ")} — install this package before running the spec.`).concat([...issues, ...Object.values(repositoryIssues)].map(issue => `// Export limitation: ${issue.replace(/[\r\n]/g, " ")}`)).join("\n");
-    return `// Save as automation.spec.ts. Install: npm i -D @playwright/test typescript @types/node${usesSchema ? " ajv" : ""}${usesJsonPath ? " jsonpath-plus" : ""}\n// Browser setup: npx playwright install chromium\n// Type check: npx tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext --moduleResolution Bundler automation.spec.ts\n// Run: npx playwright test automation.spec.ts\n// Override missing/private values with QAIRA_DATA_JSON='{"t.secret":"..."}'.\n${exportNotes}\nimport { test, expect as playwrightExpect, type Page, type Locator, type APIRequestContext, type BrowserContext } from '@playwright/test';\n${[...new Set(extraImports)].join('\n')}\n${usesJsonPath ? "import { JSONPath } from 'jsonpath-plus';\n" : ""}${schemaSupport}const queryJsonPath: ((body: RuntimeValue,path: string) => RuntimeValue) | undefined = ${usesJsonPath ? "(body,path) => JSONPath({path,json:body,eval:false,wrap:true})[0]" : "undefined"};\nconst executionOptions = ${JSON.stringify(executionOptions, null, 2)} as const;\ntest.use({actionTimeout:executionOptions.actionTimeout,navigationTimeout:executionOptions.navigationTimeout,video:executionOptions.video,trace:executionOptions.trace,screenshot:'off'});\ntest.setTimeout(executionOptions.timeout);\n\n// #region Test data\nconst rows: DataValues[] = ${JSON.stringify(data, null, 2)};\nconst sectionRows: DataValues[][] = ${JSON.stringify(sectionRows, null, 2)};\n// #endregion\n\n// #region Repository and Playwright bindings\nconst repository: Record<string,string> = ${JSON.stringify(objects, null, 2)};\nconst repositoryIssues: Record<string,string> = ${JSON.stringify(repositoryIssues, null, 2)};\n${artifactRuntime}\n// #endregion\n\nfor (const [iteration, defaults] of rows.entries()) {\n test(${JSON.stringify(testCase.title)} + ' [row ' + (iteration + 1) + ']', async ({page,request,context,browser,browserName},testInfo) => {\n  const overrides = JSON.parse(process.env.QAIRA_DATA_JSON || '{}');\n  const captured: DataValues = {};\n  const params: DataValues = {...defaults,...overrides};\n${hookIssue ? `  throw new Error(${JSON.stringify(hookIssue)});\n` : ''}  const baseURL = process.env.QAIRA_BASE_URL || ${JSON.stringify(baseURL)};\n  if (baseURL) await page.goto(baseURL);\n  let playwrightPage = page;\n  const driver = undefined;\n  const {web,api,capture,readJsonPath,locator,text,expect,wrapPage} = runtimeFor(page,request,context,params,repository,baseURL,captured,next => { page=next; playwrightPage=next; });\n  page=wrapPage(page);\n  playwrightPage=page;\n  const bindings = {get page(){return page;},web,api,expect,params,capture,get playwrightPage(){return playwrightPage;},driver,test,request,context,browser,browserName,testInfo};\n  const attachScreenshot = async (name: string) => {\n    try {\n      if (!page.isClosed()) await testInfo.attach(name,{body:await page.screenshot({type:'jpeg',quality:55,fullPage:false,scale:'css'}),contentType:'image/jpeg'});\n    } catch (error) { console.warn('Screenshot capture unavailable',error instanceof Error ? error.message : String(error)); }\n  };\n${lines.length ? lines.join("\n") : '  throw new Error("This automation case has no executable sections. Build or author its sections before running the exported test.");'}\n });\n}\n`;
+    return `// Save as automation.spec.ts. Install: npm i -D @playwright/test typescript @types/node${usesSchema ? " ajv" : ""}${usesJsonPath ? " jsonpath-plus" : ""}\n// Browser setup: npx playwright install chromium\n// Type check: npx tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext --moduleResolution Bundler automation.spec.ts\n// Run: npx playwright test automation.spec.ts\n// Override missing/private values with QAIRA_DATA_JSON='{"t.secret":"..."}'.\n${exportNotes}\nimport { test, expect as playwrightExpect, type Page, type Locator, type APIRequestContext, type BrowserContext } from '@playwright/test';\n${[...new Set(extraImports)].join('\n')}\n${usesJsonPath ? "import { JSONPath } from 'jsonpath-plus';\n" : ""}${schemaSupport}${runtimeUsage.api ? "const parseApiExpected = (value: unknown): unknown => { const input = String(value ?? ''); try { return JSON.parse(input); } catch { return input; } };\n" : ""}const queryJsonPath: ((body: RuntimeValue,path: string) => RuntimeValue) | undefined = ${usesJsonPath ? "(body,path) => JSONPath({path,json:body,eval:false,wrap:true})[0]" : "undefined"};\nconst executionOptions = ${JSON.stringify(executionOptions, null, 2)} as const;\ntest.use({actionTimeout:executionOptions.actionTimeout,navigationTimeout:executionOptions.navigationTimeout,video:executionOptions.video,trace:executionOptions.trace,screenshot:'off'});\ntest.setTimeout(executionOptions.timeout);\n\n// #region Test data\nconst rows: DataValues[] = ${JSON.stringify(data, null, 2)};\nconst sectionRows: DataValues[][] = ${JSON.stringify(sectionRows, null, 2)};\n// #endregion\n\n// #region Repository and Playwright bindings\nconst repository: Record<string,string> = ${JSON.stringify(objects, null, 2)};\nconst repositoryIssues: Record<string,string> = ${JSON.stringify(repositoryIssues, null, 2)};\n${artifactRuntime}\n// #endregion\n\nfor (const [iteration, defaults] of rows.entries()) {\n test(${JSON.stringify(testCase.title)} + ' [row ' + (iteration + 1) + ']', async ({page,request,context,browser,browserName},testInfo) => {\n  const overrides = JSON.parse(process.env.QAIRA_DATA_JSON || '{}');\n  const captured: DataValues = {};\n  const params: DataValues = {...defaults,...overrides};\n${hookIssue ? `  throw new Error(${JSON.stringify(hookIssue)});\n` : ''}  const baseURL = process.env.QAIRA_BASE_URL || ${JSON.stringify(baseURL)};\n  if (baseURL) await page.goto(baseURL);\n  let playwrightPage = page;\n  const driver = undefined;\n  const {web,api,capture,readJsonPath,locator,text,expect,wrapPage} = runtimeFor(page,request,context,params,repository,baseURL,captured,next => { page=next; playwrightPage=next; });\n  page=wrapPage(page);\n  playwrightPage=page;\n  const bindings = {get page(){return page;},web,api,expect,params,capture,get playwrightPage(){return playwrightPage;},driver,test,request,context,browser,browserName,testInfo};\n  const attachScreenshot = async (name: string) => {\n    try {\n      if (!page.isClosed()) await testInfo.attach(name,{body:await page.screenshot({type:'jpeg',quality:55,fullPage:false,scale:'css'}),contentType:'image/jpeg'});\n    } catch (error) { console.warn('Screenshot capture unavailable',error instanceof Error ? error.message : String(error)); }\n  };\n${lines.length ? lines.join("\n") : '  throw new Error("This automation case has no executable sections. Build or author its sections before running the exported test.");'}\n });\n}\n`;
 }

@@ -259,16 +259,17 @@ const evaluateApiAssertions = (preview: ApiResponsePreview, validations: EngineA
     if(extended)return {kind,target,expected,...extended};
 
     if (kind === "status") {
-      const expectedStatus = Number(expected || "200") || 200;
-      const passed = preview.response.status === expectedStatus;
+      const validExpected = typeof expected === 'string' && /^\d{3}$/.test(expected) && Number(expected) >= 100 && Number(expected) <= 599;
+      const expectedStatus = validExpected ? Number(expected) : null;
+      const passed = validExpected && preview.response.status === expectedStatus;
 
       return {
         kind,
         passed,
         target: null,
-        expected: String(expectedStatus),
+        expected: expected || "[missing expected status]",
         actual: String(preview.response.status),
-        summary: passed
+        summary: !validExpected ? 'The expected HTTP status is missing or invalid after resolving test parameters. Supply a status from 100 to 599.' : passed
           ? `Matched expected status ${expectedStatus}.`
           : `Expected status ${expectedStatus}, received ${preview.response.status}.`
       };

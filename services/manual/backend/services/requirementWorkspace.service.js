@@ -1,7 +1,6 @@
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const { getCompletionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
-const { isDeepStrictEqual } = require("node:util");
 const { createHash, randomUUID: uuid } = require("crypto");
 const db = require("@hellotest/platform/backend/src/db");
 const requirementService = require("./requirement.service");
@@ -523,134 +522,126 @@ const buildDeterministicGrooming = ({ requirement, comments = [], linkedCases = 
   };
 };
 
-const normalizeSection = ({ candidate, fallback, textFields = [], listFields = [], allowedRefs, requiredTextFields = [], fallbackSections, fallbackLabel }) => {
-  const useFallback = () => {
-    if (fallbackSections && fallbackLabel) fallbackSections.add(fallbackLabel);
-    return fallback;
-  };
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return useFallback();
-  const evidenceRefs = validEvidenceRefs(candidate?.evidence_refs, allowedRefs);
-  const hasCandidateContent = textFields.some((field) => normalizeText(candidate?.[field]))
-    || listFields.some((field) => normalizeList(candidate?.[field]).length);
-  const hasFallbackContent = textFields.some((field) => normalizeText(fallback?.[field]))
-    || listFields.some((field) => normalizeList(fallback?.[field]).length);
-  if (!hasCandidateContent && hasFallbackContent) return useFallback();
-  if (hasCandidateContent && !evidenceRefs.length) return useFallback();
+const groomingContractError = (validationErrors) => Object.assign(new Error("AI Grooming returned an incomplete or ungrounded review."), {
+  code: "AI_GROOMING_OUTPUT_INVALID", statusCode: 502,
+  validation_errors: validationErrors.slice(0, 32)
+});
+const groomingIssue = (issues, path, issue) => issues.push({ path, issue });
+const normalizeGroomingRefs = (value, allowedRefs, path, issues) => {
+  if (!Array.isArray(value) || value.some(ref => typeof ref !== "string" || !ref.trim())) {
+    groomingIssue(issues, path, "expected_array_of_evidence_refs");
+    return [];
+  }
+  if (value.some(ref => !allowedRefs.has(ref.trim()))) groomingIssue(issues, path, "unknown_or_forbidden_evidence_ref");
+  return validEvidenceRefs(value, allowedRefs);
+};
+
+const normalizeSection = ({ candidate, textFields = [], listFields = [], allowedRefs, issues, path }) => {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    groomingIssue(issues, path, "required_object");
+    return null;
+  }
+  for (const field of textFields) if (typeof candidate[field] !== "string") groomingIssue(issues, `${path}.${field}`, "required_string_empty_when_unknown");
+  for (const field of listFields) if (!Array.isArray(candidate[field]) || candidate[field].some(item => typeof item !== "string" || !item.trim())) groomingIssue(issues, `${path}.${field}`, "required_text_array_empty_when_unknown");
+  const evidenceRefs = normalizeGroomingRefs(candidate.evidence_refs, allowedRefs, `${path}.evidence_refs`, issues);
   const normalized = {
-    ...Object.fromEntries(textFields.map((field) => [field, normalizeText(candidate?.[field], field === "explanation" || field === "overview" || field === "context" ? 2400 : 900)])),
-    ...Object.fromEntries(listFields.map((field) => [field, normalizeTextList(candidate?.[field])])),
+    ...Object.fromEntries(textFields.map(field => [field, normalizeText(candidate[field], ["explanation", "overview", "context"].includes(field) ? 2400 : 900)])),
+    ...Object.fromEntries(listFields.map(field => [field, normalizeTextList(candidate[field])])),
     evidence_refs: evidenceRefs
   };
-  if (requiredTextFields.some((field) => !normalized[field])) return useFallback();
+  const hasContent = textFields.some(field => normalized[field]) || listFields.some(field => normalized[field].length);
+  if (hasContent && !evidenceRefs.length) groomingIssue(issues, `${path}.evidence_refs`, "populated_section_requires_allowed_evidence");
+  // Empty fields are an honest unknown. They must never be replaced with a
+  // locally written narrative merely because a source parser found other text.
   return normalized;
 };
 
-const normalizeWalkthrough = (candidate, fallback, sources, fallbackSections) => {
+const normalizeWalkthrough = (candidate, sources, issues) => {
   const raw = candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate : {};
-  const narrativeRefs = new Set(sources
-    .filter((item) => item.type === "story" || item.type === "comment" || item.type === "reviewed-context")
-    .map((item) => item.ref));
-  const validationRefs = new Set(sources
-    .filter((item) => item.type === "story" || item.type === "comment" || item.type === "reviewed-context" || item.type === "related-project-record")
-    .map((item) => item.ref));
-  const reviewRefs = new Set(sources.filter(isFactualEvidenceSource).map((item) => item.ref));
-
+  if (raw !== candidate) groomingIssue(issues, "walkthrough", "required_object");
+  const narrativeRefs = new Set(sources.filter(item => ["story", "comment", "reviewed-context"].includes(item.type)).map(item => item.ref));
+  const validationRefs = new Set(sources.filter(item => ["story", "comment", "reviewed-context", "related-project-record"].includes(item.type)).map(item => item.ref));
+  const reviewRefs = new Set(sources.filter(isFactualEvidenceSource).map(item => item.ref));
   return {
-    purpose: normalizeSection({ candidate: raw.purpose, fallback: fallback.purpose, textFields: ["summary", "why_needed"], listFields: ["expected_outcomes"], allowedRefs: narrativeRefs, fallbackSections, fallbackLabel: "walkthrough.purpose" }),
-    user_journey: normalizeSection({ candidate: raw.user_journey, fallback: fallback.user_journey, textFields: ["summary", "trigger"], listFields: ["actors", "steps", "use_cases", "alternate_paths"], allowedRefs: narrativeRefs, fallbackSections, fallbackLabel: "walkthrough.user_journey" }),
-    business_impact: normalizeSection({ candidate: raw.business_impact, fallback: fallback.business_impact, textFields: ["summary"], listFields: ["stakeholders", "value_outcomes", "success_measures"], allowedRefs: narrativeRefs, fallbackSections, fallbackLabel: "walkthrough.business_impact" }),
-    solution_design: normalizeSection({ candidate: raw.solution_design, fallback: fallback.solution_design, textFields: ["overview"], listFields: ["behaviors", "rules", "dependencies", "constraints"], allowedRefs: narrativeRefs, fallbackSections, fallbackLabel: "walkthrough.solution_design" }),
-    implementation: normalizeSection({ candidate: raw.implementation, fallback: fallback.implementation, textFields: ["overview"], listFields: ["components", "data", "integrations", "quality_requirements"], allowedRefs: narrativeRefs, fallbackSections, fallbackLabel: "walkthrough.implementation" }),
-    validation: normalizeSection({ candidate: raw.validation, fallback: fallback.validation, textFields: ["summary"], listFields: ["acceptance_criteria", "test_scenarios", "edge_cases", "linked_test_coverage"], allowedRefs: validationRefs, fallbackSections, fallbackLabel: "walkthrough.validation" }),
-    remaining: normalizeSection({ candidate: raw.remaining, fallback: fallback.remaining, textFields: ["summary"], listFields: ["gaps", "questions", "decisions", "actions", "risks"], allowedRefs: reviewRefs, fallbackSections, fallbackLabel: "walkthrough.remaining" })
+    purpose: normalizeSection({ candidate: raw.purpose, textFields: ["summary", "why_needed"], listFields: ["expected_outcomes"], allowedRefs: narrativeRefs, issues, path: "walkthrough.purpose" }),
+    user_journey: normalizeSection({ candidate: raw.user_journey, textFields: ["summary", "trigger"], listFields: ["actors", "steps", "use_cases", "alternate_paths"], allowedRefs: narrativeRefs, issues, path: "walkthrough.user_journey" }),
+    business_impact: normalizeSection({ candidate: raw.business_impact, textFields: ["summary"], listFields: ["stakeholders", "value_outcomes", "success_measures"], allowedRefs: narrativeRefs, issues, path: "walkthrough.business_impact" }),
+    solution_design: normalizeSection({ candidate: raw.solution_design, textFields: ["overview"], listFields: ["behaviors", "rules", "dependencies", "constraints"], allowedRefs: narrativeRefs, issues, path: "walkthrough.solution_design" }),
+    implementation: normalizeSection({ candidate: raw.implementation, textFields: ["overview"], listFields: ["components", "data", "integrations", "quality_requirements"], allowedRefs: narrativeRefs, issues, path: "walkthrough.implementation" }),
+    validation: normalizeSection({ candidate: raw.validation, textFields: ["summary"], listFields: ["acceptance_criteria", "test_scenarios", "edge_cases", "linked_test_coverage"], allowedRefs: validationRefs, issues, path: "walkthrough.validation" }),
+    remaining: normalizeSection({ candidate: raw.remaining, textFields: ["summary"], listFields: ["gaps", "questions", "decisions", "actions", "risks"], allowedRefs: reviewRefs, issues, path: "walkthrough.remaining" })
   };
 };
 
-const normalizeReadiness = (candidate, fallback, sources, fallbackSections) => {
-  const narrativeRefs = new Set(sources
-    .filter((item) => item.type === "story" || item.type === "comment" || item.type === "reviewed-context")
-    .map((item) => item.ref));
-  const testCoverageRefs = new Set(sources
-    .filter((item) => item.type === "story" || item.type === "comment" || item.type === "reviewed-context" || item.type === "related-project-record")
-    .map((item) => item.ref));
-  const linkedTestRefs = new Set(sources
-    .filter((item) => item.type === "related-project-record")
-    .map((item) => item.ref));
-  const rawChecks = new Map(normalizeList(candidate?.checks)
-    .filter((item) => item && typeof item === "object" && !Array.isArray(item))
-    .map((item) => [normalizeText(item.id, 80), item])
-    .filter(([id]) => id));
-  const checks = fallback.checks.map((fallbackCheck) => {
-    const useFallback = () => {
-      if (fallbackSections) fallbackSections.add(`readiness.${fallbackCheck.id}`);
-      return fallbackCheck;
-    };
-    const item = rawChecks.get(fallbackCheck.id);
-    if (!item) return useFallback();
-    if (!CHECK_STATUSES.has(item.status)) return useFallback();
-    const status = item.status;
-    if (CHECK_STATUS_RANK[status] > CHECK_STATUS_RANK[fallbackCheck.status]) return useFallback();
-    const allowedRefs = fallbackCheck.id === "test-coverage" ? testCoverageRefs : narrativeRefs;
-    const evidenceRefs = validEvidenceRefs(item.evidence_refs, allowedRefs, 8);
-    if (status !== "missing" && !evidenceRefs.length) return useFallback();
-    if (fallbackCheck.id === "test-coverage" && status === "met" && !evidenceRefs.some((ref) => linkedTestRefs.has(ref))) return useFallback();
-    const detail = normalizeText(item.detail, 500);
-    if (!detail && fallbackSections) fallbackSections.add(`readiness.${fallbackCheck.id}`);
-    return {
-      id: fallbackCheck.id,
-      label: fallbackCheck.label,
-      status,
-      detail: detail || fallbackCheck.detail,
-      evidence_refs: status === "missing" ? [] : evidenceRefs
-    };
-  });
-  return readinessFromChecks(checks);
-};
-
-const normalizeGroomingCandidate = (candidate, fallback, sources) => {
-  const raw = candidate?.grooming && typeof candidate.grooming === "object" ? candidate.grooming : candidate;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Grooming response must be a JSON object");
-  const fallbackSections = new Set();
-  const allowedRefs = new Set(sources.filter(isFactualEvidenceSource).map((item) => item.ref));
-  const layman = normalizeSection({ candidate: raw.layman, fallback: fallback.layman, textFields: ["explanation", "analogy"], allowedRefs, requiredTextFields: ["explanation"], fallbackSections, fallbackLabel: "legacy.layman" });
-  const business = normalizeSection({ candidate: raw.business, fallback: fallback.business, textFields: ["context"], listFields: ["roles_and_flow", "use_cases", "outcomes", "success_measures", "stakeholders"], allowedRefs, fallbackSections, fallbackLabel: "legacy.business" });
-  const technical = normalizeSection({ candidate: raw.technical, fallback: fallback.technical, textFields: ["overview"], listFields: ["functional_requirements", "data_and_integrations", "non_functional_requirements", "testability_notes", "acceptance_criteria", "dependencies", "constraints", "edge_cases", "security_and_privacy", "observability"], allowedRefs, fallbackSections, fallbackLabel: "legacy.technical" });
-  const scope = normalizeSection({ candidate: raw.scope, fallback: fallback.scope, listFields: ["in_scope", "out_of_scope"], allowedRefs, fallbackSections, fallbackLabel: "legacy.scope" });
-  const reviewEvidenceRefs = validEvidenceRefs(raw.review_evidence_refs, allowedRefs, 24);
-  let candidateReviewUsed = false;
-  let fallbackReviewUsed = false;
-  const normalizedReview = Object.fromEntries(["assumptions", "open_questions", "risks"].map((field) => {
-    const fallbackValues = normalizeTextList(fallback[field]);
-    const candidateValues = Array.isArray(raw[field]) ? normalizeTextList(raw[field]) : null;
-    const useFallback = candidateValues === null
-      || (candidateValues.length > 0 && !reviewEvidenceRefs.length)
-      || (candidateValues.length === 0 && fallbackValues.length > 0);
-    if (useFallback) {
-      fallbackReviewUsed = true;
-      fallbackSections.add(`legacy.review.${field}`);
-      return [field, fallbackValues];
+const normalizeReadiness = (candidate, measured, sources, providedIssues) => {
+  const issues = providedIssues || [];
+  const narrativeRefs = new Set(sources.filter(item => ["story", "comment", "reviewed-context"].includes(item.type)).map(item => item.ref));
+  const testCoverageRefs = new Set(sources.filter(item => ["story", "comment", "reviewed-context", "related-project-record"].includes(item.type)).map(item => item.ref));
+  const linkedTestRefs = new Set(sources.filter(item => item.type === "related-project-record").map(item => item.ref));
+  const expectedIds = new Set(measured.checks.map(item => item.id));
+  if (candidate?.status != null && !["ready-for-planning", "needs-clarification", "not-ready"].includes(candidate.status)) {
+    groomingIssue(issues, "readiness.status", "expected_ready_for_planning_needs_clarification_or_not_ready");
+  }
+  const rawChecks = new Map();
+  if (!candidate || !Array.isArray(candidate.checks)) groomingIssue(issues, "readiness.checks", "required_canonical_check_array");
+  for (const [index, item] of normalizeList(candidate?.checks).entries()) {
+    if (!item || typeof item !== "object" || !expectedIds.has(item.id)) { groomingIssue(issues, `readiness.checks[${index}].id`, "unknown_canonical_check"); continue; }
+    if (rawChecks.has(item.id)) groomingIssue(issues, `readiness.checks.${item.id}`, "duplicate_check");
+    rawChecks.set(item.id, item);
+  }
+  const adjustments = [];
+  const modelChecks = [];
+  const checks = measured.checks.map(signal => {
+    const item = rawChecks.get(signal.id);
+    const path = `readiness.checks.${signal.id}`;
+    if (!item) { groomingIssue(issues, path, "required_check"); return null; }
+    if (!CHECK_STATUSES.has(item.status)) groomingIssue(issues, `${path}.status`, "expected_met_partial_or_missing");
+    if (typeof item.detail !== "string" || !item.detail.trim()) groomingIssue(issues, `${path}.detail`, "required_evidence_or_gap_explanation");
+    const allowedRefs = signal.id === "test-coverage" ? testCoverageRefs : narrativeRefs;
+    const evidenceRefs = normalizeGroomingRefs(item.evidence_refs, allowedRefs, `${path}.evidence_refs`, issues);
+    if (item.status !== "missing" && !evidenceRefs.length) groomingIssue(issues, `${path}.evidence_refs`, "met_or_partial_requires_evidence");
+    if (signal.id === "test-coverage" && item.status === "met" && !evidenceRefs.some(ref => linkedTestRefs.has(ref))) groomingIssue(issues, `${path}.evidence_refs`, "met_coverage_requires_linked_test_record");
+    const modelCheck = { id: signal.id, label: signal.label, status: item.status,
+      detail: normalizeText(item.detail, 500), evidence_refs: evidenceRefs };
+    modelChecks.push(modelCheck);
+    if (CHECK_STATUSES.has(item.status) && CHECK_STATUS_RANK[item.status] > CHECK_STATUS_RANK[signal.status]) {
+      // Source completeness is a code-owned measurement, not generated review
+      // prose. Keep the original model assessment alongside every adjustment.
+      adjustments.push({ check_id: signal.id, label: signal.label, model_status: item.status,
+        measured_status: signal.status, applied_status: signal.status, reason: signal.detail,
+        evidence_refs: signal.evidence_refs, applicability: signal.status === "missing" ? "unconfirmed" : "documented" });
+      return { ...signal, detail: `Source completeness measurement: ${signal.detail}`, assessment_source: "measurement" };
     }
-    if (candidateValues.length) candidateReviewUsed = true;
-    return [field, candidateValues];
-  }));
-  const normalizedReviewEvidenceRefs = normalizeTextList([
-    ...(candidateReviewUsed ? reviewEvidenceRefs : []),
-    ...(fallbackReviewUsed ? fallback.review_evidence_refs : [])
-  ], 24, 255);
+    return { ...modelCheck, assessment_source: "model" };
+  }).filter(Boolean);
+  if (!providedIssues && issues.length) throw groomingContractError(issues);
+  return { ...readinessFromChecks(checks), model_checks: modelChecks,
+    measurement_adjustments: adjustments, measured_checks: measured.checks };
+};
 
-  const grooming = {
-    walkthrough: normalizeWalkthrough(raw.walkthrough, fallback.walkthrough, sources, fallbackSections),
-    layman,
-    business,
-    technical,
-    scope,
-    assumptions: normalizedReview.assumptions,
-    open_questions: normalizedReview.open_questions,
-    risks: normalizedReview.risks,
-    review_evidence_refs: normalizedReviewEvidenceRefs,
-    readiness: normalizeReadiness(raw.readiness, fallback.readiness, sources, fallbackSections)
-  };
-  return { grooming, fallback_sections: [...fallbackSections] };
+const normalizeGroomingCandidate = (candidate, measured, sources) => {
+  const raw = candidate?.grooming && typeof candidate.grooming === "object" ? candidate.grooming : candidate;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw groomingContractError([{ path: "grooming", issue: "required_object" }]);
+  const issues = [];
+  const allowedRefs = new Set(sources.filter(isFactualEvidenceSource).map(item => item.ref));
+  const layman = normalizeSection({ candidate: raw.layman, textFields: ["explanation", "analogy"], allowedRefs, issues, path: "layman" });
+  const business = normalizeSection({ candidate: raw.business, textFields: ["context"], listFields: ["roles_and_flow", "use_cases", "outcomes", "success_measures", "stakeholders"], allowedRefs, issues, path: "business" });
+  const technical = normalizeSection({ candidate: raw.technical, textFields: ["overview"], listFields: ["functional_requirements", "data_and_integrations", "non_functional_requirements", "testability_notes", "acceptance_criteria", "dependencies", "constraints", "edge_cases", "security_and_privacy", "observability"], allowedRefs, issues, path: "technical" });
+  const scope = normalizeSection({ candidate: raw.scope, listFields: ["in_scope", "out_of_scope"], allowedRefs, issues, path: "scope" });
+  const reviewEvidenceRefs = normalizeGroomingRefs(raw.review_evidence_refs, allowedRefs, "review_evidence_refs", issues);
+  const review = Object.fromEntries(["assumptions", "open_questions", "risks"].map(field => {
+    if (!Array.isArray(raw[field]) || raw[field].some(item => typeof item !== "string" || !item.trim())) groomingIssue(issues, field, "required_text_array_empty_when_unknown");
+    const values = normalizeTextList(raw[field]);
+    if (values.length && !reviewEvidenceRefs.length) groomingIssue(issues, "review_evidence_refs", `required_for_${field}`);
+    return [field, values];
+  }));
+  const grooming = { walkthrough: normalizeWalkthrough(raw.walkthrough, sources, issues), layman, business, technical, scope,
+    ...review, review_evidence_refs: reviewEvidenceRefs, readiness: normalizeReadiness(raw.readiness, measured.readiness, sources, issues) };
+  if (![layman?.explanation, grooming.walkthrough.purpose?.summary, grooming.walkthrough.remaining?.summary].some(Boolean)) {
+    groomingIssue(issues, "grooming", "required_grounded_purpose_or_missing_evidence_review");
+  }
+  if (issues.length) throw groomingContractError(issues);
+  return { grooming, fallback_sections: [] };
 };
 
 const groomingStoryMetadata = (requirement) => {
@@ -695,7 +686,7 @@ const extractJson = (value) => {
   return JSON.parse(text.slice(start, end + 1));
 };
 
-const requestGrooming = async ({ integration, prompt }) => {
+const requestGrooming = async ({ integration, prompt, correction, timeoutMs }) => {
   const baseUrl = String(integration.base_url || "https://api.openai.com/v1").replace(/\/+$/, "");
   const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
   const headers = { "Content-Type": "application/json" };
@@ -709,18 +700,20 @@ const requestGrooming = async ({ integration, prompt }) => {
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: aiInstructionBlock("ai.requirement.grooming", "requirementWorkspace.response.43") },
-        { role: "user", content: prompt }
+        { role: "user", content: prompt },
+        ...(correction ? [{ role: "user", content: aiInstructionBlock(GROOMING_USAGE_KEY, "requirementWorkspace.contractCorrection") + "\n" + JSON.stringify(correction) }] : [])
       ]
     })
-  }, { integration, operation: "requirement.grooming", contextFallback: false });
+  }, { integration, operation: "requirement.grooming", featureKey: GROOMING_USAGE_KEY, contextFallback: false,
+    timeoutMs, maxAttempts: 1, compatibility: false });
   if (!response.ok) {
     const raw = await response.text();
     throw createLlmProviderError({ status: response.status, detail: raw });
   }
   const payload = await response.json();
   const content = getCompletionContent(payload);
-  if (!content) throw new Error("LLM response did not include generated grooming content");
-  return extractJson(content);
+  if (!content) throw groomingContractError([{ path: "grooming", issue: "missing_model_content" }]);
+  return content;
 };
 
 const assisted = ({ capability, input, evidence, confidence, payload, integration = null, fallbackUsed = false, fallbackReason = null, fallbackSections = [], directModelInvocation = false, generationMode: requestedGenerationMode = null }) => {
@@ -810,59 +803,44 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
   ];
   const evidenceRefs = sources.map((item) => item.ref);
   const boundedRequirement = { ...requirement, description, external_references: externalReferencePointers };
-  const fallback = buildDeterministicGrooming({ requirement: boundedRequirement, comments: boundedComments, linkedCases, defects });
-  let grooming = fallback;
-  let integration = null;
-  let fallbackUsed = false;
-  let fallbackReason = null;
-  let fallbackSections = [];
-  let directModelInvocation = false;
-  let generationMode = "deterministic";
-
-  try {
-    integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
-      integrationId: integrationId || integration_id,
-      userId: userId || user?.id,
-      usageKey: GROOMING_USAGE_KEY,
-      projectId: project.id,
-      fallback: "project-then-global",
-      allowMissing: true
-    });
-    if (integration) {
-      if (!normalizeText(integration.model, 255)) throw new Error("Selected LLM integration is missing a model");
-      directModelInvocation = true;
-      const candidate = await requestGrooming({ integration, prompt: buildGroomingPrompt({ requirement: boundedRequirement, project, sources, promptGuidance: normalizedPromptGuidance, unavailableSources: restrictedSources }) });
-      const normalized = normalizeGroomingCandidate(candidate, fallback, sources);
+  const measured = buildDeterministicGrooming({ requirement: boundedRequirement, comments: boundedComments, linkedCases, defects });
+  const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
+    integrationId: integrationId || integration_id, userId: userId || user?.id,
+    usageKey: GROOMING_USAGE_KEY, projectId: project.id, fallback: "project-then-global", allowMissing: true
+  });
+  requireAiAssessment({ integration });
+  const prompt = buildGroomingPrompt({ requirement: boundedRequirement, project, sources,
+    promptGuidance: normalizedPromptGuidance, unavailableSources: restrictedSources });
+  const deadline = Date.now() + 60000;
+  let grooming, correction, validationErrors = [], modelCalls = 0;
+  for (; modelCalls < 2; modelCalls++) {
+    const remaining = deadline - Date.now();
+    if (remaining < 1000) break;
+    let content;
+    try {
+      content = await requestGrooming({ integration, prompt, correction, timeoutMs: remaining });
+      const normalized = normalizeGroomingCandidate(extractJson(content), measured, sources);
       grooming = normalized.grooming;
-      fallbackSections = normalized.fallback_sections;
-      if (isDeepStrictEqual(grooming, fallback)) {
-        generationMode = "deterministic";
-        fallbackUsed = true;
-        fallbackReason = "The model returned no additional usable evidence-backed sections; a conservative evidence-only review is shown.";
-      } else if (fallbackSections.length) {
-        generationMode = "hybrid";
-        fallbackUsed = true;
-        fallbackReason = `The configured AI response was only partially usable; conservative evidence-only results replaced these review sections: ${fallbackSections.join(", ")}.`;
-      } else {
-        generationMode = "llm";
+      modelCalls++;
+      break;
+    } catch (error) {
+      if (error instanceof SyntaxError || error?.code === "AI_GROOMING_OUTPUT_INVALID" || /Grooming response did not contain JSON/.test(error?.message || "")) {
+        validationErrors = error.validation_errors || [{ path: "grooming", issue: "invalid_json_object" }];
+        correction = { validation_errors: validationErrors,
+          previous_response: typeof content === "string" ? content.slice(0, 24000) : null };
+        continue;
       }
-    } else {
-      fallbackUsed = true;
-      fallbackReason = "No active LLM integration is configured; a conservative evidence-only review is shown.";
+      if (typeof error?.publicMessage === "string" && error.publicMessage.trim()) throw error;
+      if (["LLM_AUTHENTICATION_FAILED", "LLM_QUOTA_EXCEEDED", "LLM_RATE_LIMITED", "LLM_RATE_LIMIT_REQUEST_TOO_LARGE", "LLM_REQUEST_TOO_LARGE"].includes(error?.code)) throw error;
+      requireAiAssessment({ integration, failed: true });
     }
-  } catch (error) {
-    fallbackUsed = true;
-    const providerMessage = error?.publicMessage
-      || ([401, 403].includes(error?.upstreamStatusCode) ? "The provider rejected the configured credentials or model access." : null)
-      || (error?.upstreamStatusCode === 429 ? "The provider rate limit was reached. Retry after the limit resets." : null)
-      || ([502, 503, 504].includes(error?.statusCode) || error?.name === "AbortError" ? "The AI provider is unavailable or timed out. Check its connection and retry." : null)
-      || "The configured AI provider did not return a valid evidence-backed grooming response.";
-    fallbackReason = `${providerMessage} A conservative evidence-only review is shown.`;
-    grooming = fallback;
   }
-
-  requireAiAssessment({ integration, accepted: generationMode !== "deterministic" });
-  const readinessChecks = grooming.readiness?.checks || fallback.readiness.checks;
+  if (!grooming) {
+    const message = `AI Grooming did not return a complete, evidence-backed review ${modelCalls > 1 ? "after one correction" : "within the review time budget"}. No fallback review was generated. Retry with a smaller Story or another configured model.`;
+    throw Object.assign(new Error(message), { code: "AI_GROOMING_OUTPUT_INVALID", statusCode: 502,
+      publicMessage: message, validation_errors: validationErrors, model_calls: modelCalls });
+  }
+  const readinessChecks = grooming.readiness.checks;
   const groundedChecks = readinessChecks.filter((item) => item.status === "met").length;
   const partialChecks = readinessChecks.filter((item) => item.status === "partial").length;
   const confidence = readinessChecks.length
@@ -880,12 +858,10 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
     evidence: evidenceRefs,
     confidence,
     integration,
-    fallbackUsed,
-    fallbackReason,
-    fallbackSections,
-    directModelInvocation,
-    generationMode,
+    fallbackUsed: false, fallbackReason: null, fallbackSections: [],
+    directModelInvocation: true, generationMode: "llm",
     payload: {
+      model_execution: { model_calls: modelCalls, max_model_calls: 2, contract_repaired: modelCalls > 1 },
       requirement: { id: requirement.id, display_id: requirement.display_id || requirement.id, title: requirement.title, status: requirement.status, priority: requirement.priority },
       grooming,
       context: { scope: { project_id: project.id, project_key: project.display_id || project.id }, bounded: true, limits: { comments: 20, attachments: 20, attachment_text_files: 0, attachment_text_bytes: 0, attachment_text_chars: 0, linked_tickets: 50, related_project_records: 50, external_references: 10, comment_chars: 500, description_chars: 4000, reviewed_context_chars: 12000 }, included: { reviewed_context: reviewedContext ? 1 : 0, comments: comments.length, attachments: attachments.length, attachment_text_files: 0, linked_tickets: defects.length, related_project_records: linkedCases.length, external_references: externalReferencePointers.length }, omitted, partial_sources: partialSources, unavailable_sources: [...restrictedSources, ...(totals.attachments ? ["attachment-text-extraction"] : [])], sources }

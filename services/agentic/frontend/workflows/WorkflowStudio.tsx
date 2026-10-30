@@ -267,18 +267,17 @@ export function WorkflowStudio(props: Props) {
                 : "Check the current definition"}
             </strong>
             <p>
-              Execution saves a snapshot and runs connected steps. Results
-              require human review.
+              Execution uses the saved definition and current input. Generated Library cases remain pending review or draft.
             </p>
           </div>
-          <button
+          {!props.editable && <button
             type="button"
             className="ghost-button"
             disabled={props.busy}
             onClick={props.onCheck}
           >
-            {props.editable ? "Save and check readiness" : "Check readiness"}
-          </button>
+            Check readiness
+          </button>}
           {props.readinessCurrent &&
             props.readiness?.blockers.map((item, index) => (
               <p key={index} className="studio-notice">

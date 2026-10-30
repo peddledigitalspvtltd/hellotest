@@ -8,6 +8,14 @@ export type AiStoryEvidenceSource = AiEvidenceSource & {
   limitation?: string | null;
 };
 
+export type AiStoryReviewInput = {
+  capability: "ai-story-create" | "ai-story-complete";
+  request_id: string;
+  input_fingerprint: string;
+  evidence_refs?: string[];
+  human_edited_fields?: string[];
+};
+
 type AiRequirementCreationSuggestion = {
   client_id: string;
   title: string;
@@ -81,7 +89,7 @@ requirements: {
       request<JiraIssueCreateMetadata>(`/requirements/create-metadata${toQueryString(query)}`),
     editMetadata: (id: string, query?: { project_id?: string }) =>
       request<JiraIssueCreateMetadata>(`/requirements/${id}/edit-metadata${toQueryString(query)}`),
-    create: (input: { project_id: string; title: string; description?: string; acceptance_criteria?: string[]; gherkin_scenarios?: string[]; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; release_id?: string; iteration_id?: string; dev_completion_target_date?: string; qa_completion_target_date?: string; scrum_team?: string; specification_format?: "gherkin" | "speckit"; specification_content?: string; priority?: number; status?: string; additional_fields?: Record<string, unknown>; related_requirement_ids?: string[] }) =>
+    create: (input: { project_id: string; title: string; description?: string; acceptance_criteria?: string[]; gherkin_scenarios?: string[]; ai_review?: AiStoryReviewInput; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; release_id?: string; iteration_id?: string; dev_completion_target_date?: string; qa_completion_target_date?: string; scrum_team?: string; specification_format?: "gherkin" | "speckit"; specification_content?: string; priority?: number; status?: string; additional_fields?: Record<string, unknown>; related_requirement_ids?: string[] }) =>
       request<{ id: string; related_requirement_ids?: string[]; status_warning?: { code: string; message: string; requested_status?: string | null; current_status?: string | null; issue_key?: string | null } }>("/requirements", { method: "POST", body: JSON.stringify(input) }),
     get: (id: string, query?: { project_id?: string; include_execution?: boolean }) =>
       request<Requirement>(`/requirements/${id}${toQueryString(query)}`),
@@ -203,7 +211,7 @@ requirements: {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    update: (id: string, input: Partial<{ project_id: string; title: string; description: string; acceptance_criteria: string[]; gherkin_scenarios: string[]; external_references: string[]; labels: string[]; sprint: string; fix_version: string; release: string; release_id: string; iteration_id: string; dev_completion_target_date: string; qa_completion_target_date: string; scrum_team: string; specification_format: "gherkin" | "speckit"; specification_content: string; priority: number; status: string; additional_fields: Record<string, unknown>; expected_revision: number }>) =>
+    update: (id: string, input: Partial<{ project_id: string; title: string; description: string; acceptance_criteria: string[]; gherkin_scenarios: string[]; ai_review: AiStoryReviewInput; external_references: string[]; labels: string[]; sprint: string; fix_version: string; release: string; release_id: string; iteration_id: string; dev_completion_target_date: string; qa_completion_target_date: string; scrum_team: string; specification_format: "gherkin" | "speckit"; specification_content: string; priority: number; status: string; additional_fields: Record<string, unknown>; expected_revision: number }>) =>
       request<{
         updated: boolean;
         revision: number;

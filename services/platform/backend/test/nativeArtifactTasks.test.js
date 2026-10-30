@@ -123,7 +123,10 @@ test('native stages reject forged success, wrong Story cases, duplicate packets 
   await assert.rejects(execute('test-case-generation',initial.data),/trace only to its selected Story/);
   const assessed={...packet(),cases:[draft()],case_assurance:[{...review('Assessed'),case_fingerprint:tasks.fingerprint(draft())}]};
   t.mock.method(automation,'previewAutomationDraft',async()=>({steps:[],validation:{status:'passed'}}));
-  await assert.rejects(execute('automation-engineer',[assessed]),/complete validated draft/);
+  const incomplete=await execute('automation-engineer',[assessed]);
+  assert.equal(incomplete.verification.status,'needs_input');
+  assert.equal(incomplete.data[0].automation[0],null);
+  assert.match(incomplete.data[0].automation_failures[0].message,/complete validated draft/);
 });
 
 test('native task cancellation cannot publish a late provider result and empty Sprint does not claim model verification', async t => {
@@ -283,7 +286,7 @@ test('verify-inputs lets the successor assess uncertain upstream findings agains
   await assert.rejects(execute('automation-engineer',[assessed],{data:{readinessPolicy:'always-ready'}}),/Choose verify-inputs or require-ready/);
 });
 
-test('only declared native input errors become review gaps; provider, access, cancellation and incomplete builds still fail', async t => {
+test('declared native input errors become gaps and per-case incomplete builds are retained; provider, access and cancellation still stop', async t => {
   setup(t);
   const item=draft(), assessed={...packet(),cases:[item],case_assurance:[{...review('Assessed'),case_fingerprint:tasks.fingerprint(item)}]};
   let failure;
@@ -295,7 +298,11 @@ test('only declared native input errors become review gaps; provider, access, ca
     assert.equal(output.data[0].automation_input_required[0].code,code);
     assert.doesNotMatch(JSON.stringify(output),/Untrusted error detail/);
   }
-  for(const [code,statusCode] of [['AI_MODEL_REQUIRED',422],['MODEL_UNAVAILABLE',503],['AUTOMATION_BUILD_INCOMPLETE',422],['AUTOMATION_DEPENDENCY_MISSING',403],['AUTOMATION_DEPENDENCY_MISSING',499],['AUTOMATION_DEPENDENCY_MISSING',503]]) {
+  failure=Object.assign(new Error('A case needs another assertion'),{code:'AUTOMATION_BUILD_INCOMPLETE',statusCode:422,publicMessage:'Complete the requested assertion.'});
+  const incomplete=await execute('automation-engineer',[assessed]);
+  assert.equal(incomplete.data[0].automation_failures[0].code,'AUTOMATION_BUILD_INCOMPLETE');
+  assert.match(incomplete.data[0].automation_failures[0].message,/requested assertion/);
+  for(const [code,statusCode] of [['AI_MODEL_REQUIRED',422],['MODEL_UNAVAILABLE',503],['AUTOMATION_DEPENDENCY_MISSING',403],['AUTOMATION_DEPENDENCY_MISSING',499],['AUTOMATION_DEPENDENCY_MISSING',503]]) {
     failure=Object.assign(new Error('Must propagate'),{code,statusCode});
     await assert.rejects(execute('automation-engineer',[assessed]),error=>error===failure);
   }

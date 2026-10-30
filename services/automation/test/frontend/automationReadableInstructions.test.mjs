@@ -77,6 +77,17 @@ test('source-mutated parameters do not present stale configured repository targe
  assert.doesNotMatch(rows[1].text,/Login.Email|OldLogin.Email/);
 });
 
+test('readable instructions use native quoted parameter grammar and retain current values after edits',()=>{
+ const source='await web.fill(params["t.field.name"],params["t.account.email"]);await web.fill("mail@t.account", "literal");';
+ const initial={parameterValues:{'t.field.name':'#first','t.account.email':'first@example.test','t.account':'wrong'}};
+ const rows=read(source,initial);
+ assert.deepEqual(rows[0].args,['#first','@t.[account.email]']);
+ assert.equal(rows[1].args[0],'mail@t.account','an email/identifier fragment is literal, matching the execution grammar');
+ const changed=read(source,{parameterValues:{...initial.parameterValues,'t.field.name':'#second','t.account.email':'second@example.test'}});
+ assert.deepEqual(changed[0].args,['#second','@t.[account.email]']);
+ assert.equal(source,'await web.fill(params["t.field.name"],params["t.account.email"]);await web.fill("mail@t.account", "literal");','values never rewrite saved source');
+});
+
 test('canonical casing and unique legacy field names render Screen.Field without guessing ambiguous names',()=>{
  const rows=read('await web.click("login.email");await web.click("oldlogin.email");await web.click("Email");',context);
  assert.deepEqual(rows.map(row=>row.args[0]),['Login.Email','Login.Email','Login.Email']);

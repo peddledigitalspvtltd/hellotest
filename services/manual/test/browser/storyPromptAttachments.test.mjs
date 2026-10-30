@@ -18,7 +18,7 @@ test('Story AI accepts original prompt files only for chosen Stories, retries up
  fixture=fixture.replace("initialEntries:['/?create=1&sprint_id=native-sprint&release_id=open-release']","initialEntries:['/']");
  const overrides=`
 api.integrations.list=async()=>[{id:'llm',name:'Fixture LLM',type:'llm',is_active:true}];
-const suggestion={client_id:'first',title:'Accepted delivery Story',description:'Preserve delivery preferences and expose validation errors.',acceptance_criteria:[],external_references:[],priority:3,status:'open',risks:[],open_questions:[],change_summary:['Clarified expected behavior']};
+const suggestion={client_id:'first',title:'Accepted delivery Story',description:'Preserve delivery preferences and expose validation errors.',acceptance_criteria:['Saved delivery preferences are restored when the customer returns.'],external_references:[],priority:3,status:'open',risks:[],open_questions:[],change_summary:['Clarified expected behavior']};
 const job={id:'fixture-job',status:'completed',requirements:[suggestion,{...suggestion,client_id:'second',title:'Unaccepted delivery Story'}]};
 api.requirements.createGenerationJob=async input=>{window.calls.push({kind:'generate',input});return job};api.requirements.getGenerationJob=async()=>job;
 api.requirements.previewOptimization=async(id,input)=>{window.calls.push({kind:'complete',id,input});return{suggestion:{...suggestion,title:'Completed saved delivery Story'},fallback_used:false}};

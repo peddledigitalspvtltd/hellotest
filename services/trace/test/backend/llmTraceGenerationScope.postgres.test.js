@@ -27,5 +27,25 @@ test('PostgreSQL isolates exact and legacy model-call generation scopes, bodies 
   for(let index=0;index<55;index++)await trace('page-'+String(index).padStart(2,'0'),{capture:{test_case_id:'case-a',completion_attempt:3}});
   const first=await service.list('project',{...input,completion_attempt:3});assert.equal(first.items.length,50);assert.equal(first.summary.calls,55);assert.ok(first.next_cursor);
   const second=await service.list('project',{...input,completion_attempt:3,cursor:first.next_cursor});assert.equal(second.items.length,5);assert.equal(second.next_cursor,null);assert.equal(new Set([...first.items,...second.items].map(row=>row.id)).size,55);
+  const workflowStart=Date.now()-120000;
+  for(let index=0;index<56;index++){
+   const id='workflow-'+String(index).padStart(2,'0');await trace(id);
+   await client.query("UPDATE llm_request_traces SET run_id='workflow-run',node_id='generation-node',started_at=$2 WHERE id=$1",[id,new Date(workflowStart+index*1000)]);
+  }
+  for(const [id,run,node,project] of [['wrong-node','workflow-run','different-node','project'],['wrong-run','different-run','generation-node','project'],['wrong-project','workflow-run','generation-node','foreign']]){
+   await trace(id,{project});await client.query('UPDATE llm_request_traces SET run_id=$2,node_id=$3 WHERE id=$1',[id,run,node]);
+  }
+  const workflowFilter={run_id:'workflow-run',node_id:'generation-node',since:new Date(workflowStart-1000).toISOString()};
+  const chronological=await service.list('project',workflowFilter,{chronological:true});
+  assert.deepEqual(chronological.items.map(row=>row.id),Array.from({length:50},(_,index)=>'workflow-'+String(index).padStart(2,'0')));
+  assert.equal(chronological.summary.calls,56);
+  const remaining=await service.list('project',{...workflowFilter,cursor:chronological.next_cursor},{chronological:true});
+  assert.deepEqual(remaining.items.map(row=>row.id),Array.from({length:6},(_,index)=>'workflow-'+String(index+50).padStart(2,'0')));
+  const scopedDetail={includeContent:true,runId:'workflow-run',nodeId:'generation-node'};
+  assert.ok((await service.detail('project','workflow-00',scopedDetail)).response_payload.choices);
+  for(const id of ['wrong-node','wrong-run','wrong-project'])await assert.rejects(service.detail('project',id,scopedDetail),error=>error.statusCode===404);
+  await client.query("UPDATE llm_request_traces SET expires_at=now()-interval '1 second' WHERE id='workflow-00'");
+  await assert.rejects(service.detail('project','workflow-00',scopedDetail),error=>error.statusCode===404);
+  assert.equal((await service.list('project',workflowFilter,{chronological:true})).summary.calls,55);
  }finally{await client.query('SET search_path TO public');await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await client.end();}
 });

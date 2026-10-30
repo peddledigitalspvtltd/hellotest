@@ -27,7 +27,13 @@ function hasAutomationSource(value, automationNodeIds = new Set()) {
 
 async function publicRun(run, user, accessCache = new Map()) {
   if (!run) return run;
-  const nodes = (run.node_results || []).map(({ execution_context, ...result }) => result);
+  const nodes = (run.node_results || []).map(({ execution_context, ...result }) => {
+    if (result.progress && typeof result.progress === 'object' && !Array.isArray(result.progress)) {
+      const { automation_checkpoint, ...progress } = result.progress;
+      return { ...result, progress };
+    }
+    return result;
+  });
   const snapshotNodes = run.workflow_snapshot?.nodes || [];
   const origins = new Set(nodes.filter(result => {
     const data = snapshotNodes.find(node => node.id === result.node_id)?.data || {};

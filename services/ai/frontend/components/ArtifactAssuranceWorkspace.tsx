@@ -57,6 +57,10 @@ export function ArtifactAssuranceWorkspace({
 }) {
   const instanceId = useId();
   const [activeTab, setActiveTab] = useState<"quality" | "impact">("quality");
+  const selectTab = (tab: "quality" | "impact") => {
+    setActiveTab(tab);
+    if (tab === "impact") onInspectImpact?.();
+  };
   const titleId = `artifact-assurance-title-${instanceId}`;
   const insightsTitleId = `artifact-assurance-insights-title-${instanceId}`;
   const normalizedScore = Math.max(0, Math.min(100, Math.round(analysis.overall_score)));
@@ -76,8 +80,8 @@ export function ArtifactAssuranceWorkspace({
 
   return (
     <section aria-busy={isAnalyzing} aria-labelledby={titleId} className="artifact-assurance-workspace">
-      {impactContent ? <div className="artifact-assurance-tabs" role="tablist" aria-label="AI Story Assurance">
-        {(["quality", "impact"] as const).map((tab, index) => <button key={tab} type="button" role="tab" id={`${instanceId}-${tab}-tab`} aria-controls={`${instanceId}-${tab}-panel`} aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1} onClick={() => setActiveTab(tab)} onKeyDown={event => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); const next = event.key === "Home" ? "quality" : event.key === "End" ? "impact" : index === 0 ? "impact" : "quality"; setActiveTab(next); document.getElementById(`${instanceId}-${next}-tab`)?.focus(); } }}>{tab === "quality" ? "Quality review" : "Impact analysis"}</button>)}
+      {impactContent ? <div className="artifact-assurance-tabs" role="tablist" aria-label={analysis.artifact_type === 'story' ? 'AI Story Assurance' : 'AI Test Case Assurance'}>
+        {(["quality", "impact"] as const).map((tab, index) => <button key={tab} type="button" role="tab" id={`${instanceId}-${tab}-tab`} aria-controls={`${instanceId}-${tab}-panel`} aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1} onClick={() => selectTab(tab)} onKeyDown={event => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); const next = event.key === "Home" ? "quality" : event.key === "End" ? "impact" : index === 0 ? "impact" : "quality"; selectTab(next); document.getElementById(`${instanceId}-${next}-tab`)?.focus(); } }}>{tab === "quality" ? "Quality review" : "Impact analysis"}</button>)}
       </div> : null}
       {impactContent ? <div id={`${instanceId}-impact-panel`} role="tabpanel" aria-labelledby={`${instanceId}-impact-tab`} hidden={activeTab !== "impact"}>{impactContent}</div> : null}
       <div id={`${instanceId}-quality-panel`} role={impactContent ? "tabpanel" : undefined} aria-labelledby={impactContent ? `${instanceId}-quality-tab` : undefined} hidden={activeTab !== "quality"}>
@@ -107,7 +111,7 @@ export function ArtifactAssuranceWorkspace({
 
         <div className="artifact-assurance-overview-copy">
           <span className="artifact-assurance-eyebrow">
-            <SparkIcon /> {criteriaKey === "metric.assurance.story" ? "AI Story Assurance" : "AI Test Coverage Assurance"} · Evidence-led analysis
+            <SparkIcon /> {criteriaKey === "metric.assurance.story" ? "AI Story Assurance" : "AI Test Case Assurance"} · Evidence-led analysis
             <InfoTooltip
               className="artifact-assurance-methodology-info"
               content={(
@@ -191,6 +195,7 @@ export function ArtifactAssuranceWorkspace({
                 <ul>
                   {item.evidence.map((evidence) => <li key={evidence}>{evidence}</li>)}
                 </ul>
+                {item.review_evidence?.length ? <p><b>AI review sources:</b> {item.review_evidence.join(" · ")}</p> : null}
                 <p><b>Next:</b> {item.recommendation}</p>
               </div>
             </details>
@@ -201,7 +206,7 @@ export function ArtifactAssuranceWorkspace({
       <section aria-labelledby={insightsTitleId} className="artifact-assurance-insights">
         <header>
           <div>
-            <span>Prioritized by evidence gap</span>
+            <span>Prioritized by supported impact</span>
             <h3 id={insightsTitleId}>Priority insights</h3>
           </div>
           <span>{analysis.insights.length} {analysis.insights.length === 1 ? "action" : "actions"}</span>
@@ -218,13 +223,14 @@ export function ArtifactAssuranceWorkspace({
                   </div>
                   <p>{item.explanation}</p>
                   <span className="artifact-assurance-insight-evidence">Evidence: {item.evidence.join(" · ")}</span>
+                  {item.kind || item.affected_fields?.length || item.step_refs?.length ? <span className="artifact-assurance-insight-evidence">{[item.kind?.replace(/_/g, " "), ...(item.affected_fields || []), ...(item.step_refs || [])].filter(Boolean).join(" · ")}</span> : null}
                   <p className="artifact-assurance-insight-action"><b>Action:</b> {item.recommendation}</p>
                 </div>
               </li>
             ))}
           </ol>
         ) : (
-          <p className="artifact-assurance-no-insights">No material design gaps were detected. Human review still owns the decision.</p>
+          <p className="artifact-assurance-no-insights">No supported priority findings were returned for the supplied evidence. Human review still owns the decision.</p>
         )}
       </section>
 

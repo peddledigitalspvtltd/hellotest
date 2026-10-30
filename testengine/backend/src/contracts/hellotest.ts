@@ -103,6 +103,18 @@ export type EngineObjectRepositoryEntry = {
 
 export type EngineMobileProvider = "local-appium" | "saucelabs" | "browserstack";
 
+export type EngineMobileTargetOptions = {
+  platform_name?: "android" | "ios" | null;
+  udid?: string | null;
+  bundle_id?: string | null;
+  app_package?: string | null;
+  app_activity?: string | null;
+  provider_options?: Record<string, unknown>;
+  device_name?: string | null;
+  platform_version?: string | null;
+  app?: string | null;
+};
+
 export type EngineManualSpec = {
   title: string;
   intent: string;
@@ -333,6 +345,7 @@ export type EngineRunEnvelope = {
   trigger: EngineRunTrigger;
   source_mode: EngineSourceMode;
   automated: boolean;
+  automation_case_type?: "web" | "api" | "android" | "ios" | "unified";
   orchestration_class?: "api" | "web" | "android" | string | null;
   step_engine_classes?: Array<"api" | "web" | "android" | string>;
   engine_worker_caps?: {
@@ -370,6 +383,7 @@ export type EngineRunEnvelope = {
     device_name?: string | null;
     platform_version?: string | null;
     app?: string | null;
+    platforms?: Partial<Record<"android" | "ios", EngineMobileTargetOptions>>;
   } | null;
   manual_spec: EngineManualSpec;
   auto_repair_brief?: {

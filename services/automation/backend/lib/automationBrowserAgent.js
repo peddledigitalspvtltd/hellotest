@@ -19,6 +19,7 @@ const {selectAutomationBrowserSkills}=require('./automationBrowserSkills');
 const {automationSectionIssue,observedValidationFeedback,sectionIssueOutcomeReviewFeedback}=require('./automationSectionIssue');
 const {browserVerificationBoundary,unsuccessfulBrowserCheck,browserRecoveryState,recordBrowserCheck,repeatedUnsuccessfulCheck,confirmedLocatorValidation,browserToolBudgetError}=require('./automationBrowserRecovery');
 const {createAutomationNavigationGrounding}=require('./automationNavigationGrounding');
+const {referenceKey}=require('./automationBrowserParameters');
 const {browserAssertionSubjectFeedback}=require('./automationBrowserAssertionSubject');
 const {browserActionOrderFeedback,browserCurrentActionPolicy}=require('./automationBrowserActionOrder');
 const {browserExcerptAssertionFeedback,browserObservedTargetFeedback}=require('./automationBrowserModelTargets');
@@ -105,8 +106,9 @@ function remainingBrowserCalls(observations,limit=10){
 }
 
 /** LLM chooses tools; MCP supplies observations. Neither page content nor tool errors can change policy. */
-async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_generation", prompt, browser, startUrl, complete, parse, onProgress = async () => {}, onObservation = () => {}, onPartialBuild, onRecordedContract, taskContext, inputParameterBinding, generationMode, execution, actorMode=false, phase, maxTurns = 8, maxCalls = 12, deadlineMs, initialObservations = [] }) {
+async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_generation", prompt, browser, startUrl, complete, parse, onProgress = async () => {}, onObservation = () => {}, onPartialBuild, onRecordedContract, taskContext, inputParameterBinding, generationMode, execution, actorMode=false, phase, navigationActions=[], maxTurns = 8, maxCalls = 12, deadlineMs, initialObservations = [] }) {
   const observations = [...initialObservations];
+  const originalNavigationActions=Array.isArray(execution?.source_obligations)?execution.source_obligations:navigationActions;
   const planningPhase=phase==='flow_plan';
   const catalog = new Map(browser.tools.map((tool) => [tool.name,tool]));
   const allowed = new Set(catalog.keys());
@@ -191,7 +193,11 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
   if (startUrl) {
     if (!allowed.has("browser_navigate") || !allowed.has("browser_snapshot")) throw new Error("Automation browser is missing navigation or snapshot tools");
     await onProgress({ phase: "automation.agent.browser", message: "Opening the application and reading its accessible elements." });
-    for (const [name, args] of [["browser_navigate", { url: startUrl }], ["browser_snapshot", {}]]) {
+    for (const [name, originalArgs] of [["browser_navigate", { url: startUrl }], ["browser_snapshot", {}]]) {
+      let request={name,arguments:originalArgs};
+      if(typeof browser.canonicalizeParameterArguments==='function')request={...request,arguments:browser.canonicalizeParameterArguments(name,originalArgs,{navigationActions:originalNavigationActions})};
+      if(inputParameterBinding)request=inputParameterBinding.canonicalize(request,{observations});
+      const args=request.arguments;
       for (let startupAttempt = 1; startupAttempt <= 2; startupAttempt++) {
         if (Date.now() >= deadline) throw Object.assign(new Error('Automation browser startup reached the case deadline. Start a new build after checking TestEngine.'), { code: 'AUTOMATION_BUILD_DEADLINE', statusCode: 422, nonRetryable: true });
         const actionId=name==='browser_navigate'?randomUUID():undefined;
@@ -665,7 +671,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
         await observe({tool:'automation_target_feedback',mcp_call:false,result:{isError:true,content:[{type:'text',text:JSON.stringify(unfinishedExecution)}]}});
         break;
       }
-      if(typeof browser.canonicalizeParameterArguments==='function')request={...request,arguments:browser.canonicalizeParameterArguments(request.name,request.arguments??{})};
+      if(typeof browser.canonicalizeParameterArguments==='function')request={...request,arguments:browser.canonicalizeParameterArguments(request.name,request.arguments??{},{navigationActions:originalNavigationActions})};
       if(actor&&inputParameterBinding)request=inputParameterBinding.canonicalize(request,{snapshot:browserCurrentSnapshotObservation(observations),observations});
       if(actor&&execution?.retained_assertion_contract&&['browser_fill','browser_select_option','browser_assert'].includes(request.name)){
         request=require('./automationRetainedSubjectPreflight').canonicalizeRetainedInputRequest({contract:execution.retained_assertion_contract,stepId:execution.step_id,
@@ -730,6 +736,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
           :'A shortened browser excerpt cannot establish an exact expected value. No assertion was attempted.',details:{active_step_id:execution?.step_id,error_code:assertionExcerpt.code,action_outcome:'not_attempted'}});
         break;
       }
+      let resolvedNavigationUrl;
       if(navigationGrounding&&request.name==='browser_navigate'){
         const navigation=navigationGrounding.inspect({url:args.url,observations});
         if(!navigation.allowed){
@@ -738,7 +745,8 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
           await optionalProgress({phase:'automation.agent.navigation.grounding',level:'warning',message:'The requested route needs an exact URL from the current task or observed browser evidence. The live page was preserved.',details:{active_step_id:execution.step_id,error_code:navigation.feedback.code,action_outcome:'not_attempted'}});
           break;
         }
-        if(navigation.url!==args.url){request={...request,arguments:{...args,url:navigation.url}};args=request.arguments;resolvedBatch[resolvedBatch.length-1]=request;}
+        resolvedNavigationUrl=navigation.url;
+        if(navigation.url!==args.url&&!referenceKey(args.url)){request={...request,arguments:{...args,url:navigation.url}};args=request.arguments;resolvedBatch[resolvedBatch.length-1]=request;}
       }
       const validated=confirmedLocatorValidation({request,observations,stepId:execution?.step_id});
       if(validated){
@@ -758,7 +766,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
         break;
       }
       if(actor&&request.name==='browser_navigate'&&request.navigation_intent!=='reload'&&context.current.snapshot_available&&!context.current.current_snapshot?.url_truncated){
-        let same=false;try{same=new URL(args.url).href===new URL(context.current.url).href;}catch{}
+        let same=false;try{same=new URL(resolvedNavigationUrl||args.url).href===new URL(context.current.url).href;}catch{}
         if(same){
           await observe({tool:'automation_navigation_feedback',mcp_call:false,result:{content:[{type:'text',text:JSON.stringify({code:'AUTOMATION_NAVIGATION_ALREADY_REACHED',step_id:execution.step_id,current_url:context.current.url,action_outcome:'not_attempted',completion_available:context.current.recorded_section?.completion_available===true,message:'The requested URL is already the current ready page. No navigation was performed.',remaining_contract:context.current.recorded_section?.completion_available===true?'model_goal_acknowledgement':'current_section_actions_and_expected_result_check'})}]}});
           continue;

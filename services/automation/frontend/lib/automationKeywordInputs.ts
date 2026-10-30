@@ -1,5 +1,7 @@
 import { buildAutomationRepositoryFields as sharedRepositoryFields } from "../../shared/automationRepository.mjs";
 import type { AutomationLearningCacheEntry } from "@hellotest/platform/frontend/src/types";
+import { parse } from "acorn";
+import { parseStepParameterName } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
 
 /** Locator presentation also accepts protected preview projections without learning metrics. */
 export type AutomationRepositoryReference = Pick<AutomationLearningCacheEntry,
@@ -127,14 +129,18 @@ export function parseAutomationKeywordCall(code: string) {
     const negation = original.match(/^-\(([\s\S]+)\)$/);
     const arg = negation?.[1] || original;
     if (arg === "null" || arg === "undefined") return "";
-    const numericParameter = arg.match(/^Number\(params\[("(?:\\.|[^"\\])*")\]\)$/);
-    if (numericParameter) {
-      try {
-        const name = String(JSON.parse(numericParameter[1]));
-        const match = name.match(/^([tsr])\.(.+)$/);
-        if (match) return `${negation ? "-" : ""}@${match[1]}.${/^[A-Za-z][A-Za-z0-9_-]*$/.test(match[2]) ? match[2] : `[${match[2].replace(/\\/g, "\\\\").replace(/\]/g, "\\]")}]`}`;
-      } catch { /* Preserve invalid expressions for the code editor. */ }
-    }
+    // Preserve native data references when reopening an authored mapping.
+    // Parse the closed expression grammar; never evaluate a saved program or
+    // turn an arbitrary computed expression into an editable scalar.
+    try {
+      const tree = parse(arg, { ecmaVersion: "latest" }) as any;
+      let expression = tree.body.length === 1 ? tree.body[0].expression : null;
+      if (expression?.type === "CallExpression" && expression.callee?.name === "Number" && expression.arguments.length === 1) expression = expression.arguments[0];
+      if (expression?.type === "MemberExpression" && !expression.optional && expression.object?.name === "params" && expression.computed && expression.property?.type === "Literal" && typeof expression.property.value === "string" && /^@?[tsr]\./i.test(expression.property.value)) {
+        const parameter = parseStepParameterName(expression.property.value);
+        if (parameter) return `${negation ? "-" : ""}${parameter.token}`;
+      }
+    } catch { /* Preserve incomplete/custom expressions for the code editor. */ }
     if (arg.startsWith('"')) {
       try { return String(JSON.parse(arg)); } catch { /* Preserve hand-written expressions. */ }
     }

@@ -49,7 +49,7 @@ import { readDefaultCatalogViewMode } from "@hellotest/platform/frontend/src/sha
 import type { AgenticWorkflow, AgenticAssistantSessionResponse, AgenticWorkflowEdge, AgenticWorkflowNode, AgenticWorkflowNodeData, AgenticWorkflowRun, AgenticWorkflowReadiness, Integration, WorkspaceTransaction } from "@hellotest/platform/frontend/src/types";
 import "./AgenticWorkflowsPage.css";
 import { SprintAutomatorSetup } from "../workflows/SprintAutomatorSetup";
-import { isSprintAutomator, sprintInputDefaults, restoredSprintInput } from "../workflows/sprintAutomatorInput";
+import { isSprintAutomator, sprintInputDefaults, restoredSprintInput, migrateSprintConfiguration } from "../workflows/sprintAutomatorInput";
 import { WorkflowStudio } from "../workflows/WorkflowStudio";
 import { WorkflowExecutionView } from "../workflows/WorkflowExecutionView";
 import { WORKFLOW_TEMPLATES, draftFromTemplate } from "../workflows/workflowTemplates";
@@ -444,7 +444,8 @@ export function AgenticWorkflowsPage() {
         throw new Error("Select a project first.");
       }
 
-      const directLlmNodes = nextDraft.nodes.map(normalizeWorkflowNodeDirectLlm);
+      const migrated = migrateSprintConfiguration(nextDraft.nodes, safeJsonParse(nextDraft.initialInput ?? runInput));
+      const directLlmNodes = migrated.nodes.map(normalizeWorkflowNodeDirectLlm);
       const settings = isSprintAutomator(directLlmNodes)
         ? { ...nextDraft.settings, template_id: "sprint-automator", sprint_input_defaults: sprintInputDefaults(safeJsonParse(nextDraft.initialInput ?? runInput)) }
         : nextDraft.settings;
@@ -470,7 +471,7 @@ export function AgenticWorkflowsPage() {
       if (`${workflow.project_id}:${workflow.app_type_id || ""}` !== currentWorkspaceScope.current) return;
       if (submitted.initialInput !== undefined) {
         openDraft(workflow);
-        setRunInput(submitted.initialInput);
+        setRunInput(prettyJson(migrateSprintConfiguration(workflow.nodes, safeJsonParse(submitted.initialInput)).input));
       } else {
         setDraft(createWorkflowDraft(workflow));
         setNodes(workflow.nodes.map(normalizeWorkflowNodeDirectLlm));
@@ -697,9 +698,11 @@ export function AgenticWorkflowsPage() {
     const nextDraft = createWorkflowDraft(workflow);
     setSelectedRunId("");
     setReviewReadiness(null); setReviewStartError(""); reviewRequest.current = null;
-    setDraft(nextDraft);
-    setRunInput(inspection ? prettyJson(inspection.input_payload) : isSprintAutomator(nextDraft.nodes) ? restoredSprintInput(nextDraft.settings) : DEFAULT_RUN_INPUT);
-    setNodes(nextDraft.nodes.map((node) => ({ ...node, type: node.type || "agenticStep" })));
+    const initialInput = inspection ? inspection.input_payload : isSprintAutomator(nextDraft.nodes) ? safeJsonParse(restoredSprintInput(nextDraft.settings)) : safeJsonParse(DEFAULT_RUN_INPUT);
+    const migrated = migrateSprintConfiguration(nextDraft.nodes, initialInput);
+    setDraft({ ...nextDraft, nodes: migrated.nodes });
+    setRunInput(prettyJson(migrated.input));
+    setNodes(migrated.nodes.map((node) => ({ ...node, type: node.type || "agenticStep" })));
     setEdges(nextDraft.edges.map(decorateFlowEdge));
     setSelectedNodeId(nextDraft.nodes[0]?.id || "");
   };
@@ -1411,12 +1414,11 @@ export function AgenticWorkflowsPage() {
         editable={canManageAgenticWorkflows} canRun={canRunAgenticWorkflows}
         busy={saveMutation.isPending || checkingReview || executeReviewMutation.isPending || runMutation.isPending}
         error={reviewStartError} input={runInput} onInput={setRunInput}
-        inputSetup={isSprintAutomator(nodes) ? <SprintAutomatorSetup projectId={projectId} input={runInput} onInput={setRunInput} nodes={nodes}
-          onNodeChange={(id, patch) => setNodes(current => current.map(node => node.id === id ? { ...node, data: { ...node.data, ...patch } } : node))}
+        inputSetup={isSprintAutomator(nodes) ? <SprintAutomatorSetup projectId={projectId} input={runInput} onInput={setRunInput}
           editable={canManageAgenticWorkflows} canRun={canRunAgenticWorkflows} busy={saveMutation.isPending || checkingReview || executeReviewMutation.isPending}
-          providers={llmProviderOptions} canViewSprints={can("requirement_iteration.view")} /> : undefined}
+          canViewSprints={can("requirement_iteration.view")} /> : undefined}
         onDraft={patch => setDraft(current => current ? { ...current, ...patch } : null)}
-        onBack={closeDraft} onSave={() => void saveCurrentDraft()} onPreview={() => void runCurrentDraft()}
+        onBack={closeDraft} onSave={() => void checkReviewReadiness()} onPreview={() => void runCurrentDraft()}
         onExecute={target => void prepareAndExecute(target)} onCheck={() => void checkReviewReadiness()}
         readiness={reviewReadiness?.report} readinessCurrent={readinessMatchesDraft}
         onSelect={setSelectedNodeId} onAdd={addWorkflowNode} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}

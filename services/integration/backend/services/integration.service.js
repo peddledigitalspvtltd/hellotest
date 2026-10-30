@@ -611,6 +611,12 @@ const normalizeConfig = (type, input, username) => {
       device_name: normalizeText(raw.device_name),
       platform_version: normalizeText(raw.platform_version),
       android_app: normalizeText(raw.android_app),
+      ...Object.fromEntries(['ios_app','app','udid','bundle_id','ios_bundle_id','android_device_name','ios_device_name','android_platform_version','ios_platform_version','android_udid','ios_udid','android_app_package','android_app_activity'].map(key=>[key,normalizeText(raw[key])])),
+      active_mobile_engine: ['local-appium','saucelabs','browserstack'].includes(normalizeText(raw.active_mobile_engine)) ? normalizeText(raw.active_mobile_engine) : 'local-appium',
+      mobile_recorder_mode: raw.mobile_recorder_mode === 'remote' ? 'remote' : 'local',
+      provider_options: isPlainObject(raw.provider_options) ? raw.provider_options : {},
+      android_provider_options: isPlainObject(raw.android_provider_options) ? raw.android_provider_options : {},
+      ios_provider_options: isPlainObject(raw.ios_provider_options) ? raw.ios_provider_options : {},
       appium_server_url: normalizeText(raw.appium_server_url),
       app_package: normalizeText(raw.app_package),
       app_activity: normalizeText(raw.app_activity)

@@ -1,0 +1,91 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createRequire } from 'node:module';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
+const require = createRequire(new URL('../../../../testengine/backend/package.json', import.meta.url));
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const root = new URL('../../../platform/frontend/', import.meta.url);
+const fixture = `
+import React, { useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider } from '/src/auth/AuthContext';
+import { api, sessionStorage } from '/src/lib/api';
+import { setCurrentScope } from '/src/platform/hooks/useCurrentProject';
+import { WorkflowNodeInspector } from '/services/agentic/frontend/workflows/WorkflowNodeInspector';
+import '/src/styles.css'; import '/src/dark-theme.css'; import '/src/modal-system.css'; import '/services/agentic/frontend/workflows/WorkflowStudio.css';
+const readonly = new URLSearchParams(location.search).get('readonly') === 'true';
+const session = { token:'fixture', user:{id:'reviewer',role:readonly?'member':'admin',permissions:['workspace.view','agentic_workflow.view'],project_permissions:{project:['agentic_workflow.view']}}};
+sessionStorage.write(session); setCurrentScope('project','app');
+api.auth.session = async () => session;
+api.featureFlags.snapshot = async () => ({flags:new Proxy({}, {get:()=>true})});
+api.settings.getWorkspacePreferences = async () => ({preferences:{}});
+api.projects.list = async () => [{id:'project',name:'Project'}];
+window.callRequests=[]; window.detailRequests=[];
+const call=(node,index)=>({id:node+'-call-'+index,project_id:'project',run_id:'run',node_id:node,operation:index===1?'generation':'review',feature:'ai.test_case.design',status:index===2?'failed':'succeeded',started_at:'2026-10-30T09:00:'+String(index%60).padStart(2,'0')+'Z',effective_model:'Project model',duration_ms:1200,attempt:1,usage:{total_tokens:111,prompt_tokens:100,completion_tokens:11},capture:{redacted:true}});
+api.agenticWorkflows.nodeModelCalls=async(run,node,cursor)=>{window.callRequests.push({run,node,cursor});const count=node==='many'?51:node==='native'?2:1;return{items:Array.from({length:cursor?1:Math.min(50,count)},(_,i)=>call(node,cursor?51:i+1)),next_cursor:count>50&&!cursor?'next':null,retention_days:14,summary:{calls:count}};};
+api.agenticWorkflows.nodeModelCall=async(run,node,id)=>{window.detailRequests.push({run,node,id});return{...call(node,Number(id.split('-').at(-1))),content_access:node!=='protected',...(node==='mismatch'?{node_id:'different-node'}:{}),request_payload:{messages:[{role:'user',content:'Story title and description; password=[REDACTED]'}]},response_payload:{choices:[{message:{content:'Complete test case draft'}}]}};};
+Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedJson=text;}}});
+function Harness(){const [id,setId]=useState('native'),[expanded,setExpanded]=useState(false);const node={id,position:{x:0,y:0},data:{kind:'artifactTask',artifactTask:'test-case-generation',label:'Test Case Generator'}};return <div className="workflow-studio" style={{height:'100dvh',padding:12}}><div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{['native','other','many','protected','mismatch'].map(value=><button key={value} onClick={()=>setId(value)}>Select {value}</button>)}</div><div style={{width:430,maxWidth:'100%',height:'calc(100dvh - 75px)',marginLeft:'auto'}}><WorkflowNodeInspector node={node} incoming={[]} result={{status:'completed',attempts:1,output:{case_count:1}}} run={{id:'run',status:'completed',execution_mode:'review',project_id:'project',node_results:[],input_payload:{}}} editable={false} canRun={false} busy={false} expanded={expanded} projectId="project" appTypeId="app" canKnowledge={false} providers={[]} onChange={()=>{}} onExecute={()=>{}} onDelete={()=>{}} onClose={()=>{}} onExpand={()=>setExpanded(value=>!value)} /></div></div>}
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><AuthProvider><Harness /></AuthProvider></MemoryRouter></QueryClientProvider>);
+`;
+
+test('workflow node model calls expose chronological expandable scoped request/response JSON with safe navigation and pagination', { timeout: 90000 }, async () => {
+  const name = 'workflow-model-calls-' + randomUUID(), html = new URL(name + '.html', root), tsx = new URL(name + '.tsx', root);
+  const screenshots = '/tmp/hellotest-workflow-model-calls'; let browser, page;
+  try {
+    await mkdir(screenshots, { recursive: true });
+    await writeFile(html, `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    await writeFile(tsx, fixture);
+    browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
+    page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }); page.setDefaultTimeout(12000);
+    const errors = []; page.on('pageerror', error => errors.push(error.message));
+    await page.route('**/api/**', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
+    await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5197'}/${name}.html`);
+    await page.getByRole('button', { name: 'Model calls', exact: true }).click();
+    const calls = page.getByRole('region', { name: 'Node model calls', exact: true });
+    await calls.getByText('Model call 2', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.detailRequests.length), 0, 'Payloads load only when a call expands');
+    await calls.getByText('Model call 1', { exact: true }).click();
+    const request = page.getByRole('textbox', { name: 'Model call 1 request JSON', exact: true });
+    assert.match(await request.inputValue(), /Story title and description/);
+    assert.match(await page.getByRole('textbox', { name: 'Model call 1 response JSON', exact: true }).inputValue(), /Complete test case draft/);
+    await calls.getByRole('button', { name: 'Copy model call 1 request JSON', exact: true }).click();
+    assert.equal(JSON.parse(await page.evaluate(() => window.copiedJson)).messages[0].role, 'user');
+    await calls.getByText('Model call 2', { exact: true }).click();
+    assert.equal(await calls.locator('.studio-model-call-status').allTextContents().then(values => values.join(',')), 'succeeded,failed');
+    await page.screenshot({ path: screenshots + '/desktop-model-calls.png', fullPage: true });
+    await page.getByRole('button', { name: 'Expand node details', exact: true }).click();
+    const expanded = page.getByRole('dialog', { name: 'Inspect Test Case Generator', exact: true });
+    assert.equal(await expanded.locator('.is-two-pane,.is-three-pane').count(), 0, 'Model calls keep one readable pane when expanded');
+    await page.setViewportSize({ width: 390, height: 900 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+    await page.screenshot({ path: screenshots + '/mobile-model-calls.png', fullPage: true });
+    await page.keyboard.press('Escape'); await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByRole('button', { name: 'Select other', exact: true }).click();
+    await page.getByRole('button', { name: 'Model calls', exact: true }).click();
+    await calls.getByText('Model call 1', { exact: true }).waitFor();
+    assert.equal(await calls.getByText('Model call 2', { exact: true }).count(), 0, 'A different node cannot display stale calls');
+    await page.getByRole('button', { name: 'Select many', exact: true }).click(); await page.getByRole('button', { name: 'Model calls', exact: true }).click();
+    await calls.getByRole('button', { name: 'Show more calls (50 of 51)', exact: true }).click();
+    await calls.getByText('Model call 51', { exact: true }).waitFor(); assert.equal(await calls.locator('.studio-model-call').count(), 51);
+    await page.getByRole('button', { name: 'Select protected', exact: true }).click(); await page.getByRole('button', { name: 'Model calls', exact: true }).click();
+    await calls.getByText('Model call 1', { exact: true }).click();
+    await calls.getByText(/Prompt and response content requires workspace administrator/).waitFor();
+    assert.equal(await calls.getByRole('textbox').count(), 0, 'Protected call content is never rendered');
+    await page.getByRole('button', { name: 'Select mismatch', exact: true }).click(); await page.getByRole('button', { name: 'Model calls', exact: true }).click();
+    await calls.getByText('Model call 1', { exact: true }).click(); await calls.getByRole('alert').waitFor();
+    assert.equal(await calls.getByRole('textbox').count(), 0, 'Wrong-node detail is rejected even if a response is misrouted');
+    assert.ok((await page.evaluate(() => window.callRequests)).every(value => value.run === 'run'));
+    assert.deepEqual(errors, []);
+    await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5197'}/${name}.html?readonly=true`);
+    await page.getByRole('button', { name: 'Model calls', exact: true }).click();
+    await page.getByText("Model call viewing permission is required to inspect this node's calls.", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.callRequests.length), 0);
+  } catch (error) {
+    if (page) { await page.screenshot({ path: screenshots + '/failure.png', fullPage: true }).catch(() => {}); await writeFile(screenshots + '/failure.txt', await page.locator('body').innerText().catch(() => '')); }
+    throw error;
+  } finally { await browser?.close(); await Promise.allSettled([unlink(html), unlink(tsx)]); }
+});

@@ -6,6 +6,7 @@ const path = require("node:path");
 const { createRequire } = require("node:module");
 const { storyAiSnapshot, testCaseAiSnapshot } = require("../src/utils/aiArtifactContext");
 const { expandManagedInstructions } = require('./helpers/managedInstructions');
+const { groomingCandidate } = require('./helpers/groomingCandidate');
 
 function load(name, overrides = {}, directory = "services") {
   const filename = sourceFile(`${name}.js`, directory);
@@ -33,7 +34,7 @@ const story = {
 };
 const appType = { id: "app", project_id: "project", type: "web", name: "Billing" };
 const steps = [{ step_order: 1, step_type: "web", action: "Approve the invoice", expected_result: "The invoice is approved" }];
-const validCase = { title: "Approval", description: "Valid invoice approval", priority: 2, steps, requirement_refs: ["R1"] };
+const validCase = { title: "Approval", description: "Valid invoice approval", priority: 2, test_case_type: "functional", parameter_values: {}, steps, requirement_refs: ["R1"] };
 const response = value => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(value) } }] }), { headers: { "content-type": "application/json" } });
 test('Story description rephrase selects its own profile while project HTML uses its native bullet contract', async () => {
   for (const entityType of ['requirement','project']) {
@@ -113,16 +114,16 @@ test("authoring includes complete reviewed context within its UI budget and reje
 });
 
 test("Story create and completion accept provider text blocks without falling back", async () => {
-  const createDraft = { title: "Approve an invoice", description: "Reviewers approve submitted invoices.", field_evidence: { title: ["user-guidance:story-brief"], description: ["user-guidance:story-brief"] } };
+  const createDraft = { title: "Approve an invoice", description: "Reviewers approve submitted invoices.", priority: 3, acceptance_criteria: ["A reviewer can approve a submitted invoice."], field_evidence: { title: ["user-guidance:story-brief"], description: ["user-guidance:story-brief"], acceptance_criteria: ["user-guidance:story-brief"] } };
   const creation = providerFixture({ requirements: [createDraft] }, { contentBlocks: true });
   const create = load("requirement.service", { ...creation.overrides, "../db": { prepare: () => ({}) }, "./aiKnowledge.service": { buildKnowledgeContextPackage: async () => ({ knowledge: [] }) } });
   const created = await create.previewRequirementCreation({ project_id: "project", additional_context: "Reviewers approve submitted invoices.", max_requirements: 1 });
   assert.equal(created.fallback_used, false);
   assert.equal(created.requirements[0].title, createDraft.title);
   assert.equal(creation.calls[0].options.signal, undefined, "Story creation must not abort before the shared provider deadline");
-  const completion = providerFixture({ title: "Review invoice approval", field_evidence: { title: ["story:story"] } }, { contentBlocks: true });
+  const completion = providerFixture({ title: "Review invoice approval", description: story.description, acceptance_criteria: story.acceptance_criteria, priority: story.priority, field_evidence: { title: ["story:story"] } }, { contentBlocks: true });
   const complete = load("requirement.service", { ...completion.overrides,
-    "../db": { prepare: () => ({ get: async () => story }) },
+    "../db": { prepare: () => ({ get: async () => ({ ...story, additional_fields: { ...story.additional_fields, acceptance_criteria: story.acceptance_criteria } }) }) },
     "./optionalEvidenceAccess.service": { getOptionalEvidenceAccess: async () => ({ "testcase.view": false }) },
     "./aiKnowledge.service": { buildKnowledgeContextPackage: async () => ({ knowledge: [] }) }
   });
@@ -137,7 +138,7 @@ test("Test Case generation handles text block output and rejects unsavable title
   assert.equal((await service.previewRequirementsTestCases({ requirements: [story], appType, max_cases: 1 })).cases[0].title, validCase.title);
   const oversized = providerFixture({ ...validCase, title: "a".repeat(256) });
   const improve = load("aiCaseAuthoring.service", oversized.overrides);
-  await assert.rejects(improve.previewCaseAuthoring({ requirement: story, appType, test_case: {} }), error => error.statusCode === 502 && /255/.test(error.message));
+  await assert.rejects(improve.previewCaseAuthoring({ requirement: story, appType, test_case: {} }), error => error.statusCode === 502 && error.code === 'AI_NATIVE_CONTRACT_INVALID' && error.validation_errors.some(item => item.field === 'title'));
 });
 
 test("Defect drafting uses configured completion endpoints and dedicated Story acceptance evidence", async () => {
@@ -191,10 +192,10 @@ test("full case authoring sends acceptance, specification and live Gherkin once 
 });
 
 test("case authoring rejects unusable structured and Gherkin outputs without a regeneration call", async () => {
-  for (const [authoring_mode, output] of [["structured", { title: "Empty", steps: [{ action: "Click" }] }], ["gherkin", { title: "Empty", gherkin_document: "Feature: Empty\nScenario: Empty" }]]) {
+  for (const [authoring_mode, output] of [["structured", { ...validCase, steps: [{ action: "Click" }] }], ["gherkin", { ...validCase, gherkin_document: "Feature: Empty\nScenario: Empty" }]]) {
     const fixture = providerFixture(output);
     const service = load("aiCaseAuthoring.service", fixture.overrides);
-    await assert.rejects(service.previewCaseAuthoring({ requirement: story, appType, authoring_mode, test_case: {} }), /expected result|Then outcome/);
+    await assert.rejects(service.previewCaseAuthoring({ requirement: story, appType, authoring_mode, test_case: {} }), { code: 'AI_NATIVE_CONTRACT_INVALID', statusCode: 502 });
     assert.equal(fixture.calls.length, 1);
   }
 });
@@ -217,7 +218,7 @@ test("test design uses full bounded Story data, maps cases and removes exact rep
 });
 
 test("Story grooming's actual provider request includes explicit acceptance and planning/specification", async () => {
-  const fixture = providerFixture({ layman: { explanation: "Review the approval requirements.", evidence_refs: ["requirement:story"] } });
+  const fixture = providerFixture(groomingCandidate({ layman: { explanation: "Review the approval requirements.", analogy: "", evidence_refs: ["requirement:story"] } }));
   const service = load("requirementWorkspace.service", { ...fixture.overrides,
     "../db": { prepare() { assert.fail("No optional source was granted"); } },
     "./optionalEvidenceAccess.service": { getOptionalEvidenceAccess: async (_user, _project, codes) => Object.fromEntries(codes.map(code => [code, false])) }
@@ -234,7 +235,7 @@ test("Story grooming's actual provider request includes explicit acceptance and 
 });
 
 test("Story completion sends selected bounded Story fields once and uses the exact configured endpoint", async () => {
-  const fixture = providerFixture({ title: story.title, description: story.description, priority: 2, status: "ready", evidence_refs: ["story:story"], field_evidence: { title: ["story:story"], description: ["story:story"] } });
+  const fixture = providerFixture({ title: story.title, description: story.description, acceptance_criteria: story.acceptance_criteria, priority: 2, status: "ready", evidence_refs: ["story:story"], field_evidence: { title: ["story:story"], description: ["story:story"], acceptance_criteria: ["story:story"] } });
   const service = load("requirement.service", { ...fixture.overrides,
     "../db": { prepare() { return { get: async () => ({ ...story, labels: JSON.stringify(story.labels), external_references: JSON.stringify(story.external_references), additional_fields: JSON.stringify({ ...story.additional_fields, acceptance_criteria: story.acceptance_criteria }) }) }; } },
     "./optionalEvidenceAccess.service": { getOptionalEvidenceAccess: async () => ({ "testcase.view": false }) },
@@ -260,7 +261,7 @@ test("Story completion sends selected bounded Story fields once and uses the exa
 });
 
 test("Story creation sends the brief once and suppresses duplicate drafts", async () => {
-  const draft = { title: "Review an invoice", description: "A reviewer approves an invoice", acceptance_criteria: ["Approval sets status to approved"], evidence_refs: ["user-guidance:story-brief"], field_evidence: { title: ["user-guidance:story-brief"], description: ["user-guidance:story-brief"], acceptance_criteria: ["user-guidance:story-brief"] } };
+  const draft = { title: "Review an invoice", description: "A reviewer approves an invoice", priority: 3, acceptance_criteria: ["Approval sets status to approved"], evidence_refs: ["user-guidance:story-brief"], field_evidence: { title: ["user-guidance:story-brief"], description: ["user-guidance:story-brief"], acceptance_criteria: ["user-guidance:story-brief"] } };
   const fixture = providerFixture({ requirements: [draft, draft] });
   const service = load("requirement.service", { ...fixture.overrides,
     "../db": { prepare() { return {}; } },
@@ -281,7 +282,7 @@ test("Story creation sends the brief once and suppresses duplicate drafts", asyn
 });
 
 test("test design rejects untraceable multi-Story drafts and empty executable output", async () => {
-  for (const [requirements, output, message] of [[[story, { ...story, id: "other" }], { ...validCase, requirement_refs: [] }, /linked to at least one requirement/], [[story], { ...validCase, steps: [] }, /executable steps/]]) {
+  for (const [requirements, output, message] of [[[story, { ...story, id: "other" }], { ...validCase, requirement_refs: [] }, /linked to at least one requirement/], [[story], { ...validCase, steps: [] }, { code: 'AI_NATIVE_CONTRACT_INVALID' }]]) {
     const fixture = providerFixture({ test_cases: [output] });
     const service = load("requirementDesign.service", { ...fixture.overrides, "./aiKnowledge.service": { buildKnowledgeContextPackage: async () => ({ knowledge: [] }) } });
     await assert.rejects(service.previewRequirementsTestCases({ requirements, appType, max_cases: 1 }), message);
@@ -382,10 +383,11 @@ test("assurance routes forward the live draft, selected provider, prompt and loc
   }, "routes");
   const validations = [];
   await routes({ get: (url, handler) => handlers.set(url, handler), post: (url, options, handler) => handlers.set(url, handler || options), authenticate: async () => {}, validate: (schema, body) => validations.push({ schema, body }), requirePermission: () => async () => {} });
-  const body = { project_id: "project", integration_id: "provider", prompt_guidance: "Review guidance", additional_context: "Reviewed context", assurance_baseline: { overall_score: 45 }, proposed_change: { acceptance_criteria: ["LIVE"] } };
+  const body = { project_id: "project", integration_id: "provider", review_purpose: "assurance", prompt_guidance: "Review guidance", additional_context: "Reviewed context", assurance_baseline: { overall_score: 45 }, proposed_change: { acceptance_criteria: ["LIVE"] } };
   for (const route of ["/requirements/:id/ai-impact-preview", "/test-cases/:id/ai-impact-preview"]) await handlers.get(route)({ user, params: { id: "record" }, body });
   assert.equal(captured.length, 2);
-  for (const args of captured) { assert.equal(args.integrationId, "provider"); assert.equal(args.promptGuidance, body.prompt_guidance); assert.equal(args.additionalContext, body.additional_context); assert.deepEqual(args.assuranceBaseline, body.assurance_baseline); assert.deepEqual(args.proposedChange, body.proposed_change); }
+  for (const args of captured) { assert.equal(args.integrationId, "provider"); assert.equal(args.reviewPurpose, 'assurance'); assert.equal(args.promptGuidance, body.prompt_guidance); assert.equal(args.additionalContext, body.additional_context); assert.deepEqual(args.assuranceBaseline, body.assurance_baseline); assert.deepEqual(args.proposedChange, body.proposed_change); }
+  assert.deepEqual(validations[0].schema.review_purpose.enum, ['assurance', 'change-impact']);
   assert.equal(validations[0].schema.prompt_guidance.maxLength, 12000);
   await assert.rejects(handlers.get("/requirements/:id/ai-impact-preview")({ user, params: { id: "record" }, body: { project_id: "foreign" } }), error => error.statusCode === 400);
 });

@@ -29,7 +29,7 @@
     "audit:clones": "node scripts/checks/report-function-clones.mjs",
     "services:up": "node scripts/deploy/capabilities.mjs",
     "check:boundaries": "node scripts/checks/check-service-boundaries.mjs",
-    "build:capabilities": "npm run build --workspaces",
+    "build:capabilities": "node scripts/build/capability-ui.mjs all",
     "setup:capabilities": "npm ci --ignore-scripts --no-audit --no-fund",
     "generate:capabilities": "node scripts/checks/sync-capability-metadata.mjs",
     "doctor": "node scripts/dev/doctor.mjs",

@@ -1,13 +1,23 @@
 FROM node:20-alpine AS capability-ui
+
+# Reuse verified downloads and bound registry retries on unreliable connections.
+ARG NPM_CONFIG_FETCH_RETRIES=5
+ARG NPM_CONFIG_FETCH_RETRY_FACTOR=2
+ARG NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=1000
+ARG NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=15000
+ARG NPM_CONFIG_FETCH_TIMEOUT=120000
+ARG NPM_CONFIG_MAXSOCKETS=4
+ARG NPM_CONFIG_PREFER_OFFLINE=true
+
 WORKDIR /source
 COPY services/platform/frontend/package*.json ./services/platform/frontend/
 # Avoid esbuild's install-time binary rewrite/exec (ETXTBSY on Docker).
 # Keep its platform package and validate the native API after npm exits.
-RUN npm ci --prefix services/platform/frontend --ignore-scripts --include=optional --no-audit --no-fund \
+RUN --mount=type=cache,id=hellotest-npm,target=/root/.npm,sharing=locked npm ci --prefix services/platform/frontend --ignore-scripts --include=optional --no-audit --no-fund \
     && node -e "const esbuild = require('./services/platform/frontend/node_modules/esbuild'); esbuild.transformSync('const value: number = 1', { loader: 'ts' }); console.log('Verified esbuild ' + esbuild.version);"
 COPY package.json package-lock.json ./
 COPY services ./services
-RUN npm ci --ignore-scripts --no-audit --no-fund
+RUN --mount=type=cache,id=hellotest-npm,target=/root/.npm,sharing=locked npm ci --ignore-scripts --no-audit --no-fund
 COPY scripts/build ./scripts/build
 ARG HELLOTEST_CAPABILITY=all
 ENV CAPABILITY_UI_OUTPUT_ROOT=/capability-ui
@@ -17,12 +27,21 @@ RUN node scripts/build/capability-ui.mjs "$HELLOTEST_CAPABILITY"
 
 FROM node:20-alpine AS runtime
 
+# Reuse verified downloads and bound registry retries on unreliable connections.
+ARG NPM_CONFIG_FETCH_RETRIES=5
+ARG NPM_CONFIG_FETCH_RETRY_FACTOR=2
+ARG NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=1000
+ARG NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=15000
+ARG NPM_CONFIG_FETCH_TIMEOUT=120000
+ARG NPM_CONFIG_MAXSOCKETS=4
+ARG NPM_CONFIG_PREFER_OFFLINE=true
+
 WORKDIR /app
 
 RUN apk add --no-cache python3 py3-yaml
 
 COPY services/platform/backend/package*.json ./services/platform/backend/
-RUN npm ci --prefix services/platform/backend --omit=dev --no-audit --no-fund && npm cache clean --force
+RUN --mount=type=cache,id=hellotest-npm,target=/root/.npm,sharing=locked npm ci --prefix services/platform/backend --omit=dev --no-audit --no-fund
 
 COPY package.json package-lock.json ./
 COPY services/platform/package.json ./services/platform/package.json
@@ -37,7 +56,7 @@ COPY services/chatbot/package.json ./services/chatbot/package.json
 COPY services/ai/package.json ./services/ai/package.json
 COPY services/trace/package.json ./services/trace/package.json
 COPY services/integration/package.json ./services/integration/package.json
-RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+RUN --mount=type=cache,id=hellotest-npm,target=/root/.npm,sharing=locked npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
 COPY --chown=node:node services/capabilities.json ./services/capabilities.json
 COPY --chown=node:node services/platform/backend ./services/platform/backend

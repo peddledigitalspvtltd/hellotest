@@ -513,6 +513,8 @@ function buildRunArtifacts(workflow, inputPayload, runId) {
 exports.createWorkflow = async (input = {}, actorId = null) => {
   const record = buildWorkflowRecord(input, null, actorId);
   validateWorkflowGraph(record.nodes, record.edges);
+  for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'automation-engineer') require('../workflows/automationNodeInputs').validateNodeOptions(node.data);
+  for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'test-case-generation') require('../workflows/generationNodeOptions').generationOptions(node.data);
   await validateWorkflowScope(record.project_id, record.app_type_id);
 
   const id = uuid();
@@ -540,6 +542,8 @@ exports.updateWorkflow = async (id, input = {}, actorId = null) => {
   const existing = await exports.getWorkflow(id);
   const record = buildWorkflowRecord(input, existing, actorId);
   validateWorkflowGraph(record.nodes, record.edges);
+  for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'automation-engineer') require('../workflows/automationNodeInputs').validateNodeOptions(node.data);
+  for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'test-case-generation') require('../workflows/generationNodeOptions').generationOptions(node.data);
   await validateWorkflowScope(record.project_id, record.app_type_id);
 
   await updateWorkflow.run(

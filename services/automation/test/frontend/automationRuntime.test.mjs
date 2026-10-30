@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getAutomationRuntimeTypes, getAutomationBuildRuntimeTypes, inferAutomationBuildRuntime, getDefaultAutomationStepType, getRecorderPlatform } from '../../frontend/lib/automationRuntime.ts';
+import { getAutomationRuntimeTypes, getAutomationBuildRuntimeTypes, inferAutomationBuildRuntime, getDefaultAutomationStepType, getRecorderPlatform, getAllowedAutomationStepTypes, resolveAutomationCaseType, incompatibleAutomationRuntimes } from '../../frontend/lib/automationRuntime.ts';
 test('runtime identity and targeted recording preserve mixed plans and native platforms', () => {
   const steps = [{ id: 'api', step_type: 'api' }, { id: 'native', step_type: 'ios' }];
   assert.deepEqual(getAutomationRuntimeTypes(steps), ['api', 'ios']);
@@ -40,4 +40,23 @@ test('build runtime inference recognizes API prose while recorder identity and s
  assert.equal(inferAutomationBuildRuntime({...steps[0],automation_code:'await page.click("#post");'}),'web');
  assert.equal(inferAutomationBuildRuntime({step_type:'ios',action:'POST /orders'}),'ios');
  assert.equal(inferAutomationBuildRuntime({action:'Create an order'},'api'),'api');
+});
+
+test('saved automation case platform limits every authoring mode without conflating functional category', () => {
+  assert.deepEqual(getAllowedAutomationStepTypes("web"), ["web", "api"]);
+  assert.deepEqual(getAllowedAutomationStepTypes("api"), ["api"]);
+  assert.deepEqual(getAllowedAutomationStepTypes("android"), ["android", "api"]);
+  assert.deepEqual(getAllowedAutomationStepTypes("ios"), ["ios", "api"]);
+  assert.deepEqual(getAllowedAutomationStepTypes("unified"), ["web", "api", "android", "ios"]);
+  assert.deepEqual(getAllowedAutomationStepTypes(""), []);
+  assert.deepEqual(getAllowedAutomationStepTypes("android", false), ["api"]);
+  assert.equal(resolveAutomationCaseType({automation_case_type:"api"}, [{step_type:"web"}]), "api", "saved type stays authoritative and invalid steps are reported separately");
+  assert.equal(resolveAutomationCaseType({test_data_options:{automation_case_type:"ios"}}, []), "ios");
+  assert.equal(resolveAutomationCaseType({}, [], "unified"), "unified");
+  assert.equal(resolveAutomationCaseType({}, [{step_type:"web"}, {step_type:"api"}]), "web");
+  assert.equal(resolveAutomationCaseType({}, [{step_type:"android"}, {step_type:"api"}]), "android");
+  assert.equal(resolveAutomationCaseType({}, [{step_type:"web"}, {step_type:"ios"}]), "unified");
+  assert.deepEqual(incompatibleAutomationRuntimes("api", [{step_type:"web", action:"Click Submit"}]), ["web"]);
+  assert.deepEqual(incompatibleAutomationRuntimes("api", [{step_type:"web", action:"GET /orders"}]), []);
+  assert.deepEqual(incompatibleAutomationRuntimes("web", [{step_type:"android"}]), ["android"]);
 });

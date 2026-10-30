@@ -37,7 +37,7 @@ test('build data review keeps inherited defaults, accepts deliberate blanks, pro
  try{
   await writeFile(new URL(name+'.tsx',root),fixture);
   await writeFile(new URL(name+'.html',root),`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
-  browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
+  browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE});
   page=await browser.newPage({viewport:{width:1440,height:1050}});page.setDefaultNavigationTimeout(60000);page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.route('**/api/**',route=>{errors.push('Unexpected API: '+route.request().url());return route.abort();});
   const url=`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html`;
@@ -86,7 +86,7 @@ test('build data review keeps inherited defaults, accepts deliberate blanks, pro
   request=await page.evaluate(()=>window.builds[0]);assert.deepEqual(request.parameter_values_by_case,{case1:{'r.name':'First case','r.email':'','r.password':''},case2:{'r.name':'Second case','r.email':'','r.password':''}});assert.deepEqual(request.parameter_plan_keys_by_case,{case1:'reviewed:case1',case2:'reviewed:case2'});
   await expect(batch).toBeHidden();await expect(page.locator('.automation-engineer-brief')).not.toHaveAttribute('open', '');
   phase='create and build';await page.goto(url+'?create=1');const create=page.getByRole('dialog',{name:'Create automation case',exact:true});await expect(create.getByRole('textbox',{name:'Automation case name',exact:true})).not.toHaveValue('');
-  await create.getByLabel('Automation case start URL',{exact:true}).fill('https://fixture.example.test/start');await create.getByRole('button',{name:'Create & build',exact:true}).click();
+  await create.getByLabel('Automation case type',{exact:true}).selectOption('web');await create.getByLabel('Automation case start URL',{exact:true}).fill('https://fixture.example.test/start');await create.getByRole('button',{name:'Create & build',exact:true}).click();
   await expect(dialog()).toBeVisible();assert.equal(await page.evaluate(()=>window.creates.length),1);assert.deepEqual(await page.evaluate(()=>window.creates[0].parameter_values),{});assert.deepEqual(await page.evaluate(()=>window.creates[0].manual_test_case_ids),['manual1']);
   await dialog().getByRole('button',{name:'Continue with 3 blank values',exact:true}).click();await page.waitForFunction(()=>window.builds.length===1);
   request=await page.evaluate(()=>window.builds[0]);assert.deepEqual(request.parameter_values_by_case,{created1:{'r.name':'','r.email':'','r.password':''}});assert.deepEqual(request.parameter_plan_keys_by_case,{created1:'reviewed:created1'});

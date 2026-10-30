@@ -76,31 +76,15 @@ test("Story grooming exposes an optional seven-section walkthrough without break
   assert.match(api, /previewGrooming: \(id: string, input: \{ project_id: string; integration_id\?: string; prompt_guidance\?: string; additional_context\?: string; proposed_change\?: Record<string, unknown> \}\)/);
 });
 
-test("Story grooming prompt requires an evidence-grounded end-to-end walkthrough and forbids invention", async () => {
-  const registry = await readSource("../../../integration/frontend/lib/aiPromptRegistry.ts");
-  const start = registry.indexOf('key: "ai.requirement.grooming"');
-  const end = registry.indexOf("\n  },", start);
-  const groomingPrompt = registry.slice(start, end);
-
-  assert.ok(start >= 0 && end > start, "Story grooming prompt should be registered");
-  for (const requirement of [
-    /decision-ready, end-to-end feature walkthrough/i,
-    /only the selected Story and bounded delivery evidence/i,
-    /plain-language purpose and why the feature is needed/i,
-    /actors, trigger, ordered user journey/i,
-    /business impact, stakeholders, value outcomes, and measurable success/i,
-    /solution design[^.]+distinct from implementation/i,
-    /validation with acceptance criteria, test scenarios, and linked coverage/i,
-    /Finish with what remains: gaps, questions, decisions, actions, risks/i,
-    /Definition of Ready status/i,
-    /Every asserted fact must cite/i,
-    /return empty content when a topic is unsupported/i,
-    /never repeat the Story description as filler/i,
-    /never invent controls, architecture, components, or delivery scope/i,
-    /keep each section concise, distinct, and ordered by review importance/i
-  ]) {
-    assert.match(groomingPrompt, requirement);
-  }
+test("Story grooming managed prompt requires grounded planning analysis and preserves unknown evidence", async () => {
+  const defaults = JSON.parse(await readSource("../../shared/aiPromptDefaults.json"));
+  const groomingPrompt = defaults.find(item => item.key === "ai.requirement.grooming");
+  assert.ok(groomingPrompt);
+  for (const requirement of [ /decision-ready grooming walkthrough/i, /title, description, acceptance criteria and executable specification/i,
+    /authorized bounded evidence/i, /unresolved business decisions and unavailable evidence/i,
+    /observable/i, /not acceptance coverage or a pass/i, /empty fields are valid/i,
+    /Do not require architecture, APIs, negative scenarios or quality thresholds when irrelevant/i, /Never invent scope/i ]) assert.match(groomingPrompt.value, requirement);
+  assert.equal(groomingPrompt.maxLength, 4000);
 });
 
 test("Story grooming uses six accessible, mounted review tabs with roving keyboard focus", async () => {
@@ -259,14 +243,19 @@ test("Story grooming retains the last successful brief when a refresh fails", as
   assert.match(page, /supportingContextChanged=\{storyGroomingReviewContextChanged \|\| Boolean\(storyGroomingContextChangedByRequirementId\[selectedRequirement\.id\]\)\}/);
 });
 
-test("Story grooming prompt guidance stays within the backend contract", async () => {
-  const registry = await readSource("../../../integration/frontend/lib/aiPromptRegistry.ts");
-  const settings = await readSource("../pages/SettingsPage.tsx");
+test("Story grooming prompt guidance stays within the managed backend contract", async () => {
+  const defaults = JSON.parse(await readSource("../../shared/aiPromptDefaults.json"));
+  const profile = JSON.parse(await readSource("../../shared/aiFeatureCatalog.json")).find(item => item.id === "ai.requirement.grooming");
+  assert.equal(defaults.find(item => item.key === profile.id).maxLength, profile.maxLength);
+  assert.equal(profile.maxLength, 4000);
+  assert.match(profile.defaults.instruction_blocks["requirementWorkspace.contractCorrection"], /validation_errors/);
+});
 
-  assert.match(registry, /key: "ai\.requirement\.grooming"[\s\S]*?maxLength: 4_000/);
-  assert.match(registry, /override\.length <= registryItem\.maxLength/);
-  assert.match(settings, /const promptWithLengthError = useMemo/);
-  assert.match(settings, /maxLength=\{prompt\.maxLength\}/);
-  assert.match(settings, /4,000 characters or fewer|toLocaleString\(\).*characters/);
-  assert.match(settings, /Used as evidence-bound guidance, not as instructions that can override grounding rules/);
+test("Story grooming explains measured adjustments separately from preserved model readiness checks", async () => {
+  const component = await readSource("../../../ai/frontend/components/StoryGroomingWorkspace.tsx");
+  assert.match(component, /source completeness adjustments/);
+  assert.match(component, /aria-label="Measured readiness adjustments"/);
+  assert.match(component, /missing source signal does not establish that a topic is required/);
+  assert.match(component, /Model: \{adjustment.model_status\}.*Measured: \{adjustment.measured_status\}.*Applied: \{adjustment.applied_status\}/);
+  assert.match(component, /readiness.model_checks/);
 });

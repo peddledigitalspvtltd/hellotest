@@ -62,6 +62,7 @@ function fixture({ cases = [], steps = [], targets = {} } = {}) {
       require: name => {
         if (/\/(?:db|obsDb)$/.test(name)) return database;
         if (/automationStartUrl$/.test(name)) return { normalizeAutomationStartUrl, requiresAutomationStartUrl };
+        if (/automationCaseType$/.test(name)) return require('../../../platform/backend/src/utils/automationCaseType');
         if (/automationSchedule$/.test(name)) return { normalizeScheduledAt };
         if (/aiAutomationFeaturePolicy$/.test(name)) return { buildFeature };
         if (/aiAutomationBuilder.service$/.test(name)) return builder;

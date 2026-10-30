@@ -14,6 +14,7 @@ function loadBuilder({response,dbWrites=[],requests=[],denied=false,browserFixtu
  new Function('require','exports',`${fs.readFileSync(file,'utf8')}\nexports.testNormalize=normalizeLlmBuild;`)(id=>{
   if(id.endsWith('/db')||id.endsWith('/obsDb'))return db;
   if(id.endsWith('/testStepAutomation'))return utils;
+  if(id.endsWith('/automationCaseType')||id.endsWith('/automationRuntimeSpecialist')||id.endsWith('/automationApiParameterContract')||id.endsWith('/automationExpectedResultTemplate'))return original(id);
   if(id.endsWith('/optionalEvidenceAccess.service'))return {getOptionalEvidenceAccess:async(_,__,keys)=>Object.fromEntries(keys.map(key=>[key,!denied]))};
   if(id.endsWith('/aiLlmSelection.service'))return {resolveLlmIntegrationForUsage:async()=>({type:"llm",is_active:true,id:'llm',api_key:'fixture-only',model:'fixture',base_url:'https://provider.fixture/v1'})};
   if(id.endsWith('/llmHttpClient'))return {fetchLlmWithRetry:async(url,init)=>{requests.push(JSON.parse(init.body));return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify(typeof response==='function'?response(requests.length):response)}}]})};}};
@@ -49,8 +50,45 @@ test('API requests retain authentication, query, cookies, redirects, schema and 
  assert.equal(normalized.validations[1].expected,request.validations[1].expected);assert.equal(normalized.validations[2].operator,'gt');
  assert.throws(()=>utils.validateGeneratedApiRequest({...request,auth:{type:'bearer'}}),/credential_reference/);
  assert.throws(()=>utils.validateGeneratedApiRequest({...request,validations:[]},{expectedResult:'Order created'}),/explicit response assertions/);
+ assert.throws(()=>utils.validateGeneratedApiRequest({...request,validations:[]},{expectedResult:'Order created',existingRequest:{method:'POST',url:request.url}}),/explicit response assertions/,'An existing request URL cannot bypass response assertions.');
  assert.throws(()=>utils.validateGeneratedApiRequest({...request,validations:[{kind:'json_schema',expected:'{}'}]}),/nonempty JSON Schema/);
  assert.throws(()=>utils.validateGeneratedApiRequest({...request,query:{region:'east'}}),/discarded/);
+});
+
+test('an explicitly API-only case in a Unified application dispatches only the API Engineer without opening a browser',async()=>{
+ const requests=[],browserCalls=[];
+ const builder=loadBuilder({requests,browserFixture:{connectAutomationBrowser:async()=>{browserCalls.push(true);throw Error('An API-only build must never inspect a browser.');}},response:{summary:'Read saved API health contract',steps:[{step_id:'draft-step-1',step_type:'api',api_request:{method:'GET',url:'https://api.fixture/health',validations:[{kind:'status',expected:'200'},{kind:'json_path',target:'$.ok',expected:'true'}]}}]}});
+ const result=await builder.previewAutomationDraft({draft:{title:'API readiness',automation_case_type:'api',steps:[{step_type:'api',action:'GET https://api.fixture/health',expected_result:'HTTP 200 and JSON ok true'}]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true});
+ assert.deepEqual(browserCalls,[]);assert.equal(requests.length,1);
+ assert.equal(result.draft.automation_case_type,'api');assert.equal(result.draft.test_data_options.automation_case_type,'api');assert.equal(result.automation_start_url,null);
+ assert.match(JSON.stringify(requests[0]),/API Automation Engineer/);assert.doesNotMatch(JSON.stringify(requests[0]),/Web Automation Engineer/);
+ assert.match(result.executable.code,/api\.request/);assert.equal(result.verification_status,'unverified');
+});
+
+test('incompatible browser work in an API-only case fails before provider, browser or draft writes',async()=>{
+ const requests=[],writes=[],browserCalls=[];
+ const builder=loadBuilder({requests,dbWrites:writes,browserFixture:{connectAutomationBrowser:async()=>{browserCalls.push(true);}}});
+ await assert.rejects(builder.previewAutomationDraft({draft:{title:'Wrong runtime',automation_case_type:'api',steps:[{step_type:'web',action:'Click Save',expected_result:'Saved'}]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true}),{code:'AUTOMATION_CASE_TYPE_MISMATCH'});
+ assert.deepEqual(requests,[]);assert.deepEqual(writes,[]);assert.deepEqual(browserCalls,[]);
+});
+
+test('the native saved-case builder cannot accept action-only Web code for a stated expected outcome',()=>{
+ const {testNormalize}=loadBuilder();
+ const steps=[{id:'save',step_order:1,step_type:'web',action:'Click Save',expected_result:'A Saved confirmation is visible'}];
+ assert.throws(()=>testNormalize({steps:[{step_id:'save',step_type:'web',automation_code:'await page.getByRole("button",{name:"Save"}).click();'}]},steps,[],null),{code:'AUTOMATION_EXPECTED_RESULT_ASSERTION_REQUIRED'});
+ assert.equal(testNormalize({steps:[{step_id:'save',step_type:'web',automation_code:'await page.getByRole("button",{name:"Save"}).click(); await expect(page.getByText("Saved")).toBeVisible();'}]},steps,[],null).updates.length,1);
+});
+
+test('API generation repairs a build-time assertion literal before accepting mutable current test data',async()=>{
+ const requests=[];
+ const builder=loadBuilder({requests,response:attempt=>({summary:'Create the supplied item',steps:[{step_id:'draft-step-1',step_type:'api',api_request:{method:'POST',url:'@t.base_url/items',body_mode:'json',body:'{"name":"@t.item_name"}',validations:[{kind:'status',expected:'201'},{kind:'json_path',target:'$.name',expected:attempt===1?'Build Fixture current value':'@t.item_name'}]}}]})});
+ const result=await builder.previewAutomationDraft({draft:{title:'Create item',automation_case_type:'api',parameter_values:{base_url:'https://api.fixture',item_name:'Build Fixture current value'},steps:[{step_type:'api',action:'POST @t.base_url/items with name @t.item_name',expected_result:'HTTP 201; JSON name equals @t.item_name',api_request:{method:'POST',url:'@t.base_url/items',body_mode:'json',body:'{"name":"@t.item_name"}'}}]},project_id:'project',app_type_id:'app',user_id:'actor'});
+ assert.equal(requests.length,2,'A literal matching the current value cannot become a saved mutable assertion.');
+ assert.match(JSON.stringify(requests[1]),/@t.item_name in expected-result assertions/);
+ const first=requests[0].messages[0].content;
+ assert.match(first,/"parameter_bindings"/);assert.match(first,/"expected_result":\s*\[\s*"@t.item_name"/);
+ assert.equal(result.steps[0].api_request.validations[1].expected,'@t.item_name');
+ assert.equal(result.steps[0].api_request.body,'{"name":"@t.item_name"}');
 });
 
 test('the native builder accepts mixed inferred API and Web mappings without changing the authored actions',()=>{
@@ -103,6 +141,23 @@ test('workflow develops the whole case in one completion and emits the shared ex
  assert.match(result.executable.code,/from '@playwright\/test'/);assert.match(result.executable.code,/api\.request/);assert.match(result.executable.code,/Invoice one/);
  assert.match(result.executable.code,/QAIRA_DATA_JSON/);assert.doesNotMatch(result.executable.code,/private-not-exported/);
  assert.equal(result.draft.status,'draft');assert.equal(result.verification_status,'unverified');
+});
+
+test('protected runtime inputs stay bound in model requests and executable source without entering the returned draft',async()=>{
+ const requests=[],password='protected-workflow-login-42!';
+ const builder=loadBuilder({requests,response:{summary:'Authenticate the supplied account',steps:[{step_id:'draft-step-1',step_type:'web',automation_code:'await page.getByLabel("Password").fill(params["t.password"]); await expect(page.getByRole("button", {name:"Sign in"})).toBeVisible();'}]}});
+ const result=await builder.previewAutomationDraft({draft:{title:'Sign in',automation_start_url:'https://ui.fixture/login',parameter_values:{username:'tester@example.test'},steps:[{action:'Enter @t.password',expected_result:'Sign in action remains visible'}]},runtime_parameter_values:{'t.password':password},project_id:'project',app_type_id:'app',user_id:'actor'});
+ assert.doesNotMatch(JSON.stringify([requests,result]),/protected-workflow-login-42!/);
+ assert.match(JSON.stringify(requests),/@t.password/);
+ assert.match(result.executable.code,/params\["t.password"\]/);
+ assert.equal(result.parameter_values['t.username'],'tester@example.test');
+ assert.equal(result.draft.parameter_values['t.password'],undefined);
+ assert.ok(result.parameter_bindings.required_external_parameters.includes('t.password'));
+});
+
+test('private input literals in generated executable source fail explicitly rather than publishing a masked script',async()=>{
+ const builder=loadBuilder({response:{summary:'Fill password',steps:[{step_id:'draft-step-1',step_type:'web',automation_code:'await page.getByLabel("Password").fill("protected-workflow-login-42!"); await expect(page.getByRole("button", {name:"Sign in"})).toBeVisible();'}]}});
+ await assert.rejects(builder.previewAutomationDraft({draft:{title:'Sign in',automation_start_url:'https://ui.fixture/login',steps:[{action:'Enter @t.password',expected_result:'Sign in action remains visible'}]},runtime_parameter_values:{'t.password':'protected-workflow-login-42!'},project_id:'project',app_type_id:'app',user_id:'actor'}),{code:'AUTOMATION_PRIVATE_VALUE_IN_SOURCE'});
 });
 
 test('workflow browser inspection uses the native MCP pipeline, closes the session and publishes no section drafts',async()=>{

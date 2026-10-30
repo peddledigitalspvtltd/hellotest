@@ -2,7 +2,8 @@ const { isDeepStrictEqual } = require('node:util');
 const { parse } = require('acorn');
 const { deriveProgramTools } = require('./automationProgramTools');
 const { compileRecordedProgram } = require('./automationRecordedProgram');
-const { referenceKey } = require('./automationBrowserParameters');
+const { referenceKey,parameterReference } = require('./automationBrowserParameters');
+const {parameterTemplateParts}=require('./automationParameterTemplates');
 const { normalizeLegacyFieldValidationSyntax } = require('./automationFieldValidity');
 const { verificationFailure: fail } = require('./automationVerificationContract');
 const syntax = value => Array.isArray(value) ? value.map(syntax) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([key]) => !['start', 'end', 'loc', 'raw'].includes(key)).map(([key, item]) => [key, syntax(item)])) : value;
@@ -23,7 +24,7 @@ function prepareVerificationSections(steps, resolver, { allowLegacyFieldValidati
             const statements = parse(step.automation_code, { ecmaVersion: 'latest', sourceType: 'module', allowAwaitOutsideFunction: true }).body.filter(node => node.type === 'ExpressionStatement');
             if (statements.length === operations.length)
                 for (let index = 0; index < operations.length; index++) {
-                    const operation = operations[index], field = operation.name === 'browser_press_key' ? 'key' : 'value', key = referenceKey(operation.arguments[field]);
+                    const operation = operations[index], field = operation.name === 'browser_navigate' ? 'url' : operation.name === 'browser_press_key' ? 'key' : 'value', key = referenceKey(operation.arguments[field]);
                     if (!key)
                         continue;
                     const pending = [statements[index]], bindings = [];
@@ -59,12 +60,20 @@ function prepareVerificationSections(steps, resolver, { allowLegacyFieldValidati
         if (!isDeepStrictEqual(comparableSource, ast(compiled.source)) && (!inline || !isDeepStrictEqual(comparableSource, ast(inline.source))))
             throw fail('AUTOMATION_VERIFICATION_UNSUPPORTED', 'The saved instructions are outside the closed, faithfully replayable Playwright contract.');
         for (const operation of operations) {
-            const field = operation.name === 'browser_press_key' ? 'key' : 'value', value = operation.arguments[field], key = referenceKey(value);
+            const field = operation.name === 'browser_navigate' ? 'url' : operation.name === 'browser_press_key' ? 'key' : 'value', value = operation.arguments[field], key = referenceKey(value);
             if (key) {
                 const resolved = resolver.resolve(operation.name, operation.arguments)[field];
                 if (typeof resolved !== 'string')
                     throw fail('AUTOMATION_VERIFICATION_DATA_MISSING', 'A fixed browser input is unavailable.');
                 parameters[key] = resolved;
+            }
+            else if(operation.name==='browser_assert'&&['text','text_contains','text_content','text_content_contains','title','title_normalized'].includes(operation.arguments.assertion)){
+                for(const part of parameterTemplateParts(value)||[]){
+                    if(!part.key)continue;
+                    const resolved=resolver.resolve(operation.name,{...operation.arguments,value:parameterReference(part.key)}).value;
+                    if(typeof resolved!=='string')throw fail('AUTOMATION_VERIFICATION_DATA_MISSING','A fixed browser assertion input is unavailable.');
+                    parameters[part.key]=resolved;
+                }
             }
         }
         sections.push({ step_id: step.id, automation_code: step.automation_code, operations, step_type: step.step_type, step_order: step.step_order, group_id: step.group_id, group_kind: step.group_kind, group_name: step.group_name, reusable_group_id: step.reusable_group_id, action: step.action || '', expected_result: step.expected_result || '' });

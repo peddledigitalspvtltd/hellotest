@@ -11,7 +11,7 @@ test('workflow execution API exposes owned node I/O while retaining private line
   const registered = new Map();
   const app = { ...Object.fromEntries(['get','post','put','delete'].map(method=>[method,(path,...args)=>registered.set(`${method} ${path}`,args.at(-1))])),
     authenticate:async()=>{},validate:()=>{},requirePermission:()=>async()=>{} };
-  const internal = { id:'run',project_id:'project-a',node_results:[{node_id:'native',output:{data:[{owned:'case'}]},execution_context:{data:[{story_id:'s',story_revision:'r',earlier_review:'private lineage'}]}}] };
+  const internal = { id:'run',project_id:'project-a',node_results:[{node_id:'native',output:{data:[{owned:'case'}]},progress:{completed_items:[{owned:'progress'}],automation_checkpoint:{input_fingerprint:'private lineage fingerprint',stories:[{automation:[{executable:{code:'private checkpoint source'}}]}]}},execution_context:{data:[{story_id:'s',story_revision:'r',earlier_review:'private lineage'}]}}] };
   t.mock.method(projects,'getProject',async()=>({id:'project-a'}));
   t.mock.method(workflows,'getWorkflow',async()=>({id:'workflow',project_id:'project-a'}));
   t.mock.method(workflows,'getWorkflowRun',async()=>internal);
@@ -29,8 +29,11 @@ test('workflow execution API exposes owned node I/O while retaining private line
     assert.deepEqual(value.node_results[0].output,{data:[{owned:'case'}]});
     assert.equal(Object.hasOwn(value.node_results[0],'execution_context'),false);
     assert.equal(JSON.stringify(value).includes('private lineage'),false);
+    assert.deepEqual(value.node_results[0].progress,{completed_items:[{owned:'progress'}]});
+    assert.equal(JSON.stringify(value).includes('private checkpoint source'),false);
   }
   assert.equal(internal.node_results[0].execution_context.data[0].earlier_review,'private lineage','HTTP projection cannot mutate the recorded acceptance checkpoint');
+  assert.equal(internal.node_results[0].progress.automation_checkpoint.stories[0].automation[0].executable.code,'private checkpoint source','HTTP projection cannot mutate per-case resume checkpoints');
 });
 
 test('workflow execution routes recheck automation source permission and feature access without hiding unrelated stages',async t=>{

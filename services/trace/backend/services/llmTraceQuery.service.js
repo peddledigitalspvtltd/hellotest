@@ -49,7 +49,7 @@ function filters(projectId, input = {}) {
   return { values, where: conditions.join(' AND ') };
 }
 
-async function list(projectId, input) {
+async function list(projectId, input, { chronological = false } = {}) {
   const { values, where } = filters(projectId, input);
   const limit = 50;
   let cursor = '';
@@ -59,11 +59,11 @@ async function list(projectId, input) {
       const decoded = JSON.parse(Buffer.from(input.cursor, 'base64url').toString());
       if (!Number.isFinite(Date.parse(decoded.time)) || typeof decoded.id !== 'string' || decoded.id.length > 64) throw fail('Invalid cursor.');
       pageValues.push(decoded.time, decoded.id);
-      cursor = ` AND (started_at,id) < ($${pageValues.length - 1}::timestamptz,$${pageValues.length})`;
+      cursor = ` AND (started_at,id) ${chronological ? '>' : '<'} ($${pageValues.length - 1}::timestamptz,$${pageValues.length})`;
     } catch { throw fail('Invalid trace page cursor.'); }
   }
   const [page, totals] = await Promise.all([
-    db.pool.query({ text: `SELECT ${columns} FROM llm_request_traces WHERE ${where}${cursor} ORDER BY started_at DESC,id DESC LIMIT ${limit + 1}`, values: pageValues, query_timeout: 4000 }),
+    db.pool.query({ text: `SELECT ${columns} FROM llm_request_traces WHERE ${where}${cursor} ORDER BY started_at ${chronological ? 'ASC' : 'DESC'},id ${chronological ? 'ASC' : 'DESC'} LIMIT ${limit + 1}`, values: pageValues, query_timeout: 4000 }),
     db.pool.query({ text: `SELECT COUNT(*)::integer AS calls, COUNT(*) FILTER (WHERE status IN ('failed','invalid','cancelled'))::integer AS failures,
       ROUND(AVG(duration_ms))::integer AS average_ms, percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_ms,
       COALESCE(SUM(CASE WHEN usage->>'total_tokens' ~ '^[0-9]{1,16}$' THEN (usage->>'total_tokens')::bigint ELSE 0 END),0)::text AS total_tokens,
@@ -73,9 +73,16 @@ async function list(projectId, input) {
   const items = page.rows.slice(0, limit), last = items.at(-1);
   return { items, summary: totals.rows[0], next_cursor: page.rows.length > limit ? Buffer.from(JSON.stringify({ time: last.started_at, id: last.id })).toString('base64url') : null, retention_days: 14 };
 }
-async function detail(projectId, id, { includeContent = false } = {}) {
+async function detail(projectId, id, { includeContent = false, runId, nodeId } = {}) {
+  const values = [projectId, id];
+  let scope = '';
+  if (runId != null || nodeId != null) {
+    if (!runId || !nodeId) throw fail('A workflow run and node are required.');
+    values.push(runId, nodeId);
+    scope = ' AND run_id=$3 AND node_id=$4';
+  }
   const result = await db.pool.query({ text: `SELECT ${columns}${includeContent ? ',request_payload,response_payload,request_hash' : ''}
-    FROM llm_request_traces WHERE project_id=$1 AND id=$2 AND expires_at > CURRENT_TIMESTAMP`, values: [projectId, id], query_timeout: 4000 });
+    FROM llm_request_traces WHERE project_id=$1 AND id=$2${scope} AND expires_at > CURRENT_TIMESTAMP`, values, query_timeout: 4000 });
   if (!result.rows.length) throw Object.assign(new Error('Trace not found or its retention period has ended.'), { statusCode: 404 });
   return { ...result.rows[0], content_access: includeContent };
 }

@@ -1289,3 +1289,5 @@
   .studio-execution-context > summary > span:last-child { white-space:normal; }
   .studio-inspector.is-execution-inspector.is-expanded { width:calc(100vw - 16px); height:calc(100dvh - 24px); max-height:calc(100dvh - 24px); }
 }
+
+.studio-parameter-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; }

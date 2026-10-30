@@ -1,6 +1,6 @@
 const select=(value,keys)=>Object.fromEntries(keys.filter(key=>value?.[key]!==undefined&&value[key]!==null).map(key=>[key,value[key]]));
 const caseKeys=['id','display_id','title','description','preconditions','gherkin_document','priority','labels'];
-const stepKeys=['id','step_order','step_type','action','expected_result','group_id','group_name'];
+const stepKeys=['id','step_order','step_type','action','expected_result','parameterized_expected_result','group_id','group_name'];
 
 // Project the already authorized, parameter-resolved task. Full source, cached
 // selectors and duplicate DB metadata remain host-side. Only current browser

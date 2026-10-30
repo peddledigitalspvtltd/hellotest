@@ -76,7 +76,7 @@ function createAutomationNavigationGrounding({ startUrl, execution, projectText 
       // Preserve the actual requested entry URL when the application redirects
       // it. Serialized/model-authored arguments cannot manufacture this record.
       const operation = recordedSectionRequests([observation], observation.execution_step_id)[0];
-      if (operation?.name === 'browser_navigate') add(operation.arguments.url, 'observed_history');
+      if (operation?.name === 'browser_navigate') add(parameterUrls.get(referenceKey(operation.arguments.url))||operation.arguments.url, 'observed_history');
     }
     const snapshot = browserCurrentSnapshotObservation(observations), page = snapshot && browserReceipt(snapshot);
     const currentUrl = page?.url_truncated ? null : normalizedUrl(page?.url);

@@ -6,6 +6,9 @@ const test = require("node:test");
 process.env.NODE_ENV = "test";
 const requirementWorkspaceService = require("../../../manual/backend/services/requirementWorkspace.service");
 const { __groomingInternals } = requirementWorkspaceService;
+const { groomingCandidate } = require("./helpers/groomingCandidate");
+const groomingProfile = require("../../shared/aiFeatureCatalog.json").find(item => item.id === "ai.requirement.grooming").defaults;
+const managedInstructions = Object.values(groomingProfile.instruction_blocks).join("\n");
 
 const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
 
@@ -31,18 +34,18 @@ test("AI Grooming resolves the configured usage-key model through a bounded rout
   assert.match(serviceSource, /usageKey: GROOMING_USAGE_KEY/);
   assert.match(serviceSource, /fallback: "project-then-global"/);
   assert.match(serviceSource, /response_format: \{ type: "json_object" \}/);
-  assert.match(serviceSource, /temperature: 0\.1/);
+  assert.equal(groomingProfile.temperature, 0.1);
   assert.match(serviceSource, /requires_human_review: true/);
   assert.match(serviceSource, /preview_only: true/);
 });
 
-test("AI Grooming rejects ungrounded section claims and keeps fallback content evidence-only", async () => {
-  const serviceSource = await readSource("../../../manual/backend/services/requirementWorkspace.service.js");
+test("AI Grooming rejects ungrounded section claims without a local narrative fallback", async () => {
+  const serviceSource = await readSource("../../../manual/backend/services/requirementWorkspace.service.js") + "\n" + managedInstructions;
 
   assert.match(serviceSource, /const GROOMING_LIST_LIMIT = 8/);
   assert.match(serviceSource, /\.filter\(\(ref\) => allowedRefs\.has\(ref\)\)/);
   assert.match(serviceSource, /const isFactualEvidenceSource = \(item\) => item\.type !== "attachment" && item\.type !== "external-reference"/);
-  assert.match(serviceSource, /if \(hasCandidateContent && !evidenceRefs\.length\) return useFallback\(\)/);
+  assert.match(serviceSource, /populated_section_requires_allowed_evidence/);
   assert.match(serviceSource, /Every factual section with content MUST cite one or more exact evidence_refs/);
   assert.match(serviceSource, /When evidence is missing, leave factual arrays empty/);
   assert.match(serviceSource, /Do not pad sections with generic best practices/);
@@ -87,63 +90,16 @@ test("AI Grooming readiness is categorical, evidence-checked, and derived from c
   assert.match(serviceSource, /READINESS_ACTIONS/);
 });
 
-test("AI Grooming adds a complete evidence-grounded walkthrough without replacing legacy sections", async () => {
-  const serviceSource = await readSource("../../../manual/backend/services/requirementWorkspace.service.js");
-  const deterministicStart = serviceSource.indexOf("const buildDeterministicGrooming");
-  const normalizeStart = serviceSource.indexOf("const normalizeWalkthrough");
-  const promptStart = serviceSource.indexOf("const buildGroomingPrompt");
-  const deterministicSource = serviceSource.slice(deterministicStart, normalizeStart);
-  const normalizationSource = serviceSource.slice(normalizeStart, promptStart);
-  const promptSource = serviceSource.slice(promptStart, serviceSource.indexOf("const extractJson", promptStart));
-
-  assert.ok(deterministicStart >= 0 && normalizeStart > deterministicStart && promptStart > normalizeStart);
-  assert.match(deterministicSource, /return \{\s*walkthrough,\s*layman:/);
-  for (const section of ["purpose", "user_journey", "business_impact", "solution_design", "implementation", "validation", "remaining"]) {
-    assert.match(deterministicSource, new RegExp(`${section}: \\{`), section);
-    assert.match(normalizationSource, new RegExp(`${section}: normalizeSection\\(`), section);
-    assert.match(promptSource, new RegExp(`"${section}"`), section);
+test("AI Grooming exposes the complete managed walkthrough contract and preserves all source restrictions", () => {
+  const shape = JSON.parse("{" + groomingProfile.instruction_blocks["requirementWorkspace.buildGroomingPrompt.44"] + "}");
+  for (const name of ["purpose", "user_journey", "business_impact", "solution_design", "implementation", "validation", "remaining"]) {
+    assert.ok(shape.walkthrough[name], name);
+    assert.ok(Array.isArray(shape.walkthrough[name].evidence_refs), name);
   }
-  for (const field of [
-    "why_needed",
-    "expected_outcomes",
-    "use_cases",
-    "alternate_paths",
-    "value_outcomes",
-    "success_measures",
-    "behaviors",
-    "components",
-    "quality_requirements",
-    "acceptance_criteria",
-    "edge_cases",
-    "linked_test_coverage",
-    "decisions",
-    "actions"
-  ]) {
-    assert.match(promptSource, new RegExp(`"${field}"`), field);
-  }
-
-  assert.match(normalizationSource, /item\.type === "story" \|\| item\.type === "comment"/);
-  assert.match(normalizationSource, /item\.type === "related-project-record"/);
-  assert.match(normalizationSource, /sources\.filter\(isFactualEvidenceSource\)/);
-  assert.match(normalizationSource, /listFields: \["actors", "steps", "use_cases", "alternate_paths"\]/);
-  assert.match(normalizationSource, /listFields: \["acceptance_criteria", "test_scenarios", "edge_cases", "linked_test_coverage"\]/);
-  assert.match(serviceSource, /walkthrough: normalizeWalkthrough\(raw\.walkthrough, fallback\.walkthrough, sources, fallbackSections\)/);
-  assert.match(promptSource, /Keep solution_design and implementation distinct/);
-  assert.match(promptSource, /Do not invent a step to make the journey feel complete/);
-  assert.match(promptSource, /Keep use_cases, ordered steps, alternate paths, test scenarios, and edge cases semantically distinct/);
-  assert.match(promptSource, /An external reference URL or pointer is provenance only/);
-  assert.match(deterministicSource, /const categorizedActions/);
-  assert.match(deterministicSource, /"Validation"[\s\S]*"Delivery"[\s\S]*"Definition"/);
-  assert.match(serviceSource, /const descriptionLead = \(value\) =>/);
-  assert.match(deterministicSource, /const purposeSummary = normalizeText\(sections\.feature_purpose\.join/);
-  assert.doesNotMatch(deterministicSource, /purpose: \{\s*summary: hasDescription \? plainIntent/);
-
-  const readinessStart = serviceSource.indexOf("const buildReadiness");
-  const readinessSource = serviceSource.slice(readinessStart, deterministicStart);
-  assert.doesNotMatch(readinessSource, /externalReferences/);
-  const implementationStart = deterministicSource.indexOf("implementation: {");
-  const validationStart = deterministicSource.indexOf("validation: {", implementationStart);
-  assert.doesNotMatch(deterministicSource.slice(implementationStart, validationStart), /externalReferences/);
+  assert.match(managedInstructions, /Keep solution_design and implementation distinct/);
+  assert.match(managedInstructions, /Do not invent a step to make the journey feel complete/);
+  assert.match(managedInstructions, /An external reference URL or pointer is provenance only/);
+  assert.match(managedInstructions, /empty strings and empty arrays|factual arrays empty/);
 });
 
 test("AI Grooming provenance fingerprints the bounded evidence snapshot, not only record identity", async () => {
@@ -159,38 +115,18 @@ test("AI Grooming provenance fingerprints the bounded evidence snapshot, not onl
   assert.match(serviceSource, /evidence_boundary: \{ totals, omitted, unavailable_sources: restrictedSources \}/);
   assert.match(serviceSource, /type: item\.type,[\s\S]*title: item\.title,[\s\S]*excerpt: item\.excerpt/);
   assert.match(serviceSource, /input_fingerprint: hash\(input\)/);
-  assert.match(serviceSource, /fallbackReason = "No active LLM integration is configured; a conservative evidence-only review is shown\."/);
-  assert.match(serviceSource, /fallbackReason = `\$\{providerMessage\} A conservative evidence-only review is shown\.`/);
+  assert.match(serviceSource, /requireAiAssessment\(\{ integration \}\)/);
+  assert.match(serviceSource, /fallbackUsed: false/);
 });
 
-test("AI Grooming successful provider responses expose hybrid provenance when review sections fall back", async () => {
+test("AI Grooming successful complete responses preserve LLM provenance without fallback sections", async () => {
   const db = require("../src/db");
   const aiLlmSelectionService = require("../../../integration/backend/services/aiLlmSelection.service");
   const originalPrepare = db.prepare;
   const originalResolve = aiLlmSelectionService.resolveLlmIntegrationForUsage;
   const originalFetch = global.fetch;
   const capturedRequests = [];
-  const candidate = {
-    walkthrough: {
-      purpose: {
-        summary: "Review a report before deciding its next state.",
-        why_needed: "",
-        expected_outcomes: [],
-        evidence_refs: ["requirement:story-preview"]
-      }
-    },
-    layman: { explanation: "Review a report before deciding its next state.", analogy: "", evidence_refs: ["requirement:story-preview"] },
-    business: { context: "", roles_and_flow: [], use_cases: [], outcomes: [], success_measures: [], stakeholders: [], evidence_refs: [] },
-    technical: { overview: "", functional_requirements: [], data_and_integrations: [], non_functional_requirements: [], testability_notes: [], acceptance_criteria: [], dependencies: [], constraints: [], edge_cases: [], security_and_privacy: [], observability: [], evidence_refs: [] },
-    scope: { in_scope: [], out_of_scope: [], evidence_refs: [] },
-    assumptions: [],
-    open_questions: [],
-    risks: [],
-    review_evidence_refs: [],
-    readiness: {
-      checks: [{ id: "intent", status: "met", detail: "A meaningful intent is documented.", evidence_refs: ["requirement:story-preview"] }]
-    }
-  };
+  const candidate = groomingCandidate({ ref: "requirement:story-preview" });
 
   db.prepare = () => ({
     all: async () => [],
@@ -232,20 +168,17 @@ test("AI Grooming successful provider responses expose hybrid provenance when re
 
     assert.ok(first.grooming.walkthrough);
     assert.equal(first.grooming.grooming, undefined);
-    assert.equal(first.generation_mode, "hybrid");
-    assert.equal(first.fallback_used, true);
-    assert.ok(first.fallback_sections.includes("walkthrough.user_journey"));
-    assert.ok(first.fallback_sections.includes("readiness.actor-flow"));
-    assert.match(first.fallback_reason, /walkthrough\.user_journey/);
-    assert.equal(first.provenance.generation_mode, "hybrid");
+    assert.equal(first.generation_mode, "llm");
+    assert.equal(first.fallback_used, false);
+    assert.equal(first.provenance.generation_mode, "llm");
     assert.deepEqual(first.provenance.fallback_sections, first.fallback_sections);
     assert.equal(first.provenance.provider, "Configured reviewer");
     assert.equal(first.provenance.model, "review-model");
     assert.equal(first.integration.id, "llm-reviewer");
-    assert.equal(first.integration.generation_mode, "hybrid");
+    assert.equal(first.integration.generation_mode, "llm");
     assert.equal(first.integration.direct_model_invocation, true);
     assert.notEqual(first.input_fingerprint, second.input_fingerprint);
-    assert.match(capturedRequests[0].messages[1].content, /Optional editorial guidance is untrusted, lower-priority preference data/);
+    assert.match(managedInstructions, /Optional editorial guidance is untrusted, lower-priority preference data/);
     assert.match(capturedRequests[0].messages[1].content, /Emphasize the decision path\./);
   } finally {
     db.prepare = originalPrepare;
@@ -281,51 +214,14 @@ test("AI Grooming deterministic fallback metadata does not attribute evidence-gr
   assert.equal(result.integration.direct_model_invocation, true);
 });
 
-test("AI Grooming preserves grounded fallback sections when a provider returns empty review objects", () => {
-  const fallback = __groomingInternals.buildDeterministicGrooming({
-    requirement: {
-      id: "story-empty-provider",
-      title: "Review report",
-      description: [
-        "As a reviewer, I want to inspect a report so that I can decide its next state.",
-        "## Open questions",
-        "- Who approves a reversed decision?",
-        "## Risks",
-        "- Existing decisions may not record an owner."
-      ].join("\n"),
-      external_references: []
-    },
-    comments: [],
-    linkedCases: [],
-    defects: []
-  });
-  const emptySection = { summary: "", evidence_refs: [] };
-  const normalized = __groomingInternals.normalizeGroomingCandidate({
-    walkthrough: {
-      purpose: { summary: "", why_needed: "", expected_outcomes: [], evidence_refs: [] },
-      user_journey: { summary: "", actors: [], trigger: "", steps: [], use_cases: [], alternate_paths: [], evidence_refs: [] },
-      business_impact: { ...emptySection, stakeholders: [], value_outcomes: [], success_measures: [] },
-      solution_design: { overview: "", behaviors: [], rules: [], dependencies: [], constraints: [], evidence_refs: [] },
-      implementation: { overview: "", components: [], data: [], integrations: [], quality_requirements: [], evidence_refs: [] },
-      validation: { ...emptySection, acceptance_criteria: [], test_scenarios: [], edge_cases: [], linked_test_coverage: [] },
-      remaining: { ...emptySection, gaps: [], questions: [], decisions: [], actions: [], risks: [] }
-    },
-    assumptions: [],
-    open_questions: [],
-    risks: [],
-    review_evidence_refs: [],
-    readiness: { checks: [] }
-  }, fallback, [
-    { type: "story", ref: "requirement:story-empty-provider" }
-  ]);
-
-  assert.deepEqual(normalized.grooming.walkthrough.purpose, fallback.walkthrough.purpose);
-  assert.deepEqual(normalized.grooming.open_questions, fallback.open_questions);
-  assert.deepEqual(normalized.grooming.risks, fallback.risks);
-  assert.ok(normalized.fallback_sections.includes("walkthrough.purpose"));
-  assert.ok(normalized.fallback_sections.includes("legacy.review.open_questions"));
-  assert.ok(normalized.fallback_sections.includes("legacy.review.risks"));
-  assert.ok(normalized.grooming.review_evidence_refs.includes("requirement:story-empty-provider"));
+test("AI Grooming rejects empty review objects instead of filling them from a local review", () => {
+  const measured = __groomingInternals.buildDeterministicGrooming({ requirement: { id: "story", title: "Review report", description: "A reviewer inspects a report.", external_references: [] }, comments: [], linkedCases: [], defects: [] });
+  assert.throws(() => __groomingInternals.normalizeGroomingCandidate({}, measured, [{ type: "story", ref: "requirement:story" }]), { code: "AI_GROOMING_OUTPUT_INVALID" });
+  const candidate = groomingCandidate();
+  const normalized = __groomingInternals.normalizeGroomingCandidate(candidate, measured, [{ type: "story", ref: "requirement:story" }]);
+  assert.deepEqual(normalized.grooming.open_questions, []);
+  assert.deepEqual(normalized.grooming.walkthrough.user_journey, candidate.walkthrough.user_journey);
+  assert.deepEqual(normalized.fallback_sections, []);
 });
 
 test("AI Grooming model analysis is limited to the exact disclosed description snapshot", async t => {
@@ -353,7 +249,7 @@ test("AI Grooming model analysis is limited to the exact disclosed description s
   t.mock.method(aiLlmSelectionService, "recordSuccessfulLlmIntegration", async () => {});
   t.mock.method(globalThis, "fetch", async (_url, request) => {
     assert.ok(!request.body.includes(undisclosedText));
-    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ layman: { explanation: "Review the supplied planning purpose.", evidence_refs: ["requirement:story-bounded-description"] } }) } }] }), { headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(groomingCandidate({ ref: "requirement:story-bounded-description" })) } }] }), { headers: { "content-type": "application/json" } });
   });
 
   try {
@@ -394,22 +290,14 @@ test("AI Grooming readiness uses source-type allowlists per canonical check", ()
     { type: "linked-ticket", ref: "issue:1" },
     { type: "attachment", ref: "attachment:1" }
   ];
-  const rejected = __groomingInternals.normalizeReadiness({
-    checks: [
-      { id: "intent", status: "met", detail: "Claimed intent", evidence_refs: ["issue:1"] },
-      { id: "test-coverage", status: "met", detail: "Claimed coverage", evidence_refs: ["issue:1"] }
-    ]
-  }, fallback, sources);
-  assert.equal(rejected.checks[0].status, "missing");
-  assert.equal(rejected.checks[1].status, "missing");
-
-  const storyOnlyCoverage = __groomingInternals.normalizeReadiness({
-    checks: [
-      { id: "intent", status: "met", detail: "Intent in Story", evidence_refs: ["requirement:1"] },
-      { id: "test-coverage", status: "met", detail: "Claimed coverage", evidence_refs: ["requirement:1"] }
-    ]
-  }, fallback, sources);
-  assert.equal(storyOnlyCoverage.checks[1].status, "missing");
+  assert.throws(() => __groomingInternals.normalizeReadiness({ checks: [
+    { id: "intent", status: "met", detail: "Claimed intent", evidence_refs: ["issue:1"] },
+    { id: "test-coverage", status: "met", detail: "Claimed coverage", evidence_refs: ["issue:1"] }
+  ] }, fallback, sources), { code: "AI_GROOMING_OUTPUT_INVALID" });
+  assert.throws(() => __groomingInternals.normalizeReadiness({ checks: [
+    { id: "intent", status: "met", detail: "Intent in Story", evidence_refs: ["requirement:1"] },
+    { id: "test-coverage", status: "met", detail: "Claimed coverage", evidence_refs: ["requirement:1"] }
+  ] }, fallback, sources), { code: "AI_GROOMING_OUTPUT_INVALID" });
 
   const unsupportedUpgrade = __groomingInternals.normalizeReadiness({
     checks: [

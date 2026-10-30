@@ -31,7 +31,7 @@ const createServiceFixture = () => {
       const sql = statement.replace(/\s+/g, " ").trim();
       return {
         get: async (id) => {
-          if (/FROM app_types/.test(sql)) return { id: "app", project_id: "project" };
+          if (/^SELECT id, project_id, type FROM app_types/.test(sql)) return { id: "app", project_id: "project" };
           if (/FROM requirements/.test(sql)) return state.stories.get(id);
           if (/FROM users/.test(sql)) return { id: "author", name: "Author", email: "author@example.test" };
           if (/FROM project_members/.test(sql)) return { user_id: "author" };

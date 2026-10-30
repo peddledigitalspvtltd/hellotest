@@ -5,6 +5,7 @@ import { storyImpactGroups } from "../lib/storyChangeImpact";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
+import { ArtifactImpactReview } from "./ArtifactImpactReview";
 import "./StoryChangeImpactDialog.css";
 
 type Props = {
@@ -57,6 +58,7 @@ export function StoryChangeImpactDialog({ open, embedded = false, response, stor
             <ul className="story-impact-records">{visible.map(item => <li key={`${item.group}:${item.id}`}><span className="story-impact-record-kind">{item.kindLabel}</span><div><span className="story-impact-record-id">{item.display_id || item.id}</span><strong>{item.title || item.name || item.locator_intent || "Untitled record"}</strong>{item.release || item.build ? <small>{[item.release && `Release ${item.release}`, item.build && `Build ${item.build}`].filter(Boolean).join(" · ")}</small> : null}</div>{item.status ? <span className="story-impact-status">{item.status.replace(/_/g, " ")}</span> : null}</li>)}</ul>
             {!visible.length ? <p className="story-impact-empty">{records.length ? "No records match these filters." : unavailable.length ? "No accessible linked records are available for this review." : "No downstream records are linked to this Story."}</p> : null}
           </section>
+          <ArtifactImpactReview review={response.assurance_review} />
           <section className="story-impact-recommendations"><h3>Recommended next steps</h3>{actions.length ? <ol>{actions.map(action => <li key={action}>{action}</li>)}</ol> : <p>No additional actions were returned.</p>}</section>
           <details className="story-impact-provenance"><summary>Review details and limitations</summary><dl><div><dt>Impact source</dt><dd>HelloTest relationships and run snapshots</dd></div><div><dt>AI review</dt><dd>{provenance?.provider || response.integration?.name || "Unavailable"}{response.integration?.model ? ` · ${response.integration.model}` : ""}</dd></div><div><dt>Generated</dt><dd>{response.generated_at ? new Date(response.generated_at).toLocaleString() : "Unavailable"}</dd></div><div><dt>Reference</dt><dd>{response.request_id || "Unavailable"}</dd></div></dl><p>Impact level reflects Story priority and linked test, run, and automation counts. It is a review signal, not a prediction of failure.</p>{response.assurance_review?.limitations?.length ? <ul>{response.assurance_review.limitations.map(limitation => <li key={limitation}>{limitation}</li>)}</ul> : null}</details>
         </> : <div className="story-impact-empty"><h3>Understand the reach of this change</h3><p>Review connected tests, runs, and automation alongside the current Story draft.</p><button className="primary-button" type="button" onClick={onRetry}>Analyze impact</button></div>}

@@ -34,7 +34,11 @@ const selectAppType = db.prepare(`
 `);
 
 const selectRequirement = db.prepare(`
-  SELECT id, title, description, priority, status, project_id
+  SELECT id, display_id, title, description, priority, status, project_id,
+         additional_fields, gherkin_scenarios, specification_format,
+         specification_content, external_references, labels, revision,
+         sprint, iteration_id, release, fix_version, scrum_team,
+         dev_completion_target_date, qa_completion_target_date
   FROM requirements
   WHERE id = ?
 `);

@@ -314,6 +314,7 @@ test("source templates reuse repository analysis and preserve a link to its revi
   assert.equal(saved.node_results[1].output.session_id, "source-model");
   assert.equal(saved.node_results[2].output.data.response, response().result.response);
   assert.deepEqual(jobs[0].input.source, source); assert.match(jobs[0].options.requestKey, /^workflow-/);
+  assert.deepEqual(jobs[0].options.workflowTrace, { run_id: saved.id, node_id: graph.nodes[1].id });
   assert.equal(saved.node_results[1].output.repository_run_id, "source-job");
   assert.equal(saved.node_results[1].output.requires_human_review, true);
 });

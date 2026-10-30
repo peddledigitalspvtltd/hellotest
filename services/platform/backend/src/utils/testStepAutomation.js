@@ -153,7 +153,7 @@ function validateGeneratedApiRequest(value, { stepOrder = 1, existingRequest, ex
   }
   if (request.follow_redirects !== undefined && typeof request.follow_redirects !== 'boolean') fail('follow_redirects must be boolean.');
   if (request.validations !== undefined && !Array.isArray(request.validations)) fail('validations must be an array.');
-  if (expectedResult && !request.validations?.length && !normalizeApiRequest(existingRequest)?.url) fail('Translate the supplied expected result into explicit response assertions.');
+  if (expectedResult && !request.validations?.length) fail('Translate the supplied expected result into explicit response assertions.');
   for (const validation of request.validations || []) {
     const kind = validation?.kind || validation?.type;
     if (!API_VALIDATION_KINDS.has(kind) || validation.operator !== undefined && (!API_VALIDATION_OPERATORS.has(validation.operator) || validation.operator === 'matches')) fail('Use a supported API assertion kind and operator.');
@@ -161,9 +161,13 @@ function validateGeneratedApiRequest(value, { stepOrder = 1, existingRequest, ex
     if (!['header_present'].includes(kind) && validation.operator !== 'exists' && (typeof (validation.expected ?? validation.value) !== 'string' || !String(validation.expected ?? validation.value).trim())) fail('Provide a nonempty string expected value for each API assertion.');
     if (['header','header_present','json_path'].includes(kind) && !normalizeText(validation.target || validation.path)) fail('Provide an assertion target.');
     const expected = validation.expected ?? validation.value;
-    if (kind === 'status' && (!/^\d{3}$/.test(expected) || Number(expected) < 100 || Number(expected) > 599)) fail('Provide an explicit HTTP status from 100 to 599.');
-    if (kind === 'response_time' && !(Number(expected) > 0 && Number.isFinite(Number(expected)))) fail('Provide a positive response duration in milliseconds.');
-    if (kind === 'json_schema') {
+    // Keep exact scoped inputs symbolic in drafts. Their concrete values are
+    // resolved and checked by the execution assertion, never by substituting
+    // a current value into saved source or choosing a numeric default.
+    const parameterExpected = typeof expected === 'string' && /^@[tsr]\.(?:[A-Za-z][A-Za-z0-9_-]*|\[(?:\\.|[^\]\\\r\n])+\])$/i.test(expected.trim());
+    if (kind === 'status' && !parameterExpected && (!/^\d{3}$/.test(expected) || Number(expected) < 100 || Number(expected) > 599)) fail('Provide an explicit HTTP status from 100 to 599 or an exact scoped parameter reference.');
+    if (kind === 'response_time' && !parameterExpected && !(Number(expected) > 0 && Number.isFinite(Number(expected)))) fail('Provide a positive response duration in milliseconds or an exact scoped parameter reference.');
+    if (kind === 'json_schema' && !parameterExpected) {
       let schema;
       try { schema = JSON.parse(expected); } catch { fail('Encode the JSON Schema as a JSON string.'); }
       if (!schema || typeof schema !== 'object' || Array.isArray(schema) || !Object.keys(schema).length) fail('Provide a nonempty JSON Schema object.');
@@ -178,6 +182,14 @@ function validateGeneratedApiRequest(value, { stepOrder = 1, existingRequest, ex
   return normalized;
 }
 
+// Blank API drafts can be saved. Once a target is authored, reject fields
+// that the legacy normalizer would otherwise discard or silently replace.
+function validateAuthoredApiRequest(value, { stepOrder = 1 } = {}) {
+  const request = parseJsonValue(value, null);
+  if (request && normalizeText(request.url)) validateGeneratedApiRequest(request, { stepOrder });
+  return value;
+}
+
 module.exports = {
   API_VALIDATION_KINDS,
   API_VALIDATION_OPERATORS,
@@ -187,5 +199,6 @@ module.exports = {
   normalizeTestStepType,
   inferAutomationStepType,
   validateGeneratedApiRequest,
+  validateAuthoredApiRequest,
   parseJsonValue
 };

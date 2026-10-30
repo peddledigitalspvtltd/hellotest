@@ -23,6 +23,7 @@ const {
   isMobileRecorderTarget
 } = require("@hellotest/platform/backend/src/utils/mobileFeature");
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
+const { AUTOMATION_CASE_TYPES, normalizeAutomationCaseType } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 const OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE = 200;
 
 const resolveTestCaseListProjectId = testCaseScopeService.resolveListProjectId;
@@ -133,6 +134,7 @@ module.exports = async function (fastify) {
       parameter_values: { required: false, type: "object" },
       automated: { required: false, type: "string", enum: TEST_CASE_AUTOMATED_VALUES },
       automation_status: { required: false, type: "string", enum: AUTOMATION_STATUS_VALUES },
+      automation_case_type: { required: false, type: "string", enum: AUTOMATION_CASE_TYPES },
       automation_start_url: { required: false, type: "string", maxLength: 2000 },
       manual_test_case_id: { required: false, type: "string" },
       manual_test_case_ids: { required: false, type: "array", items: "string" },
@@ -158,6 +160,7 @@ module.exports = async function (fastify) {
       steps: { required: false, type: "array" }
     }, req.body);
 
+    if (req.body.automated === 'yes') normalizeAutomationCaseType(req.body.automation_case_type, { required: true });
     // Verify access if app_type_id provided
     let scopedProjectId = null;
     let scopedAppType = null;
@@ -1233,6 +1236,7 @@ module.exports = async function (fastify) {
       engine_base_url: { required: false, type: "string" },
       recorder_public_base_url: { required: false, type: "string" },
       reuse_existing: { required: false, type: "boolean" },
+      test_suite_id: { required: false, type: "string" },
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
@@ -1254,6 +1258,7 @@ module.exports = async function (fastify) {
       engine_base_url: req.body?.engine_base_url,
       recorder_public_base_url: req.body?.recorder_public_base_url,
       reuse_existing: req.body?.reuse_existing,
+      test_suite_id: req.body?.test_suite_id,
       test_environment_id: req.body?.test_environment_id,
       test_configuration_id: req.body?.test_configuration_id,
       test_data_set_id: req.body?.test_data_set_id,
@@ -1491,6 +1496,7 @@ module.exports = async function (fastify) {
       parameter_values: { required: false, type: "object" },
       automated: { required: false, type: "string", enum: TEST_CASE_AUTOMATED_VALUES },
       automation_status: { required: false, type: "string", enum: AUTOMATION_STATUS_VALUES },
+      automation_case_type: { required: false, type: "string", enum: AUTOMATION_CASE_TYPES },
       automation_start_url: { required: false, type: "string", maxLength: 2000 },
       manual_test_case_id: { required: false, type: "string" },
       manual_test_case_ids: { required: false, type: "array", items: "string" },
@@ -1515,6 +1521,7 @@ module.exports = async function (fastify) {
     }, req.body);
 
     const testCase = await service.getTestCase(req.params.id);
+    if (req.body.automated === 'yes' && testCase.automated !== 'yes') normalizeAutomationCaseType(req.body.automation_case_type, { required: true });
     let scopedProjectId = null;
     const updateProjectIds = new Set();
     if (testCase.app_type_id) {

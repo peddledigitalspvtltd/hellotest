@@ -6,11 +6,22 @@ test("AI Groom Story reads permitted linked evidence and scoped counts in Postgr
   timeout: 30_000
 }, async (t) => {
   const db = require("../../src/db");
-  const service = require("../../../../manual/backend/services/requirementWorkspace.service");
   const featureFlags = require("../../services/featureFlag.service");
   const selection = require("../../../../integration/backend/services/aiLlmSelection.service");
+  const transport = require("../../src/utils/llmHttpClient");
+  const { groomingCandidate } = require("../helpers/groomingCandidate");
   t.mock.method(featureFlags, "getDisabledPermissionCodes", async () => []);
-  t.mock.method(selection, "resolveLlmIntegrationForUsage", async () => null);
+  t.mock.method(selection, "resolveLlmIntegrationForUsage", async () => ({ id: "fixture", name: "Fixture model", model: "fixture", is_active: true }));
+  t.mock.method(transport, "fetchLlmWithRetry", async (_url, init) => {
+    const prompt = JSON.parse(init.body).messages[1].content;
+    const linked = prompt.includes('"ref": "test-case:case-1"');
+    const candidate = groomingCandidate({ ref: linked ? "requirement:story" : "requirement:unlinked-story" });
+    if (linked) Object.assign(candidate.readiness.checks.find(check => check.id === "test-coverage"), {
+      status: "met", detail: "The scoped Story has linked validation candidates.", evidence_refs: ["test-case:case-1"]
+    });
+    return Response.json({ choices: [{ message: { content: JSON.stringify(candidate) } }] });
+  });
+  const service = require("../../../../manual/backend/services/requirementWorkspace.service");
 
   try {
     // All fixture records stay in transaction-local temporary tables. Restrict
@@ -55,7 +66,8 @@ test("AI Groom Story reads permitted linked evidence and scoped counts in Postgr
       assert.deepEqual(preview.context.unavailable_sources, []);
       assert.ok(preview.context.sources.every((source) => !source.ref.includes("foreign")));
       assert.equal(preview.grooming.readiness.checks.find((check) => check.id === "test-coverage").status, "met");
-      assert.equal(preview.generation_mode, "deterministic");
+      assert.equal(preview.generation_mode, "llm");
+      assert.equal(preview.fallback_used, false);
 
       const empty = await service.previewGrooming({ ...input, requirement: { ...input.requirement, id: "unlinked-story" } });
       assert.equal(empty.context.included.related_project_records, 0);

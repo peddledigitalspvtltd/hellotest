@@ -189,10 +189,11 @@ test('only load checks guaranteed by the preceding derived navigation may be omi
     'await page.goto("https://selected.example/",{waitUntil:"commit"});',
     'await page.goto("file:///etc/passwd");',
     'await page.goto("https://user:password@selected.example/");',
-    'await page.goto("/relative");', 'await page.goto(params["t.url"]);',
+    'await page.goto("/relative");', 'await page.goto(params[dynamicName]);',
     'await page.waitForTimeout(1000);'
   ]) assert.equal(derive(source), null, source);
   assert.ok(derive('await page.goto("https://selected.example/");await page.waitForLoadState("load");'));
+  assert.deepEqual(derive('await page.goto(params["t.url"]);'), [{name:'browser_navigate',arguments:{url:'@t.url'}}]);
 });
 
 test('source, AST, locator and tool limits reject oversized programs instead of partially lowering them', () => {

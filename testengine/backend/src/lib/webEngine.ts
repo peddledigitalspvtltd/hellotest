@@ -30,7 +30,6 @@ import {
   normalizeText,
   registerContextValue,
   stringifyValue,
-  toParameterValuesRecord,
   type RuntimeExecutionContext
 } from "./runtimeContext.js";
 
@@ -2844,7 +2843,11 @@ const buildBindings = (
     page: nativeBindings ? nativeBindings.page as unknown as PageFacade : page,
     web,
     expect: nativeBindings ? Object.assign(nativeBindings.expect, { equal: expect.equal, truthy: expect.truthy, contains: expect.contains }) as unknown as ExpectationApi : expect,
-    params: toParameterValuesRecord(context),
+    // Code, helpers and @references share the current step's binding map.
+    // A capture performed earlier in this same section must be immediately
+    // readable through params as well as through an instruction reference.
+    // Cross-section values still flow only through the explicit capture API.
+    params: context.values,
     capture
   };
 };

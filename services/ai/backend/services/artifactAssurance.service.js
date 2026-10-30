@@ -14,7 +14,46 @@ const ASSURANCE_REPAIR_TIMEOUT_MS = 60_000;
 const ASSURANCE_MAX_OUTPUT_TOKENS = 6_144;
 const READINESS_STATUSES = ['ready', 'needs_input', 'unknown', 'not_applicable'];
 const READINESS_CONTEXT_KINDS = ['api_contract', 'authentication', 'test_data', 'fixture', 'application_context', 'other'];
+const FINDING_KINDS = ['business_ambiguity', 'missing_context', 'artifact_quality', 'traceability', 'change_impact', 'automation_input'];
+const REVIEW_FIELDS = {
+  story: ['title', 'description', 'acceptance_criteria', 'gherkin_scenarios', 'specification_content', 'priority', 'scope', 'dependencies'],
+  'test-case': ['title', 'description', 'steps', 'gherkin_document', 'parameter_values', 'test_data_set_ids', 'requirement_ids', 'preconditions']
+};
 const unknownReadiness = () => ({ status: 'unknown', summary: 'Automation suitability was not established by a complete, supported assessment.', evidence_refs: [], missing_context: [] });
+
+// This describes a review, never a substitute artifact. Product authoring and
+// execution keep their own contracts and approval boundaries.
+const reviewContract = (dimensionIds, sourceRefs, fieldNames, stepRefs) => ({
+  summary: 'Concise evidence-grounded review',
+  dimensions: [{ id: dimensionIds, explanation: 'Supported assessment', evidence: sourceRefs, recommendation: 'Smallest useful action or preserve the supported behavior' }],
+  insights: [{ id: 'Unique finding id', priority: ['high', 'medium', 'opportunity'], kind: FINDING_KINDS,
+    title: 'Specific issue', explanation: 'Observed gap or ambiguity and why it matters', evidence: sourceRefs,
+    affected_fields: fieldNames, step_refs: stepRefs, recommendation: 'Concrete change and observable completion condition' }],
+  limitations: ['Unknown, restricted or truncated evidence; no execution or approval implied'],
+  limits: { dimensions: 4, insights: 4, source_refs_per_item: 6, affected_fields_per_insight: 6, step_refs_per_insight: 10 }
+});
+
+const reviewOutputSchema = (dimensionIds, sourceRefs, fieldNames, stepRefs, includeReadiness) => {
+  const string = maxLength => ({ type: 'string', minLength: 1, maxLength });
+  const refs = { type: 'array', minItems: 1, maxItems: 6, uniqueItems: true, items: { type: 'string', enum: sourceRefs } };
+  const locations = (values, maxItems) => ({ type: 'array', maxItems: Math.min(values.length, maxItems), uniqueItems: true,
+    items: values.length ? { type: 'string', enum: values } : { type: 'string' } });
+  return { type: 'object', additionalProperties: false, required: ['summary', 'dimensions', 'insights', 'limitations', ...(includeReadiness ? ['automation_readiness'] : [])],
+    anyOf: [{ properties: { dimensions: { type: 'array', minItems: 1 } } }, { properties: { insights: { type: 'array', minItems: 1 } } }], properties: {
+    summary: string(1200),
+    dimensions: { type: 'array', maxItems: 4, items: { type: 'object', additionalProperties: false, required: ['id', 'explanation', 'evidence', 'recommendation'], properties: {
+      id: { type: 'string', enum: dimensionIds }, explanation: string(1000), evidence: refs, recommendation: string(800)
+    } } },
+    insights: { type: 'array', maxItems: 4, items: { type: 'object', additionalProperties: false,
+      required: ['id', 'priority', 'kind', 'title', 'explanation', 'evidence', 'affected_fields', 'step_refs', 'recommendation'], properties: {
+        id: string(80), priority: { type: 'string', enum: ['high', 'medium', 'opportunity'] }, kind: { type: 'string', enum: FINDING_KINDS },
+        title: string(180), explanation: string(1000), evidence: refs,
+        affected_fields: locations(fieldNames, 6), step_refs: locations(stepRefs, 10), recommendation: string(800)
+      } } },
+    limitations: { type: 'array', maxItems: 6, items: string(500) },
+    ...(includeReadiness ? { automation_readiness: readinessContract(sourceRefs, stepRefs) } : {})
+  } };
+};
 
 const readinessContract = (sourceRefs, stepRefs) => {
   const refs = { type: 'array', maxItems: 6, uniqueItems: true, items: { type: 'string', enum: sourceRefs } };
@@ -69,7 +108,7 @@ const reviewItems = (value, idKey = "id") => Array.isArray(value)
   ? value
   : Object.entries(object(value)).map(([id, item]) => ({ ...object(item), [idKey]: object(item)[idKey] || id }));
 
-const normalizeReview = (value, dimensionIds, allowedRefs, { assessAutomationReadiness = false, stepRefs = [], productRefs = new Set() } = {}) => {
+const normalizeReview = (value, dimensionIds, allowedRefs, { assessAutomationReadiness = false, stepRefs = [], productRefs = new Set(), fieldNames = [] } = {}) => {
   const raw = object(value?.assurance_review || value?.review || value?.response || value?.result || value);
   const allowedByLowerCase = new Map([...allowedRefs].map(ref => [ref.toLowerCase(), ref]));
   const evidence = value => {
@@ -84,6 +123,23 @@ const normalizeReview = (value, dimensionIds, allowedRefs, { assessAutomationRea
     }))].slice(0, 6);
   };
   const itemEvidence = item => evidence(item?.evidence || item?.evidence_refs || item?.citation_ids || item?.citations || item?.source_refs || item?.sources);
+  const findingLocation = item => {
+    const result = {};
+    // Older saved reviews lack these locations. When a provider supplies them,
+    // reject forged fields and step identifiers rather than showing false links.
+    if (item?.kind !== undefined) {
+      if (!FINDING_KINDS.includes(item.kind)) throw Object.assign(new Error('AI assurance response used an unsupported finding category.'), { code: 'AI_ASSURANCE_REVIEW_INVALID' });
+      result.kind = item.kind;
+    }
+    for (const [key, allowed, max] of [['affected_fields', fieldNames, 6], ['step_refs', stepRefs, 10]]) {
+      if (item?.[key] === undefined) continue;
+      if (!Array.isArray(item[key]) || item[key].length > max || item[key].some(ref => typeof ref !== 'string' || !allowed.includes(ref))) {
+        throw Object.assign(new Error('AI assurance response cited an unsupported artifact field or step.'), { code: 'AI_ASSURANCE_REVIEW_INVALID' });
+      }
+      result[key] = [...new Set(item[key])];
+    }
+    return result;
+  };
   const seen = new Set();
   const dimensions = reviewItems(raw.dimensions).filter(item => {
     if (!dimensionIds.includes(item?.id) || seen.has(item.id)) return false;
@@ -92,12 +148,29 @@ const normalizeReview = (value, dimensionIds, allowedRefs, { assessAutomationRea
     return true;
   }).map(item => ({ id: item.id, explanation: text(item.explanation || item.analysis || item.finding, 1000), evidence: itemEvidence(item), recommendation: text(item.recommendation || item.action, 800) }))
     .filter(item => item.explanation && item.evidence.length);
-  const insights = reviewItems(raw.insights || raw.findings).slice(0, 4).map((item, index) => ({
-    id: text(item?.id, 80) || `review-${index + 1}`,
-    priority: ["high", "medium", "opportunity"].includes(item?.priority) ? item.priority : "medium",
-    title: text(item?.title || item?.label, 180), explanation: text(item?.explanation || item?.detail || item?.finding, 1000),
-    evidence: itemEvidence(item), recommendation: text(item?.recommendation || item?.action, 800)
-  })).filter(item => item.title && item.explanation && item.evidence.length);
+  const insightIds = new Set();
+  const rawInsights = raw.insights ?? raw.findings;
+  if (rawInsights != null && typeof rawInsights !== 'object' && String(rawInsights).trim()) {
+    throw Object.assign(new Error('AI assurance findings must be structured objects, not unstructured prose.'), { code: 'AI_ASSURANCE_REVIEW_INVALID' });
+  }
+  const insights = reviewItems(rawInsights).flatMap((item, index) => {
+    if (item != null && (Array.isArray(item) ? item.length > 0 : typeof item !== 'object' && String(item).trim())) {
+      throw Object.assign(new Error('AI assurance findings must be structured objects, not unstructured prose.'), { code: 'AI_ASSURANCE_REVIEW_INVALID' });
+    }
+    const title = text(item?.title || item?.label, 180), explanation = text(item?.explanation || item?.detail || item?.finding, 1000);
+    const recommendation = text(item?.recommendation || item?.action, 800), refs = itemEvidence(item);
+    if (!title && !explanation && !recommendation && !refs.length) return [];
+    const id = text(item?.id, 80) || `review-${index + 1}`;
+    // A partial, meaningful finding must be repaired as a whole. Silently
+    // dropping it or changing a supplied severity can conceal a model defect.
+    if (!title || !explanation || !recommendation || !refs.length || insightIds.has(id)
+      || (item?.priority !== undefined && !["high", "medium", "opportunity"].includes(item.priority))) {
+      throw Object.assign(new Error('AI assurance finding requires a title, explanation, supported citations, actionable recommendation and valid priority.'), { code: 'AI_ASSURANCE_REVIEW_INVALID' });
+    }
+    insightIds.add(id);
+    return [{ id, priority: item.priority === undefined ? 'medium' : item.priority, title, explanation, evidence: refs, recommendation, ...findingLocation(item) }];
+  });
+  if (insights.length > 4) throw Object.assign(new Error('AI assurance returned too many priority findings.'), { code: 'AI_ASSURANCE_REVIEW_INVALID' });
   const summary = text(raw.summary || raw.executive_summary || raw.overview, 1200);
   if (!summary || (!dimensions.length && !insights.length)) {
     throw Object.assign(new Error("AI assurance response did not contain an evidence-grounded review"), { code: "AI_ASSURANCE_REVIEW_INVALID" });
@@ -124,7 +197,7 @@ const readReviewResponse = async (response) => {
   }
 };
 
-async function reviewArtifact({ artifactType, savedArtifact, proposedChange, baseline, linkedEvidence = [], user, projectId, integrationId, promptGuidance, additionalContext, reviewPurpose = 'assurance', assessAutomationReadiness = false, signal }) {
+async function reviewArtifact({ artifactType, savedArtifact, proposedChange, baseline, linkedEvidence = [], evidenceBoundary, user, projectId, integrationId, promptGuidance, additionalContext, reviewPurpose = 'assurance', assessAutomationReadiness = false, signal }) {
   if (signal?.aborted) throw Object.assign(new Error('Workflow cancelled.'), { statusCode: 499, publicMessage: 'Workflow cancelled.' });
   const featureKey = reviewPurpose === 'change-impact'
     ? (artifactType === 'story' ? 'ai.requirement.change_impact' : 'ai.test_case.change_impact')
@@ -134,23 +207,42 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     additional_fields: { ...object(savedArtifact.additional_fields), ...object(proposedChange?.additional_fields) } };
   const snapshot = artifactType === "story" ? storyAiSnapshot(draft) : testCaseAiSnapshot(draft);
   const draftRef = `draft:${artifactType}:${savedArtifact.id}`;
-  const sources = [{ ref: draftRef, type: artifactType, content: snapshot }, ...linkedEvidence.slice(0, artifactType === "test-case" ? 6 : 20).map(item => ({
-    ref: `${item.kind || "record"}:${item.id}`, type: item.kind || "record", title: text(item.title || item.name, 300), status: text(item.status, 100),
-    ...(item.kind === "requirement" ? { content: storyAiSnapshot(item, { textLimit: 1200, itemLimit: 250, listLimit: 4 }) } : {})
-  }))];
+  const linkedLimit = artifactType === 'test-case' && reviewPurpose !== 'change-impact' && !evidenceBoundary ? 6 : 20;
+  const sources = [{ ref: draftRef, type: artifactType, content: snapshot }, ...linkedEvidence.slice(0, linkedLimit).map(item => {
+    // The public wrapper must use the same private-data projection as the
+    // nested snapshot. Raw linked titles can themselves contain private data.
+    const linkedCase = item.kind === 'test-case' ? testCaseAiSnapshot(item, { stepLimit: 8, itemLimit: 250 }) : null;
+    const hasCaseContent = linkedCase && (item.description != null || Array.isArray(item.steps) || Boolean(linkedCase.gherkin_document));
+    if (linkedCase && !Array.isArray(item.steps) && !(linkedCase.authoring_mode === 'gherkin' && linkedCase.gherkin_document)) {
+      delete linkedCase.steps;
+      linkedCase.context_limits = { ...linkedCase.context_limits, unavailable_fields: ['steps'] };
+    }
+    return {
+      ref: `${item.kind || "record"}:${item.id}`, type: item.kind || "record",
+      title: text(linkedCase ? linkedCase.title : item.title || item.name, 300), status: text(linkedCase ? linkedCase.status : item.status, 100),
+      ...(item.kind === "requirement" ? { content: storyAiSnapshot(item) } : {}),
+      ...(hasCaseContent ? { content: linkedCase } : {}),
+      ...(linkedCase && !hasCaseContent ? { context: { content_scope: 'metadata_only', unavailable_fields: ['description', 'steps'] } } : {}),
+      ...(item.kind !== 'test-case' && item.kind !== 'requirement' && item.context ? { context: object(item.context) } : {})
+    };
+  })];
   const reviewedContext = text(additionalContext, 12000);
   if (reviewPurpose === 'change-impact') sources.push({ ref: `saved:${artifactType}:${savedArtifact.id}`, type: artifactType,
     content: artifactType === 'story' ? storyAiSnapshot(savedArtifact) : testCaseAiSnapshot(savedArtifact) });
   if (reviewedContext) sources.push({ ref: "review:context", type: "reviewed-context", content: reviewedContext });
   const readinessRequested = artifactType === 'test-case' && assessAutomationReadiness === true;
-  const stepReferences = readinessRequested ? snapshot.steps.map((step, index) => ({ ref: `step:${index + 1}`, step_order: step.step_order,
+  const stepReferences = artifactType === 'test-case' ? snapshot.steps.map((step, index) => ({ ref: `step:${index + 1}`, step_order: step.step_order,
     ...(text(draft.steps?.[index]?.id, 255) ? { step_id: text(draft.steps[index].id, 255) } : {}) })) : [];
   const stepRefs = [...new Set(stepReferences.map(step => step.ref))];
   // Only linked Story snapshots currently carry an independent product
   // contract. Reviewed context includes prior AI prose and user guidance;
   // titles/statuses of other linked records cannot establish implementation.
   const productRefs = new Set(sources.filter(source => source.type === 'requirement' && source.content).map(source => source.ref));
-  const normalization = { assessAutomationReadiness: readinessRequested, stepRefs, productRefs };
+  const fieldNames = REVIEW_FIELDS[artifactType];
+  const normalization = { assessAutomationReadiness: readinessRequested, stepRefs, productRefs, fieldNames };
+  const sourceRefs = sources.map(source => source.ref);
+  const outputContract = reviewContract(dimensionIds, sourceRefs, fieldNames, stepRefs);
+  const outputSchema = reviewOutputSchema(dimensionIds, sourceRefs, fieldNames, stepRefs, readinessRequested);
   const lockedScores = normalizeBaseline(baseline, dimensionIds);
   const prompt = [
     [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.1"),String(artifactType === "story" ? "Story" : "Test Case"),aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.2")].join(''),
@@ -161,6 +253,11 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.5"),String(JSON.stringify(text(promptGuidance, 12000))),""].join(''),
     [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.6"),String(JSON.stringify(lockedScores)),""].join(''),
     [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.7"),String(JSON.stringify(sources)),""].join(''),
+    aiInstructionBlock(featureKey, 'artifactAssurance.reviewFocus'),
+    JSON.stringify({ review_contract: outputContract, review_output_schema: outputSchema, step_references: stepReferences,
+      evidence_boundary: { linked_records_available: linkedEvidence.length, linked_records_included: Math.min(linkedEvidence.length, linkedLimit),
+        omitted_linked_records: Math.max(0, linkedEvidence.length - linkedLimit), content_scope: 'bounded_supplied_only',
+        ...object(evidenceBoundary) } }),
     ...(readinessRequested ? [aiInstructionBlock(featureKey, 'artifactAssurance.automationReadiness'),
       JSON.stringify({ automation_readiness_contract: readinessContract(sources.map(source => source.ref), stepRefs), product_evidence_refs: [...productRefs], step_references: stepReferences })] : [])
   ].join("\n");
@@ -206,6 +303,10 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
         aiInstructionBlock(featureKey, "artifactAssurance.repairPrompt.11"),
         [aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.12"),String(text(JSON.stringify(sources), 32_000)),""].join(''),
         aiInstructionBlock(featureKey, "artifactAssurance.repairPrompt.12"),
+        aiInstructionBlock(featureKey, 'artifactAssurance.reviewFocus'),
+        aiInstructionBlock(featureKey, 'artifactAssurance.validationFeedback'),
+        JSON.stringify({ review_validation_error: { code: error.code || 'AI_INVALID_JSON', message: text(error.message, 500) },
+          review_contract: outputContract, review_output_schema: outputSchema, step_references: stepReferences }),
         [aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.13"),String(JSON.stringify(text(originalContent || error?.message, 16_000))),""].join(''),
         ...(readinessRequested ? [aiInstructionBlock(featureKey, 'artifactAssurance.automationReadiness'),
           JSON.stringify({ automation_readiness_contract: readinessContract([...allowedRefs], stepRefs), product_evidence_refs: [...productRefs], step_references: stepReferences })] : [])
@@ -230,6 +331,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       AI_INPUT_BUDGET_EXCEEDED: "The review input exceeds the provider budget. Shorten the draft or guidance and retry.",
       AI_OUTPUT_TRUNCATED: "The provider stopped before completing its review. Retry with a smaller draft or shorter guidance.",
       AI_INVALID_JSON: "The provider returned an invalid review format. Check that the selected model supports JSON responses.",
+      AI_ASSURANCE_REVIEW_INVALID: "The provider returned invalid review fields or unsupported citations after one format repair. Retry or select another configured model.",
       AI_EMPTY_RESPONSE: "The provider returned an empty review. Retry or select another configured model."
     };
     const reason = reasons[error?.code]

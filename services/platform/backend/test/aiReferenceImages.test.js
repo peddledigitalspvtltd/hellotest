@@ -47,7 +47,7 @@ test('mandatory artifact fields reject omissions, invented enum shapes, empty ac
  for(const [id,value] of [['ai.requirement.creation',{requirements:[{title:'Only a title'}]}],['ai.requirement.optimization',{...validStory,priority:'urgent'}],['ai.case_authoring.full_case',{...validCase,parameter_values:{'@r.email':'copied'}}],['ai.test_case.design',{testCases:[{...validCase,steps:[{action:'Sign in',expected_result:''}]}]}],['ai.bug.draft',{draft:{title:'Failure',message:'Observed failure',steps_to_reproduce:'',expected_result:'',actual_result:'',severity:'blocker',priority:'P0'},gaps:[]}]])assert.throws(()=>validateNativeArtifactOutput(id,value),{code:'AI_NATIVE_CONTRACT_INVALID'});
 });
 test('missing factual evidence remains a named gap instead of fabricated acceptance or reproduction prose',()=>{
- validateNativeArtifactOutput('ai.requirement.creation',{requirements:[{...validStory,acceptance_criteria:[],open_questions:['What observable behavior establishes acceptance?']}]});
+ assert.throws(()=>validateNativeArtifactOutput('ai.requirement.creation',{requirements:[{...validStory,acceptance_criteria:[],open_questions:['What observable behavior establishes acceptance?']}]}),{code:'AI_NATIVE_CONTRACT_INVALID'});
  assert.throws(()=>validateNativeArtifactOutput('ai.requirement.creation',{requirements:[{...validStory,acceptance_criteria:[],open_questions:[]}]}),{code:'AI_NATIVE_CONTRACT_INVALID'});
  validateNativeArtifactOutput('ai.bug.draft',{draft:{title:'Save fails',message:'An error is shown',steps_to_reproduce:'',expected_result:'',actual_result:'Error is shown',severity:'medium',priority:'Medium'},gaps:[{field:'steps_to_reproduce',reason:'No actions were supplied'},{field:'expected_result',reason:'Required behavior is unspecified'}]});
 });

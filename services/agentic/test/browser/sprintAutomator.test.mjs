@@ -16,7 +16,7 @@ window.acceptedDrafts = [];
 api.agenticWorkflows.acceptWorkflowDraft = async (id,input) => { window.acceptedDrafts.push({id,input}); return {id:'saved-'+input.kind,title:'Read saved invoice',kind:input.kind,saved:true}; };
 api.agenticWorkflows.getRun = async () => structuredClone(window.previewRecord);
 api.agenticWorkflows.connections = async () => [{id:'stories-api',name:'HelloTest Stories API',kind:'http',url:'https://testing.example/api',authenticated:true,methods:['GET'],tools:[]}];
-window.openSprintRun = async (blocked=false,automatic=false) => {
+window.openSprintRun = async (blocked=false,automatic=false,failed=false) => {
   const {buildStoryAssuranceAnalysis,buildTestCaseAssuranceAnalysis}=await import('/services/ai/frontend/lib/artifactAssurance.ts');
   const story={id:'story-a',title:'Customer reads a saved invoice',description:'A customer reads a saved invoice so that the recorded amount can be confirmed.',acceptance_criteria:['Return status 200 and the saved amount.']};
   const draft={client_id:'draft-a',title:'Read saved invoice',description:'Given an existing invoice, read its saved amount.',steps:[{action:'GET /invoices/one',expected_result:'Response status equals 200 and amount equals 10',step_type:'manual'}]};
@@ -25,13 +25,14 @@ window.openSprintRun = async (blocked=false,automatic=false) => {
   const packet={story_id:'story-a',story_revision:'revision-a',story,story_assurance:{analysis},cases:[draft],case_assurance:[{client_id:'draft-a',case_index:0,analysis:caseAnalysis}],automation:[{client_id:'draft-a',case_index:0,instructions:[{step_order:1,action:'Read the complete saved invoice and verify its recorded amount.',expected_result:'HTTP 200 and saved invoice amount 10.',runtime:'api'}],executable:{filename:'invoice.spec.ts',language:'typescript',framework:'playwright',code:${JSON.stringify(playwrightCode)}},steps:[{...draft.steps[0],step_type:'api',api_request:{method:'GET',url:'https://invoice.example/invoices/one',validations:[{kind:'status',expected:'200'}]}}],validation:{status:'passed'},verification_status:'unverified'}]};
   const other={...structuredClone(packet),story_id:'story-b',story_revision:'revision-b',story:{...story,id:'story-b',title:'Customer reads a backup invoice'},cases:[{...draft,client_id:'draft-b',title:'Read backup invoice'}],case_assurance:[{client_id:'draft-b',case_index:0,analysis:caseAnalysis}],automation:[{...structuredClone(packet.automation[0]),client_id:'draft-b'}]};
   if(blocked){packet.case_assurance[0].assurance_review={automation_readiness:{status:'needs_input',summary:'The Story does not specify the authentication endpoint.',evidence_refs:['requirement:story-a'],missing_context:[{kind:'api_contract',reason:'Provide the reviewed authentication API contract.',evidence_refs:['requirement:story-a'],step_refs:['step:1']}]}};packet.automation=[null];packet.automation_input_required=[{case_index:0,message:'Supply the missing API contract before generating automation.',required_context:['API endpoint for authentication']}];}
+  if(failed){packet.automation=[null];packet.automation_failures=[{client_id:'draft-a',case_index:0,code:'AUTOMATION_GENERATED_SOURCE_INVALID',message:'Generated source omitted the invoice amount assertion.',completed_sections:1,total_sections:2,validation_feedback:[{code:'ASSERTION_MISSING',message:'Preserve the recorded amount check.'}]}];packet.automation_progress={completed:0,failed:1,needs_input:0,processed:1,total:1};}
   const w=window.previewWorkflow;
   const identity=p=>({story_id:p.story_id,story_revision:p.story_revision});
   const outputFor=node=>{
     if(node.data.artifactTask==='story-assurance')return {data:[packet,other].map(p=>({...identity(p),story:p.story,story_assurance:p.story_assurance}))};
     if(node.data.artifactTask==='test-case-generation')return {data:[packet,other].map(p=>({...identity(p),cases:p.cases}))};
     if(node.data.artifactTask==='test-case-assurance')return {data:[other,packet].map(p=>({...identity(p),case_assurance:p.case_assurance})),...(automatic?{library_publication:{mode:'automatic',receipts:[{id:'auto-manual',story_id:'story-a',case_index:0,kind:'manual',saved:true,requires_review:true}]}}:{})};
-    if(node.data.artifactTask==='automation-engineer')return {data:[other,packet].map(p=>({...identity(p),automation:p.automation,automation_input_required:p.automation_input_required||[]})),...(automatic&&!blocked?{library_publication:{mode:'automatic',receipts:[{id:'auto-automation',story_id:'story-a',case_index:0,kind:'automation',saved:true,requires_review:true}]}}:{})};
+    if(node.data.artifactTask==='automation-engineer')return {data:[other,packet].map(p=>({...identity(p),automation:p.automation,automation_input_required:p.automation_input_required||[],automation_failures:p.automation_failures||[],automation_progress:p.automation_progress})),...(automatic&&!blocked?{library_publication:{mode:'automatic',receipts:[{id:'auto-automation',story_id:'story-a',case_index:0,kind:'automation',saved:true,requires_review:true}]}}:{})};
     return {};
   };
   window.previewRecord={id:automatic?'sprint-automatic':blocked?'sprint-needs-input':'sprint-run',workflow_id:w.id,workflow_name:'Sprint Automator',project_id:'project',app_type_id:'app',status:blocked?'needs_review':'completed',execution_mode:'review',trigger_kind:'manual',workflow_snapshot:{...w,execution_mode:'review'},input_payload:{sprint_id:'sprint-a'},node_results:w.nodes.map(node=>({node_id:node.id,node_name:node.data.label,node_type:node.data.kind,status:'completed',attempts:1,output:outputFor(node)})),output_payload:{summary:'Sprint drafts generated for review.'},created_at:'2026-10-22T10:00:00Z',started_at:'2026-10-22T10:00:00Z',completed_at:'2026-10-22T10:01:00Z'};
@@ -43,12 +44,13 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
   const name='sprint-automator-'+randomUUID();
   const html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);
   let browser, page;
+  const errors=[];
   try {
     await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
     await writeFile(tsx,fixture);
     browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});
     page=await browser.newPage({viewport:{width:1440,height:1100}});page.setDefaultTimeout(15000);
-    const errors=[];page.on('pageerror',error=>errors.push(error.message));
+    page.on('pageerror',error=>errors.push(error.message));
     await page.route('**/api/**',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({message:'Unexpected isolated test API request'})}));
     await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html?route=${encodeURIComponent('/agentic-workflows?view=workflows')}`);
     await page.getByRole('button',{name:/Data flow Sprint Automator/}).click();
@@ -71,6 +73,9 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     const manualReceipt=drafts.getByRole('status').filter({hasText:'Saved AI generated Test Case · Pending review'});
     await manualReceipt.waitFor();
     assert.equal(await manualReceipt.getByRole('link',{name:'Open Library',exact:true}).getAttribute('href'),'/test-cases?case=saved-manual');
+    const manualReview=new URL(await drafts.getByRole('link',{name:'Review generated Test Cases',exact:true}).getAttribute('href'),'https://app.example');
+    assert.equal(manualReview.searchParams.get('review_cases'),'saved-manual');
+    assert.equal(manualReview.searchParams.get('project'),'project');assert.equal(manualReview.searchParams.get('appType'),'app');
     await drafts.getByRole('button',{name:'Accept automation into Library',exact:true}).click();
     const automationReceipt=drafts.getByRole('status').filter({hasText:'Saved AI generated automation · Draft · Unverified'});
     await automationReceipt.waitFor();
@@ -109,6 +114,8 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     const receipt=drafts.getByRole('status').filter({hasText:'Saved AI generated Test Case · Pending review'});
     await receipt.waitFor();
     assert.equal(await receipt.getByRole('link',{name:'Open Library',exact:true}).getAttribute('href'),'/test-cases?case=auto-manual');
+    const automaticReview=new URL(await drafts.getByRole('link',{name:'Review generated Test Cases',exact:true}).getAttribute('href'),'https://app.example');
+    assert.equal(automaticReview.searchParams.get('review_cases'),'auto-manual','Review must contain only receipts from the current run, without prior accepted drafts or automation identities');
     const savedAutomation=drafts.getByRole('status').filter({hasText:'Saved AI generated automation · Draft · Unverified'});
     assert.equal(await savedAutomation.getByRole('link',{name:'Open Library',exact:true}).getAttribute('href'),'/automation?case=auto-automation');
     assert.equal(await drafts.getByRole('button',{name:'Accept Test Case into Library',exact:true}).count(),0);
@@ -120,6 +127,23 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'whole-case source stays inside the mobile pane');
     assert.equal(await code.evaluate(element=>element.scrollWidth>element.clientWidth),true,'long source lines remain horizontally scrollable inside the editor');
     await page.screenshot({path:'/tmp/hellotest-sprint-playwright-mobile.png',fullPage:true});
+    await page.setViewportSize({width:1440,height:1100});
+    await page.getByRole('button',{name:'Steps & data',exact:true}).click();
+    const showSteps=page.getByRole('button',{name:'Show steps',exact:true});
+    if(await showSteps.isVisible())await showSteps.click();
+    await page.locator('.studio-execution-steps button').filter({hasText:'AI Test Case Generator'}).click();
+    const nodeReview=page.getByRole('region',{name:'Node output'}).getByRole('link',{name:'Review generated Test Cases',exact:true});
+    assert.equal(new URL(await nodeReview.getAttribute('href'),'https://app.example').searchParams.get('review_cases'),'auto-manual','The generator node resolves its exact downstream saved manual receipts');
+    await page.evaluate(()=>window.openSprintRun(false,false,true));
+    await page.getByRole('button',{name:'Results',exact:true}).click();
+    await drafts.locator('summary').filter({hasText:'Customer reads a saved invoice'}).click();
+    await drafts.getByText('Automation generation failed',{exact:true}).waitFor();
+    await drafts.getByText('Generated source omitted the invoice amount assertion.',{exact:true}).waitFor();
+    assert.equal(await drafts.getByText('Automation needs input',{exact:true}).count(),0,'A build failure must not be mislabeled as missing input');
+    assert.equal(await drafts.getByRole('progressbar',{name:'Automation progress for Customer reads a saved invoice'}).getAttribute('value'),'1');
+    await drafts.getByText('Build diagnostics',{exact:true}).click();
+    assert.match(await drafts.getByRole('textbox',{name:'Automation failure JSON',exact:true}).inputValue(),/ASSERTION_MISSING/);
+    assert.equal(await drafts.getByRole('button',{name:'Accept automation into Library',exact:true}).count(),0);
     assert.deepEqual(errors,[]);
-  } catch (failure) { if(page) { await writeFile("/tmp/hellotest-sprint-browser-dom.txt",await page.locator("body").innerText().catch(()=>"")); await page.screenshot({path:"/tmp/hellotest-sprint-browser-failure.png",fullPage:true}).catch(()=>{}); } throw failure; } finally {await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)]);}
+  } catch (failure) { if(page) { await writeFile("/tmp/hellotest-sprint-browser-errors.json",JSON.stringify(errors)); await writeFile("/tmp/hellotest-sprint-browser-dom.txt",await page.locator("body").innerText().catch(()=>"")); await page.screenshot({path:"/tmp/hellotest-sprint-browser-failure.png",fullPage:true}).catch(()=>{}); } throw failure; } finally {await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)]);}
 });

@@ -1,5 +1,5 @@
 const { compare, evaluateExtendedApiAssertion } = require("../lib/automationApiAssertions");
-const { normalizeApiRequest } = require("@hellotest/platform/backend/src/utils/testStepAutomation");
+const { normalizeApiRequest, API_VALIDATION_KINDS } = require("@hellotest/platform/backend/src/utils/testStepAutomation");
 const { materializeTemplateValue } = require("@hellotest/platform/backend/src/utils/testDataGenerators");
 const { normalizeParameterLayer } = require("@hellotest/platform/backend/src/utils/stepParameterResolution");
 
@@ -489,21 +489,23 @@ const evaluateApiAssertions = (preview, validations = []) => {
     const kind = normalizeText(validation.kind || "status") || "status";
     const target = normalizeText(validation.target);
     const expected = normalizeText(validation.expected);
+    if (!API_VALIDATION_KINDS.has(kind)) return { kind, passed:false, target, expected, actual:null, summary:`Unsupported API assertion kind: ${kind}.` };
 
     const extended=evaluateExtendedApiAssertion(preview,{...validation,kind,target,expected});
     if(extended)return {kind,target,expected,...extended};
 
     if (kind === "status") {
-      const expectedStatus = Number(expected || "200") || 200;
-      const passed = preview.response.status === expectedStatus;
+      const validExpected = /^\d{3}$/.test(expected) && Number(expected) >= 100 && Number(expected) <= 599;
+      const expectedStatus = validExpected ? Number(expected) : null;
+      const passed = validExpected && preview.response.status === expectedStatus;
 
       return {
         kind,
         passed,
         target: null,
-        expected: String(expectedStatus),
+        expected: expected || "[missing expected status]",
         actual: String(preview.response.status),
-        summary: passed
+        summary: !validExpected ? 'The expected HTTP status is missing or invalid after resolving test parameters. Supply a status from 100 to 599.' : passed
           ? `Matched expected status ${expectedStatus}.`
           : `Expected status ${expectedStatus}, received ${preview.response.status}.`
       };
@@ -873,7 +875,7 @@ const runResolvedApiRequest = async (request) => {
 exports.runApiRequestPreview = async (input, options = {}) => {
   const resolved = resolveApiRequestParameters(input, options.parameterValues || {});
   const request = normalizeApiRequest(resolved);
-  if(request)request.resolved_credential=resolved?.resolved_credential;
+  if(request){request.resolved_credential=resolved?.resolved_credential;request.validations=resolved?.validations||[];}
 
   if (!request) {
     throw new Error("A valid API request is required");
@@ -905,7 +907,9 @@ exports.runApiRequestPreview = async (input, options = {}) => {
 exports.executeApiRequestStep = async ({ api_request, parameter_values = {} } = {}) => {
   const resolved = resolveApiRequestParameters(api_request, parameter_values);
   const request = normalizeApiRequest(resolved);
-  if(request)request.resolved_credential=resolved?.resolved_credential;
+  // Resolving a missing parameter must not make its authored assertion vanish
+  // through draft normalization. The evaluator reports that invalid value.
+  if(request){request.resolved_credential=resolved?.resolved_credential;request.validations=resolved?.validations||[];}
 
   if (!request) {
     throw new Error("A valid API request is required");

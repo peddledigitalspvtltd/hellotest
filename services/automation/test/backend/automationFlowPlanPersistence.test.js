@@ -29,6 +29,7 @@ function fixture(){
  const module={exports:{}};
  new Function('require','module',fs.readFileSync(require.resolve('../../backend/services/automationFlowPlan.service'),'utf8'))(id=>{
   if(id.endsWith('/db'))return db;
+  if(id.endsWith('/automationCaseType'))return require('../../../platform/backend/src/utils/automationCaseType');
   if(id.endsWith('optionalEvidenceAccess.service'))return{getOptionalEvidenceAccess:async(user,project,permissions)=>{assert.equal(active,true);assert.equal(user.id,'author');assert.equal(project,'project');events.push('access');return Object.fromEntries(permissions.map(code=>[code,settings.allowed===true||settings.allowed?.[code]===true]));}};
   if(id.endsWith('testStep.service'))return testSteps;
   if(id.endsWith('automationFlowPlanning'))return{normalizeFlowPlan};

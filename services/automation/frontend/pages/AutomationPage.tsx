@@ -30,7 +30,7 @@ import { casePrivateParameterNames, collectPrivateParameterNames, caseParameterS
 import { useAutomationBuildParameters } from "../hooks/useAutomationBuildParameters";
 import "../components/AutomationWorkspace.css";
 import { AutomationBuildContext } from "../components/AutomationBuildContext";
-import { AUTOMATION_RUNTIMES, getAutomationBuildRuntimeTypes, getDefaultAutomationStepType, getRecorderPlatform } from "../lib/automationRuntime";
+import { AUTOMATION_RUNTIMES, getAutomationBuildRuntimeTypes, getDefaultAutomationStepType, getRecorderPlatform, getAllowedAutomationStepTypes, resolveAutomationCaseType, incompatibleAutomationRuntimes } from "../lib/automationRuntime";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
 const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
 const AiAssurancePanel = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiAssurancePanel")["AiAssurancePanel"]> & {}>("ai", "AiAssurancePanel", () => import("@hellotest/ai/frontend/components/AiAssurancePanel"), "ai");
@@ -135,7 +135,7 @@ import {
   parseStepParameterName,
   type StepParameterScope
 } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
-import type { AutomationLearningCacheEntry, ExecutionResult, RecorderSessionResponse, SharedStepGroup, StepApiRequest, TestCase, TestDataSet, TestStep, TestStepType, TestSuite } from "@hellotest/platform/frontend/src/types";
+import type { AutomationCaseType, AutomationLearningCacheEntry, ExecutionResult, RecorderSessionResponse, SharedStepGroup, StepApiRequest, TestCase, TestDataSet, TestStep, TestStepType, TestSuite } from "@hellotest/platform/frontend/src/types";
 
 type AutomationView = "cases" | "repository";
 type AutomationCaseSectionKey = "case" | "build" | "steps" | "history";
@@ -162,6 +162,7 @@ const normalizeAutomationParameterValues = (values?: Record<string, unknown> | n
   normalizeStepParameterValues((values || {}) as Record<string, string>, scope);
 
 type AutomationCaseDraft = {
+  automationCaseType: AutomationCaseType | "";
   title: string;
   description: string;
   status: string;
@@ -1199,6 +1200,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [expandedAutomationStepIds, setExpandedAutomationStepIds] = useState<string[]>([]);
   const [automationStudioStep, setAutomationStudioStep] = useState<TestStep | null>(null);
   const [caseDraft, setCaseDraft] = useState<AutomationCaseDraft>({
+    automationCaseType: "",
     title: "",
     description: "",
     status: "active",
@@ -1997,11 +1999,17 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     if(caseRepositoryPages.length && !caseRepositoryPages.some(page=>page.screenName===selectedScreenName)) {setSelectedScreenName(caseRepositoryPages[0].screenName);setSelectedRepositoryId("");setIsRepositoryConfigOpen(false);}
   },[view,activeAutomationWorkspaceTab,projectId,activeCase?.id,caseRepositoryPages,selectedScreenName]);
   const selectedRuntimeType = appTypes.find((item) => item.id === appTypeId)?.type || "web";
-  const automationRuntimeTypes = getAutomationBuildRuntimeTypes(automatedSteps, selectedRuntimeType);
-  const automationCreateRuntimeTypes = getAutomationBuildRuntimeTypes([
+  const activeAutomationCaseType = resolveAutomationCaseType(activeCase, automatedSteps, selectedRuntimeType);
+  const automationRuntimeTypes = getAutomationBuildRuntimeTypes(automatedSteps, activeAutomationCaseType);
+  const automationCreatePlanSteps = [
     ...automationCreateManualCaseIds.flatMap((id) => createSourcesQuery.data?.find((source) => source.testCase.id === id)?.steps || []),
     ...automationCreateSteps.filter((step) => step.action.trim() || step.expected_result.trim())
-  ], selectedRuntimeType);
+  ];
+  const automationCreateRuntimeTypes = automationCreateMetadata.automationCaseType
+    ? getAutomationBuildRuntimeTypes(automationCreatePlanSteps, automationCreateMetadata.automationCaseType) : [];
+  const creationAllowedStepTypes = getAllowedAutomationStepTypes(automationCreateMetadata.automationCaseType, canUseMobileAppium);
+  const creationIncompatibleRuntimes = incompatibleAutomationRuntimes(automationCreateMetadata.automationCaseType, automationCreatePlanSteps);
+  const detailIncompatibleRuntimes = incompatibleAutomationRuntimes(caseDraft.automationCaseType, automatedSteps);
   const automationStartUrlRequired = automationRuntimeTypes.includes("web");
   const automationCreateStartUrlRequired = automationCreateRuntimeTypes.includes("web");
   const automationStartUrlValidation = automationStartUrlError(startUrl, automationStartUrlRequired);
@@ -2019,23 +2027,29 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     setBatchBuildTargetIds(ids);
     setIsBatchAgentOpen(true);
   };
-  const canRecordCreation = canUseRecorder && automationCreateRuntimeTypes.some((type) => type === "web" || type !== "api" && canUseMobileAppium);
+  const canRecordCreation = canUseRecorder && Boolean(automationCreateMetadata.automationCaseType) && automationCreateMetadata.automationCaseType !== "api" && (["web", "unified"].includes(automationCreateMetadata.automationCaseType) || canUseMobileAppium);
   useEffect(() => {
     if (isCreateAutomationOpen && requestedCreationMode === "record" && !canRecordCreation) setAutomationCreationMode("blank");
   }, [isCreateAutomationOpen, requestedCreationMode, canRecordCreation]);
-  const recorderPlatform = getRecorderPlatform(automatedSteps, recordingTargetStepId, selectedRuntimeType);
+  const inferredRecorderPlatform = getRecorderPlatform(automatedSteps, recordingTargetStepId, activeAutomationCaseType);
+  const recorderPlatform = !recordingTargetStepId && (!automatedSteps.length || inferredRecorderPlatform === "api") && activeAutomationCaseType !== "api"
+    ? activeAutomationCaseType : inferredRecorderPlatform;
   const canRecordCurrentPlan = canUseRecorder && recorderPlatform !== "api" && (!["android", "ios"].includes(recorderPlatform) || canUseMobileAppium);
-  const allowedStepTypes = canUseMobileAppium ? ["web", "api", "android", "ios"] as TestStepType[] : ["web", "api"] as TestStepType[];
+  const allowedStepTypes = getAllowedAutomationStepTypes(activeAutomationCaseType, canUseMobileAppium);
   useEffect(() => {
     if (!activeCase || automatedStepsQuery.isPending || appTypesQuery.isPending) return;
     const scope = `${projectId}:${activeCase.id}`;
-    if (newStepScopeRef.current === scope) return;
+    if (newStepScopeRef.current === scope) {
+      setNewStepDraft(current => allowedStepTypes.includes(current.step_type) ? current : {...current, step_type: allowedStepTypes[0] || current.step_type, keyword: AUTOMATION_KEYWORDS_BY_TYPE[allowedStepTypes[0] || current.step_type][0]});
+      return;
+    }
     newStepScopeRef.current = scope;
-    setNewStepDraft(emptyAutomationStepDraft(getDefaultAutomationStepType(automatedSteps, selectedRuntimeType)));
+    const defaultStepType = getDefaultAutomationStepType(automatedSteps, activeAutomationCaseType);
+    setNewStepDraft(emptyAutomationStepDraft(allowedStepTypes.includes(defaultStepType) ? defaultStepType : allowedStepTypes[0] || defaultStepType));
     setNewStepPlacement({ mode: "end", stepId: "" });
     setNewStepIsPrecondition(false);
     setExecutionHookDraft([]);
-  }, [activeCase?.id, projectId, appTypesQuery.isPending, automatedStepsQuery.isPending, automatedSteps, selectedRuntimeType]);
+  }, [activeCase?.id, projectId, appTypesQuery.isPending, automatedStepsQuery.isPending, automatedSteps, selectedRuntimeType, activeAutomationCaseType, canUseMobileAppium]);
   const canViewObjectRepository = hasPermission(session, "automation.repository.view", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.object_repository"]);
   useEffect(() => {
@@ -2422,6 +2436,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       ? lastAutomationCaseDraftSeedRef.current.detail
       : null;
     const draftFromCase = (testCase: TestCase): AutomationCaseDraft => ({
+      automationCaseType: resolveAutomationCaseType(testCase, automatedSteps, selectedRuntimeType),
       title: testCase.title || "",
       description: testCase.description || "",
       status: testCase.status || "active",
@@ -3179,6 +3194,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       const metadata = { ...automationCreateMetadata, manualCaseIds: [...automationCreateManualCaseIds] };
       const title = metadata.title.trim();
       if (!title) throw new Error("Enter an automation case name.");
+      if (!metadata.automationCaseType) throw new Error("Select an automation case type.");
+      if (creationIncompatibleRuntimes.length) throw new Error(`The selected case type does not support ${creationIncompatibleRuntimes.join(", ")} steps. Choose Unified or change the linked plan.`);
       const requestedStartUrl = reviewedAutomationStartUrl(automationCreateStartUrl, automationCreateStartUrlRequired);
       if (automationCreationMode === "ai" && !canUseAutomationAi) throw new Error("Permission required: automation.ai");
       if (automationCreationMode === "record" && !canUseRecorder) throw new Error("Permission required: automation.record");
@@ -3222,6 +3239,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         labels: [...new Set(sourceCases.flatMap((item) => item.labels || []))],
         parameter_values: {},
         automated: "yes",
+        automation_case_type: metadata.automationCaseType,
         automation_status: automationCaseMappingStatus(steps),
         automation_start_url: requestedStartUrl || null,
         manual_test_case_id: metadata.manualCaseIds[0] || null,
@@ -3432,6 +3450,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         throw new Error("Wait for the complete automation case details before saving.");
       }
 
+      if (!caseDraft.automationCaseType) throw new Error("Select an automation case type.");
+      if (detailIncompatibleRuntimes.length) throw new Error(`The selected case type does not support ${detailIncompatibleRuntimes.join(", ")} steps. Choose Unified or update the plan first.`);
       const caseId = activeCase.id;
       const selectedSuiteParameterTarget = selectedParameterSuite && hasPermission(session, "suite.update", projectId)
         ? {
@@ -3444,7 +3464,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         description: caseDraft.description.trim(),
         status: caseDraft.status.trim() || "active",
         priority: Number(caseDraft.priority) || 3,
-        parameter_values: normalizeAutomationParameterValues(testCaseParameterValues, "t"),
+        automation_case_type: caseDraft.automationCaseType,
+        ...(canViewTestData ? {parameter_values: normalizeAutomationParameterValues(testCaseParameterValues, "t")} : {}),
         suite_id: suiteLinkDraftIds[0] || "",
         suite_ids: suiteLinkDraftIds,
         requirement_id: caseRequirementIds[0] || "",
@@ -4714,7 +4735,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   });
 
 	  const startRecorder = useMutation({
-	    mutationFn: (options: RecorderStartOptions) => {
+	    mutationFn: async (options: RecorderStartOptions) => {
 	      if (!canUseRecorder) {
 	        throw new Error("Permission required: automation.recorder");
 	      }
@@ -4726,6 +4747,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       if (recorderSession) throw new Error("Finish the current recording before starting another.");
       if (!canRecordCurrentPlan) throw new Error("Recording is unavailable for this case’s runtime or your permissions.");
       const requestedStartUrl = reviewedAutomationStartUrl(startUrl, automationStartUrlRequired);
+      await flushAutomationBuildParameters([activeCase.id]);
       rememberAutomationBuildDrafts();
       recorderOriginRef.current = { caseId: activeCase.id, projectId, appTypeId, targetStepId: recordingTargetStepId, environmentId: selectedExecutionEnvironmentId, configurationId: selectedExecutionConfigurationId, dataSetId: selectedExecutionDataSetId };
       return api.testCases.startRecorderSession(activeCase.id, {
@@ -4735,6 +4757,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         engine_base_url: options.engine_base_url,
         recorder_public_base_url: options.recorder_public_base_url,
         reuse_existing: options.recorder_mode === "local" && options.recorder_target === "web",
+        test_suite_id: selectedParameterSuiteId || undefined,
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined,
@@ -5822,9 +5845,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     <AutomationCaseMetadata
                       {...metadataOptions}
                       disabled={!canUpdateAutomationCase || updateAutomationCase.isPending}
-                      value={{ title: caseDraft.title, description: caseDraft.description, status: caseDraft.status, priority: caseDraft.priority, manualCaseIds: automationManualLinkDraftIds, requirementIds: caseRequirementIds, moduleIds: caseModuleIds, suiteIds: suiteLinkDraftIds, dataSetId: caseDataSetId }}
+                      value={{ automationCaseType: caseDraft.automationCaseType, title: caseDraft.title, description: caseDraft.description, status: caseDraft.status, priority: caseDraft.priority, manualCaseIds: automationManualLinkDraftIds, requirementIds: caseRequirementIds, moduleIds: caseModuleIds, suiteIds: suiteLinkDraftIds, dataSetId: caseDataSetId }}
                       onChange={(change) => {
-                        setCaseDraft((current) => ({ ...current, ...Object.fromEntries(Object.entries(change).filter(([key]) => ["title", "description", "status", "priority"].includes(key))) }));
+                        setCaseDraft((current) => ({ ...current, ...Object.fromEntries(Object.entries(change).filter(([key]) => ["title", "description", "status", "priority", "automationCaseType"].includes(key))) }));
                         if (change.manualCaseIds) setAutomationManualLinkDraftIds(change.manualCaseIds);
                         if (change.requirementIds) setCaseRequirementIds(change.requirementIds);
                         if (change.moduleIds) setCaseModuleIds(change.moduleIds);
@@ -5832,8 +5855,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                         if (change.dataSetId !== undefined) setCaseDataSetId(change.dataSetId);
                       }}
                     />
+                    {detailIncompatibleRuntimes.length ? <p role="alert">This plan contains {detailIncompatibleRuntimes.join(", ")} steps. Choose a compatible case type or update the plan before saving.</p> : null}
                     <div className="automation-plan-actions">
-                      {canUpdateAutomationCase ? (<button className="primary-button" disabled={!caseDraft.title.trim() || updateAutomationCase.isPending} onClick={() => updateAutomationCase.mutate()} type="button">{updateAutomationCase.isPending ? "Saving…" : "Save details"}</button>) : null}
+                      {canUpdateAutomationCase ? (<button className="primary-button" disabled={!caseDraft.title.trim() || !caseDraft.automationCaseType || Boolean(detailIncompatibleRuntimes.length) || updateAutomationCase.isPending} onClick={() => updateAutomationCase.mutate()} type="button">{updateAutomationCase.isPending ? "Saving…" : "Save details"}</button>) : null}
                       {linkedManualCases.map((source) => <button className="ghost-button compact" key={source.id} onClick={() => openLinkedManualCase(activeCase, source.id)} type="button"><OpenIcon size={14} />{source.display_id || source.title}</button>)}
                       {canRemoveAutomationCase ? (<button className="ghost-button compact danger" disabled={deleteAutomationCase.isPending} onClick={async () => {
                         if (await confirmDelete({ message: `Delete automation case "${activeCase.title}"? Linked manual cases and historical run evidence remain available.`, confirmLabel: "Delete automation case" })) deleteAutomationCase.mutate(activeCase);
@@ -5985,7 +6009,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                                 <label className="form-field"><span>Expected result</span><GherkinStepTextField ariaLabel={`Step ${step.step_order} expected result`} availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(expected_result) => updateDraft({ expected_result })} value={draft.expected_result} /></label>
                               </div></div>
                               {step.step_type === "api" ? <label className="form-field"><span>API request JSON</span><textarea className="automation-code-input" disabled={!canEditAutomationCode} rows={12} spellCheck={false} value={apiSourceDrafts[step.id] ?? JSON.stringify(step.api_request || { method: "GET", url: "", validations: [{ kind: "status", expected: "200" }] }, null, 2)} onChange={(event) => setApiSourceDrafts((current) => ({ ...current, [step.id]: event.target.value }))} /><small>Requests, assertions and captures execute through the API runner.</small></label> : automationStepView === "code" ? <label className="form-field"><span>Executable code</span><textarea className="automation-code-input" disabled={!canEditAutomationCode} rows={8} spellCheck={false} onChange={(event) => setStepCodeDrafts((current) => ({ ...current, [step.id]: event.target.value }))} value={stepCodeDrafts[step.id] ?? step.automation_code ?? ""} /></label> : draft.step_type !== "api" ? <AutomationCodeLines mode="instructions" value={sourceCode} onChange={code => setStepCodeDrafts(current => ({ ...current, [step.id]: code }))} /> : <div className="automation-plan-mapping automation-instruction-composer">
-                                <label className="form-field"><span>Platform</span><select disabled={!canEditAutomationCode} onChange={(event) => { const nextType = event.target.value as TestStepType; updateDraft({ step_type: nextType, keyword: AUTOMATION_KEYWORDS_BY_TYPE[nextType][0], objectRef: "", value: "" }); }} value={draft.step_type}>{[...new Set([...allowedStepTypes, draft.step_type])].map((type) => <option key={type} value={type}>{type === "ios" ? "iOS" : type.toUpperCase()}</option>)}</select></label>
+                                <label className="form-field"><span>Platform</span><select disabled={!canEditAutomationCode} onChange={(event) => { const nextType = event.target.value as TestStepType; updateDraft({ step_type: nextType, keyword: AUTOMATION_KEYWORDS_BY_TYPE[nextType][0], objectRef: "", value: "" }); }} value={draft.step_type}>{[...new Set([...allowedStepTypes, draft.step_type])].map((type) => <option key={type} value={type} disabled={!allowedStepTypes.includes(type)}>{type === "ios" ? "iOS" : type.toUpperCase()}</option>)}</select></label>
                                 <label className="form-field"><span>Keyword</span><select disabled={!canEditAutomationCode} onChange={(event) => updateDraft({ keyword: event.target.value, objectRef: "", value: "" })} value={draft.keyword}>{AUTOMATION_KEYWORDS_BY_TYPE[draft.step_type].map((keyword) => <option key={keyword} value={keyword}>{formatKeywordDisplay(keyword)}</option>)}</select></label>
                                 {draft.step_type === "api" ? <div className="automation-plan-target automation-plan-behavior-fields">
                                   <label className="form-field"><span>{draft.keyword === "api.request" ? "HTTP method" : "API operation"}</span>{draft.keyword === "api.request" ? <select disabled={!canEditAutomationCode} onChange={(event) => updateDraft({ apiMethod: event.target.value as AutomationStepDraft["apiMethod"] })} value={draft.apiMethod}>{["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].map((method) => <option key={method}>{method}</option>)}</select> : <span>{formatKeywordDisplay(draft.keyword)}</span>}</label>
@@ -6614,7 +6638,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         <div aria-label="Build with automation agent" aria-modal="true" className="modal-card resource-modal-card automation-batch-agent-dialog" onClick={(event) => event.stopPropagation()} ref={batchAgentDialogRef} role="dialog" tabIndex={-1}>
           <div className="modal-header"><div><h2>Build with automation agent</h2><p>{batchBuildTargetIds.length} selected cases · Saved plans are checked before building.</p></div><DialogCloseButton disabled={scheduleAiAutomation.isPending} onClick={() => setIsBatchAgentOpen(false)} /></div>
           <div className="resource-form"><div className="resource-form-body automation-agent-brief">
-            <label className="form-field"><span>Build instructions (optional)</span><textarea onChange={(event) => setAgentMission(event.target.value)} rows={4} value={agentMission} placeholder="Each agent uses its case’s saved plan. Add instructions that apply to all selected cases." /></label>
+            <label className="form-field"><span>Build instructions (optional)</span><textarea aria-label="Build instructions (optional)" onChange={(event) => setAgentMission(event.target.value)} rows={4} value={agentMission} placeholder="Each agent uses its case’s saved plan. Add instructions that apply to all selected cases." /></label>
             <div className="automation-plan-behavior-fields">{batchHasUrlRuntime ? <label className="form-field"><span>Start URL{batchStartUrlRequired ? " (required)" : " (optional)"}</span><input aria-label="Build start URL" type="url" required={batchStartUrlRequired} onChange={(event) => setBatchStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={batchStartUrl} /><small className="muted">{batchStartUrlRequired ? "Review the application URL for this build, including retries." : "API-only plans may use their configured request URLs."}</small>{batchStartUrl.trim() && batchStartUrlValidation ? <small role="alert">{batchStartUrlValidation}</small> : null}</label> : null}<label className="form-field"><span>Build time</span><input onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt} /><small className="muted">Leave empty to queue now.</small></label></div>
             <details><summary>Additional guidance & execution context</summary><div className="stack-list"><label className="form-field"><span>Guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} rows={3} value={builderContext} /></label><ExecutionContextSelector appTypeId={appTypeId} projectId={projectId} onConfigurationChange={setSelectedExecutionConfigurationId} onDataSetChange={setSelectedExecutionDataSetId} onEnvironmentChange={setSelectedExecutionEnvironmentId} selectedConfigurationId={selectedExecutionConfigurationId} selectedDataSetId={selectedExecutionDataSetId} selectedEnvironmentId={selectedExecutionEnvironmentId} /></div></details>
             {batchStartUrlRequired ? <AutomationBrowserBuildMode interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={scheduleAiAutomation.isPending}/> : null}
@@ -6661,7 +6685,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                         {automationCreateRuntimeTypes.some(type => type === "web" || type === "api") ? <label className="form-field"><span>Start URL{automationCreateStartUrlRequired ? " (required)" : " (optional)"}</span><input aria-label="Automation case start URL" type="url" required={automationCreateStartUrlRequired} onChange={(event) => setAutomationCreateStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={automationCreateStartUrl} /><small className="muted">{automationCreateStartUrlRequired ? "Saved with this case and used when generating or retrying its automation." : "Optional for API-only cases."}</small>{automationCreateStartUrl.trim() && automationCreateStartUrlValidation ? <small role="alert">{automationCreateStartUrlValidation}</small> : null}</label> : null}
                         {automationCreationMode === "ai" ? (
                           <div className="automation-agent-brief automation-create-ai">
-                            <label className="form-field"><span>Build instructions (optional)</span><textarea onChange={(event) => setAgentMission(event.target.value)} placeholder="The linked cases and behavior plan are included. Add any priorities or constraints." rows={3} value={agentMission} /></label>
+                            <label className="form-field"><span>Build instructions (optional)</span><textarea aria-label="Build instructions (optional)" onChange={(event) => setAgentMission(event.target.value)} placeholder="The linked cases and behavior plan are included. Add any priorities or constraints." rows={3} value={agentMission} /></label>
                             {automationCreateRuntimeTypes.includes("web") ? <AutomationBrowserBuildMode interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={createAutomationCase.isPending}/> : null}
                       <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} disabled={buildSingleAutomation.isPending || scheduleAiAutomation.isPending || createAutomationCase.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"}/>
                             <details className="automation-ai-options"><summary><IconSettings size={14} />Build settings</summary><div className="automation-ai-options-body"><label className="form-field"><span>Additional guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} placeholder="Authentication, important assertions, edge cases, and repository preferences." rows={2} value={builderContext} /></label>
@@ -6689,14 +6713,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                           </li>)}</ol> : <p className="muted">This source has no authored steps yet.</p>}
                         </details>;
                       })}
-                      <AutomationDraftPlan allowedStepTypes={allowedStepTypes} defaultStepType={getDefaultAutomationStepType([], selectedRuntimeType)} availableParameters={automationCreateParameters.definitions} parameterValues={automationCreateParameters.values} onChange={setAutomationCreateSteps} value={automationCreateSteps} />
+                      {creationIncompatibleRuntimes.length ? <p role="alert">The selected case type does not support {creationIncompatibleRuntimes.join(", ")} steps in this plan. Choose Unified or update the source steps.</p> : null}
+                      <AutomationDraftPlan allowedStepTypes={creationAllowedStepTypes} defaultStepType={getDefaultAutomationStepType([], automationCreateMetadata.automationCaseType)} availableParameters={automationCreateParameters.definitions} parameterValues={automationCreateParameters.values} onChange={setAutomationCreateSteps} value={automationCreateSteps} />
                     </div>
                   </div>
                 </fieldset>
               </div>
               <div className="resource-form-footer">
                 <button className="ghost-button" disabled={createAutomationCase.isPending} onClick={closeCreateAutomation} type="button">Cancel</button>
-                {canCreateAutomationCase ? (<button className="primary-button" disabled={!automationCreateMetadata.title.trim() || createAutomationCase.isPending || Boolean(automationCreateStartUrlValidation) || (automationCreationMode === "record" && !canUseRecorder) || Boolean(automationCreateManualCaseIds.length && (createSourcesQuery.isPending || createSourcesQuery.isError)) || (automationCreationMode === "ai" && (!canUseAutomationAi || (!automationCreateManualCaseIds.length && !automationCreateSteps.some((step) => step.action.trim() || step.expected_result.trim()) && !agentMission.trim() && !builderContext.trim() && !richTextToPlainText(automationCreateMetadata.description).trim())))} type="submit">
+                {canCreateAutomationCase ? (<button className="primary-button" disabled={!automationCreateMetadata.title.trim() || !automationCreateMetadata.automationCaseType || Boolean(creationIncompatibleRuntimes.length) || createAutomationCase.isPending || Boolean(automationCreateStartUrlValidation) || (automationCreationMode === "record" && !canUseRecorder) || Boolean(automationCreateManualCaseIds.length && (createSourcesQuery.isPending || createSourcesQuery.isError)) || (automationCreationMode === "ai" && (!canUseAutomationAi || (!automationCreateManualCaseIds.length && !automationCreateSteps.some((step) => step.action.trim() || step.expected_result.trim()) && !agentMission.trim() && !builderContext.trim() && !richTextToPlainText(automationCreateMetadata.description).trim())))} type="submit">
                   <AddIcon /><span>{createAutomationCase.isPending ? "Creating..." : automationCreationMode === "ai" ? agentScheduledAt ? "Create & schedule" : "Create & build" : automationCreationMode === "record" ? "Create & record" : "Create case"}</span>
                 </button>) : null}
               </div>

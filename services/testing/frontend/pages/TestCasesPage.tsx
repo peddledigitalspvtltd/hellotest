@@ -14,6 +14,7 @@ import { StepKindIconBadge } from "../components/StepKindIconBadge";
 import "../components/ScopedRunCreation.css";
 import "../components/AuthoringExperience.css";
 import { AiReviewControls } from "@hellotest/ai/frontend/components/AiReviewControls";
+import { draftReadinessIssues, restoreAiPrivateParameterValues } from "@hellotest/ai/frontend/lib/draftReadiness";
 import { useAiLlmDefault } from "@hellotest/integration/frontend/hooks/useAiLlmDefault";
 import { AuthoringDataSetPanel } from "@hellotest/platform/frontend/src/platform/components/AuthoringDataSetPanel";
 import { TestDataSetPickerDialog } from "../components/TestDataSetPickerDialog";
@@ -26,6 +27,7 @@ import { useSplitActionMenu } from "@hellotest/platform/frontend/src/shared/hook
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import { isPendingCaseReview, ownsCaseReview } from "../lib/testCaseReview";
+import { parseWorkflowReviewScope } from "../lib/workflowReviewScope";
 import "../components/test-case-review.css";
 import "./TestCasesPage.import.css";
 import "./TestCasesPage.detail.css";
@@ -2097,6 +2099,8 @@ export function TestCasesPage() {
   const [automationCloneStartUrl, setAutomationCloneStartUrl] = useState("");
   const [automationCloneSubmitting, setAutomationCloneSubmitting] = useState(false);
 	  const [searchParams, setSearchParams] = useSearchParams();
+  const workflowReviewParam = searchParams.get("review_cases");
+  const workflowReviewScope = useMemo(() => parseWorkflowReviewScope(workflowReviewParam), [workflowReviewParam]);
 	  const { session } = useAuth();
 	  const [projectId, setProjectId] = useCurrentProject();
 	  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
@@ -2462,6 +2466,7 @@ export function TestCasesPage() {
   const pendingReviewCount = canUpdateTestCases ? Number(reviewSummaryQuery.data?.pending || 0) : 0;
   const overallPendingReviewCount = Number(reviewSummaryQuery.data?.overall_pending || 0);
   const catalogFilters = useMemo(() => ({
+    ids: workflowReviewScope?.ids.join(","),
     search: isReviewQueueOpen ? undefined : deferredSearchTerm.trim() || undefined,
     workflow_status: isReviewQueueOpen || caseStatusFilter === "all" ? undefined : caseStatusFilter,
     priority: isReviewQueueOpen || casePriorityFilter === "all" ? undefined : Number(casePriorityFilter),
@@ -2471,11 +2476,11 @@ export function TestCasesPage() {
     exclude_automated: isReviewQueueOpen ? undefined : true,
     include_total: false,
     include_execution: canViewExecutionInsights
-  }), [isReviewQueueOpen, deferredSearchTerm, caseStatusFilter, casePriorityFilter, caseStepFilter, caseRunFilter, canViewExecutionInsights]);
+  }), [workflowReviewScope, isReviewQueueOpen, deferredSearchTerm, caseStatusFilter, casePriorityFilter, caseStepFilter, caseRunFilter, canViewExecutionInsights]);
   const catalogFilterKey = JSON.stringify(catalogFilters);
   const [modulePageFilterKey, setModulePageFilterKey] = useState(catalogFilterKey);
   const scopedModulePageCursors = useMemo(() => modulePageFilterKey === catalogFilterKey ? modulePageCursorsById : {}, [modulePageFilterKey, catalogFilterKey, modulePageCursorsById]);
-  const isCatalogFiltered = Boolean(isReviewQueueOpen || catalogFilters.search || catalogFilters.workflow_status || catalogFilters.priority || catalogFilters.step_filter || catalogFilters.run_filter);
+  const isCatalogFiltered = Boolean(workflowReviewScope || isReviewQueueOpen || catalogFilters.search || catalogFilters.workflow_status || catalogFilters.priority || catalogFilters.step_filter || catalogFilters.run_filter);
   const [collapsedFilteredModuleIds, setCollapsedFilteredModuleIds] = useState<string[]>([]);
   const isModuleExpanded = (moduleId: string) => isCatalogFiltered ? !collapsedFilteredModuleIds.includes(moduleId) : expandedModuleIds.includes(moduleId);
   useEffect(() => {
@@ -2486,14 +2491,14 @@ export function TestCasesPage() {
   const testCaseMetricsQuery = useQuery({
     queryKey: ["test-case-metrics", appTypeId, projectId, canViewExecutionInsights, reviewUserId, isReviewQueueOpen],
     queryFn: () => api.testCases.metrics({ app_type_id: appTypeId, project_id: projectId, exclude_automated: isReviewQueueOpen ? undefined : true, review_queue: isReviewQueueOpen ? "mine" : undefined, include_execution: canViewExecutionInsights }),
-    enabled: can("testcase.view") && Boolean(appTypeId && projectId),
+    enabled: can("testcase.view") && Boolean(appTypeId && projectId && !workflowReviewScope),
     staleTime: 120_000,
     gcTime: 600_000
   });
   const testCasesQuery = useInfiniteQuery({
     queryKey: ["global-test-cases", appTypeId, projectId, catalogFilters, reviewUserId],
     queryFn: async ({ pageParam, signal }) => normalizePagedResult<TestCase>(
-      await api.testCases.listPage({
+      workflowReviewScope?.error ? {items: [], is_last: true, next_cursor: null} : await api.testCases.listPage({
         ...catalogFilters,
         project_id: projectId,
         app_type_id: appTypeId,
@@ -2512,6 +2517,7 @@ export function TestCasesPage() {
     placeholderData: (previous, previousQuery) => !isReviewQueueOpen
       && previousQuery?.queryKey[1] === appTypeId && previousQuery?.queryKey[2] === projectId
       && previousQuery?.queryKey[4] === reviewUserId
+      && (previousQuery?.queryKey[3] as { ids?: string })?.ids === catalogFilters.ids
       && !(previousQuery?.queryKey[3] as { review_queue?: string })?.review_queue ? previous : undefined,
     refetchInterval: isReviewQueueOpen ? 30_000 : false,
     staleTime: 120_000,
@@ -2520,7 +2526,7 @@ export function TestCasesPage() {
   const testCaseModulesQuery = optionalQueryView(useQuery({
     queryKey: ["test-case-modules", appTypeId, projectId],
     queryFn: async () => asArray(await api.testCaseModules.list({ app_type_id: appTypeId, projection: "summary" })),
-    enabled: !isReviewQueueOpen && (can("testcase.view")) && Boolean(appTypeId),
+    enabled: !workflowReviewScope && !isReviewQueueOpen && (can("testcase.view")) && Boolean(appTypeId),
     staleTime: 120_000,
     gcTime: 600_000
   }), can("testcase.view"));
@@ -2816,6 +2822,10 @@ export function TestCasesPage() {
     mutationFn: ({ testCaseId, input }: { testCaseId: string; input: Parameters<typeof api.testCases.previewImpact>[1] }) =>
       api.testCases.previewImpact(testCaseId, input)
   });
+  const previewTestCaseChangeImpact = useMutation({
+    mutationFn: ({ testCaseId, input }: { testCaseId: string; input: Parameters<typeof api.testCases.previewImpact>[1] }) =>
+      api.testCases.previewImpact(testCaseId, input)
+  });
   const rephraseStepWithAi = useMutation({ mutationFn: api.testCases.rephraseStep });
   const previewDesignedCases = useMutation({
     mutationFn: ({ input, signal }: { input: Parameters<typeof api.testCases.previewDesignedCases>[0]; signal: AbortSignal }) => api.testCases.previewDesignedCases(input, { signal })
@@ -3030,15 +3040,16 @@ export function TestCasesPage() {
     const byId = new Map<string, TestCase>();
     for (const testCase of asArray(testCasesQuery.data?.pages).flatMap((page) => asArray(page.items))) byId.set(testCase.id, testCase);
     if (isReviewQueueOpen) {
-      return [...byId.values()].filter((testCase) => ownsCaseReview(testCase, reviewUserId) && isPendingCaseReview(testCase));
+      return [...byId.values()].filter((testCase) => (!workflowReviewScope || workflowReviewScope.ids.includes(testCase.id)) && ownsCaseReview(testCase, reviewUserId) && isPendingCaseReview(testCase));
     }
+    if (workflowReviewScope) return [...byId.values()].filter(testCase => workflowReviewScope.ids.includes(testCase.id) && testCase.automated !== "yes");
     for (const query of moduleCaseQueries) {
       for (const testCase of query.data?.items || []) byId.set(testCase.id, testCase);
     }
     if (deepLinkTestCasesQuery.data) byId.set(deepLinkTestCasesQuery.data.id, deepLinkTestCasesQuery.data);
     if (selectedTestCaseDetailQuery.data) byId.set(selectedTestCaseDetailQuery.data.id, selectedTestCaseDetailQuery.data);
     return [...byId.values()].filter((testCase) => testCase.automated !== "yes");
-  }, [deepLinkTestCasesQuery.data, isReviewQueueOpen, moduleCaseQueries, reviewUserId, selectedTestCaseDetailQuery.data, testCasesQuery.data]);
+  }, [deepLinkTestCasesQuery.data, workflowReviewScope, isReviewQueueOpen, moduleCaseQueries, reviewUserId, selectedTestCaseDetailQuery.data, testCasesQuery.data]);
   useEffect(() => {
     const selectedIds = new Set(selectedActionTestCaseIds);
     testCases.forEach((testCase) => {
@@ -3048,7 +3059,7 @@ export function TestCasesPage() {
       if (!selectedIds.has(testCaseId)) selectedActionCaseSnapshotsRef.current.delete(testCaseId);
     });
   }, [selectedActionTestCaseIds, testCases]);
-  const testCaseModules = isReviewQueueOpen ? [] : asArray(testCaseModulesQuery.data);
+  const testCaseModules = workflowReviewScope || isReviewQueueOpen ? [] : asArray(testCaseModulesQuery.data);
   const deepLinkTestCases = useMemo(
     () => deepLinkTestCasesQuery.data ? [deepLinkTestCasesQuery.data] : [],
     [deepLinkTestCasesQuery.data]
@@ -3063,6 +3074,7 @@ export function TestCasesPage() {
   );
 
   const testCaseAssuranceDefaultIntegrationId = useAiLlmDefault({ usageKey: "ai.quality.test_case_assurance", projectId, integrations: can("integration.view") ? integrations : undefined });
+  const testCaseImpactDefaultIntegrationId = useAiLlmDefault({ usageKey: "ai.test_case.change_impact", projectId, integrations: can("integration.view") ? integrations : undefined });
   const supportsLocalDesktopExecution = Boolean(session && canRunLocalAutomation);
   const userById = useMemo(
     () =>
@@ -3630,7 +3642,7 @@ export function TestCasesPage() {
   }, [caseModuleById, modulePickerTestCases, testCaseModules]);
 
   const filteredCases = testCases;
-  const hasActiveCaseCatalogFilter = isReviewQueueOpen || Boolean(deferredSearchTerm.trim())
+  const hasActiveCaseCatalogFilter = Boolean(workflowReviewScope) || isReviewQueueOpen || Boolean(deferredSearchTerm.trim())
     || caseStatusFilter !== "all"
     || casePriorityFilter !== "all"
     || caseStepFilter !== "all"
@@ -3757,7 +3769,7 @@ export function TestCasesPage() {
       | { kind: "case"; testCase: TestCase; module?: TestCaseModule }
     > = [];
 
-    if (isReviewQueueOpen) return filteredCases.map((testCase) => ({ kind: "case" as const, testCase }));
+    if (workflowReviewScope || isReviewQueueOpen) return filteredCases.map((testCase) => ({ kind: "case" as const, testCase }));
     visibleModuleCaseGroups.forEach(({ module, cases }) => {
       entries.push({ kind: "module", module, count: cases.length });
 
@@ -3774,7 +3786,7 @@ export function TestCasesPage() {
     }
 
 	    return entries;
-	  }, [expandedModuleIds, collapsedFilteredModuleIds, isCatalogFiltered, isReviewQueueOpen, filteredCases, isUnassignedModuleExpanded, moduleCaseGroups.unassignedCases, testCasesQuery.hasNextPage, visibleModuleCaseGroups]);
+	  }, [expandedModuleIds, collapsedFilteredModuleIds, isCatalogFiltered, workflowReviewScope, isReviewQueueOpen, filteredCases, isUnassignedModuleExpanded, moduleCaseGroups.unassignedCases, testCasesQuery.hasNextPage, visibleModuleCaseGroups]);
   const visibleModuleTileEntries = useMemo(
     () => moduleTileEntries.slice(0, visibleTestCaseCount),
     [moduleTileEntries, visibleTestCaseCount]
@@ -7930,13 +7942,22 @@ export function TestCasesPage() {
 	      return;
 	    }
 
-    if (!aiCaseAuthoringPreview.title.trim() || aiCaseAuthoringPreview.title.length > 255) {
+    const authoringIssues = draftReadinessIssues(aiCaseAuthoringPreview);
+    if (authoringIssues.length) {
       setAiCaseAuthoringTone("error");
-      setAiCaseAuthoringMessage("Enter a test case title between 1 and 255 characters before applying the improvement.");
+      setAiCaseAuthoringMessage(authoringIssues.join(" "));
       return;
     }
 
-    const normalizedPreviewParameterValues = normalizeTestCaseParameterValues(aiCaseAuthoringPreview.parameter_values);
+    const privatePreservation = restoreAiPrivateParameterValues(
+      normalizeTestCaseParameterValues(aiCaseAuthoringPreview.parameter_values),
+      testCaseParameterValues,
+      linkedDataSetSensitiveParameterNames
+    );
+    const normalizedPreviewParameterValues = privatePreservation.values;
+    const privatePreservationNotice = privatePreservation.preservedNames.length
+      ? " Existing private Test Params were preserved; change private values in Test Params."
+      : "";
 
     if (isCreating) {
       pendingDraftEvidenceRef.current=[...new Set([...pendingDraftEvidenceRef.current,...(aiCaseAuthoringPreview.reference_attachment_ids||[])])];
@@ -7964,7 +7985,7 @@ export function TestCasesPage() {
       setIsAiCaseAuthoringOpen(false);
       setAiCaseAuthoringPreview(null);
       setAiCaseAuthoringMessage("");
-      showSuccess("AI-authored content applied to the new test case draft.");
+      showSuccess(`AI-authored content applied to the new test case draft.${privatePreservationNotice}`);
       return;
     }
 
@@ -8018,7 +8039,7 @@ export function TestCasesPage() {
       setIsAiCaseAuthoringOpen(false);
       setAiCaseAuthoringPreview(null);
       setAiCaseAuthoringMessage("");
-      showSuccess("AI-authored content replaced the saved test case steps and Test Params.");
+      showSuccess(`AI-authored content replaced the saved test case steps and Test Params.${privatePreservationNotice}`);
       await refreshCases();
     } catch (error) {
       setAiCaseAuthoringTone("error");
@@ -8045,9 +8066,10 @@ export function TestCasesPage() {
       return;
     }
 
-    if (acceptedPreviewCases.some((item) => !item.title.trim() || item.title.length > 255)) {
+    const acceptanceIssues = acceptedPreviewCases.flatMap(item => draftReadinessIssues(item).map(issue => `${item.title || "Untitled draft"}: ${issue}`));
+    if (acceptanceIssues.length) {
       setAiPreviewTone("error");
-      setAiPreviewMessage("Every selected Test Case draft needs a title between 1 and 255 characters.");
+      setAiPreviewMessage(acceptanceIssues.join(" "));
       return;
     }
 
@@ -8416,6 +8438,7 @@ export function TestCasesPage() {
   const testCaseAssuranceRequestMatchesDraft = Boolean(
     selectedTestCase
     && previewTestCaseImpact.variables?.testCaseId === selectedTestCase.id
+    && previewTestCaseImpact.variables.input.review_purpose === "assurance"
     && JSON.stringify(previewTestCaseImpact.variables.input.proposed_change) === selectedTestCaseAssuranceFingerprint
     && (previewTestCaseImpact.variables.input.additional_context || "") === testCaseAssuranceContext
     && previewTestCaseImpact.variables.input.prompt_guidance === [testCaseAssurancePromptGuidance ?? getPrompt("ai.quality.test_case_assurance"), getMetricCriteria("metric.assurance.test_case")].filter(Boolean).join("\n\n")
@@ -8433,9 +8456,34 @@ export function TestCasesPage() {
     && previewTestCaseImpact.variables?.testCaseId === selectedTestCase.id
     && !testCaseAssurancePreviewMatchesDraft
   );
-  const selectedTestCaseImpactPreview = testCaseAssurancePreviewMatchesDraft
-    ? previewTestCaseImpact.data
+  const testCaseImpactRequestMatchesDraft = Boolean(
+    selectedTestCase
+    && previewTestCaseChangeImpact.variables?.testCaseId === selectedTestCase.id
+    && JSON.stringify(previewTestCaseChangeImpact.variables.input.proposed_change) === selectedTestCaseAssuranceFingerprint
+    && (previewTestCaseChangeImpact.variables.input.additional_context || "") === testCaseAssuranceContext
+    && previewTestCaseChangeImpact.variables.input.prompt_guidance === (testCaseAssurancePromptGuidance ?? getPrompt("ai.test_case.change_impact"))
+    && (previewTestCaseChangeImpact.variables.input.integration_id || "") === (testCaseAssuranceIntegrationId || testCaseImpactDefaultIntegrationId)
+  );
+  const selectedTestCaseImpactPreview = testCaseImpactRequestMatchesDraft
+    ? previewTestCaseChangeImpact.data
     : null;
+  const runTestCaseImpactAnalysis = (force = false) => {
+    if (!selectedTestCase || !projectId || !canUseTestCaseAi || previewTestCaseChangeImpact.isPending || testCaseAssuranceContextBusy) return;
+    if (!force && testCaseImpactRequestMatchesDraft && previewTestCaseChangeImpact.data) return;
+    previewTestCaseChangeImpact.reset();
+    previewTestCaseChangeImpact.mutate({
+      testCaseId: selectedTestCase.id,
+      input: {
+        project_id: projectId,
+        review_purpose: "change-impact",
+        proposed_change: selectedTestCaseAssuranceProposedChange,
+        integration_id: testCaseAssuranceIntegrationId || testCaseImpactDefaultIntegrationId || undefined,
+        prompt_guidance: testCaseAssurancePromptGuidance ?? getPrompt("ai.test_case.change_impact"),
+        additional_context: testCaseAssuranceContext,
+        assurance_baseline: selectedTestCaseLocalAssurance
+      }
+    });
+  };
   const runTestCaseAssuranceAnalysis = (openImpactPreview = false) => {
     if (!selectedTestCase || !projectId || !canUseTestCaseAi || previewTestCaseImpact.isPending || testCaseAssuranceContextBusy) return;
     setIsTestCaseImpactPreviewOpen(openImpactPreview);
@@ -8444,6 +8492,7 @@ export function TestCasesPage() {
       testCaseId: selectedTestCase.id,
       input: {
         project_id: projectId,
+        review_purpose: "assurance",
         proposed_change: selectedTestCaseAssuranceProposedChange,
         integration_id: testCaseAssuranceIntegrationId || testCaseAssuranceDefaultIntegrationId || undefined,
         prompt_guidance: [testCaseAssurancePromptGuidance ?? getPrompt("ai.quality.test_case_assurance"), getMetricCriteria("metric.assurance.test_case")].filter(Boolean).join("\n\n"),
@@ -8453,11 +8502,8 @@ export function TestCasesPage() {
     });
   };
   const openTestCaseImpactPreview = () => {
-    if (testCaseAssurancePreviewMatchesDraft && previewTestCaseImpact.data) {
-      setIsTestCaseImpactPreviewOpen(true);
-      return;
-    }
-    runTestCaseAssuranceAnalysis(true);
+    setIsTestCaseImpactPreviewOpen(true);
+    runTestCaseImpactAnalysis();
   };
   const selectedSuiteContext = suites.find((suite) => suite.id === createSuiteContextId) || null;
   const selectedCaseSuites = useMemo(() => {
@@ -10040,7 +10086,7 @@ export function TestCasesPage() {
         title="Test Case Library"
         description="Build reusable coverage with clear preconditions, structured or Gherkin steps, Story traceability, Suite linkage, and run-ready evidence."
       />
-      {!isCaseWorkspaceOpen ? (
+      {!isCaseWorkspaceOpen && !workflowReviewScope ? (
         <>
           {testCaseMetricsQuery.isError ? (
             <div className="inline-message error-message" role="alert">Metrics could not be refreshed.
@@ -10374,6 +10420,10 @@ export function TestCasesPage() {
               </div>
             </div>
 
+            {workflowReviewScope ? <div className="test-case-review-queue-banner" role={workflowReviewScope.error ? "alert" : "status"}>
+              <div><strong>Workflow Test Case review</strong><span>{workflowReviewScope.error || `${workflowReviewScope.ids.length} generated Test Case${workflowReviewScope.ids.length === 1 ? "" : "s"} · Only these cases are shown. Open a case to review its steps and data.`}</span></div>
+              <button className="ghost-button compact" type="button" onClick={() => setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("review_cases"); return next; }, {replace: true})}>Show all cases</button>
+            </div> : null}
             {isReviewQueueOpen ? (
               <div className="test-case-review-queue-banner" role="status">
                 <div><strong>My pending reviews</strong><span>{pendingReviewCount} pending · manual and AI-generated cases</span></div>
@@ -10884,7 +10934,7 @@ export function TestCasesPage() {
               ) : null}
               {!isLibraryLoading && (filteredCases.length || visibleModuleCaseGroups.length || testCasesQuery.hasNextPage) && catalogViewMode === "list" ? (
                 <DataTable
-                  columns={isReviewQueueOpen
+                  columns={workflowReviewScope || isReviewQueueOpen
                     ? ["select", "id", "title", "reviewStatus", "priority", "status"].flatMap((key) => testCaseListColumns.filter((column) => column.key === key))
                     : testCaseListColumns}
                   enableColumnResize
@@ -10897,8 +10947,8 @@ export function TestCasesPage() {
                   onRowDragStart={(testCase, event) => startDraggingTestCases(testCase.id, event.dataTransfer)}
                   onRowClick={(testCase) => openLibraryCase(testCase.id)}
                   renderRowActions={renderTestCaseRowActions}
-                  rowGroups={isReviewQueueOpen ? undefined : testCaseListRowGroups}
-                  rows={isReviewQueueOpen ? filteredCases : []}
+                  rowGroups={workflowReviewScope || isReviewQueueOpen ? undefined : testCaseListRowGroups}
+                  rows={workflowReviewScope || isReviewQueueOpen ? filteredCases : []}
                   storageKey={isReviewQueueOpen ? "hellotest:test-cases:review-list-columns:v1" : "hellotest:test-cases:list-columns:v2"}
                 />
               ) : null}
@@ -13114,11 +13164,11 @@ export function TestCasesPage() {
       ) : null}
 
       <TestCaseChangeImpactDialog
-        error={previewTestCaseImpact.error instanceof Error && testCaseAssuranceRequestMatchesDraft ? previewTestCaseImpact.error.message : null}
-        loading={previewTestCaseImpact.isPending && testCaseAssuranceRequestMatchesDraft}
+        error={previewTestCaseChangeImpact.error instanceof Error && testCaseImpactRequestMatchesDraft ? previewTestCaseChangeImpact.error.message : null}
+        loading={previewTestCaseChangeImpact.isPending && testCaseImpactRequestMatchesDraft}
         onClose={() => setIsTestCaseImpactPreviewOpen(false)}
-        onRetry={() => runTestCaseAssuranceAnalysis(true)}
-        open={canUseTestCaseAi && isTestCaseImpactPreviewOpen && testCaseAssuranceRequestMatchesDraft}
+        onRetry={() => runTestCaseImpactAnalysis(true)}
+        open={canUseTestCaseAi && isTestCaseImpactPreviewOpen}
         response={selectedTestCaseImpactPreview}
         showAutomation={canUseAutomationWorkspace}
         testCaseTitle={caseDraft.title || selectedTestCase?.title || "Selected Test Case"}

@@ -2,7 +2,7 @@ import type { TestDataSet, TestStep } from "@hellotest/platform/frontend/src/typ
 import { richTextToPlainText } from "@hellotest/platform/frontend/src/platform/components/RichTextEditor";
 import { structuredCaseToGherkin } from "@hellotest/testing/frontend/lib/gherkin";
 import { annotateGherkinStepGroups } from "@hellotest/testing/frontend/lib/gherkinBehavior";
-import { normalizeStepParameterName } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
+import { extractStepParameterMatches, normalizeStepParameterName } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
 import { isAutomationPrecondition } from "./automationPlan";
 import { buildReadableAutomationInstructions, readableApiInstructions, readableAutomationInstructionText, type AutomationReadableContext } from "./automationReadableInstructions";
 
@@ -10,9 +10,16 @@ import { buildReadableAutomationInstructions, readableApiInstructions, readableA
 export function buildAutomationGherkin(title: string, steps: TestStep[], dataSet?: TestDataSet, context: AutomationReadableContext = {}) {
   const columns = dataSet?.mode === "table" ? dataSet.columns : [];
   const columnNames = new Map(columns.map(column => [normalizeStepParameterName(column), column]));
-  const text = (value: string) => richTextToPlainText(value).replace(/\s+/g, " ").trim().replace(/@([tsr]\.(?:\[(?:\\.|[^\]\\])+\]|[A-Za-z_][\w.-]*))/gi, (token, name) => {
-    const column = columnNames.get(normalizeStepParameterName(name));return column ? `<${column}>` : token;
-  });
+  const text = (value: string) => {
+    let result = richTextToPlainText(value).replace(/\s+/g, " ").trim();
+    // Use the same reference grammar as authoring and the runner. Periods
+    // after a reference are prose; dotted/space column names use brackets.
+    for (const match of extractStepParameterMatches(result).reverse()) {
+      const column = columnNames.get(match.name);
+      if (column) result = result.slice(0, match.index) + `<${column}>` + result.slice(match.index + match.token.length);
+    }
+    return result;
+  };
   const origins = new Map<string, TestStep>();
   const normalized = steps.flatMap(step => {
     const instructions = step.step_type === "api" && step.api_request ? readableApiInstructions(step.api_request) : buildReadableAutomationInstructions(step.automation_code || "", { ...context, platform: step.step_type || "web" });

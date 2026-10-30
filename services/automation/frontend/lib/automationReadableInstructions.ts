@@ -1,17 +1,14 @@
 import { parse } from "acorn";
 import type { StepApiRequest } from "@hellotest/platform/frontend/src/types";
 import { buildAutomationRepositoryFields, type AutomationRepositoryReference } from "./automationKeywordInputs";
+import { normalizeStepParameterName, parseStepParameterName, resolveStepParameterText } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
 
 type Ast = { type: string; start: number; end: number; [key: string]: any };
 export type AutomationReadableContext = { repository?: AutomationRepositoryReference[]; parameterValues?: Record<string, string>; platform?: string };
 export type ReadableAutomationInstruction = { label: string; args: string[]; kind: "action" | "assertion" | "control" | "custom" | "setup"; depth: number; text: string; detail?: string; contexts?: string[] };
 
-const parameterKey = (value: string) => value.replace(/^@/, "").replace(/^([tsr])\.\[((?:\\.|[^\]\\])+)\]$/i, (_, scope, name) => `${scope}.${name.replace(/\\([\\\]])/g, "$1")}`).toLowerCase();
-const parameterToken = (name: string) => {
-  const [scope, ...parts] = name.replace(/^@/, "").split(".");
-  const value = parts.join(".");
-  return `@${scope}.${/^[A-Za-z_][\w.-]*$/.test(value) ? value : `[${value.replace(/\\/g, "\\\\").replace(/\]/g, "\\]")}]`}`;
-};
+const parameterKey = (value: string) => normalizeStepParameterName(value);
+const parameterToken = (name: string) => parseStepParameterName(name)?.token || name;
 const quoted = (value: string) => /^@[tsr]\./i.test(value) ? value : JSON.stringify(value);
 const methodName = (node: Ast | undefined): string => node?.type === "MemberExpression" ? String(node.computed ? node.property?.value ?? "" : node.property?.name ?? "") : "";
 const unawait = (node: Ast): Ast => node.type === "AwaitExpression" ? node.argument : node;
@@ -47,7 +44,7 @@ export function buildReadableAutomationInstructions(code: string, context: Autom
   const aliases = new Map<string, Ast>();
   const runtimeParameters = new Set<string>();
   const parameterValues = Object.fromEntries(Object.entries(context.parameterValues || {}).map(([key, value]) => [parameterKey(key), value]));
-  const resolve = (value: string) => value.replace(/@([tsr]\.(?:\[(?:\\.|[^\]\\])+\]|[A-Za-z_][\w.-]*))/gi, (token, name) => parameterValues[parameterKey(name)] ?? token);
+  const resolve = (value: string) => resolveStepParameterText(value, parameterValues);
   const fields = buildAutomationRepositoryFields(context.repository || []).map(field => ({ ...field, semantic: "" }));
   const isPage = (node: Ast | undefined, seen = new Set<string>()): boolean => Boolean(node && (pageNames.has(nodePath(node)) || node.type === "Identifier" && aliases.has(node.name) && !seen.has(node.name) && isPage(aliases.get(node.name), new Set([...seen, node.name]))));
   const canonical = (node: Ast) => JSON.stringify(cleanTree(node, new Set([...pageNames, ...[...aliases.keys()].filter(name => isPage({ type: "Identifier", name, start: 0, end: 0 }))]), resolve));

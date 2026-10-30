@@ -74,3 +74,22 @@ test('asymmetric matchers interpolate expected references without modifying sour
   assert.equal(source.email, '@t.email');
   assert.throws(() => expect('wrong').toBe('@t.email'));
 });
+
+test('keyboard, wait URL and upload paths share late binding while file payload bytes remain untouched', async () => {
+  const calls = [];
+  const values = {'t.key':'Tab','t.url':'https://fixture.test/next','t.file':'/tmp/first.txt'};
+  const locator = {count(){return 1;},click(){},setInputFiles(...args){calls.push(['locator.files',...args]);}};
+  const native = {goto(){},locator(){return locator;},waitForURL(...args){calls.push(['url',...args]);},setInputFiles(...args){calls.push(['page.files',...args]);},keyboard:{press(...args){calls.push(['key',...args]);},insertText(...args){calls.push(['text',...args]);}}};
+  const {page} = createPlaywrightCodeBindings(native, {interpolate:value=>value.replace(/@t\.(key|url|file)/g,token=>values[token.slice(1)]),resolveLocator:value=>value,resolveUrl:value=>value,assertionTimeout:500});
+  await page.keyboard.press('@t.key');
+  await page.waitForURL('@t.url');
+  await page.locator('#file').setInputFiles(['@t.file']);
+  await page.setInputFiles('#file','@t.file');
+  values['t.key']='Enter';values['t.file']='/tmp/second.txt';
+  await page.keyboard.press('@t.key');await page.keyboard.insertText('@t.key');
+  await page.locator('#file').setInputFiles('@t.file');
+  const payload={name:'@t.file',mimeType:'text/plain',buffer:Buffer.from('@t.file')};
+  await page.locator('#file').setInputFiles(payload);
+  assert.deepEqual(calls.slice(0,7),[['key','Tab'],['url','https://fixture.test/next'],['locator.files',['/tmp/first.txt']],['page.files','#file','/tmp/first.txt'],['key','Enter'],['text','Enter'],['locator.files','/tmp/second.txt']]);
+  assert.equal(calls[7][1],payload);assert.equal(payload.buffer.toString(),'@t.file');
+});

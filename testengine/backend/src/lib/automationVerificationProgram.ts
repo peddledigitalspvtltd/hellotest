@@ -1,5 +1,5 @@
 import { parseExpressionAt } from "acorn";
-import { normalizeScopedParameterKey } from "./stepParameterReferences.js";
+import { normalizeScopedParameterKey, STEP_PARAMETER_PATTERN } from "./stepParameterReferences.js";
 import { readNativeConstraintValidity, readFieldValidationState } from "./automationMcp.js";
 
 // Independently packaged renderer: parity tests bind this closed grammar to the
@@ -103,12 +103,46 @@ const valueSource = (value: string) => {
   const [scope,...parts]=key.split('.'),name=parts.join('.');
   return quoted(/^[a-z][a-z0-9_-]*$/i.test(name)?`@${key}`:`@${scope}.[${name.replace(/\\/g,'\\\\').replace(/\]/g,'\\]')}]`);
 };
-const normalizedValueSource = (value: string) => parameterKey(value) ? `String(params[${quoted(parameterKey(value))}]).replace(/\\s+/g, " ").trim()` : quoted(normalizeText(value));
+export type ParameterTemplatePart = { literal: string } | { key: string; reference:string };
+/** Closed text templates contain only literal chunks and explicit native
+ * parameter references. They never accept JavaScript expressions or calls. */
+export function parameterTemplateParts(value: string): ParameterTemplatePart[] | null {
+  if (typeof value!=='string' || value.length>MAX_STRING) return null;
+  const parts: ParameterTemplatePart[] = [];
+  let offset = 0;
+  for (const match of value.matchAll(new RegExp(STEP_PARAMETER_PATTERN.source, 'gi'))) {
+    if (!match[1]) continue;
+    const index = match.index || 0;
+    if (index > offset) parts.push({ literal:value.slice(offset,index) });
+    parts.push({ key:normalizeParameterKey(match[0],'r'),reference:match[0] });
+    offset = index + match[0].length;
+  }
+  if (!parts.some(part=>'key' in part)) return null;
+  if (offset < value.length) parts.push({ literal:value.slice(offset) });
+  return parts;
+}
+export function hasInvalidParameterTemplate(value: string) {
+  if (typeof value!=='string') return false;
+  const starts = new Set([...value.matchAll(new RegExp(STEP_PARAMETER_PATTERN.source,'gi'))].filter(match=>match[1]).map(match=>match.index));
+  return [...value.matchAll(/(?<![A-Za-z0-9_])@[tsr]\./gi)].some(match=>!starts.has(match.index));
+}
+const parameterTemplateSource = (value: string) => {
+  if (parameterKey(value)) return null;
+  const parts = parameterTemplateParts(value);
+  return parts?.some(part=>'literal' in part && part.literal.length>0)
+    ? `(${parts.map(part=>'key' in part ? `String(params[${quoted(part.key)}])` : quoted(part.literal)).join(' + ')})` : null;
+};
+const normalizedValueSource = (value: string) => {
+  const template = parameterTemplateSource(value);
+  return template ? `${template}.replace(/\\s+/g, " ").trim()`
+    : parameterKey(value) ? `String(params[${quoted(parameterKey(value))}]).replace(/\\s+/g, " ").trim()` : quoted(normalizeText(value));
+};
 
 function assertionSource(args: Record<string, string>, { target: reusedTarget, readers = {} }: { target?: string, readers?: Record<string, string> } = {}) {
   const page = pageAssertions.has(args.assertion), needsValue = valueAssertions.has(args.assertion);
   const keys = ['assertion', ...(page ? [] : ['locator']), ...(needsValue ? ['value'] : [])];
   if (Object.keys(args).length !== keys.length || keys.some(key => !Object.hasOwn(args, key))) return null;
+  if (['text','text_contains','text_content','text_content_contains','title','title_normalized'].includes(args.assertion) && hasInvalidParameterTemplate(args.value)) return null;
   const target = page ? 'page' : reusedTarget || recordedLocatorSource(args.locator);
   if (!target) return null;
   const condition = conditions.get(args.assertion);
@@ -151,8 +185,8 @@ export function compileRecordedProgram(requests: unknown, { layout = 'compact' }
     const args = request.arguments; let source;
     if (request.name === 'browser_navigate') {
       if (Object.keys(args).length !== 1 || !Object.hasOwn(args, 'url')) return null;
-      try { const url = new URL(args.url); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null; } catch { return null; }
-      source = `await page.goto(${quoted(args.url)});`;
+      if(!parameterKey(args.url))try { const url = new URL(args.url); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null; } catch { return null; }
+      source = `await page.goto(${valueSource(args.url)});`;
     } else if (actions.has(request.name)) {
       const field = request.name === 'browser_press_key' ? 'key' : ['browser_fill', 'browser_select_option'].includes(request.name) ? 'value' : null;
       if (Object.keys(args).length !== (field ? 2 : 1) || !Object.hasOwn(args, 'locator') || field && !Object.hasOwn(args, field)) return null;

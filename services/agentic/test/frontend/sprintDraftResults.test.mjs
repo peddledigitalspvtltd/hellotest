@@ -8,7 +8,7 @@ const module = {};
 new Function('exports', ts.transpileModule(readFileSync(new URL('../../frontend/workflows/sprintDraftResults.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
 }).outputText)(module);
-const { collectSprintDrafts } = module;
+const { collectSprintDrafts, savedSprintCaseIds, sprintReviewLinks } = module;
 const stage = (id, data) => ({node_id:id,node_type:'artifactTask',status:'completed',output:{data}});
 const story = id => ({story_id:id,story_revision:'r1',story:{title:'Story '+id}});
 const draft = id => ({client_id:'case-'+id,title:'Case '+id});
@@ -51,4 +51,60 @@ test('legacy saved cumulative results remain reviewable and Story revisions neve
   assert.equal(results[0].packet.automation[0].client_id,'case-a');
   assert.equal(results[1].packet.case_assurance,undefined);
   assert.deepEqual(results[0].automationTarget,{nodeId:'legacy',storyIndex:0});
+});
+
+test('Library review links contain only saved manual receipts, including partial publication and explicit acceptance', () => {
+  const run={project_id:'project-a',app_type_id:'app-a',node_results:[
+    {...stage('generated',[]),status:'failed',output:{library_publication:{mode:'automatic',status:'partial',receipts:[
+      {id:'manual-a',kind:'manual',saved:true},{id:'automation-a',kind:'automation',saved:true},{id:'unsaved',kind:'manual',saved:false}
+    ]}}},
+    {...stage('retry',[]),output:{library_publication:{receipts:[{id:'manual-a',kind:'manual',saved:true}]}}}
+  ]};
+  const ids=savedSprintCaseIds(run,{'0:0:manual':'accepted-b','0:0:automation':'accepted-automation'});
+  assert.deepEqual(ids,['manual-a','accepted-b']);
+  const links=sprintReviewLinks(run,ids);
+  assert.equal(links.length,1);
+  const url=new URL(links[0].href,'https://app.example');
+  assert.equal(url.pathname,'/test-cases');assert.equal(url.searchParams.get('project'),'project-a');
+  assert.equal(url.searchParams.get('appType'),'app-a');assert.equal(url.searchParams.get('review_cases'),'manual-a,accepted-b');
+  assert.equal(url.searchParams.has('case'),false,'Review opens the scoped Library, not one arbitrary draft');
+});
+
+test('large workflow review scopes use bounded batches without losing or duplicating cases', () => {
+  const ids=Array.from({length:235},(_,i)=>'case-'+i);
+  const links=sprintReviewLinks({project_id:'p',app_type_id:'a'},[...ids,ids[0]]);
+  assert.deepEqual(links.map(link=>link.count),[100,100,35]);
+  assert.deepEqual(links.flatMap(link=>new URL(link.href,'https://app.example').searchParams.get('review_cases').split(',')),ids);
+  assert.deepEqual(sprintReviewLinks({project_id:'p'},[]),[]);
+});
+
+test('a generator Review action resolves only matching downstream Library receipts after reordered Stories',()=>{
+  const generated=stage('generator',[{...story('a'),cases:[draft('a')]},{...story('b'),cases:[draft('b')]}]);
+  const published=(id,rows,receipts)=>({...stage(id,rows),output:{data:rows,library_publication:{receipts}}});
+  const run={node_results:[generated,
+    published('assurance',[story('b'),story('a')],[
+      {id:'saved-b',kind:'manual',saved:true,story_id:'b',case_index:0,client_id:'case-b'},
+      {id:'saved-a',kind:'manual',saved:true,story_id:'a',case_index:0,client_id:'case-a'},
+      {id:'unrelated',kind:'manual',saved:true,story_id:'other',case_index:0,client_id:'case-other'},
+      {id:'different-draft',kind:'manual',saved:true,story_id:'a',case_index:0,client_id:'case-regenerated'}]),
+    published('old-revision',[{...story('a'),story_revision:'r0'}],[{id:'old-case',kind:'manual',saved:true,story_id:'a',case_index:0,client_id:'case-a'}])
+  ]};
+  assert.deepEqual(savedSprintCaseIds(run,{},'generator'),['saved-b','saved-a']);
+  assert.deepEqual(savedSprintCaseIds(run,{},'missing'),[]);
+});
+
+test('whole-case progress preserves completed drafts and separates failed cases from missing input',()=>{
+  const failure={case_index:1,client_id:'case-failed',message:'The generated source did not preserve the amount assertion.',code:'AUTOMATION_GENERATED_SOURCE_INVALID'};
+  const progress={completed:1,failed:1,needs_input:0,processed:2,total:2};
+  const data=[{...story('a'),automation:[{client_id:'case-good',case_index:0,executable:{code:'validated complete source'}},null],automation_failures:[failure],automation_progress:progress}];
+  const run={node_results:[stage('generate',[{...story('a'),cases:[draft('good'),draft('failed')]}]),
+    stage('assess',[{...story('a'),case_assurance:[assessment('good'),{...assessment('failed'),case_index:1}]}]),
+    {node_id:'build',node_type:'artifactTask',status:'running',progress:{completed_items:data,automation_checkpoint:{stories:[{cases:[draft('private-checkpoint')]}]}}}]};
+  const result=collectSprintDrafts(run)[0];
+  assert.equal(result.packet.automation[0].executable.code,'validated complete source');
+  assert.deepEqual(result.packet.automation_failures,[failure]);assert.deepEqual(result.packet.automation_progress,progress);
+  assert.deepEqual(result.packet.automation_input_required,[]);
+  assert.deepEqual(result.manualTarget,{nodeId:'assess',storyIndex:0});
+  assert.equal(result.automationTarget,undefined,'An active progress record does not become a completed acceptance target');
+  assert.deepEqual(result.packet.cases.map(item=>item.client_id),['case-good','case-failed']);
 });

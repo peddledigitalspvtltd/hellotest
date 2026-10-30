@@ -5,6 +5,7 @@ import { testCaseImpactGroups } from "../lib/testCaseChangeImpact";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
+import { ArtifactImpactReview } from "./ArtifactImpactReview";
 import "./StoryChangeImpactDialog.css";
 
 type Props = {
@@ -81,6 +82,7 @@ export function TestCaseChangeImpactDialog({ open, response, testCaseTitle, show
             {!visible.length ? <p className="story-impact-empty">{records.length ? "No records match these filters." : unavailable.length ? "No accessible linked records are available for this review." : "No downstream records are linked to this Test Case."}</p> : null}
           </section>
           {signals.length ? <section className="story-impact-recommendations"><h3>Risk signals</h3><ol>{signals.map(signal => <li key={signal}>{signal}</li>)}</ol></section> : null}
+          <ArtifactImpactReview review={response.assurance_review} />
           <section className="story-impact-recommendations"><h3>Recommended next steps</h3>{actions.length ? <ol>{actions.map(action => <li key={action}>{action}</li>)}</ol> : <p>No additional actions were returned.</p>}</section>
           <details className="story-impact-provenance">
             <summary>Review details and limitations</summary>

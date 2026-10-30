@@ -27,6 +27,7 @@ const { readBoundedResponseJson } = require("@hellotest/platform/backend/src/uti
 const { resilientHttpRequest } = require("@hellotest/platform/backend/src/utils/resilientHttpClient");
 const { SERVICE_ERROR_CODES, serviceError } = require("@hellotest/platform/backend/src/utils/serviceErrors");
 const { createExecutionDiagnosticRedactor } = require('../lib/automationExecutionDiagnostics');
+const { resolveAutomationCaseSteps, resolveAutomationCaseType } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 
 const SUPPORTED_ENGINE_STEP_TYPES = new Set(["api", "web", "android", "ios"]);
 const TESTENGINE_ENGINE_CLASSES = new Set(["api", "web", "android"]);
@@ -1021,13 +1022,12 @@ const buildEngineEnvelope = async ({
     : {};
   const configurationSnapshot = execution.test_configuration?.snapshot || {};
   const configurationTargets = configurationTargetsForRead(configurationSnapshot.targets, configurationSnapshot);
-  const appTypeKind = normalizeText(appType?.type || execution.app_type_type)?.toLowerCase();
+  const appTypeKind = resolveAutomationCaseType(caseSnapshot, { steps, appTypeKind: appType?.type || execution.app_type_type });
   const isMobileTarget = appTypeKind === "android" || appTypeKind === "ios";
   const selectedConfigurationTarget = isMobileTarget
     ? configurationTargets.find((target) => normalizeText(target.mobile_os)?.toLowerCase() === appTypeKind)
-      || configurationTargets.find((target) => normalizeText(target.mobile_os))
-      || configurationTargets[0]
-    : configurationTargets.find((target) => normalizeText(target.browser))
+    : configurationTargets.find((target) => normalizeText(target.browser) && !normalizeText(target.mobile_os))
+      || configurationTargets.find((target) => normalizeText(target.browser))
       || configurationTargets[0];
   const resolvedBrowser = normalizeEngineBrowser(
     selectedConfigurationTarget?.browser
@@ -1039,6 +1039,8 @@ const buildEngineEnvelope = async ({
   );
   const executionPolicy = await resolveExecutionPolicy(execution, caseSnapshot);
   const caseDataSet = resolveCaseDataSetContext(execution, caseSnapshot);
+  const hooks = resolveExecutionHooks({execution,integrationHooks:integrationConfig.execution_hooks,caseSnapshot,stepsByCaseId,appTypeKind:appType?.type||'web'});
+  const mobileEngine = require('../lib/automationMobileConfiguration').buildMobileEngineConfiguration({automationCaseType:appTypeKind,steps,hooks,configurationSnapshot,integrationConfig});
 
   return preserveFrozenEngineEnvelope({
     engine_run_id: engineRunId,
@@ -1060,6 +1062,7 @@ const buildEngineEnvelope = async ({
     trigger: "execution",
     source_mode: "manual-handover",
     automated: true,
+    automation_case_type: appTypeKind,
     execution_policy: executionPolicy,
     browser: resolvedBrowser,
     headless: integrationConfig.headless === true,
@@ -1091,39 +1094,10 @@ const buildEngineEnvelope = async ({
     web_engine: {
       active: normalizeTestEngineWebEngine(integrationConfig.active_web_engine, "playwright")
     },
-    mobile_engine: {
-      platform_name: isMobileTarget ? appTypeKind : null,
-      udid: normalizeText(configurationSnapshot.udid || integrationConfig.udid) || null,
-      bundle_id: normalizeText(configurationSnapshot.bundle_id || integrationConfig.ios_bundle_id) || null,
-      app_package: normalizeText(integrationConfig.app_package) || null,
-      app_activity: normalizeText(integrationConfig.app_activity) || null,
-      provider_options: integrationConfig.provider_options || {},
-      active: normalizeText(integrationConfig.active_mobile_engine) || "local-appium",
-      recorder_mode: normalizeText(integrationConfig.mobile_recorder_mode) || "local",
-      appium_server_url: normalizeText(integrationConfig.appium_server_url) || null,
-      cloud_provider: normalizeText(integrationConfig.mobile_cloud_provider) || null,
-      device_name:
-        normalizeText(configurationSnapshot.device_name)
-        || normalizeText(integrationConfig.device_name)
-        || null,
-      platform_version:
-        normalizeText(selectedConfigurationTarget?.version)
-        || normalizeText(configurationSnapshot.platform_version)
-        || normalizeText(integrationConfig.platform_version)
-        || null,
-      app: normalizeText(appTypeKind === "ios" ? integrationConfig.ios_app : integrationConfig.android_app)
-        || normalizeText(integrationConfig.app)
-        || null
-    },
+    mobile_engine: mobileEngine,
     manual_spec: buildManualSpec({ caseSnapshot, steps, execution }),
     auto_repair_brief: await configuredRepairBrief(),
-    hooks: resolveExecutionHooks({
-      execution,
-      integrationHooks: integrationConfig.execution_hooks,
-      caseSnapshot,
-      stepsByCaseId,
-      appTypeKind: appType?.type || "web"
-    }),
+    hooks,
     object_repository: objectRepository,
     steps,
     suite_parameters: normalizeStringRecord(caseSnapshot.suite_parameter_values),
@@ -1144,8 +1118,8 @@ const buildEngineEnvelope = async ({
           name: execution.test_configuration.name,
           os: selectedConfigurationTarget?.os || null,
           browser: selectedConfigurationTarget?.browser || configurationSnapshot.browser || null,
-          mobile_os: selectedConfigurationTarget?.mobile_os || configurationSnapshot.mobile_os || null,
-          platform_version: selectedConfigurationTarget?.version || configurationSnapshot.platform_version || null,
+          mobile_os: isMobileTarget ? appTypeKind : selectedConfigurationTarget?.mobile_os || configurationSnapshot.mobile_os || null,
+          platform_version: isMobileTarget ? mobileEngine.platform_version : selectedConfigurationTarget?.version || configurationSnapshot.platform_version || null,
           targets: configurationTargets,
           variables: toEngineKeyValueEntries(execution.test_configuration.snapshot?.variables)
         }
@@ -1363,8 +1337,24 @@ async function planExecutionDispatch(execution, options = {}) {
   for (const caseSnapshot of execution.case_snapshots || []) {
     const dataSetIterations = resolveExecutionDataSetIterations(execution, caseSnapshot);
     const caseRecord = await selectTestCaseDispatchMetadata.get(caseSnapshot.test_case_id);
-    const rawSteps = stepsByCaseId.get(caseSnapshot.test_case_id) || [];
-    const appTypeKind = appType?.type || null;
+    const savedSteps = stepsByCaseId.get(caseSnapshot.test_case_id) || [];
+    const isAutomated = (caseSnapshot.automated ?? caseRecord?.automated) === 'yes';
+    if (!isAutomated && (!allowApiCasesWithoutAutomation || !savedSteps.length
+      || savedSteps.some(step => !normalizeApiRequest(step.api_request)?.url))) {
+      manualCaseCount += 1;
+      continue;
+    }
+    // A run keeps its frozen case type and steps even when the authoring case
+    // changes later. Application kind is only a legacy inference input.
+    let resolved;
+    try { resolved = resolveAutomationCaseSteps(caseSnapshot, savedSteps, { appTypeKind: appType?.type }); }
+    catch (error) {
+      // A manual draft is never blocked by automation-only platform metadata.
+      if (isAutomated) throw error;
+      manualCaseCount += 1;
+      continue;
+    }
+    const { automation_case_type: appTypeKind, steps: rawSteps } = resolved;
     const isApiOnlyRunnableCase = allowApiCasesWithoutAutomation
       && normalizeText(appTypeKind)?.toLowerCase() === "api"
       && rawSteps.length > 0
@@ -1373,7 +1363,7 @@ async function planExecutionDispatch(execution, options = {}) {
         && Boolean(normalizeApiRequest(stepSnapshot.api_request)?.url)
       );
 
-    if ((caseSnapshot.automated ?? caseRecord?.automated) !== "yes" && !isApiOnlyRunnableCase) {
+    if (!isAutomated && !isApiOnlyRunnableCase) {
       manualCaseCount += 1;
       continue;
     }
@@ -1413,7 +1403,9 @@ async function planExecutionDispatch(execution, options = {}) {
         action: normalizeText(stepSnapshot.action),
         expected_result: normalizeText(stepSnapshot.expected_result),
         automation_code: normalizeRichText(stepSnapshot.automation_code),
-        api_request: stepType === "api" ? normalizeApiRequest(stepSnapshot.api_request) : null,
+        // Inspect authored fields before permissive legacy normalization can
+        // replace an unsupported method or discard an invalid assertion.
+        api_request: stepType === "api" ? stepSnapshot.api_request : null,
         shared_parameter_values: normalizeStringRecord(stepSnapshot.shared_parameter_values),
     group_name: normalizeText(stepSnapshot.group_name),
         group_kind: stepSnapshot.group_kind === "local" || stepSnapshot.group_kind === "reusable"
@@ -1434,6 +1426,8 @@ async function planExecutionDispatch(execution, options = {}) {
       warnings.push(...executableIssues.map(issue => `${caseSnapshot.test_case_title}: ${issue}`));
       continue;
     }
+    const runnableSteps = normalizedSteps.map(step => step.step_type === 'api'
+      ? { ...step, api_request: normalizeApiRequest(step.api_request) } : step);
 
     for (const dataSetIteration of dataSetIterations) {
       eligibleCases.push({
@@ -1442,7 +1436,7 @@ async function planExecutionDispatch(execution, options = {}) {
         case_record: caseRecord,
         data_set_iteration: dataSetIteration,
         envelope: null,
-        steps: normalizedSteps
+        steps: runnableSteps
       });
     }
   }
@@ -1665,7 +1659,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
     config: {
       ...(integration?.config || {}),
       active_web_engine: activeWebEngine,
-      headless: false,
+      headless: integration?.config?.headless === true,
       video_mode: normalizeText(integration?.config?.video_mode) || "on",
       trace_mode: normalizeText(integration?.config?.trace_mode) || "on",
       max_video_attachment_mb: integration?.config?.max_video_attachment_mb ?? 16,

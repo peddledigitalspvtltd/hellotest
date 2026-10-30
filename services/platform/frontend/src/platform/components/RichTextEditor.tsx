@@ -1,5 +1,5 @@
 import { LoadingState } from "../../shared/components/LoadingState";
-import { type CSSProperties, type ElementType, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createElement, type CSSProperties, type ElementType, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconPaperclip, IconPhoto } from "@tabler/icons-react";
 import { useAuth } from "../../auth/AuthContext";
@@ -401,13 +401,11 @@ export function RichTextContent({ value, fallback = "", className = "", as: Comp
     return null;
   }
 
-  return (
-    <Component
-      className={["rich-text-content", className].filter(Boolean).join(" ")}
-      dangerouslySetInnerHTML={{ __html: html }}
-      title={title}
-    />
-  );
+  return createElement(Component, {
+    className: ["rich-text-content", className].filter(Boolean).join(" "),
+    dangerouslySetInnerHTML: { __html: html },
+    title
+  });
 }
 
 export function RichTextEditor({

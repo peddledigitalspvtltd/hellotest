@@ -1,4 +1,4 @@
-import type { TestStepType } from "@hellotest/platform/frontend/src/types";
+import type { AutomationCaseType, TestStepType } from "@hellotest/platform/frontend/src/types";
 
 export const AUTOMATION_RUNTIMES: Record<TestStepType, { label: string; engine: string; authoring: string; target: string; evidence: string; agent: string }> = {
   web: { label: "Web", engine: "Playwright", authoring: "Keywords, JavaScript or browser recording", target: "Environment URL and browser configuration", evidence: "Awaited operations, screenshots, trace and video per run policy", agent: "The automation agent can inspect the browser through MCP, then build code from your steps and stories." },
@@ -39,4 +39,38 @@ export function getRecorderPlatform(steps: Array<{ id: string; step_type?: strin
   // API setup does not turn a native case into a browser recording session.
   const recordableTypes = types.filter((type) => type !== "api");
   return recordableTypes.length === 0 ? "api" : recordableTypes.length === 1 ? recordableTypes[0] : "unified" as const;
+}
+
+/** Platform is a saved authoring constraint; functional Test Case category is separate. */
+export const AUTOMATION_CASE_TYPES: Array<{value: AutomationCaseType; label: string; description: string}> = [
+  {value: "web", label: "Web", description: "Web browser steps and API requests."},
+  {value: "api", label: "API", description: "API requests, assertions and response captures."},
+  {value: "android", label: "Android", description: "Android device steps and API requests."},
+  {value: "ios", label: "iOS", description: "iOS device steps and API requests."},
+  {value: "unified", label: "Unified", description: "A flow spanning browsers, devices and API requests."}
+];
+
+export function getAllowedAutomationStepTypes(caseType: AutomationCaseType | "", mobileEnabled = true): TestStepType[] {
+  const types: TestStepType[] = caseType === "unified" ? ["web", "api", "android", "ios"]
+    : caseType === "web" ? ["web", "api"] : caseType === "android" ? ["android", "api"]
+    : caseType === "ios" ? ["ios", "api"] : caseType === "api" ? ["api"] : [];
+  return mobileEnabled ? types : types.filter(type => type !== "android" && type !== "ios");
+}
+
+/** Legacy records acquire a displayed platform from the plan, without rewriting it. */
+export function resolveAutomationCaseType(testCase: { automation_case_type?: string | null; test_data_options?: { automation_case_type?: string | null } } | null | undefined, steps: Parameters<typeof getAutomationBuildRuntimeTypes>[0], fallback = "web"): AutomationCaseType {
+  const saved = testCase?.automation_case_type || testCase?.test_data_options?.automation_case_type;
+  if (AUTOMATION_CASE_TYPES.some(type => type.value === saved)) return saved as AutomationCaseType;
+  if (!steps.length && AUTOMATION_CASE_TYPES.some(type => type.value === fallback)) return fallback as AutomationCaseType;
+  const runtimes = getAutomationBuildRuntimeTypes(steps, fallback);
+  const targets = runtimes.filter(type => type !== "api");
+  if (targets.length > 1) return "unified";
+  if (targets.length === 1) return targets[0];
+  return runtimes[0] || "web";
+}
+
+export function incompatibleAutomationRuntimes(caseType: AutomationCaseType | "", steps: Parameters<typeof getAutomationBuildRuntimeTypes>[0]): TestStepType[] {
+  if (!caseType || !steps.length) return [];
+  const allowed = getAllowedAutomationStepTypes(caseType);
+  return getAutomationBuildRuntimeTypes(steps).filter(type => !allowed.includes(type));
 }

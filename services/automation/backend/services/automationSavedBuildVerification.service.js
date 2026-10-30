@@ -4,6 +4,7 @@ const {
   fingerprint
 } = require('../lib/automationVerificationPipeline');
 const { isCriticalAutomationError, reportDiagnosticFailure } = require('../lib/automationProgressDiagnostics');
+const { storedAutomationCaseType } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 
 const caseFields = Object.freeze([
   'title', 'description', 'app_type_id', 'project_id', 'automation_start_url', 'execution_hooks'
@@ -97,6 +98,7 @@ async function verifySavedBuild(input, ports) {
           ports.readCase(testCase.id), ports.readSteps(testCase.id)
         ]);
         if (!currentCase || caseFields.some(key => JSON.stringify(currentCase[key] ?? null) !== JSON.stringify(baselineCase[key] ?? null))
+          || storedAutomationCaseType(currentCase) !== storedAutomationCaseType(baselineCase)
           || fingerprint(currentSteps.map(step => ({ ...step, step_id: step.id }))) !== expected.sourceFingerprint) {
           throw sourceChanged();
         }

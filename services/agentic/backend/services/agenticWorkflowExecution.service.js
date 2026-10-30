@@ -256,7 +256,7 @@ async function checkReadiness(workflow, targetNodeId = "", user, inputPayload) {
     if (!inputPayload || typeof inputPayload !== 'object' || Array.isArray(inputPayload)) inputBlocker('Workflow input must be a JSON object.');
     else if (Buffer.byteLength(JSON.stringify(payload)) > MAX_INPUT_BYTES) inputBlocker('Workflow input is limited to 16 KB.');
     if (report.steps.some(step => step.kind === 'artifactTask')) {
-      try { require('../workflows/artifactTasks').checkInput({ project_id: workflow.project_id, app_type_id: workflow.app_type_id, input_payload: payload }); }
+      try { require('../workflows/artifactTasks').checkInput({ project_id: workflow.project_id, app_type_id: workflow.app_type_id, input_payload: payload,workflow_snapshot:workflow }); }
       catch (failure) { inputBlocker(failure.publicMessage || failure.message); }
     } else if (report.steps.some(step => workflow.nodes.find(node => node.id === step.node_id)?.data.apiResource === 'sprintStories')) {
       if (!text(payload.sprint_id)) inputBlocker('Choose a Sprint in Workflow input before reading Sprint Stories.');
@@ -279,6 +279,8 @@ async function checkReadiness(workflow, targetNodeId = "", user, inputPayload) {
           if (node.data.artifactTask === 'automation-engineer') codes.push('automation.view');
         }
         await require('../workflows/artifactTasks').access(user, workflow.project_id, codes);
+        if (node.data.artifactTask === 'automation-engineer') await require('../workflows/automationNodeInputs').resolveNodeInputs({ run:{project_id:workflow.project_id,input_payload:payload},node,user,
+          access:require('../workflows/artifactTasks').access });
         await agentRegistry.resolveModel(workflow.project_id, user?.id, node.data.llmIntegrationId || text(payload.integration_id) || undefined,
           require('../workflows/artifactTasks').taskUsageKey(node.data.artifactTask));
       } catch (failure) { report.blockers.push({ node_id: node.id, node_name: nodeName(node), message: failure.publicMessage || failure.message || "Check the native task model and permissions." }); }
@@ -469,7 +471,7 @@ async function executeNodeTask(run, node, user, signal, onAttempt, onProgress, o
     if (source.type !== "github" || !text(source.repository_url)) throw error("Supply source.type = github and source.repository_url in the workflow input. ZIP uploads are available in the source agent workspace.");
     await onAttempt(1);
     const job = await repositoryAgents.createRun({ project_id: run.project_id, app_type_id: run.app_type_id,
-      agent_type: data.repositoryAgentType, llm_integration_id: text(data.llmIntegrationId) || undefined, source }, user, { requestKey: `workflow-${run.id}-${node.id}` });
+      agent_type: data.repositoryAgentType, llm_integration_id: text(data.llmIntegrationId) || undefined, source }, user, { requestKey: `workflow-${run.id}-${node.id}`, workflowTrace: { run_id: run.id, node_id: node.id } });
     let lastProgress = "";
     try {
       return await execution.bounded(async childSignal => {

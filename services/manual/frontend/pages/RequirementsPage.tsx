@@ -113,6 +113,7 @@ import { api } from "@hellotest/platform/frontend/src/lib/api";
 import { isJiraCoreFieldRequired } from "@hellotest/integration/frontend/lib/jiraCreateMetadata";
 import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles, replaceTemplateContextPack } from "@hellotest/ai/frontend/lib/aiDesignStudio";
 import { prepareAiPromptFiles } from "@hellotest/testing/frontend/lib/aiPromptFiles";
+import { draftReadinessIssues } from "@hellotest/ai/frontend/lib/draftReadiness";
 import { buildStoryAssuranceAnalysis, mergeAssuranceReview } from "@hellotest/ai/frontend/lib/artifactAssurance";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "@hellotest/platform/frontend/src/shared/lib/auditDisplay";
 import { buildBugReportPath } from "@hellotest/testing/frontend/lib/bugReportNavigation";
@@ -400,6 +401,10 @@ const isValidAiStoryTitle = (value: string) => {
 
 const normalizeAiAcceptanceCriteria = (criteria: unknown) =>
   asArray(criteria).map((item) => String(item).trim()).filter(Boolean);
+
+const isCompleteAiStory = (story: { title: string; description?: string | null; acceptance_criteria?: unknown }) =>
+  isValidAiStoryTitle(story.title) && Boolean(story.description?.trim())
+  && normalizeAiAcceptanceCriteria(story.acceptance_criteria).length > 0;
 
 const hasRequiredJiraFieldValue = (value: unknown): boolean => {
   if (Array.isArray(value)) return value.some((item) => hasRequiredJiraFieldValue(item));
@@ -1428,6 +1433,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     mutationFn: ({ requirementId, input }: { requirementId: string; input: Parameters<typeof api.requirements.previewImpact>[1] }) =>
       api.requirements.previewImpact(requirementId, input)
   });
+  const previewRequirementChangeImpact = useMutation({
+    mutationFn: ({ requirementId, input }: { requirementId: string; input: Parameters<typeof api.requirements.previewImpact>[1] }) =>
+      api.requirements.previewImpact(requirementId, input)
+  });
   const previewStoryGrooming = useMutation({
     mutationFn: ({ requirementId, input }: { requirementId: string; input: Parameters<typeof api.requirements.previewGrooming>[1] }) =>
       api.requirements.previewGrooming(requirementId, input),
@@ -1580,6 +1589,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     [integrationsQuery.data]
   );
   const storyAssuranceDefaultIntegrationId = useAiLlmDefault({ usageKey: "ai.quality.story_assurance", projectId, integrations: can("integration.view") ? integrations : undefined });
+  const storyImpactDefaultIntegrationId = useAiLlmDefault({ usageKey: "ai.requirement.change_impact", projectId, integrations: can("integration.view") ? integrations : undefined });
   const storyGroomingDefaultIntegrationId = useAiLlmDefault({ usageKey: "ai.requirement.grooming", projectId, integrations: can("integration.view") ? integrations : undefined });
   const storyDefaultIntegrationId = useAiLlmDefault({ usageKey: requirementAiMode === "improve" ? "ai.requirement.optimization" : "ai.requirement.creation", projectId, integrations, enabled: isOptimizeModalOpen });
   const users = asArray<User>(usersQuery.data);
@@ -4510,6 +4520,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       setPreviewMessage("Select at least one AI-generated case to accept.");
       return;
     }
+    const incompleteCase = acceptedPreviewCases.map(candidate => ({ candidate, issues: draftReadinessIssues(candidate) }))
+      .find(item => item.issues.length);
+    if (incompleteCase) {
+      setPreviewTone("error");
+      setPreviewMessage(`Complete “${incompleteCase.candidate.title || "Untitled Test Case"}” before accepting it. ${incompleteCase.issues.join(" ")}`);
+      return;
+    }
 
     aiCaseAcceptanceBusyRef.current = true;
     const requestScope = aiDesignScopeRef.current;
@@ -4991,6 +5008,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         setPreviewMessage("Every selected Story draft needs a title between 1 and 255 characters before creation.");
         return;
       }
+      const incompleteEntry = selectedDraftEntries.find(({ candidate }) => !isCompleteAiStory(candidate));
+      if (incompleteEntry) {
+        setExpandedRequirementCreationDraftIds((current) => [...new Set([...current, incompleteEntry.draftId])]);
+        setPreviewTone("error");
+        setPreviewMessage("Every selected AI Story needs a description and at least one observable acceptance criterion before creation.");
+        return;
+      }
 
       if (requirementCreateMetadataQuery.isLoading) {
         setPreviewTone("success");
@@ -5053,6 +5077,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             title: candidate.title,
             description,
             acceptance_criteria: normalizeAiAcceptanceCriteria(candidate.acceptance_criteria),
+            ai_review: storyAiRequestId && storyAiInputFingerprint ? {
+              capability: "ai-story-create", request_id: storyAiRequestId,
+              input_fingerprint: storyAiInputFingerprint, evidence_refs: candidate.evidence_refs || []
+            } : undefined,
             gherkin_scenarios: gherkinScenarios,
             external_references: candidate.external_references,
             labels: ["ai-drafted"],
@@ -5181,7 +5209,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     const nextDraft = {
       title: optimizationFields.title ? optimizationSuggestion.title : baseDraft.title,
       description: nextDescription,
-      acceptanceCriteriaText: optimizationFields.description && normalizeAiAcceptanceCriteria(optimizationSuggestion.acceptance_criteria).length
+      acceptanceCriteriaText: optimizationFields.description
         ? normalizeAiAcceptanceCriteria(optimizationSuggestion.acceptance_criteria).join("\n") : baseDraft.acceptanceCriteriaText,
       gherkinScenariosText: optimizationFields.gherkin
         ? formatGherkinScenarios(optimizationSuggestion.gherkin_scenarios, optimizationFields.title ? optimizationSuggestion.title : baseDraft.title)
@@ -5201,6 +5229,12 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       status: optimizationFields.status ? optimizationSuggestion.status : baseDraft.status,
       additionalFields: baseDraft.additionalFields
     };
+    if (!isCompleteAiStory({ title: nextDraft.title, description: nextDraft.description,
+      acceptance_criteria: parseStoryAcceptanceCriteria(nextDraft.acceptanceCriteriaText) })) {
+      setPreviewTone("error");
+      setPreviewMessage("The accepted AI Story needs a title, description and at least one observable acceptance criterion. Select or complete those fields before applying changes.");
+      return;
+    }
 
     try {
       await updateRequirement.mutateAsync({
@@ -5209,6 +5243,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           title: nextDraft.title,
 	          description: nextDraft.description,
           acceptance_criteria: parseStoryAcceptanceCriteria(nextDraft.acceptanceCriteriaText),
+          ai_review: storyAiRequestId && storyAiInputFingerprint ? {
+            capability: "ai-story-complete", request_id: storyAiRequestId,
+            input_fingerprint: storyAiInputFingerprint, evidence_refs: optimizationSuggestion.evidence_refs || []
+          } : undefined,
 	          gherkin_scenarios: parseGherkinScenarios(nextDraft.gherkinScenariosText),
 	          external_references: parseReferenceList(nextDraft.externalReferencesText),
 	          labels: parseReferenceList(nextDraft.labelsText),
@@ -5276,9 +5314,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const invalidSelectedRequirementCreationDraftTitleCount = selectedRequirementCreationDrafts
     .filter((candidate) => !isValidAiStoryTitle(candidate.title))
     .length;
-  const invalidSelectedRequirementCreationDraftDescriptionCount = jiraRequirementCoreRequired.description
-    ? selectedRequirementCreationDrafts.filter((candidate) => !composeAiRequirementDescription(candidate).trim()).length
-    : 0;
+  const invalidSelectedRequirementCreationDraftDescriptionCount = selectedRequirementCreationDrafts
+    .filter((candidate) => !composeAiRequirementDescription(candidate).trim()).length;
+  const invalidSelectedRequirementCreationDraftCriteriaCount = selectedRequirementCreationDrafts
+    .filter((candidate) => !normalizeAiAcceptanceCriteria(candidate.acceptance_criteria).length).length;
   const missingRequiredJiraRequirementField = requiredJiraRequirementFields.find((field) =>
     !hasRequiredJiraFieldValue(createDraft.additionalFields[field.id])
   );
@@ -5287,7 +5326,14 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     || jiraRequirementCoreRequired.release && !(createDraft.fixVersion || createDraft.release)
     || missingRequiredJiraRequirementField
     || invalidSelectedRequirementCreationDraftDescriptionCount
+    || invalidSelectedRequirementCreationDraftCriteriaCount
   );
+  const invalidRequirementAiCompletionContent = Boolean(optimizationSuggestion && aiCompleteRequirementDetailQuery.data
+    && !isCompleteAiStory({
+      title: optimizationFields.title ? optimizationSuggestion.title : aiCompleteRequirementDetailQuery.data.title,
+      description: optimizationFields.description ? optimizationSuggestion.description : aiCompleteRequirementDetailQuery.data.description,
+      acceptance_criteria: optimizationFields.description ? optimizationSuggestion.acceptance_criteria : storyAcceptanceCriteria(aiCompleteRequirementDetailQuery.data)
+    }));
   const areAllRequirementCreationDraftsSelected = Boolean(requirementCreationDrafts.length)
     && selectedRequirementCreationDraftCount === requirementCreationDrafts.length;
   const storyCompletionEnvelope = previewRequirementOptimization.data?.requirement?.id === activeOptimizeRequirement?.id
@@ -5453,6 +5499,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const requirementAssuranceRequestMatchesDraft = Boolean(
     selectedRequirement
     && previewRequirementImpact.variables?.requirementId === selectedRequirement.id
+    && previewRequirementImpact.variables.input.review_purpose === "assurance"
     && JSON.stringify(previewRequirementImpact.variables.input.proposed_change) === selectedRequirementAssuranceFingerprint
     && (previewRequirementImpact.variables.input.additional_context || "") === storyAssuranceContext
     && previewRequirementImpact.variables.input.prompt_guidance === [storyAssurancePromptGuidance ?? getPrompt("ai.quality.story_assurance"), getMetricCriteria("metric.assurance.story")].filter(Boolean).join("\n\n")
@@ -5470,9 +5517,34 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     && previewRequirementImpact.variables?.requirementId === selectedRequirement.id
     && !requirementAssurancePreviewMatchesDraft
   );
-  const selectedRequirementImpactPreview = requirementAssurancePreviewMatchesDraft
-    ? previewRequirementImpact.data
+  const requirementImpactRequestMatchesDraft = Boolean(
+    selectedRequirement
+    && previewRequirementChangeImpact.variables?.requirementId === selectedRequirement.id
+    && JSON.stringify(previewRequirementChangeImpact.variables.input.proposed_change) === selectedRequirementAssuranceFingerprint
+    && (previewRequirementChangeImpact.variables.input.additional_context || "") === storyAssuranceContext
+    && previewRequirementChangeImpact.variables.input.prompt_guidance === (storyAssurancePromptGuidance ?? getPrompt("ai.requirement.change_impact"))
+    && (previewRequirementChangeImpact.variables.input.integration_id || "") === (storyAssuranceIntegrationId || storyImpactDefaultIntegrationId)
+  );
+  const selectedRequirementImpactPreview = requirementImpactRequestMatchesDraft
+    ? previewRequirementChangeImpact.data
     : null;
+  const runRequirementImpactAnalysis = (force = false) => {
+    if (!selectedRequirement || !projectId || !canUseRequirementAi || previewRequirementChangeImpact.isPending || storyAssuranceContextBusy) return;
+    if (!force && requirementImpactRequestMatchesDraft && previewRequirementChangeImpact.data) return;
+    previewRequirementChangeImpact.reset();
+    previewRequirementChangeImpact.mutate({
+      requirementId: selectedRequirement.id,
+      input: {
+        project_id: projectId,
+        review_purpose: "change-impact",
+        proposed_change: selectedRequirementAssuranceProposedChange,
+        integration_id: storyAssuranceIntegrationId || storyImpactDefaultIntegrationId || undefined,
+        prompt_guidance: storyAssurancePromptGuidance ?? getPrompt("ai.requirement.change_impact"),
+        additional_context: storyAssuranceContext,
+        assurance_baseline: selectedRequirementLocalAssurance
+      }
+    });
+  };
   const selectedRequirementAssurance = mergeAssuranceReview(selectedRequirementLocalAssurance,
     requirementAssurancePreviewMatchesDraft ? previewRequirementImpact.data?.assurance_review || previewRequirementImpact.data?.assurance : null);
   const selectedRequirementAssuranceSource = requirementAssurancePreviewMatchesDraft && previewRequirementImpact.data?.fallback_used
@@ -5485,6 +5557,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       requirementId: selectedRequirement.id,
       input: {
         project_id: projectId,
+        review_purpose: "assurance",
         proposed_change: selectedRequirementAssuranceProposedChange,
         integration_id: storyAssuranceIntegrationId || storyAssuranceDefaultIntegrationId || undefined,
         prompt_guidance: [storyAssurancePromptGuidance ?? getPrompt("ai.quality.story_assurance"), getMetricCriteria("metric.assurance.story")].filter(Boolean).join("\n\n"),
@@ -6717,12 +6790,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       isAnalyzing={previewRequirementImpact.isPending && requirementAssuranceRequestMatchesDraft}
                       isDraftChanged={isRequirementAssuranceDraftChanged}
                       onAnalyze={() => runRequirementAssuranceAnalysis()}
+                      onInspectImpact={() => runRequirementImpactAnalysis()}
                       impactContent={
                         <StoryChangeImpactDialog
-                          error={previewRequirementImpact.error instanceof Error && requirementAssuranceRequestMatchesDraft ? previewRequirementImpact.error.message : null}
-                          loading={previewRequirementImpact.isPending && requirementAssuranceRequestMatchesDraft}
+                          error={previewRequirementChangeImpact.error instanceof Error && requirementImpactRequestMatchesDraft ? previewRequirementChangeImpact.error.message : null}
+                          loading={previewRequirementChangeImpact.isPending && requirementImpactRequestMatchesDraft}
                           onClose={() => {}}
-                          onRetry={() => runRequirementAssuranceAnalysis()}
+                          onRetry={() => runRequirementImpactAnalysis(true)}
                           open
                           embedded
                           response={selectedRequirementImpactPreview}
@@ -7641,7 +7715,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     className="story-studio-accept-button"
                     disabled={isStoryAiGenerateBusy || (requirementAiMode === "create"
                       ? !canCreateRequirements || Boolean(createStoryRequiresIterationUpdate && !canUpdateRequirementIterations) || !selectedRequirementCreationDraftCount || Boolean(invalidSelectedRequirementCreationDraftTitleCount) || isRequirementAiCreateMetadataIncomplete || previewRequirementCreation.isPending || createRequirementGenerationJob.isPending || isRequirementCreationJobRunning || createRequirement.isPending || requirementCreateMetadataQuery.isLoading || requirementCreateMetadataQuery.isError
-                      : !canUpdateRequirements || !optimizationSuggestion || !Object.values(optimizationFields).some(Boolean) || (optimizationFields.title && !isValidAiStoryTitle(optimizationSuggestion.title)) || updateRequirement.isPending || !aiCompleteRequirementDetailQuery.data)}
+                      : !canUpdateRequirements || !optimizationSuggestion || !Object.values(optimizationFields).some(Boolean) || invalidRequirementAiCompletionContent || updateRequirement.isPending || !aiCompleteRequirementDetailQuery.data)}
+                    title={invalidRequirementAiCompletionContent ? "Include a title, description and at least one observable acceptance criterion before applying AI changes." : undefined}
                     onClick={() => void handleApplyRequirementOptimization()}
                     type="button"
                   >
@@ -8370,15 +8445,19 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                                     </FormField>
                                     <FormField className="ai-requirement-draft-editor-wide" label="Description">
                                       <textarea
+                                        aria-invalid={!candidate.description?.trim()}
                                         onChange={(event) => setRequirementCreationDrafts((current) => current.map((draftItem, draftIndex) =>
                                           draftIndex === index ? { ...draftItem, description: event.target.value } : draftItem
                                         ))}
                                         rows={4}
+                                        required
                                         value={candidate.description || ""}
                                       />
+                                      {!candidate.description?.trim() ? <small className="ai-requirement-draft-field-error" role="alert">Add the Story description before acceptance.</small> : null}
                                     </FormField>
                                     <FormField className="ai-requirement-draft-editor-wide" label="Acceptance criteria">
                                       <textarea
+                                        aria-invalid={!normalizeAiAcceptanceCriteria(candidate.acceptance_criteria).length}
                                         onChange={(event) => setRequirementCreationDrafts((current) => current.map((draftItem, draftIndex) =>
                                           draftIndex === index
                                             ? { ...draftItem, acceptance_criteria: event.target.value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean) }
@@ -8386,8 +8465,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                                         ))}
                                         placeholder="One acceptance criterion per line"
                                         rows={4}
+                                        required
                                         value={asArray(candidate.acceptance_criteria).join("\n")}
                                       />
+                                      {!normalizeAiAcceptanceCriteria(candidate.acceptance_criteria).length ? <small className="ai-requirement-draft-field-error" role="alert">Add at least one observable acceptance criterion.</small> : null}
                                     </FormField>
                                   </div>
                                   {includeGherkin ? (

@@ -1,17 +1,26 @@
 FROM node:20-alpine AS build
 
+# Reuse verified downloads and bound registry retries on unreliable connections.
+ARG NPM_CONFIG_FETCH_RETRIES=5
+ARG NPM_CONFIG_FETCH_RETRY_FACTOR=2
+ARG NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=1000
+ARG NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=15000
+ARG NPM_CONFIG_FETCH_TIMEOUT=120000
+ARG NPM_CONFIG_MAXSOCKETS=4
+ARG NPM_CONFIG_PREFER_OFFLINE=true
+
 WORKDIR /app/services/platform/frontend
 
 COPY services/platform/frontend/package.json services/platform/frontend/package-lock.json ./
 # Avoid esbuild's install-time binary rewrite/exec (ETXTBSY on Docker).
 # Keep its platform package and validate the native API after npm exits.
-RUN npm ci --ignore-scripts --include=optional --no-audit --no-fund \
+RUN --mount=type=cache,id=hellotest-npm,target=/root/.npm,sharing=locked npm ci --ignore-scripts --include=optional --no-audit --no-fund \
     && node -e "const esbuild = require('esbuild'); esbuild.transformSync('const value: number = 1', { loader: 'ts' }); console.log('Verified esbuild ' + esbuild.version);"
 
 COPY services/platform/frontend .
 COPY services /app/services
 COPY package.json package-lock.json /app/
-RUN npm ci --prefix /app --ignore-scripts --no-audit --no-fund
+RUN --mount=type=cache,id=hellotest-npm,target=/root/.npm,sharing=locked npm ci --prefix /app --ignore-scripts --no-audit --no-fund
 ARG HELLOTEST_DEBUG_SOURCEMAPS=false
 ENV HELLOTEST_DEBUG_SOURCEMAPS=$HELLOTEST_DEBUG_SOURCEMAPS
 RUN npm run build:all

@@ -6,11 +6,12 @@ const design = require('@hellotest/manual/backend/services/requirementDesign.ser
 const assurance = require('@hellotest/ai/backend/services/artifactAssurance.service');
 const apps = require('@hellotest/platform/backend/public/applicationAccess');
 const { storyAiSnapshot } = require('@hellotest/platform/backend/src/utils/aiArtifactContext');
-const { normalizeAutomationStartUrl } = require('@hellotest/platform/backend/src/utils/automationStartUrl');
 const { normalizeParameterLayer } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const { referenceKey, parameterReference, createBrowserParameterResolver } = require('@hellotest/automation/backend/lib/automationBrowserParameters');
 const { fail } = require('./connections');
-const { safeMessage } = require('./runtimeEvents');
+const { safeMessage, failureInfo } = require('./runtimeEvents');
+const automationInputs = require('./automationNodeInputs');
+const { generationOptions,pinnedGenerationOptions } = require('./generationNodeOptions');
 const modelTrace = require('@hellotest/platform/backend/src/utils/llmTraceContext');
 const TASK_DEFAULTS = require('../../shared/workflowNativeTasks.json');
 const TASKS = new Set(['story-assurance', 'test-case-generation', 'test-case-assurance', 'automation-engineer']);
@@ -49,7 +50,9 @@ function taskResult(task, packet) {
   if (task === 'test-case-assurance') row.case_assurance = list(packet.case_assurance).map((review,index) => ({...review,title:packet.cases?.[index]?.title,case_index:index}));
   if (task === 'automation-engineer') Object.assign(row, {
     automation:list(packet.automation).map((automation,index)=>automation ? {...automation,title:packet.cases?.[index]?.title,case_index:index} : null),
-    automation_input_required:packet.automation_input_required || []
+    automation_input_required:packet.automation_input_required || [],
+    automation_failures:packet.automation_failures || [],
+    ...(packet.automation_progress ? { automation_progress: packet.automation_progress } : {})
   });
   return row;
 }
@@ -58,14 +61,14 @@ async function access(user, projectId, codes) {
     if (!await permissions.hasPermission(user, code, projectId) || !await flags.areEnabled(flags.getFeatureKeysForPermission(code), { user })) throw fail(`Permission required: ${code}`, 403);
   }
 }
-function checkInput(run) {
+function checkInput(run, { generationNode } = {}) {
   if (!run.app_type_id) throw fail('Select an application before running Sprint Automator.', 422);
   if (!String(run.input_payload?.sprint_id || '').trim()) throw fail('Supply sprint_id in the manual trigger input.', 422);
-  if (run.input_payload.max_cases_per_story != null && (!Number.isInteger(Number(run.input_payload.max_cases_per_story)) || Number(run.input_payload.max_cases_per_story) < 1 || Number(run.input_payload.max_cases_per_story) > 10)) throw fail('Choose 1–10 Test Cases per Story in max_cases_per_story.', 422);
+  if (generationNode) generationOptions(generationNode.data,run.input_payload);
+  else pinnedGenerationOptions(run);
   if (run.input_payload.project_id && run.input_payload.project_id !== run.project_id) throw fail('The trigger project must match the workflow project.', 403);
   if (run.input_payload.app_type_id && run.input_payload.app_type_id !== run.app_type_id) throw fail('The trigger application must match the workflow application.', 403);
-  if (run.input_payload.authoring_mode && !['structured', 'gherkin'].includes(run.input_payload.authoring_mode)) throw fail('Choose structured or gherkin Test Case authoring_mode.', 422);
-  if (run.input_payload.automation_start_url != null) normalizeAutomationStartUrl(run.input_payload.automation_start_url, { required: false });
+  if (run.input_payload.automation_start_url != null) automationInputs.validateNodeOptions({automationStartUrl:run.input_payload.automation_start_url});
 }
 async function loadStory(run, user, packet) {
   await access(user, run.project_id, ['requirement.view']);
@@ -171,6 +174,20 @@ function automationInputGap(error, draft, storyId, caseIndex) {
     required_context: [...new Set(blocked.flatMap(item => item.required_context))].slice(0, 10),
     required_parameters: [...new Set(blocked.flatMap(item => item.required_parameters))].slice(0, 10) };
 }
+// Case-specific generation failures do not discard a Sprint's other cases.
+// Provider/transport/access/cancellation errors remain systemic and stop work.
+function automationCaseFailure(error, draft, storyId, caseIndex) {
+  if (error?.outcome_unknown || error?.transactionOutcomeUnknown || error?.name === 'AbortError'
+    || [401,403,408,429,499].includes(error?.statusCode) || error?.statusCode >= 500) return null;
+  if (!new Set(['AUTOMATION_BUILD_INCOMPLETE', 'AUTOMATION_GENERATED_SOURCE_INVALID', 'AUTOMATION_PRIVATE_VALUE_IN_SOURCE',
+    'AUTOMATION_UNGROUNDED_API_TARGET', 'AUTOMATION_UNGROUNDED_NAVIGATION', 'AUTOMATION_PARAMETER_INVALID',
+    'AUTOMATION_PARAMETER_MISSING', 'AUTOMATION_CASE_STEPS_INVALID', 'AI_MANAGED_SCHEMA_INVALID', 'AI_INVALID_JSON']).has(error?.code)) return null;
+  const detail = failureInfo(error);
+  return { case_index:caseIndex,client_id:draft.client_id,case_fingerprint:fingerprint(draft),story_id:storyId,
+    code:error.code,status:'failed',message:safeMessage(error.publicMessage || error.message,detail.message),retryable:true,
+    ...(detail.validation_feedback ? { validation_feedback:detail.validation_feedback } : {}),
+    ...(detail.completed_sections == null ? {} : { completed_sections:detail.completed_sections,total_sections:detail.total_sections }) };
+}
 function draftParameterInputGap(draft, steps, storyId, caseIndex) {
   // Native case authoring explicitly marks unavailable inputs. Those markers
   // are evidence gaps, not configured values for the automation resolver.
@@ -232,9 +249,10 @@ function assuranceAutomationInputGap(review, draft, storyId, caseIndex) {
 }
 async function execute({ run, node, sources, user, signal, onProgress, context }) {
   assertActive(signal);
-  checkInput(run);
   const task = node.data.artifactTask;
+  checkInput(run,{generationNode:task==='test-case-generation'?node:undefined});
   if (!TASKS.has(task)) throw fail('Select a supported native artifact task.');
+  if (task === 'automation-engineer') automationInputs.validateNodeOptions(node.data);
   const readinessPolicy = node.data.readinessPolicy ?? TASK_DEFAULTS['automation-engineer'].readinessPolicy ?? 'verify-inputs';
   if (task === 'automation-engineer' && !['verify-inputs','require-ready'].includes(readinessPolicy)) throw fail('Choose verify-inputs or require-ready for automation readiness.');
   const packets = context.input;
@@ -243,6 +261,32 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
   if (app.project_id !== run.project_id) throw fail('The application must belong to the workflow project.', 403);
   const core = await metrics();
   const results = [];
+  const checkpointKey = task === 'automation-engineer' ? fingerprint({ node: node.data,
+    input:packets.map(packet=>({story_id:packet?.story_id,story_revision:packet?.story_revision,cases:list(packet?.cases).map(fingerprint),case_assurance:packet?.case_assurance})) }) : null;
+  const savedCheckpoint = run.node_results?.find(item=>item.node_id===node.id)?.progress?.automation_checkpoint;
+  const resumable = savedCheckpoint?.schema_version === 1 && savedCheckpoint.input_fingerprint === checkpointKey ? savedCheckpoint.stories : [];
+  const checkpointStories = new Map(list(resumable).map(item=>[item.story_id,item]));
+  const checkpointProgress = async (packet, storyIndex, caseIndex, totalCases) => {
+    packet.automation_progress = { completed:packet.automation.filter(Boolean).length,failed:list(packet.automation_failures).length,
+      needs_input:list(packet.automation_input_required).length,processed:caseIndex + 1,total:totalCases };
+    const processed = [...results,packet];
+    for (const item of processed) {
+      const previous = checkpointStories.get(item.story_id), automation = [...list(previous?.automation)];
+      for (const [index,value] of item.automation.entries()) automation[index]=value;
+      // Resuming an early failed case must not erase later complete cases
+      // recorded by the original pass, even if this retry is interrupted too.
+      const later = key=>list(previous?.[key]).filter(row=>row.case_index>=item.automation.length);
+      checkpointStories.set(item.story_id,{story_id:item.story_id,story_revision:item.story_revision,automation,
+        automation_input_required:[...item.automation_input_required,...later('automation_input_required')],
+        automation_failures:[...item.automation_failures,...later('automation_failures')],automation_progress:item.automation_progress});
+    }
+    const progress = {percent:Math.round((storyIndex + (caseIndex + 1) / Math.max(1,totalCases)) * 100 / Math.max(1,packets.length)),
+      current_item:storyIndex+1,total_items:packets.length,current_case:caseIndex+1,total_cases:totalCases,
+      completed_items:processed.map(item=>taskResult(task,item)),automation_checkpoint:{schema_version:1,input_fingerprint:checkpointKey,
+        stories:[...checkpointStories.values()]}};
+    if (Buffer.byteLength(JSON.stringify(progress)) > 4 * 1024 * 1024) throw fail('Automation progress exceeded its checkpoint budget. Reduce cases per Story or split the Sprint; completed checkpoints are retained.',422);
+    await onProgress(progress);
+  };
   const seenStories = new Set();
   for (let index = 0; index < packets.length; index++) {
     assertActive(signal);
@@ -256,11 +300,11 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
     const output = { ...packet, story_id: story.id, story_revision: revision(story), story: storyAiSnapshot(story) };
     // Rerunning an earlier stage invalidates every result derived from its old
     // review or cases. A stale downstream draft must never look newly assessed.
-    if (task === 'story-assurance') for (const key of ['test_case_generation', 'cases', 'case_assurance', 'automation', 'automation_input_required']) delete output[key];
-    if (task === 'test-case-generation') for (const key of ['case_assurance', 'automation', 'automation_input_required']) delete output[key];
-    if (task === 'test-case-assurance') for (const key of ['automation', 'automation_input_required']) delete output[key];
+    if (task === 'story-assurance') for (const key of ['test_case_generation', 'cases', 'case_assurance', 'automation', 'automation_input_required', 'automation_failures', 'automation_progress']) delete output[key];
+    if (task === 'test-case-generation') for (const key of ['case_assurance', 'automation', 'automation_input_required', 'automation_failures', 'automation_progress']) delete output[key];
+    if (task === 'test-case-assurance') for (const key of ['automation', 'automation_input_required', 'automation_failures', 'automation_progress']) delete output[key];
     const integrationId = node.data.llmIntegrationId || run.input_payload.integration_id || undefined;
-    await onProgress({ percent: Math.round(index * 100 / Math.max(1, packets.length)), current_item: index + 1, total_items: packets.length, completed_items: results.map(packet=>taskResult(task,packet)) });
+    if (task !== 'automation-engineer') await onProgress({ percent: Math.round(index * 100 / Math.max(1, packets.length)), current_item: index + 1, total_items: packets.length, completed_items: results.map(packet=>taskResult(task,packet)) });
     // This stage already owns a freshly authorized, revision-pinned Story and
     // the exact case lineage supplied below. The shared gateway must not add a
     // second generic project retrieval to these scoped model requests. Native
@@ -281,12 +325,13 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
       if (!packet.story_assurance?.verification || packet.story_assurance.verification.status !== 'passed') throw fail('Connect the completed Story assurance output before generating Test Cases.', 422);
       assertReview(packet.story_assurance, 'Story assurance');
       if (packet.story_assurance.story_id && packet.story_assurance.story_id !== story.id || packet.story_assurance.story_revision && packet.story_assurance.story_revision !== revision(story)) throw fail('Story assurance belongs to a different Story revision.', 409);
-      const custom = [run.input_payload.generation_instructions, taskGuidance(node)].filter(value => typeof value === 'string' && value.trim()).join('\n\n');
+      const generation = generationOptions(node.data,run.input_payload);
+      const custom = [generation.instructions, taskGuidance(node)].filter(value => typeof value === 'string' && value.trim()).join('\n\n');
       const contextPack = `${custom}\n\n[HELLOTEST_SMART_CONTEXT_START]\n${JSON.stringify(taskContext(node, run, packet, story))}\n[HELLOTEST_SMART_CONTEXT_END]`;
-      output.test_case_generation = await design.previewRequirementsTestCases({ requirements: [story], appType: app, integration_id: integrationId, user_id: user.id, max_cases: Number(run.input_payload.max_cases_per_story || 5), additional_context: contextPack, authoring_mode: run.input_payload.authoring_mode || 'structured', evidence_scope: { sprint_id: run.input_payload.sprint_id, story_id: story.id }, signal });
+      output.test_case_generation = await design.previewRequirementsTestCases({ requirements: [story], appType: app, integration_id: integrationId, user_id: user.id, max_cases: generation.maxCases, additional_context: contextPack, authoring_mode: generation.authoringMode, evidence_scope: { sprint_id: run.input_payload.sprint_id, story_id: story.id }, signal });
       assertActive(signal);
       output.cases = output.test_case_generation.cases;
-      assertDrafts(output.cases, story.id, Number(run.input_payload.max_cases_per_story || 5));
+      assertDrafts(output.cases, story.id, generation.maxCases);
       output.test_case_generation.verification = { status: 'passed', checks: ['native_case_contract', 'selected_story_traceability'], limitations: ['Draft schema validation does not establish complete coverage or observed product behavior.'] };
     } else if (task === 'test-case-assurance') {
       await access(user, run.project_id, ['testcase.ai']);
@@ -308,16 +353,37 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
       assertDrafts(packet.cases, story.id);
       output.automation = [];
       output.automation_input_required = [];
+      output.automation_failures = [];
+      const previous = list(resumable).find(item=>item.story_id===story.id && item.story_revision===revision(story));
       for (let caseIndex = 0; caseIndex < packet.cases.length; caseIndex++) {
         assertActive(signal);
         const draft = packet.cases[caseIndex];
         if (packet.case_assurance[caseIndex].case_fingerprint !== fingerprint(draft) || packet.case_assurance[caseIndex].verification?.status !== 'passed') throw fail('A generated case changed after assurance. Reassess the case before automation.', 409);
-        const automationDraft = { ...draft, steps: await automationSteps(draft), automation_start_url: draft.automation_start_url || run.input_payload.automation_start_url || undefined };
-        const inputGap = draftParameterInputGap(draft, automationDraft.steps, story.id, caseIndex)
+        const inputs = await automationInputs.resolveNodeInputs({run,node,user,access});
+        const previouslyBuilt = previous?.automation?.[caseIndex];
+        if (previouslyBuilt?.case_fingerprint === fingerprint(draft) && previouslyBuilt.validation?.status === 'passed'
+          && previouslyBuilt.verification_status === 'unverified' && list(previouslyBuilt.steps).length) {
+          output.automation.push(previouslyBuilt);
+          await checkpointProgress(output,index,caseIndex,packet.cases.length);
+          continue;
+        }
+        let steps;
+        try { steps = await automationSteps(draft); }
+        catch (error) {
+          if (![400,422].includes(error.statusCode) || error.outcome_unknown || signal?.aborted) throw error;
+          error.code = 'AUTOMATION_CASE_STEPS_INVALID';
+          output.automation.push(null);output.automation_failures.push(automationCaseFailure(error,draft,story.id,caseIndex));
+          await checkpointProgress(output,index,caseIndex,packet.cases.length);
+          continue;
+        }
+        const supplied = automationInputs.caseInputs(draft,steps,inputs);
+        const automationDraft = supplied.draft;
+        const inputGap = draftParameterInputGap(supplied.inputDraft, automationDraft.steps, story.id, caseIndex)
           || (readinessPolicy === 'require-ready' ? assuranceAutomationInputGap(packet.case_assurance[caseIndex], draft, story.id, caseIndex) : null);
         if (inputGap) {
           output.automation.push(null);
-          output.automation_input_required.push(inputGap);
+          output.automation_input_required.push({...inputGap,case_fingerprint:fingerprint(draft)});
+          await checkpointProgress(output,index,caseIndex,packet.cases.length);
           continue;
         }
         const automationContext = [taskGuidance(node), JSON.stringify({ ...taskContext(node, run, packet, story),
@@ -325,31 +391,44 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
           case_assurance: packet.case_assurance[caseIndex].assurance_review, case_assurance_limitations: packet.case_assurance[caseIndex].analysis?.limitations || [] })].filter(Boolean).join('\n\n');
         let automation;
         try {
-          automation = await require('@hellotest/automation/backend/services/aiAutomationBuilder.service').previewAutomationDraft({ draft: automationDraft, app_type_kind: app.kind || app.type || 'web', additional_context: automationContext, integration_id: integrationId, project_id: run.project_id, app_type_id: app.id, user_id: user.id, inspect_browser: node.data.inspectBrowser !== false, signal });
+          automation = await require('@hellotest/automation/backend/services/aiAutomationBuilder.service').previewAutomationDraft({ draft: automationDraft, runtime_parameter_values:supplied.runtimeValues, app_type_kind: app.kind || app.type || 'web', additional_context: automationContext, integration_id: integrationId, project_id: run.project_id, app_type_id: app.id, user_id: user.id, inspect_browser: node.data.inspectBrowser !== false, signal });
+          assertActive(signal);
+          if (automation?.validation?.status !== 'passed' || !Array.isArray(automation.steps) || automation.steps.length !== automationDraft.steps.length) {
+            throw Object.assign(fail('The native automation generator did not return a complete validated draft for every authored step.',422),{code:'AUTOMATION_BUILD_INCOMPLETE'});
+          }
         } catch (error) {
           assertActive(signal);
+          error = supplied.redactError(error);
           const gap = automationInputGap(error, draft, story.id, caseIndex);
-          if (!gap) throw error;
+          const failed = !gap && automationCaseFailure(error,draft,story.id,caseIndex);
+          if (!gap && !failed) throw error;
           output.automation.push(null);
-          output.automation_input_required.push(gap);
+          if (gap) output.automation_input_required.push(gap);
+          else output.automation_failures.push(failed);
+          await checkpointProgress(output,index,caseIndex,packet.cases.length);
           continue;
         }
         assertActive(signal);
-        if (automation?.validation?.status !== 'passed' || !Array.isArray(automation.steps) || automation.steps.length !== automationDraft.steps.length) throw fail('The native automation generator did not return a complete validated draft for every authored step.', 422);
-        output.automation.push({ client_id: draft.client_id, case_fingerprint: fingerprint(draft), ...automation });
+        output.automation.push(supplied.project({ ...automation, client_id: draft.client_id, case_fingerprint: fingerprint(draft),
+          parameter_values:supplied.publicInputs.parameter_values,parameter_bindings:{...automation.parameter_bindings,...supplied.publicInputs,
+            private_parameter_references:[...new Set([...list(automation.parameter_bindings?.private_parameter_references),...supplied.publicInputs.private_parameter_references])] } }));
+        await checkpointProgress(output,index,caseIndex,packet.cases.length);
       }
     }
     });
     assertActive(signal);
     results.push(output);
     if (Buffer.byteLength(JSON.stringify(results)) > 2 * 1024 * 1024) throw fail('Sprint draft output exceeded 2 MB. Reduce cases per Story or split the Sprint scope; completed item progress is preserved.', 422);
-    await onProgress({ percent: Math.round((index + 1) * 100 / Math.max(1, packets.length)), current_item: index + 1, total_items: packets.length, completed_items: results.map(packet=>taskResult(task,packet)) });
+    if (task !== 'automation-engineer') await onProgress({ percent: Math.round((index + 1) * 100 / Math.max(1, packets.length)), current_item: index + 1, total_items: packets.length, completed_items: results.map(packet=>taskResult(task,packet)) });
   }
   const inputGaps = results.flatMap(packet => list(packet.automation_input_required));
+  const failedCases = results.flatMap(packet=>list(packet.automation_failures));
   const metadata = { processed: results.length, artifact_task: task, generation_mode: 'native', publication_status: 'proposal', requires_human_review: true,
     ...(task === 'automation-engineer' ? {readiness_policy:readinessPolicy} : {}),
-    ...(inputGaps.length ? { outcome: 'automation_input_required', input_required_count: inputGaps.length, message: `Automation needs additional input for ${inputGaps.length} Test Case${inputGaps.length === 1 ? '' : 's'}. Assessed manual drafts remain available for review and acceptance.` } : results.length ? {} : { outcome: 'no_stories', message: 'No Stories matched the selected Sprint. No AI task or artifact write was performed.' }),
-    verification: { status: inputGaps.length ? 'needs_input' : results.length ? 'passed' : 'not_required', checks: results.length ? ['native_contracts', 'project_and_sprint_scope', 'story_revision', 'stage_input_lineage'] : [], limitations: ['Native output validation does not prove product correctness or that generated automation has passed.'] } };
+    ...(failedCases.length ? {outcome:'automation_partial',failed_case_count:failedCases.length,input_required_count:inputGaps.length,
+      message:`Automation could not complete ${failedCases.length} Test Case${failedCases.length===1?'':'s'}. Completed cases are retained; inspect each failed case before retrying.`}
+      : inputGaps.length ? { outcome: 'automation_input_required', input_required_count: inputGaps.length, message: `Automation needs additional input for ${inputGaps.length} Test Case${inputGaps.length === 1 ? '' : 's'}. Assessed manual drafts remain available for review and acceptance.` } : results.length ? {} : { outcome: 'no_stories', message: 'No Stories matched the selected Sprint. No AI task or artifact write was performed.' }),
+    verification: { status: inputGaps.length || failedCases.length ? 'needs_input' : results.length ? 'passed' : 'not_required', checks: results.length ? ['native_contracts', 'project_and_sprint_scope', 'story_revision', 'stage_input_lineage'] : [], limitations: ['Native output validation does not prove product correctness or that generated automation has passed.'] } };
   return {__workflow_result:{output:{...metadata,data:results.map(packet=>taskResult(task,packet))},context:{...metadata,data:results}}};
 }
 module.exports = { TASKS, taskUsageKey, MAX_STORIES, checkInput, execute, access, loadStory, revision, fingerprint, authoredSteps, automationSteps, _internals: { metrics, storyBaseline, caseBaseline, assertDrafts, taskGuidance, taskResult } };

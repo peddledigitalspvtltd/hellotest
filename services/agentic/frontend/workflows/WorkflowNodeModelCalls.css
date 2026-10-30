@@ -1,0 +1,26 @@
+.studio-model-calls { display: grid; gap: 12px; min-width: 0; }
+.studio-model-calls > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.studio-model-calls > header h3 { margin: 0; }
+.studio-model-calls > header > span { color: var(--studio-muted); font-size: 12px; white-space: nowrap; }
+.studio-model-calls > p { margin: 0; }
+.studio-inspector .studio-model-call { padding: 0; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; margin: 0; }
+.studio-model-call > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; list-style: none; cursor: pointer; }
+.studio-model-call > summary::before { content: '›'; flex-shrink: 0; color: var(--studio-muted); transition: transform .15s ease; }
+.studio-model-call[open] > summary::before { transform: rotate(90deg); }
+.studio-model-call > summary > span:first-of-type { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.studio-model-call > summary strong { font-size: 13px; }
+.studio-model-call > summary small { color: var(--studio-muted); font-size: 11px; font-weight: 400; overflow-wrap: anywhere; line-height: 1.5; }
+.studio-model-call-status { font-size: 10px; border-radius: 20px; padding: 4px 7px; background: var(--surface-subtle, #f2f5f7); color: var(--studio-muted); white-space: nowrap; }
+.studio-model-call-status[data-status=succeeded] { color: #16845c; background: #15805b13; }
+.studio-model-call-status:is([data-status=failed], [data-status=invalid], [data-status=cancelled]) { color: #c54e47; background: #c54e4713; }
+.studio-model-call-status[data-status=running] { color: var(--app-accent, #326fe0); background: #326fe013; }
+.studio-model-call-body { display: grid; gap: 12px; border-top: 1px solid var(--border); padding: 12px; min-width: 0; }
+.studio-model-call-body > h4 { margin: 3px 0 0; font-size: 12px; }
+.studio-model-call-body > p { margin: 0; }
+.studio-model-call-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; font-size: 11px; }
+.studio-model-call-facts > div { display: grid; gap: 4px; min-width: 0; }
+.studio-model-call-facts dt { color: var(--studio-muted); }
+.studio-model-call-facts dd { margin: 0; overflow-wrap: anywhere; }
+.studio-model-call .studio-json-body textarea { min-height: 190px; }
+.studio-inspector > nav { overflow-x: auto; scrollbar-width: thin; flex-shrink: 0; gap: 14px; }
+.studio-inspector > nav > button { white-space: nowrap; flex-shrink: 0; }

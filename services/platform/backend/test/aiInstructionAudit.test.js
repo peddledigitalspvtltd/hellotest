@@ -93,10 +93,26 @@ test('stock legacy Test Case priorities and regression templates upgrade while c
  const item=catalog.find(item=>item.id==='ai.test_case.design');
  const old={...structuredClone(item.defaults),instruction_format_version:2,prompt:item.prompt_default_migrations[0],instruction_blocks:{...item.legacy_instruction_blocks,'platform.requestPolicy':item.guardrail_migration.request_policy}};
  const migrated=(await service({[item.id]:{published:{version:1,config:old}}}).resolve(item.id)).config;
- assert.doesNotMatch(migrated.prompt,/Prioritize critical positive/);assert.match(migrated.prompt,/non-functional/);
+ assert.doesNotMatch(migrated.prompt,/Prioritize critical positive/);assert.match(migrated.prompt,/Honor requested objective/);assert.match(migrated.prompt,/description.*parameter_values/);assert.match(migrated.prompt,/synthetic string data/);
  assert.doesNotMatch(migrated.instruction_blocks['template.builtin-risk-based-regression'],/Prioritize the critical happy path/);
  old.prompt='Our reviewed performance testing instructions.';
  assert.equal((await service({[item.id]:{published:{version:1,config:old}}}).resolve(item.id)).config.prompt,old.prompt);
+});
+
+test('stock Test Case completeness and data guidance upgrades without replacing reviewed prompts or format blocks',async()=>{
+ for(const id of ['ai.case_authoring.full_case','ai.test_case.design']){
+  const item=catalog.find(item=>item.id===id),stored=structuredClone(item.defaults);
+  stored.prompt=item.prompt_default_migrations.at(-1);
+  for(const key of ['application.artifactContract','format.structured'])stored.instruction_blocks[key]=item.instruction_default_migrations[key].at(-1);
+  const migrated=(await service({[id]:{published:{version:4,config:stored}}}).resolve(id)).config;
+  assert.equal(migrated.prompt,item.defaults.prompt);
+  for(const key of ['application.artifactContract','format.structured'])assert.equal(migrated.instruction_blocks[key],item.defaults.instruction_blocks[key]);
+  stored.prompt='Our reviewed invoice-only authoring intent.';
+  stored.instruction_blocks['format.structured']='Our reviewed detailed action and expected-result style.';
+  const custom=(await service({[id]:{published:{version:5,config:stored}}}).resolve(id)).config;
+  assert.equal(custom.prompt,stored.prompt);
+  assert.equal(custom.instruction_blocks['format.structured'],stored.instruction_blocks['format.structured']);
+ }
 });
 
 test('stock case scope and NFR emphasis migrate to neutral defaults while reviewed admin choices remain exact',async()=>{
@@ -145,5 +161,27 @@ test('stock browser evidence guidance upgrades in published and draft controls w
     assert.equal(reviewed.draft.config.instruction_blocks[key],custom.instruction_blocks[key]);
    }
   }
+ }
+});
+
+test('Story authoring upgrades stock incomplete-output guidance while preserving reviewed instructions', async () => {
+ for (const id of ['ai.requirement.creation', 'ai.requirement.optimization']) {
+  const item = catalog.find(item => item.id === id);
+  const stored = structuredClone(item.defaults);
+  stored.prompt = item.prompt_default_migrations.at(-1);
+  for (const [key, values] of Object.entries(item.instruction_default_migrations)) stored.instruction_blocks[key] = values.at(-1);
+  const config = service({ [id]: { published: { version: 5, config: stored }, draft: { config: stored } } });
+  const detail = await config.detail(id);
+  assert.equal(detail.config.prompt, item.defaults.prompt);
+  assert.equal(detail.draft.config.prompt, item.defaults.prompt);
+  for (const key of Object.keys(item.instruction_default_migrations)) {
+   assert.equal(detail.config.instruction_blocks[key], item.defaults.instruction_blocks[key]);
+   assert.equal(detail.draft.config.instruction_blocks[key], item.defaults.instruction_blocks[key]);
+  }
+  stored.prompt = 'Our reviewed Story authoring instructions.';
+  stored.instruction_blocks['application.artifactContract'] = 'Our reviewed complete Story schema guidance.';
+  const reviewed = await service({ [id]: { published: { version: 6, config: stored } } }).resolve(id);
+  assert.equal(reviewed.config.prompt, stored.prompt);
+  assert.equal(reviewed.config.instruction_blocks['application.artifactContract'], stored.instruction_blocks['application.artifactContract']);
  }
 });

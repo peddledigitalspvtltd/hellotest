@@ -113,7 +113,7 @@ export function draftFromTemplate(template: WorkflowTemplate): {
     draft.nodes = definitions.map(([id, kind, data], index) => ({ id, type: "agenticStep", position: { x: 80 + index * 310, y: 140 }, data: { ...buildNodeDefaults(kind as Parameters<typeof buildNodeDefaults>[0], index), ...(kind === "artifactTask" ? nativeTaskDefaults(String(data.artifactTask)) : {}), ...data } }));
     draft.edges = draft.nodes.slice(1).map((node, index) => createFlowEdge(draft.nodes[index].id, node.id));
     draft.settings = { execution_mode: "review", maxDurationMs: 3600000, template_id: "sprint-automator", library_publication_mode: "automatic", requires_human_review: false, processing_mode: "sequential" };
-    return { draft, input: JSON.stringify({ sprint_id: "", integration_id: "", max_cases_per_story: 5, authoring_mode: "structured", automation_start_url: "", generation_instructions: "" }, null, 2) };
+    return { draft, input: JSON.stringify({ sprint_id: "" }, null, 2) };
   }
   if (["foreach", "custom"].includes(template.id)) {
     const task = {

@@ -79,6 +79,18 @@ test("stored numeric, nullable, escaped, and ios calls round-trip through keywor
   assert.equal(parse(step('await ios.tap("Login.Submit");', "ios")).keyword, "ios.tap");
 });
 
+test("reopening native scoped parameter arguments keeps bindings instead of saving expression text as data", async () => {
+  const step = automation_code => ({ automation_code, step_type: "web", action: "Enter configured value", expected_result: "" });
+  const source = 'await web.fill(params["t.account.email"], params[\'s.Display name\']);';
+  const reopened = parse(step(source));
+  assert.equal(reopened.objectRef, "@t.[account.email]");
+  assert.equal(reopened.value, "@s.[display name]");
+  assert.equal(build(reopened), 'await web.fill("@t.[account.email]", "@s.[display name]");');
+  assert.equal(parseAutomationKeywordCall('await web.fill("#name", params["t.choice]value"]);').args[1], '@t.[choice\\]value]');
+  assert.equal(parseAutomationKeywordCall('await web.fill("#name", params[dynamicName]);').args[1], 'params[dynamicName]', 'custom expressions stay in the source editor');
+  assert.equal(parseAutomationKeywordCall('await web.wait(Number(params[\'r.Delay\']));').args[0], '@r.delay');
+});
+
 test("saving executable code clears a competing legacy request while prose/options saves retain it", async () => {
   const start = pageSource.indexOf("  const updateAutomationStepCode = useMutation({");
   const fnStart = pageSource.indexOf("mutationFn:", start) + "mutationFn:".length;

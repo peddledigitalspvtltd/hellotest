@@ -17,6 +17,47 @@ const boundedFields = (value, limit = 12, itemLimit = 200) => Object.fromEntries
   .slice(0, limit)
   .map(([key, field]) => [text(key, 80), text(typeof field === "object" ? JSON.stringify(field) : field, itemLimit)]));
 
+const sensitiveParameterName = /password|passwd|secret|token|credential|api.?key|authorization|cookie|session|csrf|xsrf|private.?key|passcode|(?:^|[._ -])pin(?:$|[._ -])|otp|verification.?code/i;
+const scopedParameterReference = /^@[tsr]\.(?:[A-Za-z][A-Za-z0-9_-]*|\[(?:\\.|[^\]\\\r\n])+\])$/i;
+function privateCaseProjection(testCase) {
+  const { normalizeParameterKey } = require('./stepParameterResolution');
+  const options = object(testCase.test_data_options);
+  const names = new Set([...list(options.private_parameter_names, 100, 255), ...list(options.effective_private_parameter_names, 100, 255),
+    ...list(testCase.effective_private_parameter_names, 100, 255)].map(name => normalizeParameterKey(name, 't')));
+  const values = object(testCase.parameter_values), protectedValues = [], privateReferences = [];
+  const safeValues = Object.fromEntries(Object.entries(values).map(([key, value]) => {
+    if (!names.has(normalizeParameterKey(key, 't')) && !sensitiveParameterName.test(key)) return [key, value];
+    const name = normalizeParameterKey(key, 't'), rawName = name.slice(2);
+    const reference = `@${name.slice(0, 2)}${/^[a-z][a-z0-9_-]*$/i.test(rawName) ? rawName : `[${rawName.replace(/\\/g, '\\\\').replace(/\]/g, '\\]')}]`}`;
+    privateReferences.push(reference);
+    // Existing reviewed external references are safe context; their values are not.
+    if (typeof value === 'string' && scopedParameterReference.test(value.trim())) return [key, value];
+    if (value != null && String(value) && !/^\[(?:Missing:|Private)/i.test(String(value))) protectedValues.push({ value: String(value), reference });
+    return [key, '[Missing: protected value supplied privately at execution]'];
+  }));
+  if (!privateReferences.length) return { value: testCase, privateReferences };
+  const projectText = input => {
+    if (typeof input !== 'string') return input;
+    let output = input;
+    for (const entry of protectedValues.sort((left, right) => right.value.length - left.value.length)) {
+      const escaped = entry.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const before = /^[A-Za-z0-9_]/.test(entry.value) ? '(?<![A-Za-z0-9_])' : '';
+      const after = /[A-Za-z0-9_]$/.test(entry.value) ? '(?![A-Za-z0-9_])' : '';
+      output = output.replace(new RegExp(`${before}${escaped}${after}`, 'g'), () => entry.reference);
+    }
+    return output;
+  };
+  const project = value => typeof value === 'string' ? projectText(value) : Array.isArray(value) ? value.map(project)
+    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, project(entry)])) : value;
+  // Project selected artifact content only; hydrated histories and relations do
+  // not belong to a snapshot and must not be walked to prepare model context.
+  const projected = { ...testCase, title: projectText(testCase.title), description: projectText(testCase.description),
+    gherkin_document: projectText(testCase.gherkin_document), parameter_values: project(safeValues),
+    steps: Array.isArray(testCase.steps) ? testCase.steps.map(row => ({ ...row, action: projectText(row?.action), expected_result: projectText(row?.expected_result ?? row?.expectedResult) })) : testCase.steps,
+    test_data_options: project(options), external_references: project(testCase.external_references), labels: project(testCase.labels) };
+  return { value: projected, privateReferences };
+}
+
 const withContextLimits = (snapshot, original) => {
   const truncated = [];
   const omitted = {};
@@ -70,6 +111,8 @@ function storyAiSnapshot(story = {}, { textLimit = 4000, itemLimit = 500, listLi
 
 function testCaseAiSnapshot(testCase = {}, { stepLimit = 30, itemLimit = 500 } = {}) {
   testCase = object(testCase);
+  const privateProjection = privateCaseProjection(testCase);
+  testCase = privateProjection.value;
   const authoringMode = testCase.authoring_mode === "gherkin" ? "gherkin" : "structured";
   const gherkin = text(testCase.gherkin_document, 10000);
   const steps = (Array.isArray(testCase.steps) ? testCase.steps : []).slice(0, stepLimit).map((step, index) => ({
@@ -90,6 +133,8 @@ function testCaseAiSnapshot(testCase = {}, { stepLimit = 30, itemLimit = 500 } =
     // repeats evidence and can contradict unsaved Gherkin edits.
     steps: authoringMode === "gherkin" && gherkin ? [] : steps,
     parameter_values: boundedFields(testCase.parameter_values, 20, 200),
+    ...(privateProjection.privateReferences.length ? { private_parameter_references: privateProjection.privateReferences.slice(0, 20),
+      private_parameter_reference_count: privateProjection.privateReferences.length, private_parameter_values_omitted: true } : {}),
     external_references: list(testCase.external_references, 10, 500),
     labels: list(testCase.labels, 12, 100),
     requirement_ids: list(testCase.requirement_ids || [testCase.requirement_id], 20, 255),

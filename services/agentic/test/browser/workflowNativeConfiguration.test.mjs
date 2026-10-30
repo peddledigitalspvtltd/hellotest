@@ -29,15 +29,17 @@ test('Sprint template saves editable per-node guidance and previews the current 
     await page.route('**/api/**', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Unexpected live request in configuration fixture' }) }));
     await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5197'}/${name}.html?route=${encodeURIComponent('/agentic-workflows?view=workflows')}`);
     await page.locator('.studio-template-card').filter({ hasText: 'Sprint Automator' }).click();
-    await page.getByRole('combobox', { name: 'Sprint', exact: true }).selectOption('sprint-a');
-    await page.getByRole('combobox', { name: 'Stories API connection', exact: true }).selectOption('native-http');
+    await page.getByRole('combobox', { name: 'Sprint', exact: true }).click();
+    await page.getByRole('option', { name: /Sprint A/ }).click();
     await page.locator('.react-flow__node[data-id="sprint-stories"]').click();
+    await page.getByLabel('API connection', {exact:true}).selectOption('native-http');
     const endpoint = page.getByRole('textbox', { name: 'Endpoint URL', exact: true });
     const url = new URL(await endpoint.inputValue());
     assert.equal(url.origin, 'https://hellotest.example'); assert.equal(url.pathname, '/api/requirements');
     assert.equal(url.searchParams.get('project_id'), 'project'); assert.equal(url.searchParams.get('sprint_id'), 'sprint-a');
     assert.equal(url.searchParams.get('include_page'), 'true'); assert.equal(await endpoint.evaluate(element => element.readOnly), true);
-    await page.getByRole('combobox', { name: 'Sprint', exact: true }).selectOption('sprint-b');
+    await page.getByRole('combobox', { name: 'Sprint', exact: true }).click();
+    await page.getByRole('option', { name: /Sprint B/ }).click();
     assert.equal(new URL(await endpoint.inputValue()).searchParams.get('sprint_id'), 'sprint-b', 'the URL reflects the current trigger, not the previously selected Sprint');
     await endpoint.scrollIntoViewIfNeeded(); await page.screenshot({ path: output + '/sprint-http-url.png', fullPage: true });
     for (const id of Object.keys(profiles)) {

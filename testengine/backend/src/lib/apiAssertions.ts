@@ -36,7 +36,10 @@ export function evaluateExtendedApiAssertion(preview: {response:{body_json:unkno
   }
   if (kind === 'header_present') return { passed: Object.prototype.hasOwnProperty.call(response.headers, String(target || 'content-type').toLowerCase()), actual: response.headers[String(target || 'content-type').toLowerCase()] ?? null, summary: Object.prototype.hasOwnProperty.call(response.headers, String(target || 'content-type').toLowerCase()) ? 'The response contains the expected header.' : `The response is missing header ${target || 'content-type'}.` };
   if (kind === 'body_not_contains') return { passed: !String(response.body_text).includes(expected || ''), actual: String(response.body_text), summary: 'Checked that the response omits the specified text.' };
-  if (kind === 'response_time') return { passed: compare(response.duration_ms, Number(expected), operator || 'lte'), actual: String(response.duration_ms), summary: `Response took ${response.duration_ms} ms; expected ${operator || 'lte'} ${expected} ms.` };
+  if (kind === 'response_time') {
+    const limit = Number(expected), valid = typeof expected === 'string' && expected.trim() !== '' && Number.isFinite(limit) && limit > 0;
+    return { passed: valid && compare(response.duration_ms, limit, operator || 'lte'), actual: String(response.duration_ms), summary: valid ? `Response took ${response.duration_ms} ms; expected ${operator || 'lte'} ${expected} ms.` : 'The expected response duration is missing or invalid after resolving test parameters. Supply a positive duration in milliseconds.' };
+  }
   return null;
 }
 

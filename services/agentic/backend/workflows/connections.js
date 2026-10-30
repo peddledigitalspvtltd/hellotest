@@ -53,6 +53,8 @@ const list = async (projectId) =>
       url: cleanUrl(row.url).toString(),
       authenticated: Boolean(row.builtin || row.secretEnv || row.encryptedSecret || row.encryptedHeaders),
       authenticationMode: row.builtin ? "current-user" : "managed-credential",
+      authType: row.builtin ? "current-user" : row.authType || "none",
+      ...(row.authType === 'basic' && row.username ? { username: row.username } : {}),
       methods: row.methods || ["GET", "HEAD"],
       tools: row.tools || [],
       toolDefinitions: (row.toolDefinitions || []).filter(tool => row.tools?.includes(tool.name)),

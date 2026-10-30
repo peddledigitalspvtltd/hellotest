@@ -57,7 +57,7 @@ const assisted = ({ capability, input, evidence, confidence, payload, aiReview =
   };
 };
 
-const previewRequirementImpact = async ({ user, requirementId, proposedChange, integrationId, promptGuidance, assuranceBaseline, additionalContext }) => {
+const previewRequirementImpact = async ({ user, requirementId, proposedChange, integrationId, promptGuidance, assuranceBaseline, additionalContext, reviewPurpose = 'change-impact' }) => {
   const scope = await requireEntityPermission({ user, permissionCode: "requirement.ai", entityType: "requirement", entityId: requirementId });
   const requirement = await db.prepare("SELECT * FROM requirements WHERE id = ?").get(requirementId);
   const access = await getOptionalEvidenceAccess(user, scope.projectId, ["testcase.view", "suite.view", "run.view", "automation.view"]);
@@ -87,17 +87,36 @@ const previewRequirementImpact = async ({ user, requirementId, proposedChange, i
       WHERE requirement_test_cases.requirement_id = ? AND automation_learning_cache.project_id = ? ORDER BY automation_learning_cache.updated_at DESC
     `).all(requirementId, scope.projectId) : []
   ]);
+  // Give the reviewer real case content rather than asking it to infer
+  // behavioral impact from linked titles. Retrieve only bounded, authorized
+  // cases and preserve the full server-owned relationship list for the UI.
+  const detailedCaseIds = testCases.slice(0, 6).map(item => item.id);
+  const linkedSteps = detailedCaseIds.length ? await db.prepare(`
+    SELECT test_steps.* FROM test_steps
+    JOIN test_cases ON test_cases.id = test_steps.test_case_id
+    JOIN app_types ON app_types.id = test_cases.app_type_id
+    WHERE test_steps.test_case_id IN (${detailedCaseIds.map(() => '?').join(',')}) AND app_types.project_id = ?
+    ORDER BY test_steps.test_case_id, test_steps.step_order
+  `).all(...detailedCaseIds, scope.projectId) : [];
+  const stepsByCase = new Map(detailedCaseIds.map(id => [id, linkedSteps.filter(step => step.test_case_id === id)]));
   const proposedPriority = Number(proposedChange?.priority);
   const priority = Number.isInteger(proposedPriority) && proposedPriority >= 1 && proposedPriority <= 5 ? proposedPriority : requirement.priority;
   const riskScore = Math.min(100, (Number(priority || 3) <= 2 ? 35 : 15) + Math.min(testCases.length * 8, 32) + Math.min(runs.length * 6, 24) + (automation.length ? 9 : 0));
   const riskLevel = riskScore >= 65 ? "high" : riskScore >= 30 ? "medium" : "low";
   const evidence = [requirement, ...testCases, ...suites, ...runs, ...automation].map((item) => `${item.display_id || item.id}`);
-  const aiReview = await reviewArtifact({ artifactType: "story", reviewPurpose: 'change-impact', savedArtifact: requirement, proposedChange,
-    baseline: assuranceBaseline, linkedEvidence: testCases.map(item => reference(item, "test-case")), user,
+  const aiReview = await reviewArtifact({ artifactType: "story", reviewPurpose, savedArtifact: requirement, proposedChange,
+    baseline: assuranceBaseline, linkedEvidence: [
+      ...testCases.slice(0, 8).map(item => ({ ...item, kind: 'test-case', ...(stepsByCase.has(item.id) ? { steps: stepsByCase.get(item.id) } : {}) })),
+      ...suites.slice(0, 4).map(item => reference(item, 'test-suite')),
+      ...runs.slice(0, 4).map(item => ({ ...reference(item, 'execution'), context: { status: item.status || null, relationship: 'contains_linked_test_case', results_included: false } })),
+      ...automation.slice(0, 4).map(item => ({ ...reference(item, 'automation-asset'), title: item.locator_intent, context: { test_case_id: item.test_case_id, locator_kind: item.locator_kind, confidence: item.confidence, execution_verified: false } }))
+    ], evidenceBoundary: { totals: { test_cases: testCases.length, test_suites: suites.length, test_runs: runs.length, automation_assets: automation.length },
+      included: { test_cases: Math.min(testCases.length, 8), test_case_step_sets: detailedCaseIds.length, test_suites: Math.min(suites.length, 4), test_runs: Math.min(runs.length, 4), automation_assets: Math.min(automation.length, 4) },
+      unavailable_sources: Object.keys(access).filter(key => !access[key]) }, user,
     projectId: scope.projectId, integrationId, promptGuidance, additionalContext });
   return assisted({
-    capability: "requirement-change-impact-preview",
-    input: { requirement_id: requirementId, proposed_change: proposedChange, integration_id: integrationId, prompt_guidance: promptGuidance, assurance_baseline: assuranceBaseline, additional_context: additionalContext },
+    capability: reviewPurpose === 'assurance' ? 'story-assurance-preview' : 'requirement-change-impact-preview',
+    input: { requirement_id: requirementId, review_purpose: reviewPurpose, proposed_change: proposedChange, integration_id: integrationId, prompt_guidance: promptGuidance, assurance_baseline: assuranceBaseline, additional_context: additionalContext },
     aiReview,
     evidence,
     confidence: testCases.length ? 0.82 : 0.58,
@@ -118,7 +137,7 @@ const previewRequirementImpact = async ({ user, requirementId, proposedChange, i
   });
 };
 
-const previewTestCaseImpact = async ({ user, testCaseId, proposedChange, integrationId, promptGuidance, assuranceBaseline, additionalContext }) => {
+const previewTestCaseImpact = async ({ user, testCaseId, proposedChange, integrationId, promptGuidance, assuranceBaseline, additionalContext, reviewPurpose = 'change-impact' }) => {
   const scope = await requireEntityPermission({ user, permissionCode: "testcase.ai", entityType: "test_case", entityId: testCaseId });
   const testCase = await db.prepare("SELECT * FROM test_cases WHERE id = ?").get(testCaseId);
   const access = await getOptionalEvidenceAccess(user, scope.projectId, ["requirement.view", "suite.view", "run.view", "automation.view"]);
@@ -132,12 +151,19 @@ const previewTestCaseImpact = async ({ user, testCaseId, proposedChange, integra
   const lowConfidence = automation.filter((item) => Number(item.confidence || 0) < 0.75);
   const signals = [Number(testCase.priority || 3) <= 2 ? "High-priority test case." : null, runs.some((item) => ["queued", "running"].includes(item.status)) ? "Included in a queued or active run." : null, testCase.automation_status === "incomplete" ? "Automation is incomplete." : null, lowConfidence.length ? `${lowConfidence.length} locator dependency item(s) have confidence below 75%.` : null, requirements.length || !access["requirement.view"] ? null : "No linked requirement was found."].filter(Boolean);
   const evidence = [testCase, ...requirements, ...suites, ...runs, ...automation].map((item) => item.display_id || item.id);
-  const aiReview = await reviewArtifact({ artifactType: "test-case", reviewPurpose: 'change-impact', savedArtifact: { ...testCase, steps }, proposedChange,
-    baseline: assuranceBaseline, linkedEvidence: requirements.map(item => ({ ...item, kind: "requirement" })), user,
+  const aiReview = await reviewArtifact({ artifactType: "test-case", reviewPurpose, savedArtifact: { ...testCase, steps }, proposedChange,
+    baseline: assuranceBaseline, linkedEvidence: [
+      ...requirements.slice(0, 6).map(item => ({ ...item, kind: 'requirement' })),
+      ...suites.slice(0, 4).map(item => reference(item, 'test-suite')),
+      ...runs.slice(0, 4).map(item => ({ ...reference(item, 'execution'), context: { status: item.status || null, relationship: 'contains_reviewed_test_case', results_included: false } })),
+      ...automation.slice(0, 4).map(item => ({ ...reference(item, 'automation-asset'), title: item.locator_intent, context: { locator_kind: item.locator_kind, confidence: item.confidence, execution_verified: false } }))
+    ], evidenceBoundary: { totals: { requirements: requirements.length, test_suites: suites.length, test_runs: runs.length, automation_assets: automation.length },
+      included: { requirements: Math.min(requirements.length, 6), test_suites: Math.min(suites.length, 4), test_runs: Math.min(runs.length, 4), automation_assets: Math.min(automation.length, 4) },
+      unavailable_sources: Object.keys(access).filter(key => !access[key]) }, user,
     projectId: scope.projectId, integrationId, promptGuidance, additionalContext });
   return assisted({
-    capability: "test-case-change-impact-preview",
-    input: { test_case_id: testCaseId, proposed_change: proposedChange, integration_id: integrationId, prompt_guidance: promptGuidance, assurance_baseline: assuranceBaseline, additional_context: additionalContext },
+    capability: reviewPurpose === 'assurance' ? 'test-case-assurance-preview' : 'test-case-change-impact-preview',
+    input: { test_case_id: testCaseId, review_purpose: reviewPurpose, proposed_change: proposedChange, integration_id: integrationId, prompt_guidance: promptGuidance, assurance_baseline: assuranceBaseline, additional_context: additionalContext },
     aiReview,
     evidence,
     confidence: evidence.length > 1 ? 0.82 : 0.58,

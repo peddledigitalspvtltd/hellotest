@@ -2,10 +2,11 @@ const db = require('@hellotest/platform/backend/src/db');
 const { getOptionalEvidenceAccess } = require('@hellotest/platform/backend/services/optionalEvidenceAccess.service');
 const testSteps = require('@hellotest/testing/backend/services/testStep.service');
 const { normalizeFlowPlan } = require('../lib/automationFlowPlanning');
+const { resolveAutomationCaseSteps, storedAutomationCaseType } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 
 /** Persist only draft manual steps; code still requires the per-section execution/save gate. */
 async function saveFlowPlan({ testCase, steps, userId, executionGuard, assertSources }) {
-  const allowedTypes=testCase.app_type_kind==='unified'?['web','api','android','ios']:[testCase.app_type_kind||'web'];
+  const allowedTypes=resolveAutomationCaseSteps(testCase, [], {appTypeKind:testCase.app_type_kind}).allowed_step_types;
   const proposed=normalizeFlowPlan({flow_steps:steps},{allowedTypes});
   return db.transaction(async () => {
     const permissions=['automation.ai','automation.build','testcase.update',...(proposed.some(step=>['android','ios'].includes(step.step_type))?['mobile.manage']:[])];
@@ -21,6 +22,7 @@ async function saveFlowPlan({ testCase, steps, userId, executionGuard, assertSou
       || Number(current.revision) !== Number(testCase.revision) || (current.automation_start_url || null) !== (testCase.automation_start_url || null) || existing.length) {
       throw Object.assign(new Error('The automation case changed while its manual flow was being planned. Existing edits were retained; refresh before building again.'), { code: 'AUTOMATION_FLOW_BASELINE_CHANGED', statusCode: 409, nonRetryable: true });
     }
+    if (storedAutomationCaseType(current) !== storedAutomationCaseType(testCase)) throw Object.assign(new Error('The automation case type changed while its manual flow was being planned. Existing edits were retained.'), { code: 'AUTOMATION_FLOW_BASELINE_CHANGED', statusCode: 409, nonRetryable: true });
     await assertSources?.();
     await assertAccess();
     await testSteps.createTestSteps({ test_case_id: testCase.id, insertion_index: 0, steps:proposed });

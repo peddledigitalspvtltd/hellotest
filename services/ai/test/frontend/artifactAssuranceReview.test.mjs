@@ -15,9 +15,21 @@ test("AI narrative cannot replace measured assurance scores, statuses, evidence 
   assert.equal(refined.evidence_count, original.evidence_count);
   assert.deepEqual(refined.benchmark, original.benchmark);
   assert.equal(refined.dimensions.length, original.dimensions.length);
-  assert.deepEqual({ ...refined.dimensions[0], explanation: dimension.explanation, recommendation: dimension.recommendation }, dimension);
+  const { review_evidence, ...measured } = refined.dimensions[0];
+  assert.deepEqual({ ...measured, explanation: dimension.explanation, recommendation: dimension.recommendation }, dimension);
+  assert.deepEqual(review_evidence, ['invented'], 'The API validates model citations; the merge displays them separately from measured signals');
   assert.match(refined.dimensions[0].explanation, /after reload/);
   assert.ok(refined.limitations.includes("No runtime evidence supplied."));
   assert.deepEqual(baseline, original);
   assert.strictEqual(mergeAssuranceReview(baseline), baseline);
+});
+
+test('an explicit empty AI findings list clears baseline suggestions and never replaces the measured verdict', () => {
+  const baseline = buildStoryAssuranceAnalysis({ title: 'Invoice approval', description: 'An approver verifies an invoice.', acceptanceCriteria: [], linkedCaseCount: 0, hasDeliveryContext: false });
+  assert.ok(baseline.insights.length > 0);
+  const refined = mergeAssuranceReview(baseline, { summary: 'No supported additional gap.', verdict: 'Approved with 100% certainty', dimensions: [], insights: [] });
+  assert.deepEqual(refined.insights, []);
+  assert.equal(refined.verdict, baseline.verdict);
+  assert.equal(refined.overall_score, baseline.overall_score);
+  assert.deepEqual(mergeAssuranceReview(baseline, { summary: 'Partial legacy review' }).insights, baseline.insights, 'An absent field remains backward compatible');
 });

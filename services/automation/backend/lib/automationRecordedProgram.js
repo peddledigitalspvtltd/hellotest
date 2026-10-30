@@ -2,6 +2,7 @@ const { parseExpressionAt } = require('acorn');
 const { normalizeParameterKey } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const { nativeConstraintValiditySource } = require('./automationNativeValidity');
 const { fieldValidationStateSource } = require('./automationFieldValidity');
+const {compositeParameterSource,hasInvalidParameterTemplate}=require('./automationParameterTemplates');
 
 const MAX_SOURCE = 64_000, MAX_OPERATIONS = 250, MAX_STRING = 2_000;
 const methods = new Map([
@@ -99,9 +100,10 @@ const valueSource = value => {
   const [scope,...parts]=key.split('.'),name=parts.join('.');
   return quoted(/^[a-z][a-z0-9_-]*$/i.test(name)?`@${key}`:`@${scope}.[${name.replace(/\\/g,'\\\\').replace(/\]/g,'\\]')}]`);
 };
-const normalizedValueSource = value => parameterKey(value) ? `String(params[${quoted(parameterKey(value))}]).replace(/\\s+/g, " ").trim()` : quoted(normalizeText(value));
+const normalizedValueSource = value => parameterKey(value) ? `String(params[${quoted(parameterKey(value))}]).replace(/\\s+/g, " ").trim()` : compositeParameterSource(value) ? `${compositeParameterSource(value)}.replace(/\\s+/g, " ").trim()` : quoted(normalizeText(value));
 
 function assertionSource(args, { target: reusedTarget, readers = {} } = {}) {
+  if(['text','text_contains','text_content','text_content_contains','title','title_normalized'].includes(args.assertion)&&hasInvalidParameterTemplate(args.value))return null;
   const page = pageAssertions.has(args.assertion), needsValue = valueAssertions.has(args.assertion);
   const keys = ['assertion', ...(page ? [] : ['locator']), ...(needsValue ? ['value'] : [])];
   if (Object.keys(args).length !== keys.length || keys.some(key => !Object.hasOwn(args, key))) return null;
@@ -147,8 +149,8 @@ function compileRecordedProgram(requests, { layout = 'compact' } = {}) {
     const args = request.arguments; let source;
     if (request.name === 'browser_navigate') {
       if (Object.keys(args).length !== 1 || !Object.hasOwn(args, 'url')) return null;
-      try { const url = new URL(args.url); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null; } catch { return null; }
-      source = `await page.goto(${quoted(args.url)});`;
+      if(!parameterKey(args.url))try { const url = new URL(args.url); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null; } catch { return null; }
+      source = `await page.goto(${valueSource(args.url)});`;
     } else if (actions.has(request.name)) {
       const field = request.name === 'browser_press_key' ? 'key' : ['browser_fill', 'browser_select_option'].includes(request.name) ? 'value' : null;
       if (Object.keys(args).length !== (field ? 2 : 1) || !Object.hasOwn(args, 'locator') || field && !Object.hasOwn(args, field)) return null;

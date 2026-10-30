@@ -9,7 +9,7 @@ import { assertRemoteInspectionUrl } from "./inspectionSecurity.js";
 import { createPlaywrightCodeBindings } from "./playwrightBindings.js";
 import { captureAutomationBrowserSnapshot } from "./automationMcp.js";
 import { resolveRepositoryLocator } from "./repositoryLocator.js";
-import { compileRecordedProgram, parameterKey } from "./automationVerificationProgram.js";
+import { compileRecordedProgram, parameterKey, parameterTemplateParts, hasInvalidParameterTemplate } from "./automationVerificationProgram.js";
 import { normalizeScopedParameterKey } from "./stepParameterReferences.js";
 
 type Operation = { name: string; arguments: Record<string, string>; navigation_intent?: "reload" };
@@ -81,7 +81,10 @@ export function validateAutomationVerificationRequest(input: unknown): Automatio
         if (!record(operation) || !exactKeys(operation, ["name", "arguments", "navigation_intent"], ["name", "arguments"])
           || !string(operation.name, 64) || !record(operation.arguments)
           || operation.navigation_intent !== undefined && (operation.name !== "browser_navigate" || operation.navigation_intent !== "reload")) throw invalid();
-        if (operation.name === "browser_navigate" && new URL(operation.arguments.url).origin !== origin) throw invalid();
+        if (operation.name === "browser_navigate") {
+          const target=new URL(input.parameters[parameterKey(operation.arguments.url)||""]??operation.arguments.url);
+          if(!['http:','https:'].includes(target.protocol)||target.username||target.password||target.origin!==origin)throw invalid();
+        }
         if (operation.name === "browser_assert" && operation.arguments.assertion === "url" && new URL(input.parameters[parameterKey(operation.arguments.value) || ""] ?? operation.arguments.value).origin !== origin) throw invalid();
       }
       const compiled = compileRecordedProgram(section.operations);
@@ -91,9 +94,13 @@ export function validateAutomationVerificationRequest(input: unknown): Automatio
       // A missing frozen binding is a preparation error, never a generator or
       // literal reference to type into the application. Empty values are valid.
       for (const operation of section.operations) {
-        for (const field of ["value", "key"]) {
+        for (const field of ["value", "key", "url"]) {
           const key = parameterKey(operation.arguments[field]);
           if (key && !Object.hasOwn(input.parameters, key)) throw invalid();
+        }
+        if (operation.name==='browser_assert' && ['text','text_contains','text_content','text_content_contains','title','title_normalized'].includes(operation.arguments.assertion)) {
+          if (hasInvalidParameterTemplate(operation.arguments.value)) throw invalid();
+          for (const part of parameterTemplateParts(operation.arguments.value)||[]) if ('key' in part && !Object.hasOwn(input.parameters,part.key)) throw invalid();
         }
       }
     }
@@ -150,7 +157,21 @@ export async function runAutomationVerification(input: AutomationVerificationReq
     context.on("page", candidate => { if (candidate !== page) void candidate.close(); });
     const parameters = Object.freeze(Object.assign(Object.create(null), request.parameters)) as Record<string, string>;
     const bindings = createPlaywrightCodeBindings(page, { assertionTimeout: Math.min(8_000, remaining()), resolveLocator: value => value, resolveUrl: value => value,
-      interpolate: value => { const key = parameterKey(value); return key ? parameters[key] : value; } });
+      interpolate: value => {
+        const key = parameterKey(value);
+        if (key) return parameters[key];
+        // Direct text matchers retain their original template. Resolve its
+        // authorized references once; inserted test data stays literal even
+        // when that data itself resembles another parameter reference.
+        if (active?.operation.name !== "browser_assert" || !["text_content", "text_content_contains", "title", "title_normalized"].includes(active.operation.arguments.assertion)) return value;
+        if (hasInvalidParameterTemplate(value)) throw invalid();
+        const parts = parameterTemplateParts(value);
+        return parts ? parts.map(part => {
+          if ("literal" in part) return part.literal;
+          if (!Object.hasOwn(parameters, part.key)) throw invalid();
+          return parameters[part.key];
+        }).join("") : value;
+      } });
     await page.goto(request.start_url, { waitUntil: "domcontentloaded", timeout: remaining() });
     for (const section of request.sections) {
       for (let index = 0; index < section.operations.length; index++) {

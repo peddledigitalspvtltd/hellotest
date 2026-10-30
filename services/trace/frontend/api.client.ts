@@ -1,4 +1,5 @@
 import { request, toQueryString } from "@hellotest/platform/frontend/src/lib/httpClient";
+export type { LlmTrace, LlmTracePage } from './llmTraceTypes';
 
 
 

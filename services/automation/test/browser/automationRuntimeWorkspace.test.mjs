@@ -14,7 +14,7 @@ test('actual automation workspace presents runtime-specific authoring and record
  fixture=fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';", "import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';").replace('element:<TestCasesPage/>','element:<AutomationPage/>');
  fixture=fixture.replace("import '/src/catalog-list.css';", "import '/src/catalog-list.css';import '/src/product-experience.css';");
  fixture=fixture.replace('const client=new QueryClient',`const runtime=new URLSearchParams(location.search).get('runtime')||'web';
- api.appTypes.list=async()=>[{id:'a',project_id:'p',name:runtime,type:runtime}];item.automated='yes';item.automation_status='ready';
+ api.appTypes.list=async()=>[{id:'a',project_id:'p',name:runtime,type:runtime}];item.automated='yes';item.automation_status='ready';item.automation_start_url='https://app.test';item.automation_case_type=runtime;
  steps.forEach(step=>{step.step_type=runtime;step.automation_code=runtime==='api'?'':runtime==='web'?'await page.goto("https://app.test");':'await '+runtime+'.tap("~login");';step.api_request=runtime==='api'?{method:'GET',url:'https://app.test/status',validations:[{kind:'status',expected:'200'}]}:null;});
  window.stepUpdates=[];api.testSteps.update=async(id,input)=>{window.stepUpdates.push(input);const target=steps.find(step=>step.id===id);Object.assign(target,input);return {...target};};
  const client=new QueryClient`);

@@ -51,7 +51,7 @@ test("Story creation fallback is evidence-preserving and creates nothing without
   assert.doesNotMatch(draft.description, /required access|expected outcome is observable/i);
 });
 
-test("Story candidate normalization removes forged refs and exposes field grounding gaps", () => {
+test("Story candidate normalization requires grounded title, description and acceptance criteria", () => {
   const defaults = {
     externalLinks: ["https://provided.test/spec"],
     priority: 3,
@@ -67,7 +67,7 @@ test("Story candidate normalization removes forged refs and exposes field ground
   }, 0, defaults);
   assert.equal(rejected, null, "unsupported core prose must not be returned for rendering");
 
-  const candidate = internals.normalizeRequirementCreationCandidate({
+  const ungrounded = {
     client_id: "draft-2",
     title: "Approve invoices",
     description: "A finance reviewer approves a reviewed invoice.",
@@ -83,6 +83,11 @@ test("Story candidate normalization removes forged refs and exposes field ground
       status: [],
       acceptance_criteria: []
     }
+  };
+  assert.equal(internals.normalizeRequirementCreationCandidate(ungrounded, 1, defaults), null,
+    "A candidate without supported mandatory acceptance criteria must not be returned as a complete Story");
+  const candidate = internals.normalizeRequirementCreationCandidate({ ...ungrounded,
+    field_evidence: { ...ungrounded.field_evidence, acceptance_criteria: ["user-guidance:story-brief"] }
   }, 1, defaults);
 
   assert.deepEqual(candidate.evidence_refs, ["user-guidance:story-brief"]);
@@ -90,10 +95,11 @@ test("Story candidate normalization removes forged refs and exposes field ground
   assert.deepEqual(candidate.external_references, ["https://provided.test/spec"]);
   assert.equal(candidate.priority, 3);
   assert.equal(candidate.status, "open");
-  assert.deepEqual(candidate.acceptance_criteria, []);
-  assert.deepEqual(candidate.unsupported_fields, ["acceptance criteria"]);
-  assert.equal(candidate.evaluation.grounding, "partially-grounded");
-  assert.match(candidate.limitations[0], /acceptance criteria/);
+  assert.deepEqual(candidate.acceptance_criteria, ["Approval records the reviewer and timestamp."]);
+  assert.deepEqual(candidate.unsupported_fields, []);
+  assert.equal(candidate.evaluation.grounding, "grounded");
+  assert.deepEqual(candidate.limitations, []);
+  assert.equal(internals.normalizeRequirementCreationCandidate({ ...ungrounded, description: "" }, 1, defaults), null);
 });
 
 test("Story evidence uses stable common fields and identifies pointer-only references", () => {
@@ -152,9 +158,8 @@ test("Story completion discards unsupported changed fields and routes enforce bo
 
   assert.match(serviceSource, /Unsupported model changes were discarded for:/);
   assert.match(serviceSource, /proposedTitle !== requirement\.title && !fieldEvidence\.title\.length \? requirement\.title/);
-  assert.match(serviceSource, /proposedAcceptanceCriteria\.length && !fieldEvidence\.acceptance_criteria\.length \? \[\]/);
-  assert.match(serviceSource, /item\.type === "reference-image"/);
-  assert.match(serviceSource, /item\.trust = "manual-review-only"/);
+  assert.match(serviceSource, /acceptanceCriteriaChanged && !fieldEvidence\.acceptance_criteria\.length \? savedAcceptanceCriteria/);
+  assert.match(serviceSource, /validateNativeArtifactOutput\("ai\.requirement\.optimization", normalizedSuggestion\)/);
   assert.match(serviceSource, /review_status: "awaiting_review"/);
   assert.match(serviceSource, /requires_human_review: true/);
   assert.match(serviceSource, /preview_only: true/);

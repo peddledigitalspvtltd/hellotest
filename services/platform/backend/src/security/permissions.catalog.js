@@ -578,6 +578,8 @@ const ROUTE_PERMISSION_RULES = [
   ["GET", "/agentic-assistant/sessions/:id", "agentic_workflow.view"],
   ["GET", "/agentic-workflow-runs", "agentic_workflow.view"],
   ["GET", "/agentic-workflow-runs/:id", "agentic_workflow.view"],
+  ["GET", "/agentic-workflow-runs/:id/nodes/:nodeId/model-calls", "ops.view"],
+  ["GET", "/agentic-workflow-runs/:id/nodes/:nodeId/model-calls/:callId", "ops.view"],
   ["GET", "/executions", "run.view"],
   ["GET", "/executions/history", "run.view"],
   ["GET", "/executions/:id", "run.view"],

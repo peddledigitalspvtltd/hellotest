@@ -13,6 +13,7 @@ const { DOMAIN_METADATA, TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } =
 const displayIdService = require("@hellotest/platform/backend/services/displayId.service");
 const {
   normalizeApiRequest,
+  validateAuthoredApiRequest,
   normalizeRichText,
   normalizeTestStepType
 } = require("@hellotest/platform/backend/src/utils/testStepAutomation");
@@ -21,6 +22,7 @@ const { groupRows, placeholdersFor, uniqueIds } = require("@hellotest/platform/b
 const { normalizeDataOptions } = require("@hellotest/platform/backend/src/utils/scopedTestData");
 const { setGherkinFeatureTitle } = require("@hellotest/platform/backend/src/utils/gherkinFeatureTitle");
 const { normalizeAutomationStartUrl, requiresAutomationStartUrl } = require("@hellotest/platform/backend/src/utils/automationStartUrl");
+const { storedAutomationCaseType, resolveAutomationCaseType, resolveAutomationCaseSteps } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 const {normalizeParameterLayer}=require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 
 // Removing an authored own value restores its supplying layer's precedence.
@@ -349,6 +351,7 @@ const hydrateTestCases = async (testCases) => {
       parameter_values: normalizeParameterValues(testCase.parameter_values),
       execution_hooks: require("./caseExecutionHooks.service").normalizeCaseExecutionHooks(testCase.execution_hooks),
       test_data_options: normalizeDataOptions(testCase.test_data_options || {}, testCase.automated === "yes" ? "sections" : "steps"),
+      automation_case_type: testCase.automated === 'yes' ? storedAutomationCaseType(testCase) : null,
       review_history: normalizeReviewHistory(testCase.review_history),
       author_id: testCase.author_id || testCase.created_by || null,
       suite_ids: (suitesByCase.get(testCase.id) || []).map((row) => row.suite_id),
@@ -799,7 +802,7 @@ const normalizeSteps = (steps = []) => {
       expected_result: normalizeText(step?.expected_result || step?.expectedResult),
       step_type: normalizeTestStepType(step?.step_type || step?.stepType, "web"),
       automation_code: normalizeRichText(step?.automation_code || step?.automationCode),
-      api_request: normalizeApiRequest(step?.api_request || step?.apiRequest),
+      api_request: normalizeApiRequest(validateAuthoredApiRequest(step?.api_request || step?.apiRequest, {stepOrder:index+1})),
       group_id: normalizeText(step?.group_id || step?.groupId),
       group_name: normalizeText(step?.group_name || step?.groupName),
       group_kind: normalizeGroupKind(step?.group_kind || step?.groupKind || (step?.group_id || step?.groupId ? "local" : null)),
@@ -1012,7 +1015,7 @@ const finalizeImportedSteps = (steps = []) => {
         expected_result: normalizeText(step?.expected_result || step?.expectedResult),
         step_type: normalizeTestStepType(step?.step_type || step?.stepType, "web"),
         automation_code: normalizeRichText(step?.automation_code || step?.automationCode),
-        api_request: normalizeApiRequest(step?.api_request || step?.apiRequest),
+        api_request: normalizeApiRequest(validateAuthoredApiRequest(step?.api_request || step?.apiRequest, {stepOrder:index+1})),
         group_id: currentGroupId,
         group_name: groupName,
         group_kind: groupKind,
@@ -1191,6 +1194,7 @@ const createPersistablePayload = async ({
   labels,
   automated,
   automation_status,
+  automation_case_type,
   automation_start_url,
   manual_test_case_id,
   manual_test_case_ids = [],
@@ -1253,6 +1257,9 @@ const createPersistablePayload = async ({
 
   const normalizedSteps = normalizeSteps(steps);
   const normalizedAutomated = normalizeAutomated(automated);
+  const casePlatform = normalizedAutomated === 'yes'
+    ? resolveAutomationCaseSteps({ automation_case_type, test_data_options }, Array.isArray(steps) ? steps : [], { appTypeKind: resolvedAppType?.type })
+    : null;
   const resolvedManualTestCaseIds = await ensureManualTestCaseLinks({
     manualTestCaseIds: [manual_test_case_id, ...manual_test_case_ids],
     appTypeId: resolvedAppTypeId,
@@ -1285,7 +1292,7 @@ const createPersistablePayload = async ({
     suite_ids: resolvedSuiteIds,
     requirement_ids: resolvedRequirementIds,
     test_data_set_ids: resolvedDataSetIds,
-    test_data_options: caseDataOptions(test_data_options,normalizeParameterValues(parameter_values)),
+    test_data_options: caseDataOptions({ ...normalizeDataOptions(test_data_options), ...(casePlatform ? { automation_case_type: casePlatform.automation_case_type } : {}) },normalizeParameterValues(parameter_values)),
     title: resolvedTitle,
     description: normalizeText(description),
     external_references: normalizeReferenceList(external_references),
@@ -1294,7 +1301,7 @@ const createPersistablePayload = async ({
     execution_hooks: await require("./caseExecutionHooks.service").validateCaseExecutionHooks(execution_hooks, {projectId:resolvedAppType?.project_id,appTypeId:resolvedAppTypeId}),
     automated: normalizedAutomated,
     automation_start_url: normalizeAutomationStartUrl(automation_start_url === undefined && previousSourceCase ? previousSourceCase.automation_start_url : automation_start_url, {
-      required: !previousSourceCase && normalizedAutomated === "yes" && requiresAutomationStartUrl({ appTypeKind: resolvedAppType?.type, steps: normalizedSteps })
+      required: !previousSourceCase && normalizedAutomated === "yes" && requiresAutomationStartUrl({ appTypeKind: casePlatform.automation_case_type, steps: casePlatform.steps })
     }),
     automation_status: normalizeAutomationStatus(
       automation_status,
@@ -1883,7 +1890,7 @@ exports.getTestCasesForRequirements = async ({ app_type_id, requirement_ids = []
 
 exports.getTestCase = async (id) => {
   const testCase = await db.prepare(`
-    SELECT test_cases.*,
+    SELECT test_cases.*, (SELECT type FROM app_types WHERE app_types.id=test_cases.app_type_id) AS app_type_kind,
       COALESCE((SELECT MAX(version.revision) FROM test_case_versions version
         WHERE version.test_case_id = test_cases.id), 0) + 1 AS revision
     FROM test_cases
@@ -2005,13 +2012,20 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
     author_id: requestedAuthorId,
     updated_by: normalizeText(data.updated_by) || existing.updated_by || existing.created_by || null
   };
+  if (payload.automated === 'yes') {
+    const platform = resolveAutomationCaseSteps({
+      automation_case_type: data.automation_case_type ?? storedAutomationCaseType({ test_data_options: data.test_data_options }) ?? storedAutomationCaseType(existing),
+      test_data_options: payload.test_data_options
+    }, data.steps !== undefined ? data.steps : await selectStepsForTestCase.all(id), { appTypeKind: finalAppType?.type });
+    payload.test_data_options.automation_case_type = platform.automation_case_type;
+  }
   if (data.automation_start_url !== undefined) {
     payload.automation_start_url = normalizeAutomationStartUrl(data.automation_start_url, {
       // Existing cases may predate the Start URL contract. Normal edits keep
       // that nullable value; only a trusted version restore may clear it.
       required: !preserveLegacyAutomationStartUrl && payload.automated === "yes" && requiresAutomationStartUrl({
-        appTypeKind: finalAppType?.type,
-        steps: payload.steps !== null ? payload.steps : await selectStepsForTestCase.all(id)
+        appTypeKind: payload.test_data_options.automation_case_type,
+        steps: resolveAutomationCaseSteps({ test_data_options: payload.test_data_options }, payload.steps !== null ? payload.steps : await selectStepsForTestCase.all(id), { appTypeKind: finalAppType?.type }).steps
       })
     });
   }

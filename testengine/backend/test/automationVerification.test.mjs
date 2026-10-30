@@ -9,12 +9,21 @@ import {validateAutomationVerificationRequest,registerAutomationVerification} fr
 const require=createRequire(import.meta.url),{compileRecordedProgram:hostCompile}=require('../../../services/automation/backend/lib/automationRecordedProgram.js');
 const op=(name,args)=>({name,arguments:args});
 const operations=[op('browser_fill',{locator:'#name',value:'@r.name'}),op('browser_assert',{assertion:'field_valid',locator:'#name'}),op('browser_assert',{assertion:'value',locator:'#name',value:'@r.name'})];
-const input=()=>({schema_version:1,verification_id:randomUUID(),lease_token:randomUUID(),start_url:'https://fixture.test/form',parameters:{'r.name':''},sections:[{step_id:'one',automation_code:compile(operations).source,operations}],replay_policy:{mode:'authorized_run',allow_mutations:true}});
+const input=()=>({schema_version:1,verification_id:randomUUID(),lease_token:randomUUID(),start_url:'https://fixture.test/form',parameters:{'r.name':''},sections:[{step_id:'one',automation_code:compile(operations).source,operations:structuredClone(operations)}],replay_policy:{mode:'authorized_run',allow_mutations:true}});
 
 test('engine and host compile the identical closed program, including validation predicates and parameter binding',()=>{
- const cases=[operations,[op('browser_navigate',{url:'https://fixture.test/form'}),op('browser_assert',{assertion:'title_normalized',value:'Form'})],...['visible','hidden','enabled','disabled','checked','unchecked','valid','invalid','field_valid','editable'].map(assertion=>[op('browser_assert',{assertion,locator:'getByLabel("Name")'})]),...['value','text_content','text_content_contains','text','text_contains','count'].map(assertion=>[op('browser_assert',{assertion,locator:'#result',value:assertion==='count'?'0':'@r.name'})])];
+ const cases=[operations,[op('browser_navigate',{url:'https://fixture.test/form'}),op('browser_assert',{assertion:'title_normalized',value:'Form'})],...['@t.base_url','@s.[base URL]','params["r.url"]'].map(url=>[op('browser_navigate',{url}),op('browser_assert',{assertion:'title',value:'Form'})]),...['visible','hidden','enabled','disabled','checked','unchecked','valid','invalid','field_valid','editable'].map(assertion=>[op('browser_assert',{assertion,locator:'getByLabel("Name")'})]),...['value','text_content','text_content_contains','text','text_contains','count'].map(assertion=>[op('browser_assert',{assertion,locator:'#result',value:assertion==='count'?'0':'@r.name'})])];
  const syntax=value=>Array.isArray(value)?value.map(syntax):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).filter(([key])=>!['start','end','raw'].includes(key)).map(([key,item])=>[key,syntax(item)])):value;
  for(const rows of cases){const a=compile(rows),b=hostCompile(rows);assert.equal(Boolean(a),Boolean(b));if(a)assert.deepEqual(syntax(parse(a.source,{ecmaVersion:'latest',allowAwaitOutsideFunction:true})),syntax(parse(b.source,{ecmaVersion:'latest',allowAwaitOutsideFunction:true})));}
+});
+
+test('frozen navigation references validate their current URL and origin before any browser is opened',()=>{
+ const request=input();request.parameters['t.base_url']='https://fixture.test/changed';request.sections[0].operations.unshift(op('browser_navigate',{url:'@t.base_url'}));request.sections[0].automation_code=compile(request.sections[0].operations).source;
+ assert.equal(validateAutomationVerificationRequest(request).sections[0].operations[0].arguments.url,'@t.base_url');
+ for(const value of [undefined,'','file:///private','https://elsewhere.test/changed','https://user:password@fixture.test/changed']){
+  const bad=structuredClone(request);if(value===undefined)delete bad.parameters['t.base_url'];else bad.parameters['t.base_url']=value;
+  assert.throws(()=>validateAutomationVerificationRequest(bad));
+ }
 });
 test('shared readers and locators match the independently packaged compiler and both shipped source layouts verify exactly',()=>{
  const rows=['#name','#email'].flatMap(locator=>[op('browser_fill',{locator,value:'@r.name'}),op('browser_assert',{assertion:'value',locator,value:'@r.name'}),op('browser_assert',{assertion:'field_valid',locator})]);

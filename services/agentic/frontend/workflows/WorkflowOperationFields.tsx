@@ -20,6 +20,7 @@ export function WorkflowOperationFields({
   onChange: (patch: Partial<AgenticWorkflowNodeData>) => void;
 }) {
   const kind = String(data.kind);
+  const automation = kind === "artifactTask" && data.artifactTask === "automation-engineer";
   const usesConnection = [
     "apiTool",
     "apiAgent",
@@ -29,7 +30,7 @@ export function WorkflowOperationFields({
   const connections = useQuery({
     queryKey: ["workflow-connections", projectId],
     queryFn: () => agenticApi.agenticWorkflows.connections(projectId),
-    enabled: Boolean(projectId && usesConnection),
+    enabled: Boolean(projectId && (usesConnection || automation)),
     staleTime: 30000,
     refetchOnWindowFocus: "always",
     refetchOnMount: "always",
@@ -61,7 +62,7 @@ export function WorkflowOperationFields({
       <span>{label}</span>
       {multiline ? (
         <textarea
-          value={String(data[key] ?? "")}
+          value={typeof data[key] === "object" && data[key] !== null ? JSON.stringify(data[key], null, 2) : String(data[key] ?? "")}
           aria-label={label}
           placeholder={placeholder}
           rows={5}
@@ -115,8 +116,32 @@ export function WorkflowOperationFields({
           }}>Restore task defaults</button>
           <p className="studio-caption">Saved with this node. Project access, source traceability and output validation are always enforced. Shared model contracts and quality metrics are configurable in AI Controls.</p>
         </div>
-        {data.artifactTask === "automation-engineer" && <label className="studio-checkbox"><input type="checkbox" checked={data.inspectBrowser !== false} onChange={event => onChange({ inspectBrowser: event.target.checked })} /><span>Inspect the browser before building</span><small>Uses the trigger Start URL in read-only mode. API-only cases use their contracts directly.</small></label>}
-        {data.artifactTask === "automation-engineer" && <>
+        {data.artifactTask === "test-case-generation" && <div className="studio-parameter-group">
+          <h4>Case generation</h4>
+          <label><span>Test Cases per Story</span><input type="number" aria-label="Test Cases per Story" min={1} max={10} step={1}
+            value={String(data.maxCasesPerStory ?? triggerInput?.max_cases_per_story ?? 5)}
+            onChange={event => onChange({ maxCasesPerStory: event.target.value === "" ? "" : Number(event.target.value) })} /></label>
+          {select("authoringMode", "Test Case format", [["structured", "Structured steps"], ["gherkin", "Gherkin scenarios"]], String(triggerInput?.authoring_mode || "structured"))}
+          {field("generationInstructions", "Generation guidance (optional)", true, "Additional coverage or test data requirements")}
+          <p className="studio-caption">Uses the current Story title, description and acceptance criteria. Saved cases are AI generated and pending review.</p>
+        </div>}
+        {automation && <div className="studio-parameter-group">
+          <h4>Application and test data</h4>
+          {field("automationStartUrl", "Application URL", false, "https://your-application.example")}
+          {field("automationUsername", "Username (optional)", false)}
+          <label><span>Password connection</span><select aria-label="Password connection" value={String(data.automationCredentialId || "")} onChange={event => onChange({ automationCredentialId: event.target.value })}>
+            <option value="">No password · use case parameters</option>
+            {data.automationCredentialId && !connections.data?.some(item => item.id === data.automationCredentialId && item.authType === "basic") ? <option value={String(data.automationCredentialId)}>Unavailable credential · choose another</option> : null}
+            {connections.data?.filter(item => item.kind === "http" && item.authType === "basic" && item.authenticated).map(item => <option key={item.id} value={item.id}>{item.name}{item.username ? ` · ${item.username}` : ""}</option>)}
+          </select></label>
+          <div className="studio-parameter-actions"><Link to="/integrations?provider=http" target="_blank" rel="noreferrer" className="studio-caption">Manage passwords</Link><button type="button" className="ghost-button compact" disabled={connections.isFetching} onClick={() => void connections.refetch()}><IconRefresh size={14} />Refresh</button></div>
+          {connections.isError ? <p role="alert">Password connections could not be loaded. Refresh to retry.</p> : null}
+          <p className="studio-caption">Add an HTTP connection with Basic authentication for this application URL. Its protected password is supplied as @t.password; the username uses @t.username.</p>
+          {field("automationData", "Test data JSON", true, '{"invoice_id":"known-invoice","region":"EU"}')}
+          <p className="studio-caption">JSON object, up to 16 KB. Values override matching case parameters. Use parameter references for sensitive data. Each case is built in order; failures preserve completed cases and continue.</p>
+        </div>}
+        {automation && <label className="studio-checkbox"><input type="checkbox" checked={data.inspectBrowser !== false} onChange={event => onChange({ inspectBrowser: event.target.checked })} /><span>Inspect the browser before building</span><small>Uses the application URL in read-only mode. API-only cases use their contracts directly.</small></label>}
+        {automation && <>
           {select("readinessPolicy", "Readiness handling", [["verify-inputs", "Automation Engineer verifies inputs"], ["require-ready", "Require a ready assurance assessment"]], "verify-inputs")}
           <p className="studio-caption">The builder checks prior findings against the selected Story. Missing dependencies and invalid automation remain explicit failures.</p>
         </>}
@@ -183,6 +208,7 @@ export function WorkflowOperationFields({
               : "Authenticated and private APIs require a managed connection."}
           </p>
           <Link to={kind === "mcpTool" ? "/mcp-servers" : "/integrations?provider=http"} target="_blank" rel="noreferrer" className="studio-caption">Manage this provider in Integrations</Link>
+          {data.apiResource === "sprintStories" && <Link to="/admin-space?section=settings#api-keys" target="_blank" rel="noreferrer" className="studio-caption">Settings → API Keys</Link>}
           {data.credentialId || data.apiAuth ? (
             <p className="studio-notice">
               This node has a legacy credential binding. Select a managed

@@ -47,6 +47,7 @@ module.exports = async function (fastify) {
     project_id: { required: false, type: "string", maxLength: 255 },
     integration_id: { required: false, type: "string", maxLength: 255 },
     additional_context: { required: false, type: "string", maxLength: 12000 },
+    review_purpose: { required: false, type: "string", enum: ["assurance", "change-impact"] },
     prompt_guidance: { required: false, type: "string", maxLength: 12000 },
     proposed_change: { required: false, type: "object" },
     assurance_baseline: { required: false, type: "object" }
@@ -85,7 +86,7 @@ module.exports = async function (fastify) {
     await projectService.getProject(requirement.project_id, req.user.id);
     await fastify.requirePermission("requirement.ai", { projectId: requirement.project_id })(req);
     return assistance.previewRequirementImpact({ user: req.user, requirementId: req.params.id, proposedChange: req.body?.proposed_change || req.body || {},
-      integrationId: req.body?.integration_id, promptGuidance: req.body?.prompt_guidance, assuranceBaseline: req.body?.assurance_baseline, additionalContext: req.body?.additional_context });
+      integrationId: req.body?.integration_id, promptGuidance: req.body?.prompt_guidance, assuranceBaseline: req.body?.assurance_baseline, additionalContext: req.body?.additional_context, reviewPurpose: req.body?.review_purpose });
   });
 
   fastify.post("/test-cases/:id/ai-impact-preview", async (req) => {
@@ -97,7 +98,7 @@ module.exports = async function (fastify) {
     await projectService.getProject(appType.project_id, req.user.id);
     await fastify.requirePermission("testcase.ai", { projectId: appType.project_id })(req);
     return assistance.previewTestCaseImpact({ user: req.user, testCaseId: req.params.id, proposedChange: req.body?.proposed_change || req.body || {},
-      integrationId: req.body?.integration_id, promptGuidance: req.body?.prompt_guidance, assuranceBaseline: req.body?.assurance_baseline, additionalContext: req.body?.additional_context });
+      integrationId: req.body?.integration_id, promptGuidance: req.body?.prompt_guidance, assuranceBaseline: req.body?.assurance_baseline, additionalContext: req.body?.additional_context, reviewPurpose: req.body?.review_purpose });
   });
 
   fastify.post("/executions/:id/ai-failure-clusters", async (req) => {

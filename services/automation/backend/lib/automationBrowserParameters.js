@@ -4,9 +4,12 @@ const {materializeParameterValues,materializeDataSetSnapshot,materializeVariable
 const {composeScopedTestData,normalizeDataOptions}=require('@hellotest/platform/backend/src/utils/scopedTestData');
 const {getOptionalEvidenceAccess}=require('@hellotest/platform/backend/services/optionalEvidenceAccess.service');
 const db=require('@hellotest/platform/backend/src/db');
+const {canonicalNavigationUrl,navigationParameterNames}=require('./automationNavigationParameters');
+const {parameterTemplateParts,hasInvalidParameterTemplate}=require('./automationParameterTemplates');
 const TEXT_PARAMETER=/(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?(\[(?:\\.|[^\]\\\r\n])+\]|[A-Za-z][A-Za-z0-9_-]*)/gi;
 const CODE_PARAMETER=/\bparams\s*\[\s*(["'])(?:\\.|[^\\\r\n])*?\1\s*\]/g;
 const MASK_PLACEHOLDERS=new Set(['[private parameter reference]','[private parameter value]','[redacted]','[redacted_secret]','[redacted_token]']);
+const compositeAssertion=(name,args)=>name==='browser_assert'&&['text','text_contains','text_content','text_content_contains','title','title_normalized'].includes(args?.assertion);
 function parameterReference(key){
  const match=/^([tsr])\.(.+)$/i.exec(key);
  if(!match)return null;
@@ -166,9 +169,14 @@ function createBrowserParameterResolver({caseValues={},suiteValues={},suiteDataS
  return {
   promptValues,projectText,projectPrivateText,projectSteps,projectManualCases,projectCase,projectBuildContext,publicParameterValues:publicValues,registerStepReferences,
   inputSourceKey,defaultedCaseValues,reviewedCaseValues,referencedParameterNames:parameterNames,test_suite_id:testSuiteId,
-  canonicalArguments(name,args){
-   if(!['browser_fill','browser_select_option','browser_press_key','browser_assert'].includes(name))return args;
-   const field=name==='browser_press_key'?'key':'value',key=bindingKey(args?.[field]);
+  canonicalArguments(name,args,{navigationActions=[]}={}){
+   if(!['browser_fill','browser_select_option','browser_press_key','browser_assert','browser_navigate'].includes(name))return args;
+   const field=name==='browser_navigate'?'url':name==='browser_press_key'?'key':'value',key=bindingKey(args?.[field]);
+   if(name==='browser_navigate'&&!key){
+    const url=canonicalNavigationUrl(args?.url);
+    const matches=url?navigationParameterNames(navigationActions,parameterNames).filter(name=>!sensitiveNames.has(name)&&Object.hasOwn(values,name)&&canonicalNavigationUrl(values[name])===url):[];
+    return matches.length===1?{...args,url:parameterReference(matches[0])}:args;
+   }
    return key?{...args,[field]:parameterReference(key)}:args;
   },
   deferredParameterNames:[...deferredNames].sort(),privateParameterNames:[...sensitiveNames].sort(),
@@ -186,10 +194,24 @@ function createBrowserParameterResolver({caseValues={},suiteValues={},suiteDataS
   // An empty secret is safe to embed and must replay as the reviewed blank,
   // rather than become a missing external parameter in a standalone script.
   get exportParameterValues(){return {...publicValues,...Object.fromEntries(Object.entries(values).filter(([,value])=>value===''))};},
-  requiresDataAccess(name,args){return ['browser_fill','browser_select_option','browser_press_key','browser_assert'].includes(name)&&Boolean(bindingKey(args?.[name==='browser_press_key'?'key':'value']));},
+  requiresDataAccess(name,args){return ['browser_fill','browser_select_option','browser_press_key','browser_assert','browser_navigate'].includes(name)&&Boolean(bindingKey(args?.[name==='browser_navigate'?'url':name==='browser_press_key'?'key':'value'])||(compositeAssertion(name,args)&&parameterTemplateParts(args?.value)));},
   resolve(name,args){
-   if(!['browser_fill','browser_select_option','browser_press_key','browser_assert'].includes(name))return args;
-   const field=name==='browser_press_key'?'key':'value',input=args?.[field],key=bindingKey(input);
+   if(!['browser_fill','browser_select_option','browser_press_key','browser_assert','browser_navigate'].includes(name))return args;
+   const field=name==='browser_navigate'?'url':name==='browser_press_key'?'key':'value',input=args?.[field],key=bindingKey(input);
+   if(!key&&compositeAssertion(name,args)){
+    if(hasInvalidParameterTemplate(input))throw Object.assign(new Error('The assertion contains an invalid scoped parameter reference.'),{code:'AUTOMATION_PARAMETER_INVALID',statusCode:422,nonRetryable:true});
+    const parts=parameterTemplateParts(input);
+    if(parts){
+     let resolved='';
+     for(const part of parts){
+      if(!part.key){resolved+=part.literal;continue;}
+      if(!Object.hasOwn(values,part.key))throw Object.assign(new Error(`The configured test parameter @${part.key} is unavailable. Supply its value before browser interaction.`),{code:'AUTOMATION_PARAMETER_MISSING',parameter_reference:part.key,statusCode:422,nonRetryable:true});
+      const value=String(values[part.key]??'');resolved+=value;if(value)resolvedValues.set(value,resolvedValues.get(value)||sensitiveNames.has(part.key));
+     }
+     if(resolved.length>2000)throw Object.assign(new Error('The configured assertion template exceeds the browser input limit.'),{code:'AUTOMATION_PARAMETER_INVALID',statusCode:422,nonRetryable:true});
+     return {...args,[field]:resolved};
+    }
+   }
    if(!key){
     const mask=typeof input==='string'&&MASK_PLACEHOLDERS.has(input.trim().toLowerCase());
     if(mask&&[...sensitiveNames].some(name=>Object.hasOwn(values,name))&&!Object.values(values).some(value=>String(value??'')===input)){
@@ -202,6 +224,7 @@ function createBrowserParameterResolver({caseValues={},suiteValues={},suiteDataS
    }
    if(!Object.hasOwn(values,key))throw Object.assign(new Error(`The configured test parameter @${key} is unavailable. Supply its value before browser interaction.`),{code:'AUTOMATION_PARAMETER_MISSING',parameter_reference:key,statusCode:422,nonRetryable:true});
    const value=String(values[key]??'');if(value.length>2000)throw Object.assign(new Error(`The configured test parameter @${key} exceeds the browser input limit.`),{code:'AUTOMATION_PARAMETER_INVALID',statusCode:422,nonRetryable:true});
+   if(name==='browser_navigate'&&!canonicalNavigationUrl(value))throw Object.assign(new Error(`The configured navigation parameter @${key} must contain an absolute HTTP(S) URL without credentials.`),{code:'AUTOMATION_PARAMETER_INVALID',statusCode:422,nonRetryable:true});
    if(value)resolvedValues.set(value,resolvedValues.get(value)||sensitiveNames.has(key));
    return {...args,[field]:value};
   },
