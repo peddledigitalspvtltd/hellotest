@@ -624,6 +624,20 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.get("/test-cases/automation/learning-cache/:id", async (req) => {
+    await fastify.authenticate(req);
+    const entry = await aiAutomationBuilderService.getLearningCacheEntry(req.params.id);
+    if (entry.app_type_id) {
+      const appType = await appTypeService.getAppType(entry.app_type_id);
+      await projectService.getProject(appType.project_id, req.user.id);
+    } else if (entry.project_id) {
+      await projectService.getProject(entry.project_id, req.user.id);
+    } else if (req.user?.role !== "admin") {
+      throw new Error("Object repository entry is not scoped to a project");
+    }
+    return entry;
+  });
+
   fastify.get("/test-cases/automation/learning-cache/:id/usage", async (req) => {
     await fastify.authenticate(req);
     const entry = await aiAutomationBuilderService.getLearningCacheEntry(req.params.id);
@@ -1606,6 +1620,10 @@ module.exports = async function (fastify) {
 
   fastify.post("/test-cases/:id/accept-generated", async (req) => {
     await fastify.authenticate(req);
+    fastify.validate({
+      expected_updated_at: { required: false, type: "string" },
+      expected_revision: { required: false, type: "number" }
+    }, req.body || {});
 
     const { testCase } = await ensureTestCasePermission(fastify, req, "testcase.update");
 
@@ -1618,6 +1636,10 @@ module.exports = async function (fastify) {
 
   fastify.delete("/test-cases/:id/reject-generated", async (req) => {
     await fastify.authenticate(req);
+    fastify.validate({
+      expected_updated_at: { required: false, type: "string" },
+      expected_revision: { required: false, type: "number" }
+    }, req.body || {});
 
     const { testCase } = await ensureTestCasePermission(fastify, req, "testcase.delete");
 

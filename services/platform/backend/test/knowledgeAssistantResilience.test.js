@@ -6,6 +6,11 @@ const gateway = require("../../../knowledge/backend/services/knowledgeModelGatew
 const db = require("../src/db");
 const orchestrator = require("../../../ai/backend/services/aiContextOrchestrator.service");
 const { publicKnowledgeError } = require("../src/utils/knowledgeAssistantErrors");
+function mockModelPolicy(context) {
+  const configuration=require('../services/aiConfiguration.service');
+  context.mock.method(configuration,'resolve',async id=>{const item=configuration.catalog.find(item=>item.id===id);return {...item,config:item.defaults,published_version:0,fingerprint:configuration.hash(item.defaults)};});
+  context.mock.method(require('../services/metricGovernance.service'),'resolveForFeature',async()=>({instruction:'',metrics:[]}));
+}
 
 test("nested retrieval work shares ordered progress and wall time with its caller", async () => {
   const events = [];
@@ -76,17 +81,19 @@ test("a failed live database read is not presented as an authoritative zero coun
 });
 
 test("provider failures have actionable categories without copying provider response data", async (context) => {
+  mockModelPolicy(context);
   const cases = [[401, "MODEL_AUTHENTICATION_FAILED"], [404, "MODEL_NOT_FOUND"], [429, "MODEL_RATE_LIMITED"], [422, "MODEL_REQUEST_REJECTED"], [503, "MODEL_UNAVAILABLE"]];
   for (const [status, code] of cases) {
     context.mock.method(global, "fetch", async () => new Response(JSON.stringify({ error: { message: "PRIVATE_PROVIDER_RESPONSE" } }), { status }));
-    await assert.rejects(assistant._internals.requestJsonCompletion({ integration: { base_url: `https://provider-${status}.invalid/v1`, model: "test" }, messages: [], operation: "test", timeoutMs: 100 }), (error) => error.code === code && !JSON.stringify(error).includes("PRIVATE_PROVIDER_RESPONSE"));
+    await assert.rejects(assistant._internals.requestJsonCompletion({ integration: { base_url: `https://provider-${status}.invalid/v1`, model: "test" }, messages: [], operation: "knowledge.assistant.verify", timeoutMs: 100 }), (error) => error.code === code && !JSON.stringify(error).includes("PRIVATE_PROVIDER_RESPONSE"));
   }
   assert.match(publicKnowledgeError({ code: "ANSWER_AUTHORIZATION_TIMEOUT", statusCode: 503 }), /verify current access/);
 });
 
 test("incomplete or malformed model output gets classified without an unbounded retry", async (context) => {
+  mockModelPolicy(context);
   let calls = 0;
   context.mock.method(global, "fetch", async () => { calls++; return new Response(JSON.stringify({ choices: [{ message: { content: '{"partial":' }, finish_reason: "length" }] }), { status: 200 }); });
-  await assert.rejects(assistant._internals.requestJsonCompletion({ integration: { base_url: "https://truncated.invalid/v1", model: "test" }, messages: [], operation: "test" }), { code: "MODEL_OUTPUT_TRUNCATED" });
+  await assert.rejects(assistant._internals.requestJsonCompletion({ integration: { base_url: "https://truncated.invalid/v1", model: "test" }, messages: [], operation: "knowledge.assistant.verify" }), { code: "MODEL_OUTPUT_TRUNCATED" });
   assert.equal(calls, 1);
 });

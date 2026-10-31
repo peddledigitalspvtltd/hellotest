@@ -9,11 +9,17 @@ const root=new URL('../../../platform/frontend/',import.meta.url);
 const base=(await readFile(new URL('agentWorkspace.test.mjs',import.meta.url),'utf8')).match(/const fixture = `([\s\S]*?)`;\nconst specialists/)[1];
 const setup=`
 window.enablePreviewFixture();
-const savedNodes=['request','records','skipped','large','finish'].map((id,index)=>({id,type:'agenticStep',position:{x:index*280,y:120},data:{kind:id==='request'?'trigger':id==='finish'?'output':'editFields',label:{request:'Manual request',records:'Read recorded data',skipped:'Skipped node',large:'Large recorded output',finish:'Explicit null output'}[id]}}));
+const savedNodes=['request','records','skipped','large','finish','iterations'].map((id,index)=>({id,type:'agenticStep',position:{x:index*280,y:120},data:{kind:id==='request'?'trigger':id==='finish'?'output':'editFields',label:{request:'Manual request',records:'Read recorded data',skipped:'Skipped node',large:'Large recorded output',finish:'Explicit null output',iterations:'Repeated batch step'}[id]}}));
 window.recordedInput={story_id:'recorded-story',enabled:false,count:0,items:[{id:'recorded-item',value:null}]};
 window.recordedOutput={status:200,records:[{id:'recorded-item',passed:false}],literal:'<script>window.untrustedExecuted=true</script>'};
 window.largeRecordedOutput={start:'RECORDED_START',body:'x'.repeat(120000),end:'RECORDED_END'};
 window.ioRun={id:'execution-io-fixture',workflow_id:'saved-workflow',workflow_name:'Recorded data inspection',project_id:'project',app_type_id:'app',execution_mode:'review',trigger_kind:'manual',status:'completed',created_at:'2026-10-27T10:00:00Z',started_at:'2026-10-27T10:00:00Z',completed_at:'2026-10-27T10:01:00Z',input_payload:{sprint_id:'recorded-sprint'},workflow_snapshot:{nodes:savedNodes,edges:savedNodes.slice(1).map((item,index)=>({id:'edge-'+index,source:savedNodes[index].id,target:item.id}))},node_results:savedNodes.map(node=>({node_id:node.id,node_name:node.data.label,node_type:node.data.kind,status:node.id==='skipped'?'skipped':'completed',attempts:node.id==='skipped'?0:1,...(node.id==='records'?{input:{input_mode:'connected_results',request:{sprint_id:'recorded-sprint'},input:window.recordedInput,source_node_ids:['request'],upstream:[{node_id:'request',status:'completed',preview:'recorded upstream preview',truncated:true}],prompt:'Recorded exact prompt'},output:window.recordedOutput}:node.id==='large'?{input:{input:window.recordedInput},output:window.largeRecordedOutput}:node.id==='finish'?{input:null,output:null}:node.id==='request'?{input:{input:{sprint_id:'recorded-sprint'}},output:{sprint_id:'recorded-sprint'}}:{}),logs:[{at:'2026-10-27T10:00:01Z',level:'info',message:'Recorded event for '+node.id}]})),output_payload:{summary:'Saved records available for inspection.'}};
+window.iterationInput={enabled:false,count:0,item:null};
+const repeated=window.ioRun.node_results.find(item=>item.node_id==='iterations');
+Object.assign(repeated,{output:{latest:true},input:{input:{current:'latest'}},logs:[{message:'Latest batch event'}],iterations:[
+ {batch_index:0,iteration_path:['request',0,'records',1],input_start_index:0,input_item_count:1,status:'failed',attempts:1,input:{input:window.iterationInput},output:null,error:'Batch one validation failed',logs:[{level:'error',message:'First batch error event'}]},
+ {batch_index:1,iteration_path:['request',0,'records',2],input_start_index:1,input_item_count:1,status:'skipped',attempts:0,input:null,skip_reason:'Not selected in batch two',logs:[{level:'info',message:'Second batch skipped event'}]}
+]});
 api.agenticWorkflows.getRun=async()=>structuredClone(window.ioRun);
 api.agenticWorkflows.listRuns=async()=>[structuredClone(window.ioRun)];
 Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedJson=text;}}});
@@ -74,6 +80,30 @@ test('execution dialog shows actual read-only node JSON, bounds large records an
     assert.equal(await dialog.getByRole('textbox',{name:'Node input JSON',exact:true}).count(),0);
     await select('Explicit null output');await dialog.getByRole('button',{name:'Output',exact:true}).click();
     assert.equal(await page.getByRole('textbox',{name:'Node output JSON',exact:true}).inputValue(),'null','null is recorded data rather than an absent result');
+    await select('Repeated batch step');
+    const batch=dialog.getByLabel('Loop batch result',{exact:true});
+    assert.equal(await batch.inputValue(),'latest');
+    assert.deepEqual(JSON.parse(await output.inputValue()),{latest:true});
+    assert.match(await batch.locator('option').nth(1).textContent(),/batch 1.*batch 2/,'Nested iteration path is readable');
+    await batch.selectOption('0');
+    assert.equal(await output.inputValue(),'null','Prior batch explicit null output remains null');
+    await dialog.getByRole('alert').filter({hasText:'Batch one validation failed'}).waitFor();
+    await dialog.getByRole('button',{name:'Input',exact:true}).click();
+    assert.deepEqual(JSON.parse(await dialog.getByRole('textbox',{name:'Node input JSON',exact:true}).inputValue()),{enabled:false,count:0,item:null});
+    await dialog.getByRole('button',{name:'Copy input JSON',exact:true}).click();
+    assert.deepEqual(JSON.parse(await page.evaluate(()=>window.copiedJson)),{enabled:false,count:0,item:null},'Copy uses the selected prior snapshot');
+    await dialog.getByRole('button',{name:'Logs',exact:true}).click();
+    await dialog.getByText('First batch error event',{exact:true}).waitFor();
+    assert.equal(await dialog.getByText('Latest batch event',{exact:true}).count(),0);
+    await batch.selectOption('1');
+    await dialog.getByRole('button',{name:'Input',exact:true}).click();
+    assert.equal(await dialog.getByRole('textbox',{name:'Node input JSON',exact:true}).inputValue(),'null');
+    await dialog.getByRole('button',{name:'Output',exact:true}).click();
+    await dialog.getByText('Not selected in batch two',{exact:true}).waitFor();
+    assert.equal(await output.count(),0,'Missing skipped output must never fall back to latest output');
+    await page.screenshot({path:screenshots+'/iteration-selection.png',fullPage:true});
+    await batch.selectOption('latest');
+    assert.deepEqual(JSON.parse(await output.inputValue()),{latest:true});
     await select('Large recorded output');
     assert.equal((await output.inputValue()).length,100000,'large JSON editor renders bounded character pages');
     await dialog.getByRole('button',{name:'Next JSON page',exact:true}).click();assert.match(await output.inputValue(),/RECORDED_END/);
@@ -81,7 +111,7 @@ test('execution dialog shows actual read-only node JSON, bounds large records an
     assert.deepEqual(await page.evaluate(()=>JSON.parse(window.copiedJson)),await page.evaluate(()=>window.largeRecordedOutput),'copy includes the entire actual recorded value');
     await dialog.getByRole('button',{name:'Execution log',exact:true}).click();
     await dialog.getByRole('group',{name:'Execution log format',exact:true}).getByRole('button',{name:'JSON',exact:true}).click();
-    assert.equal(JSON.parse(await page.getByRole('textbox',{name:'Execution log JSON',exact:true}).inputValue()).length,5);
+    assert.equal(JSON.parse(await page.getByRole('textbox',{name:'Execution log JSON',exact:true}).inputValue()).length,6);
     assert.deepEqual(errors,[]);
   } catch(error) {
     if(page){await page.screenshot({path:screenshots+'/failure.png',fullPage:true}).catch(()=>{});await writeFile(screenshots+'/failure.txt',await page.locator('body').innerText().catch(()=>''));}

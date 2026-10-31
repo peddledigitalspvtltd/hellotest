@@ -397,13 +397,25 @@ const requestRetrievalPlan = async ({ integration, question, hits = [], history 
     queryId: active?.queryId,
     requestId: active?.requestId
   });
-  const packet = knowledgeContracts.buildContextPacket({
-    retrievalRequest: request,
-    evidence: hits,
-    authorization: { project_scope_enforced: true, source_acl_enforced: true }
-  });
-  const modelRequest = knowledgeContracts.buildModelRequest({ contextPacket: packet, question, conversation: history, model: integration.model });
-  const data = JSON.parse(modelRequest.messages[1].content);
+  let data;
+  if (hits.length) {
+    const packet = knowledgeContracts.buildContextPacket({
+      retrievalRequest: request,
+      evidence: hits,
+      authorization: { project_scope_enforced: true, source_acl_enforced: true }
+    });
+    const modelRequest = knowledgeContracts.buildModelRequest({ contextPacket: packet, question, conversation: history, model: integration.model });
+    data = JSON.parse(modelRequest.messages[1].content);
+  } else {
+    // Before retrieval there are no factual premises to package. Do not spend
+    // planner input on empty evidence envelopes, ranking/audit IDs or budgets.
+    data = {
+      question: normalizeText(question, 8000),
+      project_scope: { project_id: request.project_id, app_type_id: projectScope.app_type_id || null, filters: request.filters },
+      conversation_for_reference_resolution: asArray(history).slice(-6).filter(item => item.role === 'user')
+        .map(item => ({ role: 'user', content: sanitizeAiText(normalizeText(item.content, 1200)).text }))
+    };
+  }
   data.reviewed_smart_context = normalizeText(reviewedContext, 1200);
   return requestJsonCompletion({
     integration,
@@ -490,10 +502,16 @@ const requestGroundedAnswer = async ({ integration, question, hits, history = []
   }
 };
 
-const requestGroundedVerification = async ({ integration, question, hits, draft, projectScope, reviewedContext, contextPacket }) => requestJsonCompletion({
+const requestGroundedVerification = async ({ integration, question, hits, draft, projectScope, reviewedContext, contextPacket }) => {
+  const compactContext = contextPacket ? JSON.parse(knowledgeContracts.buildModelRequest({ contextPacket, question }).messages[1].content).context_packet : {
+    contract_version: knowledgeContracts.CONTRACTS.context_packet,
+    evidence: buildEvidencePayload(hits).map((item) => ({ ...item, evidence_id: item.citation_id }))
+  };
+  return requestJsonCompletion({
   integration,
   operation: "knowledge.assistant.verify",
   timeoutMs: 25_000,
+  outputSchema: knowledgeContracts.MODEL_ANSWER_SCHEMA,
   messages: [
     {
       role: "system",
@@ -508,14 +526,12 @@ const requestGroundedVerification = async ({ integration, question, hits, draft,
         question,
         reviewed_smart_context: reviewedContext || undefined,
         draft,
-        context_packet: contextPacket || {
-          contract_version: knowledgeContracts.CONTRACTS.context_packet,
-          evidence: buildEvidencePayload(hits).map((item) => ({ ...item, evidence_id: item.citation_id }))
-        }
-      }, null, 2)
+        context_packet: compactContext
+      })
     }
   ]
-});
+  });
+};
 
 const normalizeModelAnswer = (candidate, hits) => {
   const allowedById = new Map(hits.filter((hit) => hit?.citation?.id).map((hit) => [hit.citation.id, hit.citation]));
@@ -1152,7 +1168,9 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
     if (responseMode !== "evidence" && !integration) throw createError("Configure an active LLM in Integrations to generate an AI answer, or choose evidence search.", 422, "LLM_INTEGRATION_MISSING");
     let intentPlan = null;
     let intentModelCompletedAt = 0;
-    if (integration) {
+    const retrievalDisabled = Array.isArray(mergedFilters.requested_scopes) && !mergedFilters.requested_scopes.length
+      || ['max_rounds', 'max_queries', 'max_candidates', 'max_evidence_items', 'max_context_tokens', 'max_tool_calls'].some(key => retrievalRequest.budgets[key] === 0);
+    if (integration && !retrievalDisabled) {
       execution.emit("INTENT_ANALYSIS", "started", { message: "Understanding your intent and deciding which project information is needed." });
       try {
         const candidate = await requestRetrievalPlan({
@@ -1189,7 +1207,7 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
     if (retrieval.history_unavailable) contextPacket.retrieval.history_unavailable = true;
     retrieval = { ...retrieval, ...context.retrieval, selected_integration_id: integration?.id || null,
       intent_plan: intentPlan ? { source_kinds: intentPlan.source_kinds, information_needs: intentPlan.information_needs, query_count: intentPlan.queries.length } : null,
-      intent_planning_model_used: Boolean(intentPlan) };
+      intent_planning_model_used: Boolean(intentPlan), ...(retrievalDisabled ? { intent_planning_skipped: 'RETRIEVAL_DISABLED' } : {}) };
     let hits = context.hits;
     execution.emit("CONTEXT_ASSEMBLY", "completed", {
       evidence_count: hits.length,
@@ -1275,6 +1293,8 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
   retrieval.answer_structure = outcome.answer_structure;
   retrieval.model_usage = execution.current().usage;
   retrieval.model_budget = { calls_used: execution.current().modelStats.calls, retries_used: Number(execution.current().modelStats.retries || 0), cost_limit_enforced: execution.current().modelBudget?.max_query_cost_usd != null,
+    provider_requests: Number(execution.current().modelStats.provider_requests || 0),
+    compatibility_retries: Number(execution.current().modelStats.compatibility_retries || 0),
     cost_usd: execution.current().usage.length && execution.current().usage.every((item) => item.cost_usd != null)
       ? execution.current().usage.reduce((total, item) => total + item.cost_usd, 0) : null };
   execution.emit("VALIDATION", "completed", { claim_count: retrieval.answer_contract.claims.length });

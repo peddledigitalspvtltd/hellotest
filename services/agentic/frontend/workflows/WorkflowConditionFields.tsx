@@ -21,19 +21,22 @@ const comparisons = [
 const initial: Comparison = { conditionPath: "input.status", conditionOperator: "equals", conditionValue: '"passed"' };
 const validJson = (value: string) => { try { JSON.parse(value); return true; } catch { return false; } };
 
-export function WorkflowConditionFields({ data, onChange }: {
+export function WorkflowConditionFields({ data, onChange, defaultPath = "input.status", routingHint = true }: {
   data: AgenticWorkflowNodeData;
   onChange: (patch: Partial<AgenticWorkflowNodeData>) => void;
+  defaultPath?: string;
+  routingHint?: boolean;
 }) {
   const id = useId();
   const focusTarget = useRef<number | null>(null);
+  const initialRow = { ...initial, conditionPath: defaultPath };
   const rows: Comparison[] = Array.isArray(data.conditions) && data.conditions.length
     ? data.conditions.map(value => value && typeof value === "object" && !Array.isArray(value) ? {
-      conditionPath: String(value.conditionPath ?? initial.conditionPath),
+      conditionPath: String(value.conditionPath ?? initialRow.conditionPath),
       conditionOperator: String(value.conditionOperator ?? initial.conditionOperator),
       conditionValue: String(value.conditionValue ?? initial.conditionValue),
-    } : { ...initial }) : [{
-      conditionPath: String(data.conditionPath ?? initial.conditionPath),
+    } : { ...initialRow }) : [{
+      conditionPath: String(data.conditionPath ?? initialRow.conditionPath),
       conditionOperator: String(data.conditionOperator ?? initial.conditionOperator),
       conditionValue: String(data.conditionValue ?? initial.conditionValue),
     }];
@@ -86,8 +89,8 @@ export function WorkflowConditionFields({ data, onChange }: {
       </div>;
     })}
     <button type="button" className="workflow-condition-add" disabled={rows.length >= 20}
-      onClick={() => { focusTarget.current = rows.length; save([...rows, { ...initial }]); }}>Add condition</button>
+      onClick={() => { focusTarget.current = rows.length; save([...rows, { ...initialRow }]); }}>Add condition</button>
     {rows.length >= 20 ? <p className="studio-caption">Maximum 20 conditions.</p> : null}
-    <p className="studio-caption">Connect true and false to separate branches. The unselected branch is skipped.</p>
+    {routingHint && <p className="studio-caption">Connect true and false to separate branches. The unselected branch is skipped.</p>}
   </div>;
 }

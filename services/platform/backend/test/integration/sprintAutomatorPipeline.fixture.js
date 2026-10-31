@@ -10,7 +10,6 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
   const runtime = require('../../../../agentic/backend/services/agenticWorkflowExecution.service');
   const nativeTasks = require('../../../../agentic/backend/workflows/artifactTasks');
   const settings = require('../../../../agentic/backend/workflows/connectionSettings');
-  const configuration = require('../../services/aiConfiguration.service');
   const calls = [], failures = [];
   let blockAutomation = false;
   let incompleteReadiness = false;
@@ -82,10 +81,6 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
   try {
     await db.prepare("INSERT INTO role_permissions(role_id,permission_id) SELECT member.role_id,permission.id FROM project_members member CROSS JOIN permissions permission WHERE member.project_id=? AND member.user_id=? AND permission.code IN ('automation.ai','automation.build','knowledge.view','requirement.view','testcase.view') ON CONFLICT DO NOTHING").run(projectId,user.id);
     const integrationId = (await require('../../../../integration/backend/services/integration.service').createIntegration({type:'llm',name:'Disposable native HTTP provider',base_url:`http://127.0.0.1:${provider.address().port}/v1`,api_key:providerCredential,model:'native-http-fixture',config:{project_id:projectId},is_active:true})).id;
-    for (const key of ['ai.quality.story_assurance','ai.test_case.design','ai.quality.test_case_assurance','ai.agentic.automation-engineer','ai.authoring.request_validation']) {
-      const current=await configuration.resolve(key);
-      await configuration.mutate(key,{expected_revision:current.revision,config:{...current.config,context:{...current.config.context,mode:'none',required:false}}},{actorId:user.id},'publish');
-    }
     const sprintId=randomUUID(), storyIds=[randomUUID(),randomUUID()];
     await db.prepare("INSERT INTO requirement_iterations(id,project_id,name,state,created_by) VALUES(?,?,?,'active',?)").run(sprintId,projectId,'Native HTTP pipeline Sprint',user.id);
     for (const [index,color] of ['red','blue'].entries()) await db.prepare('INSERT INTO requirements(id,project_id,title,description,additional_fields,iteration_id,revision) VALUES(?,?,?,?,?,?,1)').run(storyIds[index],projectId,`Read ${color} invoice`,`GET https://invoices.example/pipeline-${color} reads a saved invoice.`,{acceptance_criteria:['Response status equals 200 and amount equals 10']},sprintId);
@@ -99,7 +94,7 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     assert.equal(settings.credential(stored),apiKey.key);
     assert.doesNotMatch(saved.body,new RegExp(apiKey.key));
     const node=(id,kind,data={})=>({id,type:'agenticStep',data:{label:id,kind,...data}});
-    const nodes=[node('request','trigger'),node('stories','apiTool',{connectionId:connection.id,apiResource:'sprintStories',apiMethod:'GET',timeoutMs:70000}),node('each','loop',{loopAction:'storyPackets',loopSourceKey:'input.items',loopMaxIterations:100}),...['story-assurance','test-case-generation','test-case-assurance','automation-engineer'].map(task=>node(task,'artifactTask',{artifactTask:task,timeoutMs:1800000})),node('finish','output')];
+    const nodes=[node('request','trigger'),node('stories','apiTool',{connectionId:connection.id,apiResource:'sprintStories',apiMethod:'GET',timeoutMs:70000}),node('each','loop',{loopAction:'storyPackets',loopSourceKey:'input.items',loopMaxIterations:100}),...['story-assurance','test-case-generation','test-case-assurance','automation-engineer'].map(task=>node(task,'artifactTask',{artifactTask:task,timeoutMs:1800000,aiConfiguration:{context:{mode:'none',token_budget:1200,max_items:4,required:false,focus:''}}})),node('finish','output')];
     const workflows=require('../../../../agentic/backend/services/agenticWorkflow.service');
     const created=await workflows.createWorkflow({project_id:projectId,app_type_id:appId,name:'Disposable native pipeline',trigger_kind:'manual',status:'draft',settings:{maxDurationMs:3600000},nodes,edges:nodes.slice(1).map((item,index)=>({source:nodes[index].id,target:item.id}))},user.id);
     for (const node of created.nodes.filter(node=>node.data.kind==='artifactTask')) {

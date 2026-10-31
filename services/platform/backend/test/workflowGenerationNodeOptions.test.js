@@ -22,7 +22,9 @@ test('saved generator options override legacy trigger values and send the curren
   const output=await tasks.execute({run,node,user:{id:'actor'},signal:new AbortController().signal,onProgress:async()=>{},context:{input:[{story_id:'story',story_revision:tasks.revision(story),story:{title:'Forged caller title',description:'Forged caller description'},story_assurance:{verification:{status:'passed'},assurance_review:{summary:'Keep the PDF amount assertion grounded.'},story_id:'story',story_revision:tasks.revision(story)}}]}});
   assert.equal(request.max_cases,8);assert.equal(request.authoring_mode,'structured');
   assert.equal(request.requirements[0].title,story.title);assert.equal(request.requirements[0].description,story.description);
-  assert.ok(request.additional_context.includes(story.title));assert.ok(request.additional_context.includes(story.description));
+  assert.deepEqual(request.requirements,[story]);
+  const workflowContext=JSON.parse(request.additional_context.split('[HELLOTEST_SMART_CONTEXT_START]\n')[1].split('\n[HELLOTEST_SMART_CONTEXT_END]')[0]);
+  assert.equal(workflowContext.selected_story.ref,`requirement:${story.id}`);assert.equal(workflowContext.selected_story.story_revision,tasks.revision(story));assert.equal(workflowContext.selected_story.content,undefined);assert.equal(workflowContext.selected_story.content_source,'native_artifact_input');assert.ok(!request.additional_context.includes(story.title)&&!request.additional_context.includes(story.description));
   assert.match(request.additional_context,/PDF assertions explicit/);assert.doesNotMatch(request.additional_context,/LEGACY_GENERATION|Forged caller/);
   assert.equal(output.__workflow_result.output.data[0].cases.length,6,'A node limit above the legacy trigger and old default remains authoritative');
   assert.equal(pinnedGenerationOptions(run).maxCases,8);

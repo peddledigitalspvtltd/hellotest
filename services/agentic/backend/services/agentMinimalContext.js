@@ -1,13 +1,17 @@
 const { compactEvidenceText } = require('@hellotest/platform/backend/src/utils/llmContextFallback');
 function minimalContext(payload) {
+  const exactScopes=new Set(['automation_repair','case_intent','workflow_input','task_input']);
   const entries = Object.entries(payload.bounded_workspace_context || {}).flatMap(([scope,items]) => (items || []).map(item => ({scope,item})));
   const selected = entries.sort((a,b) => Number(b.scope === 'automation_repair') - Number(a.scope === 'automation_repair')
     || Number(b.scope === 'case_intent') - Number(a.scope === 'case_intent')
-    || Number(b.item.source_kind === 'live_project') - Number(a.item.source_kind === 'live_project')).slice(0,3);
+    || Number(exactScopes.has(b.scope)) - Number(exactScopes.has(a.scope))
+    || Number(b.item.source_kind === 'live_project') - Number(a.item.source_kind === 'live_project'));
   const context = {}, ids = new Set();
+  const retainedLimit=Math.max(3,entries.filter(entry=>exactScopes.has(entry.scope)).length);
   for(const {scope,item} of selected) {
+    if(!exactScopes.has(scope)&&ids.size>=retainedLimit)continue;
     const id = item.citation?.id || item.id; if(id) ids.add(id);
-    (context[scope] ||= []).push(['automation_repair','case_intent'].includes(scope) ? {...item}
+    (context[scope] ||= []).push(exactScopes.has(scope) ? {...item}
       : {...item,content:compactEvidenceText(item.content,1200),excerpt_truncated:true});
   }
   const output = {...payload,bounded_workspace_context:context,citation_contract:(payload.citation_contract || []).filter(citation=>ids.has(citation.id)),

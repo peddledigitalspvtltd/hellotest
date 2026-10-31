@@ -1,9 +1,10 @@
 const db=require('../src/db');
 const {createHash}=require('node:crypto');
 const catalog=require('../../shared/metricCatalog.json');
+const {normalizeFormulaValues}=require('../../shared/metricFormulaValues');
 const byId=new Map(catalog.map(item=>[item.key,item]));
 const KEY='metric_governance:',VERSIONS='metric_governance_version:';
-const GROUPS={project:'Project portfolio',story:'Stories',test:'Test design',execution:'Execution',release:'Release readiness',automation:'Automation',defect:'Defects',assurance:'Assurance',smart_run:'Smart runs',analytics:'Quality analytics',dashboard:'Dashboards',jira:'Issue delivery',ai:'AI quality'};
+const GROUPS={project:'Project portfolio',story:'Stories',test:'Test design',execution:'Execution',release:'Release readiness',automation:'Automation',defect:'Defects',assurance:'Assurance',smart_run:'Smart runs',analytics:'Quality analytics',dashboard:'Dashboards',jira:'Issue delivery',ai:'AI quality',quality:'Verified quality evidence',knowledge:'Knowledge evidence'};
 const fail=(message,statusCode=400)=>Object.assign(new Error(message),{statusCode,code:'METRIC_GOVERNANCE_INVALID'});
 const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const definition=id=>{const item=byId.get(id);if(!item)throw fail('Unknown metric.',404);return item;};
@@ -23,18 +24,19 @@ function validate(input,id){
 async function legacy(){
  const rows=await db.prepare('SELECT key,value FROM app_settings WHERE key IN (?,?,?)').all('workspace_governed_preference:ai_metric_criteria_overrides','workspace_governed_preference:ai_metric_formula_values','workspace_metric_formula_values');
  const values=Object.fromEntries(rows.map(row=>[row.key,row.value||{}]));
- return {criteria:values['workspace_governed_preference:ai_metric_criteria_overrides']||{},parameters:values['workspace_governed_preference:ai_metric_formula_values']||values.workspace_metric_formula_values||{}};
+ const previous=values.workspace_metric_formula_values||{},governed=values['workspace_governed_preference:ai_metric_formula_values']||{};
+ return {criteria:values['workspace_governed_preference:ai_metric_criteria_overrides']||{},parameters:Object.fromEntries([...new Set([...Object.keys(previous),...Object.keys(governed)])].map(id=>[id,{...previous[id],...governed[id]}]))};
 }
 function effective(item,record,old){
  const base=defaults(item);if(typeof old.criteria?.[item.key]==='string'&&old.criteria[item.key].trim())base.criteria=old.criteria[item.key];
- for(const p of item.parameters||[]){const value=old.parameters?.[item.key]?.[p.key];if(typeof value==='number'&&Number.isFinite(value))base.parameters[p.key]=Math.min(p.max,Math.max(p.min,value));}
+ if(item.parameters?.length)base.parameters=normalizeFormulaValues(old.parameters)[item.key];
  const config=record?.published?.config||base;
  return {...item,id:item.key,group:GROUPS[item.key.split('.')[1]]||'Other',defaults:defaults(item),config,revision:record?.revision||0,published_version:record?.published?.version||0,published_at:record?.published?.at||null,draft:record?.draft||null,history:record?.history||[],fingerprint:hash(config),source:record?.published?'published':Object.hasOwn(old.criteria||{},item.key)||Object.hasOwn(old.parameters||{},item.key)?'legacy':'default'};
 }
 async function list(){const[rows,old]=await Promise.all([db.prepare('SELECT key,value FROM app_settings WHERE key LIKE ?').all(KEY+'%'),legacy()]);const records=new Map(rows.map(row=>[row.key.slice(KEY.length),row.value]));const metrics=catalog.map(item=>effective(item,records.get(item.key),old));return {metrics,groups:[...new Set(metrics.map(item=>item.group))]};}
 async function detail(id){const item=definition(id);const[row,old]=await Promise.all([db.prepare('SELECT value FROM app_settings WHERE key = ?').get(KEY+id),legacy()]);return effective(item,row?.value,old);}
 async function mutate(id,body,actor,mode){
- const item=definition(id);if(!body||!Number.isSafeInteger(body.expected_revision)||body.expected_revision<0)throw fail('An expected revision is required.');
+ const item=definition(id);if(item.runtime_status==='reference')throw fail('This historical or operational reference has no active editable review consumer. Its existing configuration is retained for inspection.',422);if(!body||!Number.isSafeInteger(body.expected_revision)||body.expected_revision<0)throw fail('An expected revision is required.');
  if(!['draft','publish','rollback'].includes(mode))throw fail('Unsupported metric action.');
  const config=mode==='rollback'?null:validate(body.config,id);
  return db.transaction(async()=>{
@@ -57,4 +59,21 @@ async function mutate(id,body,actor,mode){
  })();
 }
 async function publishedOverrides(){const rows=await db.prepare("SELECT key,value->'published' AS published FROM app_settings WHERE key LIKE ?").all(KEY+'%'),criteria={},parameters={};for(const row of rows){const id=row.key.slice(KEY.length),config=row.published?.config;if(byId.has(id)&&config){criteria[id]=config.criteria;parameters[id]=config.parameters;}}return {criteria,parameters};}
-module.exports={catalog,validate,defaults,list,detail,mutate,publishedOverrides};
+// Criteria are resolved at the model boundary, rather than depending on a
+// browser to copy the current workspace settings into a user request. Agent
+// and native-task callers choose their own rubric and do not call this helper.
+async function resolveForFeature(featureId){
+ const relevant=catalog.filter(item=>item.runtime_status!=='reference'&&item.feature_ids?.includes(featureId));
+ if(!relevant.length)return {instruction:'',metrics:[]};
+ const [rows,old]=await Promise.all([
+  db.prepare(`SELECT key,value FROM app_settings WHERE key IN (${relevant.map(()=>'?').join(',')})`).all(...relevant.map(item=>KEY+item.key)),
+  legacy()
+ ]);
+ const records=new Map(rows.map(row=>[row.key.slice(KEY.length),row.value]));
+ const resolved=relevant.map(item=>effective(item,records.get(item.key),old));
+ const boundary='Metric review criteria apply only to the measurements relevant to this request. Arithmetic, recorded evidence, denominators, scope, gate decisions and permissions remain application-owned. Explain supported results and gaps; do not invent scores, probabilities, execution evidence or release approval. A missing optional label, link, run history or unrelated coverage category is not by itself a defect in the requested artifact.';
+ const perMetricBudget=Math.floor((12000-boundary.length)/resolved.length)-150;
+ const review=item=>{const criteria=String(item.config.criteria||'');return `${item.key}: ${criteria.length<=perMetricBudget?criteria:criteria.slice(0,perMetricBudget)+' [Criteria excerpt: remaining organization guidance omitted to fit the review budget.]'}`;};
+ return {instruction:[boundary,...resolved.map(review)].join('\n'),metrics:resolved.map(item=>({id:item.id,version:item.published_version,fingerprint:item.fingerprint,source:item.source}))};
+}
+module.exports={catalog,validate,defaults,list,detail,mutate,publishedOverrides,resolveForFeature};

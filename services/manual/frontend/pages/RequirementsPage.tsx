@@ -5502,7 +5502,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     && previewRequirementImpact.variables.input.review_purpose === "assurance"
     && JSON.stringify(previewRequirementImpact.variables.input.proposed_change) === selectedRequirementAssuranceFingerprint
     && (previewRequirementImpact.variables.input.additional_context || "") === storyAssuranceContext
-    && previewRequirementImpact.variables.input.prompt_guidance === [storyAssurancePromptGuidance ?? getPrompt("ai.quality.story_assurance"), getMetricCriteria("metric.assurance.story")].filter(Boolean).join("\n\n")
+    && previewRequirementImpact.variables.input.prompt_guidance === (storyAssurancePromptGuidance ?? getPrompt("ai.quality.story_assurance"))
     && (previewRequirementImpact.variables.input.integration_id || "") === (storyAssuranceIntegrationId || storyAssuranceDefaultIntegrationId)
   );
   const requirementAssurancePreviewMatchesDraft = Boolean(
@@ -5560,7 +5560,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         review_purpose: "assurance",
         proposed_change: selectedRequirementAssuranceProposedChange,
         integration_id: storyAssuranceIntegrationId || storyAssuranceDefaultIntegrationId || undefined,
-        prompt_guidance: [storyAssurancePromptGuidance ?? getPrompt("ai.quality.story_assurance"), getMetricCriteria("metric.assurance.story")].filter(Boolean).join("\n\n"),
+        prompt_guidance: (storyAssurancePromptGuidance ?? getPrompt("ai.quality.story_assurance")),
         additional_context: storyAssuranceContext,
         assurance_baseline: selectedRequirementLocalAssurance
       }
@@ -6779,7 +6779,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                 {canUseRequirementAi && activeTraceabilityTab === "grounding" ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <ArtifactAssuranceWorkspace key={`assurance-${selectedRequirement.id}`}
-                      providerControl={<AiReviewControls key={`story-assurance-${projectId}-${selectedRequirement.id}`} usageKey="ai.quality.story_assurance" promptMaxLength={Math.max(0, 12_000 - getMetricCriteria("metric.assurance.story").length - 2)} projectId={projectId} appTypeId={appTypeId} integrations={integrations} integrationId={storyAssuranceIntegrationId} onIntegrationIdChange={setStoryAssuranceIntegrationId} promptGuidance={storyAssurancePromptGuidance} onPromptGuidanceChange={setStoryAssurancePromptGuidance} additionalContext={storyAssuranceContext} onAdditionalContextChange={setStoryAssuranceContext} artifactIds={[selectedRequirement.id]} artifactContext={JSON.stringify(selectedRequirementAssuranceProposedChange)} disabled={previewRequirementImpact.isPending} onBusyChange={setStoryAssuranceContextBusy} />}
+                      providerControl={<AiReviewControls key={`story-assurance-${projectId}-${selectedRequirement.id}`} usageKey="ai.quality.story_assurance" promptMaxLength={12_000} projectId={projectId} appTypeId={appTypeId} integrations={integrations} integrationId={storyAssuranceIntegrationId} onIntegrationIdChange={setStoryAssuranceIntegrationId} promptGuidance={storyAssurancePromptGuidance} onPromptGuidanceChange={setStoryAssurancePromptGuidance} additionalContext={storyAssuranceContext} onAdditionalContextChange={setStoryAssuranceContext} artifactIds={[selectedRequirement.id]} artifactContext={JSON.stringify(selectedRequirementAssuranceProposedChange)} disabled={previewRequirementImpact.isPending} onBusyChange={setStoryAssuranceContextBusy} />}
                       analysis={selectedRequirementAssurance}
                       analysisDisabled={!canUseRequirementAi || !projectId || previewRequirementImpact.isPending || storyAssuranceContextBusy}
                       analysisNotice={requirementAssurancePreviewMatchesDraft && previewRequirementImpact.data?.fallback_used ? previewRequirementImpact.data.fallback_reason : null}

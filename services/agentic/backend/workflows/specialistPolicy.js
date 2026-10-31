@@ -20,10 +20,8 @@ function policy(data = {}) {
   return { skills, allowed_tools: [...new Set(allowedTools)], context_scopes: [...new Set(selectedScopes)], guardrails, context };
 }
 function instructionFor(skill, configurationKey) {
-  const id=String(configurationKey||'').replace(/^ai\.agentic\./,'');
-  const original=profiles[id]?.skills.find(item=>item.id===skill.id);
-  return original && original.instructions===skill.instructions
-    ? require('@hellotest/platform/backend/src/utils/aiInstructionBlocks').aiInstructionBlock(configurationKey,`specialist.skill.${skill.id}`)
-    : skill.instructions;
+  // The versioned node/agent owns skills, including an unedited stock skill.
+  // Expanding admin markers here silently replaced the saved definition.
+  return skill.instructions;
 }
 module.exports = { policy, profiles, instructionFor };

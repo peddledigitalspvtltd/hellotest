@@ -173,6 +173,18 @@ test("managed API diagnostics use the same real HTTP transport and never accept 
   assert.deepEqual(requests, [{ method: "POST", body: '{"title":"Invoice"}', key: "hellotest_fixture-private-api-key" }]);
 });
 
+test('API diagnostics cannot bypass connection policy through inline auth, raw private hosts or query credentials', async t => {
+ let received = 0;
+ const { base } = await fixture(t, (_req, res) => { received++; json(res, { ok: true }); });
+ const service = require('../../backend/services/agenticWorkflow.service');
+ await assert.rejects(service.testApiAgent({ project_id: 'project-a', url: `${base}/stories`, credential: { secret: 'inline-secret' } }), /inline credential/);
+ await assert.rejects(service.testApiAgent({ project_id: 'project-a', url: `${base}/stories`, auth: 'Bearer inline-secret' }), /inline credential/);
+ await assert.rejects(service.testApiAgent({ project_id: 'project-a', url: `${base}/stories` }), /Private network endpoints/);
+ await assert.rejects(service.testApiAgent({ project_id: 'project-a', url: `${base}/stories?access_token=inline-secret` }), /managed connection/);
+ await assert.rejects(service.testApiAgent({ project_id: 'project-a', url: `${base}/stories`, method: 'POST', body: '{}' }), /method is not enabled/);
+ assert.equal(received, 0, 'Every legacy bypass is rejected before a request reaches the local server.');
+});
+
 test("durable operation identity reuses a received write and blocks replay of an ambiguous write", async t => {
   const received = [];
   const { base, data } = await fixture(t, async (req, res) => {

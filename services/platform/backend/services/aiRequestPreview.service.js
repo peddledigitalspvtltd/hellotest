@@ -2,8 +2,7 @@ const configuration=require('./aiConfiguration.service');
 const {composeMessages}=require('../src/utils/aiFeatureRuntime');
 const fail=(message,statusCode=400)=>Object.assign(new Error(message),{statusCode,code:'AI_PREVIEW_INVALID'});
 async function preview(id,input={}) {
- const item=configuration.catalog.find(item=>item.id===id);
- if(!item)throw fail('Unknown AI feature.',404);
+ const item=configuration.adminDefinition(id);
  if(item.transport!=='chat'||item.runtime_status==='reserved')throw fail('This profile does not generate a chat request.',422);
  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!['config','user_request','authoring_mode','reduced_context'].includes(key)))throw fail('Provide supported request inspection fields.');
  if(typeof input.user_request!=='string'||input.user_request.length>18000)throw fail('Provide a sample user request of at most 18,000 characters.');
@@ -27,7 +26,8 @@ async function preview(id,input={}) {
   }
  }
  for(const key of keys)if(config.instruction_blocks[key])native.push(config.instruction_blocks[key]);
- let messages=composeMessages([{role:'system',content:native.join('\n\n')},{role:'user',content:JSON.stringify(task)}],config);
+ const metrics=await require('./metricGovernance.service').resolveForFeature(id);
+ let messages=composeMessages([{role:'system',content:[metrics.instruction,...native].filter(Boolean).join('\n\n')},{role:'user',content:JSON.stringify(task)}],config);
  if(input.reduced_context && config.instruction_blocks['recovery.context_size']) {
   messages.splice(1,0,{role:'system',content:config.instruction_blocks['recovery.context_size']});keys.push('recovery.context_size');
  }

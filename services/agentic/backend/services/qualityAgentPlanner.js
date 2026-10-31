@@ -17,8 +17,6 @@ async function proposePlan(input,user) {
       return origin===new URL(input.target_url).origin && row.metadata?.record_kind!=='screen' && row.locator_intent!=='__screen__' && row.metadata?.deprecated!==true && row.metadata?.is_active!==false && ['css','css selector','CSS'].includes(row.locator_kind||'css') && typeof row.locator==='string' && row.locator.length<=240;
     }).slice(0,40).map(row=>({id:row.id,name:C.text(row.metadata?.object_name||row.locator_intent,120),screen:C.text(row.metadata?.screen_name||row.page_key,120),selector:row.locator}));
   }
-  const preferences=await require('@hellotest/platform/backend/services/settings.service').getWorkspacePreferences(user.id);
-  const guidance=C.text(preferences?.ai_prompt_registry_overrides?.['ai.agentic.quality_plan'],4000);
   const selectionContext=C.contextSelection(input),deadline=Date.now()+20000;
   let feedback;
   for(let revision=0;revision<2;revision++) {
@@ -26,9 +24,8 @@ async function proposePlan(input,user) {
   const response=await require('@hellotest/platform/backend/src/utils/llmTraceContext').run({project_id:input.project_id,actor_id:user.id},()=>require('@hellotest/platform/backend/src/utils/llmHttpClient').fetchLlmWithRetry(`${(integration.base_url||'https://api.openai.com/v1').replace(/\/$/,'')}/chat/completions`,{
     method:'POST',headers:{'Content-Type':'application/json',...(require('@hellotest/integration/backend/services/integration.service').isUsableApiCredential(integration.api_key)?{Authorization:`Bearer ${integration.api_key}`}:{})},body:JSON.stringify({model:integration.model,max_tokens:2200,response_format:{type:'json_object'},messages:[
       {role:'system',content:aiInstructionBlock("ai.agentic.quality_plan", "qualityAgentPlanner.response.1")},
-      ...(guidance?[{role:'system',content:[aiInstructionBlock("ai.agentic.quality_plan", "qualityAgentPlanner.response.segment.1"),String(guidance),""].join('')}]:[]),
       ...(feedback?[{role:'system',content:aiInstructionBlock('ai.agentic.quality_plan','qualityAgentPlanner.revision')}]:[]),
-      {role:'user',content:JSON.stringify({target_url:input.target_url,goal:input.goal,task_brief:C.taskBrief({...input,kind:'web'}),reviewed_context:selectionContext.smart_context.reviewed_context||null,authorized_locator_context:locatorContext,...(feedback?{validation_feedback:feedback}:{})})}
+      {role:'user',content:JSON.stringify({task_brief:C.taskBrief({...input,kind:'web'}),reviewed_context:selectionContext.smart_context.reviewed_context||null,authorized_locator_context:locatorContext,...(feedback?{validation_feedback:feedback}:{})})}
     ]})
   },{integration,featureKey:'ai.agentic.quality_plan',operation:'agentic-quality.plan',maxOutputTokens:2200,timeoutMs:Math.max(1000,deadline-Date.now()),maxAttempts:1,contextFallback:false,contextRetrievalQuery:input.goal,mcpContextFilters:{agent_id:'browser-web',app_type_id:input.app_type_id,requested_scopes:selectionContext.context_scopes,evidence_scope:selectionContext.evidence_scope,source_ids:selectionContext.smart_context.source_ids,source_kinds:selectionContext.smart_context.source_kinds}}));
   if(!response.ok)throw C.fail('Model planning is currently unavailable.',503);
@@ -46,4 +43,4 @@ async function proposePlan(input,user) {
   }
   }
 }
-module.exports={proposePlan};
+module.exports={proposePlan:(input,user)=>require('../workflows/nodeAiConfiguration').runRequest(input,'ai.agentic.quality_plan',()=>proposePlan(input,user))};

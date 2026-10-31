@@ -10,6 +10,7 @@ function current(integration) {
   const selected = integration && integrations.get(integration) || {};
   return {
     project_id: selected.projectId || req?.body?.project_id || req?.query?.project_id || req?.params?.project_id || integration?.config?.project_id || null,
+    app_type_id: selected.appTypeId || req?.body?.app_type_id || req?.query?.app_type_id || req?.params?.app_type_id || null,
     actor_id: selected.userId || req?.user?.id || null,
     request_id: req?.id || null,
     trace_id: req?.traceId || null,

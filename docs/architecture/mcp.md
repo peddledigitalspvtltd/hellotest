@@ -26,7 +26,7 @@ The direct API endpoint is `/mcp`; the browser reverse-proxy endpoint is `/api/m
 
 | Tool | Purpose |
 | --- | --- |
-| `hellotest_capabilities` | Paginated actual route inventory, permissions, input schemas, exposure and catalog revision |
+| `hellotest_capabilities` | Paginated callable operation summaries, permissions, exposure and catalog revision; describe one operation for its full native schema |
 | `hellotest_operation_describe` | Inspect one exact domain contract |
 | `hellotest_operation_read` | Authorized project-scoped reads through existing domain APIs |
 | `hellotest_context_build` | Cited, budgeted live project and knowledge evidence |
@@ -43,6 +43,19 @@ The direct API endpoint is `/mcp`; the browser reverse-proxy endpoint is `/api/m
 | `hellotest_operation_prepare` | Persist an immutable action preview, with no business effect |
 | `hellotest_operation_execute` | Claim and execute an authorized plan once |
 | `hellotest_operation_status` | Durable original-plan state and receipt |
+
+Named list/get tools cover applications, Stories, Test Cases, suites, runs,
+Defects, environments, configurations, releases, Sprints, datasets and workflows,
+with current-project and Knowledge-source detail tools. Named prepare tools cover
+Story, Test Case, suite, run and Defect authoring. They appear only when the
+corresponding audited adapter is callable. Lists use bounded database summaries;
+detail tools call native domain APIs and preserve delivery-omission metadata.
+See the [tool reference](../product/mcp-tool-reference.md) for exact names,
+schemas, task recipes and durable state meanings, the
+[feature coverage inventory](../development/mcp-feature-coverage.md) for audited
+native operations and gaps, and the
+[context delivery audit](../development/mcp-context-accuracy.md) for retrieval
+contracts and their verification.
 
 The server also publishes `hellotest://schema`, project operation and graph ontology resource templates, and an `investigate_failure` prompt. Every successful tool result carries a versioned envelope with its verified project and subject. **Connect & inspect** exposes the actual tool input/output schemas, supported protocols, resource templates and manual bearer connection contract. Discovery does not grant permission to call a tool.
 
@@ -99,11 +112,39 @@ Returned paths retain canonical node IDs, edge provenance and exact source witne
 
 The graph ontology is also readable at `hellotest://projects/{project_id}/graph/ontology`. Reading another project's resource is rejected. The operation ontology at `hellotest://projects/{project_id}/ontology` remains compatible with existing clients.
 
-All registered API routes are inventoried, and routes with permissions are discoverable according to the caller's access. This does **not** make every route executable. The catalog explicitly labels `read`, `planned_action`, `requires_domain_wrapper` or `nondelegable`, and returns exposure counts for the authorized search results. Feature-disabled operations are excluded from discovery. Environment and configuration reads omit variable bags and header/cookie values, which can contain credentials. Generic reads cover projects, applications, environments, configurations, requirements, test cases, suites, shared steps, executions, results, feedback and knowledge sources, excluding privileged, streaming, download and recursive AI routes. Missing controller schemas are returned as unavailable rather than invented. Reviewed action plans validate the declared body schema before persistence; domain services still enforce business rules when execution occurs. The generated artifact captures 182 declared request contracts; business rules remain owned by domain services.
+All registered API routes are inventoried. Ordinary catalog discovery returns
+callable canonical operations matching the user's permissions, feature access,
+family and query. `callable_only:false` includes authorized diagnostic entries
+with explicit `requires_domain_wrapper` or `nondelegable` reasons; it does not
+enable them. Compatibility aliases are hidden from normal discovery. Environment
+and configuration reads omit variable bags and header/cookie values. Read
+adapters cover core QA records, planning, workflow/agent metadata, Knowledge,
+dashboards, traceability, object metadata and other audited JSON contracts.
+Privileged, streaming, binary and unwrapped routes remain unavailable.
 
-Initial reviewed writes are **test case creation** and **execution creation with 1–50 explicit test cases**. Suite expansion, destructive operations, secrets, administrative changes, arbitrary URLs, raw SQL and unwrapped mutations are not delegated. Adding another mutation requires a scoped wrapper, meaningful preview, authorization and read-back verification; adding a route alone never silently exposes a write.
+Reviewed adapters now include persisted create/update/delete operations,
+membership changes, durable commands and bounded AI proposals across multiple
+feature families. Each has explicit project/reference checks, a native input
+contract, reviewed preview and a verifiable result strategy. AI generation uses
+the reviewed action path rather than masquerading as a read. Missing controller
+schemas are unavailable rather than invented. The generated contract artifact
+extracts real controller validation, including helper-registered routes and
+shared field declarations; domain services retain business-rule ownership.
+Adding a route alone never exposes a mutation. Consult live discovery and the
+coverage inventory rather than a fixed operation count.
 
-PostgreSQL projections cover projects, applications, requirements, test cases, suites, executions, defects, environments and configurations. Allowed columns are intersected with the actual database schema. Queries use fixed project predicates and parameterized filters; callers cannot supply SQL, table names, joins or functions. Projection queries run in a separate pool of at most three connections, read-only transactions, a 3-second statement timeout and 500ms lock timeout. Set `HELLOTEST_MCP_DATABASE_URL` to a dedicated SELECT-only PostgreSQL role for deployment-level least privilege. Otherwise, the application database connection is reused with read-only transactions. Authentication and secret tables are absent from schema discovery.
+PostgreSQL projections include core QA summaries, steps/modules, planning,
+datasets, schedules, workflows/runs, agent metadata, Knowledge metadata,
+dashboards, activity and object metadata. `hellotest_database_schema` publishes
+the exact available fields; allowed columns are intersected with the actual
+database schema. Queries use fixed project predicates and parameterized filters;
+callers cannot supply SQL, table names, joins or functions. Projection queries
+run in a separate pool of at most three connections, read-only transactions, a
+3-second statement timeout and 500ms lock timeout. Set
+`HELLOTEST_MCP_DATABASE_URL` to a dedicated SELECT-only PostgreSQL role for
+deployment-level least privilege. Otherwise, the application database connection
+is reused with read-only transactions. Authentication and secret tables are
+absent from schema discovery.
 
 ## Reviewed actions
 
@@ -122,7 +163,20 @@ body; nested Smart Run acceptance validation cannot replace that contract.
 
 The signed-in original user opens the HelloTest card's action plans, expands the preview and explicitly authorizes its exact digest. The server checks ownership, current permissions, catalog and expiry. Execution locks and claims the original row before invoking the domain API. Concurrent or repeated calls return the same plan's state; they do not create another effect.
 
-A successful create requires persisted read-back. Execution submission is reported as `submitted`, never as a passing test run. Test Case and execution creation bind the domain's durable source idempotency key to the original plan ID. For an `unknown` receipt or stale `executing` state, status can locate that exact original record, recheck ownership/permissions and verify saved fields/scope, then persist an audited verified receipt. This reconciliation performs no replacement create. If the original effect cannot be verified, the outcome remains `unknown`; browser mission acknowledgement gaps still need original-record/operator reconciliation. Authorization, accepted execution and final receipts are audited without tokens or raw knowledge passages.
+Persisted changes require read-back of reviewed fields and applicable membership
+storage. A durable job/run is reported as `submitted`, never as a passing test
+run. Generated proposals use `succeeded_proposal` with `persisted:false` and
+`approved:false`; saving selected material requires a separate reviewed action.
+Updates capture a target revision/content fingerprint and reject intervening
+edits. Test Case and execution creation bind the domain's durable source
+idempotency key to the original plan ID. For an `unknown` receipt or stale
+`executing` state, status can locate that exact original record, recheck
+ownership/permissions and verify saved fields/scope, then persist an audited
+verified receipt. Reconciliation issues no replacement action. When the original
+effect cannot be verified, the outcome remains `unknown`; applicable commands
+still require original-record/operator reconciliation. Authorization, accepted
+execution and final receipts are audited without tokens or raw knowledge
+passages.
 
 ## AI and Smart Context
 
@@ -189,15 +243,36 @@ Architecture skill: `~/.codex/skills/hellotest-mcp-architecture/SKILL.md`, with 
 
 ## Intent planning and knowledge enrichment
 
-Project-bound AI generation always uses the shared MCP enrichment boundary; the legacy `HELLOTEST_MCP_AI_CONTEXT=false` bypass is no longer honored. Calls without verified user/project scope are never given guessed credentials. The selected generation integration ID is passed as a retrieval preference and checked against the same project. MCP failures remain explicit context gaps, not claims that missing evidence was read.
+Project-bound AI generation uses the shared MCP enrichment boundary according
+to the effective feature or native-node evidence policy; task-input-only mode
+makes no optional retrieval. The legacy `HELLOTEST_MCP_AI_CONTEXT=false` bypass
+is no longer honored. Calls without verified user/project scope are never given
+guessed credentials. The selected integration is checked against the same
+project. Required missing evidence stops primary generation; optional retrieval
+failures remain explicit gaps. Prefetched evidence is marked to avoid a second,
+wider search.
 
-Smart Context requests `/knowledge/search` with `intent_aware: true`. The route retains project/knowledge permissions and delegates to the MCP ContextPacket path. That path asks the configured project-safe LLM for information needs, source kinds and anchored query variants before authorized hybrid/live retrieval. Source filters and source ACLs remain authoritative. An unavailable or invalid planner returns `intent_planning_mode: standard` and a safe reason code; it never claims LLM planning succeeded. Plain repository search remains a direct hybrid/keyword search for explicit search use.
+Smart Context's intent-aware search delegates to the MCP ContextPacket path
+under the existing project/Knowledge permissions. Public `context_build` uses
+deterministic intent routing, with an optional bounded, anchored `intent_plan`
+hint. It does not call a hidden generative intent planner or generate an answer.
+An internal chatbot plan can be carried through once instead of invoking a
+second planner. Embedding retrieval still follows the selected integration and
+cost budget; `max_query_cost_usd:0` permits lexical/graph retrieval without model
+query cost. Exact source/application/evidence filters, empty scopes and zero
+budgets remain authoritative. Plain repository search remains direct
+hybrid/keyword search for explicit search use.
 
 Knowledge ingestion publishes canonical extracted text, lexical indexes and local vectors first. Optional LLM enrichment selects exact source excerpts and information needs; invented/paraphrased excerpts and unknown chunk IDs are rejected. Generated hints are tagged nonauthoritative in metadata, stored under the same document/source ACL and revision, and cannot replace source content. A model outage leaves the standard index ready. The ingestion processing fingerprint is versioned as `2026.10-intent-enrichment-v3`. Existing sources gain enrichment on their next authorized refresh/reindex that rebuilds the source; this code change does not silently reindex all projects or send their content to a provider.
 
 Each of the 22 built-in specialist profiles defines an artifact format suited to its intent. Test Design includes a design rationale, test techniques, actual cases with data/actions/expected results and a traceability matrix. Agents support longer bounded outputs and reject provider output-limit termination. Shared text rendering supports headings, lists, tables and code as React text without executing HTML. These contracts improve usefulness and traceability; source citation validation does not prove every model interpretation correct.
 
-Intent planning consumes the context request’s model/tool, cost and wall-clock budgets. Planner calls are reported as `intent_model_calls`, and retrieval receives the remaining budget. This is separate from the specialist generation/correction call limit. Knowledge enrichment samples up to eight sections across the document; the full canonical source is still indexed.
+Where an internal AI workflow explicitly performs model intent planning, those
+calls consume its model/tool, cost and wall-clock budgets and are reported as
+`intent_model_calls`; retrieval receives the remaining budget. Public evidence
+reads use deterministic planning. These limits are separate from specialist
+generation/correction calls. Knowledge enrichment samples up to eight sections
+across the document; the full canonical source is still indexed.
 
 The four repository agents also have separate source-review formats for objects/locators, API case drafts, repository documentation and component cases. Their model reviews use the same Agent Studio/MCP path. Repository Knowledge Builder retains validated standard compiler findings if optional model review fails; the run is marked partial and requires human review, with no fake model success. Permission failures, cancellation and source/compiler failures still stop the run. The five executable browser agents retain their measured, typed findings and artifacts; model planning never substitutes for observed execution evidence.
 
@@ -213,7 +288,15 @@ Private-network policy failures return 403 before a connection is attempted. MCP
 
 Credential storage requires a persistent `WORKFLOW_CREDENTIAL_KEY` of at least 32 characters (or an allowed secret environment reference). `hellotest.sh` generates and retains this key in the stack environment. Do not rotate it during ordinary startup: saved encrypted connections depend on it. MCP public URL, hostname, signing key, projection database and capacity settings are passed into the API by the Compose files and retained by the launcher. Source changes still require image rebuilds.
 
-Remaining deliberate limits: manual bearer onboarding only; no OAuth authorization server or automatic token refresh; no stdio/legacy SSE provider launching; no arbitrary SQL or generic writes. Only test-case creation and explicit-case execution creation have reviewed mutation wrappers. Other operations remain visible according to authorization with their wrapper/nondelegable status. A separate process, full write coverage, or OAuth support requires its own domain/identity implementation and verification.
+Remaining deliberate limits include manual bearer onboarding, no OAuth
+authorization server or automatic token refresh, no stdio/legacy SSE provider
+launching, and no arbitrary SQL, URLs, host commands or unreviewed writes.
+Instance administration, credentials, binary/file transfers, live transports and
+host-local device/recording flows need the native UI or a dedicated adapter.
+Metadata/context alternatives and explicit unavailable-operation reasons are
+documented in the tool reference and coverage inventory. Broader exposure still
+requires a scoped contract, native authority checks and meaningful receipt
+verification; the implementation does not claim universal application parity.
 
 ## Internal context delivery checks
 

@@ -9,6 +9,10 @@ export function validateAgentDefinition(definition: AgentDefinition): AgentDefin
   }
   if (!definition.name.trim()) issues.push({ tab: 'purpose', message: 'Add an agent name.' });
   if (!definition.objective.trim()) issues.push({ tab: 'purpose', message: 'Describe the result in Objective.' });
+  const model = definition.ai_configuration;
+  if (model?.temperature != null && (!Number.isFinite(model.temperature) || model.temperature < 0 || model.temperature > 2)) issues.push({tab:'completion',message:'Choose a temperature from 0 to 2.'});
+  if (model?.top_p != null && (!Number.isFinite(model.top_p) || model.top_p < 0.01 || model.top_p > 1)) issues.push({tab:'completion',message:'Choose Top P from 0.01 to 1.'});
+  if (typeof model?.output_schema === 'string') issues.push({tab:'completion',message:'Complete valid JSON for the additional output schema.'});
   if (definition.required_inputs.length > 20 || definition.required_inputs.some(key => !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(key) || ['constructor', 'prototype', '__proto__'].includes(key))) {
     issues.push({ tab: 'skills', message: 'Use up to 20 input names: letters, numbers and underscores, starting with a letter.' });
   }

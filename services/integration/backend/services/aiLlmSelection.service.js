@@ -56,7 +56,7 @@ exports.recordSuccessfulLlmIntegration = async (integration) => {
   if (!context?.userId || !integration.id) return;
   const previous = pendingWrites.get(context.userId) || Promise.resolve();
   const write = previous.catch(() => {}).then(async () => {
-    const preferences = await settingsService.getWorkspacePreferences(context.userId);
+    const preferences = await settingsService.getPersonalWorkspacePreferences(context.userId);
     const entries = normalizeSuccessfulSelections(preferences?.[AI_LAST_SUCCESSFUL_LLM_KEY])
       .filter((entry) => entry.project_id !== context.projectId || entry.usage_key !== context.usageKey);
     await settingsService.updateWorkspacePreferences(context.userId, {
@@ -80,7 +80,8 @@ exports.resolveLlmIntegrationForUsage = async ({
   fallback = "global",
   allowMissing = false
 } = {}) => {
-  const explicitIntegrationId = normalizeText(integrationId);
+  const execution=require('@hellotest/platform/backend/src/utils/aiExecutionConfiguration').current();
+  const explicitIntegrationId = normalizeText(integrationId) || normalizeText(execution?.config?.integration_id);
   const context = { userId: normalizeText(userId), usageKey: normalizeText(usageKey), projectId: normalizeText(projectId), explicit: Boolean(explicitIntegrationId), fallback };
   const remember = (integration) => {
     const validated = validateLlmIntegration(integration);
@@ -95,8 +96,11 @@ exports.resolveLlmIntegrationForUsage = async ({
   if (explicitIntegrationId) {
     return remember(await integrationService.getIntegration(explicitIntegrationId));
   }
-  const preferences = context.userId ? await settingsService.getWorkspacePreferences(context.userId) : {};
-  const configuredIntegrationId = normalizePromptLlmOverrides(preferences?.[AI_PROMPT_LLM_OVERRIDES_KEY])[context.usageKey];
+  const configuration=require('@hellotest/platform/backend/services/aiConfiguration.service');
+  const feature=configuration.catalog.find(item=>item.id===configuration.featureId(context.usageKey));
+  const agentOwned=Boolean(execution || feature && configuration.owner(feature)==='agent');
+  const preferences = context.userId ? await (agentOwned ? settingsService.getPersonalWorkspacePreferences(context.userId) : settingsService.getWorkspacePreferences(context.userId)) : {};
+  const configuredIntegrationId = agentOwned ? null : normalizePromptLlmOverrides(preferences?.[AI_PROMPT_LLM_OVERRIDES_KEY])[context.usageKey];
   const successfulSelections = normalizeSuccessfulSelections(preferences?.[AI_LAST_SUCCESSFUL_LLM_KEY])
     .filter((entry) => entry.project_id === context.projectId);
   const candidates = [...new Set([

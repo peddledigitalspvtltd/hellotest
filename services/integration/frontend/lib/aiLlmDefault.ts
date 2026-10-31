@@ -11,7 +11,10 @@ export function resolveAiLlmDefault({ preferences, usageKey, projectId, integrat
   const successes = entries.filter((entry) => entry && typeof entry.integration_id === "string"
     && (entry.project_id || null) === (projectId || null) && Number.isFinite(Date.parse(entry.succeeded_at)))
     .sort((a, b) => Date.parse(b.succeeded_at) - Date.parse(a.succeeded_at));
-  const ids = [overrides?.[usageKey], ...successes.filter((entry) => entry.usage_key === usageKey).map((entry) => entry.integration_id), ...successes.map((entry) => entry.integration_id)];
+  // Agent Studio owns all agent profiles. A legacy admin provider must never
+  // become an explicit node selection merely by opening the agent UI.
+  const configured = usageKey.startsWith('ai.agentic.') ? undefined : overrides?.[usageKey];
+  const ids = [configured, ...successes.filter((entry) => entry.usage_key === usageKey).map((entry) => entry.integration_id), ...successes.map((entry) => entry.integration_id)];
   return ids.find((id): id is string => typeof id === "string" && Boolean(id.trim())
     && (!integrations || integrations.some((item) => item.id === id && item.is_active !== false && (!item.type || item.type === "llm")))) || "";
 }

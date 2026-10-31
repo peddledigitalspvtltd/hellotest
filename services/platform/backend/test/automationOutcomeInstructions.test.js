@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { createRequire } = require('node:module');
 const catalog = require('../../shared/aiFeatureCatalog.json');
+const execution = require('../src/utils/aiExecutionConfiguration');
 
 const featureIds = ['ai.automation.keyword_generation', 'ai.agentic.automation-engineer', 'ai.agentic.automation-repair'];
 const blockKeys = ['automationBrowserAgent.goalReview', 'automationBrowserAgent.recovery', 'automationBrowserAgent.semanticReview'];
@@ -39,11 +40,13 @@ for (const featureId of featureIds) {
     }]]);
     const configuration = configurationWith(records);
     const runtime = await configuration.resolve(featureId);
-    const detail = await configuration.detail(featureId);
-    assert.equal(runtime.published_version, 4);
+    const agentOwned=feature.configuration_owner==='agent';
+    const detail = agentOwned ? null : await configuration.detail(featureId);
+    if(agentOwned)await assert.rejects(configuration.detail(featureId),{code:'AI_CONFIGURATION_OWNER'});
+    assert.equal(runtime.published_version, agentOwned?0:4);
     for (const key of blockKeys) {
       assert.equal(runtime.config.instruction_blocks[key], feature.defaults.instruction_blocks[key]);
-      assert.equal(detail.draft.config.instruction_blocks[key], feature.defaults.instruction_blocks[key]);
+      if(detail)assert.equal(detail.draft.config.instruction_blocks[key], feature.defaults.instruction_blocks[key]);
     }
     const goal = runtime.config.instruction_blocks['automationBrowserAgent.goalReview'];
     assert.match(goal, /persistent in-page message/);
@@ -67,6 +70,15 @@ for (const featureId of featureIds) {
       draft: { config: custom }
     }]]);
     const configuration = configurationWith(records);
+    if(feature.configuration_owner==='agent') {
+      await assert.rejects(configuration.detail(featureId),{code:'AI_CONFIGURATION_OWNER'});
+      const inherited=await configuration.resolve(featureId);
+      for(const key of blockKeys)assert.equal(inherited.config.instruction_blocks[key],feature.defaults.instruction_blocks[key]);
+      const node=await execution.run({source:'workflow_node',id:'outcome-review',feature_id:featureId,config:{instruction_blocks:Object.fromEntries(blockKeys.map(key=>[key,custom.instruction_blocks[key]]))}},()=>configuration.resolve(featureId));
+      for(const key of blockKeys)assert.equal(node.config.instruction_blocks[key],custom.instruction_blocks[key]);
+      assert.equal(node.configuration_source,'workflow_node');
+      return;
+    }
     const runtime = await configuration.resolve(featureId);
     const detail = await configuration.detail(featureId);
     for (const key of blockKeys) {

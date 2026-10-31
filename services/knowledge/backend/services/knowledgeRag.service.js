@@ -433,7 +433,12 @@ const requestProviderEmbeddings = async (runtime, texts, { signal, timeoutMs = I
   return vectors;
 };
 
-const embeddingCacheKey = (runtime, value) => `knowledge:embedding:v1:${fingerprint(`${runtime.integration?.id || runtime.baseUrl}:${runtime.model}:${value}`)}`;
+const embeddingCacheKey = (runtime, value) => `knowledge:embedding:v2:${fingerprint(JSON.stringify({
+  integration_id: runtime.integration?.id || null,
+  endpoint: String(runtime.baseUrl || '').replace(/\/+$/, ''),
+  model: runtime.model,
+  input: value
+}))}`;
 
 const requestCachedProviderEmbeddings = async (runtime, texts, { signal, timeoutMs } = {}) => {
   const keys = texts.map((value) => embeddingCacheKey(runtime, value));

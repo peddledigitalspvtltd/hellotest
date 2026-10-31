@@ -5,6 +5,7 @@ import {
   createWorkflowDraft,
   createFlowEdge,
   buildNodeDefaults,
+  layoutWorkflow,
 } from "./workflowGraph";
 
 export type WorkflowTemplate = {
@@ -23,7 +24,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     name: "Process a list of items",
     category: "Data flow",
     description:
-      "Map each item into a consistent result and inspect the collected output.",
+      "Process batches through connected steps, return each batch, and inspect the collected results.",
   },
   {
     id: "custom",
@@ -134,6 +135,16 @@ export function draftFromTemplate(template: WorkflowTemplate): {
       createFlowEdge(draft.nodes[0].id, task.id),
       createFlowEdge(task.id, draft.nodes[2].id),
     ];
+    if (template.id === "foreach") {
+      const body = { id: "shape-batch", type: "agenticStep", position: { x: 740, y: 140 }, data: { ...buildNodeDefaults("dataOperation", 2), label: "Shape batch items", dataMapping: '{\n  "title": "$item.title",\n  "priority": "$item.priority"\n}' } };
+      draft.edges = [
+        createFlowEdge(draft.nodes[0].id, task.id),
+        { ...createFlowEdge(task.id, body.id), sourceHandle: "loop" },
+        { ...createFlowEdge(body.id, task.id), targetHandle: "continue" },
+        { ...createFlowEdge(task.id, draft.nodes[2].id), sourceHandle: "done" },
+      ];
+      draft.nodes = layoutWorkflow([...draft.nodes, body], draft.edges);
+    }
     return {
       draft,
       input:

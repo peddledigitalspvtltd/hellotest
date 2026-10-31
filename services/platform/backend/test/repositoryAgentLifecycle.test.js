@@ -299,6 +299,44 @@ test('worker reuses matching cached analysis and preserves source evidence witho
   assert.ok(complete.sql.includes("lease_token = ? AND status = 'running'"));
 });
 
+test('empty extraction skips a model with no source findings and reports unverified partial coverage',async t=>{
+ scope(t);const updates=[],cached=result('api_tests',[],{llm_review:{session_id:'stale'},llm_reviews:[{session_id:'stale'}]});
+ const review=t.mock.method(require('../../../agentic/backend/services/agenticAssistant.service'),'respond',async()=>assert.fail('An empty findings batch cannot support a source review.'));
+ t.mock.method(storage,'getObject',async()=>Readable.from([zip]));
+ t.mock.method(compiler,'compileArchive',async()=>assert.fail('The source extraction can be reused.'));
+ database(t,(sql,_method,args)=>{
+  if(sql.includes('FROM users'))return {...user,status:'active'};
+  if(sql.startsWith('SELECT id, result'))return {id:'cached-run',result:cached};
+  if(sql.startsWith('UPDATE')){updates.push({sql,args});return {changes:1};}
+  return unreachable(sql);
+ });
+ await service._internals.performRun(run({status:'running'}),new AbortController());
+ const saved=updates.find(update=>update.sql.includes('result = ?'));assert.ok(saved);assert.equal(saved.args[0],'partial');
+ const outcome=saved.args[2];assert.equal(review.mock.callCount(),0);assert.equal(outcome.summary.generation_mode,'deterministic');assert.equal(outcome.summary.model_review_batches,0);assert.equal(outcome.llm_review,undefined);assert.deepEqual(outcome.llm_reviews,[]);
+ assert.ok(outcome.warnings.some(warning=>warning.code==='MODEL_REVIEW_NO_SOURCE_FINDINGS'));assert.equal(outcome.stages.find(stage=>stage.id==='model_review').status,'skipped');
+ assert.equal(cached.llm_review.session_id,'stale','Cached evidence is not mutated.');
+});
+
+test('repository batches share the configured provider-call budget and disclose unreviewed source findings',async t=>{
+ scope(t);const updates=[],cached=result('api_tests',Array.from({length:3},(_,index)=>({...finding,id:`finding-${index}`,description:'Source obligation '.repeat(350)})));
+ const review=t.mock.method(require('../../../agentic/backend/services/agenticAssistant.service'),'respond',async input=>{
+  const budget=input.workflow_policy.model_budget;assert.equal(budget.used,0);budget.max=1;budget.used++;
+  return {transaction:{id:'only-model-review'},result:{response:'One source batch reviewed.',verification:{status:'passed'}},provenance:{generation_mode:'llm'}};
+ });
+ t.mock.method(storage,'getObject',async()=>Readable.from([zip]));
+ t.mock.method(compiler,'compileArchive',async()=>assert.fail('The source extraction can be reused.'));
+ database(t,(sql,_method,args)=>{
+  if(sql.includes('FROM users'))return {...user,status:'active'};
+  if(sql.startsWith('SELECT id, result'))return {id:'cached-run',result:cached};
+  if(sql.startsWith('UPDATE')){updates.push({sql,args});return {changes:1};}
+  return unreachable(sql);
+ });
+ await service._internals.performRun(run({status:'running'}),new AbortController());
+ const saved=updates.find(update=>update.sql.includes('result = ?'));assert.ok(saved);assert.equal(saved.args[0],'partial');
+ const outcome=saved.args[2];assert.equal(review.mock.callCount(),1);assert.equal(outcome.summary.model_calls,1);assert.equal(outcome.summary.model_max_calls,1);assert.equal(outcome.summary.model_reviewed_findings,1);assert.equal(outcome.summary.total_review_batches,3);
+ assert.ok(outcome.warnings.some(warning=>warning.code==='MODEL_REVIEW_PARTIAL'));assert.equal(outcome.findings.test_cases.length,3,'Unreviewed source findings remain available.');
+});
+
 test('explicit model reviews validate their connection and cannot hide model failure', async t => {
   scope(t);
   const registry = require('../../../agentic/backend/agents/agentRegistry.service');

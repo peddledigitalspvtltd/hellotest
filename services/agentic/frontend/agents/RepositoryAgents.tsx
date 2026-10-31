@@ -31,6 +31,7 @@ import type {
   RepositoryAgentRun, RepositoryAgentType, RepositoryAgentPublishResult
 } from "./agentTypes";
 import "./RepositoryAgents.css";
+import { NodeAiSettings, nodeAiDefaults, type NodeAiConfiguration } from '../workflows/NodeAiConfiguration';
 
 export const REPOSITORY_AGENTS: Array<RepositoryAgentDefinition & { icon: ReactNode; accent: string; outputLabel: string }> = [
   { id: "object_repository", name: "Object Repository Generator", description: "Discover screens, elements and locator candidates from your application's source.", outcome: "Review source-backed objects and import them into Object Repository.", outputLabel: "Screens & locators", icon: <IconScan />, accent: "teal" },
@@ -161,11 +162,15 @@ type RepositoryAgentsProps = {
 export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, runId, enabled, onOpen, onBack, integrations = [] }: RepositoryAgentsProps) {
   const { session } = useAuth();
   const [llmId,setLlmId] = useState('');
+  const [aiConfiguration,setAiConfiguration] = useState<NodeAiConfiguration>({});
+  const [instructions,setInstructions] = useState('');
+  const [guardrails,setGuardrails] = useState('');
+  const [reviewCriteria,setReviewCriteria] = useState('');
   const [reviewFocus,setReviewFocus] = useState('');
   const [evidenceScope,setEvidenceScope] = useState<Record<string,unknown>>({});
   const [smartContext,setSmartContext] = useState<SmartContextSelection | null>(null);
   const [contextScopes,setContextScopes] = useState<string[]>(agentContextPolicies[agentType].scopes);
-  const contextInput = { llm_integration_id: llmId || undefined, goal: reviewFocus, context_scopes: contextScopes, evidence_scope: Object.fromEntries(Object.entries(evidenceScope).map(([key,value]) => [key,String(value)])), smart_context: smartContext ? { query: smartContext.query, source_ids: smartContext.sourceIds, source_kinds: smartContext.sourceKinds, reviewed_context: smartContext.contextText } : undefined };
+  const contextInput = { ai_configuration:aiConfiguration, instructions, guardrails, review_criteria:reviewCriteria, llm_integration_id: llmId || undefined, goal: reviewFocus, context_scopes: contextScopes, evidence_scope: Object.fromEntries(Object.entries(evidenceScope).map(([key,value]) => [key,String(value)])), smart_context: smartContext ? { query: smartContext.query, source_ids: smartContext.sourceIds, source_kinds: smartContext.sourceKinds, reviewed_context: smartContext.contextText } : undefined };
 
   const client = useQueryClient();
   const visible = usePageVisibility();
@@ -370,6 +375,7 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
           <label>Review focus<textarea maxLength={2000} rows={3} disabled={start.isPending} value={reviewFocus} onChange={event => setReviewFocus(event.target.value)} placeholder="Describe the outcome or boundaries to prioritize" /></label>
           <div className="agent-command-composer__controls">{hasPermission(session,'integration.view',projectId) && <AiLlmSelect autoSelect={false} integrations={integrations} value={llmId} onChange={setLlmId} disabled={start.isPending} scopeKey={`${projectId}:${appTypeId}`} />}<AgentContextSources values={contextScopes} disabled={start.isPending} onChange={values=>{setContextScopes(values);setSmartContext(null);}}/><AgentEvidenceScope projectId={projectId} appTypeId={appTypeId} scopes={contextScopes} values={evidenceScope} onChange={(key,value) => { setEvidenceScope(current => ({...current,[key]:value})); setSmartContext(null); }} disabled={start.isPending} />{hasPermission(session,'knowledge.view',projectId) && <SmartContextWorkbench key={JSON.stringify([projectId,appTypeId,agentType,contextScopes,evidenceScope])} agentId={agentType} contextScopes={contextScopes} evidenceScope={evidenceScope} projectId={projectId} appTypeId={appTypeId} initialQuery={reviewFocus || agent.description} preferredSourceKinds={smartContextKindsForScopes(contextScopes)} onApply={setSmartContext} buttonClassName="agent-command-smart-context" />}</div>
           <p className="repository-agent-inline-note">Source extraction runs without an LLM. Findings remain proposals until you review and publish them.</p>
+          <fieldset disabled={start.isPending} className="repository-agent-model-settings"><details><summary>Agent instructions and guardrails</summary><label>Additional agent instructions<textarea aria-label="Repository agent instructions" rows={3} maxLength={4000} value={instructions} onChange={event=>setInstructions(event.target.value)} /></label><label>Additional agent guardrails<textarea aria-label="Repository agent guardrails" rows={3} maxLength={2000} value={guardrails} onChange={event=>setGuardrails(event.target.value)} /></label></details><NodeAiSettings run value={aiConfiguration} defaults={nodeAiDefaults({kind:'repositoryAgent',repositoryAgentType:agentType})} reviewCriteria={reviewCriteria} onChange={setAiConfiguration} onReviewCriteriaChange={setReviewCriteria} /></fieldset>
           <details className="repository-agent-source-support"><summary>Supported source & limits</summary><p>{SOURCE_GUIDANCE[agentType].supported}</p><small>{SOURCE_GUIDANCE[agentType].limit}</small></details>
           <div className="repository-agent-source-switch" role="group" aria-label="Repository source type">
             <button aria-pressed={sourceType === "zip"} type="button" disabled={start.isPending} onClick={() => setSourceType("zip")}><IconUpload size={16} aria-hidden="true" /> ZIP archive</button>

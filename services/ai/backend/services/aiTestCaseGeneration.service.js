@@ -429,7 +429,7 @@ async function generateCasesForRequirement({
   });
 
   let createdCount = 0;
-
+  try {
   for (const [candidateIndex, candidate] of (preview.cases || []).entries()) {
     assertLease?.();
     const created = await testCaseService.createTestCase({
@@ -454,10 +454,17 @@ async function generateCasesForRequirement({
       ai_generated_at: new Date().toISOString(),
       created_by: job.created_by
     });
+    createdCount += 1;
     const referenceEvidence = require('@hellotest/platform/backend/services/aiAttachmentAccess.service');
     const originals = referenceEvidence.contextReferenceIds(job.additional_context);
     await referenceEvidence.retainReferences({ userId:job.created_by, projectId:appType.project_id, entityId:created.id, ids:originals.length?originals:candidate.reference_attachment_ids });
-    createdCount += 1;
+  }
+  } catch (error) {
+    // Generation already produced its reviewed native drafts. A storage or
+    // attachment-capacity error must not replay the paid model request.
+    throw Object.assign(error instanceof Error?error:new Error(String(error)),{
+      retryable:false,model_output_received:true,generation_stage:'persistence',created_cases_count:createdCount
+    });
   }
 
   return createdCount;
@@ -659,6 +666,7 @@ async function runJob(claimedJob, workerId) {
                 });
               }
             } catch (error) {
+              generatedCasesCount += Math.max(0,Number(error?.created_cases_count)||0);
               if (!retryableJobError && isRetryableLlmError(error)) {
                 retryableJobError = error;
               }

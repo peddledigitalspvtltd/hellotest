@@ -74,10 +74,12 @@ async function resolve(id, projectId, endpoint, kind = "http") {
   if (kind === "http" && connection?.kind === "mcp")
     throw fail("Select an HTTP connection.");
   const url = cleanUrl(endpoint || connection?.url || "");
+  if ([...url.searchParams.keys()].some(name => /^(?:authorization|auth|password|passwd|secret|token|api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret)$/i.test(name))) throw fail("Put authentication values in a managed connection, not endpoint query parameters.");
   if (connection) {
     const base = cleanUrl(connection.url);
-    const path = decodeURIComponent(url.pathname),
-      basePath = decodeURIComponent(base.pathname);
+    let path, basePath;
+    try { path = decodeURIComponent(url.pathname); basePath = decodeURIComponent(base.pathname); }
+    catch { throw fail("Use a valid encoded endpoint path."); }
     if (
       url.origin !== base.origin ||
       (path !== basePath &&
@@ -124,7 +126,8 @@ function authHeaders(connection) {
   const secret = connection.secretEnv ? process.env[connection.secretEnv] : settings.credential(connection);
   if (!secret)
     throw fail("The selected connection has no configured credential.", 503);
-  if (typeof secret !== "string" || /[\r\n]/.test(secret)) throw fail("The configured connection credential is invalid.", 503);
+  if (typeof secret !== "string" || secret.length > 8192 || /[\r\n\0]/.test(secret)) throw fail("The configured connection credential is invalid.", 503);
+  if (connection.authType === "basic" && (!secret.includes(":") || (connection.username && !secret.startsWith(`${connection.username}:`)))) throw fail("The Basic credential must contain the configured username followed by a colon and password.", 503);
   const name = connection.header || "Authorization";
   if (
     !/^[A-Za-z0-9-]+$/.test(name) ||
@@ -143,9 +146,10 @@ function authHeaders(connection) {
 }
 function redact(value, connection) {
   const secret = connection?.secretEnv ? process.env[connection.secretEnv] : connection?.encryptedSecret ? settings.credential(connection) : "";
-  const secrets = [secret, ...Object.values(settings.headers(connection))].filter(Boolean);
+  const basicPassword = connection?.authType === "basic" && secret.includes(":") ? secret.slice(secret.indexOf(":") + 1) : "";
+  const secrets = [...new Set([secret, basicPassword, ...Object.values(settings.headers(connection))].filter(Boolean))].sort((left, right) => right.length - left.length);
   return JSON.parse(JSON.stringify(value, function (key, item) {
-    if (/^(authorization|cookie|set-cookie|password|secret|token|api[-_]?key|access[-_]?token)$/i.test(key)) return "[REDACTED]";
+    if (/^(authorization|proxy-authorization|cookie|set-cookie|password|secret|token|api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret)$/i.test(key)) return "[REDACTED]";
     if (typeof item !== "string") return item;
     // Redact before JSON escaping so credentials containing quotes/backslashes
     // cannot reappear in an endpoint's echo or diagnostic response.

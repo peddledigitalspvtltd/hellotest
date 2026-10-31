@@ -20,6 +20,8 @@ const { getCompletionContent: completionContent } = require("@hellotest/platform
 const { sanitizeAiText, sanitizeAiEvidence } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
 const execution = require("@hellotest/knowledge/backend/services/knowledgeExecution.service");
 const evidenceScopes = require("@hellotest/platform/backend/src/utils/agentEvidenceScopeSql");
+const nodeAiConfiguration = require('../workflows/nodeAiConfiguration');
+const {dedupeInstructions}=require('@hellotest/platform/backend/src/utils/aiPromptEnvelope');
 
 const SESSION_TIMEOUT_MS = 150_000;
 const CONTEXT_TIMEOUT_MS = 20_000;
@@ -182,8 +184,8 @@ function revisionFeedback(candidate, issues, round) {
 }
 function providerUsage(value) {
   const fields = { input_tokens: 'prompt_tokens', output_tokens: 'completion_tokens', total_tokens: 'total_tokens' };
-  return value && typeof value === 'object' ? Object.fromEntries(Object.entries(fields).map(([name, key]) => [name,
-    Number.isSafeInteger(value[key]) && value[key] >= 0 ? value[key] : null])) : null;
+  return value && typeof value === 'object' ? Object.fromEntries(Object.entries(fields).map(([name, key]) => {const count=value[key]??value[name];return [name,
+    Number.isSafeInteger(count) && count >= 0 ? count : null];})) : null;
 }
 function aggregateUsage(records) {
   const keys = ['input_tokens', 'output_tokens', 'total_tokens'];
@@ -429,7 +431,16 @@ const buildFallbackResult = ({ agent, agentId, mode, prompt, context, contextCou
   };
 };
 
-const buildBoundedAgentPromptPayload = ({ mode, prompt, context, citations, contextRoute, knowledgeRetrieval, maxChars = 52_000 }) => {
+const EXACT_INPUT_SCOPES = new Set(['automation_repair','case_intent','workflow_input','task_input']);
+const MAX_TASK_INPUT_BYTES = 32_000;
+function suppliedInputEvidence(value) {
+  const serialized=JSON.stringify(value);
+  if(Buffer.byteLength(serialized,'utf8')>MAX_TASK_INPUT_BYTES)throw agentContract.fail('The complete task input exceeds its 32 KB model-input budget. Split the input or use an item loop; no partial input was sent.','AGENT_INPUT_BUDGET');
+  const supplied=sanitizeAiEvidence(serialized);
+  if(Buffer.byteLength(supplied.text,'utf8')>MAX_TASK_INPUT_BYTES)throw agentContract.fail('The complete sanitized task input exceeds its model-input budget. Split the input; no partial input was sent.','AGENT_INPUT_BUDGET');
+  return supplied;
+}
+const buildBoundedAgentPromptPayload = ({ mode, prompt, context, citations, contextRoute, knowledgeRetrieval, maxBytes = 52_000 }) => {
   // Routing chooses permitted evidence; presentation and task behavior come
   // from the managed feature, rather than a second set of routing defaults.
   const {decision_question,deliverable_contract,outcome_sections,retrieval_focus,retrieval_query,...routeMetadata}=contextRoute || {};
@@ -469,12 +480,14 @@ const buildBoundedAgentPromptPayload = ({ mode, prompt, context, citations, cont
   };
   const orderedScopes = [
     "automation_repair",
-    "automation_case",
     "case_intent",
+    "workflow_input",
+    "task_input",
+    "automation_case",
     "quality_checks",
     "live_project",
     "reviewed_context",
-    ...Object.keys(context || {}).filter((scope) => !["automation_repair", "automation_case", "case_intent", "quality_checks", "live_project", "reviewed_context"].includes(scope))
+    ...Object.keys(context || {}).filter((scope) => !["automation_repair", "automation_case", "case_intent", "workflow_input", "task_input", "quality_checks", "live_project", "reviewed_context"].includes(scope))
   ];
   const contextItems = orderedScopes.flatMap((scope) => {
     const values = Array.isArray(context?.[scope]) ? context[scope] : [];
@@ -488,8 +501,9 @@ const buildBoundedAgentPromptPayload = ({ mode, prompt, context, citations, cont
       source_kind: item?.source_kind || item?.asset_type || scope,
       score: Number.isFinite(Number(item?.score)) ? Number(item.score) : null,
       risk_flags: Array.isArray(item?.risk_flags) ? item.risk_flags.slice(0, 8) : [],
+      ...(item?.redaction_count?{redaction_count:item.redaction_count}:{}),
       citation: item?.citation ? compactCitation({ ...item.citation, scope }) : null,
-      content: ["automation_repair", "case_intent"].includes(scope) ? String(item?.content || item?.description || "")
+      content: EXACT_INPUT_SCOPES.has(scope) ? String(item?.content || item?.description || "")
         : require('@hellotest/platform/backend/src/utils/llmContextFallback').compactEvidenceText(
           String(item?.content || item?.description || ""), scope === "automation_case" ? 36_000 : scope === "quality_checks" ? 12_000 : scope === "reviewed_context" ? 3_000 : scope === "live_project" ? 9_000 : 5_000)
     };
@@ -500,8 +514,8 @@ const buildBoundedAgentPromptPayload = ({ mode, prompt, context, citations, cont
     const currentScope = payload.bounded_workspace_context[scope] || [];
     payload.bounded_workspace_context[scope] = [...currentScope, compact];
     payload.context_manifest.selected_context_items += 1;
-    if (JSON.stringify(payload).length > maxChars) {
-      if(["automation_repair", "case_intent"].includes(scope)) throw agentContract.fail("The exact task contract does not fit the selected model context budget. No incomplete source was sent.", "AGENT_CONTEXT_BUDGET");
+    if (Buffer.byteLength(JSON.stringify(payload),'utf8') > maxBytes) {
+      if(EXACT_INPUT_SCOPES.has(scope)) throw agentContract.fail("The exact task contract does not fit the selected model context budget. No incomplete source was sent.", "AGENT_CONTEXT_BUDGET");
       payload.bounded_workspace_context[scope].pop();
       payload.context_manifest.selected_context_items -= 1;
       payload.context_manifest.omitted_context_items += 1;
@@ -530,12 +544,13 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
   const messages = [
     {
       role: "system",
-      content: [
-        JSON.stringify({ agent_intent: { name: agent.name, objective: agent.objective, deliverable: agent.outputInstructions }, response_schema: responseContract.schema }),
-        agent.customObjective || "",
-        agent.instructions || "",
+      content: dedupeInstructions([
+        // The shared boundary inserts the node-owned primary prompt once.
+        // Keep native shape and successor-specific guidance in this frame.
+        JSON.stringify({ agent_intent: { name: agent.name, objective: agent.objective }, response_schema: responseContract.schema }),
+        agent.customObjective ? "" : agent.instructions || "",
         ...(agent.skills || []).map(skill => [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.2"),String(skill.name),": ",String(instructionFor(skill,agent.configurationKey)),""].join('')),
-        agent.guardrails ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.3"),String(agent.guardrails),""].join('') : "",
+        agent.guardrails && agent.guardrails !== require('@hellotest/platform/backend/src/utils/aiExecutionConfiguration').current()?.config?.guardrails ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.3"),String(agent.guardrails),""].join('') : "",
         [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.4"),String(JSON.stringify(agent.acceptance || { require_evidence: true })),aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.service.js.messages.final.5")].join(''),
         aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.1"),
         aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.2"),
@@ -551,7 +566,7 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
         ...(repair ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.43")] : []),
         ...(repair ? [aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.revision")] : []),
         aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.messages.14")
-      ].join(" ")
+      ]).join("\n\n")
     },
     ...(Array.isArray(history) ? history : []).filter((entry) => entry && ["user", "assistant"].includes(entry.role) && typeof entry.content === "string").slice(-6).map((entry) => ({
       role: entry.role === "assistant" ? "assistant" : "user",
@@ -570,6 +585,10 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
     effectiveMessages = reducedContent ? [...messages.filter(message => message.role !== "user"), {role:"user",content:reducedContent}] : messages;
     execution.assertActive();
     if (budget.used >= budget.max) throw agentContract.fail("The model call budget is exhausted. Review the output contract or increase the permitted calls.", "AGENT_MODEL_BUDGET");
+    const dispatchRecords=[];
+    const beforeDispatch=async()=>{
+    execution.assertActive();
+    if (budget.used >= budget.max) throw agentContract.fail("The model call budget is exhausted. Review the output contract or increase the permitted calls.", "AGENT_MODEL_BUDGET");
     if (user && projectId) {
       if (!await permissionService.hasPermission(user, 'agentic_workflow.run', projectId)) throw agentError('Agent run access changed before the model call.',403);
       const evidence = Object.values(context).flat().filter(item => item.citation?.source_id).map(item => ({ ...item, source_id: item.source_id || item.citation.source_id, source_kind: item.source_kind || item.citation.source_kind, chunk_id: item.chunk_id || item.citation.chunk_id || item.id }));
@@ -578,9 +597,20 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
         if (fresh.denied_ids.length) throw agentError('Evidence access changed before the model call. Start a fresh review.',403);
       }
     }
+    if(deadline-Date.now()<1000)throw agentError("The model review deadline was reached.",504);
+    budget.used+=1;
+    dispatchRecords.push({name:agent.name,trace_id:null,status:'dispatched',attempt:budget.used,usage:null});
+    };
+    const onTrace=async record=>{
+      if(record.dispatched){
+        const observed=dispatchRecords.find(item=>item.trace_id===record.trace_id)||dispatchRecords.find(item=>!item.trace_id);
+        if(observed){observed.trace_id=record.trace_id;if(record.status!=='running')observed.status=record.status==='succeeded'?'response_received':record.status;if(record.usage)observed.usage=providerUsage(record.usage);if(record.error_code)observed.error_code=record.error_code;}
+      }
+      const sessionId=require('@hellotest/platform/backend/src/utils/llmTraceContext').current().session_id;
+      if(sessionId)await appendEvent(sessionId,require('@hellotest/platform/backend/src/utils/agentModelTrace').modelTraceEvent(record,{name:agent.name}));
+    };
     const remaining = deadline - Date.now();
     if (remaining < 1_000) throw agentError("The model review deadline was reached.", 504);
-    budget.used += 1;
     let response;
     try { response = await fetchLlmWithRetry(resolveChatCompletionsUrl(integration.base_url), {
     method: "POST",
@@ -594,12 +624,13 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
     })
     }, {
       integration,
+      beforeDispatch,
       featureKey: agent.configurationKey,
       // This request already carries the MCP packet selected for this agent.
       // Automatic enrichment must not widen user-selected sources or tool scopes.
       mcpContextHandled: { evidence_count: citations.filter(item => item.source_id).length },
       traceContext: { mcp_context_depth: 1, mcp_context: citations.some(item => item.source_id) ? 'retrieved' : 'unavailable',
-        on_llm_trace:require("@hellotest/platform/backend/src/utils/llmTraceContext").current().session_id?record=>appendEvent(require("@hellotest/platform/backend/src/utils/llmTraceContext").current().session_id,require("@hellotest/platform/backend/src/utils/agentModelTrace").modelTraceEvent(record,{name:agent.name})):undefined },
+        on_llm_trace:onTrace },
       compatibility: false,
       contextFallback: false,
       operation: jsonMode ? "agentic-assistant.respond" : "agentic-assistant.respond.json-mode-compatibility",
@@ -610,13 +641,17 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
       idempotent: false,
       maxOutputTokens: agent.limits?.max_output_tokens || 4000,
       maxResponseBytes: 512 * 1024
-    }); } catch (error) {
-      currentCallRecord = { name: agent.name, trace_id: null, status: 'failed', attempt: budget.used, error_code: error.code || 'AGENT_PROVIDER_ERROR' };
-      if (budget.onCall) await budget.onCall(currentCallRecord);
+    });
+    currentCallRecord=dispatchRecords.at(-1)||null;
+    if(currentCallRecord){currentCallRecord.trace_id ||= response.headers?.get?.('x-hellotest-llm-trace-id')||null;if(currentCallRecord.status==='dispatched')currentCallRecord.status=response.ok?'response_received':'failed';}
+    } catch (error) {
+      for(const record of dispatchRecords)if(record.status==='dispatched'){record.status='failed';record.error_code=error.code||'AGENT_PROVIDER_ERROR';}
       throw error;
+    }finally{
+      // Hidden native-output corrections still perform provider work. Report
+      // every actual POST, and never label a blocked preflight as dispatched.
+      if(budget.onCall)for(const record of dispatchRecords)await budget.onCall(record);
     }
-    currentCallRecord = { name: agent.name, trace_id: response.headers?.get?.("x-hellotest-llm-trace-id") || null, status: response.ok ? "response_received" : "failed", attempt: budget.used };
-    if (budget.onCall) await budget.onCall(currentCallRecord);
     return response;
   };
 
@@ -624,8 +659,10 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
   if (!response.ok && [400,413,422].includes(Number(response.status)) && budget.used < budget.max && require('@hellotest/platform/backend/src/utils/llmContextFallback').isContextSizeRejection(response.status, await response.clone().text())) {
     const originalPayload = JSON.parse(promptPayload || buildBoundedAgentPromptPayload({mode,prompt,context,citations,contextRoute,knowledgeRetrieval}));
     const reduced = require('./agentMinimalContext').minimalContext(originalPayload);
+    const reducedContent=JSON.stringify(reduced.payload);
+    if(Buffer.byteLength(reducedContent,'utf8')>=Buffer.byteLength(JSON.stringify(originalPayload),'utf8'))throw agentContract.fail('The provider cannot fit the complete required task input. Split the input or select a larger-context model; no repeated request was sent.','AGENT_CONTEXT_BUDGET');
     reducedEvidenceIds = reduced.ids;
-    response = await request(true,JSON.stringify(reduced.payload));
+    response = await request(true,reducedContent);
   }
   if (!response.ok) {
     const providerText = typeof response.text === "function" ? await response.text() : "";
@@ -634,7 +671,7 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
   }
   if (!response.ok) throw agentContract.fail(`LLM provider returned ${response.status}. Check Integrations.`, "AGENT_PROVIDER_ERROR", response.status === 429 || response.status >= 500 ? response.status : 422);
   const payload = await response.json();
-  if (currentCallRecord) currentCallRecord.usage = providerUsage(payload.usage);
+  if (currentCallRecord&&!currentCallRecord.usage) currentCallRecord.usage = providerUsage(payload.usage);
   if (payload.choices?.[0]?.finish_reason === "length") throw agentContract.fail("The model output limit was reached. Reduce the requested scope or increase this agent's output limit.", "AGENT_OUTPUT_TRUNCATED", 422);
   const content = completionContent(payload);
   if (!content) throw new Error("Configured LLM returned an empty completion payload");
@@ -827,16 +864,19 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
   const runtimeInputs = await resolveCaseEvidenceInput({inputs:{ ...toPlainRecord(workflow_policy?.connected_input?.request), ...toPlainRecord(workflow_policy?.connected_input?.input), ...toPlainRecord(inputs) },user,projectId,appTypeId});
   const evidenceScope = evidenceScopes.normalize(runtimeInputs);
   if (definition) agentContract.validateInputs(definition, runtimeInputs);
-  return execution.bounded(async () => {
+  return nodeAiConfiguration.runAgent({ id: normalizedAgentId, registered, policy: workflow_policy }, () => execution.bounded(async () => {
   if (definition && !workflow_policy) workflow_policy = { ...specialistPolicy(agentContract.toNodeData(definition)), custom_task: true,
     connected_input: inputs || {}, agent_definition: registered };
   const policy = workflow_policy || specialistPolicy({ agentId: normalizedAgentId });
   workflow_policy = policy;
+  // Validate complete supplied data before optional retrieval can incur work.
+  const preparedWorkflowInput=policy.connected_input&&Object.keys(policy.connected_input).length?suppliedInputEvidence(policy.connected_input):null;
+  const preparedTaskInput=!policy.connected_input&&Object.keys(runtimeInputs).length?suppliedInputEvidence(runtimeInputs):null;
   const agent = { ...(definition ? { name: definition.name, objective: definition.objective } : workflow_policy?.custom_task ? { name: policy.agent_name || "Custom AI", objective: "Perform the configured task and selected skills using supplied input. Preserve input provenance." } : AGENT_CATALOG[normalizedAgentId]),
     configurationKey: /^ai\.agentic\.repository\.(object_repository|api_tests|repository_knowledge|component_tests)$/.test(policy.configuration_key || "") ? policy.configuration_key : `ai.agentic.${normalizedAgentId}`,
     outputInstructions: (definition?.feature_id ? Object.values(specialistProfiles).find(profile => profile.featureId === definition.feature_id)?.outputInstructions : specialistProfiles[normalizedAgentId]?.outputInstructions) || "",
     customObjective: definition?.objective || "", instructions: definition?.instructions || "", skills: policy.skills, guardrails: policy.guardrails,
-    acceptance: definition?.acceptance || { require_evidence: true }, limits: definition?.limits || { max_model_calls: 4, max_output_tokens: 6000 } };
+    acceptance: definition?.acceptance || { require_evidence: true }, limits: definition?.limits || { max_model_calls: 8, max_output_tokens: 16384 } };
   const configuration = require('@hellotest/platform/backend/services/aiConfiguration.service');
   const governedProfile = await configuration.resolve(configuration.featureId(agent.configurationKey, 'ai.agentic.workflow'));
   const executionPolicy = governedProfile.config.agent_execution || configuration.catalog.find(item => item.id === 'ai.agentic.workflow').defaults.agent_execution;
@@ -988,15 +1028,15 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       context_route: contextRoute
     };
     if (workflow_policy?.connected_input && Object.keys(workflow_policy.connected_input).length) {
-      const supplied = sanitizeAiEvidence(JSON.stringify(workflow_policy.connected_input || {}).slice(0, 16000));
+      const supplied = preparedWorkflowInput;
       context.workflow_input = [{ id: "K-workflow-input", title: "Supplied workflow input (unverified)",
-        content: supplied.text, risk_flags: supplied.risk_flags,
+        content: supplied.text, risk_flags: supplied.risk_flags, redaction_count:supplied.redaction_count,
         citation: { id: "K-workflow-input", label: "Supplied workflow input (unverified)", source_kind: "workflow_input" },
       }];
     }
     if (!workflow_policy.connected_input && Object.keys(runtimeInputs).length) {
-      const inputSnapshot = sanitizeAiEvidence(JSON.stringify(runtimeInputs).slice(0, 16000));
-      context.task_input = [{ id: "K-task-input", title: "Supplied task scope (unverified)", content: inputSnapshot.text, citation: { id: "K-task-input", label: "Supplied task scope (unverified)", source_kind: "task_input" } }];
+      const inputSnapshot = preparedTaskInput;
+      context.task_input = [{ id: "K-task-input", title: "Supplied task scope (unverified)", content: inputSnapshot.text, risk_flags:inputSnapshot.risk_flags,redaction_count:inputSnapshot.redaction_count,citation: { id: "K-task-input", label: "Supplied task scope (unverified)", source_kind: "task_input" } }];
     }
     if (policy.context) {
       const suppliedContext = sanitizeAiText(policy.context);
@@ -1107,7 +1147,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     const modelCallRecords = [];
     budget.onCall = async record => {
       modelCallRecords.push(record);
-      await appendEvent(transactionId,{phase:"model.call",level:record.status === "failed" ? "warning" : "info",message:`${record.name} · model call ${record.attempt} ${record.status === "failed" ? "failed" : "response received"}.`,details:{name:record.name,trace_id:record.trace_id,attempt:record.attempt}});
+      await appendEvent(transactionId,{phase:"model.call",level:record.status === "failed" ? "warning" : "info",message:`${record.name} · model call ${record.attempt} ${record.status === "response_received" ? "response received" : record.status}.`,details:{name:record.name,trace_id:record.trace_id,attempt:record.attempt}});
     };
     const boundedPayload = JSON.parse(buildBoundedAgentPromptPayload({ mode: normalizedMode, prompt: normalizedPrompt, context, citations, contextRoute, knowledgeRetrieval }));
     boundedPayload.outcome_contract = outcomeContract;
@@ -1426,7 +1466,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     throw error;
   } finally { await automationBrowser?.close(); }
   }, { timeoutMs: agent.limits.timeout_ms - (Date.now() - startedAt) });
-  }, { timeoutMs: (definition?.limits.timeout_ms || SESSION_TIMEOUT_MS) - (Date.now() - startedAt) });
+  }, { timeoutMs: (definition?.limits.timeout_ms || SESSION_TIMEOUT_MS) - (Date.now() - startedAt) }));
 };
 
 exports.respond = (input = {}) => execution.run({onProgress: typeof input.onProgress === "function" ? input.onProgress : undefined}, () => execution.bounded(() => require("@hellotest/platform/backend/src/utils/llmTraceContext").run(
@@ -1439,6 +1479,7 @@ exports._internals = {
   assertPinnedCaseScope,
   resolveCaseEvidenceInput,
   buildBoundedAgentPromptPayload,
+  suppliedInputEvidence,
   buildFallbackResult,
   buildCitations,
   buildEvidenceReadiness,

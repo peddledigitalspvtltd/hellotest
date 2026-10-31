@@ -5,6 +5,7 @@ const { createRequire } = require('node:module');
 const catalog = require('../../shared/aiFeatureCatalog.json');
 const { aiInstructionBlock } = require('../src/utils/aiInstructionBlocks');
 const trace = require('../src/utils/llmTraceContext');
+const execution = require('../src/utils/aiExecutionConfiguration');
 const keys = ['automationBrowserAgent.goalReview', 'automationBrowserAgent.semanticReview'];
 const profiles = catalog.filter(item => keys.every(key => typeof item.defaults.instruction_blocks[key] === 'string'));
 
@@ -43,6 +44,15 @@ test('previous stock clause guidance upgrades without publishing or changing rev
     assert.equal(typeof previous, 'string');assert.notEqual(previous, feature.defaults.instruction_blocks[key]);
     const stored = structuredClone(feature.defaults);stored.instruction_blocks[key] = previous;
     const service = configuration({ [feature.id]: { published: { version: 7, config: stored }, draft: { config: stored } } });
+    if(feature.configuration_owner==='agent') {
+      await assert.rejects(service.detail(feature.id),{code:'AI_CONFIGURATION_OWNER'});
+      const resolved=await service.resolve(feature.id);
+      assert.equal(resolved.published_version,0);assert.equal(resolved.config.instruction_blocks[key],feature.defaults.instruction_blocks[key]);
+      const custom='Reviewed node-specific input acceptance and validation policy.';
+      const scoped=await execution.run({source:'workflow_node',id:'input-validation',feature_id:feature.id,config:{instruction_blocks:{[key]:custom}}},()=>service.resolve(feature.id));
+      assert.equal(scoped.config.instruction_blocks[key],custom);
+      continue;
+    }
     const detail = await service.detail(feature.id);
     assert.equal(detail.config.instruction_blocks[key], feature.defaults.instruction_blocks[key]);
     assert.equal(detail.draft.config.instruction_blocks[key], feature.defaults.instruction_blocks[key]);assert.equal(detail.published_version, 7);

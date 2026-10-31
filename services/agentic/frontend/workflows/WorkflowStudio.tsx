@@ -332,7 +332,7 @@ export function WorkflowStudio(props: Props) {
               <div className="studio-library-list">
                 {matchingProjectAgents.length > 0 && <section><h3>Project agents</h3>{matchingProjectAgents.map(agent => <button key={agent.id} type="button" disabled={!props.editable || props.busy} onClick={() => { props.onAddAgent?.(agent, insertion); setLibrary(false); }}><span className="studio-library-icon" data-kind="agent"><WorkflowNodeIcon kind="agent" /></span><span><strong>{(agent.active_definition || agent.definition).name}</strong><small>Version {agent.active_version} · LLM required</small></span></button>)}</section>}
                 {nodePaletteGroups.map((group) => {
-                  const kinds = group.kinds.filter(kind => !props.nodes.length ? kind === "trigger" : kind !== "trigger" && !(insertion?.edgeId && ["output", "errorHandler"].includes(kind))).filter((kind) =>
+                  const kinds = group.kinds.filter(kind => !props.nodes.length ? kind === "trigger" : kind !== "trigger" && !(insertion?.edgeId && ["output", "stop", "errorHandler"].includes(kind))).filter((kind) =>
                     `${nodeKindLabels[kind]} ${nodeKindDescriptions[kind]}`
                       .toLowerCase()
                       .includes(query.toLowerCase()),
@@ -422,7 +422,7 @@ export function WorkflowStudio(props: Props) {
             </div>
             <WorkflowCanvas
               onInsert={props.editable && !props.busy ? openLibrary : undefined}
-              isValidConnection={connection => canConnectWorkflow(props.nodes, props.edges, connection.source, connection.target, connection.sourceHandle)}
+              isValidConnection={connection => canConnectWorkflow(props.nodes, props.edges, connection.source, connection.target, connection.sourceHandle, connection.targetHandle)}
               nodes={props.nodes.map((node) => ({
                 ...node,
                 selected: node.id === props.selectedNodeId,
@@ -616,12 +616,15 @@ export function WorkflowStudio(props: Props) {
             <label>
               <span>Node processing</span>
               <select aria-label="Node processing" value={props.draft.settings.processing_mode === "parallel" ? "parallel" : "sequential"}
-                onChange={event => props.onDraft({ settings: { ...props.draft.settings, processing_mode: event.target.value, max_parallel_nodes: 2 } })}>
+                onChange={event => props.onDraft({ settings: { ...props.draft.settings, processing_mode: event.target.value, max_parallel_nodes: props.draft.settings.max_parallel_nodes ?? 2 } })}>
                 <option value="sequential">Sequential</option>
-                <option value="parallel">Parallel independent branches · up to 2 nodes</option>
+                <option value="parallel">Parallel independent branches</option>
               </select>
             </label>
-            <p>Connected nodes wait for their inputs. Merge nodes collect connected branch results in connection order.</p>
+            {props.draft.settings.processing_mode === "parallel" && <label><span>Maximum concurrent nodes</span><input type="number" aria-label="Maximum concurrent nodes" min={1} max={8} step={1} value={String(props.draft.settings.max_parallel_nodes ?? 2)} onChange={event => props.onDraft({ settings: { ...props.draft.settings, max_parallel_nodes: event.target.value === "" ? "" : Number(event.target.value) } })} /></label>}
+            <p>Only independent ready nodes run together, up to the configured limit (1–8). Connected steps wait for their inputs. Loop batches remain sequential; Merge waits for its connected branches.</p>
+            <label><span>Workflow deadline (ms, optional)</span><input type="number" aria-label="Workflow deadline (ms, optional)" min={1000} max={3600000} step={1000} placeholder="Automatic" value={String(props.draft.settings.maxDurationMs ?? "")} onChange={event => { const settings = { ...props.draft.settings }; if (event.target.value === "") delete settings.maxDurationMs; else settings.maxDurationMs = Number(event.target.value); props.onDraft({ settings }); }} /></label>
+            <p className="studio-caption">Total time for all steps, waits and loop batches, up to one hour. Automatic uses three minutes, or one hour when native AI tasks are present. Individual node timeouts still apply.</p>
           </fieldset>
           <WorkflowConnections projectId={props.inspector.projectId} />
           <p className="studio-caption">

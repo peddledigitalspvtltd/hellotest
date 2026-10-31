@@ -243,6 +243,10 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
   const sourceRefs = sources.map(source => source.ref);
   const outputContract = reviewContract(dimensionIds, sourceRefs, fieldNames, stepRefs);
   const outputSchema = reviewOutputSchema(dimensionIds, sourceRefs, fieldNames, stepRefs, readinessRequested);
+  // Readiness is advisory and independently normalized to unknown when absent
+  // or malformed. Its failure cannot discard an otherwise supported review.
+  const transportSchema=readinessRequested?{...outputSchema,required:outputSchema.required.filter(key=>key!=='automation_readiness'),
+    properties:{...outputSchema.properties,automation_readiness:{}}}:outputSchema;
   const lockedScores = normalizeBaseline(baseline, dimensionIds);
   const prompt = [
     [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.1"),String(artifactType === "story" ? "Story" : "Test Case"),aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.2")].join(''),
@@ -254,7 +258,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.6"),String(JSON.stringify(lockedScores)),""].join(''),
     [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.7"),String(JSON.stringify(sources)),""].join(''),
     aiInstructionBlock(featureKey, 'artifactAssurance.reviewFocus'),
-    JSON.stringify({ review_contract: outputContract, review_output_schema: outputSchema, step_references: stepReferences,
+    JSON.stringify({ review_contract: outputContract, step_references: stepReferences,
       evidence_boundary: { linked_records_available: linkedEvidence.length, linked_records_included: Math.min(linkedEvidence.length, linkedLimit),
         omitted_linked_records: Math.max(0, linkedEvidence.length - linkedLimit), content_scope: 'bounded_supplied_only',
         ...object(evidenceBoundary) } }),
@@ -278,7 +282,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       modelCalls += 1;
       return fetchLlmWithRetry(url, { method: "POST", headers, signal, body: JSON.stringify({
       model: integration.model,  response_format: { type: "json_object" }, messages
-    }) }, { integration, operation, featureKey, timeoutMs: Math.min(timeoutMs, remaining), maxOutputTokens, maxAttempts: 1, compatibility: false, contextFallback: false });
+    }) }, { integration, operation, featureKey, outputSchema:transportSchema, outputSchemaName:'artifact_assurance_review', timeoutMs: Math.min(timeoutMs, remaining), maxOutputTokens, maxAttempts: 1, compatibility: false, contextFallback: false });
     };
     const allowedRefs = new Set(sources.map(item => item.ref));
     let review;
@@ -292,21 +296,21 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       originalContent = result.content;
       review = normalizeReview(result.parsed, dimensionIds, allowedRefs, normalization);
     } catch (error) {
-      const repairable = error instanceof SyntaxError || error?.code === "AI_ASSURANCE_REVIEW_INVALID";
+      const repairable = error instanceof SyntaxError || ["AI_ASSURANCE_REVIEW_INVALID","AI_INVALID_JSON","AI_OUTPUT_SCHEMA_VIOLATION","AI_MANAGED_SCHEMA_INVALID"].includes(error?.code);
       if (!repairable) throw error;
-      originalContent = originalContent || text(error?.reviewContent, 16_000);
+      originalContent = originalContent || text(error?.reviewContent || error?.model_candidate, 16_000);
       const repairPrompt = [
         aiInstructionBlock(featureKey, "artifactAssurance.repairPrompt.10"),
         ...(artifactType === 'test-case' ? [aiInstructionBlock(featureKey, 'artifactAssurance.caseApplicability')] : []),
         [aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.8"),String(JSON.stringify(dimensionIds)),aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.9")].join(''),
         [aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.10"),String(JSON.stringify([...allowedRefs])),aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.11")].join(''),
         aiInstructionBlock(featureKey, "artifactAssurance.repairPrompt.11"),
-        [aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.12"),String(text(JSON.stringify(sources), 32_000)),""].join(''),
+        [aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.12"),JSON.stringify(sources),""].join(''),
         aiInstructionBlock(featureKey, "artifactAssurance.repairPrompt.12"),
         aiInstructionBlock(featureKey, 'artifactAssurance.reviewFocus'),
         aiInstructionBlock(featureKey, 'artifactAssurance.validationFeedback'),
         JSON.stringify({ review_validation_error: { code: error.code || 'AI_INVALID_JSON', message: text(error.message, 500) },
-          review_contract: outputContract, review_output_schema: outputSchema, step_references: stepReferences }),
+          review_contract: outputContract, step_references: stepReferences, validation_errors:error.validation_errors || [] }),
         [aiInstructionBlock(featureKey, "artifactAssurance.service.repairPrompt.segment.13"),String(JSON.stringify(text(originalContent || error?.message, 16_000))),""].join(''),
         ...(readinessRequested ? [aiInstructionBlock(featureKey, 'artifactAssurance.automationReadiness'),
           JSON.stringify({ automation_readiness_contract: readinessContract([...allowedRefs], stepRefs), product_evidence_refs: [...productRefs], step_references: stepReferences })] : [])

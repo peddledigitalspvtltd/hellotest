@@ -13,15 +13,10 @@ const { safeMessage, failureInfo } = require('./runtimeEvents');
 const automationInputs = require('./automationNodeInputs');
 const { generationOptions,pinnedGenerationOptions } = require('./generationNodeOptions');
 const modelTrace = require('@hellotest/platform/backend/src/utils/llmTraceContext');
+const executionConfiguration = require('@hellotest/platform/backend/src/utils/aiExecutionConfiguration');
 const TASK_DEFAULTS = require('../../shared/workflowNativeTasks.json');
 const TASKS = new Set(['story-assurance', 'test-case-generation', 'test-case-assurance', 'automation-engineer']);
-const TASK_USAGE_KEYS = Object.freeze({
-  'story-assurance': 'ai.quality.story_assurance',
-  'test-case-generation': 'ai.test_case.design',
-  'test-case-assurance': 'ai.quality.test_case_assurance',
-  'automation-engineer': 'ai.agentic.automation-engineer'
-});
-const taskUsageKey = task => TASK_USAGE_KEYS[task];
+const taskUsageKey = task => TASK_DEFAULTS[task]?.featureKey;
 const MAX_STORIES = 100;
 const assertActive = signal => { if (signal?.aborted) throw fail('Workflow cancelled.', 499); };
 // JSONB does not preserve object insertion order. Persisted drafts and freshly
@@ -39,7 +34,8 @@ function taskGuidance(node) {
   const defaults = TASK_DEFAULTS[data.artifactTask] || {};
   return [
     ['Task', data.task ?? defaults.task], ['Instructions', data.instructions ?? data.prompt ?? defaults.instructions],
-    ['Guardrails', data.guardrails ?? defaults.guardrails]
+    ['Guardrails', data.guardrails ?? defaults.guardrails],
+    ['Review criteria', require('./nodeAiConfiguration').reviewCriteria(data)]
   ].filter(([, value]) => typeof value === 'string' && value.trim())
     .map(([label, value]) => `${label}:\n${value.trim()}`).join('\n\n');
 }
@@ -146,10 +142,10 @@ function assertDrafts(cases, storyId, maxCases = 10) {
     } else if (!Array.isArray(draft.steps) || !draft.steps.length || draft.steps.length > 30 || draft.steps.some(step => !String(step?.action || '').trim() || !String(step?.expected_result || '').trim())) throw fail('The native generator returned incomplete Test Case actions or expected results.', 422);
   }
 }
-function taskContext(node, run, packet, story) {
+function taskContext(node, run, packet, story, {includeStoryContent=true}={}) {
   return {
     workflow_scope: { project_id: run.project_id, app_type_id: run.app_type_id, sprint_id: run.input_payload.sprint_id, story_id: story.id, story_revision: revision(story) },
-    selected_story: { ref: `requirement:${story.id}`, story_revision:revision(story), content: storyAiSnapshot(story) },
+    selected_story: { ref: `requirement:${story.id}`, story_revision:revision(story), ...(includeStoryContent?{content:storyAiSnapshot(story)}:{content_source:'native_artifact_input'}) },
     supplied_context: String(node.data.contextInstructions || '').trim(),
     ...(packet.story_assurance ? { story_assurance: packet.story_assurance.assurance_review, story_assurance_limitations: packet.story_assurance.analysis?.limitations || [] } : {}),
     content_provenance: { selected_story: 'authorized_current_record', supplied_context: 'user_supplied', upstream_reviews: 'model_generated', scope_owner: 'workflow_runtime' }
@@ -316,7 +312,7 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
     if (task === 'story-assurance') {
       await access(user, run.project_id, ['requirement.ai']);
       const baseline = storyBaseline(core, story);
-      const review = await assurance.reviewArtifact({ artifactType: 'story', savedArtifact: story, baseline, user, projectId: run.project_id, integrationId, signal, promptGuidance: taskGuidance(node) || undefined, additionalContext: node.data.contextInstructions || undefined });
+      const review = await assurance.reviewArtifact({ artifactType: 'story', savedArtifact: story, baseline, user, projectId: run.project_id, integrationId, signal, promptGuidance: executionConfiguration.current() ? undefined : taskGuidance(node) || undefined, additionalContext: node.data.contextInstructions || undefined });
       assertActive(signal);
       assertReview(review, 'Story assurance');
       output.story_assurance = { ...review, story_id: story.id, story_revision: revision(story), baseline, analysis: core.mergeAssuranceReview(baseline, review.assurance_review), comparison: comparison(baseline) };
@@ -326,8 +322,8 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
       assertReview(packet.story_assurance, 'Story assurance');
       if (packet.story_assurance.story_id && packet.story_assurance.story_id !== story.id || packet.story_assurance.story_revision && packet.story_assurance.story_revision !== revision(story)) throw fail('Story assurance belongs to a different Story revision.', 409);
       const generation = generationOptions(node.data,run.input_payload);
-      const custom = [generation.instructions, taskGuidance(node)].filter(value => typeof value === 'string' && value.trim()).join('\n\n');
-      const contextPack = `${custom}\n\n[HELLOTEST_SMART_CONTEXT_START]\n${JSON.stringify(taskContext(node, run, packet, story))}\n[HELLOTEST_SMART_CONTEXT_END]`;
+      const custom = [generation.instructions, executionConfiguration.current() ? '' : taskGuidance(node)].filter(value => typeof value === 'string' && value.trim()).join('\n\n');
+      const contextPack = `${custom}\n\n[HELLOTEST_SMART_CONTEXT_START]\n${JSON.stringify(taskContext(node, run, packet, story,{includeStoryContent:false}))}\n[HELLOTEST_SMART_CONTEXT_END]`;
       output.test_case_generation = await design.previewRequirementsTestCases({ requirements: [story], appType: app, integration_id: integrationId, user_id: user.id, max_cases: generation.maxCases, additional_context: contextPack, authoring_mode: generation.authoringMode, evidence_scope: { sprint_id: run.input_payload.sprint_id, story_id: story.id }, signal });
       assertActive(signal);
       output.cases = output.test_case_generation.cases;
@@ -342,7 +338,7 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
         assertActive(signal);
         const draft = packet.cases[caseIndex];
         const baseline = caseBaseline(core, draft);
-        const review = await assurance.reviewArtifact({ artifactType: 'test-case', assessAutomationReadiness: true, savedArtifact: { ...draft, id: `workflow:${run.id}:${story.id}:${caseIndex}` }, baseline, linkedEvidence: [{ ...story, kind: 'requirement' }], user, projectId: run.project_id, integrationId, signal, promptGuidance: taskGuidance(node) || undefined, additionalContext: JSON.stringify(taskContext(node, run, packet, story)) });
+        const review = await assurance.reviewArtifact({ artifactType: 'test-case', assessAutomationReadiness: true, savedArtifact: { ...draft, id: `workflow:${run.id}:${story.id}:${caseIndex}` }, baseline, linkedEvidence: [{ ...story, kind: 'requirement' }], user, projectId: run.project_id, integrationId, signal, promptGuidance: executionConfiguration.current() ? undefined : taskGuidance(node) || undefined, additionalContext: JSON.stringify(taskContext(node, run, packet, story,{includeStoryContent:false})) });
         assertActive(signal);
         assertReview(review, 'Test Case assurance');
         output.case_assurance.push({ client_id: draft.client_id, case_fingerprint: fingerprint(draft), ...review, baseline, analysis: core.mergeAssuranceReview(baseline, review.assurance_review), comparison: comparison(baseline) });
@@ -386,7 +382,7 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
           await checkpointProgress(output,index,caseIndex,packet.cases.length);
           continue;
         }
-        const automationContext = [taskGuidance(node), JSON.stringify({ ...taskContext(node, run, packet, story),
+        const automationContext = [executionConfiguration.current() ? '' : taskGuidance(node), JSON.stringify({ ...taskContext(node, run, packet, story),
           readiness_policy:readinessPolicy,
           case_assurance: packet.case_assurance[caseIndex].assurance_review, case_assurance_limitations: packet.case_assurance[caseIndex].analysis?.limitations || [] })].filter(Boolean).join('\n\n');
         let automation;

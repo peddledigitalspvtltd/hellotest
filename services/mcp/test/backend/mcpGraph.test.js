@@ -48,6 +48,17 @@ test('MCP redaction discloses immutable source offsets and includes its metadata
  await assert.rejects(f.boundary.expand(actor,G.graphSchema.parse({seeds:[{kind:'text',ref_id:'source-a'}],token_budget:256})),error=>error.code==='MCP_GRAPH_BUDGET');
 });
 
+test('graph delivery rejects foreign nested records and edges whose evidence witness is absent',async()=>{
+ const valid=fixture().graph;
+ for(const graph of [{...valid,nodes:[{...valid.nodes[0],project_id:'foreign'},valid.nodes[1]]},
+  {...valid,evidence:[{...valid.evidence[0],project_id:'foreign'}]},
+  {...valid,edges:[{...valid.edges[0],evidence_ids:['not-returned']}]}]){
+  await assert.rejects(fixture({graph}).boundary.expand(actor,G.graphSchema.parse({seeds:[{kind:'requirement',ref_id:'story-a'}]})),{code:'MCP_GRAPH_CONTRACT'});
+ }
+ const boundary=fixture({bounded:graph=>({...graph,nodes:graph.nodes.slice(0,1)})}).boundary;
+ await assert.rejects(boundary.expand(actor,G.graphSchema.parse({seeds:[{kind:'requirement',ref_id:'story-a'}]})),{code:'MCP_GRAPH_BUDGET'});
+});
+
 test('real SDK serves graph tools, exact traced evidence and project-scoped ontology resources',async t=>{
  const f=fixture(),filename=path.resolve(__dirname,'../../backend/mcpServer.js'),native=createRequire(filename),module={exports:{}};
  const mocks={'./graphContext':{...G,...f.boundary},'./backplane':{auditFailure:()=>{}},'./auth':{permit:async()=>{},fail},'./projections':{entities:{projects:{}}},'./gateway':{installTransport:()=>{}},'@hellotest/platform/backend/src/db':{prepare:()=>({run:async()=>{}})}};

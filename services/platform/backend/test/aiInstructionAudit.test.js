@@ -24,15 +24,16 @@ test('historical template fragments preserve reviewed edits in published values,
  const current=service({[item.id]:{published:{version:3,config:detail.config}}});
  assert.equal((await current.resolve(item.id)).config.instruction_blocks[key],expected);
 });
-test('shared published templates reach each agent until its own reviewed publication overrides them',async()=>{
+test('historical administrator agent publications cannot replace agent-owned instructions',async()=>{
  const parent=catalog.find(item=>item.id==='ai.agentic.workflow'),child=catalog.find(item=>item.id==='ai.agentic.test-designer');
  const key='agenticAssistant.messages.2';
  const parentConfig={...structuredClone(parent.defaults),instruction_blocks:{...parent.defaults.instruction_blocks,[key]:'Reviewed shared evidence guidance'}};
  const records={[parent.id]:{published:{version:7,config:parentConfig}}};
- const config=service(records);assert.equal((await config.resolve(child.id)).config.instruction_blocks[key],'Reviewed shared evidence guidance');
- const own=(await config.detail(child.id)).config;own.instruction_blocks[key]='Reviewed Test Designer guidance';records[child.id]={published:{version:1,config:own}};
- assert.equal((await config.resolve(child.id)).config.instruction_blocks[key],'Reviewed Test Designer guidance');
- parentConfig.instruction_blocks[key]='Updated shared guidance';assert.equal((await config.resolve(child.id)).config.instruction_blocks[key],'Reviewed Test Designer guidance');
+ const config=service(records);assert.equal((await config.resolve(child.id)).config.instruction_blocks[key],child.defaults.instruction_blocks[key]);
+ const own=structuredClone(child.defaults);own.instruction_blocks[key]='Historical administrator Test Designer guidance';records[child.id]={published:{version:1,config:own}};
+ assert.equal((await config.resolve(child.id)).config.instruction_blocks[key],child.defaults.instruction_blocks[key]);
+ await assert.rejects(config.detail(child.id),{code:'AI_CONFIGURATION_OWNER'});
+ parentConfig.instruction_blocks[key]='Updated shared guidance';assert.equal((await config.resolve(child.id)).config.instruction_blocks[key],child.defaults.instruction_blocks[key]);
 });
 test('template dependencies are registered and acyclic; defaults contain no extracted feature/block aliases',()=>{
  const profiles=new Map(catalog.map(item=>[item.id,item]));
@@ -62,11 +63,11 @@ test('optimization reviews templates, preserves untouched values and never publi
  assert.equal(result.published,false);assert.equal(audited,true);
 });
 
-test('default specialist skills use managed instructions and user-edited skills remain explicit inputs',()=>{
+test('saved specialist skills remain exact node inputs including unchanged built-in defaults',()=>{
  const {profiles,instructionFor}=require('../../../agentic/backend/workflows/specialistPolicy');
  for(const [id,profile] of Object.entries(profiles))for(const skill of profile.skills) {
   const key=`specialist.skill.${skill.id}`;assert.equal(catalog.find(item=>item.id===`ai.agentic.${id}`).defaults.instruction_blocks[key],skill.instructions);
-  assert.equal(instructionFor(skill,`ai.agentic.${id}`),`⟦HELLOTEST_AI:ai.agentic.${id}:${key}⟧`);
+  assert.equal(instructionFor(skill,`ai.agentic.${id}`),skill.instructions);
   assert.equal(instructionFor({...skill,instructions:'User-reviewed specialized guidance'},`ai.agentic.${id}`),'User-reviewed specialized guidance');
  }
 });
@@ -115,6 +116,18 @@ test('stock Test Case completeness and data guidance upgrades without replacing 
  }
 });
 
+test('assurance stock instructions follow the declared response schema without replacing reviewed guidance',async()=>{
+ for(const item of catalog.filter(item=>item.defaults.instruction_blocks['artifactAssurance.reviewFocus'])){
+  const stored=structuredClone(item.defaults),key='artifactAssurance.reviewFocus';
+  const old=item.instruction_default_migrations[key].find(value=>value.includes('supplied review_output_schema'));
+  assert.ok(old,item.id);stored.instruction_blocks[key]=old;
+  const updated=await service({[item.id]:{published:{version:2,config:stored}}}).resolve(item.id);
+  assert.match(updated.config.instruction_blocks[key],/declared response schema/);assert.doesNotMatch(updated.config.instruction_blocks[key],/review_output_schema/);
+  stored.instruction_blocks[key]='Our reviewed assurance priorities and evidence rules.';
+  assert.equal((await service({[item.id]:{published:{version:3,config:stored}}}).resolve(item.id)).config.instruction_blocks[key],stored.instruction_blocks[key]);
+ }
+});
+
 test('stock case scope and NFR emphasis migrate to neutral defaults while reviewed admin choices remain exact',async()=>{
  for(const id of ['ai.case_authoring.full_case','ai.case_authoring.step_rephrase','ai.test_case.design']){
   const item=catalog.find(item=>item.id===id),stored=structuredClone(item.defaults);
@@ -142,7 +155,7 @@ test('browser planning recovery and current-goal guidance remain managed while h
 });
 
 test('stock browser evidence guidance upgrades in published and draft controls while reviewed custom blocks remain exact',async()=>{
- const ids=['ai.automation.keyword_generation','ai.agentic.automation-engineer','ai.automation.review','ai.automation.gap_analysis','ai.execution.network_to_api_steps'];
+ const ids=['ai.automation.keyword_generation','ai.automation.review','ai.automation.gap_analysis','ai.execution.network_to_api_steps'];
  for(const id of ids){
   const item=catalog.find(item=>item.id===id);
   for(const [key,previousDefaults] of Object.entries(item.instruction_default_migrations)){
@@ -184,4 +197,35 @@ test('Story authoring upgrades stock incomplete-output guidance while preserving
   assert.equal(reviewed.config.prompt, stored.prompt);
   assert.equal(reviewed.config.instruction_blocks['application.artifactContract'], stored.instruction_blocks['application.artifactContract']);
  }
+});
+
+test('compact evidence guardrails migrate only exact stock text and retain custom administrator intent',async()=>{
+ for(const item of catalog.filter(item=>item.configuration_owner==='admin'&&item.runtime_status!=='reserved'&&item.guardrail_default_migrations?.length)) {
+  const old=structuredClone(item.defaults);old.guardrails=item.guardrail_default_migrations.at(-1);
+  const config=service({[item.id]:{revision:6,published:{version:4,config:old},draft:{config:old}}});
+  const detail=await config.detail(item.id);
+  assert.equal(detail.config.guardrails,item.defaults.guardrails,item.id);
+  assert.equal(detail.draft.config.guardrails,item.defaults.guardrails,item.id);
+  assert.equal(detail.revision,6);assert.equal(detail.published_version,4);
+  old.guardrails='Our reviewed instruction: retain the supplied invoice evidence and exact source references.  ';
+  const custom=await service({[item.id]:{published:{version:5,config:old}}}).resolve(item.id);
+  assert.equal(custom.config.guardrails,old.guardrails,item.id);
+ }
+});
+
+test('report analysis preserves reviewed legacy report blocks without inheriting case prompts or incompatible schemas',async()=>{
+ const old=catalog.find(item=>item.id==='ai.execution.analysis'),report=catalog.find(item=>item.id==='ai.execution.report_analysis');
+ const key='executionReport.buildAiAnalysisPrompt.32',source=report.legacy_instruction_sources[0];
+ const saved={...structuredClone(old.defaults),prompt:'Historical selected-case objective.',output_schema:{type:'object',required:['old_case_response']},instruction_blocks:{...old.defaults.instruction_blocks,...source.defaults,[key]:'Reviewed report-specific wording. Preserve recorded run counts.'}};
+ const config=service({[old.id]:{published:{version:7,config:saved}}});
+ const resolved=await config.resolve(report.id);
+ assert.equal(resolved.config.instruction_blocks[key],saved.instruction_blocks[key]);
+ assert.equal(resolved.config.prompt,report.defaults.prompt);
+ assert.equal(resolved.config.output_schema,null);
+ assert.ok(!Object.hasOwn(old.defaults.instruction_blocks,key));
+ assert.equal(config.featureId('execution-report.generate'),report.id);
+ assert.equal(config.featureId('execution-analysis.generate'),old.id);
+ const own={...structuredClone(report.defaults),instruction_blocks:{...report.defaults.instruction_blocks,[key]:'A newly published report-only policy.'}};
+ const independent=await service({[old.id]:{published:{version:7,config:saved}},[report.id]:{published:{version:1,config:own}}}).resolve(report.id);
+ assert.equal(independent.config.instruction_blocks[key],own.instruction_blocks[key]);
 });

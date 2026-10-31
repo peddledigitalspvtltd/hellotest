@@ -4,7 +4,7 @@ const { cloneWithBoundedBody } = require("./boundedResponse");
 const { isContextSizeRejection, buildContextFallbackBody } = require("./llmContextFallback");
 const { resilientHttpRequest } = require("./resilientHttpClient");
 const traces = require("./llmTraceCapture");
-const { prepareChatRequest, compatibleChatRequest, validateChatResponse } = require("./llmRequestPolicy");
+const { prepareChatRequest, compatibleChatRequest, validateChatResponse, assertInputBudget } = require("./llmRequestPolicy");
 
 const bufferResponseWithinDeadline = (response, controller, maxBytes) => cloneWithBoundedBody(response, {
   maxBytes,
@@ -13,6 +13,7 @@ const bufferResponseWithinDeadline = (response, controller, maxBytes) => cloneWi
 });
 
 exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
+  const startedAt=Date.now();
   // Older feature callers append this suffix even when the integration stores
   // the complete endpoint. Normalize only that duplicate, preserving the host.
   if (typeof url === "string") url = url.replace(/(\/chat\/completions)(?:\/chat\/completions)+\/?$/i, "$1");
@@ -26,12 +27,11 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
   const timeoutMs = Math.max(1_000, Number(options.timeoutMs || DEFAULT_TIMEOUT_MS));
   const maxAttempts = Math.max(1, Math.min(4, Number(options.maxAttempts || DEFAULT_MAX_ATTEMPTS)));
   const operation = String(options.operation || "llm.request");
-  const startedAt = Date.now();
   options.timeoutMs = timeoutMs;
   let prepared;
   try {
     init = await require("@hellotest/mcp/backend/gateway").enrichChatRequest(init, options);
-    prepared = prepareChatRequest(init, { ...options, operation });
+    prepared = prepareChatRequest(init, { ...options, operation, providerUrl:url });
     init = prepared.init;
     init = await require('../../services/aiAttachmentAccess.service').prepareImages(init, options);
   } catch (error) {
@@ -39,8 +39,9 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     await traces.finish(preflight, { error });
     throw error;
   }
-  let lastTrace = null, lastResponse = null, attempts = 1, correctionFailure = null;
+  let lastTrace = null, lastResponse = null, attempts = 1, correctionFailure = null, receivedGeneration=false;
   const request = async (init, remainingMs = timeoutMs) => {
+    let payload;try{payload=JSON.parse(init.body);}catch{}if(Array.isArray(payload?.messages))assertInputBudget(payload,options);
     if (lastTrace) await traces.finish(lastTrace, { response: lastResponse, attempts, error:correctionFailure, invalid:Boolean(correctionFailure) });
     correctionFailure = null;
     lastTrace = await traces.begin({ url, init, options: { ...options, operation,traceStage:'provider_preflight' }, correctionOf: lastTrace?.id });
@@ -48,8 +49,15 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     lastResponse = null;
     remainingMs = Math.min(remainingMs, timeoutMs - (Date.now() - startedAt));
     if (remainingMs <= 0) throw Object.assign(new Error("The model request deadline elapsed before dispatch."), { code: "DEADLINE_EXCEEDED", statusCode: 504 });
-    lastResponse = await resilientHttpRequest(url, init, {
-    fetchImpl:(...args)=>{traces.dispatch(lastTrace,attempts);return globalThis.fetch(...args);},
+    let dispatchError;
+    try{lastResponse = await resilientHttpRequest(url, init, {
+    fetchImpl:async(...args)=>{
+      if(typeof options.beforeDispatch==='function'){
+        let payload;try{payload=JSON.parse(args[1].body);}catch{}
+        try{await options.beforeDispatch({url:args[0],init:args[1],payload});}catch(error){dispatchError=error;error.nonRetryable=true;error.statusCode||=422;throw error;}
+      }
+      traces.dispatch(lastTrace,attempts);return globalThis.fetch(...args);
+    },
     dependency: "llm-provider",
     operation,
     deadlineMs: remainingMs,
@@ -64,7 +72,8 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     // single-attempt unless a caller explicitly supplies a replay-safe contract.
     idempotent: options.idempotent === true,
     onEvent: (event) => { attempts = Math.max(attempts, Number(event.attempt || 0) + 1); console.warn(JSON.stringify(event)); }
-    });
+    });}catch(error){throw dispatchError||error;}
+    if(lastResponse?.ok)receivedGeneration=true;
     if (lastTrace) lastTrace.received = Date.now();
     return lastResponse;
   };
@@ -107,11 +116,12 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     try { await validateArtifact(response); }
     catch (error) {
       const remainingMs = timeoutMs - (Date.now() - startedAt);
-      if (error?.code !== 'AI_NATIVE_CONTRACT_INVALID' || remainingMs < 1000 || init.signal?.aborted) throw error;
+      if (error?.code !== 'AI_NATIVE_CONTRACT_INVALID' || error.empty_artifact_collection || remainingMs < 1000 || init.signal?.aborted) throw error;
       const body = JSON.parse(init.body);
       const correction = managed.profile?.config?.instruction_blocks?.['application.artifactCorrection'];
-      if (typeof correction !== 'string' || !correction.trim()) throw Object.assign(new Error('AI Controls is missing the artifact correction instruction.'), { statusCode:503, code:'AI_INSTRUCTION_MISSING' });
-      body.messages.push({ role:'system', content: `${correction}\n${JSON.stringify({ validation_errors: error.validation_errors })}` });
+      if (typeof correction !== 'string' || !correction.trim()) throw Object.assign(new Error('The AI configuration is missing the artifact correction instruction.'), { statusCode:503, code:'AI_INSTRUCTION_MISSING' });
+      const candidate=require('./llmResponse').getCompletionContent(await response.clone().json());
+      body.messages=require('./aiPromptEnvelope').repairMessages(body.messages,{candidate,issues:{validation_errors:error.validation_errors},instruction:correction});
       // This is read-only authoring, never a replay of a browser/tool action.
       correctionFailure = error;
       response = await request({ ...init, body:JSON.stringify(body) }, remainingMs);
@@ -119,13 +129,18 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     }
   }
   await require("./aiFeatureRuntime").validateResponse(response, managed.profile);
-  const valid = options.validateResponse === false ? false : await validateChatResponse(response, prepared.payload);
+  const valid = options.validateResponse === false ? false : await validateChatResponse(response, prepared.payload,options);
   if (valid && options.integration) {
     // Preferences must not turn a successful generation into a failed request.
     try { await require("@hellotest/integration/backend/services/aiLlmSelection.service").recordSuccessfulLlmIntegration(options.integration); } catch { /* best effort */ }
   }
   return response;
-  } catch (error) { failure = error; throw error; }
+  } catch (error) {
+    // A later failed correction or bookkeeping step cannot make the original
+    // paid completion replay-safe for an outer job/capacity retry.
+    if(receivedGeneration){error.retryable=false;error.nonRetryable=true;error.generation_received=true;}
+    failure = error; throw error;
+  }
   finally { await traces.finish(lastTrace, { response: lastResponse, error: failure, invalid: Boolean(failure && lastResponse?.ok), attempts }); }
 };
 

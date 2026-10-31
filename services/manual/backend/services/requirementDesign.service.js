@@ -55,7 +55,7 @@ const normalizeImageAssets = images => normalizeReferenceImages(images, { max_im
 
 const buildRequirementReferenceMap = (requirements = []) =>
   uniqueById(requirements).map((requirement, index) => ({
-    ...storyAiSnapshot(requirement, { textLimit: Math.max(500, Math.floor(5000 / Math.max(requirements.length, 1))), itemLimit: Math.max(120, Math.floor(1000 / Math.max(requirements.length, 1))), listLimit: 4 }),
+    ...storyAiSnapshot(requirement, { textLimit: Math.max(500, Math.floor(5000 / Math.max(requirements.length, 1))), itemLimit: Math.max(120, Math.floor(1000 / Math.max(requirements.length, 1))), listLimit: requirements.length===1?8:4 }),
     ref: `R${index + 1}`
   }));
 
@@ -242,7 +242,10 @@ const buildPrompt = ({ requirements, appType, maxCases, additionalContext, exter
     generation_request:splitGenerationContext(additionalContext),
     application:{id:appType.id,name:appType.name,type:appType.type},
     stories,
-    knowledge:items.slice(0,6).map(item=>({title:boundedText(item.title,180),content:boundedText(item.content||item.description,1200)})),
+    knowledge:items.slice(0,6).map(item=>({title:boundedText(item.title,180),content:boundedText(item.content||item.description,1200),
+      ...(item.metadata?.citation?{citation:Object.fromEntries(['id','source_id','source_kind','source_ref_id','document_id','chunk_id','source_version','version_hash','chunk_hash'].filter(key=>item.metadata.citation[key]!=null).map(key=>[key,item.metadata.citation[key]]))}:{}),
+      excerpt_truncated:String(item.content||item.description||'').length>1200})),
+    knowledge_context:{available_count:items.length,provided_count:Math.min(6,items.length),omitted_count:Math.max(0,items.length-6),retrieval_status:knowledge?.retrieval?.status||null,limitations:knowledge?.retrieval?.gaps||[]},
     external_references:externalLinks.map(url=>({url,content_retrieved:false})),
     reference_images:images.map(image=>({name:image.name}))
   });
@@ -298,6 +301,7 @@ const requestChatCompletion = async ({ integration, content, fallbackContent, co
       ]
     })
   }, { integration, operation: "requirement-design.generate", featureKey: "ai.test_case.design", persistReferenceImages:true, referenceImageNames:imageNames,
+    mcpContextHandled:contextState?.mcpContextHandled,
     onReferenceAttachments: items => { if (contextState) contextState.referenceAttachments = items; },
     nativeArtifactTestCaseTypes:testCaseTypes, contextRetrievalQuery:generationRetrievalQuery(content), contextFallbackContent: fallbackContent, contextFallbackInstructions: aiInstructionBlock("ai.test_case.design","recovery.context_size"), onContextFallback: () => { if (contextState) contextState.reduced = true; } });
 
@@ -449,6 +453,7 @@ exports.previewRequirementsTestCases = async ({
   const knowledgeQuery = splitGenerationContext(additionalContext).user_request
     || scopedRequirements.map(story => storyAiSnapshot(story)).map(story => [story.title, story.description, ...(story.acceptance_criteria || [])].filter(Boolean).join('\n')).join('\n');
   const knowledge = knowledgeQuery ? await aiKnowledgeService.buildKnowledgeContextPackage(appType.project_id || scopedRequirements[0]?.project_id, {
+    feature_key:'ai.test_case.design',
     app_type_id: appType.id,
     query: knowledgeQuery,
     module_name: appType.module_name || null,
@@ -458,7 +463,7 @@ exports.previewRequirementsTestCases = async ({
     user: user_id ? { id: user_id } : undefined
   }) : { knowledge: [] };
 
-  const contextState = { reduced: false };
+  const contextState = { reduced: false, mcpContextHandled:knowledge?.retrieval?.context_transport==='mcp'?{evidence_count:knowledge.knowledge.filter(item=>item.metadata?.citation?.source_id).length,status:knowledge.retrieval.status==='UNAVAILABLE'?'unavailable':undefined}:undefined };
   const generatedCases = await requestGeneratedCases({
     integration,
     requirements: scopedRequirements,

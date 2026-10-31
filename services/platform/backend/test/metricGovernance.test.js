@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const service=require('../services/metricGovernance.service');
 const analytics=require('@hellotest/dashboard/backend/services/portfolioAnalytics.service');
 test('all registered metric defaults validate and calculation parameters share the same catalog',()=>{
- assert.equal(service.catalog.length,44);
+ assert.equal(new Set(service.catalog.map(item=>item.key)).size,service.catalog.length);
  for(const metric of service.catalog){assert.deepEqual(service.validate(service.defaults(metric),metric.key),service.defaults(metric));if(metric.parameters?.length)assert.deepEqual(analytics.DEFAULT_FORMULA_VALUES[metric.key],service.defaults(metric).parameters);}
 });
 test('portfolio publication rejects invalid totals, numeric strings, bounds and arbitrary formula edits',()=>{

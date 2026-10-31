@@ -191,7 +191,7 @@ test("agent prompt context stays valid JSON and bounded without slicing evidence
     knowledgeRetrieval: { live_context_count: 20 }
   });
 
-  assert.ok(serialized.length <= 52_000);
+  assert.ok(Buffer.byteLength(serialized,'utf8') <= 52_000);
   const parsed = JSON.parse(serialized);
   assert.equal(parsed.context_manifest.bounded, true);
   assert.ok(parsed.context_manifest.omitted_context_items > 0);
@@ -205,8 +205,11 @@ test("typed repair context remains atomic through the bounded model packet", () 
   const packet = JSON.parse(agenticAssistant._internals.buildBoundedAgentPromptPayload(input));
   assert.equal(packet.bounded_workspace_context.automation_repair[0].content, content);
   assert.equal(packet.bounded_workspace_context.automation_repair[0].excerpt_truncated, undefined);
-  assert.throws(() => agenticAssistant._internals.buildBoundedAgentPromptPayload({ ...input, maxChars: 1000 }), { code: 'AGENT_CONTEXT_BUDGET' });
+  assert.throws(() => agenticAssistant._internals.buildBoundedAgentPromptPayload({ ...input, maxBytes: 1000 }), { code: 'AGENT_CONTEXT_BUDGET' });
   assert.throws(() => agenticAssistant._internals.buildBoundedAgentPromptPayload({ ...input, context: { automation_repair: [{ content: "x".repeat(24001) }] } }), { code: 'AGENT_CONTEXT_BUDGET' });
+  const overhead=Buffer.byteLength(JSON.stringify({required:''}),'utf8'),completeInput={required:'x'.repeat(32000-overhead)};
+  const supplied=agenticAssistant._internals.suppliedInputEvidence(completeInput);assert.equal(Buffer.byteLength(supplied.text,'utf8'),32000);assert.deepEqual(JSON.parse(supplied.text),completeInput);
+  assert.throws(()=>agenticAssistant._internals.suppliedInputEvidence({required:completeInput.required+'x'}),{code:'AGENT_INPUT_BUDGET'});
 });
 
 test("deterministic agent fallback produces a decision-ready specialist brief from live evidence", () => {

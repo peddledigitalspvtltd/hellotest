@@ -19,9 +19,11 @@ for(const custom of [false,true]) test(`native generator uses current Story cont
   const input=requests[0];
   assert.deepEqual(input.requirements,[story]);assert.equal(input.max_cases,3);
   assert.deepEqual(input.evidence_scope,{sprint_id:'sprint',story_id:story.id});
-  assert.ok(input.additional_context.includes(story.title));assert.ok(input.additional_context.includes(story.description));
+  const workflowContext=JSON.parse(input.additional_context.split('[HELLOTEST_SMART_CONTEXT_START]\n')[1].split('\n[HELLOTEST_SMART_CONTEXT_END]')[0]);
+  assert.equal(workflowContext.selected_story.ref,`requirement:${story.id}`);assert.equal(workflowContext.selected_story.story_revision,tasks.revision(story));assert.equal(workflowContext.selected_story.content_source,'native_artifact_input');assert.equal(workflowContext.selected_story.content,undefined);
+  assert.equal(input.requirements[0].title,story.title);assert.equal(input.requirements[0].description,story.description);assert.deepEqual(input.requirements[0].acceptance_criteria,story.acceptance_criteria);assert.ok(!input.additional_context.includes(story.title)&&!input.additional_context.includes(story.description),'The current Story content is supplied once through native requirements.');
   assert.doesNotMatch(input.additional_context,/Stale HTTP/);
   if(custom){assert.match(input.additional_context,/Task:\nGenerate only documented declined-payment cases/);assert.match(input.additional_context,/Instructions:\nExercise the provided rejection path/);assert.doesNotMatch(input.additional_context,/Default to positive end-to-end coverage/);}
-  else {assert.match(input.additional_context,/distinct positive end-to-end/);assert.match(input.additional_context,/observable expected result per step/);assert.match(input.additional_context,/parameter_values/);}
+  else {assert.match(input.additional_context,/Default to positive end-to-end journeys when the node does not specify a different objective/);assert.match(input.additional_context,/observable expected result per step/);assert.match(input.additional_context,/parameter_values/);assert.match(input.additional_context,/safe synthetic values for ordinary case-owned inputs/);assert.match(input.additional_context,/unavailable real fixtures, credentials or business thresholds as input gaps/);}
   assert.deepEqual(result.__workflow_result.output.data[0].cases[0].parameter_values,{invoice_id:'reviewed-invoice'});
 });

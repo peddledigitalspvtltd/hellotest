@@ -33,7 +33,7 @@ test('resetting a primary prompt preserves other draft settings and requires exp
   try {
     await writeFile(new URL(name + '.tsx', root), `import React from 'react';import {createRoot} from 'react-dom/client';import {AiControls} from './admin/AiControls';import './admin/admin.css';createRoot(document.getElementById('root')).render(<main style={{padding:24,maxWidth:1400,margin:'0 auto'}}><AiControls onDirtyChange={()=>{}}/></main>);`);
     await writeFile(new URL(name + '.html', root), `<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
-    browser = await chromium.launch({headless: true});
+    browser = await chromium.launch({headless: true, ...(process.env.CHROME_EXECUTABLE ? {executablePath: process.env.CHROME_EXECUTABLE} : {})});
     const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
     page.on('pageerror', error => errors.push(error.message));
     await page.route('**/api/**', async route => {

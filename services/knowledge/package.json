@@ -23,6 +23,7 @@
     "./backend/services/knowledgeIntentPlanning.service": "./backend/services/knowledgeIntentPlanning.service.js",
     "./backend/services/knowledgeRag.service": "./backend/services/knowledgeRag.service.js",
     "./backend/services/knowledgeRetrieval.service": "./backend/services/knowledgeRetrieval.service.js",
+    "./backend/services/knowledgeSourceLifecycle.service": "./backend/services/knowledgeSourceLifecycle.service.js",
     "./backend/services/knowledgeVectorStore.service": "./backend/services/knowledgeVectorStore.service.js",
     "./backend/workers": "./backend/workers.js",
     "./client": "./frontend/api.client.ts",

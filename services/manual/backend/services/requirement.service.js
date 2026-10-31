@@ -112,6 +112,9 @@ const normalizeStoryEvidenceRefs = (value, allowedRefs, limit = 12) => [...new S
     .filter((ref) => ref && allowedRefs.has(ref))
 )].slice(0, limit);
 
+const storyKnowledgeCitation=item=>item.metadata?.citation?Object.fromEntries(['id','source_id','source_kind','source_ref_id','document_id','chunk_id','source_version','version_hash','chunk_hash'].filter(key=>item.metadata.citation[key]!=null).map(key=>[key,item.metadata.citation[key]])):null;
+const storyKnowledgeRef=item=>item.metadata?.citation?.id?`knowledge:${item.metadata.citation.id}`:item.id?`knowledge:${item.id}`:storyEvidenceRef('knowledge',`${item.title}:${item.content}`);
+
 const buildStoryProcessingSnapshot = ({ profile, sourceCount, outputCount, fallbackUsed = false, limitationCount = 0 }) => ({
   profile,
   active_stage_id: "review",
@@ -150,7 +153,7 @@ const buildStoryCreationEvidence = ({ additionalContext, externalLinks, images, 
   }
   const knowledgeItems = Array.isArray(knowledge) ? knowledge : Array.isArray(knowledge?.knowledge) ? knowledge.knowledge : [];
   knowledgeItems.slice(0, 8).forEach((item) => {
-    const ref = item.id ? `knowledge:${item.id}` : storyEvidenceRef("knowledge", `${item.title}:${item.content}`);
+    const ref = storyKnowledgeRef(item);
     evidence.push({
       ref,
       id: item.id || ref,
@@ -160,7 +163,9 @@ const buildStoryCreationEvidence = ({ additionalContext, externalLinks, images, 
       excerpt: compactStoryEvidenceText(item.description || item.content),
       trust: "workspace",
       citation_allowed: true,
-      limitation: null
+      citation:storyKnowledgeCitation(item),
+      excerpt_truncated:String(item.description||item.content||'').length>520,
+      limitation: String(item.description||item.content||'').length>520?'This is a bounded source excerpt; omitted facts were not reviewed.':null
     });
   });
   externalLinks.forEach((link) => {
@@ -220,7 +225,7 @@ const buildStoryCompletionEvidence = ({ requirement, linkedTestCases, knowledge,
   }));
   const knowledgeItems = Array.isArray(knowledge) ? knowledge : Array.isArray(knowledge?.knowledge) ? knowledge.knowledge : [];
   knowledgeItems.slice(0, 6).forEach((item) => {
-    const ref = item.id ? `knowledge:${item.id}` : storyEvidenceRef("knowledge", `${item.title}:${item.content}`);
+    const ref = storyKnowledgeRef(item);
     evidence.push({
     ref,
     id: item.id || ref,
@@ -230,7 +235,9 @@ const buildStoryCompletionEvidence = ({ requirement, linkedTestCases, knowledge,
     excerpt: compactStoryEvidenceText(item.description || item.content),
     trust: "workspace",
     citation_allowed: true,
-    limitation: null
+    citation:storyKnowledgeCitation(item),
+    excerpt_truncated:String(item.description||item.content||'').length>520,
+    limitation: String(item.description||item.content||'').length>520?'This is a bounded source excerpt; omitted facts were not reviewed.':null
   });
   });
   const contextExcerpt = compactStoryEvidenceText(additionalContext, 800);
@@ -616,7 +623,7 @@ const requestRequirementOptimization = async ({ integration, prompt, images = []
         }
       ]
     })
-  }, { integration, operation: "requirement.optimize", contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
+  }, { integration, operation: "requirement.optimize", mcpContextHandled:contextState?.mcpContextHandled, contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
 
   if (!response.ok) {
     const raw = await response.text();
@@ -657,7 +664,8 @@ const buildRequirementOptimizationPrompt = ({ requirement, linkedTestCases, know
   aiInstructionBlock("ai.requirement.optimization", "requirement.buildRequirementOptimizationPrompt.26"),
   [aiInstructionBlock("ai.requirement.optimization", "requirement.service.buildRequirementOptimizationPrompt.segment.2"),String(imageNames.length ? JSON.stringify(imageNames) : "none"),""].join(''),
   aiInstructionBlock("ai.requirement.optimization", "requirement.buildRequirementOptimizationPrompt.27"),
-  JSON.stringify(evidenceCatalog.slice(0, 50).map(({ ref, type, label, excerpt, citation_allowed }) => ({ ref, type, label: boundedAiText(label, 500), excerpt: type === "story" ? "See the complete bounded Story snapshot above." : boundedAiText(excerpt, 900), citation_allowed }))),
+  JSON.stringify(evidenceCatalog.slice(0, 50).map(({ ref, type, label, excerpt, citation_allowed, citation, excerpt_truncated }) => ({ ref, type, label: boundedAiText(label, 500), excerpt: type === "story" ? "See the complete bounded Story snapshot above." : boundedAiText(excerpt, 900), citation_allowed, ...(citation?{citation}:{}), ...(excerpt_truncated?{excerpt_truncated:true}:{}) }))),
+  JSON.stringify({knowledge_context:{available_count:Array.isArray(knowledge?.knowledge)?knowledge.knowledge.length:0,provided_count:Math.min(6,knowledge?.knowledge?.length||0),omitted_count:Math.max(0,(knowledge?.knowledge?.length||0)-6),retrieval_status:knowledge?.retrieval?.status||null,limitations:knowledge?.retrieval?.gaps||[]}}),
   "",
   additionalContext ? `User guidance:\n${additionalContext.slice(0, 8000)}` : "User guidance: none"
 ].join("\n");
@@ -761,7 +769,7 @@ const assertCompleteAiReviewedStory = (review, story) => {
   }
 };
 
-const buildRequirementCreationPrompt = ({ additionalContext, externalLinks, imageNames, maxRequirements, priority, status, evidenceCatalog, promptGuidance = "" }) => [
+const buildRequirementCreationPrompt = ({ additionalContext, externalLinks, imageNames, maxRequirements, priority, status, evidenceCatalog, knowledge, promptGuidance = "" }) => [
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.28"),
   "{",
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.35"),
@@ -786,7 +794,8 @@ const buildRequirementCreationPrompt = ({ additionalContext, externalLinks, imag
   [aiInstructionBlock("ai.requirement.creation", "requirement.service.buildRequirementCreationPrompt.segment.10"),String(externalLinks.length ? JSON.stringify(externalLinks) : "none"),""].join(''),
   [aiInstructionBlock("ai.requirement.creation", "requirement.service.buildRequirementCreationPrompt.segment.11"),String(imageNames.length ? JSON.stringify(imageNames.map((name,index)=>({name,evidence_ref:evidenceCatalog.filter(item=>item.type==='reference-image')[index]?.ref}))) : "none"),""].join(''),
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.51"),
-  JSON.stringify(evidenceCatalog.slice(0, 32).map(({ ref, type, label, excerpt, citation_allowed }) => ({ ref, type, label: boundedAiText(label, 500), excerpt: type === "user-guidance" ? "See the bounded product brief below." : boundedAiText(excerpt, 900), citation_allowed }))),
+  JSON.stringify(evidenceCatalog.slice(0, 32).map(({ ref, type, label, excerpt, citation_allowed, citation, excerpt_truncated }) => ({ ref, type, label: boundedAiText(label, 500), excerpt: type === "user-guidance" ? "See the bounded product brief below." : boundedAiText(excerpt, 900), citation_allowed, ...(citation?{citation}:{}), ...(excerpt_truncated?{excerpt_truncated:true}:{}) }))),
+  JSON.stringify({knowledge_context:{available_count:Math.max(knowledge?.knowledge?.length||0,Number(knowledge?.retrieval?.returned_count)||0),provided_count:Math.min(8,knowledge?.knowledge?.length||0),omitted_count:Math.max(0,Math.max(knowledge?.knowledge?.length||0,Number(knowledge?.retrieval?.returned_count)||0)-8),retrieval_status:knowledge?.retrieval?.status||null,limitations:knowledge?.retrieval?.gaps||[]}}),
   aiInstructionBlock("ai.requirement.creation", "requirement.buildRequirementCreationPrompt.39"),
   additionalContext?.slice(0, 12000) || aiInstructionBlock("ai.requirement.creation", imageNames.length ? "requirement.imageOnlyContext" : "requirement.missingProductContext")
 ].join("\n");
@@ -814,7 +823,7 @@ const requestRequirementCreation = async ({ integration, prompt, images, fallbac
         { role: "user", content: userContent }
       ]
     })
-  }, { integration, operation: "requirement.generate", contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
+  }, { integration, operation: "requirement.generate", mcpContextHandled:contextState?.mcpContextHandled, contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
 
   if (!response.ok) {
     const raw = await response.text();
@@ -1723,6 +1732,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
   const safeImages = normalizeRequirementAiReferenceImages(images);
   const imageNames = safeImages.map((image) => image.name);
   const knowledge = await aiKnowledgeService.buildKnowledgeContextPackage(requirement.project_id, {
+    feature_key:'ai.requirement.optimization',
     app_type_id: requirement.app_type_id || null,
     query: [requirement.title, requirement.description].filter(Boolean).join("\n"),
     module_name: requirement.module_name || null,
@@ -1757,7 +1767,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
     evidence_snapshot: evidence.map((item) => ({ ref: item.ref, content_ref: storyRequestFingerprint(item.excerpt || item.title) }))
   });
   let suggestion;
-  const contextState = { reduced: false };
+  const contextState = { reduced: false,mcpContextHandled:knowledge?.retrieval?.context_transport==='mcp'?{evidence_count:knowledge.knowledge.filter(item=>item.metadata?.citation?.source_id).length,status:knowledge.retrieval.status==='UNAVAILABLE'?'unavailable':undefined}:undefined };
 
   try {
       const content = await requestRequirementOptimization({
@@ -1943,6 +1953,7 @@ exports.previewRequirementCreation = async ({
   };
   const knowledgePackage = additionalContext
     ? await aiKnowledgeService.buildKnowledgeContextPackage(project_id, {
+        feature_key:'ai.requirement.creation',
         query: additionalContext,
         user: user_id ? { id: user_id } : undefined
       })
@@ -1971,7 +1982,7 @@ exports.previewRequirementCreation = async ({
     status: defaultStatus
   });
   let rawCandidates;
-  const contextState = { reduced: false };
+  const contextState = { reduced: false,mcpContextHandled:knowledge?.retrieval?.context_transport==='mcp'?{evidence_count:knowledge.knowledge.filter(item=>item.metadata?.citation?.source_id).length,status:knowledge.retrieval.status==='UNAVAILABLE'?'unavailable':undefined}:undefined };
 
   try {
       const result = await requestRequirementCreation({
@@ -1985,6 +1996,7 @@ exports.previewRequirementCreation = async ({
         }),
         images: safeImages,
         prompt: buildRequirementCreationPrompt({
+          knowledge,
           promptGuidance,
           additionalContext,
           externalLinks,

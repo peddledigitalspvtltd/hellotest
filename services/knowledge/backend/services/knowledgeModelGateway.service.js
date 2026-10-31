@@ -22,6 +22,7 @@ const recordUsage = ({ integration, operation, usage = {} }) => {
 
 const reserveAttempt = (input, maxOutputTokens, context) => {
   const budget = context?.modelBudget;
+  let reservedCost = 0;
   if (budget && Number(context.modelStats.calls || 0) >= budget.max_tool_calls) throw Object.assign(new Error("Model call budget reached."), { code: "MODEL_BUDGET_EXCEEDED" });
   if (budget?.max_query_cost_usd != null) {
     const rates = input.integration.config?.pricing || {};
@@ -36,8 +37,10 @@ const reserveAttempt = (input, maxOutputTokens, context) => {
     const estimated = (inputBound * Number(rates.input_per_million_usd) + maxOutputTokens * Number(rates.output_per_million_usd)) / 1_000_000;
     if (used + estimated > budget.max_query_cost_usd) throw Object.assign(new Error("The model cost budget would be exceeded."), { code: "MODEL_COST_BUDGET_EXCEEDED" });
     context.modelStats.reservedCostUsd = used + estimated;
+    reservedCost = estimated;
   }
   if (context) context.modelStats.calls += 1;
+  return reservedCost;
 };
 
 const request = async (input) => {
@@ -64,9 +67,32 @@ const request = async (input) => {
   const maxOutputTokens = Math.max(1, Math.min(4096, Number.parseInt(input.maxOutputTokens, 10) || 4096));
   return retryKnowledgeModel(({ signal, timeoutMs, attempt }) => {
     const active = execution.current();
-    reserveAttempt(input, maxOutputTokens, active);
+    let reservedCost = reserveAttempt(input, maxOutputTokens, active);
     if (attempt > 1) active.modelStats.retries = Number(active.modelStats.retries || 0) + 1;
-    return adapter({ ...input, maxOutputTokens, timeoutMs, signal, recordUsage });
+    return adapter({ ...input, maxOutputTokens, timeoutMs, signal, recordUsage,
+      reserveCompatibilityAttempt: () => {
+        const current = execution.current();
+        reservedCost = reserveAttempt(input, maxOutputTokens, current);
+        if (current) current.modelStats.compatibility_retries = Number(current.modelStats.compatibility_retries || 0) + 1;
+      },
+      reservePreparedRequest: ({ payload }) => {
+        const current = execution.current(), budget = current?.modelBudget;
+        if (budget?.max_query_cost_usd != null) {
+          const rates = input.integration.config?.pricing || {};
+          // This payload is observed after managed policy, evidence, images and
+          // schema preparation. Raw marker bytes are not a bound for that input.
+          const inputBound = Buffer.byteLength(JSON.stringify(payload), 'utf8') + 256;
+          const outputBound = Number(payload.max_completion_tokens ?? payload.max_tokens) || maxOutputTokens;
+          const estimate = (inputBound * Number(rates.input_per_million_usd) + outputBound * Number(rates.output_per_million_usd)) / 1_000_000;
+          const extra = Math.max(0, estimate - reservedCost);
+          const used = Number(current.modelStats.reservedCostUsd || 0);
+          if (used + extra > budget.max_query_cost_usd) throw Object.assign(new Error('The prepared model request would exceed its cost budget.'), { code: 'MODEL_COST_BUDGET_EXCEEDED' });
+          current.modelStats.reservedCostUsd = used + extra;
+          reservedCost += extra;
+        }
+        if (current) current.modelStats.provider_requests = Number(current.modelStats.provider_requests || 0) + 1;
+      }
+    });
   }, {
     timeoutMs: input.timeoutMs ?? 45_000,
     attemptTimeoutMs: input.attemptTimeoutMs,

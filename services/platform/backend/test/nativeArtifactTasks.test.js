@@ -38,9 +38,13 @@ test('native task chain preserves per-Story findings, guidance, exact scope and 
   const fourth=await execute('automation-engineer',third.data,{data:{prompt:'Preserve exact amount assertion',contextInstructions:'Use the declared invoice origin'}});
   assert.equal(generated[0].integration_id,'node-model');
   assert.deepEqual(generated[0].evidence_scope,{sprint_id:'sprint',story_id:'story-a'});
+  assert.deepEqual(generated[0].requirements,[story]);
+  const generationScope=JSON.parse(generated[0].additional_context.split('[HELLOTEST_SMART_CONTEXT_START]\n')[1].split('\n[HELLOTEST_SMART_CONTEXT_END]')[0]);
+  assert.equal(generationScope.selected_story.content,undefined);assert.equal(generationScope.selected_story.content_source,'native_artifact_input');
   assert.match(generated[0].additional_context,/Trigger case objective[\s\S]*Node coverage objective[\s\S]*Invoice domain context[\s\S]*Review only story-a/);
   assert.match(reviewed[1].additionalContext,/Review assertion precision[\s\S]*Review only story-a/);
   assert.equal(reviewed[1].assessAutomationReadiness,true);
+  assert.deepEqual(reviewed[1].linkedEvidence,[{...story,kind:'requirement'}]);assert.equal(JSON.parse(reviewed[1].additionalContext).selected_story.content,undefined);
   assert.match(built[0].additional_context,/Preserve exact amount assertion[\s\S]*Use the declared invoice origin[\s\S]*Review only draft-1/);
   assert.match(built[0].additional_context,/selected_story/);
   assert.ok(built[0].additional_context.includes(story.title));
@@ -69,6 +73,21 @@ test('every native task passes saved task, instructions and guardrails to its ac
     assert.doesNotMatch(text,/Retired prompt/);
   }
   assert.equal(builds[0].inspect_browser,true);
+});
+
+test('a configured automation node supplies its guidance once while retaining complete Story context',async t=>{
+ setup(t);t.mock.method(assurance,'reviewArtifact',async()=>review('Grounded invoice assessment'));
+ t.mock.method(design,'previewRequirementsTestCases',async()=>({cases:[draft()]}));
+ const first=await execute('story-assurance',[packet()]),second=await execute('test-case-generation',first.data),third=await execute('test-case-assurance',second.data);
+ const data={kind:'artifactTask',artifactTask:'automation-engineer',task:'Configured automation task',instructions:'UNIQUE_NODE_AUTOMATION_GUIDANCE',guardrails:'UNIQUE_NODE_AUTOMATION_GUARDRAIL',contextInstructions:'Use the supplied invoice rules.'};
+ t.mock.method(automation,'previewAutomationDraft',async input=>{
+  const scope=require('../src/utils/aiExecutionConfiguration').current();assert.match(scope.config.prompt,/UNIQUE_NODE_AUTOMATION_GUIDANCE/);assert.equal(scope.config.guardrails,'UNIQUE_NODE_AUTOMATION_GUARDRAIL');
+  assert.doesNotMatch(input.additional_context,/UNIQUE_NODE_AUTOMATION_GUIDANCE|UNIQUE_NODE_AUTOMATION_GUARDRAIL/);
+  assert.ok(input.additional_context.includes(story.title));assert.ok(input.additional_context.includes(story.description));assert.ok(input.additional_context.includes(story.acceptance_criteria[0]));
+  return {steps:input.draft.steps,validation:{status:'passed'},verification_status:'unverified'};
+ });
+ await require('../../../agentic/backend/workflows/nodeAiConfiguration').runNode({id:'configured-automation',data},{revision:1},()=>execute('automation-engineer',third.data,{data}));
+ assert.equal(automation.previewAutomationDraft.mock.callCount(),1);
 });
 
 test('native public output owns only its stage while pinned lineage remains internal', async t => {

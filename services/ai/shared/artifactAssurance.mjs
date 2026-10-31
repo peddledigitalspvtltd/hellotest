@@ -23,109 +23,81 @@ const dimension = (id, label, score, explanation, evidence, recommendation, fram
 const insight = (id, priority, title, explanation, evidence, recommendation) => ({ id, priority, title, explanation, evidence: evidence.slice(0, 3), recommendation });
 const weightedScore = (dimensions) => clampScore(dimensions.reduce((total, item) => total + item.score, 0) / Math.max(dimensions.length, 1));
 const includesPattern = (value, pattern) => pattern.test(value.toLowerCase());
+const meaningfulText = value => Boolean(String(value || '').trim())
+    && !/^(?:todo|tbd|n\/?a|placeholder|title|description|test|step|expected result|\[[^\]]+\])\s*[.!?]*$/i.test(String(value).trim());
+const signalScore = signals => clampScore(signals.reduce((sum, [value, weight]) => sum + Math.max(0, Math.min(1, Number(value))) * weight, 0));
 export function buildStoryAssuranceAnalysis(input) {
     const title = input.title.trim();
     const description = input.description.trim();
     const text = `${title} ${description} ${(input.gherkinScenarios || []).join(" ")} ${(input.acceptanceCriteria || []).join(' ')}`;
     const references = input.externalReferences || [];
-    const labels = input.labels || [];
     const hasUser = includesPattern(text, /\b(user|customer|member|admin|operator|buyer|reader|patient|agent)\b/);
     const hasOutcome = includesPattern(text, /\b(so that|in order to|so i can|outcome|benefit|reduce|improve|prevent|recover|complete)\b/);
     const hasAcceptance = (input.acceptanceCriteria || []).some(value => value.trim()) || (input.gherkinScenarios || []).length > 0 || includesPattern(description, /\b(acceptance criteria|scenario:)\b|\bgiven\b[\s\S]*\bwhen\b[\s\S]*\bthen\b/);
     const hasConstraints = includesPattern(text, /\b(error|invalid|expired|timeout|limit|boundary|failure|fallback|constraint|single-use|unauthori[sz]ed|edge)\b/);
-    const hasSecurity = includesPattern(text, /\b(auth\w*|password|secure|security|privacy|token|session|permission|role)\b/);
-    const hasAccessibility = includesPattern(text, /\b(accessib\w*|keyboard|screen reader|focus (?:order|state|indicator)|contrast|aria|wcag)\b/);
-    const hasFeedback = includesPattern(text, /\b(feedback|message|confirm|status|notification|progress|response)\b/);
     const hasMeasurableQuality = includesPattern(text, /\b(seconds?|minutes?|percent|latency|availability|success rate|time-bound|single-use)\b/);
-    const standardsScore = 12
-        + (title.length >= 16 ? 12 : 0)
-        + (description.length >= 80 ? 14 : 0)
-        + (hasUser && hasOutcome ? 14 : 0)
-        + (hasAcceptance ? 14 : 0)
-        + (hasConstraints ? 12 : 0)
-        + (hasMeasurableQuality ? 8 : 0);
-    const standardFrameworks = ["INVEST"];
-    if (hasConstraints || hasMeasurableQuality)
-        standardFrameworks.push("ISO/IEC 25010");
-    if (hasAccessibility)
-        standardFrameworks.push("WCAG 2.2");
-    if (hasSecurity)
-        standardFrameworks.push("OWASP ASVS");
-    const usefulnessScore = Math.min(hasMeasurableQuality ? 96 : 88, 16
-        + (hasUser ? 18 : 0)
-        + (hasOutcome ? 18 : 0)
-        + (description.length >= 80 ? 12 : 0)
-        + (input.linkedCaseCount > 0 ? 10 : 0)
-        + (input.hasDeliveryContext ? 8 : 0)
-        + (labels.length > 0 ? 4 : 0)
-        + (hasMeasurableQuality ? 10 : 0));
-    const maturityScore = 12
-        + (hasAcceptance ? 18 : 0)
-        + (hasConstraints ? 16 : 0)
-        + ((hasSecurity || hasAccessibility) ? 10 : 0)
-        + (input.linkedCaseCount > 0 ? 14 : 0)
-        + (references.length > 0 ? 8 : 0)
-        + (input.hasDeliveryContext ? 8 : 0);
-    const marketScore = Math.min(78, 15
-        + (hasUser && hasOutcome ? 18 : 0)
-        + (hasFeedback ? 12 : 0)
-        + (hasConstraints ? 14 : 0)
-        + ((hasSecurity || hasAccessibility) ? 12 : 0)
-        + (hasMeasurableQuality ? 5 : 0));
+    const hasQualityObjective = includesPattern(text, /\b(performance|latency|availability|reliability|accessibility|scalability|non-functional|nfr|recovery objective)\b/);
+    const hasBenchmarkObjective = includesPattern(text, /\b(benchmark|competitor|market comparison|research comparison)\b/);
+    const acceptance = [...(input.acceptanceCriteria || []), ...(input.gherkinScenarios || [])].filter(value => String(value || '').trim());
+    const acceptanceRatio = acceptance.length ? acceptance.filter(meaningfulText).length / acceptance.length : hasAcceptance ? 1 : 0;
+    const hasTitle = meaningfulText(title), hasDescription = meaningfulText(description);
+    // Measure the authored contract. Missing unrelated NFR categories, linked
+    // tests, delivery metadata or research must not depress a focused Story.
+    const standardsScore = signalScore([[hasTitle, 35], [hasDescription, 65]]);
+    const standardFrameworks = ["Authored scope and acceptance contract"];
+    const usefulnessScore = signalScore([[hasTitle, 20], [hasDescription, 40], [acceptanceRatio, 40]]);
+    const maturityScore = signalScore([[hasTitle, 15], [hasDescription, 25], [acceptanceRatio, 60]]);
+    const marketScore = signalScore([[acceptanceRatio, 100]]);
     const dimensions = [
-        dimension("industry-standards", "Industry standards alignment", standardsScore, hasAcceptance && (hasConstraints || hasMeasurableQuality)
-            ? "The Story is testable and includes quality constraints beyond the happy path."
-            : "Core intent is present, but standards-aligned acceptance evidence is incomplete.", [
-            hasUser && hasOutcome ? "User and outcome are explicit" : "User or outcome is not explicit",
-            hasAcceptance ? "Acceptance behavior is reviewable" : "No explicit acceptance behavior found",
-            hasMeasurableQuality ? "A measurable quality rule is present" : "No measurable quality target found"
-        ], hasAcceptance ? "Add one measurable non-functional criterion for the highest-risk quality attribute." : "Add concise Given/When/Then or equivalent acceptance criteria.", standardFrameworks),
-        dimension("usefulness", "User usefulness", usefulnessScore, hasUser && hasOutcome
-            ? "The Story connects a recognizable user need to a concrete product outcome."
-            : "The requested behavior is visible, but its user benefit needs a sharper statement.", [
+        dimension("industry-standards", "Scope clarity", standardsScore, hasTitle && hasDescription
+            ? "A named objective and a non-placeholder behavior description are supplied."
+            : "The authored scope needs a meaningful title and behavior description.", [
+            hasTitle ? "A named Story objective is supplied" : "Story title is missing or a placeholder",
+            hasDescription ? "Behavior description is supplied" : "Behavior description is missing or a placeholder",
+            "Unrequested quality categories do not affect this score"
+        ], !hasAcceptance ? "Add concise Given/When/Then or equivalent observable acceptance criteria."
+            : hasQualityObjective && !hasMeasurableQuality ? "Clarify the acceptance measure for the quality objective already in scope; obtain missing targets from an authorized source."
+                : "Preserve the stated objective and resolve ambiguous acceptance outcomes without adding unrequested coverage.", standardFrameworks),
+        dimension("usefulness", "Intent and outcome", usefulnessScore, hasTitle && hasDescription && acceptanceRatio === 1
+            ? "The Story supplies an objective, behavior description and reviewable acceptance text."
+            : "The supplied objective, behavior or acceptance text is incomplete.", [
             hasUser ? "A user or actor is named" : "No clear actor is named",
             hasOutcome ? "A desired outcome is stated" : "Business or user benefit is implicit",
             input.linkedCaseCount ? `${input.linkedCaseCount} linked test case${input.linkedCaseCount === 1 ? "" : "s"}` : "No linked validation"
-        ], hasOutcome && hasMeasurableQuality ? "Validate the stated success measure with the product owner." : hasOutcome ? "Add one observable measure of user or business value." : "State who benefits, what improves, and why it matters."),
-        dimension("design-maturity", "Design maturity", maturityScore, hasAcceptance && hasConstraints
-            ? "Behavior, constraints, and validation evidence form a credible implementation brief."
-            : "The main flow is understandable; edge states and review evidence need more definition.", [
-            hasConstraints ? "Edge or failure behavior is represented" : "No edge or failure behavior found",
-            (hasSecurity || hasAccessibility) ? "Relevant quality attributes are explicit" : "Quality attributes remain implicit",
+        ], "Review that the supplied acceptance outcome demonstrates the stated objective; a persona template is optional."),
+        dimension("design-maturity", "Authored design contract", maturityScore, hasTitle && hasDescription && acceptanceRatio === 1
+            ? "The current authored scope and acceptance fields are complete for semantic review."
+            : "Complete the missing authored scope or acceptance field before semantic review.", [
+            hasAcceptance ? "Acceptance text is supplied" : "Acceptance text is missing",
+            "Negative, security and accessibility categories are scored only through the Story acceptance already in scope",
             references.length ? `${references.length} source reference${references.length === 1 ? "" : "s"}` : "No source reference supplied"
-        ], hasConstraints ? "Resolve the remaining evidence gap before implementation starts." : "Add the highest-risk error, empty, permission, or recovery state."),
-        dimension("market-patterns", "Market comparison readiness", marketScore, hasFeedback && hasConstraints
-            ? "The flow reflects common product patterns for feedback, recovery, and safe failure."
-            : "The flow covers the primary task but omits one or more common interaction safeguards.", [
-            hasFeedback ? "User feedback or confirmation is specified" : "Feedback and confirmation are not explicit",
-            hasConstraints ? "Safe failure or recovery is described" : "Safe failure or recovery is not described",
+        ], hasConstraints ? "Resolve ambiguity in the constraints already supplied." : "Confirm the intended scope with the owner; add edge behavior only when relevant to that scope."),
+        dimension("market-patterns", "Acceptance text completeness", marketScore, acceptanceRatio === 1
+            ? "Every supplied acceptance item is nonempty and not a placeholder; semantic adequacy still requires review."
+            : "Acceptance items are missing or contain placeholders.", [
+            `${acceptance.length} explicitly supplied acceptance item${acceptance.length === 1 ? '' : 's'}`,
+            "A named market comparison is not part of this design score",
             references.length ? "Named comparison unavailable: reference content was not loaded" : "Named comparison unavailable: no benchmark source supplied"
-        ], "Add approved competitor or research excerpts to enable a named, source-grounded comparison.", ["Common interaction patterns"])
+        ], hasBenchmarkObjective ? "Supply approved source excerpts for the requested comparison." : "No named market comparison was requested; review the supplied product intent directly.", ["Non-placeholder acceptance text"])
     ];
     const insights = [];
-    if (!hasAcceptance)
+    if (acceptanceRatio < 1)
         insights.push(insight("acceptance", "high", "Make the outcome testable", "The Story does not expose a clear acceptance contract.", ["No Given/When/Then or equivalent rule detected"], "Add 2–4 acceptance criteria covering success and failure."));
-    if (!hasConstraints)
-        insights.push(insight("edge-states", "high", "Define the riskiest edge state", "A happy path without failure behavior leaves design and test decisions open.", ["No edge, invalid, timeout, or fallback language detected"], "Specify the most damaging failure and expected recovery."));
-    if (!input.linkedCaseCount)
-        insights.push(insight("coverage", "high", "Close the traceability gap", "No reusable test evidence is linked to this Story.", ["0 linked test cases"], "Link or create reviewed coverage before release planning."));
-    if (!references.length)
-        insights.push(insight("sources", "medium", "Ground design decisions", "The analysis has no product research, specification, or benchmark source.", ["0 external references"], "Attach the governing spec or approved research excerpt."));
-    if (insights.length < 3 && !hasMeasurableQuality)
-        insights.push(insight("measure", "opportunity", "Add a measurable success signal", "A measurable target would make review and release decisions less subjective.", ["No measurable quality target detected"], "Add one latency, completion, accuracy, or reliability target."));
-    if (insights.length < 3)
+    if (insights.length < 3 && hasQualityObjective && !hasMeasurableQuality)
+        insights.push(insight("measure", "opportunity", "Clarify the stated quality objective", "The Story names a quality objective without a detectable acceptance measure.", ["Quality objective present; acceptance measure not detected"], "Confirm the observable result and obtain any required target from the product owner; do not invent one."));
+    if (insights.length < 3 && hasBenchmarkObjective)
         insights.push(insight("benchmark-evidence", "opportunity", "Ground the market comparison", "Reference pointers do not provide readable competitor or research evidence to this analysis.", [references.length ? `${references.length} pointer${references.length === 1 ? "" : "s"}; content not loaded` : "No benchmark source supplied"], "Attach an approved excerpt with its source and observation date."));
     const overall = weightedScore(dimensions);
     return {
         artifact_type: "story",
         overall_score: overall,
-        score_label: "Story design maturity",
+        score_label: "Story design completeness",
         verdict: overallVerdict(overall),
-        summary: "Scores reflect the current Story draft, linked coverage, and available evidence—not model certainty.",
+        summary: "Scores measure authored scope and acceptance-text completeness for the stated objective. Linked tests, NFR categories, labels, delivery metadata and benchmark sources do not raise or lower this design score. Semantic correctness requires review.",
         dimensions,
         insights: insights.slice(0, 3),
         limitations: [
-            "Standards scores indicate practice alignment, not certification or compliance.",
+            "Non-placeholder field presence does not establish semantic adequacy, standards certification or compliance; missing unrelated quality categories are not Story defects.",
             "Market comparison uses common product patterns; no live competitor research was performed."
         ],
         evidence_count: dimensions.reduce((total, item) => total + item.evidence.length, 0) + references.length + input.linkedCaseCount,
@@ -144,15 +116,10 @@ export function buildTestCaseAssuranceAnalysis(input) {
     const allText = `${title} ${description} ${steps.map((step) => `${step.action || ""} ${step.expected_result || ""}`).join(" ")}`;
     const normalizedReview = input.reviewStatus.trim().toLowerCase();
     const isReviewed = ["accepted", "approved"].includes(normalizedReview);
-    const hasObservableResults = steps.some((step) => includesPattern(String(step.expected_result || ""), /\b(display|show|return|status|message|response|created|updated|blocked|denied|sent|saved|equal|contain)\b/));
-    const hasBoundaryCoverage = includesPattern(allText, /\b(invalid|empty|expired|boundary|limit|maximum|minimum|duplicate|unauthori[sz]ed|failure|error|timeout|negative|zero|null)\b/);
     const hasPreconditions = includesPattern(allText, /\b(given|precondition|logged|setup|existing|configured|starts? with|is on)\b/);
     const parameterCount = Object.keys(input.parameterValues || {}).filter((key) => key.trim()).length;
     const automationEvidenceCount = steps.filter((step) => Boolean(String(step.automation_code || "").trim() || step.api_request)).length;
-    const labels = input.labels || [];
     const completeRatio = steps.length ? completeSteps.length / steps.length : 0;
-    const observableStepCount = steps.filter((step) => includesPattern(String(step.expected_result || ""), /\b(display|show|return|status|message|response|created|updated|blocked|denied|sent|saved|equal|contain)\b/)).length;
-    const observableRatio = steps.length ? observableStepCount / steps.length : 0;
     const finalizedRunCount = Number.isFinite(Number(input.finalizedRunCount))
         ? Math.max(0, Math.floor(Number(input.finalizedRunCount)))
         : 0;
@@ -163,90 +130,76 @@ export function buildTestCaseAssuranceAnalysis(input) {
     const externalReferenceCount = Number.isFinite(parsedExternalReferenceCount)
         ? Math.max(0, Math.floor(parsedExternalReferenceCount))
         : 0;
-    const scenarioScoreCap = completeRatio < 1 ? 72 : (steps.length >= 2 || hasBoundaryCoverage ? 94 : 78);
-    const scenarioScore = Math.min(scenarioScoreCap, 12
-        + (title.length >= 12 ? 12 : 0)
-        + (description.length >= 40 ? 10 : 0)
-        + (steps.length > 0 ? 16 : 0)
-        + (completeRatio === 1 ? 18 : Math.round(completeRatio * 18))
-        + (input.requirementCount > 0 ? 16 : 0));
-    const clarityScoreCap = completeRatio < 1 ? 72 : Math.round(76 + (observableRatio * 24));
-    const clarityScore = Math.min(clarityScoreCap, 16
-        + (hasPreconditions ? 16 : 0)
-        + (steps.length >= 2 ? 16 : 0)
-        + (completeRatio === 1 ? 26 : Math.round(completeRatio * 20))
-        + Math.round(observableRatio * 18)
-        + (isReviewed ? 8 : 0));
-    const reliabilityScoreBeforeObservedOutcomes = 24
-        + (hasBoundaryCoverage ? 20 : 0)
-        + Math.round(observableRatio * 20)
-        + (finalizedRunCount > 0 ? 12 : 0)
-        + (observedPassRate !== null ? observedPassRate >= 80 ? 12 : observedPassRate >= 50 ? 6 : 0 : 0);
-    const reliabilityScore = finalizedRunCount > 0 && observedPassRate !== null
-        ? Math.min(reliabilityScoreBeforeObservedOutcomes, observedPassRate === 0 ? 40 : observedPassRate < 50 ? 52 : observedPassRate < 80 ? 72 : 100)
-        : reliabilityScoreBeforeObservedOutcomes;
-    const maintainabilityScore = 32
-        + (input.requirementCount > 0 ? 22 : 0)
-        + ((input.suiteCount || 0) > 0 ? 12 : 0)
-        + (labels.length > 0 ? 10 : 0)
-        + (externalReferenceCount > 0 ? 8 : 0)
-        + (isReviewed ? 10 : 0);
+    const hasTitle = meaningfulText(title), hasDescription = meaningfulText(description);
+    const authoredRatio = steps.length ? steps.filter(step => meaningfulText(step.action) && meaningfulText(step.expected_result)).length / steps.length : 0;
+    const vagueOutcome = /^(?:works?(?: correctly| as expected)?|as expected|correct(?:ly)?|ok(?:ay)?|success(?:ful)?|pass(?:ed)?|no issues)[.!?]*$/i;
+    const assertionRatio = steps.length ? steps.filter(step => meaningfulText(step.expected_result) && !vagueOutcome.test(String(step.expected_result).trim())).length / steps.length : 0;
+    const declaredParameters = new Set(Object.entries(input.parameterValues || {}).filter(([, value]) => typeof value === 'string').map(([name]) => name.replace(/^@?t\./, '')));
+    const generators = new Set(['random', 'string', 'randomstring', 'randomnumber', 'yopmail', 'today', 'timestamp']);
+    const referencedParameters = [...new Set([...allText.matchAll(/@t\.([A-Za-z_][A-Za-z0-9_.-]*)/g)].map(match => match[1].replace(/\.+$/, '')).filter(name => !generators.has(name)))];
+    const missingParameters = referencedParameters.filter(name => !declaredParameters.has(name));
+    const dataRatio = referencedParameters.length ? 1 - missingParameters.length / referencedParameters.length : 1;
+    // One focused step is valid. Adjacent negative coverage, automation,
+    // approvals, metadata and observed run history are separate evidence.
+    const scenarioScore = signalScore([[hasTitle, 20], [hasDescription, 30], [steps.length > 0, 20], [authoredRatio, 30]]);
+    const clarityScore = signalScore([[authoredRatio, 75], [assertionRatio, 25]]);
+    const reliabilityScore = steps.length ? signalScore([[dataRatio, 100]]) : 0;
+    const maintainabilityScore = signalScore([[hasTitle, 30], [hasDescription, 30], [authoredRatio, 40]]);
     const dimensions = [
         dimension("scenario-coverage", "Scenario intent", scenarioScore, steps.length && input.requirementCount
             ? "The case has an executable scenario and a traceable product intent."
-            : "The scenario needs stronger intent or Story traceability before it can prove coverage.", [
+            : "Review the stated product intent directly; a standalone case may use supplied evidence without a Story link.", [
             `${steps.length} authored step${steps.length === 1 ? "" : "s"}`,
             input.requirementCount ? `${input.requirementCount} linked ${input.requirementCount === 1 ? "Story" : "Stories"}` : "No linked Story",
             completeRatio === 1 ? "Every authored step has an expected result" : "One or more authored steps are incomplete"
-        ], "Map this focused scenario to the exact acceptance rule it proves.", ["ISO/IEC/IEEE 29119-3", "ISTQB test design practices"]),
-        dimension("execution-clarity", "Execution clarity", clarityScore, completeRatio === 1 && hasObservableResults
+        ], "State the exact product rule this focused scenario checks and link its governing source when available.", ["Authored objective and action/result contract"]),
+        dimension("execution-clarity", "Execution clarity", clarityScore, authoredRatio === 1 && assertionRatio === 1
             ? "Actions and expected results provide a clear, independently executable path."
             : "One or more steps lack the setup or observable result needed for consistent execution.", [
             `${completeSteps.length}/${steps.length} action/result pairs complete`,
             hasPreconditions ? "Setup or preconditions are visible" : "Setup or preconditions are implicit",
-            `${observableStepCount}/${steps.length} steps have observable assertions`
+            `${Math.round(assertionRatio * steps.length)}/${steps.length} expected results contain a non-placeholder, non-generic assertion`
         ], completeRatio === 1 ? "Tighten any subjective expected result into an observable outcome." : "Complete every action/expected-result pair."),
-        dimension("data-reliability", "Data & reliability", reliabilityScore, hasBoundaryCoverage || finalizedRunCount > 0
-            ? "The case includes risk-oriented data or execution evidence that supports a reliable verdict."
-            : "Reliability is inferred from the draft; boundary data and run evidence are still missing.", [
-            parameterCount ? `${parameterCount} reusable parameter${parameterCount === 1 ? "" : "s"}` : "No explicit test-data parameters",
-            finalizedRunCount ? `${finalizedRunCount} finalized run result${finalizedRunCount === 1 ? "" : "s"}` : "No finalized run evidence",
-            observedPassRate === null ? "Pass-rate evidence unavailable" : `${observedPassRate}% observed pass rate`
-        ], hasBoundaryCoverage ? "Capture the data source and reset strategy when state affects repeatability." : "Add representative invalid, empty, expired, or limit data where applicable."),
-        dimension("trace-maintainability", "Traceability & maintainability", maintainabilityScore, input.requirementCount && ((input.suiteCount || 0) || labels.length)
-            ? "Links and classification make the case easier to reuse, locate, and maintain."
-            : "The case is executable, but reuse and change-impact signals are limited.", [
-            input.requirementCount ? "Story trace is available" : "Story trace is missing",
+        dimension("data-reliability", "Authored data references", reliabilityScore, missingParameters.length
+            ? "One or more referenced local inputs have no supplied declaration."
+            : "The authored case has no unresolved local data reference. No-input, literal-input and parameterized cases are valid for their stated objective.", [
+            parameterCount ? `${parameterCount} supplied local parameter${parameterCount === 1 ? "" : "s"}` : "Local parameters are optional when this case has no local references",
+            `${referencedParameters.length} local input reference${referencedParameters.length === 1 ? "" : "s"}; ${missingParameters.length} unresolved`,
+            "Observed execution is disclosed separately and never changes the authored-design score"
+        ], "Check that inputs and setup support this case's stated objective; document data source or reset steps only when needed for repeatability."),
+        dimension("trace-maintainability", "Self-contained design", maintainabilityScore, hasTitle && hasDescription && authoredRatio === 1
+            ? "The named objective, description and complete step contract can be reviewed independently."
+            : "The self-contained objective, description or step contract is incomplete.", [
+            input.requirementCount ? "Story trace is available" : "No Story link supplied; linking is optional",
             (input.suiteCount || 0) ? `${input.suiteCount} linked suite${input.suiteCount === 1 ? "" : "s"}` : "No linked suite",
             automationEvidenceCount ? `${automationEvidenceCount} step${automationEvidenceCount === 1 ? "" : "s"} with automation evidence` : "Manual case; automation is not assumed",
             externalReferenceCount ? `${externalReferenceCount} source reference${externalReferenceCount === 1 ? "" : "s"}` : "No source reference supplied"
-        ], input.requirementCount ? "Keep the case atomic and review links after Story changes." : "Link the case to the Story or requirement it verifies.")
+        ], input.requirementCount ? "Keep the case atomic and review links after Story changes." : "Describe the governing product behavior and preserve any supplied source identity; Story linking is optional.")
     ];
     const insights = [];
     if (finalizedRunCount > 0 && observedPassRate !== null && observedPassRate < 50)
-        insights.push(insight("stability", "high", "Investigate unstable execution evidence", "Recorded outcomes do not yet support reliable reuse of this case.", [`${observedPassRate}% observed pass rate`], "Review failures and environment variance before relying on this case as a quality gate."));
-    if (completeRatio < 1)
+        insights.push(insight("stability", "high", "Investigate recorded execution failures", "Observed failures need investigation; they do not by themselves establish a defect in the authored case.", [`${observedPassRate}% observed pass rate`], "Review product failures, data and environment evidence before relying on this execution scope as a quality gate."));
+    if (authoredRatio < 1)
         insights.push(insight("incomplete-step", "high", "Complete the execution contract", "A missing action or expected result makes the verdict ambiguous.", [`${completeSteps.length}/${steps.length} complete step pairs`], "Complete the missing pair before review."));
-    if (!hasBoundaryCoverage)
-        insights.push(insight("boundary", "medium", "Add adjacent risk coverage", "This focused case has no negative, boundary, or failure signal.", ["Boundary coverage not detected in this case"], "Add or link a separate case for the most costly failure path."));
-    if (!input.requirementCount)
-        insights.push(insight("trace", "high", "Restore Story traceability", "The case cannot demonstrate which product rule it covers.", ["0 linked Stories"], "Link the governing Story before adding the case to release scope."));
-    if (!finalizedRunCount)
-        insights.push(insight("run-evidence", "medium", "Build execution evidence", "The design score has no observed pass/fail history yet.", ["0 finalized run results"], "Execute in a controlled run and retain the result evidence."));
+    if (missingParameters.length)
+        insights.push(insight("local-data", "high", "Resolve the referenced local inputs", "The authored case refers to local data that was not supplied.", missingParameters.map(name => `@t.${name}`), "Declare each required local value or remove an unintended reference; preserve inherited @s/@r scope."));
+    if (!input.requirementCount && !hasDescription)
+        insights.push(insight("trace", "medium", "Clarify the product objective", "The short draft and absent Story link leave the governing behavior unclear to this local heuristic.", ["No linked Story; limited description"], "Describe the product rule and relevant prerequisites, or link a governing source when available."));
     if (insights.length < 3 && !isReviewed)
         insights.push(insight("review", "medium", "Record a human decision", "AI analysis does not approve this test case.", [`Review state: ${normalizedReview.replace(/_/g, " ") || "not requested"}`], "Request review after the design gaps are resolved."));
     const overall = weightedScore(dimensions);
     return {
         artifact_type: "test-case",
         overall_score: overall,
-        score_label: "Test design maturity",
+        score_label: "Test design completeness",
         verdict: overallVerdict(overall),
-        summary: "Scores reflect the current test draft, trace links, and recorded execution evidence—not model certainty.",
+        summary: "Scores measure the authored objective, action/result contract and local input references. Negative coverage, Story links, automation, run history and approval do not raise or lower this design score. Semantic correctness requires review.",
         dimensions,
         insights: insights.slice(0, 3),
         limitations: [
             "Practice alignment is guidance, not standards certification.",
             "Automation and parameterization are supporting evidence, not prerequisites for a strong manual case.",
+            finalizedRunCount ? `Observed execution: ${finalizedRunCount} finalized run result${finalizedRunCount === 1 ? "" : "s"}; ${observedPassRate === null ? "pass-rate measurement unavailable" : `${observedPassRate}% recorded pass rate`}. These outcomes do not alter the authored-design score.` : "Observed execution: unavailable. No finalized run evidence was supplied; this is not a design defect or an inferred pass.",
             "Execution evidence uses the latest case result from at most 25 affected runs; without connected workspace run links, analysis scans the newest 100 runs."
         ],
         evidence_count: dimensions.reduce((total, item) => total + item.evidence.length, 0) + finalizedRunCount,

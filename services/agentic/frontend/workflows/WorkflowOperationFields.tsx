@@ -4,6 +4,7 @@ import { IconPlugConnected, IconRefresh } from "@tabler/icons-react";
 import type { AgenticWorkflowNodeData } from "@hellotest/platform/frontend/src/types";
 import { agenticApi } from "../api.client";
 import { WorkflowConditionFields } from "./WorkflowConditionFields";
+import { WorkflowDataOperationFields } from "./WorkflowDataOperationFields";
 import { nativeTaskDefaults, nativeTaskProfiles, nativeTaskResetPatch } from "./nativeTaskProfiles";
 import { sprintStoriesUrl } from "./sprintStoriesUrl";
 export function WorkflowOperationFields({
@@ -90,7 +91,10 @@ export function WorkflowOperationFields({
       <select
         aria-label={label}
         value={String(data[key] || fallback)}
-        onChange={(event) => onChange({ [key]: event.target.value })}
+        onChange={(event) => onChange({ [key]: event.target.value,
+          ...(key === "mergeMode" && event.target.value === "combineMatching" && data.mergeMatchFields == null ? { mergeMatchFields: '[{"left":"id","right":"id"}]' } : {}),
+          ...(key === "loopAction" && event.target.value === "transform" && data.transformMapping == null ? { transformMapping: '{\n  "item": "$item"\n}' } : {}),
+        })}
       >
         {options.map(([value, title]) => (
           <option value={value} key={value}>
@@ -100,6 +104,8 @@ export function WorkflowOperationFields({
       </select>
     </label>
   );
+  const number = (key: string, label: string, min: number, max: number, fallback: number) => <label><span>{label}</span><input type="number" aria-label={label} min={min} max={max} step={1} value={String(data[key] ?? fallback)} onChange={event => onChange({ [key]: event.target.value === "" ? "" : Number(event.target.value), ...(key === "waitMs" && Number(event.target.value) >= Number(data.timeoutMs || 30000) ? { timeoutMs: String(Number(event.target.value) + 1000) } : {}) })} /></label>;
+  const checkbox = (key: string, label: string, fallback = false) => <label className="studio-checkbox"><input type="checkbox" checked={typeof data[key] === "boolean" ? data[key] : fallback} onChange={event => onChange({ [key]: event.target.checked })} /><span>{label}</span></label>;
   return (
     <>
       {kind === "artifactTask" ? <>
@@ -111,7 +117,7 @@ export function WorkflowOperationFields({
           {field("instructions", "Instructions", true)}
           {field("guardrails", "Guardrails", true)}
           <button type="button" className="ghost-button" onClick={() => onChange(nativeTaskResetPatch(String(data.artifactTask || "story-assurance")))}>Restore task defaults</button>
-          <p className="studio-caption">Saved node edits persist across deployments. Project access, source traceability and output validation are always enforced. Shared model contracts and quality metrics are configurable in AI Controls.</p>
+          <p className="studio-caption">This saved node owns its instructions, guardrails and model settings. Admin AI Controls do not change this task. Project access, source traceability and native output validation are always enforced.</p>
         </div>
         {data.artifactTask === "test-case-generation" && <div className="studio-parameter-group">
           <h4>Case generation</h4>
@@ -304,24 +310,46 @@ export function WorkflowOperationFields({
         </>
       ) : null}
       {kind === "condition" ? <WorkflowConditionFields data={data} onChange={onChange} /> : null}
+      {kind === "dataOperation" ? <WorkflowDataOperationFields data={data} onChange={onChange} /> : null}
+      {kind === "wait" ? <>{number("waitMs", "Wait duration (ms)", 0, 60000, 1000)}<p className="studio-caption">Pauses this branch for up to 60 seconds. Other independent branches can continue in parallel. The timeout increases when needed to include the wait.</p></> : null}
+      {kind === "stop" ? <>{field("stopMessage", "Error message", true)}<p className="studio-caption">Stops execution with this message. Connect it to a condition or switch branch that should fail.</p></> : null}
       {kind === "aggregator" ? <>
-        {select("mergeMode", "Merge inputs", [["waitAllAppend", "Wait for all · append items"], ["waitAllMerge", "Wait for all · combine fields"]], "waitAllAppend")}
-        <p className="studio-caption">Waits for connected branches. Combine fields preserves conflicting values in connection order instead of overwriting them.</p>
+        {select("mergeMode", "Merge inputs", [["waitAllAppend", "Append items"], ["combinePosition", "Combine by position"], ["combineMatching", "Combine by matching fields"], ["combineAll", "All combinations"], ["chooseInput", "Choose one input"], ["waitAllMerge", "Combine branch objects (legacy)"]], "waitAllAppend")}
+        {data.mergeMode === "combineMatching" && <>
+          {field("mergeMatchFields", "Matching fields JSON", true, '[{"left":"id","right":"id"}]')}
+          {select("mergeJoin", "Include matches", [["inner", "Matching items"], ["left", "All input 1 items"], ["right", "All input 2 items"], ["outer", "All items"], ["nonMatches", "Only unmatched items"]], "inner")}
+          {select("mergeMultiple", "Multiple matches", [["all", "Keep all matches"], ["first", "Use the first match"]], "all")}
+        </>}
+        {data.mergeMode === "combinePosition" && checkbox("mergeIncludeUnpaired", "Include unpaired items")}
+        {["combinePosition", "combineMatching", "combineAll"].includes(String(data.mergeMode)) && <>
+          {select("mergeClash", "When fields have the same name", [["preferLast", "Prefer input 2"], ["preferFirst", "Prefer input 1"], ["keepBoth", "Keep both values"]], "preferLast")}
+          {checkbox("mergeDeep", "Merge nested objects", true)}
+        </>}
+        {data.mergeMode === "chooseInput" && select("mergeChooseInput", "Return input", [["1", "Input 1"], ["2", "Input 2"]], "1")}
+        <p className="studio-caption">Waits until connected branches finish or are skipped. Append preserves connection order. Combine and choose operations use two inputs; connect them to the numbered ports. Skipped branches contribute no items.</p>
+        {data.mergeMode === "combineAll" && <p className="studio-notice">Pairs every item from input 1 with every item from input 2. Output grows with both inputs and must stay within the execution item limit.</p>}
       </> : null}
       {kind === "loop" ? (
         <>
-          {field("loopSourceKey", "Items path", false, "input.items")}
-          {field("loopMaxIterations", "Maximum items", false, "10")}
           {select(
             "loopAction",
             "Action for each item",
             [
+              ["workflow", "Connected workflow steps"],
               ["transform", "Map fields"],
               ["customAI", "AI review"],
               ["storyPackets", "Native Story pipeline"],
             ],
             "transform",
           )}
+          {field("loopSourceKey", "Items path", false, "input.items")}
+          {number("loopMaxIterations", "Maximum items", 1, ["workflow", "storyPackets"].includes(String(data.loopAction)) ? 100 : 10, 10)}
+          {data.loopAction === "workflow" && <>
+            {number("loopBatchSize", "Batch size", 1, 100, 1)}
+            <p className="studio-caption">Connect <strong>loop</strong> to the first body step and return the last body step to <strong>continue</strong>. Connect <strong>done</strong> to the step that receives all completed batch results. Batches run in order; the body must return before the next batch starts.</p>
+            <p className="studio-caption"><code>$input</code> is the current batch array. With batch size 1, <code>$item</code> is the item. Iteration metadata includes index, number, total and batch_size. The item limit rejects larger inputs instead of silently dropping items.</p>
+            <p className="studio-caption">This node's timeout covers every batch and body step. The remaining workflow deadline also applies; adjust both in Execution settings and Workflow settings for longer jobs.</p>
+          </>}
           {data.loopAction === "customAI" ? (
             <>
               <p className="studio-caption">
@@ -330,14 +358,14 @@ export function WorkflowOperationFields({
               </p>
             </>
           ) : null}
-          <p className="studio-caption">
+          {data.loopAction !== "workflow" && <p className="studio-caption">
             Items run sequentially inside this node. Native Story pipelines support up to 100 Stories; other actions support 10 items, within
             this node's timeout. The next node receives the collected results.
-          </p>
+          </p>}
         </>
       ) : null}
       {kind === "transform" ||
-      (kind === "loop" && !["customAI", "storyPackets"].includes(String(data.loopAction))) ? (
+      (kind === "loop" && !["workflow", "customAI", "storyPackets"].includes(String(data.loopAction))) ? (
         <>
           {field("transformMapping", "Field mapping JSON", true)}
           <p className="studio-caption">

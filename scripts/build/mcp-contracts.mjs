@@ -6,14 +6,30 @@ const root=resolve(import.meta.dirname,'../..');
 const require=createRequire(import.meta.url);
 const constants=require('../../services/platform/backend/src/domain/catalog.js');
 const schemas={};
-function literal(node){
+function literal(node,bindings={}){
  if(!node)return undefined;
  if(ts.isStringLiteral(node)||ts.isNoSubstitutionTemplateLiteral(node))return node.text;
  if(ts.isNumericLiteral(node))return Number(node.text);
  if(node.kind===ts.SyntaxKind.TrueKeyword)return true;if(node.kind===ts.SyntaxKind.FalseKeyword)return false;
- if(ts.isArrayLiteralExpression(node)){const values=node.elements.map(literal);return values.some(item=>item===undefined)?undefined:values;}
- if(ts.isObjectLiteralExpression(node))return Object.fromEntries(node.properties.filter(ts.isPropertyAssignment).map(property=>[property.name.text,literal(property.initializer)]).filter(([,value])=>value!==undefined));
- if(ts.isIdentifier(node))return constants[node.text];
+ if(node.kind===ts.SyntaxKind.NullKeyword)return null;
+ if(ts.isPrefixUnaryExpression(node)&&node.operator===ts.SyntaxKind.MinusToken&&ts.isNumericLiteral(node.operand))return -Number(node.operand.text);
+ if(ts.isTemplateExpression(node)){
+  let value=node.head.text;
+  for(const span of node.templateSpans){const part=literal(span.expression,bindings);if(typeof part!=='string'&&typeof part!=='number')return undefined;value+=String(part)+span.literal.text;}
+  return value;
+ }
+ if(ts.isArrayLiteralExpression(node)){const values=node.elements.map(item=>literal(item,bindings));return values.some(item=>item===undefined)?undefined:values;}
+ if(ts.isObjectLiteralExpression(node)){
+  const value={};
+  for(const property of node.properties){
+   if(ts.isSpreadAssignment(property)){const spread=literal(property.expression,bindings);if(spread&&typeof spread==='object'&&!Array.isArray(spread))Object.assign(value,spread);}
+   else if(ts.isPropertyAssignment(property)){const item=literal(property.initializer,bindings);if(item!==undefined)value[property.name.text]=item;}
+   else if(ts.isShorthandPropertyAssignment(property)){const item=literal(property.name,bindings);if(item!==undefined)value[property.name.text]=item;}
+  }
+  return value;
+ }
+ if(ts.isPropertyAccessExpression(node)){const value=literal(node.expression,bindings);return value&&typeof value==='object'&&Object.hasOwn(value,node.name.text)?value[node.name.text]:undefined;}
+ if(ts.isIdentifier(node))return Object.hasOwn(bindings,node.text)?bindings[node.text]:constants[node.text];
 }
 function rulesSchema(rules){const properties={},required=[];for(const [name,rule] of Object.entries(rules||{})){
  if(!rule||typeof rule!=='object')continue;
@@ -32,19 +48,31 @@ function validationTarget(node){
  if(ts.isPropertyAccessExpression(node)&&['body','query'].includes(node.name.text))return node.name.text==='body'?'body':'querystring';
  return null;
 }
-function walk(node,file){
- if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&['get','post','put','patch','delete'].includes(node.expression.name.text)&&node.arguments[0]&&ts.isStringLiteral(node.arguments[0])){
-  const method=node.expression.name.text.toUpperCase(),path=node.arguments[0].text,handler=node.arguments.at(-1);
-  if(handler&&(ts.isArrowFunction(handler)||ts.isFunctionExpression(handler))){const options=literal(node.arguments[1]);const schema={...(options?.schema||{})};
-   function scan(child){if(ts.isCallExpression(child)&&ts.isPropertyAccessExpression(child.expression)&&child.expression.name.text==='validate'&&child.arguments[0]&&ts.isObjectLiteralExpression(child.arguments[0])){const key=validationTarget(child.arguments[1]);if(key)schema[key]=rulesSchema(literal(child.arguments[0]));}ts.forEachChild(child,scan);}
+function walk(node,file,bindings={},helpers=new Map(),stack=new Set()){
+ if(ts.isCallExpression(node)&&ts.isIdentifier(node.expression)&&helpers.has(node.expression.text)&&!stack.has(node.expression.text)){
+  const helper=helpers.get(node.expression.text),values={...bindings};
+  helper.parameters.forEach((parameter,index)=>{if(ts.isIdentifier(parameter.name)){const value=literal(node.arguments[index],bindings);if(value!==undefined)values[parameter.name.text]=value;}});
+  if(helper.body)walk(helper.body,file,values,helpers,new Set([...stack,node.expression.text]));
+ }
+ if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&['get','post','put','patch','delete'].includes(node.expression.name.text)&&node.arguments[0]&&typeof literal(node.arguments[0],bindings)==='string'){
+  const method=node.expression.name.text.toUpperCase(),path=literal(node.arguments[0],bindings),handler=node.arguments.at(-1);
+  if(handler&&(ts.isArrowFunction(handler)||ts.isFunctionExpression(handler))){const options=literal(node.arguments[1],bindings);const schema={...(options?.schema||{})};
+   function scan(child){if(ts.isCallExpression(child)&&ts.isPropertyAccessExpression(child.expression)&&child.expression.name.text==='validate'&&child.arguments[0]){const key=validationTarget(child.arguments[1]),rules=literal(child.arguments[0],bindings);if(key&&rules&&typeof rules==='object'&&!Array.isArray(rules))schema[key]=rulesSchema(rules);}ts.forEachChild(child,scan);}
    scan(handler);if(Object.keys(schema).length)schemas[`${method} ${path}`]=schema;
   }
  }
- ts.forEachChild(node,child=>walk(child,file));
+ ts.forEachChild(node,child=>walk(child,file,bindings,helpers,stack));
 }
 for(const service of readdirSync(resolve(root,'services'),{withFileTypes:true}).filter(item=>item.isDirectory())){
  const directory=resolve(root,'services',service.name,'backend/routes');let names;try{names=readdirSync(directory);}catch{continue;}
- for(const name of names.filter(name=>name.endsWith('.js'))){const source=ts.createSourceFile(name,readFileSync(resolve(directory,name),'utf8'),ts.ScriptTarget.Latest,true);walk(source,source);}
+ for(const name of names.filter(name=>name.endsWith('.js'))){const source=ts.createSourceFile(name,readFileSync(resolve(directory,name),'utf8'),ts.ScriptTarget.Latest,true);
+  const helpers=new Map(source.statements.filter(statement=>ts.isFunctionDeclaration(statement)&&statement.name).map(statement=>[statement.name.text,statement]));
+  const bindings={};
+  for(const statement of source.statements)if(ts.isVariableStatement(statement))for(const declaration of statement.declarationList.declarations)if(ts.isIdentifier(declaration.name)){
+   const value=literal(declaration.initializer,bindings);if(value!==undefined)bindings[declaration.name.text]=value;
+  }
+  walk(source,source,bindings,helpers);
+ }
 }
 const output=JSON.stringify({version:1,source:'Controller-declared validators; domain services enforce additional business rules.',schemas:Object.fromEntries(Object.entries(schemas).sort(([a],[b])=>a.localeCompare(b)))},null,2)+'\n';
 const target=resolve(root,'services/mcp/backend/contracts.json');

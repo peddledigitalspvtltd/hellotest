@@ -1,3 +1,4 @@
+import type { NodeAiConfiguration } from '../workflows/NodeAiConfiguration';
 export type QualityAgentKind = "web" | "security" | "performance" | "accessibility" | "visual";
 export type QualityAgentStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type QualityJourneyStep = { id?: string; label?: string; action: "click" | "fill" | "assert_text" | "assert_url"; selector?: string; value?: string; text?: string; url?: string };
@@ -8,7 +9,7 @@ export type QualityAgentOptions = {
   budgets?: { navigation_ms?: number; lcp_ms?: number; cls?: number; resource_count?: number; transfer_bytes?: number };
   max_diff_ratio?: number; pixel_threshold?: number;
 };
-export type QualityAgentContext = { llm_integration_id?: string | null; context_scopes?: string[]; evidence_scope?: Record<string,string>; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; };
+export type QualityAgentContext = { ai_configuration?:NodeAiConfiguration; instructions?:string; guardrails?:string; review_criteria?:string; llm_integration_id?: string | null; context_scopes?: string[]; evidence_scope?: Record<string,string>; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; };
 export type QualityAgentPlan = QualityAgentContext & {
   kind: QualityAgentKind; target_url: string; goal: string; steps: QualityJourneyStep[];
   options: QualityAgentOptions; generation_mode: "llm" | "deterministic"; source: "model" | "preset";
@@ -25,7 +26,7 @@ export type QualityAgentPlanInput = Omit<QualityAgentLaunch,"reviewed_plan"|"ide
 export type QualityAgentFinding = { id: string; title: string; severity: "critical" | "high" | "medium" | "low" | "info"; category: string; description: string; evidence: string; selector?: string; recommendation?: string };
 export type QualityAgentArtifact = { id: string; name: string; type: "screenshot" | "visual_diff" | "report"; content_type: string; bytes: number; sha256: string; download_path: string };
 export type QualityAgentStage = { id: string; label: string; status: "pending" | "running" | "completed" | "failed"; started_at?: string; completed_at?: string };
-export type QualityAgentRun = {
+export type QualityAgentRun = QualityAgentContext & {
   task_brief?: {agent_id:string;name:string;intent:string;goal:string;checks:string[];limitations:string[];target_url:string;execution_scope:{max_pages:number;max_duration_ms:number;max_actions?:number;allow_form_submission?:boolean}};
   mission_progress?: {phase:string;message:string;sequence?:number;revision?:number;updated_at:string};
   mission_outcome?: { title:string;summary:string;columns:string[];rows:Array<{cells:string[];evidence:{sequence:number;quote:string;url:string}}> };

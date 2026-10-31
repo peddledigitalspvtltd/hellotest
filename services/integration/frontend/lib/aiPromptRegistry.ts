@@ -1,5 +1,5 @@
-import metricCatalog from "@hellotest/platform/shared/metricCatalog.json";
-import promptDefaults from "@hellotest/platform/shared/aiPromptDefaults.json";
+import metricCatalog from "@hellotest/platform/shared/metricCatalog.json" with { type: "json" };
+import promptDefaults from "@hellotest/platform/shared/aiPromptDefaults.json" with { type: "json" };
 export type AiPromptRegistryItem = {
   key: string;
   label: string;
@@ -72,7 +72,7 @@ export function normalizeAiMetricCriteriaOverrides(input: unknown): AiMetricCrit
   return Object.fromEntries(
     Object.entries(input as Record<string, unknown>)
       .filter(([key, value]) => typeof key === "string" && key.trim() && typeof value === "string")
-      .map(([key, value]) => [key.trim(), String(value).trim().slice(0, 4_000)])
+      .map(([key, value]) => [key.trim(), String(value).trim().slice(0, 8_000)])
   );
 }
 
@@ -115,9 +115,17 @@ export function resolveAiMetricCriteriaValue(key: string, overrides?: AiMetricCr
 
 export function findAiMetricCriteriaByLabel(label: string) {
   const normalized = label.trim().toLowerCase();
-  return AI_METRIC_CRITERIA_REGISTRY.find((item) =>
-    item.key.toLowerCase() === normalized
-    || item.label.toLowerCase() === normalized
-    || item.aliases.some((alias) => normalized.includes(alias) || alias.includes(normalized))
-  ) || null;
+  if (!normalized) return null;
+  const exact = AI_METRIC_CRITERIA_REGISTRY.filter((item) =>
+    item.key.toLowerCase() === normalized || item.label.toLowerCase() === normalized
+    || item.aliases.some(alias => alias.toLowerCase() === normalized));
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return null;
+  const candidates = AI_METRIC_CRITERIA_REGISTRY.filter(item => item.aliases.some(alias => {
+    const value = alias.toLowerCase();
+    return normalized.includes(value) || value.includes(normalized);
+  }));
+  // A generic label such as "completion" must not silently attach a Story,
+  // dashboard or execution definition with a different denominator.
+  return candidates.length === 1 ? candidates[0] : null;
 }

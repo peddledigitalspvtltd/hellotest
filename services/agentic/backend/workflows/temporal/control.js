@@ -19,11 +19,12 @@ async function enqueue(run, insert) {
     await db.query("SET LOCAL statement_timeout = '5s'");
     if (!await insert()) return false;
     const graph = run.workflow_snapshot;
-    const payload = { runId: run.id, deadline: graph.runtime_contract.deadline_at,
+    const bodies = require('@hellotest/platform/backend/src/utils/agenticWorkflowGraph').loopBodies(graph.nodes, graph.edges);
+    const payload = { runId: run.id, deadline: graph.runtime_contract.deadline_at, scheduler_version: 2, processing: graph.runtime_contract.processing,
       nodes: graph.execution_order.map(id => {
         const node = graph.nodes.find(item => item.id === id);
-        return { id, kind: node.data.kind, onError: node.data.onError || 'stop' };
-      }), edges: graph.edges.map(({ source, target, sourceHandle }) => ({ source, target, sourceHandle })) };
+        return { id, kind: node.data.kind, onError: node.data.onError || 'stop', exclusive: require('../workflowScheduling').exclusive(node), ...(bodies[id] ? { body_ids: bodies[id] } : {}) };
+      }), edges: graph.edges.map(({ source, target, sourceHandle, targetHandle }) => ({ source, target, sourceHandle, targetHandle })) };
     await db.prepare(`INSERT INTO workflow_delivery_outbox(id,project_id,run_id,command,payload) VALUES(?,?,?,'start',?) ON CONFLICT(id) DO NOTHING`)
       .run(`start:${run.id}`, run.project_id, run.id, payload);
     return true;

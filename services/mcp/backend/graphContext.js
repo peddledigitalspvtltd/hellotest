@@ -30,7 +30,8 @@ function createGraphContext({permit,fail,db,bounded,service}) {
    const result=await service().resolveNodes({projectId:actor.projectId,user:actor.user,identifiers:args.identifiers,query:args.query,
     appTypeId:args.app_type_id,limit:args.limit,signal:boundedSignal,timeoutMs:args.timeout_ms});
    boundedSignal.throwIfAborted();
-   if(!result||result.project_id&&result.project_id!==actor.projectId||!Array.isArray(result.nodes)||result.nodes.length>args.limit||result.nodes.some(node=>typeof node.id!=='string'||!kinds.includes(node.kind)))throw fail('The graph resolver returned an invalid projection.',502,'MCP_GRAPH_CONTRACT');
+   if(!result||result.project_id&&result.project_id!==actor.projectId||!Array.isArray(result.nodes)||result.nodes.length>args.limit||result.nodes.some(node=>typeof node.id!=='string'||!kinds.includes(node.kind)||node.project_id&&node.project_id!==actor.projectId))throw fail('The graph resolver returned an invalid projection.',502,'MCP_GRAPH_CONTRACT');
+   if(new Set(result.nodes.map(node=>node.id)).size!==result.nodes.length)throw fail('The graph resolver returned duplicate identities.',502,'MCP_GRAPH_CONTRACT');
    return bounded({...result,project_id:actor.projectId,observed_at:new Date().toISOString(),
     gap:result.nodes.length?null:'No authorized current node matched. Try an exact canonical source ID, typed record ID, title or curated alias. Missing nodes do not establish absence.'});
   },{signal,timeoutMs:args.timeout_ms});
@@ -49,13 +50,20 @@ function createGraphContext({permit,fail,db,bounded,service}) {
    if(!graph||graph.project_id!==actor.projectId||!Array.isArray(graph.nodes)||!Array.isArray(graph.edges)||!Array.isArray(graph.evidence)
     ||graph.nodes.length>args.max_nodes||graph.edges.length>args.max_edges||graph.evidence.length>args.max_evidence)throw fail('The graph service returned an invalid or incorrectly scoped projection.',502,'MCP_GRAPH_CONTRACT');
    const ids=new Set(graph.nodes.map(node=>node.id));
-   if(ids.size!==graph.nodes.length||graph.nodes.some(node=>typeof node.id!=='string')||graph.edges.some(edge=>!ids.has(edge.source)||!ids.has(edge.target)))throw fail('The graph service returned incomplete relationship endpoints.',502,'MCP_GRAPH_CONTRACT');
+   if(ids.size!==graph.nodes.length||graph.nodes.some(node=>typeof node.id!=='string'||node.project_id&&node.project_id!==actor.projectId)
+    ||graph.evidence.some(hit=>hit.project_id&&hit.project_id!==actor.projectId||hit.authorized===false||['DENIED','NONE'].includes(hit.visibility?.state))
+    ||graph.edges.some(edge=>!ids.has(edge.source)||!ids.has(edge.target)))throw fail('The graph service returned incomplete or incorrectly scoped relationship endpoints.',502,'MCP_GRAPH_CONTRACT');
+   const evidenceIds=new Set(graph.evidence.flatMap(hit=>[hit.id,hit.evidence_id,hit.citation?.id].filter(Boolean)));
+   if(graph.edges.some(edge=>Array.isArray(edge.evidence_ids)&&edge.evidence_ids.some(id=>!evidenceIds.has(id))))throw fail('The graph service returned a relationship without its evidence witness.',502,'MCP_GRAPH_CONTRACT');
    const result=bounded(graph),originalEvidence=new Map(graph.evidence.map(hit=>[hit.citation?.id,hit.content]));
    const redacted=new Set(result.evidence.filter(hit=>typeof hit.citation?.id==='string'&&originalEvidence.get(hit.citation.id)!==hit.content).map(hit=>hit.citation.id));
    if(redacted.size){
     for(const edge of result.edges)if(edge.witness_span&&edge.evidence_ids?.some(id=>redacted.has(id)))edge.witness_span={...edge.witness_span,offset_basis:'source_chunk',rendered_content_redacted:true};
     result.limitations={...result.limitations,gaps:[...(result.limitations?.gaps||[]),'Some evidence passages were redacted for MCP delivery. Witness spans identify the immutable source chunk, not the redacted display text.']};
    }
+   const deliveredIds=new Set(result.nodes.map(node=>node.id));
+   if(result.nodes.length!==graph.nodes.length||result.edges.length!==graph.edges.length||result.evidence.length!==graph.evidence.length
+    ||result.edges.some(edge=>!deliveredIds.has(edge.source)||!deliveredIds.has(edge.target)))throw fail('The graph delivery projection omitted required nodes, relationships or witnesses. Narrow the traversal.',413,'MCP_GRAPH_BUDGET');
    // Native packing budgets the complete graph. Account for any redaction
    // metadata added at this boundary rather than silently exceeding that cap.
    if(result.budget){

@@ -169,6 +169,15 @@ test("custom AI calls the selected model on supplied workflow input with retriev
   assert.deepEqual(result.provenance.context_route.effective_scopes,[]);
 });
 
+test('oversized exact workflow input fails before optional retrieval or provider work',async t=>{
+ setupAssistant(t);
+ const retrieval=require('../../../knowledge/backend/services/knowledgeRetrieval.service');
+ t.mock.method(retrieval,'retrieveSearch',async()=>assert.fail('Oversized task input cannot trigger optional retrieval.'));
+ t.mock.method(knowledge,'buildKnowledgeContextPackage',async()=>assert.fail('Oversized task input cannot trigger optional retrieval.'));
+ await assert.rejects(assistant.respond({...input,workflow_policy:{custom_task:true,allowed_tools:['project_evidence','knowledge_search'],context_scopes:['stories','knowledge'],connected_input:{required_text:'界'.repeat(12000)}}}),error=>error.code==='AGENT_INPUT_BUDGET');
+ assert.equal(globalThis.fetch.mock.callCount(),0);
+});
+
 test("specialist retrieval starts indexed and current evidence concurrently", async t => {
   setupAssistant(t);
   let releaseKnowledge;
@@ -351,31 +360,30 @@ test("unscoped workflow lists are limited to projects the actor can view", async
   }
 });
 
-test("API diagnostics stop reading large responses after a bounded preview", async t => {
-  let cancelled = false;
-  let chunks = 0;
-  t.mock.method(globalThis, "fetch", async (_url, init) => {
-    assert.equal(init.redirect, "manual");
-    return new Response(new ReadableStream({ pull(controller) { chunks += 1; controller.enqueue(new Uint8Array(32768).fill(65)); }, cancel() { cancelled = true; } }), { headers: { "content-type": "text/plain" } });
+test("API diagnostics use the common bounded transport and cap their rendered preview", async t => {
+  const common = t.mock.method(require('../../../agentic/backend/workflows/connections'), 'callHttp', async request => {
+    assert.equal(request.projectId, 'project-a');
+    assert.equal(request.data.connectionId, 'managed-connection');
+    assert.equal(request.data.apiMethod, 'GET');
+    return { status: 200, data: 'A'.repeat(112 * 1024), content_type: 'text/plain' };
   });
-  const result = await workflows.testApiAgent({ method: "GET", url: "https://api.example.test/data", responseStyle: "text" });
+  const result = await workflows.testApiAgent({ project_id: 'project-a', connectionId: 'managed-connection', method: "GET", url: "https://api.example.test/data", responseStyle: "text" });
   assert.equal(result.truncated, true);
   assert.equal(result.preview.length, 96 * 1024);
-  assert.ok(chunks <= 5);
-  assert.equal(cancelled, true);
+  assert.equal(common.mock.callCount(), 1);
 });
 
-test("API diagnostics mask query credentials, echoed secrets, and sensitive JSON fields", async t => {
-  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ token: "a-new-server-token", echoed: "provided-test-secret", ok: true }), { headers: { "content-type": "application/json" } }));
-  const result = await workflows.testApiAgent({ url: "https://api.example.test/data", credential: { location: "query", keyName: "key", secret: "provided-test-secret" } });
-  assert.doesNotMatch(JSON.stringify(result), /provided-test-secret|a-new-server-token/);
-  assert.equal(result.preview.token, "[REDACTED]");
-  assert.equal(result.preview.ok, true);
+test("API diagnostics require managed credential references and never dispatch an inline query secret", async t => {
+  let requests = 0;
+  t.mock.method(globalThis, "fetch", async () => { requests++; throw new Error('Unexpected raw request'); });
+  await assert.rejects(workflows.testApiAgent({ url: "https://api.example.test/data", credential: { location: "query", keyName: "key", secret: "provided-test-secret" } }), /inline credential/);
+  await assert.rejects(workflows.testApiAgent({ url: "https://api.example.test/data?access_token=provided-test-secret" }), /managed connection/);
+  assert.equal(requests, 0);
 });
 
 test("API diagnostic rejects unsupported methods rather than silently sending GET", async () => {
   await assert.rejects(workflows.testApiAgent({ method: "TRACE", url: "https://api.example.test" }), /supported HTTP method/);
-  await assert.rejects(workflows.testApiAgent({ url: "https://name:password@api.example.test" }), /credential field/);
+  await assert.rejects(workflows.testApiAgent({ url: "https://name:password@api.example.test" }), /embedded credentials/);
 });
 
 test("workflow ID routes recheck permission in the actual owning project", async t => {

@@ -38,7 +38,7 @@ test('mission decisions receive the full task, specialist intent and governed sk
  const current={...observation,sequence:12};const reviewed='User-reviewed brief '+ 'b'.repeat(11970);
  await f.decideMission({...request,kind:'accessibility',smart_context:{reviewed_context:reviewed}}, {id:'user'},current,[],{observations:previous});
  const body=JSON.parse(f.requests[0].body),packet=JSON.parse(body.messages.at(-1).content);
- assert.equal(packet.goal,request.goal);assert.equal(packet.reviewed_context,reviewed);assert.equal(packet.task_brief.agent_id,'browser-accessibility');
+ assert.equal(packet.task_brief.goal,request.goal);assert.equal(packet.goal,undefined);assert.equal(packet.reviewed_context,reviewed);assert.equal(packet.task_brief.agent_id,'browser-accessibility');
  assert.match(packet.task_brief.intent,/accessibility/);assert.ok(packet.task_brief.checks.length);assert.ok(packet.task_brief.limitations.length);
  assert.match(body.messages[1].content,/ai.agentic.browser.accessibility:browserMissionPlanner.skill/);
  assert.ok(JSON.stringify(packet.prior_observations).length<12500);assert.ok(packet.prior_observations.length<11);

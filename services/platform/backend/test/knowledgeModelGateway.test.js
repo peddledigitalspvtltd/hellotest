@@ -24,7 +24,10 @@ test("explicit cost ceilings refuse unpriced models before dispatch", async () =
   assert.equal(attempts, 0);
 });
 
-test("provider compatibility keeps an output limit through explicit parameter negotiation", async () => {
+test("provider compatibility keeps an output limit through explicit parameter negotiation", async context => {
+  const configuration=require('../services/aiConfiguration.service');
+  context.mock.method(configuration,'resolve',async id=>{const item=configuration.catalog.find(item=>item.id===id);return {...item,config:{...item.defaults,max_output_tokens:4096},published_version:0,fingerprint:configuration.hash(item.defaults)};});
+  context.mock.method(require('../services/metricGovernance.service'),'resolveForFeature',async()=>({instruction:'',metrics:[]}));
   const original = global.fetch;
   const requests = [];
   global.fetch = async (_, init) => {
@@ -34,7 +37,7 @@ test("provider compatibility keeps an output limit through explicit parameter ne
     return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }), { status: 200 });
   };
   try {
-    const result = await assistant._internals.requestJsonCompletion({ integration: { base_url: "https://compatibility.invalid/v1", api_key: "test-key", model: "test" }, messages: [{ role: "user", content: "test" }], operation: "knowledge-test" });
+    const result = await assistant._internals.requestJsonCompletion({ integration: { base_url: "https://compatibility.invalid/v1", api_key: "test-key", model: "test" }, messages: [{ role: "user", content: "test" }], operation: "knowledge.assistant.verify" });
     assert.equal(result.ok, true);
     assert.equal(requests.length, 3);
     assert.equal(requests[0].max_tokens, 4096);

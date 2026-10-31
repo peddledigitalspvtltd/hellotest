@@ -1832,7 +1832,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
   const sourceSuiteSnapshots = sourceExecution.suite_snapshots || [];
 
   if (!sourceCaseSnapshots.length) {
-    throw new Error("This execution does not contain any snapped cases to rerun.");
+    throw runError("This execution does not contain any snapped cases to rerun.", "RERUN_EMPTY_SCOPE", 409);
   }
 
   let filteredCaseSnapshots = sourceCaseSnapshots;
@@ -1853,7 +1853,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
     filteredCaseSnapshots = sourceCaseSnapshots.filter((snapshot) => failedCaseIds.has(snapshot.test_case_id));
 
     if (!filteredCaseSnapshots.length) {
-      throw new Error("This execution does not have any failed cases to rerun.");
+      throw runError("This execution does not have any failed cases to rerun.", "RERUN_NO_FAILED_CASES", 409);
     }
   }
 
@@ -2084,6 +2084,7 @@ exports.startExecution = async (id, options = {}) => {
   if (startResult.changes !== 1) {
     assertExpectedRevision(currentRevision + 1, currentRevision, "Run");
   }
+  executionCache.delete(id);
 
   let dispatchSummary = {
     automated_case_count: 0,
@@ -2110,6 +2111,7 @@ exports.startExecution = async (id, options = {}) => {
     } catch (error) {
       if(error.code !== "LOCAL_DISPATCH_UNCERTAIN") {
         await db.prepare("UPDATE executions SET status = 'failed', ended_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'running'").run(id);
+        executionCache.delete(id);
         throw error;
       }
       dispatchSummary = {

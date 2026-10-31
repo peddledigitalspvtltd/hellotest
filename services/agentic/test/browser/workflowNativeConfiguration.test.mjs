@@ -50,6 +50,11 @@ test('Sprint template saves editable per-node guidance and previews the current 
       await page.getByLabel('Task', { exact: true }).fill('Custom task for ' + id);
       await page.getByLabel('Instructions', { exact: true }).fill('Custom instructions for ' + id);
       await page.getByLabel('Guardrails', { exact: true }).fill('Custom guardrails for ' + id);
+      await page.getByText('Model, evidence and review settings', {exact:true}).click();
+      await page.getByLabel('Node temperature', {exact:true}).fill('0.45');
+      await page.getByLabel('Node maximum output tokens', {exact:true}).fill('4096');
+      await page.getByLabel('Node evidence mode', {exact:true}).selectOption('none');
+      await page.getByLabel('Task-specific review criteria', {exact:true}).fill('Specific review criteria for ' + id);
     }
     await page.getByRole('checkbox', { name: /Inspect the browser before building/ }).uncheck();
     assert.equal(await page.getByRole('combobox', {name:'Readiness handling',exact:true}).inputValue(), 'verify-inputs');
@@ -59,6 +64,10 @@ test('Sprint template saves editable per-node guidance and previews the current 
     for (const id of Object.keys(profiles)) {
       const node = saved.nodes.find(item => item.id === id);
       assert.equal(node.data.task, 'Custom task for ' + id); assert.equal(node.data.instructions, 'Custom instructions for ' + id); assert.equal(node.data.guardrails, 'Custom guardrails for ' + id);
+      assert.equal(node.data.aiConfiguration.temperature, 0.45);
+      assert.equal(node.data.aiConfiguration.max_output_tokens, 4096);
+      assert.equal(node.data.aiConfiguration.context.mode, 'none');
+      assert.equal(node.data.reviewCriteria, 'Specific review criteria for ' + id);
     }
     assert.equal(saved.nodes.find(node => node.id === 'automation-engineer').data.inspectBrowser, false);
     assert.equal(saved.nodes.find(node => node.id === 'automation-engineer').data.readinessPolicy, 'require-ready');

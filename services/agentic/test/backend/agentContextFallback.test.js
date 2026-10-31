@@ -2,15 +2,22 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {createRequire}=require('node:module');
 const filename=path.resolve(__dirname,'../../backend/services/agenticAssistant.service.js');
 const native=createRequire(filename),execution=native('@hellotest/knowledge/backend/services/knowledgeExecution.service');
-function fixture(revoke=false) {
- let checks=0;const calls=[];
+function fixture(revoke=false,{posts=1,rejectFirst=true}={}) {
+ let checks=0;const calls=[],dispatches=[];
  const mocks={
   '@hellotest/platform/backend/services/permission.service':{hasPermission:async()=>true},
   '@hellotest/knowledge/backend/services/knowledgeRetrieval.service':{authorizeFreshEvidence:async({hits})=>({allowed:hits,denied_ids:revoke&&checks++>0?['source-1']:[]})},
-  '@hellotest/platform/backend/src/utils/llmHttpClient':{fetchLlmWithRetry:async(url,input)=>{const body=JSON.parse(input.body);calls.push(body);if(calls.length===1)return new Response('maximum context length exceeded',{status:413});return Response.json({model:'model',choices:[{message:{content:JSON.stringify({response:'Supported outcome',citation_ids:JSON.parse(body.messages.at(-1).content).citation_contract.map(item=>item.id)})}}]});}}
+  '@hellotest/platform/backend/src/utils/llmHttpClient':{fetchLlmWithRetry:async(url,input,options)=>{
+   for(let index=0;index<posts;index++){
+    await options.beforeDispatch?.();const trace_id=`fixture-dispatch-${dispatches.length+1}`;dispatches.push(trace_id);
+    await options.traceContext.on_llm_trace({trace_id,dispatched:true,stage:'provider_dispatch',status:'running'});
+    await options.traceContext.on_llm_trace({trace_id,dispatched:true,stage:'provider_dispatch',status:'succeeded',usage:{prompt_tokens:10,completion_tokens:3,total_tokens:13}});
+   }
+   const body=JSON.parse(input.body);calls.push(body);if(rejectFirst&&calls.length===1)return new Response('maximum context length exceeded',{status:413});return Response.json({model:'model',choices:[{message:{content:JSON.stringify({response:'Supported outcome',citation_ids:JSON.parse(body.messages.at(-1).content).citation_contract.map(item=>item.id)})}}],usage:{prompt_tokens:10,completion_tokens:3,total_tokens:13}});
+  }}
  };
  const module={exports:{}};new Function('require','module','exports',fs.readFileSync(filename,'utf8'))(id=>mocks[id]||native(id),module,module.exports);
- return {...module.exports._internals,calls};
+ return {...module.exports._internals,calls,dispatches};
 }
 function input() {
  const citations=Array.from({length:6},(_,index)=>({id:`citation-${index}`,source_id:`source-${index}`,source_kind:'text'}));
@@ -26,6 +33,18 @@ test('context-size correction preserves user intent and schema, shrinks evidence
 });
 test('evidence revoked between the rejected request and its size correction is never sent again',async()=>{
  const f=fixture(true),task=input();await assert.rejects(execution.run({},()=>f.requestLlmResult(task)),error=>error.statusCode===403);assert.equal(f.calls.length,1);assert.equal(task.budget.used,1);
+});
+test('actual inner provider dispatches share the agent limit and retain every reported usage receipt',async()=>{
+ const f=fixture(false,{posts:2,rejectFirst:false}),task=input(),records=[];task.budget.onCall=async record=>records.push(record);
+ await execution.run({},()=>f.requestLlmResult(task));assert.equal(task.budget.used,2);assert.equal(records.length,2);assert.equal(f.dispatches.length,2);
+ assert.equal(f.aggregateUsage(records).usage.total_tokens,26);assert.equal(f.aggregateUsage(records).usage_unknown_calls,0);
+ const bounded=fixture(false,{posts:2,rejectFirst:false}),limited=input();limited.budget.max=1;
+ await assert.rejects(execution.run({},()=>bounded.requestLlmResult(limited)),error=>error.code==='AGENT_MODEL_BUDGET');
+ assert.equal(limited.budget.used,1);assert.equal(bounded.dispatches.length,1,'The hidden correction cannot dispatch after exhausting the one-call policy.');
+});
+test('a provider size rejection is not replayed when only exact task input remains',async()=>{
+ const f=fixture(),task=input();task.context={workflow_input:[{id:'K-workflow-input',content:JSON.stringify({required_fact:'Keep this whole subject.'}),citation:{id:'K-workflow-input',source_kind:'workflow_input'}}]};task.citations=[task.context.workflow_input[0].citation];task.promptPayload=f.buildBoundedAgentPromptPayload(task);
+ await assert.rejects(execution.run({},()=>f.requestLlmResult(task)),error=>error.code==='AGENT_CONTEXT_BUDGET');assert.equal(f.calls.length,1);assert.equal(task.budget.used,1);
 });
 test('routing metadata preserves selected sources without injecting hardcoded task or presentation instructions',()=>{
  const f=fixture(),task=input();
@@ -55,5 +74,23 @@ test('selected whole-case intent stays exact before broad excerpts and survives 
  assert.equal(packed.bounded_workspace_context.case_intent[0].content,item.content);
  const reduced=require('../../backend/services/agentMinimalContext').minimalContext(packed);
  assert.equal(reduced.payload.bounded_workspace_context.case_intent[0].content,item.content);
- assert.throws(()=>f.buildBoundedAgentPromptPayload({mode:'agent',prompt:'Improve whole case',context,citations:[],contextRoute:{},maxChars:1000}),error=>error.code==='AGENT_CONTEXT_BUDGET');
+ assert.throws(()=>f.buildBoundedAgentPromptPayload({mode:'agent',prompt:'Improve whole case',context,citations:[],contextRoute:{},maxBytes:1000}),error=>error.code==='AGENT_CONTEXT_BUDGET');
+});
+
+test('workflow inputs remain complete valid JSON, retain final subjects and survive context correction',()=>{
+ const f=fixture(),source={items:Array.from({length:35},(_,index)=>({id:`item-${index}`,obligation:`Verify complete subject ${index}: ${'a'.repeat(480)}`})),final_obligation:'The final subject must be reviewed.'};
+ const supplied=f.suppliedInputEvidence(source);assert.ok(Buffer.byteLength(supplied.text)>16000);assert.deepEqual(JSON.parse(supplied.text),source);
+ const item={id:'K-workflow-input',content:supplied.text,citation:{id:'K-workflow-input',source_kind:'workflow_input'}};
+ const packed=JSON.parse(f.buildBoundedAgentPromptPayload({mode:'agent',prompt:'Review every supplied subject.',context:{knowledge:Array.from({length:6},(_,index)=>({id:`knowledge-${index}`,content:'Broad source '.repeat(1000)})),workflow_input:[item]},citations:[item.citation],contextRoute:{}}));
+ assert.equal(Object.keys(packed.bounded_workspace_context)[0],'workflow_input');
+ assert.equal(packed.bounded_workspace_context.workflow_input[0].content,supplied.text);
+ const reduced=require('../../backend/services/agentMinimalContext').minimalContext(packed);
+ assert.equal(reduced.payload.bounded_workspace_context.workflow_input[0].content,supplied.text);assert.ok(reduced.ids.has(item.id));
+ assert.equal(JSON.parse(reduced.payload.bounded_workspace_context.workflow_input[0].content).items.length,35);
+});
+
+test('exact task input limits use UTF-8 bytes and fail instead of dropping required facts',()=>{
+ const f=fixture();assert.throws(()=>f.suppliedInputEvidence({text:'界'.repeat(12000)}),error=>error.code==='AGENT_INPUT_BUDGET');
+ const source=f.suppliedInputEvidence({text:'界'.repeat(3000)});
+ assert.throws(()=>f.buildBoundedAgentPromptPayload({mode:'agent',prompt:'Review all input',context:{task_input:[{id:'input',content:source.text}]},citations:[],contextRoute:{},maxBytes:8000}),error=>error.code==='AGENT_CONTEXT_BUDGET');
 });

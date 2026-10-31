@@ -7,7 +7,7 @@ const MAX_PACKET_CHARS = 64000;
 // explicitly marked as such; the authoritative observations remain in the run.
 function missionContext(request, observed, previous = [], history = []) {
   const packet = {
-    task_brief:C.taskBrief(request),goal:request.goal,kind:request.kind,
+    task_brief:C.taskBrief(request),kind:request.kind,
     origin:new URL(request.target_url).origin,
     allow_form_submission:request.options.mission.allow_form_submission,
     remaining_actions:Math.max(0,request.options.mission.max_actions-observed.sequence+1),

@@ -133,6 +133,13 @@ function validateNativeArtifactOutput(id, parsed, { testCaseTypes } = {}) {
     }
     for (const field of ['category_evidence_refs', 'evidence_refs'].filter(field => contract.required.includes(field))) if (!Array.isArray(item[field]) || !item[field].length || item[field].some(value => typeof value !== 'string' || !value.trim())) missing(path, field);
   }
-  if (errors.length) throw contractError(errors);
+  if (errors.length) {
+    const error=contractError(errors);
+    // An explicit empty proposal is an evidence/no-applicability result. The
+    // caller still reports missing input; asking the model to fill it can
+    // pressure it to invent evidence and incurs another paid generation.
+    if(contract.collection && [contract.collection,...(contract.aliases || [])].some(key=>Array.isArray(parsed?.[key]) && parsed[key].length===0))error.empty_artifact_collection=true;
+    throw error;
+  }
 }
 module.exports = { caseOutputSchema, stepOutputSchema, nativeArtifactContract, validateNativeArtifactOutput, validateCaseParameterBindings };

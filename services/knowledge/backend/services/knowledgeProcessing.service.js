@@ -431,7 +431,8 @@ const assessContextQuality = ({ text, chunks, redactionCount = 0 } = {}) => {
     + (overlapRatio > 0.35 ? Math.min(12, Math.round((overlapRatio - 0.35) * 30)) : 0)
     + (safeChunks.length && contentBearingCount / safeChunks.length < 0.7 ? 10 : 0)
     + (terms.length && lexicalDiversity < 0.4 ? 20 : 0);
-  const score = Math.max(0, Math.min(100, Math.round(100 - deductions)));
+  const hasExtractedContent = Boolean(safeText && safeChunks.some(chunk => normalizeText(chunk?.content, 100_000)));
+  const score = hasExtractedContent ? Math.max(0, Math.min(100, Math.round(100 - deductions))) : 0;
   return {
     score,
     grade: score >= 90 ? "excellent" : score >= 75 ? "good" : score >= 55 ? "review" : "poor",

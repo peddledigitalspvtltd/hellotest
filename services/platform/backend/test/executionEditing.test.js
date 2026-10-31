@@ -80,6 +80,7 @@ test("start permissions use the actual stored automation mode even when the requ
   const permissions = [];
   await require("../../../testing/backend/routes/executions.routes")({
     get() {}, put() {}, delete() {}, post: (path, handler) => routes.set(path, handler),
+    validate: require('../src/plugins/validator').validateInput,
     authenticate: async () => undefined,
     requirePermission: (permission) => async () => {
       permissions.push(permission);

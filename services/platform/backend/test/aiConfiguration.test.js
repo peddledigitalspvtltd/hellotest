@@ -3,7 +3,7 @@ const {createRequire}=require('node:module');
 const configuration=require('../services/aiConfiguration.service');
 const {aiInstructionBlock}=require('../src/utils/aiInstructionBlocks');
 function load(file,overrides){const local=createRequire(file),module={exports:{}};new Function('require','module','exports',fs.readFileSync(file,'utf8'))(id=>Object.hasOwn(overrides,id)?overrides[id]:local(id),module,module.exports);return module.exports;}
-const runtime=(configs={},overrides={})=>load(require.resolve('../src/utils/aiFeatureRuntime'),{'../../services/aiConfiguration.service':{...configuration,resolve:async id=>{const item=configuration.catalog.find(item=>item.id===id);assert.ok(item,id);const config={...structuredClone(item.defaults),...configs[id]};return {...item,config,published_version:3,fingerprint:configuration.hash(config)};}},...overrides});
+const runtime=(configs={},overrides={})=>load(require.resolve('../src/utils/aiFeatureRuntime'),{'../../services/metricGovernance.service':{resolveForFeature:async()=>({instruction:'',metrics:[]})},'../../services/aiConfiguration.service':{...configuration,resolve:async id=>{const item=configuration.catalog.find(item=>item.id===id);assert.ok(item,id);const config={...structuredClone(item.defaults),...configs[id]};return {...item,config,published_version:3,fingerprint:configuration.hash(config)};}},...overrides});
 const request=(messages,extras={})=>({body:JSON.stringify({model:'provider-model',messages,...extras})});
 for (const source of ['legacy','published']) test(`Test Case generation replaces a persisted ${source} NFR-only prompt after publishing the current default`,async()=>{
  const id='ai.test_case.design',item=configuration.catalog.find(feature=>feature.id===id);
@@ -95,7 +95,7 @@ test('published controls apply at shared model boundary while preserving task da
  const input=request([{role:'system',content:'Required shape: {title:string}'},{role:'user',content:[{type:'text',text:'Checkout task data'},{type:'image_url',image_url:{url:'https://fixture.test/image.png'}}]}],{max_tokens:1000});
  const result=await rt.apply(input,{operation:'requirement.generate'}),body=JSON.parse(result.init.body);
   assert.match(body.messages[0].content,/Published Story instructions/);assert.match(body.messages[0].content,/Required shape/);assert.equal(body.messages[1].content[1].image_url.url,'https://fixture.test/image.png');
-  assert.match(body.messages[0].content,/Honor the user’s explicit instructions/);
+  assert.match(body.messages[0].content,/Honor the user['’]s explicit/);
  assert.equal(body.temperature,0.45);assert.equal(body.top_p,0.8);assert.equal(body.max_tokens,1000);assert.equal(result.options.traceContext.feature,id);assert.equal(result.options.traceContext.configuration_version,3);
  const negotiated=JSON.parse((await rt.apply(input,{operation:'requirement.generate',sampling:false})).init.body);assert.equal(negotiated.temperature,undefined);assert.equal(negotiated.top_p,undefined);
 });

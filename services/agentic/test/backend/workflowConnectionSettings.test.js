@@ -239,6 +239,38 @@ test('Bearer credentials trim copy whitespace and reject duplicated authorizatio
  await assert.rejects(settings.preview({...input(),secret:'Bearer mcp1.test.signature'}),/only the token/);
 });
 
+test('changing a server origin cannot silently transfer encrypted credentials or custom headers', async t => {
+ const rows = setup(t);
+ const saved = await settings.save({ ...input(), headers: { 'X-Tenant': 'private-tenant' } }, null, 'admin');
+ const next = { ...saved, url: 'https://another-server.test/mcp', secret: '' };
+ await assert.rejects(settings.preview(next, saved.id), /credential again/);
+ await assert.rejects(settings.save({ ...next, secret: 'replacement' }, saved.id, 'admin'), /header values again/);
+ assert.equal(rows.get(saved.id).url, saved.url, 'Rejected edits do not alter the existing credential target.');
+ await settings.save({ ...next, secret: 'replacement', headers: { 'X-Tenant': 'replacement-tenant' } }, saved.id, 'admin');
+ assert.equal(rows.get(saved.id).url, next.url);
+ assert.equal(settings.credential(rows.get(saved.id)), 'replacement');
+ assert.equal(settings.headers(rows.get(saved.id))['X-Tenant'], 'replacement-tenant');
+});
+
+test('credential fields reject invalid values and Basic metadata must match its actual runtime identity', async t => {
+ setup(t);
+ for (const patch of [{ secret: null }, { secret: false }, { secret: 0 }, { secretEnv: null }, { headers: null }, { secret: 'key\u0000value' }, { secret: 'key\n' }, { authType: 'none', secret: 'unused-private-value' }, { authType: 'basic', username: 'alice', secret: 'bob:password' }, { authType: 'basic', username: 'alice:wrong', secret: 'alice:wrong:password' }]) {
+  await assert.rejects(settings.preview({ ...input(), ...patch }), JSON.stringify(patch));
+ }
+ const safe = settings.publicRow({ id: 'public-row', name: 'Visible', projectIds: ['p'], secret: 'unexpected-plaintext', password: 'unexpected-password', encryptedFutureCredential: { ciphertext: 'private' }, headers: { 'X-Key': 'private' } }, 'p');
+ assert.equal(safe.id, 'public-row');
+ assert.doesNotMatch(JSON.stringify(safe), /unexpected|private|ciphertext|encryptedFuture/);
+});
+
+test('Basic response echoes redact the password separately, including nested refresh credentials', async t => {
+ const rows = setup(t);
+ const secret = 'alice:quoted"password:with-colons';
+ const saved = await settings.save({ ...input(), authType: 'basic', username: 'alice', secret }, null, 'admin');
+ const password = secret.slice(secret.indexOf(':') + 1);
+ const redacted = connections.redact({ message: `echo ${password}`, encoded: Buffer.from(password).toString('base64'), refresh_token: 'new-private-token', nested: { client_secret: 'private-client' } }, rows.get(saved.id));
+ assert.deepEqual(redacted, { message: 'echo [REDACTED]', encoded: '[REDACTED]', refresh_token: '[REDACTED]', nested: { client_secret: '[REDACTED]' } });
+});
+
 test('API key connections default to X-API-Key, trim pasted keys and reject authorization prefixes', async t => {
  const rows = setup(t);
  const saved = await settings.save({ ...input(), kind: 'http', authType: 'header', secret: '  hellotest_personal-key  ' }, null, 'admin');

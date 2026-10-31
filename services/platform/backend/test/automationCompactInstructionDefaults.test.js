@@ -1,6 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
 const {createRequire}=require('node:module');
 const catalog=require('../../shared/aiFeatureCatalog.json');
+const execution=require('../src/utils/aiExecutionConfiguration');
 const profiles=catalog.filter(row=>row.defaults.instruction_blocks?.['automationBrowserAgent.actor']);
 const actorKeys=['evidenceGuardrails','sectionIntent','goalReview','reviewContract','actor'].map(key=>'automationBrowserAgent.'+key);
 const changedKeys=[...actorKeys,'automationBrowserAgent.semanticReview','automationFlowPlanning.instructions','automationBrowserAgent.taskContext'];
@@ -48,6 +49,16 @@ test('only recognized stock blocks migrate; reviewed custom published and draft 
   if(!feature.defaults.instruction_blocks[key])continue;
   const previous=feature.instruction_default_migrations[key].at(-1),stored=structuredClone(feature.defaults);stored.instruction_blocks[key]=previous;
   const record={revision:12,published:{version:9,config:stored},draft:{config:structuredClone(stored)}};
+  if(feature.configuration_owner==='agent') {
+   const controls=configuration({[feature.id]:record});
+   await assert.rejects(controls.detail(feature.id),{code:'AI_CONFIGURATION_OWNER'});
+   const current=await controls.resolve(feature.id);
+   assert.equal(current.published_version,0);assert.equal(current.config.instruction_blocks[key],feature.defaults.instruction_blocks[key]);
+   const custom='Reviewed node policy.\nPreserve "Required UI literal", exact scope and data.  ';
+   const reviewed=await execution.run({source:'workflow_node',id:'automation-node',feature_id:feature.id,config:{instruction_blocks:{[key]:custom}}},()=>controls.resolve(feature.id));
+   assert.equal(reviewed.config.instruction_blocks[key],custom);assert.equal(reviewed.configuration_source,'workflow_node');
+   continue;
+  }
   const current=await configuration({[feature.id]:record}).detail(feature.id);
   assert.equal(current.config.instruction_blocks[key],feature.defaults.instruction_blocks[key]);assert.equal(current.draft.config.instruction_blocks[key],feature.defaults.instruction_blocks[key]);assert.equal(current.published_version,9);assert.equal(current.revision,12);
   const custom='Reviewed custom policy.\nPreserve "Required UI literal", exact scope and data.  ';

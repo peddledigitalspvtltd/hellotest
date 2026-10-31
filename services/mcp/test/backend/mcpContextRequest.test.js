@@ -21,7 +21,7 @@ function backplane(retrieveDirect){
 
 test('the public MCP context contract represents source selection, evidence scope and bounded budgets',()=>{
  const input={question:'Explain checkout failures',app_type_id:'app',integration_id:'model',
-  filters:{requested_scopes:['stories','runs','knowledge'],evidence_scope:{story_id:'story',execution_id:'run',build:'build'},
+  filters:{requested_scopes:['stories','runs','knowledge'],evidence_scope:{story_id:'story',execution_id:'run'},
    collection_ids:['collection'],source_ids:['source'],source_kinds:['text'],agent_id:'failure-analyst'},
   budgets:{deadline_ms:60000,max_context_tokens:8000,max_evidence_items:12,max_query_cost_usd:0,max_tool_calls:4}};
  const parsed=contextSchema.parse(input);
@@ -31,12 +31,21 @@ test('the public MCP context contract represents source selection, evidence scop
   {...input,filters:{...input.filters,user_id:'admin'}},
   {...input,filters:{requested_scopes:['credentials']}},
   {...input,filters:{evidence_scope:{test_case_id:'case',approved:true}}},
+  {...input,filters:{evidence_scope:{execution_id:'run',build:'unsupported-selector'}}},
   {...input,budgets:{deadline_ms:60001}},
   {...input,budgets:{max_tool_calls:21}},
   {...input,budgets:{max_cost_usd:-1}}
  ])assert.equal(contextSchema.safeParse(bad).success,false);
  assert.equal(contextSchema.parse({question:'x'.repeat(8000)}).question.length,8000,'Valid chatbot questions retain their complete intent across MCP');
  assert.equal(contextSchema.safeParse({question:'x'.repeat(8001)}).success,false);
+});
+
+test('retrieval hints are bounded data and cannot add model, identity or permission arguments',()=>{
+ const input={question:'Explain checkout failures',intent_plan:{queries:['checkout observed failures'],source_kinds:['execution'],information_needs:['Recorded failing step'],stop_if_sufficient:true}};
+ assert.deepEqual(contextSchema.parse(input).intent_plan,input.intent_plan);
+ for(const intent_plan of [{},{...input.intent_plan,user_id:'admin'},{...input.intent_plan,source_kinds:['credentials']},{...input.intent_plan,queries:['x'.repeat(701)]},{...input.intent_plan,tools:['execute_sql']}])assert.equal(contextSchema.safeParse({...input,intent_plan}).success,false);
+ for(const value of [NaN,Infinity,-Infinity,'not-a-number'])assert.throws(()=>packetBudgets({deadline_ms:value}),{code:'MCP_INVALID_ARGUMENT'});
+ assert.equal(packetBudgets({max_queries:2.9}).max_queries,2);
 });
 
 test('public retrieval forwards exact evidence/source selections and preserves zero activity budgets',async()=>{
@@ -50,6 +59,17 @@ test('public retrieval forwards exact evidence/source selections and preserves z
  assert.deepEqual(input.filters,{...filters,source_ids:['source-b']});
  assert.equal(input.budgets.max_context_tokens,0);assert.equal(input.budgets.max_tool_calls,0);
  assert.equal(input.budgets.max_evidence_items,0);assert.equal(input.budgets.max_query_cost_usd,0);assert.equal(input.budgets.deadline_ms,60000);
+ assert.equal(input.planningMode,'deterministic');
+});
+
+test('public context forwards retrieval hints separately from source authorization and the original question',async()=>{
+ let received;
+ const active=backplane(async value=>{received=value;return {project_id:'project',evidence:[]};});
+ const intent_plan={queries:['checkout expected outcome'],source_kinds:['requirement'],information_needs:['Acceptance outcome']};
+ await active.context(actor,contextSchema.parse({question:'Inspect checkout',filters:{requested_scopes:['stories'],evidence_scope:{story_id:'story'}},intent_plan}));
+ assert.equal(received.query,'Inspect checkout');assert.deepEqual(received.intentPlan,intent_plan);
+ assert.equal(received.user,actor.user);assert.deepEqual(received.filters.evidence_scope,{story_id:'story'});
+ assert.equal(received.planningMode,'deterministic');
 });
 
 test('disjoint source filters and foreign private context cannot widen the project read',async()=>{

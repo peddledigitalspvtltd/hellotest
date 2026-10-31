@@ -35,10 +35,13 @@ function projectScope(projectId) {
   return projectId;
 }
 function publicRow(row, projectId) {
-  const { encryptedSecret, encryptedHeaders, projectIds, ...safe } = row;
-  return { ...safe, headers: Object.fromEntries((row.headerNames || []).map(name => [name, ""])), project_id: projectId, authenticated: Boolean(encryptedSecret || row.secretEnv || encryptedHeaders) };
+  // Storage may gain private fields independently of this UI contract. A new
+  // stored credential field must never become public through object spread.
+  const safe = Object.fromEntries(["id", "name", "kind", "url", "tools", "methods", "authType", "header", "username", "secretEnv", "transport", "timeoutMs", "toolDefinitions", "serverInfo", "protocolVersion", "discovered_at", "allowPrivateNetwork", "enabled", "updated_at", "updated_by"].filter(name => row[name] !== undefined).map(name => [name, row[name]]));
+  return { ...safe, headers: Object.fromEntries((row.headerNames || []).map(name => [name, ""])), project_id: projectId, authenticated: Boolean(row.encryptedSecret || row.secretEnv || row.encryptedHeaders) };
 }
 function normalize(input, previous = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw fail("Enter connection settings as an object.");
   const id = previous.id || randomUUID();
   const name = String(input.name || "").trim();
   if (name.length < 2 || name.length > 120) throw fail("Enter a server name between 2 and 120 characters.");
@@ -59,6 +62,9 @@ function normalize(input, previous = {}) {
   const authType = input.authType || "none", header = input.header || (authType === "header" ? "X-API-Key" : "Authorization");
   if (!["none", "bearer", "basic", "header"].includes(authType)) throw fail("Choose a supported authentication method.");
   if (!/^[A-Za-z0-9-]+$/.test(header) || /^(host|connection|content-length|transfer-encoding|cookie|set-cookie|accept|content-type|mcp-session-id|mcp-protocol-version|proxy-authorization)$/i.test(header)) throw fail("Choose a valid credential header.");
+  if (input.secret !== undefined && typeof input.secret !== "string") throw fail("Use a text credential, or leave it blank to keep the saved credential.");
+  if (input.secretEnv !== undefined && typeof input.secretEnv !== "string") throw fail("Use a secret environment reference name.");
+  if (input.secret && (input.secret.length > 8192 || /[\r\n\0]/.test(input.secret))) throw fail("Use a credential up to 8 KB without line breaks or null characters.");
   const secretEnv = String(input.secretEnv || "").trim();
   if (authType === "bearer" && typeof input.secret === "string") {
     input = {...input, secret: input.secret.trim()};
@@ -69,19 +75,25 @@ function normalize(input, previous = {}) {
     if (/^(?:Bearer|Basic)\s/i.test(input.secret)) throw fail("Enter only the API key for X-API-Key; authorization prefixes belong to Bearer or Basic authentication.");
   }
   if (secretEnv && !/^AGENTIC_SECRET_[A-Z0-9_]+$/.test(secretEnv)) throw fail("Secret environment references must begin with AGENTIC_SECRET_.");
-  if (input.secret && (typeof input.secret !== "string" || input.secret.length > 8192 || /[\r\n]/.test(input.secret))) throw fail("Use a credential up to 8 KB without line breaks.");
   if (input.secret && secretEnv) throw fail("Choose a saved credential or an environment reference.");
+  if (authType === "none" && (input.secret || secretEnv)) throw fail("Choose an authentication method before entering a credential.");
+  const targetChanged = previous.url && require("./endpointPolicy").cleanUrl(previous.url).origin !== url.origin;
+  if (targetChanged && authType !== "none" && previous.encryptedSecret && !input.secret && !secretEnv) throw fail("Enter the credential again when changing the server origin; saved credentials are not transferred to another server.");
   if (previous.authType && previous.authType !== authType && authType !== "none" && !input.secret && !secretEnv) throw fail("Enter a credential for the new authentication method.");
   if (authType === "basic" && previous.authType === "basic" && input.username !== undefined && input.username !== previous.username && !input.secret && !secretEnv) throw fail("Enter the password again when changing the Basic authentication username.");
+  const username = authType === "basic" ? input.username ?? previous.username ?? (input.secret ? input.secret.slice(0, input.secret.indexOf(":")) : "") : undefined;
+  if (authType === "basic" && (typeof username !== "string" || username.length > 255 || /[:\r\n\0]/.test(username))) throw fail("Enter a Basic authentication username up to 255 characters without a colon or line break.");
+  if (authType === "basic" && input.secret && (!input.secret.includes(":") || !input.secret.startsWith(`${username}:`))) throw fail("Basic credentials must contain the selected username followed by a colon and password.");
   const encryptedSecret = authType === "none" || secretEnv ? undefined : input.secret ? encrypt(input.secret, id) : previous.encryptedSecret;
   if (authType !== "none" && !secretEnv && !encryptedSecret) throw fail("Enter a credential or its environment reference.");
-  const incomingHeaders = input.headers ?? Object.fromEntries((previous.headerNames || []).map(name => [name, ""]));
+  const incomingHeaders = input.headers === undefined ? Object.fromEntries((previous.headerNames || []).map(name => [name, ""])) : input.headers;
   if (!incomingHeaders || typeof incomingHeaders !== "object" || Array.isArray(incomingHeaders) || Object.keys(incomingHeaders).length > 16) throw fail("Add up to 16 custom request headers.");
   const previousHeaders = headers(previous), resolvedHeaders = {}, names = new Set();
   for (const [name, value] of Object.entries(incomingHeaders)) {
     const lower = name.toLowerCase();
     if (!/^[A-Za-z0-9-]{1,64}$/.test(name) || /^(authorization|host|connection|content-length|transfer-encoding|cookie|set-cookie|accept|content-type|mcp-session-id|mcp-protocol-version|proxy-authorization)$/i.test(name) || (authType !== "none" && lower === header.toLowerCase()) || names.has(lower)) throw fail("Use unique custom headers; authentication and transport headers are managed separately.");
-    if (typeof value !== "string" || value.length > 2048 || /[\r\n]/.test(value)) throw fail("Header values must be text up to 2,048 characters without line breaks.");
+    if (typeof value !== "string" || value.length > 2048 || /[\r\n\0]/.test(value)) throw fail("Header values must be text up to 2,048 characters without line breaks or null characters.");
+    if (targetChanged && !value && previousHeaders[name]) throw fail("Enter custom header values again when changing the server origin.");
     const resolved = value || previousHeaders[name];
     if (!resolved) throw fail(`Enter a value for the ${name} header.`);
     names.add(lower); resolvedHeaders[name] = resolved;
@@ -92,7 +104,7 @@ function normalize(input, previous = {}) {
   if (toolDefinitions.length && tools.some(name => !toolDefinitions.some(tool => tool.name === name))) throw fail("Select enabled tools from the discovered server catalog.");
   const keepCatalogMetadata = !Object.hasOwn(input, "toolDefinitions");
   return { id, name, kind, url: url.toString(), projectIds: [...new Set(projectIds)], tools: [...new Set(tools)], methods: [...new Set(methods)],
-    authType, header: authType === "header" ? header : "Authorization", username: authType === "basic" ? String(input.username ?? previous.username ?? "").slice(0, 255) : undefined, secretEnv: authType === "none" ? "" : secretEnv, encryptedSecret,
+    authType, header: authType === "header" ? header : "Authorization", username, secretEnv: authType === "none" ? "" : secretEnv, encryptedSecret,
     encryptedHeaders: Object.keys(resolvedHeaders).length ? encrypt(JSON.stringify(resolvedHeaders), id + ":headers") : undefined, headerNames: Object.keys(resolvedHeaders),
     transport: kind === "mcp" ? "streamable-http" : undefined, timeoutMs, toolDefinitions,
     serverInfo: kind === "mcp" && input.serverInfo && typeof input.serverInfo === "object" ? { name: String(input.serverInfo.name || "").slice(0, 160), version: String(input.serverInfo.version || "").slice(0, 80) } : keepCatalogMetadata ? previous.serverInfo : undefined,

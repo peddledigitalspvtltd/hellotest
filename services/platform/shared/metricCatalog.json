@@ -9,7 +9,16 @@
       "covered stories"
     ],
     "formula": "Stories linked to at least one reusable Test Case ÷ exact scoped Stories × 100. An unknown or partial denominator remains unknown.",
-    "criteria": "Treat a Story as covered only when a current project-scoped work-item relationship points to a reusable Test Case. Do not infer coverage from labels, title similarity, or locally loaded rows."
+    "criteria": "Treat a Story as covered only when a current project-scoped work-item relationship points to a reusable Test Case. Do not infer coverage from labels, title similarity, or locally loaded rows.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/manual/backend/services/requirementCatalog.service.js",
+      "services/dashboard/backend/services/qualityAnalytics.service.js"
+    ],
+    "runtime_keys": [
+      "dashboard.requirementCoverage"
+    ],
+    "runtime_status": "active"
   },
   {
     "key": "metric.test.design_completeness",
@@ -20,8 +29,14 @@
       "complete design",
       "scenario completeness"
     ],
-    "formula": "Test Cases with at least one persisted step ÷ Test Cases with a verified, known step summary in the exact scope × 100. Unknown legacy summaries are excluded and disclosed.",
-    "criteria": "A persisted step makes the case design observable for this portfolio signal. Review action and expected-result quality separately; manual cases remain valid evidence and automation is not a prerequisite."
+    "formula": "Cases with at least one persisted Test Step ÷ exact project-scoped Test Cases × 100. The quality overview exposes the raw counts; unavailable sources remain null.",
+    "criteria": "A persisted Test Step makes structured design observable; this does not assess action/result quality, Gherkin semantics, execution or automation. Use complete scoped counts and disclose unavailable case or step evidence.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityOverview.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.execution.pass_rate",
@@ -35,7 +50,14 @@
       "execution rate"
     ],
     "formula": "Passed finalized outcomes ÷ (passed + failed + blocked finalized outcomes) × 100. Running, queued, skipped, and unknown outcomes are excluded.",
-    "criteria": "Use the latest immutable finalized outcome for each item in scope. Never convert an absent denominator into 0% or 100%."
+    "criteria": "Use the latest immutable finalized outcome for each item in scope. Never convert an absent denominator into 0% or 100%.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/platform/backend/src/utils/finalizedCaseMetrics.js",
+      "services/platform/backend/src/utils/latestRunCaseMetrics.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.execution.completion",
@@ -48,7 +70,13 @@
       "module completion"
     ],
     "formula": "Finalized case outcomes ÷ total cases in the exact run or module scope × 100.",
-    "criteria": "Passed, failed, and blocked are finalized. Queued, not run, and running are incomplete. Preserve unknown scope instead of estimating from loaded rows."
+    "criteria": "Passed, failed, and blocked are finalized. Queued, not run, and running are incomplete. Preserve unknown scope instead of estimating from loaded rows.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/testing/frontend/lib/executionResultMetrics.ts"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.release.run_confidence",
@@ -59,7 +87,14 @@
       "release execution confidence"
     ],
     "formula": "A deterministic composite of scoped execution completion, finalized pass evidence, recency, and unresolved failure or blocker penalties; unavailable inputs remain disclosed.",
-    "criteria": "Prefer recent release-scoped evidence. Penalize failed or blocked outcomes and stale or missing evidence; do not let an AI narrative change the deterministic score."
+    "criteria": "Prefer recent release-scoped evidence. Penalize failed or blocked outcomes and stale or missing evidence; do not let an AI narrative change the deterministic score.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/platform/shared/metricCatalog.json"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "reference",
+    "runtime_note": "Historical methodology without an active calculator in this revision. Use current dashboard or release measurements. Existing settings are retained for reference."
   },
   {
     "key": "metric.automation.coverage",
@@ -71,8 +106,14 @@
       "automated",
       "automation capacity"
     ],
-    "formula": "Test Cases with verified automation evidence ÷ Test Cases with a known automation state in the exact scope × 100.",
-    "criteria": "Count only governed automation assets or executable step evidence. Stale text, imported code strings, and unknown summaries do not prove automation."
+    "formula": "Cases explicitly marked automated ÷ all exact project-scoped Test Cases × 100. Source unavailability remains null; execution readiness is a separate measurement.",
+    "criteria": "Disclose that this measures the recorded automation classification, not a successful run or verified executable behavior. Do not infer automation from generated code text. Current native dashboard automation coverage also accepts automation_status ready and is documented separately.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityOverview.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.defect.density",
@@ -82,12 +123,20 @@
       "defect density",
       "bug density"
     ],
-    "formula": "Distinct open project-scoped Defects ÷ exact scoped Stories. The UI must disclose both numerator and denominator.",
-    "criteria": "Use current work-item workflow state and immutable project scope. Deduplicate the same Defect linked through more than one Test Case or Story."
+    "formula": "Distinct linked Defects in the exact Story or Test Case scope ÷ exact scoped Stories or Test Cases. Report the unit and state filter; open-Defect counts are separate measurements.",
+    "criteria": "Use current project-scoped relationships and deduplicate each Defect across multiple links. Disclose numerator, denominator, entity unit and any explicit open-state filter. Do not silently compare density per Story, per Test Case and per ten Test Cases as the same unit.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/manual/backend/services/requirementCatalog.service.js",
+      "services/testing/backend/services/testCaseCatalog.service.js",
+      "services/testing/frontend/lib/hierarchyHealth.ts"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.assurance.story",
-    "label": "Story design maturity",
+    "label": "Story design completeness",
     "surface": "AI Story Assurance",
     "aliases": [
       "story design maturity",
@@ -95,24 +144,47 @@
       "industry standards alignment",
       "user usefulness",
       "design maturity",
-      "market comparison readiness"
+      "market comparison readiness",
+      "scope clarity",
+      "intent and outcome",
+      "authored design contract",
+      "acceptance text completeness"
     ],
-    "formula": "Average of deterministic standards, usefulness, design-maturity, and market-pattern dimension scores, each derived from visible Story and traceability evidence.",
-    "criteria": "Assess testability, user outcome, measurable acceptance, risk and failure behavior, delivery context, standards signals, and source-grounded comparison. Never claim certification or unsupported competitor facts."
+    "formula": "Average of four authored-contract completeness dimensions: scope = title × 35 + description × 65; intent = title × 20 + description × 40 + acceptance completeness × 40; design = title × 15 + description × 25 + acceptance completeness × 60; acceptance = non-placeholder acceptance-item ratio × 100. Presence signals are zero or one. No NFR, linkage, label, delivery or benchmark bonus applies.",
+    "criteria": "Explain authored scope and acceptance completeness against the stated Story objective. Scores are structural completeness signals, not semantic correctness, standards alignment, user value, certification, market research or release approval. NFR categories, negative paths, external research, linked tests, labels and delivery metadata do not change the design score. Review product meaning and missing evidence separately; never invent requirements, quality thresholds or standards applicability.",
+    "feature_ids": [
+      "ai.quality.story_assurance"
+    ],
+    "calculation_sources": [
+      "services/ai/shared/artifactAssurance.mjs"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.assurance.test_case",
-    "label": "Test Case maturity",
+    "label": "Test design completeness",
     "surface": "Test Case AI Assurance",
     "aliases": [
       "test case maturity",
       "scenario intent",
       "execution clarity",
       "reliability evidence",
-      "maintainability"
+      "maintainability",
+      "test design maturity",
+      "authored data references",
+      "self-contained design"
     ],
-    "formula": "Average of deterministic scenario-intent, execution-clarity, reliability-evidence, and maintainability dimension scores.",
-    "criteria": "Use authored action/expected-result completeness, observable assertions, Story traceability, review evidence, and latest finalized outcomes. Missing automation is not a manual-case defect."
+    "formula": "Average of four authored-design measurements: scenario = title × 20 + description × 30 + steps-present × 20 + complete action/result ratio × 30; clarity = non-placeholder pair ratio × 75 + non-generic assertion ratio × 25; local data = resolved referenced-local-input ratio × 100 (100 when no local input is needed, zero with no steps); self-contained design = title × 30 + description × 30 + complete pair ratio × 40. Execution outcomes, approval, automation, negative categories and optional links do not change this score.",
+    "criteria": "Explain authored objective, action/result completeness and supplied local data references for the stated case scope. Scores do not establish semantic correctness, observed reliability, approval or a probability. Focused positive/manual and standalone cases need no unrelated negative/NFR scenario, Story link, automation, suite, external source, approval or run history to achieve full structural completeness. Recorded execution is disclosed separately as observed or unavailable and never folded into the authored-design score.",
+    "feature_ids": [
+      "ai.quality.test_case_assurance"
+    ],
+    "calculation_sources": [
+      "services/ai/shared/artifactAssurance.mjs"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.smart_run.priority",
@@ -125,7 +197,15 @@
       "at-risk runs"
     ],
     "formula": "Deterministic ranking from failed or blocked recency, linked Defect and Story risk, delivery-scope match, and available Test Case evidence.",
-    "criteria": "Prioritize direct release or Sprint scope and recent failures. AI may explain the ranking but cannot add cases unsupported by the bounded candidate set."
+    "criteria": "Prioritize direct release or Sprint scope and recent failures. AI may explain the ranking but cannot add cases unsupported by the bounded candidate set.",
+    "feature_ids": [
+      "ai.execution.smart_plan"
+    ],
+    "calculation_sources": [
+      "services/testing/backend/services/executionPlanning.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.project.portfolio_health",
@@ -165,7 +245,13 @@
         "suffix": "%",
         "help": "Contribution of finalized Test Case outcomes and resolved Defect outcomes to project readiness."
       }
-    ]
+    ],
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/portfolioAnalytics.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.project.risky_classification",
@@ -187,7 +273,13 @@
         "suffix": "%",
         "help": "Projects below this combined Test Case and Defect pass-rate value are classified as risky."
       }
-    ]
+    ],
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/portfolioAnalytics.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.project.release_ready",
@@ -209,7 +301,13 @@
         "suffix": "%",
         "help": "Minimum weighted readiness required for the portfolio release-ready classification."
       }
-    ]
+    ],
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/portfolioAnalytics.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.project.average_story_coverage",
@@ -220,7 +318,13 @@
       "portfolio story coverage"
     ],
     "formula": "Arithmetic mean across visible projects of each project's linked Stories ÷ scoped Stories × 100. Each project has equal weight; projects with no Stories contribute 0%.",
-    "criteria": "Use direct project-scoped Story–Test Case relationships. Disclose both the unweighted project average and the aggregate linked/scoped counts to prevent denominator confusion."
+    "criteria": "Use direct project-scoped Story–Test Case relationships. Disclose both the unweighted project average and the aggregate linked/scoped counts to prevent denominator confusion.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/portfolioAnalytics.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.project.average_automation_coverage",
@@ -231,7 +335,13 @@
       "portfolio automation coverage"
     ],
     "formula": "Arithmetic mean across visible projects of Test Cases explicitly marked automated ÷ loaded project Test Cases × 100. Each project has equal weight; projects with no cases contribute 0%.",
-    "criteria": "Show only when automation analytics permission and feature availability are present. A text snippet or hidden source field does not prove automation."
+    "criteria": "Show only when automation analytics permission and feature availability are present. A text snippet or hidden source field does not prove automation.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/portfolioAnalytics.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.project.execution_evidence",
@@ -254,7 +364,13 @@
         "suffix": "%",
         "help": "Minimum share of latest finalized outcomes that must have screenshot, video, or comment evidence. Set 0 to disable the violation."
       }
-    ]
+    ],
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/portfolioAnalytics.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.project.needs_attention",
@@ -275,7 +391,13 @@
         "max": 8,
         "help": "Maximum project names shown on compact attention evidence; the remaining count is summarized."
       }
-    ]
+    ],
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/portfolioAnalytics.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.project.execution_failures",
@@ -296,7 +418,13 @@
         "max": 5,
         "help": "Maximum highest-impact Modules and Stories returned for compact evidence."
       }
-    ]
+    ],
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/portfolioAnalytics.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.project.bugs",
@@ -326,7 +454,13 @@
         "max": 5,
         "help": "Maximum highest-impact Modules and Stories returned for compact evidence."
       }
-    ]
+    ],
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/portfolioAnalytics.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.analytics.release_posture",
@@ -337,7 +471,14 @@
       "analytics release readiness"
     ],
     "formula": "Story coverage × 35% + design completeness × 25% + latest pass confidence × 40%, minus up to 18 points for latest failed or blocked results and failed runs.",
-    "criteria": "Use only the bounded active-project evidence shown on the dashboard. Automation adoption never raises this score; incomplete scope must remain visibly provisional."
+    "criteria": "Use only the bounded active-project evidence shown on the dashboard. Automation adoption never raises this score; incomplete scope must remain visibly provisional.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/platform/shared/metricCatalog.json"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "reference",
+    "runtime_note": "Historical methodology without an active calculator in this revision. Use current dashboard or release measurements. Existing settings are retained for reference."
   },
   {
     "key": "metric.analytics.latest_pass_confidence",
@@ -348,7 +489,14 @@
       "mission-control pass confidence"
     ],
     "formula": "Passed latest results ÷ all latest visible results in the newest run when available, otherwise passed latest results ÷ all latest visible project results × 100. Running, failed, and blocked evidence remains non-passing.",
-    "criteria": "Use one latest result per run and Test Case so reruns do not inflate the signal. This live confidence input is intentionally stricter than finalized-only pass rate and remains provisional for bounded scope."
+    "criteria": "Use one latest result per run and Test Case so reruns do not inflate the signal. This live confidence input is intentionally stricter than finalized-only pass rate and remains provisional for bounded scope.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/platform/shared/metricCatalog.json"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "reference",
+    "runtime_note": "Historical methodology without an active calculator in this revision. Use current dashboard or release measurements. Existing settings are retained for reference."
   },
   {
     "key": "metric.analytics.scope_lane",
@@ -360,7 +508,14 @@
       "surface readiness"
     ],
     "formula": "Cases with persisted steps in the product surface ÷ scoped cases × 40%, plus passed latest results ÷ all latest results in that surface × 60%.",
-    "criteria": "Keep each app-type lane project-scoped. Failed, blocked, and running latest results do not count as passes; an absent case or result denominator contributes zero and stays evident in the lane facts."
+    "criteria": "Keep each app-type lane project-scoped. Failed, blocked, and running latest results do not count as passes; an absent case or result denominator contributes zero and stays evident in the lane facts.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/platform/shared/metricCatalog.json"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "reference",
+    "runtime_note": "Historical methodology without an active calculator in this revision. Use current dashboard or release measurements. Existing settings are retained for reference."
   },
   {
     "key": "metric.analytics.open_risks",
@@ -371,7 +526,14 @@
       "quality risk actions"
     ],
     "formula": "Uncovered Stories + cases without persisted steps + failed latest results + blocked latest results + failed runs.",
-    "criteria": "This is an action-signal total, not a deduplicated Defect count. Preserve each category so one unstable artifact is not misrepresented as one unique risk."
+    "criteria": "This is an action-signal total, not a deduplicated Defect count. Preserve each category so one unstable artifact is not misrepresented as one unique risk.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/platform/shared/metricCatalog.json"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "reference",
+    "runtime_note": "Historical methodology without an active calculator in this revision. Use current dashboard or release measurements. Existing settings are retained for reference."
   },
   {
     "key": "metric.release.readiness",
@@ -382,7 +544,13 @@
       "release readiness score"
     ],
     "formula": "Story coverage × 25% + execution completion × 20% + latest-terminal-result pass rate × 35% + defect containment × 20%, followed by disclosed caps for missing, stale, partial, blocked, critical-defect, or priority-gap evidence.",
-    "criteria": "Use only the selected Fix Version and Sprint evidence. A score cannot be definitive when scope, permissions, or source data are incomplete, and a person owns the release decision."
+    "criteria": "Use only the selected Fix Version and Sprint evidence. A score cannot be definitive when scope, permissions, or source data are incomplete, and a person owns the release decision.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/frontend/lib/readinessIndex.ts"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.release.evidence_confidence",
@@ -393,7 +561,13 @@
       "release evidence confidence"
     ],
     "formula": "When scoped Defects exist: Story coverage × 40% + execution completion × 40% + defect traceability × 20%. With no scoped Defects: coverage × 50% + completion × 50%. Incomplete evidence caps confidence at 69%.",
-    "criteria": "Confidence measures evidence completeness and linkage, not release safety or model certainty. Missing permissions, bounded sources, and unknown denominators must lower or withhold confidence."
+    "criteria": "Confidence measures evidence completeness and linkage, not release safety or model certainty. Missing permissions, bounded sources, and unknown denominators must lower or withhold confidence.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/frontend/lib/releaseReadiness.ts"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.release.blocking_signals",
@@ -404,7 +578,13 @@
       "release blocking signals"
     ],
     "formula": "Open critical Defects + latest blocked Test Case outcomes + uncovered P1/P2 Stories in the exact release scope.",
-    "criteria": "Show the three components independently in evidence. This is an action total across signal types, not a count of unique work items."
+    "criteria": "Show the three components independently in evidence. This is an action total across signal types, not a count of unique work items.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/frontend/lib/releaseReadiness.ts"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.story.release_risk",
@@ -415,7 +595,13 @@
       "story risk score"
     ],
     "formula": "Priority baseline (P1 25, P2 15, other 5) + 35 if uncovered + 18 if linked but unexecuted + up to 35 each for failed or blocked latest outcomes + up to 40 for critical Defects + up to 20 for other open Defects; capped at 100.",
-    "criteria": "Rank only project- and release-scoped Stories using direct traceability and latest case evidence. The score orders review work; it does not predict failure probability."
+    "criteria": "Rank only project- and release-scoped Stories using direct traceability and latest case evidence. The score orders review work; it does not predict failure probability.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/frontend/lib/releaseReadiness.ts"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.dashboard.release_confidence",
@@ -426,7 +612,15 @@
       "dashboard release confidence"
     ],
     "formula": "Story coverage × 25% + execution completion × 20% + latest-result pass rate × 35% + defect containment × 20%, rounded to a whole percentage and subject to the lowest applicable cap.",
-    "criteria": "Use the selected project and optional release scope. Component percentages are rounded first. Defect containment is closed/resolved/done/accepted Defects ÷ all scoped Defects × 100, or 100% with no Defects. Cap at 49% when Stories, Test Cases, or passed/failed/blocked latest results are absent; 69% for any uncovered P1/P2 Story; 59% for any latest blocked result; and 39% for any open Defect whose severity (or priority when severity is absent) is critical/highest. This advisory score does not approve a release."
+    "criteria": "Use the selected project and optional release scope. Component percentages are rounded first. Defect containment is closed/resolved/done/accepted Defects ÷ all scoped Defects × 100, or 100% with no Defects. Cap at 49% when Stories, Test Cases, or passed/failed/blocked latest results are absent; 69% for any uncovered P1/P2 Story; 59% for any latest blocked result; and 39% for any open Defect whose severity (or priority when severity is absent) is critical/highest. This advisory score does not approve a release.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityAnalytics.service.js"
+    ],
+    "runtime_keys": [
+      "dashboard.releaseConfidence"
+    ],
+    "runtime_status": "active"
   },
   {
     "key": "metric.dashboard.pass_rate",
@@ -437,7 +631,15 @@
       "dashboard pass rate"
     ],
     "formula": "Passed latest case results ÷ (passed + failed + blocked latest case results) × 100, rounded to a whole percentage. An empty denominator returns 0%.",
-    "criteria": "Use only the newest result per Test Case in the selected project and optional release scope, ordered by result creation time and ID. A newer running or pending result replaces an older finalized result. Skipped/N/A, aborted, cancelled, running, pending, and absent results are excluded from the pass-rate denominator."
+    "criteria": "Use only the newest result per Test Case in the selected project and optional release scope, ordered by result creation time and ID. A newer running or pending result replaces an older finalized result. Skipped/N/A, aborted, cancelled, running, pending, and absent results are excluded from the pass-rate denominator.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityAnalytics.service.js"
+    ],
+    "runtime_keys": [
+      "dashboard.passRate"
+    ],
+    "runtime_status": "active"
   },
   {
     "key": "metric.dashboard.execution_completion",
@@ -448,7 +650,15 @@
       "dashboard case completion"
     ],
     "formula": "Distinct Test Cases whose latest result is passed, failed, blocked, skipped, aborted, or cancelled ÷ distinct Test Cases present in run snapshots or latest results × 100, rounded to a whole percentage. An empty denominator returns 0%.",
-    "criteria": "Use the selected project and optional release scope and the newest result per Test Case. Skipped (shown as N/A), aborted, and cancelled count as complete. Planned cases without a result and cases whose latest result is running or pending remain incomplete; a previous finalized attempt does not replace the latest result."
+    "criteria": "Use the selected project and optional release scope and the newest result per Test Case. Skipped (shown as N/A), aborted, and cancelled count as complete. Planned cases without a result and cases whose latest result is running or pending remain incomplete; a previous finalized attempt does not replace the latest result.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityAnalytics.service.js"
+    ],
+    "runtime_keys": [
+      "dashboard.executionCompletion"
+    ],
+    "runtime_status": "active"
   },
   {
     "key": "metric.dashboard.evidence_confidence",
@@ -458,7 +668,15 @@
       "dashboard evidence confidence"
     ],
     "formula": "Story coverage × 40% + execution completion × 40% + defect traceability × 20%, rounded to a whole percentage.",
-    "criteria": "Use the selected project and optional release scope. Defect traceability is scoped Defects with a linked run, Test Case, or Story ÷ all scoped Defects × 100. With no Defects, traceability is 100% and contributes 20 points. Empty Story or planned-case denominators contribute 0%; component percentages are rounded first. This formula has no freshness or partial-evidence caps and measures coverage and linkage, not model certainty or release approval."
+    "criteria": "Use the selected project and optional release scope. Defect traceability is scoped Defects with a linked run, Test Case, or Story ÷ all scoped Defects × 100. With no Defects, traceability is 100% and contributes 20 points. Empty Story or planned-case denominators contribute 0%; component percentages are rounded first. This formula has no freshness or partial-evidence caps and measures coverage and linkage, not model certainty or release approval.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityAnalytics.service.js"
+    ],
+    "runtime_keys": [
+      "dashboard.evidenceConfidence"
+    ],
+    "runtime_status": "active"
   },
   {
     "key": "metric.execution.cycle_time",
@@ -470,7 +688,15 @@
       "avg execution"
     ],
     "formula": "Mean of max(0, ended_at − started_at) in hours across scoped runs with both valid timestamps, rounded to one decimal place. No qualifying runs returns 0 hours.",
-    "criteria": "Use all runs in the selected project and optional release scope that have valid start and end timestamps, regardless of current status. Missing or invalid timestamps are excluded; negative intervals contribute zero. There is no created_at fallback or 30-day duration cap. This elapsed time includes pauses and does not measure active work or queue time."
+    "criteria": "Use all runs in the selected project and optional release scope that have valid start and end timestamps, regardless of current status. Missing or invalid timestamps are excluded; negative intervals contribute zero. There is no created_at fallback or 30-day duration cap. This elapsed time includes pauses and does not measure active work or queue time.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityAnalytics.service.js"
+    ],
+    "runtime_keys": [
+      "dashboard.executionCycleHours"
+    ],
+    "runtime_status": "active"
   },
   {
     "key": "metric.jira.resolution_rate",
@@ -481,7 +707,14 @@
       "percent resolved in the inspected set"
     ],
     "formula": "work items with a non-empty resolution ÷ all project-scoped JQL items in the inspected set × 100.",
-    "criteria": "Use the exact validated JQL scope and disclose truncation. A resolution value indicates workflow closure, not necessarily defect correctness."
+    "criteria": "Use the exact validated JQL scope and disclose truncation. A resolution value indicates workflow closure, not necessarily defect correctness.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/frontend/components/CustomQualityDashboard.tsx"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "reference",
+    "runtime_note": "Historical Jira methodology. The current native evaluator does not calculate this external metric. Retained for reference and existing saved configurations."
   },
   {
     "key": "metric.jira.average_age",
@@ -492,7 +725,14 @@
       "average age in days"
     ],
     "formula": "Mean of current time − created time in whole days across inspected work items with a valid creation timestamp.",
-    "criteria": "Exclude missing or invalid timestamps and disclose the inspected JQL sample. Do not combine unresolved age with resolution duration."
+    "criteria": "Exclude missing or invalid timestamps and disclose the inspected JQL sample. Do not combine unresolved age with resolution duration.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/frontend/components/CustomQualityDashboard.tsx"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "reference",
+    "runtime_note": "Historical Jira methodology. The current native evaluator does not calculate this external metric. Retained for reference and existing saved configurations."
   },
   {
     "key": "metric.jira.average_resolution_time",
@@ -503,7 +743,14 @@
       "average resolution time in days"
     ],
     "formula": "Mean of resolution time − creation time in whole days across inspected work items with valid, non-negative timestamps.",
-    "criteria": "Exclude unresolved items and invalid or negative durations. Disclose the inspected JQL sample and avoid treating the mean as a service-level percentile."
+    "criteria": "Exclude unresolved items and invalid or negative durations. Disclose the inspected JQL sample and avoid treating the mean as a service-level percentile.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/frontend/components/CustomQualityDashboard.tsx"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "reference",
+    "runtime_note": "Historical Jira methodology. The current native evaluator does not calculate this external metric. Retained for reference and existing saved configurations."
   },
   {
     "key": "metric.test.step_completeness",
@@ -513,7 +760,16 @@
       "step completeness"
     ],
     "formula": "Steps with both a non-blank action and a non-blank observable expected result ÷ authored steps in the selected Test Case × 100.",
-    "criteria": "Whitespace and formatting alone do not count. Automation code is neither required nor a substitute for a clear manual action and expected result."
+    "criteria": "Whitespace and formatting alone do not count. Automation code is neither required nor a substitute for a clear manual action and expected result.",
+    "feature_ids": [
+      "ai.case_authoring.full_case",
+      "ai.case_authoring.step_rephrase"
+    ],
+    "calculation_sources": [
+      "services/testing/frontend/pages/TestCasesPage.tsx"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.ai.input_readiness",
@@ -523,7 +779,15 @@
       "ai input readiness"
     ],
     "formula": "15 points for a specific title + 25 for sufficient description + 25 for linked coverage + 10 for source references + 10 for labels + 15 for Sprint, iteration, Fix Version, or release context.",
-    "criteria": "Score only visible bounded Story context. Missing evidence is a review gap, not permission to infer or generate the missing fact."
+    "criteria": "Treat this as a local metadata-completeness signal for retrieval and review, not an eligibility gate or model confidence. The actual Story title, description and acceptance behavior can ground a useful request without existing Test Cases, external references, labels, a Sprint or a release. Ask for only the missing evidence necessary for the requested change.",
+    "feature_ids": [
+      "ai.requirement.optimization"
+    ],
+    "calculation_sources": [
+      "services/ai/frontend/lib/aiAssurance.ts"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.test.authoring_completeness",
@@ -534,7 +798,15 @@
       "authoring"
     ],
     "formula": "A deterministic 8-point baseline plus bounded points for title specificity (16), description (20), Story trace (12), labels (10), meaningful steps (22), complete action/expected pairs (14), parameters (8), and permitted automation evidence (8); capped at 100.",
-    "criteria": "Prioritize observable test intent, traceability, and complete action/expected-result pairs. Automation evidence is optional and must be omitted when the viewer lacks access."
+    "criteria": "Prioritize observable test intent, traceability, and complete action/expected-result pairs. Automation evidence is optional and must be omitted when the viewer lacks access.",
+    "feature_ids": [
+      "ai.case_authoring.full_case"
+    ],
+    "calculation_sources": [
+      "services/testing/frontend/pages/TestCasesPage.tsx"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.execution.evidence_completeness",
@@ -545,7 +817,17 @@
       "run evidence readiness"
     ],
     "formula": "Scoped cases with any result evidence ÷ total scoped cases × 65 points, plus 20 when Story traceability exists and 15 when Defect or external failure references exist.",
-    "criteria": "A touched case is not necessarily a passing case. Keep failed and blocked outcomes visible and require human triage before any release conclusion."
+    "criteria": "A touched case is not necessarily a passing case. Keep failed and blocked outcomes visible and require human triage before any release conclusion.",
+    "feature_ids": [
+      "ai.execution.analysis",
+      "ai.execution.failure_clustering",
+      "ai.execution.report_analysis"
+    ],
+    "calculation_sources": [
+      "services/ai/frontend/lib/aiAssurance.ts"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.automation.locator_stability",
@@ -556,7 +838,16 @@
       "locator healing readiness"
     ],
     "formula": "The saved, deterministic locator stability score, displayed with independent fallback-locator, DOM/accessibility, visual-evidence, and validation-history checks.",
-    "criteria": "Treat any AI locator as a proposal until the saved score and supporting evidence are human-reviewed and validated against a real screen."
+    "criteria": "Treat any AI locator as a proposal until the saved score and supporting evidence are human-reviewed and validated against a real screen.",
+    "feature_ids": [
+      "ai.automation.locator_repair",
+      "ai.automation.dom_extraction"
+    ],
+    "calculation_sources": [
+      "services/ai/frontend/lib/aiAssurance.ts"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.ai.evidence_grounding",
@@ -568,8 +859,16 @@
       "analysis confidence",
       "generation confidence"
     ],
-    "formula": "The capability's server-owned evidence prior, floored to 78% after a contract-valid direct-model response; a deterministic fallback reports 80% of that same prior.",
-    "criteria": "This number describes workflow grounding and fallback mode, not factual probability or model certainty. Review cited evidence and limitations before accepting any suggestion."
+    "formula": "No model-confidence percentage is calculated. Inspect exact field-level evidence references, unsupported or missing fields, bounded-source omissions and deterministic fallback fields in the Defect draft.",
+    "criteria": "Assess the evidence attached to each proposed Defect field and disclose missing or truncated sources. A valid JSON response, model invocation, deterministic fallback or compatibility confidence field does not establish factual correctness, reproduced behavior or model certainty. Do not turn an unscored draft into an invented percentage.",
+    "feature_ids": [
+      "ai.bug.draft"
+    ],
+    "calculation_sources": [
+      "services/ai/backend/services/aiBugDraft.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.ai.story_draft_grounding",
@@ -579,8 +878,16 @@
       "story draft grounding",
       "story draft quality"
     ],
-    "formula": "A locked 90% first-draft evidence prior, reduced by 4 points per additional draft and increased by 3 points when bounded supporting context exists, clamped to 58–95%; the single fallback draft uses 78% with context or 62% without it.",
-    "criteria": "Use the score only to order draft review. It is not writing quality, factual certainty, or approval; inspect source context, assumptions, risks, and acceptance criteria."
+    "formula": "Candidate completeness: 20 points for a nonempty title + 25 for a description with at least 24 plain-text characters + 35 when acceptance criteria are present + 20 when evidence references are present, minus 10 per unsupported field up to a 40-point penalty; floored at zero. Grounding and testability are separate categorical signals.",
+    "criteria": "Interpret this as a deterministic field-completeness heuristic, not model confidence or verified behavior. Grounding requires supported evidence references; identify unsupported fields. Do not reward a draft by its list position, infer factual correctness from a numeric score or invent acceptance behavior to improve it.",
+    "feature_ids": [
+      "ai.requirement.creation"
+    ],
+    "calculation_sources": [
+      "services/manual/backend/services/requirement.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.story.backlog_readiness",
@@ -591,7 +898,13 @@
       "backlog readiness checklist"
     ],
     "formula": "Current checks marked met ÷ five required checks × 100; no verified checks yields an unknown score. Unverified checks remain in the denominator.",
-    "criteria": "Use only saved Story evidence and current, attributable reviews bound to the Story content hash. Disclose met, not met and unverified counts. Wireframe reviews require an attachment still on this Story; dependencies and team estimation require review. This checklist is advisory and cannot authorize release approval."
+    "criteria": "Use only saved Story evidence and current, attributable reviews bound to the Story content hash. Disclose met, not met and unverified counts. Wireframe reviews require an attachment still on this Story; dependencies and team estimation require review. This checklist is advisory and cannot authorize release approval.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/platform/backend/src/utils/storyReadiness.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
   },
   {
     "key": "metric.story.release_readiness",
@@ -602,6 +915,573 @@
       "release readiness checklist"
     ],
     "formula": "Current checks marked met ÷ five required checks × 100; no verified checks yields an unknown score. Unverified checks remain in the denominator.",
-    "criteria": "Use only saved Story evidence and current, attributable reviews bound to the Story content hash. Disclose met, not met and unverified counts. Acceptance-test review requires complete latest finalized passing linked-case evidence; critical-defect state uses current linked project Defects. Code review, CI and Product Owner sign-off require attributable review. This checklist is advisory and cannot authorize release approval."
+    "criteria": "Use only saved Story evidence and current, attributable reviews bound to the Story content hash. Disclose met, not met and unverified counts. Acceptance-test review requires complete latest finalized passing linked-case evidence; critical-defect state uses current linked project Defects. Code review, CI and Product Owner sign-off require attributable review. This checklist is advisory and cannot authorize release approval.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/platform/backend/src/utils/storyReadiness.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.story.grooming_readiness",
+    "label": "Story grooming checklist",
+    "surface": "AI Story Grooming",
+    "aliases": [
+      "story grooming checklist"
+    ],
+    "formula": "(Checks marked met + 0.5 × checks marked partial) ÷ all returned readiness checks. The API exposes the ratio in the compatibility confidence field; it is not model certainty.",
+    "criteria": "Explain the evidence for each met, partial or unmet readiness check. Preserve unknown or missing evidence and do not treat a checklist ratio as approval, calibrated probability or factual verification.",
+    "feature_ids": [
+      "ai.requirement.grooming"
+    ],
+    "calculation_sources": [
+      "services/manual/backend/services/requirementWorkspace.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.defect.triage_evidence",
+    "label": "Defect triage evidence coverage",
+    "surface": "AI Defect Triage",
+    "aliases": [
+      "defect triage evidence coverage"
+    ],
+    "formula": "Completed required evidence fields across selected Defects ÷ all required evidence fields across those Defects. An empty denominator yields zero. Category refinements do not change deterministic priority or readiness.",
+    "criteria": "Disclose missing reproduction, observed/expected behavior and impact evidence per Defect. The coverage ratio measures recorded field presence, not accuracy, severity probability or model certainty. Keep category explanation, deterministic priority and write approval separate.",
+    "feature_ids": [
+      "ai.bug.triage"
+    ],
+    "calculation_sources": [
+      "services/ai/backend/services/aiBugTriage.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.story.change_impact",
+    "label": "Story change-impact heuristic",
+    "surface": "Story change-impact review",
+    "aliases": [
+      "story change-impact heuristic"
+    ],
+    "formula": "P1/P2 priority contributes 35 points, other priority 15; linked cases add 8 each up to 32, linked runs add 6 each up to 24, and any automation asset adds 9. Total is capped at 100; high starts at 65 and medium at 30.",
+    "criteria": "This heuristic summarizes linked review scope, not observed change correctness, failure probability or business impact. Describe the exact proposed delta and supported affected relationships; do not claim linked cases or automation executed.",
+    "feature_ids": [
+      "ai.requirement.change_impact"
+    ],
+    "calculation_sources": [
+      "services/ai/backend/services/qualityAssistance.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.test.change_impact",
+    "label": "Test Case change-impact signals",
+    "surface": "Test Case change-impact review",
+    "aliases": [
+      "test case change-impact signals"
+    ],
+    "formula": "Review risk is high with at least three deterministic change signals, medium with one or two, and low with none. Linked asset and result counts disclose potential review scope only.",
+    "criteria": "Compare saved and proposed case fields and distinguish deterministic relationship changes from model interpretation. Signal count is not defect severity or predicted failure probability. Preserve the actual case objective and do not add unrelated coverage requirements.",
+    "feature_ids": [
+      "ai.test_case.change_impact"
+    ],
+    "calculation_sources": [
+      "services/ai/backend/services/qualityAssistance.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.quality.obligation_coverage",
+    "label": "Verified acceptance coverage",
+    "surface": "Coverage assurance and quality evidence",
+    "aliases": [
+      "verified acceptance coverage"
+    ],
+    "formula": "Equal-weight Story acceptance obligations form the denominator. Designed coverage requires a current human-approved assertion mapping; executable and observed coverage require the identical assertion/specification on the selected build and environment. Unknown and stale obligations stay in the denominator; incomplete or empty denominators return unknown.",
+    "criteria": "Keep linked, designed, executable and observed coverage distinct. A Test Case link or authored automation is not proof an obligation was verified. Do not erase recorded assertion failures with passing retries, infer an unseen denominator or change human mapping decisions.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/ai/backend/services/qualityCoverageRules.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.quality.flakiness",
+    "label": "Comparable execution variability",
+    "surface": "Flaky Test Intelligence",
+    "aliases": [
+      "comparable execution variability"
+    ],
+    "formula": "Group passed/failed attempts by exact Test Case revision, build, environment, configuration and data hash. Failure rate is failed ÷ comparable attempts with a Wilson 95% interval; mixed outcomes are suspect and groups below five observations without mixed outcomes are insufficient samples.",
+    "criteria": "Disclose sample size, comparison key, excluded incomparable attempts and dependence assumptions. Mixed outcomes are evidence for investigation, not confirmed flakiness or permission to quarantine. Do not invent calibrated failure probabilities.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/ai/backend/services/qualityEvidenceRules.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.quality.release_gates",
+    "label": "Verified release gates",
+    "surface": "Release readiness and risk simulation",
+    "aliases": [
+      "verified release gates"
+    ],
+    "formula": "Exact-scope, source-completeness, critical-Defect, execution, obligation-coverage and approved-policy gates produce ready, not_ready or unknown. Any failed gate blocks readiness; unknown evidence remains unknown. Approved waivers and organization policy are separate authority records.",
+    "criteria": "Explain each gate using its recorded evidence, scope and authorized policy. Do not replace a gate with an average, infer a waiver, turn a hypothetical simulation into observed improvement or authorize deployment.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/ai/backend/services/qualityEvidenceRules.js",
+      "services/ai/backend/services/qualityReleasePolicyRules.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.quality.graph_completeness",
+    "label": "Quality graph evidence completeness",
+    "surface": "AI Quality Graph and impact traversal",
+    "aliases": [
+      "quality graph evidence completeness"
+    ],
+    "formula": "Graph nodes and recorded/reviewed edges retain source revisions. Traversal is incomplete when sources are partial, roots are missing or depth/node bounds omit reachable evidence. There is no graph accuracy percentage.",
+    "criteria": "Report known nodes, relationships, missing roots and explicit traversal limits. Recorded links prove traceability, not causal impact, assertion adequacy or execution. Never invent edges or a completeness score from loaded node counts.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/ai/backend/services/qualityEvidenceRules.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.analytics.story_risk",
+    "label": "Dashboard Story risk heuristic",
+    "surface": "Quality dashboard Story risk table",
+    "aliases": [
+      "dashboard story risk heuristic"
+    ],
+    "formula": "50 points for no scoped linked Test Cases + 20 for P1/P2 priority + 15 per failed or blocked latest result + 10 per distinct open linked Defect. High starts at 50, medium at 20. The raw additive score is not bounded to a percentage.",
+    "criteria": "Use this for relative review ordering only. Disclose exact signals and scoped counts; do not label the raw score as a probability or a percentage or confuse it with release Story risk.",
+    "feature_ids": [
+      "ai.quality.portfolio_insights"
+    ],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityAnalytics.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.ai.draft_contract_completeness",
+    "label": "Draft contract completeness",
+    "surface": "AI Story and Test Case draft review",
+    "aliases": [
+      "draft contract completeness"
+    ],
+    "formula": "Local checks report missing or invalid native draft fields, priorities, actions, expected results, parameter references and permitted Story links. No model-confidence or semantic-coverage percentage is calculated.",
+    "criteria": "Identify the exact missing native contract field and smallest correction. A structurally complete draft still requires semantic review; do not treat it as approved, executed or evidence of full coverage.",
+    "feature_ids": [
+      "ai.requirement.creation",
+      "ai.test_case.design",
+      "ai.case_authoring.full_case"
+    ],
+    "calculation_sources": [
+      "services/ai/frontend/lib/draftReadiness.ts"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.ai.compatibility_confidence",
+    "label": "Legacy response confidence fields",
+    "surface": "Change-impact, rich-text and dashboard compatibility responses",
+    "aliases": [
+      "legacy response confidence fields"
+    ],
+    "formula": "Historical response fields include fixed values such as 0.82/0.58 for linked impact evidence, 0.74/1 for rich-text generation/fallback and 0.78/0.74 for dashboard layout templates/model output. These are compatibility values; no model accuracy or certainty is measured.",
+    "criteria": "Do not display or interpret compatibility confidence constants as probabilities, quality scores or verified evidence. Prefer explicit source refs, source completeness, native validation, generation mode and human review. These constants are not tunable business formulas.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/ai/backend/services/qualityAssistance.service.js",
+      "services/ai/backend/services/richTextAi.service.js",
+      "services/dashboard/backend/services/qualityDashboard.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.dashboard.automation_coverage",
+    "label": "Dashboard automation classification",
+    "surface": "Native project dashboards",
+    "aliases": [
+      "dashboard automation classification"
+    ],
+    "formula": "Cases explicitly marked automated yes or automation_status ready ÷ all scoped Test Cases × 100; an empty denominator yields 0%.",
+    "criteria": "Use the exact authorized project and planning scope, distinct native entity IDs, documented statuses and complete evidence denominators. Explain numerator, denominator, missing evidence and scope. Do not infer approval, semantic coverage, product correctness or a predictive probability from a count or percentage.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityAnalytics.service.js"
+    ],
+    "runtime_keys": [
+      "dashboard.automationCoverage"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.dashboard.dev_story_completion",
+    "label": "Development Story completion",
+    "surface": "Native project dashboards",
+    "aliases": [
+      "development story completion"
+    ],
+    "formula": "Stories in Dev Done, QA Ready, QA In Progress, QA Blocked, QA Done or a completed status ÷ all scoped Stories × 100. Each Story counts once; an empty denominator yields 0%.",
+    "criteria": "Use the exact authorized project and planning scope, distinct native entity IDs, documented statuses and complete evidence denominators. Explain numerator, denominator, missing evidence and scope. Do not infer approval, semantic coverage, product correctness or a predictive probability from a count or percentage.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityDashboardRelations.js"
+    ],
+    "runtime_keys": [
+      "dashboard.devStoryCompletion"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.dashboard.qa_story_completion",
+    "label": "QA Story completion",
+    "surface": "Native project dashboards",
+    "aliases": [
+      "qa story completion"
+    ],
+    "formula": "Stories in QA Done or a completed status ÷ all scoped Stories × 100. Dev Done alone does not count; an empty denominator yields 0%.",
+    "criteria": "Use the exact authorized project and planning scope, distinct native entity IDs, documented statuses and complete evidence denominators. Explain numerator, denominator, missing evidence and scope. Do not infer approval, semantic coverage, product correctness or a predictive probability from a count or percentage.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityDashboardRelations.js"
+    ],
+    "runtime_keys": [
+      "dashboard.qaStoryCompletion"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.dashboard.story_pass_rate",
+    "label": "Stories with all tests passed",
+    "surface": "Native project dashboards",
+    "aliases": [
+      "stories with all tests passed"
+    ],
+    "formula": "Stories with at least one scoped linked Test Case and every linked case latest result passed ÷ all scoped Stories × 100. An empty denominator yields 0%.",
+    "criteria": "Use the exact authorized project and planning scope, distinct native entity IDs, documented statuses and complete evidence denominators. Explain numerator, denominator, missing evidence and scope. Do not infer approval, semantic coverage, product correctness or a predictive probability from a count or percentage.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityDashboardRelations.js"
+    ],
+    "runtime_keys": [
+      "dashboard.storyTestPassRate"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.dashboard.story_execution_coverage",
+    "label": "Stories with all tests finalized",
+    "surface": "Native project dashboards",
+    "aliases": [
+      "stories with all tests finalized"
+    ],
+    "formula": "Stories with at least one scoped linked Test Case and every linked case latest result passed, failed, blocked, skipped, aborted or cancelled ÷ all scoped Stories × 100. An empty denominator yields 0%.",
+    "criteria": "Use the exact authorized project and planning scope, distinct native entity IDs, documented statuses and complete evidence denominators. Explain numerator, denominator, missing evidence and scope. Do not infer approval, semantic coverage, product correctness or a predictive probability from a count or percentage.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityDashboardRelations.js"
+    ],
+    "runtime_keys": [
+      "dashboard.storyExecutionCoverage"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.dashboard.defect_traceability",
+    "label": "Dashboard Defect traceability",
+    "surface": "Native project dashboards",
+    "aliases": [
+      "dashboard defect traceability"
+    ],
+    "formula": "Distinct scoped Defects linked to a scoped Story, Test Case or run ÷ all scoped Defects × 100. No Defects yields 100% because no traceability gap is present.",
+    "criteria": "Use the exact authorized project and planning scope, distinct native entity IDs, documented statuses and complete evidence denominators. Explain numerator, denominator, missing evidence and scope. Do not infer approval, semantic coverage, product correctness or a predictive probability from a count or percentage.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityDashboardRelations.js"
+    ],
+    "runtime_keys": [
+      "dashboard.defectTraceability"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.dashboard.record_counts",
+    "label": "Scoped native record counts",
+    "surface": "Native project dashboards",
+    "aliases": [
+      "scoped native record counts"
+    ],
+    "formula": "Count distinct native records for the selected metric: count counts scoped Defects; stories, testCases, testSuites and testRuns count their respective records; moduleCaseCount counts scoped cases with at least one module; linkedDefects counts scoped Defects with a current Story, case or run relation. Relationship multiplicity never increases record counts.",
+    "criteria": "Use the exact authorized project and planning scope, distinct native entity IDs, documented statuses and complete evidence denominators. Explain numerator, denominator, missing evidence and scope. Do not infer approval, semantic coverage, product correctness or a predictive probability from a count or percentage.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityAnalytics.service.js"
+    ],
+    "runtime_keys": [
+      "dashboard.count",
+      "dashboard.stories",
+      "dashboard.testCases",
+      "dashboard.testSuites",
+      "dashboard.testRuns",
+      "dashboard.moduleCaseCount",
+      "dashboard.linkedDefects"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.dashboard.relationship_counts",
+    "label": "Story and module relationship counts",
+    "surface": "Native project dashboards",
+    "aliases": [
+      "story and module relationship counts"
+    ],
+    "formula": "linkedTestCases counts distinct cases linked to a scoped Story; unlinkedTestCases counts cases with no valid project Story link; unassignedModuleCases counts cases without an explicit or inherited module. Foreign and deleted links do not establish coverage.",
+    "criteria": "Use the exact authorized project and planning scope, distinct native entity IDs, documented statuses and complete evidence denominators. Explain numerator, denominator, missing evidence and scope. Do not infer approval, semantic coverage, product correctness or a predictive probability from a count or percentage.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityDashboardRelations.js"
+    ],
+    "runtime_keys": [
+      "dashboard.linkedTestCases",
+      "dashboard.unlinkedTestCases",
+      "dashboard.unassignedModuleCases"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.dashboard.attention_counts",
+    "label": "Scoped evidence attention counts",
+    "surface": "Native project dashboards",
+    "aliases": [
+      "scoped evidence attention counts"
+    ],
+    "formula": "coverageGaps counts Stories without scoped cases; openDefects counts distinct unresolved Defects; failedRuns counts runs in failed state; failedCases and blockedCases count distinct cases whose latest result has that status; unexecutedCases counts cases without a saved result; storiesWithOpenDefects counts distinct Stories linked directly or through cases to an unresolved Defect.",
+    "criteria": "Use the exact authorized project and planning scope, distinct native entity IDs, documented statuses and complete evidence denominators. Explain numerator, denominator, missing evidence and scope. Do not infer approval, semantic coverage, product correctness or a predictive probability from a count or percentage.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityAnalytics.service.js"
+    ],
+    "runtime_keys": [
+      "dashboard.coverageGaps",
+      "dashboard.openDefects",
+      "dashboard.failedRuns",
+      "dashboard.failedCases",
+      "dashboard.blockedCases",
+      "dashboard.unexecutedCases",
+      "dashboard.storiesWithOpenDefects"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.dashboard.completed_runs_30d",
+    "label": "Completed runs in 30 days",
+    "surface": "Native project dashboards",
+    "aliases": [
+      "completed runs in 30 days"
+    ],
+    "formula": "Runs in passed, completed, failed, blocked, skipped, aborted, cancelled or partially_completed state whose valid ended_at is within the last 30 days and not in the future.",
+    "criteria": "Use the exact authorized project and planning scope, distinct native entity IDs, documented statuses and complete evidence denominators. Explain numerator, denominator, missing evidence and scope. Do not infer approval, semantic coverage, product correctness or a predictive probability from a count or percentage.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/qualityAnalytics.service.js"
+    ],
+    "runtime_keys": [
+      "dashboard.completedRuns30d"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.project.average_pass_confidence",
+    "label": "Average project outcome rate",
+    "surface": "Native project dashboards",
+    "aliases": [
+      "average project outcome rate"
+    ],
+    "formula": "Arithmetic mean of the combined finalized-Test-Case/resolved-Defect pass rate for accessible assessed projects with an outcome denominator. This is a descriptive observed-outcome rate, not a calibrated confidence probability.",
+    "criteria": "Use the exact authorized project and planning scope, distinct native entity IDs, documented statuses and complete evidence denominators. Explain numerator, denominator, missing evidence and scope. Do not infer approval, semantic coverage, product correctness or a predictive probability from a count or percentage.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/dashboard/backend/services/portfolioAnalytics.service.js"
+    ],
+    "runtime_keys": [],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.ai.transport_observability",
+    "label": "Model transport observability",
+    "surface": "Native project dashboards",
+    "aliases": [
+      "model transport observability"
+    ],
+    "formula": "Recorded model calls, successful transport responses, failed/invalid responses, corrections, MCP context gaps, unmapped configuration, average/p95 request latency, reported total tokens, reported cached input tokens, unknown total/cache usage and failed trace writes. Retention and scope filters apply. No semantic-quality score, unreported cache-token count or token price is inferred.",
+    "criteria": "Read these as transport and contract-validation evidence. A successful provider response is not factual correctness, coverage completeness or release readiness. Unknown token usage remains unknown; agents/native tasks retain Agent Studio trace ownership.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/platform/backend/services/aiConfiguration.service.js"
+    ],
+    "runtime_keys": [
+      "llm.calls",
+      "llm.successes",
+      "llm.failures",
+      "llm.invalid",
+      "llm.corrections",
+      "llm.context_gaps",
+      "llm.unconfigured",
+      "llm.average_ms",
+      "llm.p95_ms",
+      "llm.total_tokens",
+      "llm.usage_unknown",
+      "llm.trace_failed_writes",
+      "llm.cached_input_tokens",
+      "llm.cache_usage_unknown"
+    ],
+    "runtime_status": "reference",
+    "runtime_note": "Operational observations are displayed in AI Controls Metrics and Agent Studio traces. Counters are measured by the application and have no tunable business formula."
+  },
+  {
+    "key": "metric.knowledge.retrieval_rank",
+    "label": "Knowledge retrieval ranking",
+    "surface": "Knowledge context and evidence",
+    "aliases": [
+      "knowledge retrieval ranking"
+    ],
+    "formula": "Keyword mode ranks normalized lexical matches; semantic mode ranks compatible-vector cosine similarity. Hybrid retrieval uses normalized reciprocal-rank fusion × 45% + semantic score × 31% + lexical score × 24%, capped at one. Query fusion applies its separately disclosed best-score and reciprocal-rank signals.",
+    "criteria": "Ranking scores order permitted evidence candidates; they are not calibrated factual correctness or confidence probabilities. Preserve source identity, source version, query/mode and exact authorization scope. A high rank does not establish support for a proposed claim.",
+    "feature_ids": [
+      "ai.knowledge.assistant"
+    ],
+    "calculation_sources": [
+      "services/knowledge/backend/services/knowledgeRag.service.js",
+      "services/knowledge/backend/services/knowledgeRetrieval.service.js"
+    ],
+    "runtime_keys": [
+      "knowledge.score",
+      "knowledge.lexical_score",
+      "knowledge.semantic_score",
+      "knowledge.reciprocal_rank_score",
+      "knowledge.retrieval_fusion_score"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.knowledge.evidence_sufficiency",
+    "label": "Knowledge evidence sufficiency",
+    "surface": "Knowledge context and evidence",
+    "aliases": [
+      "knowledge evidence sufficiency"
+    ],
+    "formula": "Citation-ready hits contribute up to 24 points, source diversity 24, strongest indexed retrieval score 20, multi-query corroboration 12, live evidence 6, route alignment 8 and topical matches 6; total capped at 100. Strong starts at 65, usable at 45; below 65 requests more context.",
+    "criteria": "Explain which source, citation, topical-match and diversity signals are present. This is a retrieval heuristic, not proof of answer completeness or claim entailment. Do not turn missing context into invented facts or a definitive verdict.",
+    "feature_ids": [
+      "ai.knowledge.assistant"
+    ],
+    "calculation_sources": [
+      "services/knowledge/backend/services/knowledgeRetrieval.service.js"
+    ],
+    "runtime_keys": [
+      "knowledge.sufficiency.score",
+      "knowledge.sufficiency.citation_ready_count",
+      "knowledge.sufficiency.distinct_source_count",
+      "knowledge.sufficiency.live_evidence_count",
+      "knowledge.sufficiency.corroborated_result_count",
+      "knowledge.sufficiency.route_aligned_result_count",
+      "knowledge.sufficiency.topically_matched_result_count",
+      "knowledge.sufficiency.strongest_retrieval_score"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.knowledge.document_quality",
+    "label": "Indexed document context quality",
+    "surface": "Knowledge context and evidence",
+    "aliases": [
+      "indexed document context quality"
+    ],
+    "formula": "Start at 100 and subtract bounded duplicate-chunk, undersized-chunk, missing-heading, excessive-overlap, low-content-bearing and low-lexical-diversity penalties. Empty extracted text or no nonempty chunk produces zero. Grades: excellent ≥90, good ≥75, review ≥55, otherwise poor; below 75 requires review. Heading/lineage coverage, overlap and lexical diversity are separate ratios.",
+    "criteria": "Treat the score as structural extraction/indexing quality. It does not measure factual currency, semantic completeness or source authority. Inspect duplication, headings, chunk lineage, content-bearing ratios and redactions independently; missing extraction cannot be excellent.",
+    "feature_ids": [
+      "ai.knowledge.enrichment"
+    ],
+    "calculation_sources": [
+      "services/knowledge/backend/services/knowledgeProcessing.service.js"
+    ],
+    "runtime_keys": [
+      "knowledge.context_quality.score",
+      "knowledge.context_quality.heading_coverage",
+      "knowledge.context_quality.section_lineage_coverage",
+      "knowledge.context_quality.content_bearing_ratio",
+      "knowledge.context_quality.overlap_redundancy_ratio",
+      "knowledge.context_quality.lexical_diversity",
+      "knowledge.context_quality.redaction_count"
+    ],
+    "runtime_status": "active"
+  },
+  {
+    "key": "metric.knowledge.fixture_evaluation",
+    "label": "Knowledge retrieval fixture evaluation",
+    "surface": "Knowledge context and evidence",
+    "aliases": [
+      "knowledge retrieval fixture evaluation"
+    ],
+    "formula": "For each deterministic fixture, calculate recall@k, precision@k, reciprocal first-relevant rank, nDCG and hit status from expected versus selected evidence IDs, then average per request. Record unauthorized exposure counts and request exposure rate separately.",
+    "criteria": "Report the exact fixture set, expected relevance judgments, limits and sample size. These deterministic fixtures do not establish production semantic recall, model injection resistance, calibrated confidence or noisy-neighbor isolation.",
+    "feature_ids": [],
+    "calculation_sources": [
+      "services/knowledge/backend/services/knowledgeEvaluation.service.js"
+    ],
+    "runtime_keys": [
+      "knowledge.eval.recall_at_k",
+      "knowledge.eval.precision_at_k",
+      "knowledge.eval.mrr",
+      "knowledge.eval.ndcg",
+      "knowledge.eval.hit_rate",
+      "knowledge.eval.unauthorized_exposure_count",
+      "knowledge.eval.unauthorized_exposure_rate"
+    ],
+    "runtime_status": "reference",
+    "runtime_note": "Evaluation observations are read-only. Change fixtures and execute the knowledge evaluation workflow to measure retrieval behavior; there is no editable runtime formula."
+  },
+  {
+    "key": "metric.knowledge.claim_grounding",
+    "label": "Knowledge claim support and rejection",
+    "surface": "Knowledge context and evidence",
+    "aliases": [
+      "knowledge claim support and rejection"
+    ],
+    "formula": "Claims must contain supported evidence IDs from the authorized context packet. Deterministic or verified-entailment claims are supported; exact extractive support is separate from citation-bound interpretation. Count rejected claims and invalid structured presentations; a bound citation alone does not verify entailment.",
+    "criteria": "Preserve the difference between cited interpretation, exact extractive support and completed verification. Unsupported IDs, unresolved promises and malformed presentations never become verified claims. Report rejected claims and explicit limits; do not accept model confidence as evidence.",
+    "feature_ids": [
+      "ai.knowledge.assistant",
+      "ai.knowledge.verification"
+    ],
+    "calculation_sources": [
+      "services/knowledge/backend/services/knowledgeGrounding.service.js"
+    ],
+    "runtime_keys": [
+      "knowledge.grounding.claims",
+      "knowledge.grounding.rejected",
+      "knowledge.grounding.support_method"
+    ],
+    "runtime_status": "active"
   }
 ]

@@ -1,4 +1,5 @@
 import { WorkflowOperationFields } from "./WorkflowOperationFields";
+import { NodeAiSettings, nodeAiDefaults, type NodeAiConfiguration } from './NodeAiConfiguration';
 import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -59,7 +60,20 @@ export type WorkflowNodeInspectorProps = {
   testingApi?: boolean;
 };
 export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
-  const { node, result, run, editable, expanded, incoming } = props;
+  const { node, result: recordedResult, run, editable, expanded, incoming } = props;
+  const [iteration, setIteration] = useState("latest");
+  const iterations = Array.isArray(recordedResult?.iterations) ? recordedResult.iterations.filter((value): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value))) : [];
+  const snapshot = iteration === "latest" ? undefined : iterations[Number(iteration)];
+  // A skipped batch may omit output, and null is recorded data. Never inherit
+  // missing fields from the latest batch while inspecting a prior snapshot.
+  const result: Record<string, unknown> | undefined = snapshot ? { node_id: recordedResult?.node_id, node_name: recordedResult?.node_name, node_type: recordedResult?.node_type, ...snapshot } : recordedResult;
+  const iterationPath = (value: unknown) => Array.isArray(value) ? value.map(part => {
+    if (typeof part === "number") return `batch ${part + 1}`;
+    const savedNodes = run?.workflow_snapshot.nodes;
+    const saved = (Array.isArray(savedNodes) ? savedNodes as AgenticWorkflowNode[] : []).find(item => item.id === part);
+    return String(saved?.data.label || part);
+  }).join(" / ") : "";
+  useEffect(() => setIteration("latest"), [node.id, run?.id]);
   let triggerInput = run?.input_payload;
   if (!triggerInput && props.workflowInput) {
     try { const parsed: unknown = JSON.parse(props.workflowInput); if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) triggerInput = parsed as Record<string, unknown>; } catch { /* Keep the user's invalid trigger text in its editor. */ }
@@ -397,6 +411,13 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
             </p>
           </>
         )}
+        {(['agent', 'llmAgent', 'customAI', 'artifactTask', 'repositoryAgent'].includes(kind) || kind === 'loop' && node.data.loopAction === 'customAI') && <NodeAiSettings
+          key={node.id} value={node.data.aiConfiguration as NodeAiConfiguration | undefined}
+          defaults={nodeAiDefaults({...node.data,agentSnapshot:node.data.agentSnapshot || (registeredAgent && registeredAgent.active_version === node.data.agentVersion ? {definition:registeredAgent.active_definition || registeredAgent.definition} : undefined)})}
+          reviewCriteria={String(node.data.reviewCriteria || '')}
+          agent={['agent', 'llmAgent', 'customAI'].includes(kind)}
+          onChange={aiConfiguration => props.onChange({ aiConfiguration })}
+          onReviewCriteriaChange={reviewCriteria => props.onChange({ reviewCriteria })} />}
         <WorkflowOperationFields
           data={node.data}
           projectId={props.projectId}
@@ -419,7 +440,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         {field("summary", "Description", true)}
         <details>
           <summary>Execution settings</summary>
-          <label><span>Timeout (ms)</span><input type="number" min={1000} max={kind === "artifactTask" ? 3600000 : kind === "repositoryAgent" ? 180000 : kind === "agent" || kind === "customAI" ? 150000 : 70000} step={1000} value={String(node.data.timeoutMs ?? "")} onChange={event => props.onChange({ timeoutMs: event.target.value })} /></label>
+          <label><span>Timeout (ms)</span><input type="number" min={1000} max={kind === "artifactTask" || kind === "loop" && node.data.loopAction === "workflow" ? 3600000 : kind === "repositoryAgent" ? 180000 : kind === "agent" || kind === "customAI" ? 150000 : 70000} step={1000} value={String(node.data.timeoutMs ?? "")} onChange={event => props.onChange({ timeoutMs: event.target.value })} /></label>
           <label>
             <span>On error</span>
             <select
@@ -568,6 +589,18 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
             </button>
           )}
         </header>
+        {iterations.length > 0 && <div className="studio-iteration-selector">
+          <label><span>Loop batch result</span><select aria-label="Loop batch result" value={snapshot ? iteration : "latest"} onChange={event => setIteration(event.target.value)}>
+            <option value="latest">Latest recorded result</option>
+            {iterations.map((item, index) => {
+              const batch = Number.isInteger(item.batch_index) ? Number(item.batch_index) + 1 : index + 1;
+              const start = Number(item.input_start_index), count = Number(item.input_item_count);
+              const range = Number.isInteger(start) && Number.isInteger(count) && count > 0 ? ` · items ${start + 1}–${start + count}` : "";
+              return <option key={index} value={index}>{`Batch ${batch} · ${String(item.status || "recorded").replace(/_/g, " ")}${range}${iterationPath(item.iteration_path) ? ` · ${iterationPath(item.iteration_path)}` : ""}`}</option>;
+            })}
+          </select></label>
+          <p className="studio-caption">{snapshot ? `${iterationPath(snapshot.iteration_path) || "Recorded batch"}. Input, output, errors and logs below belong to this batch.` : `${iterations.length} recorded batch results. Latest follows the current node result.`}</p>
+        </div>}
         <nav aria-label="Node details">
           {(["parameters", "input", "output", "logs", "model calls"] as const).map((item) => (
             <button
@@ -595,7 +628,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           ) : tab === "output" ? (
             outputPane
           ) : tab === "model calls" ? (
-            <section className="studio-inspector-pane"><WorkflowNodeModelCalls key={`${run?.id}:${node.id}`} projectId={props.projectId} runId={run?.id} nodeId={node.id} live={run?.status === "running" || run?.status === "queued"} /></section>
+            <section className="studio-inspector-pane">{iterations.length > 0 && <p className="studio-caption">Model calls show this node across all recorded batches. Use each call's captured context to identify its iteration.</p>}<WorkflowNodeModelCalls key={`${run?.id}:${node.id}`} projectId={props.projectId} runId={run?.id} nodeId={node.id} live={run?.status === "running" || run?.status === "queued"} /></section>
           ) : tab === "logs" ? (
             <section className="studio-inspector-pane">
               <h3>Execution log</h3>

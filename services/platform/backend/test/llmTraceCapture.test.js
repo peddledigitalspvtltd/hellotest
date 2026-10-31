@@ -199,9 +199,18 @@ test('missing or invalid reported cache usage never becomes a token estimate',as
 });
 
 test('instance-scoped calls and required-context preflight failures are traced without a synthetic project',async()=>{
- const f=fixture();
+ const f=fixture({apply:async(init,options)=>({init,options})});
  await context.run({actor_id:'instance-admin',project_id:null},async()=>{
   await assert.rejects(f.client.fetchLlmWithRetry('https://provider-never-dispatched.invalid/chat/completions',{method:'POST',body:JSON.stringify({model:'fixture',messages:[{role:'user',content:'Review'}]})},{operation:'unmapped.preflight-fixture',mcpContextPolicy:{mode:'mcp',required:true}}),{code:'AI_MCP_SCOPE_REQUIRED'});
   assert.equal(f.writes.length,2);assert.equal(f.writes[0].values[1],null);assert.equal(f.writes[0].values[2],'instance-admin');assert.equal(f.writes[0].values[17].scope,'instance');assert.equal(f.writes[0].values[17].mcp_context,'scope_missing');assert.equal(f.writes[1].values[1],'failed');
  });
+});
+
+test('an explicit empty proposal reports missing evidence without a paid artifact-fill correction',async t=>{
+ const definition=require('../../shared/aiFeatureCatalog.json').find(item=>item.id==='ai.test_case.design');
+ const f=fixture({apply:async(init,options)=>({init,options,profile:{...definition,config:definition.defaults}}),validateResponse:async()=>{}});
+ let calls=0;
+ t.mock.method(globalThis,'fetch',async()=>{calls++;return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({testCases:[],gaps:['No acceptance outcome is supplied.']})}}]});});
+ await assert.rejects(f.client.fetchLlmWithRetry('https://empty-evidence.invalid/chat/completions',{method:'POST',body:JSON.stringify({model:'fixture',messages:[{role:'user',content:'Use only the supplied evidence.'}]})},{maxAttempts:1}),{code:'AI_NATIVE_CONTRACT_INVALID',empty_artifact_collection:true});
+ assert.equal(calls,1);
 });

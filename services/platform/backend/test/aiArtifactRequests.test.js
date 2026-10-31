@@ -216,6 +216,14 @@ test("test design uses full bounded Story data, maps cases and removes exact rep
   await assert.rejects(service.previewRequirementsTestCases({ requirements: [story], appType, max_cases: 50 }), error => error.statusCode === 400 && /ten/.test(error.message));
   assert.equal(fixture.calls.length, 1);
 });
+test('single-Story generation retains all eight canonical criteria and custom fields before workflow context deduplication',async()=>{
+ const fixture=providerFixture({test_cases:[validCase]}),service=load('requirementDesign.service',{...fixture.overrides,'./aiKnowledge.service':{buildKnowledgeContextPackage:async()=>({knowledge:[]})}});
+ const complete={...story,acceptance_criteria:Array.from({length:8},(_,index)=>`CRITERION_${index+1}_BODY`),additional_fields:Object.fromEntries(Array.from({length:8},(_,index)=>[`custom_${index+1}`,`CUSTOM_${index+1}_BODY`]))};
+ await service.previewRequirementsTestCases({requirements:[complete],appType,user_id:user.id});
+ const prompt=JSON.parse(fixture.calls[0].body.messages[1].content),selected=prompt.stories[0];
+ assert.equal(selected.acceptance_criteria.length,8);assert.equal(Object.keys(selected.additional_fields).length,8);
+ for(const value of [...complete.acceptance_criteria,...Object.values(complete.additional_fields)])assert.equal(JSON.stringify(prompt).split(value).length-1,1);
+});
 
 test("Story grooming's actual provider request includes explicit acceptance and planning/specification", async () => {
   const fixture = providerFixture(groomingCandidate({ layman: { explanation: "Review the approval requirements.", analogy: "", evidence_refs: ["requirement:story"] } }));
@@ -322,6 +330,23 @@ test("Test Case assurance includes linked Story acceptance and respects current 
   assert.match(prompt, /AC_SENTINEL/); assert.match(prompt, /SPEC_SENTINEL/); assert.match(prompt, /UNSAVED_GHERKIN/);
   assert.doesNotMatch(prompt, /Approve the invoice/);
   assert.equal(fixture.selections[0].usageKey, "ai.quality.test_case_assurance");
+});
+test('assurance repairs shared parser failures without clipping the tail of linked evidence',async()=>{
+ const fixture=providerFixture({summary:'Review',dimensions:[{id:'scenario-coverage',explanation:'Supported observation',evidence:['requirement:story']}]}),fetch=fixture.overrides['../utils/llmHttpClient'].fetchLlmWithRetry;
+ fixture.overrides['../utils/llmHttpClient'].fetchLlmWithRetry=async(...args)=>{
+  const result=await fetch(...args);
+  if(fixture.calls.length===1){const error=Object.assign(new Error('Invalid response JSON'),{code:'AI_INVALID_JSON'});Object.defineProperty(error,'model_candidate',{value:'{"bad":true}'});throw error;}
+  return result;
+ };
+ const service=load('artifactAssurance.service',fixture.overrides);
+ const linked=Array.from({length:6},(_,index)=>({...story,id:index===0?'story':`story-${index}`,kind:'requirement',description:'D'.repeat(3900),specification_content:'S'.repeat(3900)+(index===5?'LINKED_EVIDENCE_TAIL':'')}));
+ const result=await service.reviewArtifact({artifactType:'test-case',savedArtifact:{id:'case',steps},linkedEvidence:linked,assessAutomationReadiness:true,user,projectId:'project'});
+ assert.equal(fixture.calls.length,2);assert.equal(result.response_repaired,true);
+ assert.match(fixture.calls[1].body.messages[1].content,/LINKED_EVIDENCE_TAIL/);
+ assert.equal(fixture.calls[0].policy.outputSchema.required.includes('automation_readiness'),false);
+ assert.deepEqual(fixture.calls[0].policy.outputSchema.properties.automation_readiness,{});
+ assert.equal(/"review_output_schema"\s*:/.test(fixture.calls[0].body.messages[1].content),false,'Machine schema is supplied once through the transport.');
+ assert.equal(result.assurance_review.automation_readiness.status,'unknown');
 });
 
 test("assurance exposes actionable provider failures without fabricated reviews or paid retries", async () => {
@@ -459,6 +484,19 @@ test('Defect triage receives vision content while priority and record identity r
  const result=await service.preview({project:{id:'project'},user,issueIds:['issue'],images:[referenceScreenshot]});assertScreenshotRequest(fixture.calls[0]);assert.equal(result.triage[0].issue_id,'issue');assert.equal(result.triage[0].recommended_priority,'High');assert.equal(result.generation_mode,'hybrid');
  assert.match(fixture.calls[0].body.messages[1].content[0].text,/Do not assume a screenshot belongs to a particular Defect/);
 });
+test('Defect triage sends each recorded field body once while retaining source-only scope evidence and every citation identity',async()=>{
+ const issue={id:'issue',project_id:'project',title:'Approval fails',message:'UNIQUE_RECORDED_INCIDENT_BODY',severity:'high',priority:'High',release:'UNIQUE_RELEASE_EVIDENCE'};
+ const fixture=providerFixture({recommendations:[{issue_id:'issue',category:'Functional defect',category_explanation:'The incident is a recorded functional failure.',category_evidence_refs:['issue:issue:message']}]});
+ const service=load('aiBugTriage.service',{...fixture.overrides,'./issues.service':{getIssueItem:async()=>issue}});
+ const result=await service.preview({project:{id:'project'},user,issueIds:['issue']});
+ const prompt=fixture.calls[0].body.messages[1].content;
+ assert.equal(prompt.split('UNIQUE_RECORDED_INCIDENT_BODY').length-1,1);
+ assert.match(prompt,/UNIQUE_RELEASE_EVIDENCE/);
+ for(const ref of ['issue:issue:message','issue:issue:release'])assert.match(prompt,new RegExp(ref));
+ assert.equal(result.generation_mode,'hybrid');
+ const projected=service._private.promptEvidenceSources([{id:'issue',message:'Short snapshot'}],[{id:'issue',field:'message',ref:'issue:issue:message',excerpt:'Longer source-only observation'}]);
+ assert.equal(projected[0].excerpt,'Longer source-only observation','Nonduplicate content is preserved.');
+});
 test('Smart Run uses multimodal content through its real request path and keeps whole candidate rows',async()=>{
  const fixture=providerFixture({cases:[{test_case_id:'case',reason:'The saved case covers the recorded change.',evidence_refs:['test-case:case']}]});
  const service=load('executionPlanning.service',fixture.overrides);
@@ -516,4 +554,22 @@ test('native assurance and Test Case generation forward workflow cancellation to
   assert.deepEqual(retrievals[0].evidence_scope,evidence_scope);
   controller.abort();
   await assert.rejects(service.previewRequirementsTestCases({requirements:[story],appType,user_id:user.id,signal:controller.signal}),{statusCode:499});
+});
+
+test('authoring prefetch retains chunk identity and avoids a second wider MCP context request',async()=>{
+ const knowledge={knowledge:[1,2].map(n=>({id:'same-source',title:'Invoice approval',content:'Reviewers approve submitted invoices.',metadata:{citation:{id:'K-chunk-'+n,source_id:'same-source',source_kind:'text',document_id:'version-3',chunk_id:'chunk-'+n,source_version:'v3',version_hash:'immutable'}}})),retrieval:{context_transport:'mcp',status:'COMPLETE',returned_count:2}};
+ const draft={title:'Approve an invoice',description:'Reviewers approve submitted invoices.',priority:3,acceptance_criteria:['A reviewer can approve a submitted invoice.'],field_evidence:{title:['user-guidance:story-brief'],description:['user-guidance:story-brief'],acceptance_criteria:['user-guidance:story-brief']}};
+ const creation=providerFixture({requirements:[draft]}),prefetch=[];
+ const create=load('requirement.service',{...creation.overrides,'../db':{prepare:()=>({})},'./aiKnowledge.service':{buildKnowledgeContextPackage:async(_project,options)=>{prefetch.push(options);return knowledge;}}});
+ await create.previewRequirementCreation({project_id:'project',additional_context:'Reviewers approve submitted invoices.',max_requirements:1});
+ assert.equal(prefetch[0].feature_key,'ai.requirement.creation');
+ const prompt=creation.calls[0].body.messages[1].content;
+ assert.match(prompt,/knowledge:K-chunk-1/);assert.match(prompt,/knowledge:K-chunk-2/);assert.match(prompt,/version-3/);assert.match(prompt,/immutable/);
+ assert.equal(creation.calls[0].policy.mcpContextHandled.evidence_count,2);
+ const designFixture=providerFixture({testCases:[validCase]});
+ const design=load('requirementDesign.service',{...designFixture.overrides,'./aiKnowledge.service':{buildKnowledgeContextPackage:async()=>knowledge}});
+ await design.previewRequirementsTestCases({requirements:[story],appType,user_id:user.id});
+ const task=JSON.parse(designFixture.calls[0].body.messages[1].content);
+ assert.equal(task.knowledge[0].citation.id,'K-chunk-1');assert.equal(task.knowledge[1].citation.id,'K-chunk-2');
+ assert.equal(task.knowledge_context.available_count,2);assert.equal(designFixture.calls[0].policy.mcpContextHandled.evidence_count,2);
 });

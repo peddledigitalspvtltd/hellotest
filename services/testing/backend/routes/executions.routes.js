@@ -535,6 +535,11 @@ module.exports = async function (fastify) {
   // START EXECUTION
   fastify.post("/executions/:id/start", async (req) => {
     await fastify.authenticate(req);
+    fastify.validate({
+      execution_mode: { required: false, type: "string", enum: ["manual", "remote", "local"] },
+      engine_base_url: { required: false, type: "string", maxLength: 2000 },
+      expected_revision: { required: false, type: "number" }
+    }, req.body || {});
     const execution = await service.getExecution(req.params.id);
     const executionMode = service.resolveExecutionStartMode(execution, req.body?.execution_mode);
     await ensureExecutionPermission(fastify, req, "run.execute", execution);

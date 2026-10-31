@@ -148,9 +148,9 @@ const buildAiAnalysisPrompt = (report) => {
     }));
 
   return [
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.1"),
+    aiInstructionBlock("ai.execution.report_analysis", "executionReport.buildAiAnalysisPrompt.1"),
     "",
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.29"),
+    aiInstructionBlock("ai.execution.report_analysis", "executionReport.buildAiAnalysisPrompt.29"),
     JSON.stringify({
       name: report.execution.name || report.execution.id,
       status: report.execution.status || "queued",
@@ -164,18 +164,18 @@ const buildAiAnalysisPrompt = (report) => {
       duration: formatDuration(report.summary.duration_ms)
     }, null, 2),
     "",
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.2"),
+    aiInstructionBlock("ai.execution.report_analysis", "executionReport.buildAiAnalysisPrompt.2"),
     JSON.stringify(failedSuites, null, 2),
     "",
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.3"),
+    aiInstructionBlock("ai.execution.report_analysis", "executionReport.buildAiAnalysisPrompt.3"),
     JSON.stringify(failedCases, null, 2),
     "",
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.4"),
+    aiInstructionBlock("ai.execution.report_analysis", "executionReport.buildAiAnalysisPrompt.4"),
     "{",
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.5"),
+    aiInstructionBlock("ai.execution.report_analysis", "executionReport.buildAiAnalysisPrompt.5"),
     "}",
     "",
-    aiInstructionBlock("ai.execution.analysis", "executionReport.buildAiAnalysisPrompt.32")
+    aiInstructionBlock("ai.execution.report_analysis", "executionReport.buildAiAnalysisPrompt.32")
   ].join("\n");
 };
 
@@ -198,7 +198,7 @@ const requestAiAnalysisCompletion = async ({ integration, prompt }) => {
         messages: [
           {
             role: "system",
-            content: aiInstructionBlock("ai.execution.analysis", "executionReport.response.15")
+            content: aiInstructionBlock("ai.execution.report_analysis", "executionReport.response.15")
           },
           {
             role: "user",
@@ -263,7 +263,7 @@ const generateAiAnalysis = async (report, { userId } = {}) => {
   try {
     const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
       userId,
-      usageKey: "ai.execution.analysis",
+      usageKey: "ai.execution.report_analysis",
       projectId: report.execution?.project_id,
       fallback: "project-then-global",
       allowMissing: true

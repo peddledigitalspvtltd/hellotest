@@ -232,7 +232,7 @@ const previewFailureClusters = async ({ user, executionId, requestedScope, integ
   })).sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
   const evidence = clusters.flatMap((cluster) => cluster.evidence_refs);
   const review = await structuredReview.review({ projectId: scope.projectId, userId: user?.id, integrationId,
-    usageKey: "ai.execution.failure_clustering", task: aiInstructionBlock("ai.execution.analysis", "qualityAssistance.failureReview.task"),
+    usageKey: "ai.execution.failure_clustering", task: aiInstructionBlock("ai.execution.failure_clustering", "qualityAssistance.failureReview.task"),
     evidence: { execution: { id: executionId, build: execution.build, environment: execution.test_environment_name }, clusters: clusters.map(cluster => ({ id: cluster.id, evidence_refs: cluster.evidence_refs, members: cluster.members })), total_failures: failures.length },
     contract: '{"summary":"string","clusters":[{"id":"existing cluster id","explanation":"observations and hypotheses","recommended_action":"next discriminating check","evidence_refs":["exact supplied reference"]}]}',
     validate: value => {

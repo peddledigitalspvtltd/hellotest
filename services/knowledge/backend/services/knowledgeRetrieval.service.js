@@ -279,7 +279,13 @@ const retrieveDirect = (input) => execution.run({ signal: input.signal || execut
   // second model must not delay or erase that authoritative evidence packet.
   const scopedNativeRead = Object.keys(filters.evidence_scope || {}).length > 0 && Array.isArray(filters.requested_scopes)
     && filters.requested_scopes.length > 0;
+  const suppliedPlan=()=>{
+    try{return require('./knowledgeIntentPlanning.service').normalizePlan(input.intentPlan,request.query);}
+    catch{throw createError('The supplied retrieval hint must be bounded and related to the original question.',400,'RETRIEVAL_PLAN_INVALID');}
+  };
   const planning = Array.isArray(filters.requested_scopes) && !filters.requested_scopes.length ? {mode:"disabled",plan:null,reason:"NO_REQUESTED_CONTEXT"}
+    : input.intentPlan ? {mode:'caller_supplied',plan:suppliedPlan(),reason:null}
+    : input.planningMode==='deterministic' ? {mode:'deterministic',plan:null,reason:null}
     : scopedNativeRead ? {mode:"scoped_native",plan:null,reason:null} : await require("./knowledgeIntentPlanning.service").planIntent({ request, user: input.user,
     integration: input.integration, integrationId: input.integrationId, history: input.history, signal: input.signal || execution.current()?.signal });
   const intentModelCalls = Number(execution.current().modelStats.calls || 0);
@@ -306,7 +312,8 @@ const retrieveSearch = async input => {
     document_id: item.document_id, chunk_id: item.chunk_id || item.evidence_id, title: item.title,
     content: item.content, excerpt: item.content, score: item.scores?.fused || 0,
     citation: { ...item, id: item.evidence_id, label: item.title,
-      current: item.freshness?.current, source_version: item.freshness?.source_version }
+      current: item.freshness?.current, source_version: item.freshness?.source_version,
+      source_hash:item.integrity?.source_hash,version_hash:item.integrity?.version_hash,chunk_hash:item.integrity?.chunk_hash,evidence_hash:item.integrity?.evidence_hash }
   }));
   return { project_id: input.projectId, query: input.query, results,
     retrieval: { ...packet.retrieval, returned_count: results.length, grounded_result_count: results.length,

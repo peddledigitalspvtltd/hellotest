@@ -5,7 +5,7 @@ const fail = (message,code,statusCode=409) => Object.assign(new Error(message),{
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])) : value;
 
 async function invoke({run,node,input,user},dispatch) {
-  const id=`op-${hash([run.project_id,run.id,node.id,'tool-dispatch']).slice(0,48)}`;
+  const id=`op-${hash([run.project_id,run.id,node.id,...(run.iteration_path || []),'tool-dispatch']).slice(0,48)}`;
   const requestHash=hash(canonical({connection_id:node.data.connectionId,kind:node.data.kind,node:node.data,input}));
   const inserted=await db.prepare(`INSERT INTO workflow_operation_receipts
     (id,project_id,run_id,node_id,actor_id,request_hash,connection_id,state) VALUES(?,?,?,?,?,?,?,'in_flight')

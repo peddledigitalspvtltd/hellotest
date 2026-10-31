@@ -154,3 +154,61 @@ test('shared AI delivery retains reviewed graph witnesses and removes relationsh
  const text=JSON.parse(result.body).messages[1].content,packet=JSON.parse(text.slice(text.indexOf('\n')+1));
  assert.deepEqual(packet.relationships,[relationships[0]]);assert.equal(packet.omitted_relationship_count,1);assert.match(packet.limitations.join(' '),/omitted/);
 });
+
+test('remote chatbot retrieval uses only public selectors and reconstructs citation and budget provenance',async()=>{
+ const previous=process.env.HELLOTEST_MCP_INTERNAL_URL;process.env.HELLOTEST_MCP_INTERNAL_URL='http://configured.example/mcp';
+ let called;
+ const packet={contract_type:'ContextPacket',project_id:'project',packet_id:'packet',created_at:'2026-10-31T12:00:00Z',
+  authorization:{project_scope_enforced:true,source_acl_enforced:true},applied_filters:{app_type_id:'app',evidence_scope:{story_id:'story'}},
+  interpreted_request:{route:'structured',live_scopes:['stories']},evidence:[{evidence_id:'evidence',source_id:'requirement:story',source_kind:'live_project',title:'Checkout',content:'Authorized requirement',freshness:{current:true,source_version:'v3'},integrity:{chunk_hash:'immutable'}}],
+  budget:{used:{tool_calls:2},limits:{max_tool_calls:4}},retrieval:{status:'PARTIAL',intent_planning_mode:'caller_supplied'}};
+ const instance=gateway(async(actor,name,args)=>{called={actor,name,args};return {packet};});
+ const input={user:{id:'actor'},request:{project_id:'project',query:'Review checkout',filters:{app_type_id:'app',evidence_scope:{story_id:'story'},source_ids:['source']},budgets:{max_tool_calls:4,max_context_tokens:1000}},
+  integration:{id:'model',api_key:'MUST_NOT_CROSS_MCP'},intentPlan:{queries:['checkout acceptance'],source_kinds:['requirement'],information_needs:['Expected checkout outcome']},history:[{role:'user',content:'private history'}]};
+ try{
+  const result=await instance.retrieveContext(input);
+  assert.equal(called.actor.retrievalInput,undefined);assert.equal(called.actor.packetInput,undefined);
+  assert.equal(called.args.app_type_id,'app');assert.equal(called.args.integration_id,'model');assert.deepEqual(called.args.intent_plan,input.intentPlan);
+  assert.equal(called.args.budgets.max_context_tokens,1000);assert.equal(called.args.token_budget,1000);
+  assert.equal(result.hits[0].citation.id,'evidence');assert.equal(result.hits[0].citation.source_version,'v3');assert.equal(result.hits[0].citation.chunk_hash,'immutable');
+  assert.equal(result.budget.tool_calls_used,2);assert.equal(result.projectScope.app_type_id,'app');assert.equal(result.route.route,'structured');
+  assert.ok(!JSON.stringify(called.args).includes('MUST_NOT_CROSS_MCP'));assert.ok(!JSON.stringify(called.args).includes('private history'));
+ }finally{if(previous===undefined)delete process.env.HELLOTEST_MCP_INTERNAL_URL;else process.env.HELLOTEST_MCP_INTERNAL_URL=previous;}
+});
+
+test('structured retrieval questions preserve task intent and exclude schemas, policy text and credential bags',()=>{
+ const {retrievalQuestion}=gateway(async()=>({}));
+ const result=retrievalQuestion(JSON.stringify({schema:{required:['IMPOSSIBLE_SCHEMA_NOISE'],description:'schema text'},instructions:'UNTRUSTED_POLICY_NOISE',parameter_values:{password:'SECRET_DATA'},generation_request:{user_request:'Only accessibility checks for checkout'},stories:[{id:'story',title:'Checkout',acceptance_criteria:['Keyboard users can complete the payment.']}]}));
+ assert.match(result,/Only accessibility checks/);assert.match(result,/Keyboard users/);assert.doesNotMatch(result,/IMPOSSIBLE_SCHEMA_NOISE|UNTRUSTED_POLICY_NOISE|SECRET_DATA/);
+ assert.equal(retrievalQuestion(JSON.stringify({schema:{type:'object'},parameter_values:{password:'private'}})),'');
+ const framed=require('@hellotest/platform/backend/src/utils/aiPromptEnvelope').taskMessage({context:{schema:{required:['SCHEMA_NOISE']},parameter_values:{password:'private'},story:{title:'Checkout',acceptance_criteria:['Keyboard users can finish.']}},task:'Assess keyboard accessibility.'});
+ const projected=retrievalQuestion(framed.content);assert.match(projected,/Assess keyboard accessibility/);assert.match(projected,/Keyboard users can finish/);assert.doesNotMatch(projected,/SCHEMA_NOISE|password|<context>/);
+});
+
+test('trusted application scope reaches context retrieval and contradictory selections stop before reading',async()=>{
+ let calls=0,args;
+ const instance=gateway(async(_actor,_name,input)=>{calls++;args=input;return{packet:{project_id:'project',evidence:[{content:'Authorized application evidence'}]}};});
+ await traces.run({actor_id:'actor',project_id:'project',app_type_id:'app'},()=>instance.enrichChatRequest(request('Inspect checkout')));
+ assert.equal(args.app_type_id,'app');
+ await assert.rejects(traces.run({actor_id:'actor',project_id:'project',app_type_id:'app'},()=>instance.enrichChatRequest(request('Inspect checkout'),{mcpContextFilters:{app_type_id:'foreign-app'}})),{statusCode:403,code:'MCP_CONTEXT_SCOPE_MISMATCH'});
+ assert.equal(calls,1);
+});
+
+test('delivery preserves native limitation flags and bounds non-Latin text including all metadata',async()=>{
+ const instance=gateway(async()=>({packet:{project_id:'project',limitations:{authorization_partial:true,freshness_unknown:true},
+  evidence:Array.from({length:4},(_,i)=>({evidence_id:'proof-'+i,content:'確認された要件。'.repeat(500),content_scope:{kind:'source_chunk_excerpt',segments:[]}}))}}));
+ const result=await traces.run({actor_id:'actor',project_id:'project'},()=>instance.enrichChatRequest(request('Explain checkout'),{mcpContextPolicy:{mode:'mcp',max_items:2,token_budget:1000}}));
+ const text=JSON.parse(result.body).messages[1].content,packet=JSON.parse(text.slice(text.indexOf('\n')+1));
+ assert.ok(Buffer.byteLength(JSON.stringify(packet),'utf8')<=3000);assert.equal(packet.limitations.authorization_partial,true);assert.equal(packet.limitations.freshness_unknown,true);
+ assert.ok(packet.omitted_evidence_count>=2);assert.ok(packet.delivery_gaps.length);assert.ok(packet.evidence.every(item=>!item.excerpt_truncated||!item.content_scope));
+});
+
+test('context packet authorization and nested scopes fail closed while optional empty evidence stays explicitly empty',async()=>{
+ const {verifyPacket}=gateway(async()=>({}));
+ for(const packet of [{project_id:'project',evidence:[{project_id:'foreign',content:'private'}]},
+  {project_id:'project',evidence:[{evidence_id:'duplicate'},{evidence_id:'duplicate'}]},
+  {contract_type:'ContextPacket',project_id:'project',evidence:[],authorization:{project_scope_enforced:true,source_acl_enforced:false}}])assert.throws(()=>verifyPacket(packet,'project'),{code:'MCP_CONTEXT_SCOPE_MISMATCH'});
+ const instance=gateway(async()=>({packet:{project_id:'project',evidence:[]}})),options={mcpContextPolicy:{mode:'mcp',required:false}};
+ const result=await traces.run({actor_id:'actor',project_id:'project'},()=>instance.enrichChatRequest(request('Inspect checkout'),options));
+ assert.equal(options.mcpContextStatus,'empty');assert.match(result.body,/NO_AUTHORIZED_EVIDENCE/);
+});

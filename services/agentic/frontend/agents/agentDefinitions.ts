@@ -1,10 +1,13 @@
 import type { AgenticWorkflowNodeData } from '@hellotest/platform/frontend/src/types';
 import { specialistDefaults, specialistProfiles, type WorkflowSkill } from '../workflows/specialistProfiles';
 import outcomeContracts from '../../shared/agentOutcomeContracts.json';
+import type { NodeAiConfiguration } from '../workflows/NodeAiConfiguration';
 
 export type AgentDefinition = {
   output_contract?: { kind: 'review' | 'story' | 'test_case' | 'defect' | 'run' | 'automation'; minimum_artifacts: number };
   feature_id?: string;
+  ai_configuration?: NodeAiConfiguration;
+  review_criteria?: string;
   name: string; description: string; objective: string; instructions: string;
   skills: WorkflowSkill[]; allowed_tools: string[]; context_scopes: string[];
   context: string; guardrails: string; integration_id: string; source_ids: string[]; source_kinds: string[];
@@ -30,6 +33,7 @@ export function definitionNode(definition: AgentDefinition): AgenticWorkflowNode
   return { kind: 'agent', label: definition.name, summary: definition.description, prompt: definition.objective,
     instructions: definition.instructions, skills: definition.skills, allowedTools: definition.allowed_tools,
     knowledgeScope: definition.context_scopes.join(','), contextInstructions: definition.context, guardrails: definition.guardrails,
+    aiConfiguration: definition.ai_configuration, reviewCriteria: definition.review_criteria,
     knowledgeSourceIds: definition.source_ids, knowledgeSourceKinds: definition.source_kinds, llmIntegrationId: definition.integration_id,
     timeoutMs: definition.limits.timeout_ms, retryCount: 0 };
 }

@@ -252,13 +252,55 @@ const normalizeSearchText = (value) => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+// Legacy authoring rows and their indexed representations carry the same
+// information. A raw/native read must not bypass a source or fragment ACL by
+// choosing the authoring table instead of the indexed source. Unindexed items
+// retain the native project's normal Knowledge access boundary.
+exports.filterLegacyKnowledgeForUser = async (projectId, rows, user) => {
+  if (!Array.isArray(rows) || !rows.length) return [];
+  if (!user?.id) return [];
+  if (!await permissionService.hasPermission(user, 'knowledge.view', projectId)) return [];
+  const authorization = require('./knowledgeAuthorization.service');
+  const acl = authorization.predicate({ user, projectId, document: 'documents', chunk: 'chunks' });
+  const permissions = await knowledgeRagService.resolveAllowedSourcePermissions(user, projectId);
+  const sourcePermission = permissions.length
+    ? `(sources.required_permission IS NULL OR sources.required_permission IN (${permissions.map(() => '?').join(',')}))`
+    : 'sources.required_permission IS NULL';
+  const selected = rows.filter(row => typeof row?.id === 'string').map(row => ({ id: row.id, app_type_id: row.app_type_id || null }));
+  if (!selected.length) return [];
+  const allowed = await db.prepare(`
+    SELECT repo.id FROM ai_knowledge_repo repo
+    JOIN jsonb_to_recordset(?::jsonb) selected(id TEXT, app_type_id TEXT)
+      ON selected.id=repo.id AND selected.app_type_id IS NOT DISTINCT FROM repo.app_type_id
+    WHERE repo.project_id=? AND NOT EXISTS (
+      SELECT 1 FROM ai_knowledge_sources sources
+      LEFT JOIN ai_knowledge_documents documents ON documents.source_id=sources.id
+        AND documents.project_id=sources.project_id AND documents.is_active=TRUE
+      LEFT JOIN ai_knowledge_chunks chunks ON chunks.document_id=documents.id
+        AND chunks.source_id=sources.id AND chunks.project_id=sources.project_id
+      WHERE sources.project_id=repo.project_id AND sources.source_kind='knowledge_item'
+        AND sources.source_ref_id=repo.id AND sources.app_type_id IS NOT DISTINCT FROM repo.app_type_id
+        AND (sources.extraction_status='archived' OR NOT (${sourcePermission}) OR NOT (${acl.sql}))
+    )
+  `).all(JSON.stringify(selected), projectId, ...permissions, ...acl.params);
+  const ids = new Set(allowed.map(row => row.id));
+  return rows.filter(row => ids.has(row?.id));
+};
+
+exports.assertLegacyKnowledgeRead = async (projectId, item, user) => {
+  if (!(await exports.filterLegacyKnowledgeForUser(projectId, [item], user)).length) {
+    throw Object.assign(new Error('Knowledge item is unavailable under current permissions.'), { statusCode: 404 });
+  }
+  return item;
+};
+
 exports.createKnowledge = async (projectId, data, userId) => {
   const id = uuid();
   const record = {
     id,
     project_id: projectId,
     app_type_id: data.app_type_id || null,
-    asset_type: normalizeAssetType(data.asset_type),
+    asset_type: normalizeAssetType(data.asset_type) || "unknown",
     module_name: data.module_name || null,
     feature_name: data.feature_name || null,
     priority: data.priority || null,
@@ -304,16 +346,24 @@ exports.createKnowledge = async (projectId, data, userId) => {
   return publicRecord;
 };
 
-exports.listKnowledge = async (projectId) => {
-  return safeKnowledgeRead(() => selectKnowledgeForProject.all(projectId), []);
+exports.listKnowledge = async (projectId, user) => {
+  const rows = await safeKnowledgeRead(() => selectKnowledgeForProject.all(projectId), []);
+  return user ? exports.filterLegacyKnowledgeForUser(projectId, rows, user) : rows;
 };
 
-exports.getActiveKnowledgeForLLM = async (projectId, appTypeId) => {
+exports.getKnowledgeItem = async (projectId, id, user) => {
+  const record = await selectKnowledgeById.get(id, projectId);
+  if (!record) throw Object.assign(new Error("Knowledge item not found."), { statusCode: 404 });
+  return user ? exports.assertLegacyKnowledgeRead(projectId, record, user) : record;
+};
+
+exports.getActiveKnowledgeForLLM = async (projectId, appTypeId, user) => {
   const rows = await safeKnowledgeRead(() => selectActiveKnowledgeForAppType.all(projectId, appTypeId), []);
-  return rows.map(sanitizeLegacyKnowledgeForContext);
+  const allowed = user ? await exports.filterLegacyKnowledgeForUser(projectId, rows, user) : [];
+  return allowed.map(sanitizeLegacyKnowledgeForContext);
 };
 
-exports.searchKnowledge = async (projectId, filters = {}) => {
+exports.searchKnowledge = async (projectId, filters = {}, user) => {
   const typeFilter = normalizeAssetType(filters.asset_type);
   const text = normalizeSearchText(filters.query);
   const results = await safeKnowledgeRead(
@@ -344,7 +394,7 @@ exports.searchKnowledge = async (projectId, filters = {}) => {
     []
   );
 
-  return results;
+  return user ? exports.filterLegacyKnowledgeForUser(projectId, results, user) : results;
 };
 
 exports.createKnowledgeRelation = async (projectId, relation, user) => {
@@ -388,11 +438,21 @@ exports.getKnowledgeRelationsByTarget = async (projectId, targetId, user) => {
 };
 
 exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
+  const executionPolicy=require('@hellotest/platform/backend/src/utils/aiExecutionConfiguration').current()?.config?.context;
+  const policy=options.feature_key ? (await require('@hellotest/platform/backend/services/aiConfiguration.service').resolve(options.feature_key)).config.context : executionPolicy;
+  const requiredError=()=>Object.assign(new Error('Required authorized MCP evidence is unavailable for this task. Review the selected sources or evidence policy before generating.'),{code:'AI_MCP_CONTEXT_REQUIRED',statusCode:503,publicMessage:'Required authorized MCP evidence is unavailable for this task. Review the selected sources or evidence policy before generating.'});
+  const itemLimit=Math.min(30,Math.max(0,Math.floor(Number(options.limit??20))),policy?.max_items??30);
+  const tokenBudget=Math.min(32000,Math.max(0,Number(options.context_token_budget??5000)),policy?.token_budget??32000);
+  if(!Number.isFinite(itemLimit)||!Number.isFinite(tokenBudget))throw Object.assign(new Error('Use finite knowledge evidence budgets.'),{code:'MCP_INVALID_ARGUMENT',statusCode:400});
+  if(policy?.mode==='none'||itemLimit===0||tokenBudget===0){
+    if(policy?.required)throw requiredError();
+    return {project_id:projectId,query:options.query||null,filters:{},knowledge:[],related_context:[],retrieval:{context_transport:'not_required',status:'NOT_REQUESTED'},context_policy:{mode:'none'}};
+  }
   const [canViewKnowledge, knowledgeFeatureEnabled] = options.user ? await Promise.all([
     permissionService.hasPermission(options.user, "knowledge.view", projectId),
     featureFlagService.isEnabled("hellotest.ai.knowledge", { user: options.user })
   ]) : [false, false];
-  if (!canViewKnowledge || !knowledgeFeatureEnabled) {
+  if ((!canViewKnowledge || !knowledgeFeatureEnabled) && !policy?.required) {
     return {
       project_id: projectId,
       query: options.query || null,
@@ -406,7 +466,7 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
   const evidenceScope = require('@hellotest/platform/backend/src/utils/agentEvidenceScopeSql').normalize(options.evidence_scope);
   const hasExplicitRagScope = Object.keys(evidenceScope).length > 0 || [options.source_ids, options.collection_ids, options.source_kinds]
     .some((value) => Array.isArray(value) && value.length);
-  const legacyKnowledge = hasExplicitRagScope ? [] : await exports.searchKnowledge(projectId, {
+  const legacyKnowledge = hasExplicitRagScope || !canViewKnowledge || !knowledgeFeatureEnabled ? [] : await exports.searchKnowledge(projectId, {
     app_type_id: options.app_type_id,
     asset_type: options.asset_type,
     module_name: options.module_name,
@@ -414,29 +474,37 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
     item_version: options.item_version,
     query: options.query,
     priority: options.priority,
-    limit: Math.min(20, Number(options.limit || 20))
-  });
+    limit: Math.min(20, itemLimit)
+  }, options.user);
   const sanitizedLegacyKnowledge = legacyKnowledge.map(sanitizeLegacyKnowledgeForContext);
   let ragKnowledge = [];
   let retrievalSummary = null;
   let retrievalGuardrails = knowledgeRagService.ASSISTANT_GUARDRAILS;
   if (normalizeSearchText(options.query)) {
-    const retrieval = await require("./knowledgeRetrieval.service").retrieveSearch({
+    let retrieval;
+    try { retrieval = await require("./knowledgeRetrieval.service").retrieveSearch({
       projectId,
-      query: options.query,
-      limit: Math.min(12, Number(options.limit || 12)),
+      query: [policy?.focus?`Evidence focus: ${policy.focus}`:null,options.query].filter(Boolean).join('\n'),
+      limit: Math.min(30, itemLimit),
       filters: {
         app_type_id: options.app_type_id || undefined,
         collection_ids: options.collection_ids,
         source_ids: options.source_ids,
         source_kinds: options.source_kinds,
+        requested_scopes: options.requested_scopes,
         evidence_scope: evidenceScope
       },
       user: options.user,
       integrationId: options.integration_id,
       signal: options.signal,
-      budgets: { max_evidence_items: Math.min(12, Number(options.limit || 12)), deadline_ms: 12000, max_context_tokens: options.context_token_budget || 5000 }
-    });
+      planningMode:'deterministic',
+      budgets: { max_evidence_items: Math.min(30, itemLimit), deadline_ms: 12000, max_context_tokens: tokenBudget }
+    }); } catch(error) {
+      if([401,403].includes(error.statusCode)||error.name==='AbortError'||error.code==='REQUEST_CANCELLED')throw error;
+      if(policy?.required)throw requiredError();
+      options.signal?.throwIfAborted();
+      retrieval={results:[],guardrails:retrievalGuardrails,retrieval:{context_transport:'mcp',status:'UNAVAILABLE',error_code:error.code||'MCP_CONTEXT_UNAVAILABLE',gaps:['Additional authorized knowledge is unavailable; omitted source facts remain unknown.']}};
+    }
     retrievalSummary = retrieval.retrieval;
     retrievalGuardrails = retrieval.guardrails;
     ragKnowledge = retrieval.results.map((hit) => ({
@@ -469,7 +537,8 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
     if (seenChunks.has(key)) return false;
     seenChunks.add(key);
     return true;
-  }).slice(0, Math.min(20, Number(options.limit || 20)));
+  }).slice(0, itemLimit);
+  if(policy?.required && !ragKnowledge.length)throw requiredError();
 
   const relatedContexts = [];
   if (options.source_id && !Object.keys(evidenceScope).length) {
@@ -523,7 +592,7 @@ exports.updateKnowledgeItem = async (projectId, id, data, userId) => {
     data.source_uri || null,
     data.is_active !== undefined ? Boolean(data.is_active) : true,
     data.app_type_id || null,
-    normalizeAssetType(data.asset_type),
+    normalizeAssetType(data.asset_type) || "unknown",
     data.module_name || null,
     data.feature_name || null,
     data.priority || null,

@@ -2,6 +2,48 @@
   "version": 1,
   "source": "Controller-declared validators; domain services enforce additional business rules.",
   "schemas": {
+    "DELETE /feedback/bulk-delete": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "issue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "project_id",
+          "issue_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "DELETE /issues/bulk-delete": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "issue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "project_id",
+          "issue_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
     "DELETE /requirement-iterations/:id/requirements": {
       "body": {
         "type": "object",
@@ -36,6 +78,20 @@
         "additionalProperties": true
       }
     },
+    "DELETE /test-cases/:id/reject-generated": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "expected_updated_at": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
     "GET /agentic-assistant/sessions": {
       "querystring": {
         "type": "object",
@@ -54,6 +110,45 @@
           "project_id"
         ],
         "additionalProperties": true
+      }
+    },
+    "GET /agentic-workflows/evidence-scope/options": {
+      "querystring": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "project_id",
+          "field"
+        ],
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "app_type_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "field": {
+            "enum": [
+              "story_id",
+              "test_case_id",
+              "execution_id",
+              "release_id",
+              "sprint_id"
+            ]
+          },
+          "search": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          }
+        }
       }
     },
     "GET /execution-results": {
@@ -746,11 +841,7 @@
                 "type": "string",
                 "maxLength": 255
               },
-              "build": {
-                "type": "string",
-                "maxLength": 255
-              },
-              "environment_id": {
+              "sprint_id": {
                 "type": "string",
                 "maxLength": 255
               }
@@ -787,6 +878,37 @@
             }
           }
         }
+      }
+    },
+    "POST /agentic-workflow-runs/:id/drafts/accept": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "story_index": {
+            "type": "number"
+          },
+          "case_index": {
+            "type": "number"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "automation"
+            ]
+          }
+        },
+        "required": [
+          "node_id",
+          "story_index",
+          "case_index"
+        ],
+        "additionalProperties": true
       }
     },
     "POST /agentic-workflows": {
@@ -849,6 +971,25 @@
             "type": "object"
           }
         },
+        "additionalProperties": true
+      }
+    },
+    "POST /agentic-workflows/:id/readiness": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "target_node_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "input_payload": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "input_payload"
+        ],
         "additionalProperties": true
       }
     },
@@ -1645,6 +1786,29 @@
         "additionalProperties": true
       }
     },
+    "POST /executions/:id/start": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "execution_mode": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "remote",
+              "local"
+            ]
+          },
+          "engine_base_url": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
     "POST /executions/local-run": {
       "body": {
         "type": "object",
@@ -1903,6 +2067,293 @@
         "additionalProperties": true
       }
     },
+    "POST /feedback": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 2
+          },
+          "message": {
+            "type": "string",
+            "minLength": 2
+          },
+          "steps_to_reproduce": {
+            "type": "string"
+          },
+          "expected_result": {
+            "type": "string"
+          },
+          "actual_result": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          },
+          "jira_bug_key": {
+            "type": "string"
+          },
+          "linked_test_run_id": {
+            "type": "string"
+          },
+          "linked_test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_test_suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_module_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "fix_version": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "assignee_id": {
+            "type": "string"
+          },
+          "root_cause": {
+            "type": "string"
+          },
+          "qa_root_cause": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "triaged",
+              "in_progress",
+              "resolved",
+              "reopened",
+              "verified",
+              "closed",
+              "deferred",
+              "duplicate",
+              "wont_fix"
+            ]
+          }
+        },
+        "required": [
+          "project_id",
+          "title",
+          "message"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /feedback/ai-draft-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "external_links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12
+          },
+          "reference_photos": {
+            "type": "array",
+            "maxItems": 6
+          },
+          "linked_test_run_id": {
+            "type": "string"
+          },
+          "linked_test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "prompt_guidance": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /feedback/ai-improve-preview": {
+      "body": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "project_id",
+          "linked_test_case_ids"
+        ],
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "issue_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "additional_context": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "external_links": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "maxLength": 2048
+            }
+          },
+          "reference_photos": {
+            "type": "array",
+            "maxItems": 6
+          },
+          "linked_test_case_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "items": {
+              "type": "string"
+            }
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "prompt_guidance": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        }
+      }
+    },
+    "POST /feedback/ai-triage-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "issue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "prompt_guidance": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "smart_context": {
+            "type": "object"
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 6
+          }
+        },
+        "required": [
+          "project_id",
+          "issue_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /feedback/export": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "issue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "project_id",
+          "issue_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
     "POST /integrations": {
       "body": {
         "type": "object",
@@ -2012,6 +2463,293 @@
         },
         "required": [
           "type"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /issues": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 2
+          },
+          "message": {
+            "type": "string",
+            "minLength": 2
+          },
+          "steps_to_reproduce": {
+            "type": "string"
+          },
+          "expected_result": {
+            "type": "string"
+          },
+          "actual_result": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          },
+          "jira_bug_key": {
+            "type": "string"
+          },
+          "linked_test_run_id": {
+            "type": "string"
+          },
+          "linked_test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_test_suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_module_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "fix_version": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "assignee_id": {
+            "type": "string"
+          },
+          "root_cause": {
+            "type": "string"
+          },
+          "qa_root_cause": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "triaged",
+              "in_progress",
+              "resolved",
+              "reopened",
+              "verified",
+              "closed",
+              "deferred",
+              "duplicate",
+              "wont_fix"
+            ]
+          }
+        },
+        "required": [
+          "project_id",
+          "title",
+          "message"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /issues/ai-draft-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "external_links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12
+          },
+          "reference_photos": {
+            "type": "array",
+            "maxItems": 6
+          },
+          "linked_test_run_id": {
+            "type": "string"
+          },
+          "linked_test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "prompt_guidance": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /issues/ai-improve-preview": {
+      "body": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "project_id",
+          "linked_test_case_ids"
+        ],
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "issue_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "additional_context": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "external_links": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "maxLength": 2048
+            }
+          },
+          "reference_photos": {
+            "type": "array",
+            "maxItems": 6
+          },
+          "linked_test_case_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "items": {
+              "type": "string"
+            }
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "prompt_guidance": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        }
+      }
+    },
+    "POST /issues/ai-triage-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "issue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "prompt_guidance": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "smart_context": {
+            "type": "object"
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 6
+          }
+        },
+        "required": [
+          "project_id",
+          "issue_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /issues/export": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "issue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "project_id",
+          "issue_ids"
         ],
         "additionalProperties": true
       }
@@ -2290,8 +3028,53 @@
           "project_id": {
             "type": "string"
           },
-          "name": {},
-          "fix_version": {}
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "fix_version": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "target_date_label": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "plan_date": {
+            "type": "string"
+          },
+          "target_date": {
+            "type": "string"
+          },
+          "external_link": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "in_progress",
+              "released"
+            ]
+          },
+          "sprint_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "required": [
           "project_id",
@@ -2983,6 +3766,14 @@
             ]
           },
           "automation_status": {
+            "type": "string",
+            "enum": [
+              "not_automated",
+              "ready",
+              "incomplete"
+            ]
+          },
+          "automation_case_type": {
             "type": "string"
           },
           "automation_start_url": {
@@ -3094,6 +3885,20 @@
         "required": [
           "title"
         ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/:id/accept-generated": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "expected_updated_at": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
         "additionalProperties": true
       }
     },
@@ -3294,6 +4099,9 @@
           },
           "reuse_existing": {
             "type": "boolean"
+          },
+          "test_suite_id": {
+            "type": "string"
           },
           "test_environment_id": {
             "type": "string"
@@ -4994,6 +5802,118 @@
         "additionalProperties": true
       }
     },
+    "PUT /feedback/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 2
+          },
+          "message": {
+            "type": "string",
+            "minLength": 2
+          },
+          "steps_to_reproduce": {
+            "type": "string"
+          },
+          "expected_result": {
+            "type": "string"
+          },
+          "actual_result": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          },
+          "jira_bug_key": {
+            "type": "string"
+          },
+          "linked_test_run_id": {
+            "type": "string"
+          },
+          "linked_test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_test_suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_module_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "fix_version": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "assignee_id": {
+            "type": "string"
+          },
+          "root_cause": {
+            "type": "string"
+          },
+          "qa_root_cause": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "triaged",
+              "in_progress",
+              "resolved",
+              "reopened",
+              "verified",
+              "closed",
+              "deferred",
+              "duplicate",
+              "wont_fix"
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    },
     "PUT /integrations/:id": {
       "body": {
         "type": "object",
@@ -5037,6 +5957,118 @@
           },
           "is_active": {
             "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /issues/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 2
+          },
+          "message": {
+            "type": "string",
+            "minLength": 2
+          },
+          "steps_to_reproduce": {
+            "type": "string"
+          },
+          "expected_result": {
+            "type": "string"
+          },
+          "actual_result": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          },
+          "jira_bug_key": {
+            "type": "string"
+          },
+          "linked_test_run_id": {
+            "type": "string"
+          },
+          "linked_test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_test_suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_module_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "fix_version": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "assignee_id": {
+            "type": "string"
+          },
+          "root_cause": {
+            "type": "string"
+          },
+          "qa_root_cause": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "triaged",
+              "in_progress",
+              "resolved",
+              "reopened",
+              "verified",
+              "closed",
+              "deferred",
+              "duplicate",
+              "wont_fix"
+            ]
           }
         },
         "additionalProperties": true
@@ -5160,6 +6192,61 @@
         "required": [
           "requirement_ids"
         ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /requirement-releases/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "fix_version": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "target_date_label": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "plan_date": {
+            "type": "string"
+          },
+          "target_date": {
+            "type": "string"
+          },
+          "external_link": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "in_progress",
+              "released"
+            ]
+          },
+          "sprint_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
         "additionalProperties": true
       }
     },
@@ -5544,6 +6631,14 @@
             ]
           },
           "automation_status": {
+            "type": "string",
+            "enum": [
+              "not_automated",
+              "ready",
+              "incomplete"
+            ]
+          },
+          "automation_case_type": {
             "type": "string"
           },
           "automation_start_url": {

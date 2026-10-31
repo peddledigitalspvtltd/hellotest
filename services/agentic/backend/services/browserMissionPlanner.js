@@ -74,4 +74,7 @@ async function decideMission(request,user,raw,history=[],traceContext={}) {
     }
   }
 }
-module.exports={missionOutcome,resolveMissionModel,decideMission,observation,decision};
+module.exports={missionOutcome,
+  resolveMissionModel:(request,user)=>require('../workflows/nodeAiConfiguration').runRequest(request,`ai.agentic.browser.${request.kind}`,()=>resolveMissionModel(request,user)),
+  decideMission:(request,user,raw,history,traceContext)=>require('../workflows/nodeAiConfiguration').runRequest({...request,session_id:traceContext?.session_id},`ai.agentic.browser.${request.kind}`,()=>decideMission(request,user,raw,history,traceContext)),
+  observation,decision};

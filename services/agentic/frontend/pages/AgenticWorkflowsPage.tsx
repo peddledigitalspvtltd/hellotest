@@ -61,7 +61,7 @@ import type { AgentOutcomePreview as OutcomePreview } from '../lib/assistantProg
 type WorkflowViewMode = "tile" | "list";
 type WorkflowTab = "workflows" | "runs";
 type AgenticPageSurface = "quality" | "agents" | "workbench" | "repository" | WorkflowTab;
-import { WorkflowNodeKind, WorkflowDraft, AgenticCredential, AgenticApiResponseStyle, DEFAULT_RUN_INPUT, runMatchesDraft, layoutWorkflow, compactCount, safeJsonParse, prettyJson, buildNodeDefaults, createNodeId, createFlowEdge, insertWorkflowNode, canConnectWorkflow, type NodeInsertion, decorateFlowEdge, reviewDefinitionKey, normalizeWorkflowNodeDirectLlm, createWorkflowDraft, buildN8nPayload } from "../workflows/workflowGraph";
+import { WorkflowNodeKind, WorkflowDraft, AgenticCredential, AgenticApiResponseStyle, DEFAULT_RUN_INPUT, runMatchesDraft, layoutWorkflow, compactCount, safeJsonParse, prettyJson, buildNodeDefaults, createNodeId, createFlowEdge, insertWorkflowNode, defaultSourceHandle, isLoopReturnEdge, canConnectWorkflow, type NodeInsertion, decorateFlowEdge, reviewDefinitionKey, normalizeWorkflowNodeDirectLlm, createWorkflowDraft, buildN8nPayload } from "../workflows/workflowGraph";
 
 export function AgenticWorkflowsPage() {
   const { formatDate } = useLocalization();
@@ -897,13 +897,13 @@ export function AgenticWorkflowsPage() {
     try {
       let target = insertion;
       if (!target && selectedNode) {
-        target = selectedNode.data.kind === "output"
+        target = ["output", "stop"].includes(String(selectedNode.data.kind))
           ? { edgeId: edges.find(edge => edge.target === selectedNode.id)?.id }
-          : { sourceId: selectedNode.id, sourceHandle: selectedNode.data.kind === "condition" ? "true" : null };
+          : { sourceId: selectedNode.id, sourceHandle: defaultSourceHandle(selectedNode) };
       }
       if (!target && nodes.length) {
-        const leaf = nodes.find(node => node.data.kind !== "output" && !edges.some(edge => edge.source === node.id));
-        target = leaf ? { sourceId: leaf.id, sourceHandle: leaf.data.kind === "condition" ? "true" : null } : { edgeId: edges.find(edge => nodes.find(node => node.id === edge.target)?.data.kind === "output")?.id };
+        const leaf = nodes.find(node => !["output", "stop"].includes(String(node.data.kind)) && !edges.some(edge => edge.source === node.id));
+        target = leaf ? { sourceId: leaf.id, sourceHandle: defaultSourceHandle(leaf) } : { edgeId: edges.find(edge => nodes.find(node => node.id === edge.target)?.data.kind === "output")?.id };
       }
       const next = insertWorkflowNode(nodes, edges, kind, target);
       if (agent) next.node.data = { ...next.node.data, ...projectAgentNode(agent) };
@@ -924,7 +924,7 @@ export function AgenticWorkflowsPage() {
     setEdges(current => {
       const incoming = current.filter(edge => edge.target === deletedNodeId), outgoing = current.filter(edge => edge.source === deletedNodeId);
       const retained = current.filter(edge => edge.source !== deletedNodeId && edge.target !== deletedNodeId);
-      return incoming.length === 1 && outgoing.length === 1 && !retained.some(edge => edge.source === incoming[0].source && edge.target === outgoing[0].target)
+      return !["loop", "stop"].includes(String(selectedNode.data.kind)) && incoming.length === 1 && outgoing.length === 1 && !isLoopReturnEdge(incoming[0], nodes) && !isLoopReturnEdge(outgoing[0], nodes) && !retained.some(edge => edge.source === incoming[0].source && edge.target === outgoing[0].target)
         ? [...retained, { ...createFlowEdge(incoming[0].source, outgoing[0].target), sourceHandle: incoming[0].sourceHandle, targetHandle: outgoing[0].targetHandle }] : retained;
     });
     updateDraftSetting(
@@ -1074,7 +1074,7 @@ export function AgenticWorkflowsPage() {
   };
 
   const onConnect = useCallback((connection: Connection) => {
-    setEdges((currentEdges) => canConnectWorkflow(nodes, currentEdges, connection.source, connection.target, connection.sourceHandle) ? addEdge({
+    setEdges((currentEdges) => canConnectWorkflow(nodes, currentEdges, connection.source, connection.target, connection.sourceHandle, connection.targetHandle) ? addEdge({
       ...connection,
       id: `${connection.source}-${connection.target}-${Date.now()}`,
       animated: true,

@@ -56,6 +56,13 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.get("/workspace-transactions/:id", async (req) => {
+    await fastify.authenticate(req);
+    const transaction = await workspaceTransactionService.getTransaction(req.params.id);
+    await requireTransactionPermission(fastify, req, transaction, "transaction.view");
+    return transaction;
+  });
+
   fastify.get("/workspace-transactions/:id/events", async (req) => {
     await fastify.authenticate(req);
 

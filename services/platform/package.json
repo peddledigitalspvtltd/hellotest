@@ -50,6 +50,8 @@
     "./backend/src/utils/agenticWorkflowGraph": "./backend/src/utils/agenticWorkflowGraph.js",
     "./backend/src/utils/aiArtifactContext": "./backend/src/utils/aiArtifactContext.js",
     "./backend/src/utils/aiFeatureRuntime": "./backend/src/utils/aiFeatureRuntime.js",
+    "./backend/src/utils/aiPromptEnvelope": "./backend/src/utils/aiPromptEnvelope.js",
+    "./backend/src/utils/llmRequestPolicy": "./backend/src/utils/llmRequestPolicy.js",
     "./backend/src/utils/aiJsonResponse": "./backend/src/utils/aiJsonResponse.js",
     "./backend/src/utils/automationCaseBlueprint": "./backend/src/utils/automationCaseBlueprint.js",
     "./backend/src/utils/automationSchedule": "./backend/src/utils/automationSchedule.js",
@@ -215,7 +217,10 @@
     "./backend/src/utils/aiGenerationContracts": "./backend/src/utils/aiGenerationContracts.js",
     "./frontend/src/shared/lib/catalogDescriptionSummary": "./frontend/src/shared/lib/catalogDescriptionSummary.js",
     "./backend/src/utils/aiReferenceImages": "./backend/src/utils/aiReferenceImages.js",
-    "./backend/src/utils/agentEvidenceScopeSql": "./backend/src/utils/agentEvidenceScopeSql.js"
+    "./backend/src/utils/agentEvidenceScopeSql": "./backend/src/utils/agentEvidenceScopeSql.js",
+    "./backend/src/utils/aiExecutionConfiguration": "./backend/src/utils/aiExecutionConfiguration.js",
+    "./shared/metricFormulaValues": "./shared/metricFormulaValues.js",
+    "./shared/aiExecutionDefaults.json": "./shared/aiExecutionDefaults.json"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs platform",

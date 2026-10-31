@@ -39,9 +39,14 @@ test('workflow edits are recoverable, invalid JSON cannot execute, and narrow sc
     await page.getByRole('button', { name: 'Redo graph edit', exact: true }).click();
     await page.locator('.studio-node').waitFor();
     assert.equal(await page.locator('.studio-node').count(), 1);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByLabel('Node processing', { exact: true }).selectOption('parallel');
+    await page.getByLabel('Maximum concurrent nodes', { exact: true }).fill('8');
+    await page.getByLabel('Workflow deadline (ms, optional)', { exact: true }).fill('600000');
+    await page.getByRole('button', { name: 'Editor', exact: true }).click();
     await page.getByRole('button', { name: /Add node after Manual trigger/ }).click();
-    await page.getByRole('textbox', { name: 'Search nodes', exact: true }).fill('Edit fields');
-    await page.locator('.studio-library-list').getByRole('button', { name: /Edit fields/ }).click();
+    await page.getByRole('textbox', { name: 'Search nodes', exact: true }).fill('Map JSON');
+    await page.locator('.studio-library-list').getByRole('button', { name: /Map JSON/ }).click();
     await page.getByRole('textbox', { name: 'Node name', exact: true }).fill('Shape checkout evidence');
     await page.getByRole('textbox', { name: 'Node name', exact: true }).blur();
     await page.waitForTimeout(400);
@@ -59,6 +64,11 @@ test('workflow edits are recoverable, invalid JSON cannot execute, and narrow sc
     await page.getByRole('button', { name: 'Format JSON', exact: true }).click();
     assert.match(await input.inputValue(), /\n/);
     await page.getByRole('button', { name: 'Close workflow input', exact: true }).click();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    assert.equal(await page.getByLabel('Node processing', { exact: true }).inputValue(), 'parallel');
+    assert.equal(await page.getByLabel('Maximum concurrent nodes', { exact: true }).inputValue(), '8');
+    assert.equal(await page.getByLabel('Workflow deadline (ms, optional)', { exact: true }).inputValue(), '600000');
+    await page.getByRole('button', { name: 'Editor', exact: true }).click();
     await page.screenshot({ path: output + '/02-studio-desktop.png', fullPage: true });
     await page.setViewportSize({ width: 1000, height: 900 });
     await page.getByRole('button', { name: 'Add node', exact: true }).click();

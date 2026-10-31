@@ -1,10 +1,11 @@
 const { randomUUID: uuid } = require("crypto");
 const db = require("@hellotest/platform/backend/src/db");
 const { validateWorkflowGraph } = require("@hellotest/platform/backend/src/utils/agenticWorkflowGraph");
-const { readResponsePrefix } = require("@hellotest/platform/backend/src/utils/boundedResponse");
 const { sanitizeAiText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
 const { mapWithConcurrency } = require("@hellotest/platform/backend/src/utils/boundedConcurrency");
 const { withNativeTaskDefaults } = require("../workflows/taskProfiles");
+const nodeAiConfiguration = require('../workflows/nodeAiConfiguration');
+const workflowCredentialPolicy = require('../workflows/workflowCredentialPolicy');
 
 const workflowError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode, publicMessage: message });
 
@@ -134,7 +135,6 @@ const normalizeObject = (value) => value && typeof value === "object" && !Array.
 
 const API_TEST_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 const API_TEST_RESPONSE_STYLES = new Set(["json", "items", "text", "binary"]);
-const API_TEST_BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 const API_TEST_RESPONSE_LIMIT_BYTES = 96 * 1024;
 
 const normalizeApiTestMethod = (value) => {
@@ -146,74 +146,6 @@ const normalizeApiTestMethod = (value) => {
 const normalizeApiResponseStyle = (value) => {
   const style = String(value || "json").trim().toLowerCase();
   return API_TEST_RESPONSE_STYLES.has(style) ? style : "json";
-};
-
-const normalizeApiTestUrl = (value) => {
-  let parsed;
-
-  try {
-    parsed = new URL(String(value || "").trim());
-  } catch {
-    throw new Error("A valid API endpoint URL is required.");
-  }
-
-  if (!["http:", "https:"].includes(parsed.protocol)) {
-    throw new Error("API agent tests only support HTTP and HTTPS endpoints.");
-  }
-  if (parsed.username || parsed.password) throw workflowError("Use a credential field instead of credentials in the endpoint URL.");
-  parsed.hash = "";
-
-  return parsed;
-};
-
-const readCredentialSecret = (credential) =>
-  String(credential?.secretPreview || credential?.secret || credential?.token || credential?.value || "").trim();
-
-const applyCredentialToRequest = ({ parsedUrl, headers, bodyText, credential, authExpression }) => {
-  const normalizedCredential = normalizeObject(credential);
-  const secret = readCredentialSecret(normalizedCredential);
-  const keyName = String(normalizedCredential.keyName || normalizedCredential.key || "Authorization").trim() || "Authorization";
-  const authType = String(normalizedCredential.authType || "apiKey").trim();
-  const location = String(normalizedCredential.location || "header").trim();
-  let nextBodyText = bodyText;
-
-  if (authExpression) {
-    headers.set("Authorization", String(authExpression).replace(/\{\{\s*credential\.secret\s*\}\}/g, secret));
-    return nextBodyText;
-  }
-
-  if (!secret) {
-    return nextBodyText;
-  }
-
-  if (location === "query") {
-    parsedUrl.searchParams.set(keyName, secret);
-    return nextBodyText;
-  }
-
-  if (location === "body") {
-    const currentBody = normalizeObject(parseJsonValue(nextBodyText, {}));
-    nextBodyText = JSON.stringify({ ...currentBody, [keyName]: secret });
-    return nextBodyText;
-  }
-
-  if (authType === "bearer") {
-    headers.set("Authorization", `Bearer ${secret}`);
-    return nextBodyText;
-  }
-
-  if (authType === "basic") {
-    headers.set("Authorization", `Basic ${Buffer.from(secret).toString("base64")}`);
-    return nextBodyText;
-  }
-
-  if (keyName.toLowerCase() === "authorization") {
-    headers.set("Authorization", secret.startsWith("Bearer ") || secret.startsWith("Basic ") ? secret : `Bearer ${secret}`);
-    return nextBodyText;
-  }
-
-  headers.set(keyName, secret);
-  return nextBodyText;
 };
 
 const parseApiResponsePreview = (buffer, contentType, responseStyle) => {
@@ -248,7 +180,7 @@ const hydrateWorkflow = (workflow) => {
     return workflow;
   }
 
-  return {
+  return workflowCredentialPolicy.safeDefinition({
     ...workflow,
     nodes: withNativeTaskDefaults(normalizeArray(parseJsonValue(workflow.nodes, []))),
     edges: normalizeArray(parseJsonValue(workflow.edges, [])),
@@ -257,7 +189,7 @@ const hydrateWorkflow = (workflow) => {
     run_count: Number(workflow.run_count || 0),
     latest_run_at: workflow.latest_run_at || null,
     latest_run_status: workflow.latest_run_status || null
-  };
+  });
 };
 
 const hydrateWorkflowRun = (run) => {
@@ -270,7 +202,7 @@ const hydrateWorkflowRun = (run) => {
     execution_mode: normalizeObject(parseJsonValue(run.workflow_snapshot, {})).execution_mode === "review" ? "review" : "preview",
     input_payload: normalizeObject(parseJsonValue(run.input_payload, {})),
     output_payload: parseJsonValue(run.output_payload, null),
-    workflow_snapshot: normalizeObject(parseJsonValue(run.workflow_snapshot, {})),
+    workflow_snapshot: workflowCredentialPolicy.safeDefinition(normalizeObject(parseJsonValue(run.workflow_snapshot, {}))),
     node_results: normalizeArray(parseJsonValue(run.node_results, []))
   };
 };
@@ -511,8 +443,10 @@ function buildRunArtifacts(workflow, inputPayload, runId) {
 }
 
 exports.createWorkflow = async (input = {}, actorId = null) => {
-  const record = buildWorkflowRecord(input, null, actorId);
+  workflowCredentialPolicy.assertDefinition(input);
+  const record = workflowCredentialPolicy.safeDefinition(buildWorkflowRecord(input, null, actorId));
   validateWorkflowGraph(record.nodes, record.edges);
+  for (const node of record.nodes) { nodeAiConfiguration.normalize(node.data?.aiConfiguration); nodeAiConfiguration.reviewCriteria(node.data || {}); }
   for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'automation-engineer') require('../workflows/automationNodeInputs').validateNodeOptions(node.data);
   for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'test-case-generation') require('../workflows/generationNodeOptions').generationOptions(node.data);
   await validateWorkflowScope(record.project_id, record.app_type_id);
@@ -540,8 +474,10 @@ exports.createWorkflow = async (input = {}, actorId = null) => {
 
 exports.updateWorkflow = async (id, input = {}, actorId = null) => {
   const existing = await exports.getWorkflow(id);
-  const record = buildWorkflowRecord(input, existing, actorId);
+  workflowCredentialPolicy.assertDefinition(input);
+  const record = workflowCredentialPolicy.safeDefinition(buildWorkflowRecord(input, existing, actorId));
   validateWorkflowGraph(record.nodes, record.edges);
+  for (const node of record.nodes) { nodeAiConfiguration.normalize(node.data?.aiConfiguration); nodeAiConfiguration.reviewCriteria(node.data || {}); }
   for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'automation-engineer') require('../workflows/automationNodeInputs').validateNodeOptions(node.data);
   for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'test-case-generation') require('../workflows/generationNodeOptions').generationOptions(node.data);
   await validateWorkflowScope(record.project_id, record.app_type_id);
@@ -652,101 +588,21 @@ const redactDiagnostic = (value, secrets = [], depth = 0) => {
 
 exports.testApiAgent = async (input = {}) => {
   const method = normalizeApiTestMethod(input.method);
-  const effectful = !["GET", "HEAD", "OPTIONS"].includes(method);
-  const operationId = effectful ? `http-test-${uuid()}` : undefined;
-  if (input.connectionId || input.connection_id) {
-    const started = Date.now();
-    const result = await require("../workflows/connections").callHttp({
-      projectId: input.project_id,
-      data: { connectionId: input.connectionId || input.connection_id, apiUrl: input.url, apiMethod: method, apiBody: input.body, timeoutMs: input.timeoutMs,
-        ...(input.credential || input.auth ? { apiAuth: "inline-credential" } : {}) },
-      signal: input.signal,
-    });
-    const responseStyle = normalizeApiResponseStyle(input.responseStyle);
-    const body = Buffer.from(typeof result.data === "string" ? result.data : JSON.stringify(result.data));
-    return { ...result, ok: true, method, responseStyle, redirect_followed: false, durationMs: Date.now() - started,
-      truncated: body.length > API_TEST_RESPONSE_LIMIT_BYTES,
-      preview: parseApiResponsePreview(body.subarray(0, API_TEST_RESPONSE_LIMIT_BYTES), result.content_type, responseStyle),
-      headers: { "content-type": result.content_type } };
-  }
-  const responseStyle = normalizeApiResponseStyle(input.responseStyle);
-  const parsedUrl = normalizeApiTestUrl(input.url);
-  const headers = new Headers({ Accept: "application/json, text/plain, */*" });
-  const startedAt = Date.now();
-  let bodyText = typeof input.body === "string" ? input.body.trim() : "";
-  if (Buffer.byteLength(bodyText) > 128 * 1024) throw workflowError("API test request bodies are limited to 128 KB.");
-
-  bodyText = applyCredentialToRequest({
-    parsedUrl,
-    headers,
-    bodyText,
-    credential: input.credential,
-    authExpression: normalizeText(input.auth)
+  const started = Date.now();
+  // Diagnostic tests use the identical project/destination/credential policy
+  // and pinned transport as workflow HTTP nodes, including public reads.
+  const result = await require("../workflows/connections").callHttp({
+    projectId: input.project_id,
+    data: { connectionId: input.connectionId || input.connection_id, apiUrl: input.url, apiMethod: method, apiBody: input.body, timeoutMs: input.timeoutMs,
+      ...(input.credential || input.auth ? { apiAuth: "inline-credential" } : {}) },
+    signal: input.signal,
   });
-  if (Buffer.byteLength(bodyText) > 128 * 1024) throw workflowError("API test request bodies are limited to 128 KB.");
-
-  if (bodyText && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-
-  const controller = new AbortController();
-  const cancel = () => controller.abort();
-  input.signal?.addEventListener("abort", cancel, { once: true });
-  if (input.signal?.aborted) controller.abort();
-  const timeout = setTimeout(() => controller.abort(), 10000);
-  const secret = readCredentialSecret(input.credential);
-  const secrets = [secret, secret ? Buffer.from(secret).toString("base64") : "", headers.get("Authorization")].filter(Boolean);
-  const publicUrl = new URL(parsedUrl);
-  for (const [key] of publicUrl.searchParams) {
-    if (input.credential?.location === "query" && key === String(input.credential.keyName || input.credential.key || "Authorization")
-      || /(?:password|secret|token|api[-_]?key|authorization)/i.test(key)) publicUrl.searchParams.set(key, "[REDACTED]");
-  }
-
-  let dispatched = false;
-  try {
-    if (input.signal?.aborted) throw workflowError("The API test was cancelled.", 499);
-    dispatched = true;
-    const response = await fetch(parsedUrl.toString(), {
-      method,
-      headers,
-      body: API_TEST_BODYLESS_METHODS.has(method) ? undefined : bodyText || undefined,
-      redirect: "manual",
-      signal: controller.signal
-    });
-    const contentType = response.headers.get("content-type") || "";
-    const { buffer: previewBuffer, truncated } = await readResponsePrefix(response, { maxBytes: API_TEST_RESPONSE_LIMIT_BYTES, abort: () => controller.abort() });
-
-    return {
-      ok: response.ok,
-      status: response.status,
-      statusText: redactDiagnostic(response.statusText, secrets),
-      method,
-      url: redactDiagnostic(publicUrl.toString(), secrets),
-      responseStyle,
-      durationMs: Date.now() - startedAt,
-      truncated,
-      headers: {
-        "content-type": contentType,
-        "content-length": response.headers.get("content-length") || null
-      },
-      preview: redactDiagnostic(parseApiResponsePreview(previewBuffer, contentType, responseStyle), secrets),
-      redirect_followed: false,
-      request: { method, response_received: true, ...(operationId ? { operation_id: operationId, postcondition_verified: false } : {}) },
-      ...(effectful && (response.status >= 500 || response.status === 408) ? { outcome_unknown: true, reconciliation_required: true, retryable: false } : {}),
-      ...(response.status >= 300 && response.status < 400 ? { message: "The endpoint returned a redirect. Review the destination and test it explicitly." } : {})
-    };
-  } catch (error) {
-    const failure = input.signal?.aborted ? workflowError("The API test was cancelled.", 499)
-      : error?.name === "AbortError" ? workflowError("API agent test timed out after 10 seconds.", 504)
-      : workflowError("Unable to reach the API endpoint. Check the URL, network connection, and authentication.", 502);
-    if (effectful && dispatched) Object.assign(failure, { code: "AGENT_HTTP_OUTCOME_UNKNOWN", outcome_unknown: true,
-      retryable: false, operation_id: operationId,
-      publicMessage: `${failure.publicMessage} The request may have changed the remote system. Verify its outcome before sending it again.` });
-    throw failure;
-  } finally {
-    clearTimeout(timeout);
-    input.signal?.removeEventListener("abort", cancel);
-  }
+  const responseStyle = normalizeApiResponseStyle(input.responseStyle);
+  const body = Buffer.from(typeof result.data === "string" ? result.data : JSON.stringify(result.data));
+  return { ...result, ok: true, method, responseStyle, redirect_followed: false, durationMs: Date.now() - started,
+    truncated: body.length > API_TEST_RESPONSE_LIMIT_BYTES,
+    preview: parseApiResponsePreview(body.subarray(0, API_TEST_RESPONSE_LIMIT_BYTES), result.content_type, responseStyle),
+    headers: { "content-type": result.content_type } };
 };
 
 exports.createWorkflowRun = async (workflowId, input = {}, actorId = null) => {

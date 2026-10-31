@@ -12,6 +12,7 @@ import {
   type EdgeProps,
   useNodesInitialized,
   useReactFlow,
+  useUpdateNodeInternals,
   type ReactFlowProps,
 } from "@xyflow/react";
 import { createContext, useContext, useEffect, useRef, type RefObject } from "react";
@@ -22,7 +23,7 @@ import type {
   AgenticWorkflowEdge,
   AgenticWorkflowNodeData,
 } from "@hellotest/platform/frontend/src/types";
-import { nodeKindLabels, type WorkflowNodeKind, type NodeInsertion } from "./workflowGraph";
+import { isLoopReturnEdge, isWorkflowLoop, nodeKindLabels, workflowSourceHandles, type WorkflowNodeKind, type NodeInsertion } from "./workflowGraph";
 
 const InsertionContext = createContext<((insertion: NodeInsertion) => void) | undefined>(undefined);
 const ConnectedPortsContext = createContext(new Set<string>());
@@ -41,8 +42,14 @@ function WorkflowNode({
   const status = String(data.runStatus || "");
   const onInsert = useContext(InsertionContext);
   const connectedPorts = useContext(ConnectedPortsContext);
-  const addButton = (handle?: string) => onInsert && !connectedPorts.has(`${id}:${handle || ""}`) && (
-    <button type="button" className={`studio-node-add nodrag nopan ${handle ? `is-${handle}` : ""}`}
+  const ports = workflowSourceHandles({ id, data } as AgenticWorkflowNode);
+  const connectedLoop = isWorkflowLoop({ id, data } as AgenticWorkflowNode);
+  const mergeInputs = kind === "aggregator" && !["waitAllAppend", "waitAllMerge"].includes(String(data.mergeMode || "waitAllAppend"));
+  const updateNodeInternals = useUpdateNodeInternals();
+  const portSignature = JSON.stringify([ports, connectedLoop, mergeInputs]);
+  useEffect(() => { updateNodeInternals(id); }, [id, portSignature, updateNodeInternals]);
+  const addButton = (handle?: string, top?: string) => onInsert && !connectedPorts.has(`${id}:${handle || ""}`) && (
+    <button type="button" className="studio-node-add nodrag nopan" style={top ? { top: `calc(${top} - 12px)` } : undefined}
       aria-label={`Add node after ${String(data.label || id)}${handle ? ` (${handle})` : ""}`}
       onClick={event => { event.stopPropagation(); onInsert({ sourceId: id, sourceHandle: handle }); }}>
       <IconPlus size={15} />
@@ -53,8 +60,11 @@ function WorkflowNode({
       className={`studio-node ${selected ? "is-selected" : ""}`}
       data-kind={kind}
       data-status={status}
+      data-multi-output={ports.length > 0 || undefined}
+      style={ports.length > 2 ? { minHeight: `${56 + ports.length * 34}px` } : undefined}
     >
-      {kind !== "trigger" && <Handle type="target" position={Position.Left} />}
+      {kind !== "trigger" && (mergeInputs ? <>{[1, 2].map((number, index) => <span key={number}><Handle type="target" id={`input-${number}`} position={Position.Left} style={{ top: `${32 + index * 44}%` }} aria-label={`Merge input ${number}`} /><span className="studio-input-port-label" style={{ top: `${25 + index * 44}%` }}>{number}</span></span>)}</> : <Handle type="target" position={Position.Left} aria-label="Input" style={connectedLoop ? { top: "32%" } : undefined} />)}
+      {connectedLoop && <><Handle type="target" id="continue" position={Position.Left} style={{ top: "76%" }} aria-label="Continue loop with batch result" /><span className="studio-input-port-label" style={{ top: "69%" }}>continue</span></>}
       {status === "running" && <svg className="studio-node-progress" aria-hidden="true"><rect x="1.5" y="1.5" width="calc(100% - 3px)" height="calc(100% - 3px)" rx="12" /></svg>}
       <span className="studio-node-icon">
         <WorkflowNodeIcon kind={kind} size={23} />
@@ -77,26 +87,13 @@ function WorkflowNode({
       {status === "completed" && (
         <IconCheck className="studio-node-check" size={15} />
       )}
-      {kind === "condition" ? (
-        <>
-          <Handle
-            type="source"
-            id="true"
-            position={Position.Right}
-            style={{ top: "32%" }}
-          />
-          <span className="studio-port-label is-true">true</span>
-          <Handle
-            type="source"
-            id="false"
-            position={Position.Right}
-            style={{ top: "76%" }}
-          />
-          <span className="studio-port-label is-false">false</span>
-          {addButton("true")}{addButton("false")}
-        </>
+      {ports.length ? (
+        ports.map((port, index) => {
+          const top = `${ports.length === 2 ? 32 + index * 44 : ((index + 1) / (ports.length + 1)) * 100}%`;
+          return <span key={port.id}><Handle type="source" id={port.id} position={Position.Right} style={{ top }} aria-label={`Output ${port.label}`} /><span className="studio-port-label" style={{ top: `calc(${top} - 9px)` }} title={port.label}>{port.label}</span>{addButton(port.id, top)}</span>;
+        })
       ) : (
-        kind !== "output" && <><Handle type="source" position={Position.Right} />{addButton()}</>
+        !["output", "stop"].includes(kind) && !(kind === "dataOperation" && data.dataOperation === "switch") && <><Handle type="source" position={Position.Right} />{addButton()}</>
       )}
     </div>
   );
@@ -104,7 +101,12 @@ function WorkflowNode({
 const nodeTypes = { agenticStep: WorkflowNode };
 function WorkflowEdge(props: EdgeProps) {
   const onInsert = useContext(InsertionContext);
-  const [path, x, y] = getBezierPath(props);
+  const [defaultPath, defaultX, defaultY] = getBezierPath(props);
+  const returning = props.data?.loopReturn === true;
+  const laneY = Math.max(props.sourceY, props.targetY) + 90;
+  const path = returning ? `M ${props.sourceX},${props.sourceY} C ${props.sourceX + 80},${props.sourceY} ${props.sourceX + 80},${laneY} ${props.sourceX},${laneY} L ${props.targetX},${laneY} C ${props.targetX - 80},${laneY} ${props.targetX - 80},${props.targetY} ${props.targetX},${props.targetY}` : defaultPath;
+  const x = returning ? (props.sourceX + props.targetX) / 2 : defaultX;
+  const y = returning ? laneY : defaultY;
   return <>
     <BaseEdge id={props.id} path={path} markerStart={props.markerStart} markerEnd={props.markerEnd} style={props.style}
       label={props.label} labelX={x} labelY={onInsert ? y - 22 : y} labelStyle={props.labelStyle}
@@ -167,7 +169,15 @@ export function WorkflowCanvas(
         deleteKeyCode={null}
         {...props}
         edgeTypes={edgeTypes}
-        edges={props.edges?.map(edge => ({ ...edge, type: onInsert && props.nodes?.find(node => node.id === edge.target)?.data.kind !== "errorHandler" ? "workflow" : edge.type }))}
+        edges={props.edges?.map(edge => {
+          const returning = isLoopReturnEdge(edge, props.nodes || []);
+          return { ...edge,
+            data: { ...(edge.data && typeof edge.data === "object" ? edge.data : {}), loopReturn: returning },
+            label: edge.label || (returning ? "continue" : edge.sourceHandle === "loop" ? "batch" : edge.sourceHandle === "done" ? "done" : undefined),
+            style: { ...(edge.style && typeof edge.style === "object" ? edge.style : {}), ...(returning ? { strokeDasharray: "5 4" } : {}) },
+            type: returning || onInsert && props.nodes?.find(node => node.id === edge.target)?.data.kind !== "errorHandler" ? "workflow" : edge.type,
+          };
+        })}
       >
         <FitCanvas container={container} enabled={autoFitOnResize} />
         <FollowExecution id={followNodeId} />

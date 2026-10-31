@@ -22,10 +22,13 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   const Fastify=require('fastify');app=Fastify({logger:false});
   app.register(require('../../src/plugins/errorHandler'));app.register(require('../../src/plugins/validator'));app.register(require('../../src/plugins/accessControl'));app.register(require('@hellotest/mcp/backend/plugin'));app.register(require('../../src/routes'));
   await app.ready();
+  await require('./mcpFeatureScope.fixture').verify({db,obsDb});
   const {createToken}=require('../../src/utils/token');
   await require('./aiConfiguration.fixture').verify({app,db,obsDb,createToken});
   await require('./metricGovernance.fixture').verify({app,db,createToken});
   await require('./agentProfileInheritance.fixture').verify({app,db,createToken});
+  await require('./mcpFeatures.fixture').verify({app,db,createToken});
+  await require('./mcpKnowledge.fixture').verify({app,db,createToken});
   await require('./agentEvidenceScope.fixture').verify();
   const webToken=createToken({id:'mcp-a'}),headers={authorization:'Bearer '+webToken};
   await require('./agentEvidenceScope.fixture').verifyIntersections({app,db,headers});
@@ -85,7 +88,8 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
    const rejected=await rpc('hellotest_operation_read',{operation_id:operation.id,arguments:{path:{id:foreign}}});assert.equal(rejected.result.isError,true);
   }
   const {result:catalog}=await rpc('hellotest_capabilities',{query:'test-cases',limit:50});assert.equal(catalog.isError,undefined);const ops=catalog.structuredContent.data.operations;
-  const read=ops.find(op=>op.method==='GET'&&op.path==='/test-cases/:id');const create=ops.find(op=>op.method==='POST'&&op.path==='/test-cases');assert.ok(read&&create);assert.equal(create.input_schema.body.properties.title.type,'string');
+  const read=ops.find(op=>op.method==='GET'&&op.path==='/test-cases/:id');const create=ops.find(op=>op.method==='POST'&&op.path==='/test-cases');assert.ok(read&&create);assert.equal(create.input_schema,undefined,'Discovery returns compact summaries.');
+  const described=await rpc('hellotest_operation_describe',{operation_id:create.id});assert.equal(described.result.structuredContent.data.input_schema.body.properties.title.type,'string');
   const valid=await rpc('hellotest_operation_read',{operation_id:read.id,arguments:{path:{id:'mcp-case-a'}}});assert.equal(valid.result.isError,undefined,JSON.stringify(valid.result));assert.equal(valid.result.structuredContent.data.data.title,'A visible case');
   const cross=await rpc('hellotest_operation_read',{operation_id:read.id,arguments:{path:{id:'mcp-case-b'}}});assert.equal(cross.result.isError,true);assert.ok(!JSON.stringify(cross.result).includes('B private case'));
   const projection=await rpc('hellotest_database_query',{entity:'test_cases',fields:['id','title']});assert.deepEqual(projection.result.structuredContent.data.rows.map(row=>row.id),['mcp-case-a']);

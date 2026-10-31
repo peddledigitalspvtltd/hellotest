@@ -7,41 +7,7 @@ const METRIC_FORMULA_VALUES_KEY = "ai_metric_formula_values";
 const TERMINAL_RESULT_STATUSES = new Set(["passed", "failed", "blocked"]);
 const CLOSED_BUG_STATUSES = new Set(["closed", "resolved", "done", "accepted"]);
 
-const metricCatalog = require("@hellotest/platform/shared/metricCatalog.json");
-const DEFAULT_FORMULA_VALUES = Object.freeze(Object.fromEntries(metricCatalog.filter(item => item.parameters?.length).map(item => [item.key,Object.freeze(Object.fromEntries(item.parameters.map(p => [p.key,p.defaultValue])))])));
-const CONFIG_LIMITS = Object.freeze(Object.fromEntries(metricCatalog.filter(item => item.parameters?.length).map(item => [item.key,Object.fromEntries(item.parameters.map(p => [p.key,[p.min,p.max]]))])));
-
-const toNumber = (value, fallback, min, max) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
-};
-
-const normalizeFormulaValues = (input) => {
-  const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
-  const normalized = {};
-  Object.entries(DEFAULT_FORMULA_VALUES).forEach(([metricKey, defaults]) => {
-    const supplied = source[metricKey] && typeof source[metricKey] === "object" && !Array.isArray(source[metricKey])
-      ? source[metricKey]
-      : {};
-    normalized[metricKey] = Object.fromEntries(Object.entries(defaults).map(([parameterKey, defaultValue]) => {
-      const [min, max] = CONFIG_LIMITS[metricKey][parameterKey];
-      return [parameterKey, toNumber(supplied[parameterKey], defaultValue, min, max)];
-    }));
-  });
-
-  const weights = normalized["metric.project.portfolio_health"];
-  const weightTotal = weights.story_weight + weights.automation_weight + weights.pass_weight;
-  if (weightTotal <= 0) {
-    normalized["metric.project.portfolio_health"] = { ...DEFAULT_FORMULA_VALUES["metric.project.portfolio_health"] };
-  } else if (weightTotal !== 100) {
-    normalized["metric.project.portfolio_health"] = {
-      story_weight: (weights.story_weight / weightTotal) * 100,
-      automation_weight: (weights.automation_weight / weightTotal) * 100,
-      pass_weight: (weights.pass_weight / weightTotal) * 100
-    };
-  }
-  return normalized;
-};
+const { DEFAULT_FORMULA_VALUES, normalizeFormulaValues } = require("@hellotest/platform/shared/metricFormulaValues");
 
 const normalizeArray = (value) => {
   if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);

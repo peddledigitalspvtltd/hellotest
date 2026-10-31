@@ -106,6 +106,10 @@ module.exports = async function (fastify) {
     await agentAccess(req, "agentic_workflow.view", req.query.project_id);
     return registry.list(req.query.project_id);
   });
+  fastify.get("/agentic-workflows/agents/:agentId", async req => {
+    await agentAccess(req, "agentic_workflow.view", req.query.project_id);
+    return registry.get(req.params.agentId, req.query.project_id);
+  });
   fastify.post("/agentic-workflows/agents", async req => {
     await agentAccess(req, "agentic_workflow.manage", req.body?.project_id);
     return registry.save(req.body || {}, null, req.user.id);
@@ -310,6 +314,12 @@ module.exports = async function (fastify) {
 
   fastify.post("/agentic-workflow-runs/:id/drafts/accept", async (req) => {
     await fastify.authenticate(req);
+    fastify.validate({
+      node_id: { required: true, type: "string", minLength: 1, maxLength: 160 },
+      story_index: { required: true, type: "number" },
+      case_index: { required: true, type: "number" },
+      kind: { required: false, type: "string", enum: ["manual", "automation"] }
+    }, req.body || {});
     const run = await agenticWorkflowService.getWorkflowRun(req.params.id);
     await requireProjectPermission(req, run.project_id, "agentic_workflow.run");
     return require("../workflows/acceptDraft").accept(fastify, req, run);
@@ -320,6 +330,20 @@ module.exports = async function (fastify) {
     const run = await agenticWorkflowService.getWorkflowRun(req.params.id);
     await requireProjectPermission(req, run.project_id, "agentic_workflow.run");
     return publicRun(await workflowExecution.cancel(run, req.user), req.user);
+  });
+
+  fastify.get("/agentic-workflow-runs/:id/cancellation", async (req) => {
+    await fastify.authenticate(req);
+    const run = await agenticWorkflowService.getWorkflowRun(req.params.id);
+    await requireProjectPermission(req, run.project_id, "agentic_workflow.view");
+    const command = await require('@hellotest/platform/backend/src/db').prepare(`
+      SELECT id,created_at,delivered_at FROM workflow_delivery_outbox
+      WHERE id=? AND run_id=? AND project_id=? AND command='cancel'
+    `).get(`cancel:${run.id}`, run.id, run.project_id);
+    return { id: run.id, project_id: run.project_id, status: run.status,
+      requested: run.status === "cancelled" || Boolean(command),
+      delivery_state: command ? command.delivered_at ? "delivered" : "queued" : run.status === "cancelled" ? "completed" : "not_requested",
+      requested_at: command?.created_at || null, delivered_at: command?.delivered_at || null };
   });
 
   fastify.get("/agentic-workflow-runs", async (req) => {

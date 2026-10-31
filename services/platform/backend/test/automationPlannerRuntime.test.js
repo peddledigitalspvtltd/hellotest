@@ -112,7 +112,7 @@ test('the real shared transport never truncates or replays a closed phase after 
    if(dispatches===1){assert.equal(user,packet);return Response.json({error:{message:'Request too large'}},{status:413});}
    assert.equal(closed,false,'a closed browser prompt must never reach a second size-correction dispatch');
    assert.ok(user.length<=6000);assert.match(user,/Additional context omitted due to provider size limit/);
-   return Response.json({choices:[{message:{content:JSON.stringify({requirements:[{title:'Ordinary bounded task',description:'A bounded Story proposal from the supplied task.',acceptance_criteria:[],priority:3,open_questions:['Which observable acceptance outcome is required?']}]})}}]});
+   return Response.json({choices:[{message:{content:JSON.stringify({requirements:[{title:'Ordinary bounded task',description:'A bounded Story proposal from the supplied task.',acceptance_criteria:['The supplied action produces its stated observable outcome.'],priority:3}]})}}]});
   });
   const response=await context.run(hostScope,()=>f.client.fetchLlmWithRetry('https://llm.test/chat/completions',request(packet),{featureKey:id,timeoutMs:5000,maxAttempts:1,compatibility:false}));
   assert.equal(response.status,closed?413:200);assert.equal(dispatches,closed?1:2);mock.mock.restore();

@@ -58,8 +58,8 @@ test('Agentic Studio supports templates, node authoring, actual step IO, executi
   await page.locator('.studio-library-list').getByRole('button',{name:/Output Publish/}).click();
   assert.equal(await page.locator('.studio-node').count(),3);
   await page.getByRole('button',{name:'Insert node on connection'}).first().click();
-  await page.getByRole('textbox',{name:'Search nodes'}).fill('edit fields');
-  await page.locator('.studio-library-list').getByRole('button',{name:/Edit fields/}).click();
+  await page.getByRole('textbox',{name:'Search nodes'}).fill('map json');
+  await page.locator('.studio-library-list').getByRole('button',{name:/Map JSON/}).click();
   assert.equal(await page.locator('.studio-node').count(),4);
   await page.getByRole('button',{name:'Create Workflow',exact:true}).click();await page.getByText('Workflow created. You can now configure and modify it.',{exact:true}).waitFor();
   const wired=await page.evaluate(()=>window.previewWorkflow);
@@ -102,7 +102,7 @@ test('Agentic Studio supports templates, node authoring, actual step IO, executi
   await page.screenshot({path:output+'/06-skills-and-insertion.png',fullPage:true});
   await page.getByRole('button',{name:'Back to workflows',exact:true}).click();
   await page.getByRole('button',{name:/Data flow Process a list of items/}).click();
-  await page.locator('.studio-node').filter({hasText:'For each item'}).click();
+  await page.locator('.studio-node').filter({hasText:'Loop over items'}).click();
   assert.equal(await page.getByLabel('Items path',{exact:true}).inputValue(),'input.items');
   await page.getByLabel('Action for each item').selectOption('customAI');await page.getByLabel('Task for each item').fill('Review this item');
   await page.getByRole('button',{name:'Back to workflows',exact:true}).click();
@@ -115,7 +115,7 @@ test('Agentic Studio supports templates, node authoring, actual step IO, executi
   await page.getByRole('button',{name:'Back to workflows',exact:true}).click();
   await page.getByRole('button',{name:/Reviews Story assurance/}).click();
   await page.getByRole('button',{name:'Execute workflow',exact:true}).waitFor();assert.equal(await page.locator('.rovo-provider-status').count(),0);
-  await page.getByRole('button',{name:'Add node',exact:true}).click();await page.getByRole('textbox',{name:'Search nodes'}).fill('aggregator');await page.locator('.studio-library-list').getByRole('button',{name:/Aggregator/}).click();
+  await page.getByRole('button',{name:'Add node',exact:true}).click();await page.getByRole('textbox',{name:'Search nodes'}).fill('merge');await page.locator('.studio-library-list').getByRole('button',{name:/Merge/}).click();
   assert.equal(await page.locator('.studio-node').count(),4);await page.getByRole('button',{name:'Delete selected node'}).click();
   await page.getByRole('button',{name:'Save changes',exact:true}).click();await page.getByText('Workflow changes saved.',{exact:true}).waitFor();
   await page.locator('.studio-node').filter({hasText:'Story assurance'}).dblclick();await page.getByRole('dialog',{name:'Inspect Story assurance'}).waitFor();

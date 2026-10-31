@@ -40,7 +40,7 @@ module.exports = async function (fastify) {
   fastify.get("/projects/:project_id/knowledge", async (req) => {
     await fastify.authenticate(req);
     await ensureProjectAccess(req, req.params.project_id, "knowledge.view");
-    return aiKnowledgeService.listKnowledge(req.params.project_id);
+    return aiKnowledgeService.listKnowledge(req.params.project_id, req.user);
   });
 
   fastify.get("/projects/:project_id/knowledge/overview", async (req) => {
@@ -54,6 +54,12 @@ module.exports = async function (fastify) {
     await ensureProjectAccess(req, req.params.project_id, "knowledge.manage");
     await validateAppTypeScope(req.params.project_id, req.body?.app_type_id);
     return aiKnowledgeService.createKnowledge(req.params.project_id, req.body || {}, req.user.id);
+  });
+
+  fastify.get("/projects/:project_id/knowledge/:id", async (req) => {
+    await fastify.authenticate(req);
+    await ensureProjectAccess(req, req.params.project_id, "knowledge.view");
+    return aiKnowledgeService.getKnowledgeItem(req.params.project_id, req.params.id, req.user);
   });
 
   fastify.put("/projects/:project_id/knowledge/:id", async (req) => {
@@ -77,7 +83,7 @@ module.exports = async function (fastify) {
       item_version: req.query.item_version,
       query: req.query.query,
       limit: Number(req.query.limit || 20)
-    });
+    }, req.user);
   });
 
   fastify.get("/projects/:project_id/knowledge/context-package", async (req) => {

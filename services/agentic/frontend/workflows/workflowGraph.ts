@@ -1,6 +1,7 @@
 import { MarkerType } from "@xyflow/react";
 import { specialistDefaults } from "./specialistProfiles";
 import { nativeTaskDefaults, withNativeTaskDefaults } from "./nativeTaskProfiles";
+import { dataOperationDefaults } from "./dataOperationProfiles";
 import { isRovoIntegrationId } from "@hellotest/integration/frontend/lib/rovo";
 import type {
   AgenticWorkflow,
@@ -29,6 +30,9 @@ export type WorkflowNodeKind =
   | "loop"
   | "aggregator"
   | "transform"
+  | "dataOperation"
+  | "wait"
+  | "stop"
   | "errorHandler"
   | "log"
   | "output";
@@ -77,9 +81,12 @@ export const nodeKindLabels: Record<WorkflowNodeKind, string> = {
   repositoryTool: "Repository evidence",
   testOpsTool: "Run evidence",
   condition: "Condition",
-  loop: "For each",
-  aggregator: "Aggregator",
-  transform: "Edit fields",
+  loop: "Loop over items",
+  aggregator: "Merge",
+  transform: "Map JSON",
+  dataOperation: "Data operation",
+  wait: "Wait",
+  stop: "Stop with error",
   errorHandler: "Error handler",
   log: "Log",
   output: "Output",
@@ -101,9 +108,12 @@ export const nodeKindDescriptions: Record<WorkflowNodeKind, string> = {
   repositoryTool: "Read repository or object metadata",
   testOpsTool: "Read permitted run and execution evidence",
   condition: "Route data through true and false branches",
-  loop: "Map fields or run an AI review for each input item",
-  aggregator: "Merge parallel outputs",
+  loop: "Process batches through connected steps, then collect their results",
+  aggregator: "Wait for branches, append items, match fields or combine by position",
   transform: "Shape JSON output",
+  dataOperation: "Split out, aggregate, limit, sort, remove duplicates, filter or switch items",
+  wait: "Pause this branch for a configured duration",
+  stop: "End execution with an explicit error message",
   errorHandler: "Handle failed node output",
   log: "Record evidence and trace data",
   output: "Publish result",
@@ -129,7 +139,7 @@ export const nodePaletteGroups: Array<{
   },
   {
     label: "Data and flow",
-    kinds: ["condition", "loop", "transform", "aggregator"],
+    kinds: ["condition", "loop", "transform", "dataOperation", "aggregator", "wait", "stop"],
   },
   { label: "Results and recovery", kinds: ["output", "log", "errorHandler"] },
 ];
@@ -206,9 +216,12 @@ export const buildNodeDefaults = (
   if (kind === "transform")
     return {
       ...base,
-      label: "Edit fields",
+      label: "Map JSON",
       transformMapping: '{\n  "result": "$input"\n}',
     };
+  if (kind === "dataOperation") return { ...base, ...dataOperationDefaults("editFields") };
+  if (kind === "wait") return { ...base, label: "Wait", waitMs: 1000, retryCount: "0" };
+  if (kind === "stop") return { ...base, label: "Stop with error", stopMessage: "Workflow stopped by the configured condition.", retryCount: "0" };
   if (kind === "condition")
     return {
       ...base,
@@ -299,11 +312,12 @@ export const buildNodeDefaults = (
   if (kind === "loop") {
     return {
       ...base,
-      label: "For each item",
+      label: "Loop over items",
       loopSourceKey: "input.items",
       loopMaxIterations: "10",
-      loopAction: "transform",
-      transformMapping: '{\n  "item": "$item"\n}',
+      loopAction: "workflow",
+      loopBatchSize: 1,
+      timeoutMs: "180000",
       summary:
         "Process a selected item array sequentially within a bounded item limit.",
     };
@@ -312,10 +326,9 @@ export const buildNodeDefaults = (
   if (kind === "aggregator") {
     return {
       ...base,
-      label: "Aggregate branch outputs",
+      label: "Merge branch outputs",
       inputMode: "allIncoming",
       mergeMode: "waitAllAppend",
-      aggregateKey: "id",
       outputKey: "aggregated_results",
       summary:
         "Collect parallel branch outputs into one deterministic downstream payload.",
@@ -385,17 +398,52 @@ export const decorateFlowEdge = (
 
 export type NodeInsertion = { sourceId?: string; sourceHandle?: string | null; edgeId?: string };
 
-export function canConnectWorkflow(nodes: AgenticWorkflowNode[], edges: AgenticWorkflowEdge[], source: string, target: string, handle?: string | null) {
+export const isWorkflowLoop = (node: AgenticWorkflowNode | undefined) => node?.data.kind === "loop" && node.data.loopAction === "workflow";
+export const isLoopReturnEdge = (edge: AgenticWorkflowEdge, nodes: AgenticWorkflowNode[]) => edge.targetHandle === "continue" && isWorkflowLoop(nodes.find(node => node.id === edge.target));
+export function switchRoutes(data: AgenticWorkflowNodeData): Array<{ id: string; label: string }> {
+  if (data.kind !== "dataOperation" || data.dataOperation !== "switch") return [];
+  try {
+    const configured = data.dataRoutes === undefined ? dataOperationDefaults("switch").dataRoutes : data.dataRoutes;
+    const routes = typeof configured === "string" ? JSON.parse(configured) : configured;
+    const seen = new Set<string>();
+    return Array.isArray(routes) ? routes.filter(route => {
+      if (!route || typeof route.id !== "string" || !/^[a-zA-Z][\w-]{0,63}$/.test(route.id) || ["fallback", "__proto__", "constructor", "prototype"].includes(route.id) || seen.has(route.id)) return false;
+      seen.add(route.id); return true;
+    }).map(route => ({ id: route.id, label: String(route.label || route.id) })) : [];
+  } catch { return []; }
+}
+export function workflowSourceHandles(node: AgenticWorkflowNode): Array<{ id: string; label: string }> {
+  if (node.data.kind === "condition") return [{ id: "true", label: "true" }, { id: "false", label: "false" }];
+  if (isWorkflowLoop(node)) return [{ id: "loop", label: "loop" }, { id: "done", label: "done" }];
+  if (node.data.kind === "dataOperation" && node.data.dataOperation === "switch") return [...switchRoutes(node.data), ...((node.data.dataFallback ?? "fallback") === "fallback" ? [{ id: "fallback", label: "fallback" }] : [])];
+  return [];
+}
+export const defaultSourceHandle = (node: AgenticWorkflowNode) => isWorkflowLoop(node) ? "done" : workflowSourceHandles(node)[0]?.id || null;
+export function canConnectWorkflow(nodes: AgenticWorkflowNode[], edges: AgenticWorkflowEdge[], source: string, target: string, handle?: string | null, targetHandle?: string | null) {
   const from = nodes.find(node => node.id === source), to = nodes.find(node => node.id === target);
-  if (!from || !to || source === target || from.data.kind === "output" || to.data.kind === "trigger") return false;
-  if (from.data.kind === "condition" && !["true", "false"].includes(handle || "")) return false;
-  if (edges.some(edge => edge.source === source && edge.target === target && (edge.sourceHandle || null) === (handle || null))) return false;
+  if (!from || !to || source === target || ["output", "stop"].includes(String(from.data.kind)) || to.data.kind === "trigger") return false;
+  const handles = workflowSourceHandles(from);
+  if (from.data.kind === "dataOperation" && from.data.dataOperation === "switch" && !handles.length) return false;
+  if (handles.length && !handles.some(port => port.id === handle)) return false;
+  if (edges.some(edge => edge.source === source && edge.target === target && (edge.sourceHandle || null) === (handle || null) && (edge.targetHandle || null) === (targetHandle || null))) return false;
+  const forward = edges.filter(edge => !isLoopReturnEdge(edge, nodes));
+  if (targetHandle === "continue") {
+    if (!isWorkflowLoop(to)) return false;
+    const body = new Set<string>();
+    const visitBody = (id: string) => {
+      if (body.has(id) || id === target) return;
+      body.add(id); forward.filter(edge => edge.source === id).forEach(edge => visitBody(edge.target));
+    };
+    forward.filter(edge => edge.source === target && edge.sourceHandle === "loop").forEach(edge => visitBody(edge.target));
+    return body.has(source);
+  }
+  if (targetHandle && !(to.data.kind === "aggregator" && /^input-[12]$/.test(targetHandle))) return false;
   const visited = new Set<string>();
   const reachesSource = (id: string): boolean => {
     if (id === source) return true;
     if (visited.has(id)) return false;
     visited.add(id);
-    return edges.filter(edge => edge.source === id).some(edge => reachesSource(edge.target));
+    return forward.filter(edge => edge.source === id).some(edge => reachesSource(edge.target));
   };
   return !reachesSource(target);
 }
@@ -406,22 +454,22 @@ export function insertWorkflowNode(nodes: AgenticWorkflowNode[], edges: AgenticW
   const edge = edges.find(item => item.id === insertion.edgeId);
   if (insertion.edgeId && !edge) throw new Error("This connection was removed. Choose where to add the node again.");
   const source = nodes.find(node => node.id === (edge?.source || insertion.sourceId));
-  if (source?.data.kind === "output") throw new Error("Output ends a branch. Add a node before it.");
-  if (edge && ["trigger", "output", "errorHandler"].includes(kind)) throw new Error("Choose a processing node to insert on a connection.");
+  if (["output", "stop"].includes(String(source?.data.kind))) throw new Error("This node ends a branch. Add a node before it.");
+  if (edge && ["trigger", "output", "stop", "errorHandler"].includes(kind)) throw new Error("Choose a processing node to insert on a connection.");
   const handle = edge?.sourceHandle ?? insertion.sourceHandle ?? null;
-  if (source?.data.kind === "condition" && !["true", "false"].includes(handle || "")) throw new Error("Choose the true or false branch to add a node.");
+  if (source && workflowSourceHandles(source).length && !workflowSourceHandles(source).some(port => port.id === handle)) throw new Error("Choose an output branch to add a node.");
   const id = createNodeId(kind);
   const downstream = source ? edges.filter(item => item.source === source.id && (item.sourceHandle || null) === handle && nodes.find(node => node.id === item.target)?.data.kind !== "errorHandler") : [];
-  const rewired = edge ? [edge] : ["output", "errorHandler", "trigger"].includes(kind) ? [] : downstream;
+  const rewired = edge ? [edge] : ["output", "stop", "errorHandler", "trigger"].includes(kind) ? [] : downstream;
   const shifted = new Set<string>();
   const visit = (nodeId: string) => {
     if (shifted.has(nodeId)) return;
     shifted.add(nodeId);
-    edges.filter(item => item.source === nodeId).forEach(item => visit(item.target));
+    edges.filter(item => item.source === nodeId && !isLoopReturnEdge(item, nodes)).forEach(item => visit(item.target));
   };
-  rewired.forEach(item => visit(item.target));
+  rewired.filter(item => !isLoopReturnEdge(item, nodes)).forEach(item => visit(item.target));
   const next: AgenticWorkflowNode = { id, type: "agenticStep", position: {
-    x: source ? source.position.x + 310 : 70 + nodes.length * 310,
+    x: source ? source.position.x + 350 : 70 + nodes.length * 350,
     y: (source?.position.y ?? 140) + (source && !rewired.length && downstream.length ? 170 : handle === "false" ? 170 : 0),
   }, data: buildNodeDefaults(kind, nodes.length) };
   const aliases = new Set(nodes.flatMap(node => [node.id, node.data.outputKey]).filter(Boolean));
@@ -434,11 +482,11 @@ export function insertWorkflowNode(nodes: AgenticWorkflowNode[], edges: AgenticW
     node: next,
     nodes: [...nodes.map(node => ({ ...node,
       ...(source?.id === node.id && kind === "errorHandler" ? { data: { ...node.data, onError: "errorOutput" } } : {}),
-      position: shifted.has(node.id) ? { ...node.position, x: node.position.x + 310 } : node.position,
+      position: shifted.has(node.id) ? { ...node.position, x: node.position.x + 350 } : node.position,
     })), next],
     edges: [...edges.filter(item => !rewired.includes(item)),
       ...(source && kind !== "trigger" ? [{ ...createFlowEdge(source.id, id), sourceHandle: handle }] : []),
-      ...rewired.map(item => ({ ...item, source: id, sourceHandle: kind === "condition" ? "true" : null })),
+      ...rewired.map(item => ({ ...item, source: id, sourceHandle: defaultSourceHandle(next) })),
     ],
   };
 }
@@ -453,7 +501,7 @@ export function layoutWorkflow(
     let advanced = false;
     for (const id of remaining) {
       const parents = edges
-        .filter((edge) => edge.target === id)
+        .filter((edge) => edge.target === id && !isLoopReturnEdge(edge, nodes))
         .map((edge) => edge.source)
         .filter((source) => nodes.some((node) => node.id === source));
       if (parents.every((parent) => depth.has(parent))) {
@@ -472,14 +520,15 @@ export function layoutWorkflow(
       break;
     }
   }
-  const row = new Map<number, number>();
+  const nextY = new Map<number, number>();
   return nodes.map((node) => {
     const column = depth.get(node.id) || 0,
-      index = row.get(column) || 0;
-    row.set(column, index + 1);
+      y = nextY.get(column) ?? 140;
+    const portCount = workflowSourceHandles(node).length;
+    nextY.set(column, y + (portCount > 2 ? 56 + portCount * 34 : 94) + 76);
     return {
       ...node,
-      position: { x: 70 + column * 310, y: 140 + index * 170 },
+      position: { x: 70 + column * 350, y },
     };
   });
 }
@@ -686,7 +735,10 @@ export const buildN8nPayload = (
       targetNode.data.label || targetNode.data.name || targetNode.id,
     );
     const current = accumulator[sourceName] || { main: [[]] };
-    current.main[0].push({ node: targetName, type: "main", index: 0 });
+    const sourceIndex = Math.max(0, workflowSourceHandles(sourceNode).findIndex(port => port.id === edge.sourceHandle));
+    const targetIndex = edge.targetHandle === "continue" || edge.targetHandle === "input-2" ? 1 : 0;
+    while (current.main.length <= sourceIndex) current.main.push([]);
+    current.main[sourceIndex].push({ node: targetName, type: "main", index: targetIndex });
     accumulator[sourceName] = current;
     return accumulator;
   }, {});
@@ -710,6 +762,8 @@ export const buildN8nPayload = (
           task: node.data.task || "",
           instructions: node.data.instructions ?? "",
           guardrails: node.data.guardrails ?? "",
+          aiConfiguration: node.data.aiConfiguration || {},
+          reviewCriteria: node.data.reviewCriteria || "",
           artifactTask: node.data.artifactTask || "",
           inspectBrowser: node.data.inspectBrowser ?? true,
           readinessPolicy: node.data.readinessPolicy || "verify-inputs",
@@ -730,16 +784,27 @@ export const buildN8nPayload = (
                 edgeId: edge.id,
                 sourceNodeId: edge.source,
                 sourceOutputKey: getNodeOutputKey(sourceNode),
+                sourceHandle: edge.sourceHandle || null,
+                targetHandle: edge.targetHandle || null,
               };
             }),
             outgoing: outgoingEdges.map((edge) => ({
               edgeId: edge.id,
               targetNodeId: edge.target,
+              sourceHandle: edge.sourceHandle || null,
+              targetHandle: edge.targetHandle || null,
             })),
           },
           merge: {
             mode: node.data.mergeMode || "",
             aggregateKey: node.data.aggregateKey || "",
+            clash: node.data.mergeClash || "preferLast",
+            deep: node.data.mergeDeep ?? true,
+            includeUnpaired: node.data.mergeIncludeUnpaired ?? false,
+            matchFields: node.data.mergeMatchFields || "[]",
+            join: node.data.mergeJoin || "inner",
+            multiple: node.data.mergeMultiple || "all",
+            chooseInput: node.data.mergeChooseInput || 1,
           },
           runtime: {
             timeoutMs: node.data.timeoutMs || "30000",
@@ -753,7 +818,11 @@ export const buildN8nPayload = (
             sourceKey: node.data.loopSourceKey || "",
             action: node.data.loopAction || "",
             maxIterations: node.data.loopMaxIterations || "",
+            batchSize: node.data.loopBatchSize || 1,
           },
+          dataOperation: Object.fromEntries(Object.entries(node.data).filter(([key]) => key.startsWith("data"))),
+          waitMs: node.data.waitMs ?? 0,
+          stopMessage: node.data.stopMessage || "",
           condition: { conditions: node.data.conditions || [{ conditionPath: node.data.conditionPath, conditionOperator: node.data.conditionOperator, conditionValue: node.data.conditionValue }], combinator: node.data.conditionCombinator || "all" },
           transformMapping: node.data.transformMapping || "",
           tool: {

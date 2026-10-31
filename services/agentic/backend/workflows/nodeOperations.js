@@ -3,6 +3,7 @@ const { isDeepStrictEqual } = require("node:util");
 const mcp = require("./mcpClient");
 const permissions = require("@hellotest/platform/backend/services/permission.service");
 const flags = require("@hellotest/platform/backend/services/featureFlag.service");
+const dataOperations = require("./dataOperations");
 const {
   sanitizeAiText,
 } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
@@ -19,6 +20,7 @@ const KINDS = new Set([
   "condition",
   "loop",
   "transform",
+  "dataOperation",
   "errorHandler",
   "log",
 ]);
@@ -134,8 +136,8 @@ function contextFor(run, sources, { internal = false } = {}) {
     request: run.input_payload,
     input: Object.hasOwn(run, "iteration_input") ? run.iteration_input : nativeContext ? nativeContext.data : !sources.length ? run.input_payload : sources.length === 1 ? sourceValue(sources[0], internal) : combined.data,
     nodes: Object.fromEntries(sources.flatMap(source => [[source.node_id, source.output], ...(source.output_key && source.output_key !== source.node_id ? [[source.output_key, source.output]] : [])])),
-    item: Object.hasOwn(run, "iteration_input") ? run.iteration_input : run.input_payload?.item ?? null,
-    ...(Object.hasOwn(run, "iteration_index") ? { iteration: { index: run.iteration_index, number: run.iteration_index + 1, total: run.iteration_total ?? null } } : {}),
+    item: Object.hasOwn(run, 'loop_item') ? run.loop_item : Object.hasOwn(run, "iteration_input") ? run.iteration_input : run.input_payload?.item ?? null,
+    ...(Object.hasOwn(run, "iteration_index") ? { iteration: { index: run.iteration_index, number: run.iteration_index + 1, total: run.iteration_total ?? null, ...(run.loop_batch_size ? { batch_size: run.loop_batch_size } : {}) } } : {}),
     ...(combined ? { merge: { mode: "combine_fields", conflicts: combined.conflicts } } : {}),
   };
 }
@@ -219,11 +221,12 @@ function validate(node) {
       errors.push(error.publicMessage || error.message);
     }
   };
-  if (kind === "transform" || (kind === "loop" && !["customAI", "storyPackets"].includes(data.loopAction)))
+  if (kind === "transform" || (kind === "loop" && !["customAI", "storyPackets", "workflow"].includes(data.loopAction)))
     check(() => parseObject(data.transformMapping || "{}", "Field mapping"));
   if (Number(data.retryCount) > 0 && !require("./runtimeEvents").canRetry(kind, data))
     errors.push("Retries are available for AI reviews and HTTP GET/HEAD requests. Set retries to zero for this node.");
   if (kind === "condition") check(() => condition(data, {}));
+  if (kind === "dataOperation") check(() => dataOperations.validate(data, { condition }));
   if (kind === "mcpTool") {
     if (!data.connectionId || !data.mcpTool)
       errors.push("Choose an MCP server and tool.");
@@ -250,16 +253,17 @@ function validate(node) {
       "MCP calls cannot be automatically retried. Set retries to zero.",
     );
   if (kind === "loop") {
-    if (data.loopBatchSize != null && data.loopBatchSize !== "" && Number(data.loopBatchSize) !== 1)
+    if (data.loopAction === 'workflow' && (typeof data.loopBatchSize === 'boolean' || !Number.isInteger(Number(data.loopBatchSize ?? 1)) || Number(data.loopBatchSize ?? 1) < 1 || Number(data.loopBatchSize ?? 1) > 100)) errors.push('Batch size must be an integer from 1 to 100.');
+    if (data.loopAction !== 'workflow' && data.loopBatchSize != null && data.loopBatchSize !== "" && Number(data.loopBatchSize) !== 1)
       errors.push("For each processes one item at a time. Batch size must be 1; cyclic or parallel batches are not supported.");
-    if (!["transform", "customAI", "storyPackets"].includes(data.loopAction || "transform"))
+    if (!["transform", "customAI", "storyPackets", "workflow"].includes(data.loopAction || "transform"))
       errors.push("Choose field mapping or AI review for each item.");
     if (
-      !Number.isInteger(Number(data.loopMaxIterations)) ||
+      typeof data.loopMaxIterations === 'boolean' || !Number.isInteger(Number(data.loopMaxIterations)) ||
       Number(data.loopMaxIterations) < 1 ||
-      Number(data.loopMaxIterations) > (data.loopAction === "storyPackets" ? 100 : 10)
+      Number(data.loopMaxIterations) > (["storyPackets", "workflow"].includes(data.loopAction) ? 100 : 10)
     )
-      errors.push(data.loopAction === "storyPackets" ? "For each Story supports 1–100 Stories per execution." : "For each supports 1–10 items per execution.");
+      errors.push(["storyPackets", "workflow"].includes(data.loopAction) ? "For each supports 1–100 input items per execution." : "For each supports 1–10 items per execution.");
     if (data.loopAction === "customAI" && !String(data.prompt || "").trim())
       errors.push("Describe the AI task for each item.");
   }
@@ -295,6 +299,7 @@ async function execute({
   const data = node.data || {},
     kind = data.kind || node.type;
   const context = contextFor(run, sources, { internal: kind === "artifactTask" });
+  if (kind === "dataOperation") return dataOperations.execute(data, context, { readPath, mapValues, condition, signal });
   if (kind === "artifactTask") return require("./artifactTasks").execute({ run, node, sources, user, signal, onProgress, context });
   if (data.apiResource === "sprintStories") {
     require("./artifactTasks").checkInput(run);

@@ -74,4 +74,5 @@ test('last successful defaults ignore inactive and other-project providers while
   ] };
   assert.equal(llm.resolveAiLlmDefault({ preferences: prefs, usageKey: 'feature', projectId: 'project', integrations }), 'worked');
   assert.equal(llm.resolveAiLlmDefault({ preferences: { ...prefs, ai_prompt_registry_llm_overrides: { feature: 'override' } }, usageKey: 'feature', projectId: 'project', integrations }), 'override');
+  assert.equal(llm.resolveAiLlmDefault({preferences:{...prefs,ai_prompt_registry_llm_overrides:{'ai.agentic.workflow':'override'}},usageKey:'ai.agentic.workflow',projectId:'project',integrations}),'worked','Opening Agent Studio must not materialize an admin preference as an explicit node model.');
 });

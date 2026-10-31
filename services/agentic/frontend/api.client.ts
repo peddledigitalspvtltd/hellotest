@@ -111,7 +111,7 @@ repositoryAgents: {
       formData.set("project_id", input.project_id);
       if (input.app_type_id) formData.set("app_type_id", input.app_type_id);
       formData.set("agent_type", input.agent_type);
-      formData.set("context", JSON.stringify({ llm_integration_id: input.llm_integration_id, goal: input.goal, context_scopes: input.context_scopes, evidence_scope: input.evidence_scope, smart_context: input.smart_context }));
+      formData.set("context", JSON.stringify({ ai_configuration:input.ai_configuration, instructions:input.instructions, guardrails:input.guardrails, review_criteria:input.review_criteria, llm_integration_id: input.llm_integration_id, goal: input.goal, context_scopes: input.context_scopes, evidence_scope: input.evidence_scope, smart_context: input.smart_context }));
       formData.set("file", input.file);
       return requestForm<RepositoryAgentRun>("/repository-agents/runs", formData, options);
     },

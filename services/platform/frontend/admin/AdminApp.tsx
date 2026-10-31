@@ -42,7 +42,7 @@ const nav: Array<{ id: Section; label: string; icon: ReactNode }> = [
 
 const title: Record<Section, { eyebrow: string; heading: string; copy: string }> = {
   "metric-governance": { eyebrow: "Quality measurement", heading: "Metric governance", copy: "Govern metric definitions, thresholds, weights and review criteria. Save drafts, publish reviewed values and retain a versioned audit trail." },
-  "ai-controls": { eyebrow: "AI governance", heading: "AI Controls", copy: "Configure each AI feature’s instructions, guardrails, model settings and MCP context. Review drafts, publish versions and track model outcomes." },
+  "ai-controls": { eyebrow: "AI governance", heading: "AI Controls", copy: "Configure application AI instructions, guardrails, models and evidence. Agent Studio owns agent and native task settings. Review drafts, publish versions and track application model outcomes." },
   overview: { eyebrow: "Instance command", heading: "Control center", copy: "A live view of launch readiness, platform capacity, and the configuration that keeps HelloTest healthy." },
   people: { eyebrow: "Identity & access", heading: "Administrators", copy: "Onboard trusted operators and keep control-plane access intentional." },
   setup: { eyebrow: "Launch sequence", heading: "Instance setup", copy: "Validate the shared schema and install safe, idempotent sample content module by module." },

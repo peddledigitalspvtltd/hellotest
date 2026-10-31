@@ -26,6 +26,39 @@ test("retrieval planning receives a bounded packet even when the first raw evide
   assert.equal(data.context_packet.authorization.source_acl_enforced, true);
 });
 
+test('initial intent planning omits an empty audit packet while retaining bounded question, scope and reference history', async context => {
+  let sent;
+  context.mock.method(gateway, 'request', async input => { sent = input; return { search_queries: [] }; });
+  const question = 'Which release rules apply?', filters = { requested_scopes: ['knowledge'] };
+  await assistant._internals.requestRetrievalPlan({ integration, question, projectScope: { project_id: 'project', app_type_id: 'app', filters }, history: [{ role: 'assistant', content: 'Do not replay generated facts.' }, { role: 'user', content: 'The checkout release.' }] });
+  const data = JSON.parse(sent.messages[1].content);
+  assert.equal(data.question, question);
+  assert.equal(data.project_scope.project_id, 'project');
+  assert.equal(data.project_scope.app_type_id, 'app');
+  assert.deepEqual(data.project_scope.filters.requested_scopes, filters.requested_scopes);
+  assert.deepEqual(data.project_scope.filters.source_ids, []);
+  assert.deepEqual(data.conversation_for_reference_resolution, [{ role: 'user', content: 'The checkout release.' }]);
+  assert.equal(data.context_packet, undefined);
+  const empty = contracts.buildContextPacket({ retrievalRequest: contracts.buildRetrievalRequest({ projectId: 'project', query: question, filters }), authorization: { project_scope_enforced: true, source_acl_enforced: true }, evidence: [] });
+  const before = contracts.buildModelRequest({ contextPacket: empty, question }).messages[1].content;
+  assert.ok(Buffer.byteLength(sent.messages[1].content) < Buffer.byteLength(before) * 0.7, 'No-evidence planning avoids at least 30% of its former user payload.');
+});
+
+test('explicit verification uses the same compact evidence contract without duplicate retrieval metadata or pretty-print overhead', async context => {
+  let sent;
+  context.mock.method(gateway, 'request', async input => { sent = input; return { status: 'answered', supported_claims: [] }; });
+  const packet = contracts.buildContextPacket({ retrievalRequest: contracts.buildRetrievalRequest({ projectId: 'project', query: 'What changed?' }), authorization: { enforced: true }, evidence: [{ source_id: 'source', citation: { id: 'e1' }, content: 'Onboarding is Done.' }], retrieval: { redundant_provider_metadata: 'OMIT_RETRIEVAL_METADATA'.repeat(100) } });
+  const original = JSON.stringify(packet);
+  await assistant._internals.requestGroundedVerification({ integration, question: 'What changed?', draft: { status: 'answered', supported_claims: [{ statement: 'Onboarding is Done.', citation_ids: ['e1'] }] }, projectScope: { project_id: 'project' }, contextPacket: packet });
+  const data = JSON.parse(sent.messages[1].content);
+  assert.equal(data.context_packet.evidence[0].content, packet.evidence[0].content);
+  assert.equal(data.context_packet.evidence[0].evidence_id, packet.evidence[0].evidence_id);
+  assert.deepEqual(data.context_packet.limitations, packet.limitations);
+  assert.doesNotMatch(sent.messages[1].content, /OMIT_RETRIEVAL_METADATA/);
+  assert.ok(Buffer.byteLength(JSON.stringify(data.context_packet)) < Buffer.byteLength(original) / 2);
+  assert.equal(JSON.stringify(packet), original);
+});
+
 test("synthesis uses the authorized packet once and enforces the model-candidate schema", async (context) => {
   let sent;
   context.mock.method(gateway, "request", async (input) => {

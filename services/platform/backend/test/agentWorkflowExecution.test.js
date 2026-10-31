@@ -81,7 +81,7 @@ test("real review execution persists the snapshot, invokes the registered specia
   assert.equal(requests.length, 1); assert.equal(requests[0].agent_id, "story-architect");
   assert.deepEqual(requests[0].context_scopes, ["stories", "runs", "knowledge"]);
   assert.equal(requests[0].project_id, "project-a"); assert.equal(requests[0].app_type_id, "app-a");
-  assert.match(requests[0].prompt, /Checkout/); assert.doesNotMatch(requests[0].prompt, /Later mutation|Fabricated sample/);
+  assert.equal(requests[0].workflow_policy.connected_input.request.release,'Checkout');assert.equal(requests[0].prompt,'Review missing acceptance boundaries');assert.doesNotMatch(requests[0].prompt,/Later mutation|Fabricated sample/);
   assert.equal(saved.node_results[1].output.session_id, "review-a");
   assert.deepEqual(saved.node_results[2].output.reviews[0].citation_ids, ["K-stories-real"]);
   assert.ok(saved.node_results.every(item => item.status === "completed" && item.attempts === 1));
@@ -260,8 +260,9 @@ test("upstream review proposals retain their untrusted boundary", async t => {
   const graph = workflow(); graph.nodes.splice(2, 0, node("evaluate", "agent", { agentId: "quality-evaluator", prompt: "Check the review" }));
   graph.edges = [{ source: "request", target: "story" }, { source: "story", target: "evaluate" }, { source: "evaluate", target: "finish" }];
   const run = await runtime.start(graph, {}, user); await finished(run.id);
-  assert.equal(requests.length, 2); assert.match(requests[1].prompt, /untrusted analysis, not source evidence/);
-  assert.match(requests[1].prompt, /independently verify/);
+  assert.equal(requests.length, 2);assert.equal(requests[1].prompt,'Check the review');
+  assert.equal(requests[1].workflow_policy.connected_input.provenance.upstream_reviews,'untrusted_model_analysis_not_source_evidence');
+  assert.match(JSON.stringify(requests[1].workflow_policy.connected_input.input),/Coverage has a gap/);
   const saved = await runtime._internals.store.get(run.id);
   assert.deepEqual(saved.node_results.at(-1).output.reviews.map(review => review.node_id), ["story", "evaluate"], "Final packets preserve all connected ancestor reviews");
 });
@@ -325,6 +326,15 @@ test("source nodes reject missing source input without inventing successful resu
   const graph = workflow(); graph.nodes[1].data = { kind: "repositoryAgent", repositoryAgentType: "api_tests" };
   await assert.rejects(runtime.start(graph, {}, user), { statusCode: 400 });
   assert.equal(create.mock.callCount(), 0);
+});
+
+test('source nodes retain an explicitly skipped empty-source review as needs-review without inventing model work',async t=>{
+ const {requests}=setup(t),sourceAgents=require('../../../agentic/backend/agents/repositoryAgents.service');
+ t.mock.method(sourceAgents,'createRun',async()=>({id:'empty-source-job'}));
+ t.mock.method(sourceAgents,'getRun',async()=>({id:'empty-source-job',status:'partial',result:{findings:{test_cases:[]},summary:{generation_mode:'deterministic',model_calls:0}},stages:[{id:'model_review',status:'skipped'}],warnings:[{code:'MODEL_REVIEW_NO_SOURCE_FINDINGS'}]}));
+ const graph=workflow();graph.nodes[1].data={kind:'repositoryAgent',repositoryAgentType:'api_tests',llmIntegrationId:'selected-source-model'};
+ const saved=await finished((await runtime.start(graph,{input_payload:{source:{type:'github',repository_url:'https://github.com/example/project'}}},user)).id);
+ assert.equal(saved.status,'needs_review');assert.equal(requests.length,0);assert.equal(saved.node_results[1].output.provenance.generation_mode,'deterministic');assert.equal(saved.node_results[1].output.session_id,undefined);assert.equal(saved.node_results[1].output.readiness.status,'limited_evidence');
 });
 
 test("saving an unchanged definition after a lost response preserves execution idempotency", async t => {
@@ -395,7 +405,7 @@ test('custom AI and iterative AI pass connected input to the bounded review adap
   assert.equal((await finished(run.id)).status,'completed');
   assert.equal(requests[0].agent_id,'quality-evaluator');
   assert.match(requests[0].prompt,/Compare release risks/);
-  assert.match(requests[0].prompt,/2\.3/);
+  assert.equal(requests[0].workflow_policy.connected_input.request.release,'2.3');assert.doesNotMatch(requests[0].prompt,/2\.3/);
   graph.nodes[1] = node('story','loop',{loopSourceKey:'input.items',loopAction:'customAI',loopMaxIterations:'2',prompt:'Review the current item'});
   const loopRun = await runtime.start(graph,{request_id:'custom-ai-loop',input_payload:{items:[{id:'A'},{id:'B'}]}},user);
   assert.equal((await finished(loopRun.id)).node_results[1].output.processed,2);
@@ -478,9 +488,10 @@ test('AI execution sends selected skills, guardrails, tool restrictions and addi
   Object.assign(graph.nodes[1].data,{kind:'customAI',skills:[{id:'skill-1',name:'Boundary review',instructions:'Check zero, one and maximum quantities.'}],guardrails:'Do not assume an inventory policy.',contextInstructions:'Inventory is reviewed daily.',allowedTools:[],knowledgeScope:''});
   const done = await finished((await runtime.start(graph,{input_payload:{quantity:2}},user)).id);
   assert.equal(done.status,'completed');
-  assert.match(requests[0].prompt,/Check zero, one and maximum/);
-  assert.match(requests[0].prompt,/Do not assume an inventory policy/);
-  assert.match(requests[0].prompt,/Inventory is reviewed daily/);
+  assert.equal(requests[0].workflow_policy.skills[0].instructions,'Check zero, one and maximum quantities.');
+  assert.equal(requests[0].workflow_policy.guardrails,'Do not assume an inventory policy.');
+  assert.equal(requests[0].workflow_policy.context,'Inventory is reviewed daily.');
+  assert.doesNotMatch(requests[0].prompt,/Check zero|inventory policy|Inventory is reviewed/,'Guidance and context have one canonical request field rather than prompt copies.');
   assert.deepEqual(requests[0].workflow_policy.allowed_tools,[]);
   assert.deepEqual(requests[0].context_scopes,[]);
   assert.equal(requests[0].workflow_policy.custom_task,true);
@@ -559,7 +570,7 @@ test('disabled skills never reach the model and each AI loop review remains trac
   const graph=workflow();graph.nodes[1]=node('story','loop',{loopAction:'customAI',loopSourceKey:'input.items',loopMaxIterations:2,prompt:'Review item',transformMapping:'unused invalid JSON',skills:[{id:'on',name:'First',instructions:'Follow this active instruction'},{id:'off',name:'Second',instructions:'Do not include paused guidance',enabled:false}]});
   const done=await finished((await runtime.start(graph,{input_payload:{items:['a','b']}},user)).id);
   assert.equal(done.status,'completed');assert.equal(done.node_results[1].attempts,2);
-  assert.match(requests[0].prompt,/active instruction/);assert.doesNotMatch(requests[0].prompt,/paused guidance/);
+  assert.match(requests[0].workflow_policy.skills[0].instructions,/active instruction/);assert.doesNotMatch(JSON.stringify(requests[0]),/paused guidance/);
   assert.deepEqual(requests.map(request=>request.workflow_policy.connected_input.input),['a','b']);
   assert.deepEqual(requests.map(request=>request.workflow_policy.connected_input.request),[{items:['a','b']},{items:['a','b']}]);
   assert.deepEqual(done.output_payload.review_session_ids,['item-review-1','item-review-2']);
@@ -669,14 +680,16 @@ test('parallel conditional fan-in ignores skipped branches and preserves empty a
   assert.deepEqual(done.node_results.find(row=>row.node_id==='merge').output.data,[{value:false},{items:[]}]);
 });
 
-test('processing settings reject unbounded concurrency and explicitly reject parallel durable execution', t => {
-  for (const value of [0,3,2.5,'invalid']) {
+test('processing settings bound concurrency and support matching local and durable parallel plans', t => {
+  for (const value of [0,9,2.5,'invalid']) {
     const graph = branchWorkflow('parallel'); graph.settings.max_parallel_nodes = value;
     assert.equal(runtime.readiness(graph).ready,false);
   }
   const control = require('../../../agentic/backend/workflows/temporal/control');
   t.mock.method(control,'enabled',()=>true);
-  assert.match(runtime.readiness(branchWorkflow('parallel')).blockers.map(row=>row.message).join(' '),/sequential processing for durable/);
+  assert.equal(runtime.readiness(branchWorkflow('parallel')).ready,true);
+  const bounded = branchWorkflow('parallel'); bounded.settings.max_parallel_nodes = 8;
+  assert.equal(runtime.readiness(bounded).processing.max_parallel_nodes,8);
   assert.equal(runtime.readiness(branchWorkflow('sequential')).ready,true);
 });
 

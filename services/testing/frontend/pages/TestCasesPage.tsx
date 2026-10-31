@@ -8441,7 +8441,7 @@ export function TestCasesPage() {
     && previewTestCaseImpact.variables.input.review_purpose === "assurance"
     && JSON.stringify(previewTestCaseImpact.variables.input.proposed_change) === selectedTestCaseAssuranceFingerprint
     && (previewTestCaseImpact.variables.input.additional_context || "") === testCaseAssuranceContext
-    && previewTestCaseImpact.variables.input.prompt_guidance === [testCaseAssurancePromptGuidance ?? getPrompt("ai.quality.test_case_assurance"), getMetricCriteria("metric.assurance.test_case")].filter(Boolean).join("\n\n")
+    && previewTestCaseImpact.variables.input.prompt_guidance === (testCaseAssurancePromptGuidance ?? getPrompt("ai.quality.test_case_assurance"))
     && (previewTestCaseImpact.variables.input.integration_id || "") === (testCaseAssuranceIntegrationId || testCaseAssuranceDefaultIntegrationId)
   );
   const testCaseAssurancePreviewMatchesDraft = Boolean(
@@ -8495,7 +8495,7 @@ export function TestCasesPage() {
         review_purpose: "assurance",
         proposed_change: selectedTestCaseAssuranceProposedChange,
         integration_id: testCaseAssuranceIntegrationId || testCaseAssuranceDefaultIntegrationId || undefined,
-        prompt_guidance: [testCaseAssurancePromptGuidance ?? getPrompt("ai.quality.test_case_assurance"), getMetricCriteria("metric.assurance.test_case")].filter(Boolean).join("\n\n"),
+        prompt_guidance: (testCaseAssurancePromptGuidance ?? getPrompt("ai.quality.test_case_assurance")),
         additional_context: testCaseAssuranceContext,
         assurance_baseline: selectedTestCaseLocalAssurance
       }
@@ -12240,7 +12240,7 @@ export function TestCasesPage() {
                 {!isCreating && canUseTestCaseAi && activeTestCaseDetailTab === "assurance" && selectedTestCase ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <ArtifactAssuranceWorkspace
-                      providerControl={<AiReviewControls key={`case-assurance-${projectId}-${selectedTestCase.id}`} usageKey="ai.quality.test_case_assurance" promptMaxLength={Math.max(0, 12_000 - getMetricCriteria("metric.assurance.test_case").length - 2)} projectId={projectId} appTypeId={appTypeId} integrations={integrations} integrationId={testCaseAssuranceIntegrationId} onIntegrationIdChange={setTestCaseAssuranceIntegrationId} promptGuidance={testCaseAssurancePromptGuidance} onPromptGuidanceChange={setTestCaseAssurancePromptGuidance} additionalContext={testCaseAssuranceContext} onAdditionalContextChange={setTestCaseAssuranceContext} artifactIds={[selectedTestCase.id]} artifactContext={JSON.stringify(selectedTestCaseAssuranceProposedChange)} disabled={previewTestCaseImpact.isPending} onBusyChange={setTestCaseAssuranceContextBusy} />}
+                      providerControl={<AiReviewControls key={`case-assurance-${projectId}-${selectedTestCase.id}`} usageKey="ai.quality.test_case_assurance" promptMaxLength={12_000} projectId={projectId} appTypeId={appTypeId} integrations={integrations} integrationId={testCaseAssuranceIntegrationId} onIntegrationIdChange={setTestCaseAssuranceIntegrationId} promptGuidance={testCaseAssurancePromptGuidance} onPromptGuidanceChange={setTestCaseAssurancePromptGuidance} additionalContext={testCaseAssuranceContext} onAdditionalContextChange={setTestCaseAssuranceContext} artifactIds={[selectedTestCase.id]} artifactContext={JSON.stringify(selectedTestCaseAssuranceProposedChange)} disabled={previewTestCaseImpact.isPending} onBusyChange={setTestCaseAssuranceContextBusy} />}
                       analysis={selectedTestCaseAssurance}
                       analysisDisabled={!canUseTestCaseAi || !projectId || previewTestCaseImpact.isPending || testCaseAssuranceContextBusy}
                       analysisNotice={testCaseAssurancePreviewMatchesDraft && previewTestCaseImpact.data?.fallback_used ? previewTestCaseImpact.data.fallback_reason : null}

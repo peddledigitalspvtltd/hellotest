@@ -284,6 +284,7 @@ const archiveMissingApplicationSources = ({ limit = 20 } = {}) => db.transaction
 
 module.exports = {
   get,
+  assertSourceRead,
   getDownload,
   getDetail,
   listRevisions,

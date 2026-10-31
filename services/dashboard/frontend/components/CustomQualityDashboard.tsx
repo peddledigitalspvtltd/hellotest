@@ -101,7 +101,7 @@ const DASHBOARD_METRIC_CRITERIA_KEYS: Partial<Record<NonNullable<QualityDashboar
   executionCompletion: "metric.dashboard.execution_completion",
   evidenceConfidence: "metric.dashboard.evidence_confidence",
   requirementCoverage: "metric.story.coverage",
-  automationCoverage: "metric.automation.coverage",
+  automationCoverage: "metric.dashboard.automation_coverage",
   executionCycleHours: "metric.execution.cycle_time",
   resolutionRate: "metric.jira.resolution_rate",
   averageAgeDays: "metric.jira.average_age",

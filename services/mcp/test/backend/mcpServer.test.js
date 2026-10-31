@@ -8,7 +8,7 @@ function load(name,mocks){const file=path.join(root,name+'.js');const original=c
 const actor={user:{id:'user-a',role:'member'},projectId:'project-a',clientId:'host'};
 const permit=async(a)=>{if(a.projectId!=='project-a')throw Object.assign(new Error('Denied'),{statusCode:403,code:'DENIED'});};
 const fakeDb={prepare:()=>({run:async()=>{},get:async()=>undefined,all:async()=>[]})};
-const backplane={catalog:async a=>({owner:a.user.id,project:a.projectId}),describe:async()=>({}),read:async()=>({}),context:async a=>({packet:{evidence:[]},owner:a.user.id}),graph:async()=>({}),prepare:async()=>({state:'requires_authorization'}),execute:async()=>({state:'requires_authorization'}),status:async()=>({state:'requires_authorization'}),bounded:value=>value,auditFailure:()=>{}};
+const backplane={catalog:async a=>({owner:a.user.id,project:a.projectId,catalog_revision:'fixture',total:0,operations:[],next_offset:null,coverage:{registered:0,discoverable:0},contract_note:'Only callable domain operations.'}),describe:async()=>({}),read:async()=>({}),context:async a=>({packet:{project_id:a.projectId,evidence:[]},owner:a.user.id}),graph:async()=>({}),prepare:async()=>({state:'requires_authorization'}),execute:async()=>({state:'requires_authorization'}),status:async()=>({state:'requires_authorization'}),bounded:value=>value,auditFailure:()=>{}};
 const promptConfiguration={config:{role:'Configured investigator',domain:'Test results',task:'Investigate',prompt:'Follow published investigation guidance',guardrails:'Retain source ACLs',instruction_blocks:{'template.investigate_failure':'Published exact failure investigation'}},published_version:3};
 const server=load('mcpServer',{'./backplane':backplane,'./projections':{entities:{projects:{}},schema:async()=>({}),query:async()=>({})},'./auth':{permit,fail:(message,statusCode=403,code='DENIED')=>Object.assign(new Error(message),{statusCode,code,publicMessage:message})},'@hellotest/platform/backend/src/db':fakeDb,
  '@hellotest/platform/backend/services/aiConfiguration.service':{resolve:async id=>{assert.equal(id,'ai.mcp.investigate_failure');return promptConfiguration;}}});
@@ -100,6 +100,18 @@ test('numeric UUID ContextPackets round-trip through the actual bounded serializ
  await assert.rejects(gateway.retrievePacket(input),{code:'MCP_CONTEXT_SCOPE_MISMATCH'});
 });
 
+test('delivery preserves validated provenance hashes and reports field and item omissions',()=>{
+ const real=load('backplane',{'@hellotest/platform/backend/src/db':fakeDb,'./auth':{permit,fail:(message,statusCode,code)=>Object.assign(new Error(message),{statusCode,code})}});
+ const hash='4155550100'+'a'.repeat(54);
+ const delivery={truncated:false,redacted:false,omitted_items:0,truncated_strings:0};
+ const value=real.bounded({source_hash:hash,integrity:{evidence_hash:hash},digest:hash,notes:'Call 415-555-0100',password:hash,items:Array.from({length:102},(_,i)=>i),fields:Object.fromEntries(Array.from({length:83},(_,i)=>['field'+i,i]))},delivery);
+ assert.equal(value.source_hash,hash);assert.equal(value.integrity.evidence_hash,hash);assert.equal(value.digest,hash);
+ assert.doesNotMatch(value.notes,/415-555-0100/);assert.equal(value.password,undefined);
+ assert.equal(value.items.length,100);assert.equal(Object.keys(value.fields).length,80);
+ assert.deepEqual(delivery,{truncated:true,redacted:true,omitted_items:5,truncated_strings:0});
+ const malformed=real.bounded({evidence_hash:'Call 415-555-0100'});assert.doesNotMatch(malformed.evidence_hash,/415-555-0100/);
+});
+
 test('catalog discovery avoids repeated permission queries and rechecks permissions on the next request',async()=>{
  let checks=0,allowed=true;const operations=[{id:'a',method:'GET',path:'/test-cases',permission:'testcase.view'},{id:'b',method:'GET',path:'/test-cases/:id',permission:'testcase.view'}];
  const real=load('backplane',{'@hellotest/platform/backend/src/db':fakeDb,'./auth':{permit:async(a,permission)=>{await permit(a);if(permission==='testcase.view'){checks++;if(!allowed)throw Object.assign(new Error('Denied'),{statusCode:403});}},fail:(message,statusCode,code)=>Object.assign(new Error(message),{statusCode,code})},'./registry':{all:()=>operations,revision:()=> 'revision'}});
@@ -121,4 +133,24 @@ test('the real SDK carries internal request cancellation into context retrieval'
   const pending=server.callLocal(actor,'hellotest_context_build',{question:'Read project context'},controller.signal);
   await started;controller.abort();await assert.rejects(pending);assert.equal(observed.aborted,true);
  }finally{tool.run=prior;}
+});
+
+test('the SDK advertises only callable named domain tools with typed receipts and caller-bound results',async()=>{
+ const registry=require('../../backend/registry');
+ for(const [method,url] of [['GET','/test-cases/:id'],['POST','/test-cases']])registry.register({method,url});
+ const prior={read:backplane.read,prepare:backplane.prepare};
+ const date='2026-10-31T00:00:00Z';
+ backplane.read=async(actual,args)=>{assert.equal(actual,actor);assert.equal(args.arguments.path.id,'case-1');return {data:{id:'case-1',title:'Observed native Test Case'},observed_at:date,bounded:true};};
+ backplane.prepare=async(actual,args)=>({plan_id:'review-plan',digest:'a'.repeat(64),state:'requires_authorization',preview:{operation:registry.get(args.operation_id),arguments:args.arguments},expires_at:date,authorization:'Review this exact plan in Agent Studio.'});
+ try{
+  const definitions=await server.inspectLocal(actor);
+  const get=definitions.find(tool=>tool.name==='hellotest_test_cases_get'),prepare=definitions.find(tool=>tool.name==='hellotest_test_case_create_prepare');
+  assert.ok(get);assert.ok(prepare);assert.ok(!definitions.some(tool=>tool.name==='hellotest_stories_get'));
+  assert.equal(get.outputSchema.properties.data.properties.record.type,'object');
+  assert.equal(prepare.annotations.destructiveHint,false,'Preparing creates a review plan, not the business artifact.');
+  const result=await server.callLocal(actor,'hellotest_test_cases_get',{test_case_id:'case-1'});
+  assert.equal(result.record.title,'Observed native Test Case');
+  const planned=await server.callLocal(actor,'hellotest_test_case_create_prepare',{title:'Registration',app_type_id:'app'});
+  assert.equal(planned.plan_id,'review-plan');assert.equal(planned.state,'requires_authorization');
+ }finally{backplane.read=prior.read;backplane.prepare=prior.prepare;}
 });

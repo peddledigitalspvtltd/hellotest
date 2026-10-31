@@ -14,6 +14,8 @@ import {
   IconListDetails,
   IconFileCheck,
   IconTestPipe,
+  IconClock,
+  IconPlayerStop,
 } from "@tabler/icons-react";
 const icons: Record<string, typeof IconRobot> = {
   trigger: IconPlayerPlay,
@@ -32,6 +34,9 @@ const icons: Record<string, typeof IconRobot> = {
   loop: IconRepeat,
   aggregator: IconArrowMerge,
   transform: IconAdjustments,
+  dataOperation: IconListDetails,
+  wait: IconClock,
+  stop: IconPlayerStop,
   errorHandler: IconShieldExclamation,
   log: IconListDetails,
   output: IconFileCheck,

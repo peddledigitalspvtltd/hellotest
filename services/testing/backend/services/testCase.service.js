@@ -345,6 +345,9 @@ const hydrateTestCases = async (testCases) => {
     const primaryRequirement = linkedRequirements.find((row) => row.requirement_id === testCase.requirement_id) || linkedRequirements[0];
     return {
       ...testCase,
+      // Keep the stored document available beside the Story-derived display
+      // title so reviewed writes can verify their exact persisted content.
+      persisted_gherkin_document: testCase.gherkin_document,
       gherkin_document: setGherkinFeatureTitle(testCase.gherkin_document, primaryRequirement?.title),
       external_references: normalizeStoredReferenceList(testCase.external_references),
       labels: normalizeStoredReferenceList(testCase.labels),
@@ -522,7 +525,7 @@ const normalizeReviewHistory = (value) => {
     }));
 };
 
-const reviewError = (message, statusCode = 409) => Object.assign(new Error(message), { statusCode });
+const reviewError = (message, statusCode = 409, code) => Object.assign(new Error(message), { statusCode, ...(code ? { code } : {}) });
 
 const isAiReviewPending = (testCase) => Boolean(
   normalizeText(testCase.ai_generation_source)
@@ -534,13 +537,13 @@ const assertReviewOwner = (testCase, actorId) => {
   const reviewerId = normalizeText(testCase.reviewer_id)
     || (isAiReviewPending(testCase) ? normalizeText(testCase.created_by) : null);
   if (!actorId || !reviewerId || reviewerId !== actorId) {
-    throw reviewError("Only the assigned reviewer can review this test case", 403);
+    throw reviewError("Only the assigned reviewer can review this test case", 403, "TESTCASE_REVIEW_OWNER_DENIED");
   }
 };
 
 const assertPendingReview = (testCase, generatedOnly = false) => {
   if (generatedOnly ? !isAiReviewPending(testCase) : testCase.review_status !== "pending" && !isAiReviewPending(testCase)) {
-    throw reviewError("This test case is no longer pending review. Refresh the review queue.");
+    throw reviewError("This test case is no longer pending review. Refresh the review queue.", 409, "TESTCASE_REVIEW_NOT_PENDING");
   }
 };
 

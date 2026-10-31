@@ -824,10 +824,10 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
       modelCalls++;
       break;
     } catch (error) {
-      if (error instanceof SyntaxError || error?.code === "AI_GROOMING_OUTPUT_INVALID" || /Grooming response did not contain JSON/.test(error?.message || "")) {
+      if (error instanceof SyntaxError || ["AI_GROOMING_OUTPUT_INVALID","AI_INVALID_JSON","AI_OUTPUT_SCHEMA_VIOLATION","AI_MANAGED_SCHEMA_INVALID"].includes(error?.code) || /Grooming response did not contain JSON/.test(error?.message || "")) {
         validationErrors = error.validation_errors || [{ path: "grooming", issue: "invalid_json_object" }];
         correction = { validation_errors: validationErrors,
-          previous_response: typeof content === "string" ? content.slice(0, 24000) : null };
+          previous_response: typeof (content || error.model_candidate) === "string" ? (content || error.model_candidate).slice(0, 24000) : null };
         continue;
       }
       if (typeof error?.publicMessage === "string" && error.publicMessage.trim()) throw error;

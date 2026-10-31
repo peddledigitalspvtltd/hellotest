@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const { resilientHttpRequest } = require('../utils/resilientHttpClient');
+const {isReasoningModel,compatibleChatRequest}=require('../utils/llmRequestPolicy');
 
 const text = value => typeof value === 'string' ? value.trim() : '';
 const masked = value => /^(?:\*|•|●){6,}$/.test(text(value));
@@ -74,13 +75,15 @@ async function testConnection(input, options = {}) {
       const model = requireValue(input.model, 'Model');
       const headers = { ...bearer(input.api_key), 'Content-Type': 'application/json' };
       const endpoint = /\/chat\/completions$/.test(base) ? base : `${base}/chat/completions`;
-      let tokenField = /^(gpt-5|o[1-9])/.test(model) ? 'max_completion_tokens' : 'max_tokens';
+      const tokenField = isReasoningModel(model) ? 'max_completion_tokens' : 'max_tokens';
+      let probePayload={model,messages:[{role:'user',content:'Reply with the single word OK.'}],[tokenField]:256,stream:false};
       let payload;
       current = { id: 'generation', label: 'Model authentication and generation' };
-      const request = () => json(endpoint, { method: 'POST', headers, body: JSON.stringify({ model, messages: [{ role: 'user', content: 'Reply with the single word OK.' }], [tokenField]: 256, stream: false }) });
+      const request = () => json(endpoint, { method: 'POST', headers, body: JSON.stringify(probePayload) });
       try { payload = await request(); } catch (error) {
-        if ([400, 422].includes(error.upstreamStatus) && /max_tokens/.test(error.body || '') && /max_completion_tokens/.test(error.body || '')) {
-          tokenField = tokenField === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens'; payload = await request();
+        const corrected=compatibleChatRequest({body:JSON.stringify(probePayload)},error.upstreamStatus,error.body);
+        if (corrected) {
+          probePayload=JSON.parse(corrected.body);payload = await request();
         } else throw error;
       }
       expect(Array.isArray(payload.choices) && payload.choices.length > 0, 'The endpoint did not return a chat completion for the selected model.');

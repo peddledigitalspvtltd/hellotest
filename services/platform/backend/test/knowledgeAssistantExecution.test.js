@@ -184,6 +184,23 @@ test("intent planning runs once before scoped project reads and grounded synthes
   assert.match(events[intentIndex].message, /Stories.*Test Runs.*Defects/);
 }));
 
+test('disabled retrieval performs no paid planning or synthesis and replay preserves the zero-call result', async context => fixture(async ({ input, state }) => {
+  context.mock.method(llmSelection, 'resolveLlmIntegrationForUsage', async () => ({ id: 'disabled-retrieval-model', type: 'llm', is_active: true, api_key: 'test-credential', base_url: 'https://disabled-retrieval.invalid/v1', model: 'test', config: {} }));
+  let calls = 0;
+  context.mock.method(global, 'fetch', async () => { calls++; throw new Error('Disabled retrieval cannot dispatch a model.'); });
+  const request = { ...input, responseMode: 'answer', filters: { requested_scopes: [] } };
+  const result = await assistant.respond(request);
+  assert.equal(result.assistant_message.status, 'insufficient_context');
+  assert.equal(result.assistant_message.retrieval.intent_planning_skipped, 'RETRIEVAL_DISABLED');
+  assert.equal(result.assistant_message.retrieval.model_budget.calls_used, 0);
+  assert.equal(result.assistant_message.retrieval.model_budget.provider_requests, 0);
+  assert.equal(state.searches, 0);
+  assert.equal(calls, 0);
+  const replay = await assistant.respond(request);
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(calls, 0);
+}));
+
 test("provider-unavailable answers can retry and replace the same persisted turn", async (context) => fixture(async ({ input, messages }) => {
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://retry-provider.invalid/v1", model: "test", config: {} }));
   context.mock.method(llmSelection, "recordSuccessfulLlmIntegration", async () => {});

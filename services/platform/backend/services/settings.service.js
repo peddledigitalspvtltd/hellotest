@@ -156,15 +156,20 @@ exports.getWorkspacePreferences = async (userId) => {
   ]);
 
   const [managed,metrics] = await Promise.all([require("./aiConfiguration.service").publishedOverrides(),require("./metricGovernance.service").publishedOverrides()]);
+  const applicationMappings=value=>Object.fromEntries(Object.entries(value || {}).filter(([key])=>!key.startsWith('ai.agentic.')));
   return {
     ...personalPreferences,
     ...governedPreferences,
     ai_metric_criteria_overrides: { ...governedPreferences.ai_metric_criteria_overrides, ...metrics.criteria },
     ai_metric_formula_values: { ...governedPreferences.ai_metric_formula_values, ...metrics.parameters },
-    ai_prompt_registry_overrides: { ...governedPreferences.ai_prompt_registry_overrides, ...managed.prompts },
-    ai_prompt_registry_llm_overrides: { ...governedPreferences.ai_prompt_registry_llm_overrides, ...managed.integrations }
+    ai_prompt_registry_overrides: { ...applicationMappings(governedPreferences.ai_prompt_registry_overrides), ...managed.prompts },
+    ai_prompt_registry_llm_overrides: { ...applicationMappings(governedPreferences.ai_prompt_registry_llm_overrides), ...managed.integrations }
   };
 };
+
+// Provider history is personal. Agent execution must not read instance prompt
+// or provider mappings to choose its behavior or model.
+exports.getPersonalWorkspacePreferences = readPersonalWorkspacePreferences;
 
 exports.updateWorkspacePreferences = async (userId, preferences) => {
   const [currentPersonalPreferences, currentGovernedPreferences] = await Promise.all([
