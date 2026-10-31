@@ -3,9 +3,11 @@
 const { randomUUID } = require('node:crypto');
 const RUN = 'quality_agent_run', BASELINE = 'quality_agent_baseline';
 function createQualityAgentStore({ db, workspace }) {
+  const eventLog = require('./qualityAgentEvents').createQualityAgentEventLog({ db });
   const find = (kind, id) => db.prepare('SELECT * FROM workspace_transactions WHERE related_kind = ? AND related_id = ? ORDER BY created_at DESC LIMIT 1').get(kind,id);
   const list = (kind, scope) => workspace.listTransactions({ ...scope,related_kind:kind,include_global:false,limit:50 });
   return {
+    ...eventLog, terminalStreamEvents: true,
     findRun:id=>find(RUN,id),findBaseline:id=>find(BASELINE,id),
     listRuns:scope=>list(RUN,scope),listBaselines:scope=>list(BASELINE,scope),
     async create(input, user, metadata, key) {
@@ -38,14 +40,25 @@ function createQualityAgentStore({ db, workspace }) {
         WHERE id = ? AND metadata->>'lease_token' = ? AND status IN ('queued','running') RETURNING *`).get({...patch,lease_until:new Date(Date.now()+60000).toISOString()},row.id,row.metadata.lease_token);
     },
     async updateClaim(row, patch, status) {
-      return db.prepare(`UPDATE workspace_transactions SET metadata = metadata || ?::jsonb,
+      return db.transaction(async () => {
+      const updated = await db.prepare(`UPDATE workspace_transactions SET metadata = metadata || ?::jsonb,
         status = ?, started_at = COALESCE(started_at,?::timestamptz),completed_at = COALESCE(?::timestamptz,completed_at),updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND metadata->>'lease_token' = ? AND status IN ('queued','running') RETURNING *`).get(
           {...patch,lease_until:null,lease_token:null,next_poll_at:new Date(Date.now()+2000).toISOString()},status,patch.started_at||null,patch.completed_at||null,row.id,row.metadata.lease_token);
+      if (updated?.metadata && ['completed', 'failed', 'cancelled'].includes(updated.metadata.run_status)) {
+        if (updated.metadata.error) await eventLog.appendStreamEvent(updated, { type: 'error', data: { status: updated.metadata.run_status, error: updated.metadata.error } }, { allow_terminal: true });
+        await eventLog.appendStreamEvent(updated, { type: 'done', data: { status: updated.metadata.run_status, outcome: updated.metadata.outcome, summary: updated.metadata.agent_assessment?.summary || updated.metadata.mission_progress?.message || 'Quality review stopped.' } }, { allow_terminal: true });
+      }
+      return updated;
+      })();
     },
     async cancel(row) {
-      return db.prepare(`UPDATE workspace_transactions SET status = 'failed',metadata = metadata || ?::jsonb,completed_at = CURRENT_TIMESTAMP,updated_at = CURRENT_TIMESTAMP
+      return db.transaction(async () => {
+      const updated = await db.prepare(`UPDATE workspace_transactions SET status = 'failed',metadata = metadata || ?::jsonb,completed_at = CURRENT_TIMESTAMP,updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND status IN ('queued','running') RETURNING *`).get({run_status:'cancelled',cancellation_requested:true,lease_token:null,lease_until:null,error:null,outcome:null,mission_progress:{phase:'cancelled',message:'Stopped. Partial browser observations are preserved.',updated_at:new Date().toISOString()},stages:(row.metadata?.stages||[]).map(stage=>stage.status==='running'?{...stage,status:'failed'}:stage),...(row.metadata?.mission_report?{mission_report:{...row.metadata.mission_report,status:'cancelled',summary:'Stopped. Partial browser observations are preserved.'}}:{})},row.id);
+      if (updated?.metadata?.run_status === 'cancelled') await eventLog.appendStreamEvent(updated, { type: 'done', data: { status: 'cancelled', summary: 'Stopped. Partial browser observations are preserved.' } }, { allow_terminal: true });
+      return updated;
+      })();
     },
     event:(row,entry)=>workspace.appendTransactionEvent(row.id,entry),
     async saveBaseline(row, metadata, bytes) {

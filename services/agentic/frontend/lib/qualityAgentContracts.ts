@@ -9,7 +9,7 @@ export type QualityAgentOptions = {
   budgets?: { navigation_ms?: number; lcp_ms?: number; cls?: number; resource_count?: number; transfer_bytes?: number };
   max_diff_ratio?: number; pixel_threshold?: number;
 };
-export type QualityAgentContext = { ai_configuration?:NodeAiConfiguration; instructions?:string; guardrails?:string; review_criteria?:string; llm_integration_id?: string | null; context_scopes?: string[]; evidence_scope?: Record<string,string>; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; };
+export type QualityAgentContext = { execution_mode?: 'agent' | 'checks'; ai_configuration?:NodeAiConfiguration; instructions?:string; guardrails?:string; review_criteria?:string; llm_integration_id?: string | null; context_scopes?: string[]; evidence_scope?: Record<string,string>; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; };
 export type QualityAgentPlan = QualityAgentContext & {
   kind: QualityAgentKind; target_url: string; goal: string; steps: QualityJourneyStep[];
   options: QualityAgentOptions; generation_mode: "llm" | "deterministic"; source: "model" | "preset";
@@ -27,7 +27,8 @@ export type QualityAgentFinding = { id: string; title: string; severity: "critic
 export type QualityAgentArtifact = { id: string; name: string; type: "screenshot" | "visual_diff" | "report"; content_type: string; bytes: number; sha256: string; download_path: string };
 export type QualityAgentStage = { id: string; label: string; status: "pending" | "running" | "completed" | "failed"; started_at?: string; completed_at?: string };
 export type QualityAgentRun = QualityAgentContext & {
-  task_brief?: {agent_id:string;name:string;intent:string;goal:string;checks:string[];limitations:string[];target_url:string;execution_scope:{max_pages:number;max_duration_ms:number;max_actions?:number;allow_form_submission?:boolean}};
+  agent_assessment?: { title: string; summary: string; conclusion: string; observations: Array<{finding_id:string;analysis:string;recommendation:string;artifact_ids:string[]}>; metric_notes:Array<{metric:string;interpretation:string}>; limitations:string[];next_steps:string[];skill_reference_ids:string[] };
+  task_brief?: {agent_id:string;name:string;intent:string;goal:string;checks:string[];limitations:string[];target_url:string;skill_profile?:{id:string;version:string};execution_scope:{max_pages:number;max_duration_ms:number;max_actions?:number;allow_form_submission?:boolean}};
   mission_progress?: {phase:string;message:string;sequence?:number;revision?:number;updated_at:string};
   mission_outcome?: { title:string;summary:string;columns:string[];rows:Array<{cells:string[];evidence:{sequence:number;quote:string;url:string}}> };
   id: string; transaction_id: string; project_id: string; app_type_id: string | null; kind: QualityAgentKind;
@@ -40,5 +41,8 @@ export type QualityAgentRun = QualityAgentContext & {
   cancellation_requested?: boolean; baseline_id?: string | null;
 };
 export type QualityAgentBaseline = { id: string; source_run_id: string; artifact_id: string; project_id: string; app_type_id: string | null; target_url: string; label: string; viewport: { width: number; height: number }; masks: string[]; sha256: string; created_at: string; reviewed_by: string; download_path: string };
-export type QualityAgentPreset = { id: QualityAgentKind; kind: QualityAgentKind; available: boolean; name: string; description: string; checks: string[]; limitations: string[]; goal_support: "reviewed_journey" | "bounded_checks" };
+export type QualityAgentPreset = { id: QualityAgentKind; kind: QualityAgentKind; available: boolean; name: string; description: string; checks: string[]; limitations: string[]; goal_support: "reviewed_journey" | "bounded_checks";
+  default_goal?: string;
+  skill_profile?: {id:string;version:string;reviewed_at:string;default_goal:string;references:Array<{id:string;name:string;url:string;guide_url?:string;use:string;methodology_only:true}>};
+};
 export type QualityAgentCatalog = { agents: QualityAgentPreset[]; limits: { max_pages: number; max_duration_ms: number; max_steps: number; max_artifact_bytes: number }; runtime: { missions?:{supported:boolean}; configured: boolean; available: boolean; reason?: string; integration_name?: string | null; detail: string; checks?: Record<string,string>; limitations?: string[] } };

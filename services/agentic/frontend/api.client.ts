@@ -1,4 +1,5 @@
 import { consumeAssistantProgress, type AgentProgress } from "./lib/assistantProgressStream";
+import { streamQualityProgress, type QualityStreamOptions } from './lib/qualityProgressStream';
 import type { AgentStructuredArtifact } from '@hellotest/platform/frontend/src/types';
 import { AI_REQUEST_TIMEOUT_MS } from "@hellotest/platform/frontend/src/platform/lib/requestTimeout";
 import type { RepositoryAgentCatalog, RepositoryAgentPublicationStatus, RepositoryAgentPublishResult, RepositoryAgentRun, RepositoryAgentRunInput, RepositoryAgentRunPage } from "./agents/agentTypes";
@@ -39,25 +40,16 @@ export const agenticApi = {
     authorize: (projectId:string,id:string,digest:string) => request(`/agentic-workflows/mcp/plans/${encodeURIComponent(id)}/authorize`,{method:"POST",body:JSON.stringify({project_id:projectId,digest})}),
   },
   qualityAgents: {
-    stream: async (id: string, onProgress: (run: QualityAgentRun) => void, signal: AbortSignal) => {
+    stream: async (id: string, onProgress: (run: QualityAgentRun) => void, signal: AbortSignal, options?: QualityStreamOptions) => {
       const path = `/agentic-quality/runs/${encodeURIComponent(id)}/events`;
-      const session = readRequestSession();
-      const response = await fetch(`${resolveServiceBase(path, API_BASE_URL)}${path}`, { headers: session.token ? { Authorization: `Bearer ${session.token}`, Accept: 'text/event-stream' } : { Accept: 'text/event-stream' }, signal });
-      if (!response.ok || !response.body) throw new Error('Live progress is unavailable.');
-      const reader = response.body.getReader(), decoder = new TextDecoder(); let pending = '';
-      try {
-        while (!signal.aborted) {
-          if (readRequestSession().revision !== session.revision) break;
-          const { done, value } = await reader.read(); if (done) break;
-          pending += decoder.decode(value, { stream: true });
-          if (pending.length > 4 * 1024 * 1024) throw new Error('The progress event exceeded its budget.');
-          let boundary;
-          while ((boundary = pending.indexOf('\n\n')) >= 0) {
-            const event = pending.slice(0,boundary); pending = pending.slice(boundary+2);
-            if (event.startsWith('event: progress\n')) { const run = JSON.parse(event.slice(event.indexOf('data: ')+6)) as QualityAgentRun; if (run.id !== id) throw new Error('Progress belongs to another run.'); onProgress(run); }
-          }
-        }
-      } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+      return streamQualityProgress({ runId: id, onSnapshot: onProgress, options, signal,
+        sessionRevision: () => readRequestSession().revision,
+        connect: (cursor, streamSignal) => {
+          const session = readRequestSession();
+          const headers: Record<string, string> = { Accept: 'text/event-stream', ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}), ...(cursor ? { 'Last-Event-ID': cursor } : {}) };
+          return fetch(`${resolveServiceBase(path, API_BASE_URL)}${path}${cursor ? toQueryString({ after: cursor }) : ''}`, { headers, signal: streamSignal, cache: 'no-store' });
+        },
+      });
     },
     catalog: (scope: { project_id: string; app_type_id?: string }, options?: { signal?: AbortSignal }) => request<QualityAgentCatalog>(`/agentic-quality/catalog${toQueryString(scope)}`, { signal: options?.signal }),
     plan: (input: QualityAgentPlanInput, options?: { signal?: AbortSignal }) => request<QualityAgentPlan>("/agentic-quality/plan", { method: "POST", body: JSON.stringify(input), signal: options?.signal }, AI_REQUEST_TIMEOUT_MS),

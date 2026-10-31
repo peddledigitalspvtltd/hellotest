@@ -594,6 +594,116 @@
           "target_url"
         ],
         "properties": {
+          "instructions": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "guardrails": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "review_criteria": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "ai_configuration": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "temperature": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 2
+              },
+              "top_p": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0.01,
+                "maximum": 1
+              },
+              "max_output_tokens": {
+                "type": "integer",
+                "minimum": 256,
+                "maximum": 16384
+              },
+              "output_schema": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "context": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "mode",
+                  "token_budget",
+                  "max_items",
+                  "required",
+                  "focus"
+                ],
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "none",
+                      "mcp"
+                    ]
+                  },
+                  "token_budget": {
+                    "type": "integer",
+                    "minimum": 256,
+                    "maximum": 8000
+                  },
+                  "max_items": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 40
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "focus": {
+                    "type": "string",
+                    "maxLength": 4000
+                  }
+                }
+              },
+              "agent_execution": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "max_model_calls",
+                  "max_revision_rounds",
+                  "max_followups",
+                  "timeout_ms"
+                ],
+                "properties": {
+                  "max_model_calls": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8
+                  },
+                  "max_revision_rounds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3
+                  },
+                  "max_followups": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3
+                  },
+                  "timeout_ms": {
+                    "type": "integer",
+                    "minimum": 10000,
+                    "maximum": 150000
+                  }
+                }
+              }
+            }
+          },
           "project_id": {
             "type": "string",
             "minLength": 1,
@@ -610,6 +720,12 @@
               "performance",
               "accessibility",
               "visual"
+            ]
+          },
+          "execution_mode": {
+            "enum": [
+              "agent",
+              "checks"
             ]
           },
           "target_url": {

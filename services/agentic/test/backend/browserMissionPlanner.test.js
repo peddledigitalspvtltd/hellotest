@@ -6,6 +6,7 @@ function fixture(model,options={}){const native=createRequire(filename),requests
 };const module={exports:{}};new Function('require','module','exports',fs.readFileSync(filename,'utf8'))(id=>mocks[id]||native(id),module,module.exports);return {...module.exports,requests};}
 const request={project_id:'project',target_url:'https://app.test/',goal:'Inspect the page',kind:'web',options:{mission:{max_actions:4,allow_form_submission:false}}};
 const observation={sequence:1,url:request.target_url,title:'App',text:'Observed content',elements:[{id:'element-1',tag:'button',label:'Menu',type:'button',sensitive:false}]};
+const block=(messages,name)=>JSON.parse(messages.find(message=>message.role==='user'&&typeof message.content==='string'&&message.content.includes(`<${name}>`)).content.match(new RegExp(`<${name}>\\n([\\s\\S]*?)\\n</${name}>`))[1]);
 test('credential-free model connections omit dummy bearer headers and missing models fail with actionable guidance',async()=>{
  const f=fixture({id:'model',model:'local-model',base_url:'https://model.test/v1',config:{project_id:'project'}});
  const decision=await f.decideMission(request,{id:'user'},observation);assert.equal(decision.action,'complete');assert.equal(f.requests.length,1);assert.equal('Authorization' in f.requests[0].headers,false);
@@ -37,10 +38,11 @@ test('mission decisions receive the full task, specialist intent and governed sk
  const previous=Array.from({length:11},(_,index)=>({...observation,sequence:index+1,text:`Page ${index+1} `+'x'.repeat(9900)}));
  const current={...observation,sequence:12};const reviewed='User-reviewed brief '+ 'b'.repeat(11970);
  await f.decideMission({...request,kind:'accessibility',smart_context:{reviewed_context:reviewed}}, {id:'user'},current,[],{observations:previous});
- const body=JSON.parse(f.requests[0].body),packet=JSON.parse(body.messages.at(-1).content);
+ const body=JSON.parse(f.requests[0].body),packet=block(body.messages,'context');
  assert.equal(packet.task_brief.goal,request.goal);assert.equal(packet.goal,undefined);assert.equal(packet.reviewed_context,reviewed);assert.equal(packet.task_brief.agent_id,'browser-accessibility');
  assert.match(packet.task_brief.intent,/accessibility/);assert.ok(packet.task_brief.checks.length);assert.ok(packet.task_brief.limitations.length);
- assert.match(body.messages[1].content,/ai.agentic.browser.accessibility:browserMissionPlanner.skill/);
+ assert.ok(body.messages.some(message=>/ai.agentic.browser.accessibility:browserMissionPlanner.skill/.test(message.content)));
+ assert.match(body.messages[0].content,/axe-core|accessibility/i);
  assert.ok(JSON.stringify(packet.prior_observations).length<12500);assert.ok(packet.prior_observations.length<11);
  assert.ok(packet.context_manifest.prior_observations_excerpted>0);assert.equal(packet.context_manifest.prior_observations_available,11);
  assert.equal(packet.observation.text,current.text);assert.deepEqual(packet.observation.elements,current.elements);
@@ -51,9 +53,10 @@ test('host-rejected decisions get one concrete correction without browser replay
  const f=fixture({model:'small-model'}, {respond:async call=>Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(call===1?{action:'click',element_id:'invented-private-target',summary:'private invalid decision'}:{action:'assert_text',text:'Observed content',summary:'Verify the observed outcome'})}}]})});
  const result=await f.decideMission(request,{id:'user'},observation,[],{onProgress:update=>progress.push(update)});
  assert.equal(result.action,'assert_text');assert.equal(f.requests.length,2);assert.deepEqual(progress.map(item=>item.phase),['deciding','revising']);
- const corrected=JSON.parse(f.requests[1].body);assert.match(corrected.messages[2].content,/browserMissionPlanner.revision/);
- const packet=JSON.parse(corrected.messages.at(-1).content);assert.equal(packet.validation_feedback.actions_dispatched,0);assert.equal(packet.validation_feedback.sequence,1);
- assert.match(packet.validation_feedback.message,/unavailable or sensitive/);assert.ok(!f.requests[1].body.includes('invented-private-target'));assert.ok(!f.requests[1].body.includes('private invalid decision'));
+ const corrected=JSON.parse(f.requests[1].body);assert.ok(corrected.messages.some(message=>/browserMissionPlanner.revision/.test(message.content)));
+ const feedback=block(corrected.messages,'validation');assert.equal(feedback.actions_dispatched,0);assert.equal(feedback.sequence,1);
+ assert.match(feedback.message,/unavailable or sensitive/);assert.equal(corrected.messages.at(-1).role,'user');assert.equal(corrected.messages.at(-2).role,'assistant');assert.match(corrected.messages.at(-2).content,/invented-private-target/);
+ assert.ok(corrected.messages.filter(message=>message.role==='system').every(message=>!message.content.includes('invented-private-target')));
  assert.ok(f.requests.every(item=>item.policy.maxAttempts===1&&item.policy.contextFallback===false&&item.policy.timeoutMs<=20000));
 });
 
@@ -79,4 +82,38 @@ test('completion requires an outcome and only compatible observed controls accep
  for(const action of ['fill','select'])assert.throws(()=>f.decision({action,element_id:'element-1',value:'Value',summary:'Try control'},observation,request.target_url));
  const fields={...observation,elements:[{id:'element-1',tag:'select',label:'Category',type:'select-one',sensitive:false}]};
  assert.equal(f.decision({action:'select',element_id:'element-1',value:'Books',summary:'Choose books'},fields,request.target_url).value,'Books');
+});
+
+test('shared JSON validation repairs once without executing a partial decision or repeating provider failures',async()=>{
+ const f=fixture({model:'small'}, {respond:async call=>{
+  if(call===1)throw Object.assign(new Error('Invalid JSON output'),{code:'AI_INVALID_JSON',model_candidate:'{"action":'});
+  return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({action:'assert_text',text:'Observed content',summary:'Verify the visible text.'})}}]});
+ }});
+ const next=await f.decideMission(request,{id:'user'},observation);
+ assert.equal(next.action,'assert_text');assert.equal(f.requests.length,2);
+ const repaired=JSON.parse(f.requests[1].body);assert.equal(repaired.messages.at(-2).role,'assistant');assert.equal(repaired.messages.at(-2).content,'{"action":');assert.equal(block(repaired.messages,'validation').actions_dispatched,0);assert.equal(block(repaired.messages,'context').task_brief.goal,request.goal);
+});
+
+test('an additional final-report schema does not replace the intermediate browser-action contract',async()=>{
+ const finalSchema={type:'object',required:['title','summary'],properties:{title:{type:'string'},summary:{type:'string',minLength:10}}};
+ const scoped={...request,ai_configuration:{output_schema:finalSchema}};
+ const f=fixture({model:'configured'}, {respond:async()=>{
+  const current=require('@hellotest/platform/backend/src/utils/aiExecutionConfiguration').current();
+  assert.equal(current.config.output_schema,null);
+  return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({action:'assert_text',text:'Observed content',summary:'Verify the observed text.'})}}]});
+ }});
+ const result=await f.decideMission(scoped,{id:'user'},observation);
+ assert.equal(result.action,'assert_text');assert.deepEqual(scoped.ai_configuration.output_schema,finalSchema);assert.equal(f.requests.length,1);
+});
+
+test('zero saved revision rounds prevents decision repairs and remaining run time caps model requests',async()=>{
+ const scoped={...request,ai_configuration:{agent_execution:{max_model_calls:3,max_revision_rounds:0,max_followups:0,timeout_ms:10000}}};
+ for(const sharedFailure of [false,true]) {
+  const f=fixture({model:'configured'}, {respond:async()=>{
+   if(sharedFailure)throw Object.assign(new Error('Invalid JSON'),{code:'AI_INVALID_JSON',model_candidate:'{"action":'});
+   return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({action:'click',element_id:'invented',summary:'An invalid target.'})}}]});
+  }});
+  await assert.rejects(f.decideMission(scoped,{id:'user'},observation));assert.equal(f.requests.length,1);
+ }
+ const bounded=fixture({model:'configured'});await bounded.decideMission(scoped,{id:'user'},observation,[],{deadline_at:new Date(Date.now()+4200).toISOString()});assert.ok(bounded.requests[0].policy.timeoutMs>0&&bounded.requests[0].policy.timeoutMs<=4200);
 });

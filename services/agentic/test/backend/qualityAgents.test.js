@@ -5,7 +5,7 @@ const C=require('../../backend/services/qualityAgentContracts');
 const {createQualityAgentService}=require('../../backend/services/qualityAgents.service');
 const {createQualityAgentStore}=require('../../backend/services/qualityAgentStore');
 const clone=value=>structuredClone(value);
-const user={id:'actor-a',role:'admin'},input={project_id:'project-a',kind:'web',target_url:'https://qa.example.test/search?q=mobile'};
+const user={id:'actor-a',role:'admin'},input={project_id:'project-a',kind:'web',target_url:'https://qa.example.test/search?q=mobile',execution_mode:'checks'};
 function fixture(extra={}) {
   const rows=new Map(),baselines=new Map(),savedArtifacts=new Map(),calls=[],events=[];
   const store={
@@ -117,10 +117,11 @@ test('secret input, off-origin assertion and fractional bounded configuration re
   assert.throws(()=>C.targetUrl('https://qa.example.test?access_token=secret'));assert.throws(()=>C.normalizeOptions({max_pages:1.5},'web'));assert.throws(()=>C.normalizeOptions({budgets:{resource_count:251}},'performance'));
 });
 test('PostgreSQL store guards write leases and cancellation; baseline image is written inside transaction',async()=>{
-  const queries=[],writes=[];const db={prepare:sql=>({get:async(...args)=>{queries.push({sql,args});return {id:'transaction-a',metadata:{}};}}),transaction:fn=>async()=>{writes.push('begin');const result=await fn();writes.push('commit');return result;},query:async()=>{}};
+  const queries=[],writes=[];const db={prepare:sql=>({get:async(...args)=>{queries.push({sql,args});return {id:'transaction-a',metadata:{}};},run:async()=>({changes:1})}),transaction:fn=>async()=>{writes.push('begin');const result=await fn();writes.push('commit');return result;},query:async()=>{}};
   const store=createQualityAgentStore({db,workspace:{createTransaction:async()=>({id:'transaction-a'}),createTransactionArtifact:async()=>{writes.push('png');return {id:'stored-a'};}}});
   await store.updateClaim({id:'transaction-a',metadata:{lease_token:'lease-a'}},{run_status:'completed'},'completed');assert.match(queries[0].sql,/metadata->>'lease_token' = \?/);assert.match(queries[0].sql,/status IN \('queued','running'\)/);
-  await store.cancel({id:'transaction-a'});assert.match(queries[1].sql,/status IN \('queued','running'\)/);
+  await store.cancel({id:'transaction-a'});assert.ok(queries.some(query=>/status IN \('queued','running'\)/.test(query.sql)));
+  writes.length=0;
   db.prepare=sql=>({get:async()=>{if(sql.startsWith('SELECT'))return null;return {id:'transaction-a',metadata:{}};}});
   await store.saveBaseline({related_id:'run-a',project_id:'project-a'}, {source_run_id:'run-a',source_artifact_id:'artifact-a'},Buffer.from('image'));assert.deepEqual(writes,['begin','png','commit']);
 });
@@ -134,13 +135,13 @@ test('autonomous missions checkpoint decisions before dispatch and reuse the sam
   launch=init.body?JSON.parse(init.body):launch;
   return Response.json({contract_version:'1.0',id:'engine-mission-1234',client_run_id:launch.client_run_id,kind:'web',target_url:input.target_url,scope:launch.scope,state:'running',outcome:null,stages:[],findings:[],metrics:{},artifacts:[],limitations:[],decision_request:observed});
  }});
- const run=await f.service.createRun({...input,goal:'Open product details',options:{mission:{max_actions:3,allow_form_submission:false}}},user);
+ const run=await f.service.createRun({...input,execution_mode:'agent',goal:'Open product details',options:{mission:{max_actions:3,allow_form_submission:false}}},user);
  await f.service.processQueuedRuns();await f.service.processQueuedRuns();assert.equal(decisions,1);assert.equal(posted,2);assert.equal((await f.service.getRun(run.id,user)).status,'running');
 });
 test('cancellation during browser model latency prevents action dispatch',async()=>{
  let f,run,posted=0;
  f=fixture({decideMission:async(r,actor,observation,history,trace)=>{assert.equal(trace.signal.aborted,false);await f.service.cancelRun(run.id,user);assert.equal(trace.signal.aborted,true);return {action:'complete',summary:'Done'};},http:async(url,init)=>{if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});if(url.endsWith('/decision')){posted++;return Response.json({accepted:true});}if(url.endsWith('/cancel'))return Response.json({cancelled:true});const value=JSON.parse(init.body);return Response.json({contract_version:'1.0',id:'engine-mission-1234',client_run_id:value.client_run_id,kind:'web',target_url:input.target_url,scope:value.scope,state:'running',outcome:null,stages:[],findings:[],metrics:{},artifacts:[],limitations:[],decision_request:{sequence:1,url:input.target_url,title:'Shop',text:'Ready',elements:[]}});}});
- run=await f.service.createRun({...input,goal:'Read the page',options:{mission:{max_actions:3,allow_form_submission:false}}},user);await f.service.processQueuedRuns();assert.equal(posted,0);assert.equal((await f.service.getRun(run.id,user)).status,'cancelled');
+ run=await f.service.createRun({...input,execution_mode:'agent',goal:'Read the page',options:{mission:{max_actions:3,allow_form_submission:false}}},user);await f.service.processQueuedRuns();assert.equal(posted,0);assert.equal((await f.service.getRun(run.id,user)).status,'cancelled');
 });
 test('real decision phases are durable and visible while the bounded model loop is running',async()=>{
  let f,run;const phases=[];
@@ -155,5 +156,110 @@ test('real decision phases are durable and visible while the bounded model loop 
   if(url.endsWith('/decision')){const current=await f.service.getRun(run.id,user);assert.equal(current.mission_progress.phase,'dispatching');return Response.json({accepted:true});}
   const value=JSON.parse(init.body);return Response.json({contract_version:'1.0',id:'engine-mission-1234',client_run_id:value.client_run_id,kind:'web',target_url:input.target_url,scope:value.scope,state:'running',outcome:null,stages:[],findings:[],metrics:{},artifacts:[],limitations:[],decision_request:{sequence:1,url:input.target_url,title:'Catalogue',text:'Ready',elements:[]}});
  }});
- run=await f.service.createRun({...input,goal:'Review the visible catalogue',options:{mission:{max_actions:3,allow_form_submission:false}}},user);await f.service.processQueuedRuns();assert.deepEqual(phases,['deciding','revising']);
+ run=await f.service.createRun({...input,execution_mode:'agent',goal:'Review the visible catalogue',options:{mission:{max_actions:3,allow_form_submission:false}}},user);await f.service.processQueuedRuns();assert.deepEqual(phases,['deciding','revising']);
+});
+
+test('all five Quality Agents default to scoped LLM missions with specialist goals and model preflight',async()=>{
+  const preflight=[];
+  const f=fixture({resolveMissionModel:async request=>preflight.push(request.kind),decideMission:async()=>({action:'blocked',summary:'Not dispatched by this acceptance test.'}),http:async url=>{assert.match(url,/capabilities$/);return Response.json({missions:{supported:true}});}});
+  for(const kind of C.KINDS){const {execution_mode,...request}=input;const run=await f.service.createRun({...request,kind},user);assert.equal(run.execution_mode,'agent');assert.equal(run.agent_runtime.mode,'llm_observation_action_loop');assert.equal(run.options.mission.max_actions,6);assert.equal(run.options.mission.allow_form_submission,false);assert.ok(run.goal.length>20);assert.equal(run.task_brief.skill_profile.id,`quality.${kind}`);}
+  assert.deepEqual(preflight,[...C.KINDS]);
+});
+
+test('model calls and token reservations are durable before dispatch, streamed text is coalesced and final evidence is assessed',async()=>{
+  let f,run,launch,sequence=1;const text='Observed output '.repeat(50),stream=[];
+  const observed=()=>({sequence,url:input.target_url,title:'Catalogue',text:'Visible product',elements:[]});
+  const completed=()=>({contract_version:'1.0',id:'engine-mission-1234',client_run_id:launch.client_run_id,kind:'security',target_url:input.target_url,scope:launch.scope,state:sequence>1?'completed':'running',outcome:sequence>1?'findings':null,stages:[],findings:sequence>1?[{id:'header-a',category:'headers',severity:'low',title:'Missing header',description:'Observed response lacks the reviewed header.',evidence:'No X-Content-Type-Options header.'}]:[],metrics:{http_status:200},artifacts:[],limitations:['Passive browser evidence only.'],...(sequence>1?{mission_report:{status:'completed',summary:'Page observed.',actions:[{sequence:1,action:'complete',summary:'Page observed.',url:input.target_url,status:'completed'}]}}:{decision_request:observed()})});
+  f=fixture({resolveMissionModel:async()=>({id:'model'}),decideMission:async(request,actor,observation,history,trace)=>{
+    await trace.beforeDispatch({call_id:'call-decision',payload:{max_tokens:100},phase:'decision',revision:0});
+    const saved=await f.service.getRun(run.id,user);assert.equal(saved.model_usage.calls,1);assert.equal(saved.model_usage.reserved_output_tokens,100);
+    await trace.onEvent('model_start',{call_id:'call-decision',stage:'decision'});
+    for(const part of [text.slice(0,100),text.slice(100,300),text.slice(300)])await trace.onEvent('text',{call_id:'call-decision',text:part});
+    await trace.onUsage({prompt_tokens:30,completion_tokens:10});await trace.onEvent('model_done',{call_id:'call-decision',finish_reason:'stop'});
+    return {action:'complete',summary:'Page observed.'};
+  },assessQualityRun:async(request,actor,engine,trace)=>{
+    assert.equal(engine.findings[0].id,'header-a');assert.equal((await f.service.getRun(run.id,user)).status,'running');
+    await trace.beforeDispatch({call_id:'call-assessment',payload:{max_tokens:200},phase:'assessment',revision:0});
+    await trace.onUsage({prompt_tokens:50,completion_tokens:20});
+    return {title:'Observed posture',summary:'Review the missing header.',conclusion:'observed_findings',generation_mode:'llm',observations:[{finding_id:'header-a',analysis:'Observed absence.',recommendation:'Review response policy.',artifact_ids:[]}],metric_notes:[],limitations:[],next_steps:[],skill_reference_ids:[]};
+  },http:async(url,init)=>{
+    if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});
+    if(url.endsWith('/decision')){sequence++;return Response.json({accepted:true});}
+    if(init.body)launch=JSON.parse(init.body);return Response.json(completed());
+  }});
+  f.store.appendStreamEvent=async(row,event)=>{const saved=f.rows.get(row.related_id);if(saved.metadata.lease_token!==row.metadata.lease_token&&!['done','error'].includes(event.type))return null;stream.push(event);return {seq:stream.length};};
+  run=await f.service.createRun({...input,execution_mode:'agent',kind:'security',goal:'Review browser security posture'},user);
+  await f.service.processQueuedRuns();await f.service.processQueuedRuns();
+  const saved=await f.service.getRun(run.id,user);assert.equal(saved.status,'completed');assert.equal(saved.outcome,'findings');assert.equal(saved.agent_assessment.conclusion,'observed_findings');assert.deepEqual(saved.findings.map(item=>item.id),['header-a']);
+  assert.equal(saved.model_usage.calls,2);assert.equal(saved.model_usage.reserved_output_tokens,300);assert.equal(saved.model_usage.prompt_tokens,80);assert.equal(saved.model_usage.completion_tokens,30);
+  assert.equal(stream.filter(event=>event.type==='text').map(event=>event.data.text).join(''),text);assert.ok(stream.filter(event=>event.type==='text').length<3);
+  assert.ok(stream.some(event=>event.type==='tool_start'));assert.ok(stream.some(event=>event.type==='tool_result'));assert.equal(stream.at(-1).type,'done');
+});
+
+test('unknown model generation cannot be replayed after worker recovery and engine evidence stays visible',async()=>{
+  let decisions=0;const f=fixture({decideMission:async()=>{decisions++;throw new Error('Must not redispatch');},resolveMissionModel:async()=>({}),http:async url=>{if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});if(url.endsWith('/cancel'))return Response.json({cancelled:true});throw new Error('Unexpected browser dispatch');}});
+  const run=await f.service.createRun({...input,execution_mode:'agent'},user),row=f.rows.get(run.id);
+  row.metadata.model_dispatch={call_id:'previous-billed-call',state:'in_flight'};row.metadata.findings=[{id:'retained'}];
+  await f.service.processQueuedRuns();const failed=await f.service.getRun(run.id,user);
+  assert.equal(failed.status,'failed');assert.equal(failed.error.code,'QUALITY_AGENT_MODEL_OUTCOME_UNKNOWN');assert.equal(decisions,0);assert.deepEqual(failed.findings,[{id:'retained'}]);
+});
+
+test('model budget failure prevents another dispatch',async()=>{
+  let run,f,called=0;f=fixture({resolveMissionModel:async()=>({}),decideMission:async(request,actor,observation,history,trace)=>{await trace.beforeDispatch({call_id:'budget-call',payload:{max_tokens:4096},phase:'decision'});called++;return {action:'blocked',summary:'Blocked.'};},http:async(url,init)=>{
+    if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});if(url.endsWith('/cancel'))return Response.json({cancelled:true});const body=JSON.parse(init.body);return Response.json({contract_version:'1.0',id:'engine-mission-1234',client_run_id:body.client_run_id,kind:body.kind,target_url:body.target_url,scope:body.scope,state:'running',outcome:null,stages:[],findings:[],metrics:{},artifacts:[],limitations:[],decision_request:{sequence:1,url:input.target_url,title:'Page',text:'Observed',elements:[]}});
+  }});
+  run=await f.service.createRun({...input,execution_mode:'agent'},user);f.rows.get(run.id).metadata.model_usage.calls=f.rows.get(run.id).metadata.model_usage.max_calls;
+  await f.service.processQueuedRuns();const failed=await f.service.getRun(run.id,user);assert.equal(failed.error.code,'QUALITY_AGENT_MODEL_BUDGET');assert.equal(called,0);
+});
+
+test('cancellation during final model assessment keeps observed evidence and discards its late result',async()=>{
+  let f,run;f=fixture({resolveMissionModel:async()=>({}),assessQualityRun:async(request,actor,engine,trace)=>{
+    assert.equal(trace.signal.aborted,false);assert.equal((await f.service.getRun(run.id,user)).metrics.pages_visited,1);
+    await f.service.cancelRun(run.id,user);assert.equal(trace.signal.aborted,true);
+    return {title:'Late assessment',summary:'Must not publish after cancellation.'};
+  }});
+  run=await f.service.createRun({...input,execution_mode:'agent',goal:'Observe the selected page',reviewed_plan:{reviewed:true,steps:[{action:'assert_url',url:input.target_url}]}},user);
+  await f.service.processQueuedRuns();const stopped=await f.service.getRun(run.id,user);
+  assert.equal(stopped.status,'cancelled');assert.equal(stopped.agent_assessment,null);assert.equal(stopped.metrics.pages_visited,1);
+});
+
+test('an impossible one-call mission budget is rejected before model work or durable run creation',async()=>{
+  let modelChecks=0;const f=fixture({resolveMissionModel:async()=>{modelChecks++;return {};}});
+  const configured={...input,execution_mode:'agent',ai_configuration:{agent_execution:{max_model_calls:1,max_revision_rounds:0,max_followups:0,timeout_ms:20000}}};
+  await assert.rejects(f.service.createRun(configured,user),error=>error.code==='QUALITY_AGENT_MODEL_BUDGET');assert.equal(modelChecks,0);assert.equal(f.rows.size,0);
+  const reviewed=await f.service.createRun({...configured,goal:'Review the selected page',reviewed_plan:{reviewed:true,steps:[{action:'assert_url',url:input.target_url}]}},user);
+  assert.equal(reviewed.model_usage.max_calls,1);assert.equal(modelChecks,1);
+});
+
+test('checks-only mode rejects mission settings before model selection or run creation',async()=>{
+  let modelChecks=0;const f=fixture({resolveMissionModel:async()=>{modelChecks++;return {};}});
+  await assert.rejects(f.service.createRun({...input,execution_mode:'checks',options:{mission:{max_actions:3,allow_form_submission:false}}},user),/require AI agent mode/);
+  assert.equal(modelChecks,0);assert.equal(f.rows.size,0);assert.equal(f.calls.length,0);
+});
+
+test('saved agent timeout includes queue time and prevents expired browser/model dispatch',async()=>{
+  let modelCalls=0,starts=0;const f=fixture({resolveMissionModel:async()=>({}),decideMission:async()=>{modelCalls++;return {action:'blocked',summary:'Must not execute.'};},http:async(url)=>{
+    if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});if(url.endsWith('/cancel'))return Response.json({cancelled:true});starts++;throw new Error('Expired runs must not start a browser.');
+  }});
+  const run=await f.service.createRun({...input,execution_mode:'agent',ai_configuration:{agent_execution:{max_model_calls:3,max_revision_rounds:0,max_followups:0,timeout_ms:10000}}},user),row=f.rows.get(run.id);
+  row.metadata.queued_at=new Date(Date.now()-11000).toISOString();row.metadata.findings=[{id:'retained-before-timeout'}];
+  await f.service.processQueuedRuns();const failed=await f.service.getRun(run.id,user);
+  assert.equal(failed.status,'failed');assert.equal(failed.error.code,'QUALITY_AGENT_DEADLINE');assert.equal(modelCalls,0);assert.equal(starts,0);assert.deepEqual(failed.findings,[{id:'retained-before-timeout'}]);
+});
+
+test('the saved run deadline aborts a pending model turn and blocks a late paid admission',async()=>{
+  let f,run,admissions=0,actions=0,sawDeadline=false;
+  f=fixture({resolveMissionModel:async()=>({}),decideMission:async(request,actor,observed,history,trace)=>{
+    assert.ok(Date.parse(trace.deadline_at)-Date.now()<=2500);
+    await new Promise((resolve,reject)=>{const safety=setTimeout(()=>reject(new Error('The model deadline did not abort.')),6000);trace.signal.addEventListener('abort',()=>{clearTimeout(safety);resolve();},{once:true});});
+    sawDeadline=trace.signal.reason?.code==='QUALITY_AGENT_DEADLINE';
+    await trace.beforeDispatch({payload:{max_tokens:100},call_id:'late-admission',phase:'decision'});admissions++;return {action:'blocked',summary:'Too late.'};
+  },http:async(url)=>{
+    if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});if(url.endsWith('/cancel'))return Response.json({cancelled:true});if(url.endsWith('/decision')){actions++;return Response.json({accepted:true});}
+    return Response.json({contract_version:'1.0',id:'engine-mission-1234',client_run_id:run.id,kind:'web',target_url:input.target_url,scope:{project_id:'project-a',app_type_id:null},state:'running',outcome:null,stages:[],findings:[],metrics:{},artifacts:[],limitations:[],decision_request:{sequence:1,url:input.target_url,title:'Page',text:'Observed',elements:[]}});
+  }});
+  run=await f.service.createRun({...input,execution_mode:'agent',ai_configuration:{agent_execution:{max_model_calls:3,max_revision_rounds:0,max_followups:0,timeout_ms:10000}}},user);
+  const row=f.rows.get(run.id);row.metadata.engine_run_id='engine-mission-1234';row.metadata.queued_at=new Date(Date.now()-7500).toISOString();
+  await f.service.processQueuedRuns();const failed=await f.service.getRun(run.id,user);
+  assert.equal(sawDeadline,true);assert.equal(failed.error.code,'QUALITY_AGENT_DEADLINE');assert.equal(admissions,0);assert.equal(actions,0);assert.equal(failed.model_usage.calls,0);
 });

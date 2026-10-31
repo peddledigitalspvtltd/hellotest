@@ -23,6 +23,7 @@ async function proposePlan(input,user) {
   if(deadline-Date.now()<1000)throw C.fail('The bounded journey planning deadline elapsed.',504,'QUALITY_AGENT_PLAN_DEADLINE');
   const response=await require('@hellotest/platform/backend/src/utils/llmTraceContext').run({project_id:input.project_id,actor_id:user.id},()=>require('@hellotest/platform/backend/src/utils/llmHttpClient').fetchLlmWithRetry(`${(integration.base_url||'https://api.openai.com/v1').replace(/\/$/,'')}/chat/completions`,{
     method:'POST',headers:{'Content-Type':'application/json',...(require('@hellotest/integration/backend/services/integration.service').isUsableApiCredential(integration.api_key)?{Authorization:`Bearer ${integration.api_key}`}:{})},body:JSON.stringify({model:integration.model,max_tokens:2200,response_format:{type:'json_object'},messages:[
+      {role:'system',content:require('./qualityAgentSkills').instructionBlock('web',{phase:'planning'})},
       {role:'system',content:aiInstructionBlock("ai.agentic.quality_plan", "qualityAgentPlanner.response.1")},
       ...(feedback?[{role:'system',content:aiInstructionBlock('ai.agentic.quality_plan','qualityAgentPlanner.revision')}]:[]),
       {role:'user',content:JSON.stringify({task_brief:C.taskBrief({...input,kind:'web'}),reviewed_context:selectionContext.smart_context.reviewed_context||null,authorized_locator_context:locatorContext,...(feedback?{validation_feedback:feedback}:{})})}

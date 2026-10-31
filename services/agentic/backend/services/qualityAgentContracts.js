@@ -1,4 +1,5 @@
 const { createHash } = require('node:crypto');
+const agentSkills = require('./qualityAgentSkills');
 const fail = (message, statusCode = 400, code = 'QUALITY_AGENT_INVALID') => Object.assign(new Error(message), { statusCode, code, publicMessage: message });
 const hash = value => createHash('sha256').update(typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(value)).digest('hex');
 const text = (value, maximum = 500) => typeof value === 'string' ? value.trim().slice(0, maximum) : '';
@@ -13,7 +14,7 @@ const AGENTS = [
   { id:'performance',name:'Navigation Performance',description:'Measure one browser navigation against explicit budgets.',checks:['Navigation timing and available LCP/CLS observations','Resource count and transfer bytes','Configured metric budgets'],limitations:['One browser navigation; not load testing or representative production percentiles'],goal_support:'bounded_checks' },
   { id:'accessibility',name:'Accessibility Review',description:'Inspect accessibility rules with selector-level evidence.',checks:['Engine-reported accessibility rules','Elements and labels requiring review'],limitations:['Automated rules do not certify WCAG conformance; manual review remains necessary'],goal_support:'bounded_checks' },
   { id:'visual',name:'Visual Regression',description:'Capture a screenshot and compare against an explicitly reviewed baseline.',checks:['Fixed viewport and explicit masks','Screenshot content hash and pixel difference evidence','Baseline approval before comparison'],limitations:['First capture requires baseline review and does not pass regression','Dynamic content and environment differences may require investigation'],goal_support:'bounded_checks' }
-];
+].map(agent => ({ ...agent, default_goal: agentSkills.defaultGoal(agent.id), skill_profile: agentSkills.metadata(agent.id) }));
 function targetUrl(value) {
   let url; try { url = new URL(value); } catch { throw fail('Enter a valid HTTP or HTTPS application URL.'); }
   if (!['http:','https:'].includes(url.protocol) || url.username || url.password) throw fail('Use an HTTP or HTTPS URL without embedded credentials.');
@@ -33,6 +34,7 @@ function taskBrief(request) {
   if (!agent) throw fail('Choose a supported quality agent.');
   return {agent_id:`browser-${agent.id}`,name:agent.name,intent:agent.description,goal:request.goal || '',
     checks:[...agent.checks],limitations:[...agent.limitations],target_url:request.target_url,
+    skill_profile:{id:agent.skill_profile.id,version:agent.skill_profile.version},
     execution_scope:{max_pages:request.options?.max_pages,max_duration_ms:request.options?.timeout_ms,
       ...(request.options?.mission || {})}};
 }

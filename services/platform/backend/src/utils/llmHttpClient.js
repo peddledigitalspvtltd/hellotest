@@ -5,6 +5,8 @@ const { isContextSizeRejection, buildContextFallbackBody } = require("./llmConte
 const { resilientHttpRequest } = require("./resilientHttpClient");
 const traces = require("./llmTraceCapture");
 const { prepareChatRequest, compatibleChatRequest, validateChatResponse, assertInputBudget } = require("./llmRequestPolicy");
+const streamCapabilities = new Map();
+const streamKey = (url, model) => { try { const target = new URL(url); return `${target.origin}${target.pathname}|${String(model || '')}`; } catch { return null; } };
 
 const bufferResponseWithinDeadline = (response, controller, maxBytes) => cloneWithBoundedBody(response, {
   maxBytes,
@@ -23,6 +25,12 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     await traces.finish(preflight,{error});throw error;
   }
   init = managed.init; options = managed.options;
+  const streaming = typeof options.onTextDelta === 'function' || typeof options.onToolCall === 'function';
+  if (streaming) {
+    let payload; try { payload = JSON.parse(init.body); } catch {}
+    const cached = streamCapabilities.get(streamKey(managed.url || url, payload?.model));
+    if (Array.isArray(payload?.messages)) init = { ...init, body: JSON.stringify({ ...payload, stream: options.integration?.config?.supports_streaming !== false && !(cached && cached > Date.now()) }) };
+  }
   if (managed.url) url = managed.url;
   const timeoutMs = Math.max(1_000, Number(options.timeoutMs || DEFAULT_TIMEOUT_MS));
   const maxAttempts = Math.max(1, Math.min(4, Number(options.maxAttempts || DEFAULT_MAX_ATTEMPTS)));
@@ -56,7 +64,14 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
         let payload;try{payload=JSON.parse(args[1].body);}catch{}
         try{await options.beforeDispatch({url:args[0],init:args[1],payload});}catch(error){dispatchError=error;error.nonRetryable=true;error.statusCode||=422;throw error;}
       }
-      traces.dispatch(lastTrace,attempts);return globalThis.fetch(...args);
+      traces.dispatch(lastTrace,attempts);
+      const upstream = await globalThis.fetch(...args);
+      if (streaming && upstream.ok) {
+        receivedGeneration = true;
+        try { return await require('./llmStreamingResponse').consumeChatStream(upstream, { onTextDelta: options.onTextDelta, signal: args[1].signal, maxBytes: options.maxResponseBytes }); }
+        catch (error) { dispatchError = error; throw error; }
+      }
+      return upstream;
     },
     dependency: "llm-provider",
     operation,
@@ -90,6 +105,16 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
       throw Object.assign(new Error('The selected model rejected reference images. Select a vision-capable integration or remove the images; no text-only generation was substituted.'), { code: 'AI_VISION_UNSUPPORTED', statusCode: 422 });
     }
     let next = options.compatibility === false ? null : compatibleChatRequest(init, response.status, detail);
+    if (!next && streaming && options.compatibility !== false && /\bstream(?:ing)?\b/i.test(detail)
+      && /unsupported|not supported|does not support|unknown parameter|unrecognized|not permitted/i.test(detail)) {
+      const payload = JSON.parse(init.body);
+      if (payload.stream === true) {
+        payload.stream = false; delete payload.stream_options;
+        next = { ...init, body: JSON.stringify(payload) };
+        const key = streamKey(url, payload.model);
+        if (key) { if (streamCapabilities.size >= 100) streamCapabilities.clear(); streamCapabilities.set(key, Date.now() + 10 * 60 * 1000); }
+      }
+    }
     if (!next && !contextReduced && options.contextFallback !== false && isContextSizeRejection(response.status, detail)) {
       const body = buildContextFallbackBody(init.body, options.contextFallbackContent, options.contextFallbackInstructions);
       if (body) {
@@ -129,7 +154,11 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     }
   }
   await require("./aiFeatureRuntime").validateResponse(response, managed.profile);
-  const valid = options.validateResponse === false ? false : await validateChatResponse(response, prepared.payload,options);
+  const valid = options.validateResponse === false ? false : await validateChatResponse(response, streaming ? { ...prepared.payload, stream: false } : prepared.payload,options);
+  if (valid && typeof options.onToolCall === 'function') {
+    const value = await response.clone().json();
+    for (const call of value.choices?.[0]?.message?.tool_calls || []) await options.onToolCall(call, { response_id: value.id, model: value.model, choice_index: 0 });
+  }
   if (valid && options.integration) {
     // Preferences must not turn a successful generation into a failed request.
     try { await require("@hellotest/integration/backend/services/aiLlmSelection.service").recordSuccessfulLlmIntegration(options.integration); } catch { /* best effort */ }
@@ -145,5 +174,5 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
 };
 
 exports._internals = {
-  bufferResponseWithinDeadline
+  bufferResponseWithinDeadline, streamCapabilities
 };

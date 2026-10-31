@@ -43,6 +43,8 @@
     "test:ai-requests": "node --test services/platform/backend/test/aiRequestEnvelope.test.js services/integration/test/backend/llmRequestPolicy.test.js services/knowledge/test/backend/knowledgeModelEfficiency.test.js services/agentic/test/backend/agentContextFallback.test.js services/agentic/test/backend/specialistChain.test.js services/ai/test/backend/structuredReview.test.js services/ai/test/backend/aiGenerationPersistenceRetry.test.js",
     "test:workflows": "node --test services/agentic/test/backend/workflow*.test.js services/platform/backend/test/agentWorkflowExecution.test.js services/platform/backend/test/agentWorkspaceReliability.test.js",
     "test:workflows:temporal": "node scripts/checks/test-workflow-temporal-postgres.mjs",
+    "test:quality-agents": "node --test services/agentic/test/backend/quality*.test.js services/agentic/test/backend/browserMissionPlanner.test.js services/platform/backend/test/llmStreamingResponse.test.js",
+    "test:quality-agents:postgres": "node scripts/checks/test-quality-agents-postgres.mjs",
     "test:repository-knowledge": "node scripts/checks/test-repository-knowledge.mjs",
     "test:knowledge:postgres": "node scripts/checks/test-knowledge-postgres.mjs",
     "test:product-ux": "node scripts/checks/test-product-experience.mjs",
