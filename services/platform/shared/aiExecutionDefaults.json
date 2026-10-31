@@ -1,0 +1,1417 @@
+[
+  {
+    "id": "ai.case_authoring.full_case",
+    "defaults": {
+      "temperature": 0.2,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null,
+      "instruction_blocks": {
+        "application.artifactContract": "Return nonempty title and description, integer priority 1–5, a permitted test_case_type, an explicit parameter_values object and complete executable steps with a separate action and expected_result for each step (or the requested complete Gherkin with Then outcomes). Use all supplied linked Story title, description and acceptance evidence. Every case-owned @t input must have its raw name and appropriate concrete synthetic string value in parameter_values; {} is valid when no local data is needed. Preserve supplied values and exact @t/@s/@r scope, including protected references. Do not fabricate real credentials, existing IDs, selectors, endpoints or unsupported outcomes."
+      }
+    }
+  },
+  {
+    "id": "ai.case_authoring.step_rephrase",
+    "defaults": {
+      "temperature": 0.2,
+      "top_p": null,
+      "max_output_tokens": 1024,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.requirement.optimization",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null,
+      "instruction_blocks": {
+        "application.artifactContract": "Return one complete Story proposal with a nonempty title (at most 255 characters), nonempty description, nonempty acceptance_criteria array of distinct observable outcomes and integer priority 1–5. Preserve existing supported values and cite exact permitted field_evidence refs for every changed field. Questions cannot replace acceptance criteria; never fabricate acceptance behavior or imply the proposal was saved."
+      }
+    }
+  },
+  {
+    "id": "ai.execution.analysis",
+    "defaults": {
+      "temperature": 0.2,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.execution.report_analysis",
+    "defaults": {
+      "temperature": 0.2,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.execution.smart_plan",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null,
+      "instruction_blocks": {
+        "application.artifactContract": "Return cases with the supplied test_case_id, concise reason and nonempty allowed evidence_refs. Selection, risk, eligibility and run acceptance are host-owned; never invent Test Cases or claim execution."
+      }
+    }
+  },
+  {
+    "id": "ai.knowledge.assistant",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.automation.keyword_generation",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 8192,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.automation.review",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.automation.step_rephrase",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.automation.gap_analysis",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.execution.network_to_api_steps",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.automation.locator_repair",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.test_data.synthetic",
+    "defaults": {
+      "temperature": 0.35,
+      "top_p": null,
+      "max_output_tokens": 2048,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.requirement.creation",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null,
+      "instruction_blocks": {
+        "application.artifactContract": "Every Story must include a nonempty title (at most 255 characters), nonempty description, nonempty acceptance_criteria array of distinct observable outcomes and integer priority 1–5. Ground all three content fields in exact permitted field_evidence refs. Open questions cannot replace acceptance criteria. If no observable outcome is supported, return no Story proposals rather than inventing behavior."
+      }
+    }
+  },
+  {
+    "id": "ai.requirement.grooming",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.requirement.gherkin",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 8192,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.requirement.description_rephrase",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.requirement.change_impact",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.test_case.design",
+    "defaults": {
+      "temperature": 0.2,
+      "top_p": null,
+      "max_output_tokens": 8192,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null,
+      "instruction_blocks": {
+        "application.artifactContract": "Return nonempty title and description, integer priority 1–5, a permitted test_case_type, an explicit parameter_values object and complete executable steps with a separate action and expected_result for each step (or the requested complete Gherkin with Then outcomes). Use all supplied linked Story title, description and acceptance evidence. Every case-owned @t input must have its raw name and appropriate concrete synthetic string value in parameter_values; {} is valid when no local data is needed. Preserve supplied values and exact @t/@s/@r scope, including protected references. Do not fabricate real credentials, existing IDs, selectors, endpoints or unsupported outcomes."
+      }
+    }
+  },
+  {
+    "id": "ai.test_case.change_impact",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.quality.story_assurance",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.quality.test_case_assurance",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.quality.gate_assessment",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.quality.portfolio_insights",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.quality.dashboard_design",
+    "defaults": {
+      "temperature": 0.12,
+      "top_p": null,
+      "max_output_tokens": 3072,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.bug.draft",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null,
+      "instruction_blocks": {
+        "application.artifactContract": "Return draft with title, message (description), numbered steps_to_reproduce, expected_result, actual_result, severity critical|high|medium|low and priority Highest|High|Medium|Low|Lowest. Missing facts must remain empty and be identified in gaps, never invented. Preserve field_evidence refs."
+      }
+    }
+  },
+  {
+    "id": "ai.bug.triage",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 2048,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null,
+      "instruction_blocks": {
+        "application.artifactContract": "Return recommendations for supplied issue IDs only, using the exact permitted categories and field citations. Priority, readiness and selected Defects are host-owned."
+      }
+    }
+  },
+  {
+    "id": "ai.execution.failure_clustering",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.execution.case_triage",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.automation.dom_extraction",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.content.rephrase",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.workflow",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.quality_plan",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.release.notes",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.knowledge.intent",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "none",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.knowledge.enrichment",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "none",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.knowledge.graph_extract",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 1200,
+      "context": {
+        "mode": "none",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": {
+        "type": "object",
+        "required": [
+          "relations"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "relations": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source_node_id",
+                "target_node_id",
+                "relation_type",
+                "chunk_id",
+                "excerpt"
+              ],
+              "properties": {
+                "source_node_id": {
+                  "type": "string"
+                },
+                "target_node_id": {
+                  "type": "string"
+                },
+                "relation_type": {
+                  "type": "string"
+                },
+                "chunk_id": {
+                  "type": "string"
+                },
+                "excerpt": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "ai.knowledge.embedding",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "none",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.browser_decision",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.quality-orchestrator",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.story-architect",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.test-designer",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.automation-engineer",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.run-planner",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.failure-analyst",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.bug-reporter",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.bug-triage",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.quality-evaluator",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.repository-curator",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.story-completion",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.story-grooming",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.story-assurance",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.test-improvement",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.release-readiness",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.impact-analysis",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.coverage-assurance",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.risk-prediction",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.flaky-test-intelligence",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.release-risk-simulation",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.quality-graph",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.automation-repair",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "agent_execution": {
+        "max_model_calls": 4,
+        "max_revision_rounds": 2,
+        "max_followups": 3,
+        "timeout_ms": 120000
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.admin.prompt_optimization",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "none",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.knowledge.verification",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "none",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.repository.object_repository",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.repository.api_tests",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.repository.repository_knowledge",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.repository.component_tests",
+    "defaults": {
+      "temperature": 0.15,
+      "top_p": null,
+      "max_output_tokens": 4096,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.browser.web",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.browser.performance",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.browser.security",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.browser.accessibility",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.agentic.browser.visual",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 6144,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.automation.recorder_mapping",
+    "defaults": {
+      "temperature": 0.1,
+      "top_p": null,
+      "max_output_tokens": 8192,
+      "context": {
+        "mode": "mcp",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.authoring.request_validation",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 700,
+      "context": {
+        "mode": "none",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  },
+  {
+    "id": "ai.mcp.investigate_failure",
+    "defaults": {
+      "temperature": 0,
+      "top_p": null,
+      "max_output_tokens": 700,
+      "context": {
+        "mode": "none",
+        "token_budget": 2000,
+        "max_items": 12,
+        "required": false,
+        "focus": ""
+      },
+      "output_schema": null
+    }
+  }
+]

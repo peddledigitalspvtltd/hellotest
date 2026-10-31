@@ -1,0 +1,42 @@
+{
+  "editFields": {
+    "label": "Edit Fields",
+    "description": "Map fields for each item and optionally retain its existing fields.",
+    "defaults": { "dataMapping": "{\n  \"result\": \"$item\"\n}", "dataKeepOtherFields": true }
+  },
+  "splitOut": {
+    "label": "Split Out",
+    "description": "Split an array field into individual items with optional parent fields.",
+    "defaults": { "dataSplitField": "items", "dataDestinationField": "item", "dataIncludeFields": "none", "dataFields": "" }
+  },
+  "aggregate": {
+    "label": "Aggregate",
+    "description": "Collect all items or selected field values into one item.",
+    "defaults": { "dataAggregateMode": "all", "dataOutputField": "items", "dataAggregateFields": "[{\"field\":\"status\",\"outputField\":\"statuses\"}]", "dataMergeLists": false, "dataKeepMissing": false, "dataIncludeFields": "all", "dataFields": "" }
+  },
+  "limit": {
+    "label": "Limit",
+    "description": "Keep the first or last configured number of items.",
+    "defaults": { "dataLimit": "10", "dataKeep": "first" }
+  },
+  "sort": {
+    "label": "Sort",
+    "description": "Order items by typed fields with deterministic tie and null handling.",
+    "defaults": { "dataSortFields": "[{\"field\":\"priority\",\"direction\":\"asc\",\"type\":\"auto\",\"nulls\":\"last\"}]" }
+  },
+  "removeDuplicates": {
+    "label": "Remove Duplicates",
+    "description": "Keep the first item for each matching value in this execution.",
+    "defaults": { "dataCompare": "all", "dataFields": "" }
+  },
+  "filter": {
+    "label": "Filter",
+    "description": "Pass only items that meet all or any configured comparisons.",
+    "defaults": { "dataConditions": "[{\"conditionPath\":\"item.status\",\"conditionOperator\":\"equals\",\"conditionValue\":\"\\\"passed\\\"\"}]", "dataConditionCombinator": "all" }
+  },
+  "switch": {
+    "label": "Switch",
+    "description": "Route each item through named comparison outputs and an optional fallback.",
+    "defaults": { "dataRoutes": "[{\"id\":\"passed\",\"label\":\"Passed\",\"conditions\":[{\"conditionPath\":\"item.status\",\"conditionOperator\":\"equals\",\"conditionValue\":\"\\\"passed\\\"\"}],\"conditionCombinator\":\"all\"}]", "dataRouteAll": false, "dataFallback": "fallback" }
+  }
+}
