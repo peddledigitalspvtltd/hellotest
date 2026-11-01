@@ -114,6 +114,7 @@ async function executeReviewNode({ runId, nodeId, shouldRun, receipts }) {
     if (remaining <= 0) throw Object.assign(new Error('Review deadline exceeded.'),{code:'DEADLINE_EXCEEDED',publicMessage:'Review deadline exceeded.'});
     await execution.bounded(signal => runtime().runStep(run,node,user,signal,persist,shouldRun),{signal:context.cancellationSignal,timeoutMs:remaining});
   } catch (error) {
+    error = events.withNode(error,run,node);
     result.status = 'failed'; result.fatal = true;
     result.error_details = events.failureInfo(error); result.error = result.error_details.message;
     result.completed_at = new Date().toISOString(); result.duration_ms = events.duration(result);
@@ -147,7 +148,10 @@ async function publishReview({ runId, receipts, status, reason }) {
       error_details:{code:'AGENT_ACTIVITY_OUTCOME_UNKNOWN',outcome_unknown:true,reconciliation_required:true,retryable:false}};
     return {...item,status:'skipped',skip_reason:`Workflow finished: ${status}`,completed_at:new Date().toISOString()};
   });
+  const failedNode = status === 'failed' ? run.node_results.find(item=>item.fatal && item.error_details) || run.node_results.find(item=>item.status==='failed'&&item.error_details) : null;
   const output = {...run.output_payload,status,error_code:reason,orchestrator:'temporal',
+    ...(failedNode?{failed_node_id:failedNode.error_details.origin?.node_id || failedNode.node_id,
+      ...(failedNode.error_details.origin?.node_id && failedNode.error_details.origin.node_id!==failedNode.node_id?{failed_parent_node_id:failedNode.node_id}:{}),error_details:failedNode.error_details}:{}),
     summary: status === 'completed' ? 'Review workflow completed. Results are ready for human review.' : status === 'needs_review' ? 'Review the evidence gaps and recovery results before acting.' : `Review execution ${status}. Completed results are preserved.`,
     reviews,review_session_ids:reviews.map(item=>item.session_id).filter(Boolean),
     results:run.node_results.filter(item=>item.node_type==='output'&&item.status==='completed').map(item=>({node_id:item.node_id,output:item.output}))};

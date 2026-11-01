@@ -67,7 +67,7 @@ const resolveChatCompletionsUrl = (baseUrl) => {
 };
 
 const JSON_MODE_FIELD = /(?:response[_\s-]?format|json[_\s-]?object|json mode)/i;
-const JSON_MODE_REJECTION = /(?:unsupported|not supported|unknown|unrecognized|invalid|extra inputs?|not permitted)/i;
+const JSON_MODE_REJECTION = /(?:unsupported|not supported|unknown (?:parameter|field)|unrecognized|extra inputs?|not permitted)/i;
 
 const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt, smartContext, user, contextRoute, governedContext, evidenceScope }) => {
   const context = {};
@@ -656,6 +656,14 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
   };
 
   let response = await request(true);
+  const providerFailure = (failed, detail) => {
+    const failure = require('@hellotest/platform/backend/src/utils/upstreamLlmError').createLlmProviderError({status:failed.status,headers:failed.headers,detail});
+    failure.provider_failure_code = failure.code;
+    // Keep this public agent API code stable while retaining the shared
+    // provider classification and safe diagnostics for the workflow node.
+    failure.code = 'AGENT_PROVIDER_ERROR';
+    return failure;
+  };
   if (!response.ok && [400,413,422].includes(Number(response.status)) && budget.used < budget.max && require('@hellotest/platform/backend/src/utils/llmContextFallback').isContextSizeRejection(response.status, await response.clone().text())) {
     const originalPayload = JSON.parse(promptPayload || buildBoundedAgentPromptPayload({mode,prompt,context,citations,contextRoute,knowledgeRetrieval}));
     const reduced = require('./agentMinimalContext').minimalContext(originalPayload);
@@ -666,10 +674,10 @@ const requestLlmResult = async ({ user, projectId, integration, agent, mode, pro
   }
   if (!response.ok) {
     const providerText = typeof response.text === "function" ? await response.text() : "";
-    if ([400, 422].includes(Number(response.status)) && JSON_MODE_FIELD.test(providerText) && JSON_MODE_REJECTION.test(providerText)) response = await request(false, reducedEvidenceIds ? effectiveMessages.at(-1).content : undefined);
-    else throw agentContract.fail(`LLM provider returned ${response.status}. Check the connection and retry when available.`, "AGENT_PROVIDER_ERROR", [429, 500, 502, 503, 504].includes(response.status) ? response.status : 422);
+    if ([400, 422].includes(Number(response.status)) && budget.used < budget.max && JSON_MODE_FIELD.test(providerText) && JSON_MODE_REJECTION.test(providerText)) response = await request(false, reducedEvidenceIds ? effectiveMessages.at(-1).content : undefined);
+    else throw providerFailure(response,providerText);
   }
-  if (!response.ok) throw agentContract.fail(`LLM provider returned ${response.status}. Check Integrations.`, "AGENT_PROVIDER_ERROR", response.status === 429 || response.status >= 500 ? response.status : 422);
+  if (!response.ok) throw providerFailure(response,typeof response.text === 'function' ? await response.text() : '');
   const payload = await response.json();
   if (currentCallRecord&&!currentCallRecord.usage) currentCallRecord.usage = providerUsage(payload.usage);
   if (payload.choices?.[0]?.finish_reason === "length") throw agentContract.fail("The model output limit was reached. Reduce the requested scope or increase this agent's output limit.", "AGENT_OUTPUT_TRUNCATED", 422);
@@ -1461,17 +1469,18 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       }
     };
   } catch (error) {
+    const diagnostic = require('../workflows/runtimeEvents').failureInfo(error);
     await workspaceTransactionService.appendTransactionEvent(transactionId, {
       level: "error",
       phase: "failed",
       message: execution.current()?.signal?.aborted ? "The review was cancelled or exceeded its deadline." : "The agent review could not be completed. Retry the review.",
       status: "failed",
-      metadata: { progress: 100, failure: true, error_code: error.code || "AGENT_EXECUTION_FAILED", error_message: error.publicMessage || "The model review failed.", validation_errors: error.validation_errors || [], cancelled: Boolean(execution.current()?.signal?.aborted) },
+      metadata: { progress: 100, failure: true, error_code: error.code || "AGENT_EXECUTION_FAILED", error_message: diagnostic.message, error_details:diagnostic, validation_errors: diagnostic.validation_errors || [], cancelled: Boolean(execution.current()?.signal?.aborted) },
       details: { progress: 100 }
     }).catch(() => null);
     await workspaceTransactionService.updateTransaction(transactionId, {
       status: "failed", completed_at: new Date().toISOString(),
-      metadata: { progress: 100, failure: true, error_code: error.code || "AGENT_EXECUTION_FAILED", error_message: error.publicMessage || "The model review failed.", validation_errors: error.validation_errors || [], cancelled: Boolean(execution.current()?.signal?.aborted) }
+      metadata: { progress: 100, failure: true, error_code: error.code || "AGENT_EXECUTION_FAILED", error_message: diagnostic.message, error_details:diagnostic, validation_errors: diagnostic.validation_errors || [], cancelled: Boolean(execution.current()?.signal?.aborted) }
     }).catch(() => null);
     throw error;
   } finally { await automationBrowser?.close(); }

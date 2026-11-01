@@ -70,6 +70,18 @@ function ensureSchemaGuidance(payload,schema){
  payload.messages.splice(index<0?payload.messages.length:index,0,{role:'system',content:`Output schema: ${encoded}`});
 }
 
+// JSON mode is a transport contract, independent of editable feature prompts.
+// A serialized schema or the word in a user document is not a trusted output
+// instruction. Preserve existing explicit trusted guidance and all task data.
+function ensureJsonObjectGuidance(payload){
+  if(payload.response_format?.type!=='json_object')return;
+  const text=content=>typeof content==='string'?content:Array.isArray(content)
+    ?content.filter(part=>part?.type==='text').map(part=>part.text||'').join('\n'):'';
+  if(payload.messages.some(message=>['system','developer'].includes(message.role)&&/\bjson\b/i.test(text(message.content))))return;
+  const index=payload.messages.findIndex(message=>!['system','developer'].includes(message.role));
+  payload.messages.splice(index<0?payload.messages.length:index,0,{role:'system',content:'When returning text, return one valid JSON object that follows the supplied output contract. Do not wrap it in Markdown or add surrounding prose.'});
+}
+
 const prepareChatRequest = (init, options = {}) => {
   let payload;
   try { payload = JSON.parse(init.body); } catch { return { init }; }
@@ -83,6 +95,7 @@ const prepareChatRequest = (init, options = {}) => {
    payload.response_format={type:'json_schema',json_schema:{name:String(options.outputSchemaName||'hellotest_output').replace(/[^A-Za-z0-9_-]/g,'_').slice(0,64),strict:true,schema:options.outputSchema}};
   }
   if(options.outputSchema&&payload.response_format?.type!=='json_schema')ensureSchemaGuidance(payload,options.outputSchema);
+  ensureJsonObjectGuidance(payload);
   payload = require('./aiReferenceImages').applyReferenceImagePolicy(payload, { integration: options.integration, policy: options.referenceImagePolicy });
   const maximum = Math.min(16_384, positiveInteger(options.maxOutputTokens) || OUTPUT_LIMITS[options.operation] || 4096);
   const requested = positiveInteger(payload.max_completion_tokens) || positiveInteger(payload.max_tokens) || maximum;
@@ -124,6 +137,7 @@ const compatibleChatRequest = (init, status, detail) => {
     // Keep the feature's schema instructions and local response validation.
     delete payload.response_format;
   } else return null;
+  ensureJsonObjectGuidance(payload);
   return { ...init, body: JSON.stringify(payload) };
 };
 

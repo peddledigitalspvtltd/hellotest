@@ -21,8 +21,15 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     try {
       let raw = '';
       for await (const chunk of req) raw += chunk;
-      const request = JSON.parse(raw), contents = (request.messages || []).filter(item => typeof item.content === 'string').map(item => item.content);
+      const request = JSON.parse(raw), contents = (request.messages || []).flatMap(item => typeof item.content === 'string' ? [item.content]
+        : Array.isArray(item.content) ? item.content.filter(part => part?.type === 'text').map(part => part.text || '') : []);
       const text = contents.join('\n');
+      // Match the provider's JSON-mode precondition rather than accepting any
+      // serialized task/schema. Every real Sprint AI adapter crosses this gate.
+      if (request.response_format?.type === 'json_object' && !/json/i.test(text)) {
+        failures.push('JSON mode was dispatched without a textual JSON instruction.');
+        res.statusCode=400;res.end(JSON.stringify({error:{code:null,type:'invalid_request_error',param:'messages',message:"'messages' must contain the word 'json' in some form, to use 'response_format' of type 'json_object'."}}));return;
+      }
       const payloads = contents.flatMap(content => { try { return [JSON.parse(content)]; } catch { return []; } });
       assert.equal(req.headers.authorization, `Bearer ${providerCredential}`);
       assert.equal(req.url, '/v1/chat/completions');
@@ -70,7 +77,8 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
           // assurance service must retain its review while marking it unknown.
         }
       } else throw new Error('The local provider received an unsupported model operation.');
-      calls.push({kind,model:request.model,text});
+      calls.push({kind,model:request.model,text,json_mode:request.response_format?.type==='json_object',
+        trusted_json_guidance:(request.messages||[]).some(message=>['system','developer'].includes(message.role)&&typeof message.content==='string'&&/\bjson\b/i.test(message.content))});
       res.setHeader('content-type','application/json');
       res.end(JSON.stringify({id:`fixture-${calls.length}`,model:request.model,choices:[{message:{role:'assistant',content:JSON.stringify(result)},finish_reason:'stop'}],usage:{prompt_tokens:100,completion_tokens:100,total_tokens:200}}));
     } catch (error) {
@@ -136,6 +144,7 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     for(const kind of ['story-assurance','test-case-generation','test-case-assurance','automation']) assert.equal(calls.filter(call=>call.kind===kind).length,2,kind);
     for(const call of calls.filter(call=>['test-case-generation','test-case-assurance','automation'].includes(call.kind))) assert.equal(storyIds.filter(id=>call.text.includes(id)).length,1,'Every downstream model call is limited to its one selected Story');
     assert.ok(calls.every(call=>call.model==='native-http-fixture'));
+    assert.ok(calls.filter(call=>call.json_mode).every(call=>call.trusted_json_guidance),'Every Sprint JSON-mode adapter retains trusted output guidance when workflow instructions replace feature defaults.');
     assert.ok(calls.every(call=>!call.text.includes(apiKey.key)),'Settings API credentials must never reach the model');
     assert.deepEqual(failures,[]);
     assert.ok(calls.filter(call=>call.kind==='story-assurance').every(call=>call.text.includes(customInstructions)),'The persisted node instructions must reach its real provider request.');

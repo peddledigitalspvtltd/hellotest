@@ -180,7 +180,7 @@ const normalizeReview = (value, dimensionIds, allowedRefs, { assessAutomationRea
 };
 
 const readReviewResponse = async (response) => {
-  if (!response.ok) throw createLlmProviderError({ status: response.status, detail: await response.text() });
+  if (!response.ok) throw createLlmProviderError({ status: response.status, headers: response.headers, detail: await response.text() });
   let payload;
   try {
     payload = await response.json();

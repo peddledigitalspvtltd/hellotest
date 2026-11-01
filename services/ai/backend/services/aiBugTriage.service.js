@@ -321,7 +321,7 @@ const requestCategoryRefinements = async ({ integration, issueSnapshot, determin
       ]
     })
   }, { integration, operation: "bug-triage.refine-category" });
-  if (!response.ok) throw createLlmProviderError({ status: response.status, detail: await response.text() });
+  if (!response.ok) throw createLlmProviderError({ status: response.status, headers: response.headers, detail: await response.text() });
   const payload = await response.json();
   return extractJson(getCompletionContent(payload));
 };

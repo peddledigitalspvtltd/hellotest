@@ -42,6 +42,12 @@ If the activity stops before its composite receipt commits, recovery records an 
 
 ## Verification
 
+The [23-kind node audit](workflow-node-audit-2026-11-02.md) distinguishes
+readiness coverage, actual local transport tests and controlled model/worker
+fixtures. Readiness rejects malformed Sprint IDs, non-scalar numeric settings,
+invalid comparison JSON and reserved mapping paths before dispatch. HTTP
+validation uses the node's effective method; Web evidence always performs GET.
+
 - `npm run test:workflows`: native data/flow, merge, HTTP/MCP, credentials, lineage, run persistence and existing workspace regression tests.
 - `npm run test:workflows:temporal`: a fresh disposable local PostgreSQL database and actual Temporal server/worker, including parallel overlap, ordered fan-in, connected/nested loops, acknowledgement recovery, an injected pre-commit receipt failure, cancellation and five history replays. The fault fixture checks that all three completed batch outputs remain available, only three actual body dispatches occurred, and no downstream output ran. The runner refuses remote or existing non-empty verification databases and drops its temporary database.
 - `node --test services/agentic/test/frontend/workflowGraph.test.mjs`: port/return validation, insertion, layout, templates and JSON export.

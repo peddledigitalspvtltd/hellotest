@@ -155,7 +155,23 @@ test('a body failure records a terminal failed iteration and preserves earlier w
   assert.equal(result(saved, 'stop').iterations.length, 1); assert.equal(result(saved, 'stop').iterations[0].status, 'failed');
   assert.match(result(saved, 'stop').iterations[0].error, /Body contract rejected/);
   assert.deepEqual(result(saved, 'stop').iterations[0].iteration_path, ['loop', 0]);
+  assert.equal(saved.output_payload.failed_node_id,'stop');assert.equal(saved.output_payload.failed_parent_node_id,'loop');
+  assert.equal(saved.output_payload.error_code,'WORKFLOW_STOPPED');
+  assert.deepEqual(result(saved,'loop').error_details.origin,{node_id:'stop',node_name:'stop',loop_node_id:'loop',batch_index:0,iteration_path:['loop',0]});
   assert.equal(result(saved, 'finish').status, 'skipped');
+});
+
+test('unknown operation outcomes stop before an Error handler or downstream action can redispatch', async t => {
+  setup(t);
+  const operations=require('../../backend/workflows/nodeOperations'),original=operations.execute;
+  t.mock.method(operations,'execute',async input=>{if(input.node.id==='uncertain')throw Object.assign(new Error('PRIVATE_REMOTE_BODY'),{
+    statusCode:502,code:'AGENT_HTTP_OUTCOME_UNKNOWN',outcome_unknown:true,retryable:false,operation_id:'http-original-operation',publicMessage:'The original operation was not acknowledged. Verify its outcome before sending it again.'});return original(input);});
+  const definition=graph([node('request','trigger'),node('uncertain','transform',{transformMapping:'{}',onError:'errorOutput'}),node('recover','errorHandler'),node('finish','output')],
+    [wire('request','uncertain'),wire('uncertain','recover','error'),wire('recover','finish')]);
+  const saved=await execute(definition,{});
+  assert.equal(saved.status,'failed');assert.equal(result(saved,'recover').status,'skipped');assert.equal(result(saved,'finish').status,'skipped');
+  assert.equal(result(saved,'uncertain').error_details.reconciliation_required,true);assert.equal(saved.output_payload.error_details.operation_id,'http-original-operation');
+  assert.doesNotMatch(JSON.stringify(saved),/PRIVATE_REMOTE_BODY/);
 });
 
 test('nested loops share the total batch budget instead of multiplying independent per-loop limits', async t => {

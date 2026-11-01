@@ -627,7 +627,7 @@ const requestRequirementOptimization = async ({ integration, prompt, images = []
 
   if (!response.ok) {
     const raw = await response.text();
-    throw createLlmProviderError({ status: response.status, detail: raw });
+    throw createLlmProviderError({ status: response.status, headers: response.headers, detail: raw });
   }
 
   const payload = await response.json();
@@ -827,7 +827,7 @@ const requestRequirementCreation = async ({ integration, prompt, images, fallbac
 
   if (!response.ok) {
     const raw = await response.text();
-    throw createLlmProviderError({ status: response.status, detail: raw });
+    throw createLlmProviderError({ status: response.status, headers: response.headers, detail: raw });
   }
 
   const payload = await response.json();

@@ -25,6 +25,7 @@ import { WorkflowDataView } from "./WorkflowDataView";
 import { WorkflowNodeModelCalls } from "./WorkflowNodeModelCalls";
 import { WorkflowLibraryReviewActions } from "./WorkflowLibraryReviewActions";
 import { WorkflowExecutionLog, executionDuration } from "./WorkflowExecutionLog";
+import { WorkflowFailureDetails } from './WorkflowFailureDetails';
 import { EXECUTABLE_NODE_KINDS } from "./WorkflowCanvas";
 import {
   nodeKindLabels,
@@ -105,7 +106,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
   }, [node.id, run?.id]);
   const kind = String(node.data.kind || "agent");
   const specialist = ["agent", "llmAgent", "customAI"].includes(kind) || (kind === "loop" && node.data.loopAction === "customAI");
-  const canRetry = specialist || (["apiTool", "apiAgent", "webAgent"].includes(kind) && ["GET", "HEAD"].includes(kind === "webAgent" ? "GET" : String(node.data.apiMethod || "GET")));
+  const canRetry = specialist || (["apiTool", "apiAgent", "webAgent"].includes(kind) && ["GET", "HEAD"].includes(kind === "webAgent" ? "GET" : String(node.data.apiMethod || "GET").trim().toUpperCase()));
   const recordedInput = result && Object.prototype.hasOwnProperty.call(result, "input") ? result.input : result?.input_context;
   const inputContext = recordedInput && typeof recordedInput === "object" && !Array.isArray(recordedInput) ? recordedInput as Record<string, unknown> : undefined;
   const progress = result?.progress as
@@ -187,6 +188,8 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           {result.started_at ? ` · ${executionDuration(result.started_at, result.completed_at)}` : ""}
         </p>
       )}
+      {result?.error ? <p role="alert" className="studio-notice">{typeof result.error === "string" ? result.error : JSON.stringify(result.error)}</p> : null}
+      <WorkflowFailureDetails value={result?.error_details} />
       {progress && (
         <div className="studio-source-progress">
           <progress
@@ -259,13 +262,6 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         >
           Review source analysis
         </button>
-      ) : null}
-      {result?.error ? (
-        <p role="alert" className="studio-notice">
-          {typeof result.error === "string"
-            ? result.error
-            : JSON.stringify(result.error)}
-        </p>
       ) : null}
     </section>
   );

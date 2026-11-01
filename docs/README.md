@@ -45,6 +45,7 @@ Start with [capabilities](product/capabilities.md), [source layout](architecture
 ## Setup, debugging and verification
 
 - [Development debugging runbook](development/debugging.md)
+- [Workflow node audit and JSON-mode correction](development/workflow-node-audit-2026-11-02.md)
 - [Sample-data setup](development/sample-data.md)
 - [Verification scope](development/verification.md)
 - [Knowledge and Context Graph verification](development/knowledge-context-graph-verification.md)

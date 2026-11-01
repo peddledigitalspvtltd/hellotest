@@ -26,6 +26,12 @@ const KINDS = new Set([
 ]);
 const object = (value) =>
   value && typeof value === "object" && !Array.isArray(value);
+const HTTP_KINDS = new Set(['apiTool', 'apiAgent', 'webAgent']);
+const httpMethod = (kind, data = {}) => {
+  if (kind === 'webAgent') return 'GET';
+  if (data.apiMethod !== undefined && (typeof data.apiMethod !== 'string' || !data.apiMethod.trim())) throw connections.fail('Supply the HTTP method as a nonempty supported method name.');
+  return (data.apiMethod ?? 'GET').trim().toUpperCase();
+};
 function parseObject(value, label) {
   let parsed;
   try {
@@ -163,10 +169,12 @@ function condition(data, context) {
   if (["exists", "notExists", "isEmpty", "notEmpty", "isTrue", "isFalse"].includes(data.conditionOperator)) return ({ exists, notExists: !exists, isEmpty: empty, notEmpty: !empty, isTrue: actual === true, isFalse: actual === false })[data.conditionOperator];
   let expected;
   try {
+    if (data.conditionValue != null && typeof data.conditionValue !== 'string') throw new Error('Use JSON text.');
+    if (Object.hasOwn(data, 'conditionValue') && data.conditionValue === null) throw new Error('Use JSON text.');
     expected = JSON.parse(data.conditionValue || "true");
   } catch {
     throw connections.fail(
-      "Comparison value must be JSON (quote text values).",
+      "Comparison value must be JSON text (for example false, 0, null or quoted text).",
     );
   }
   switch (data.conditionOperator || "equals") {
@@ -222,7 +230,7 @@ function validate(node) {
     }
   };
   if (kind === "transform" || (kind === "loop" && !["customAI", "storyPackets", "workflow"].includes(data.loopAction)))
-    check(() => parseObject(data.transformMapping || "{}", "Field mapping"));
+    check(() => mapValues(parseObject(data.transformMapping || "{}", "Field mapping"), {}));
   if (Number(data.retryCount) > 0 && !require("./runtimeEvents").canRetry(kind, data))
     errors.push("Retries are available for AI reviews and HTTP GET/HEAD requests. Set retries to zero for this node.");
   if (kind === "condition") check(() => condition(data, {}));
@@ -230,10 +238,13 @@ function validate(node) {
   if (kind === "mcpTool") {
     if (!data.connectionId || !data.mcpTool)
       errors.push("Choose an MCP server and tool.");
-    check(() => parseObject(data.mcpArguments || "{}", "Tool arguments"));
+    check(() => mapValues(parseObject(data.mcpArguments || "{}", "Tool arguments"), {}));
   }
-  if (["apiTool", "apiAgent", "webAgent"].includes(kind)) {
-    if (data.apiBody && !["GET", "HEAD"].includes(String(data.apiMethod || "GET").toUpperCase())) check(() => parseRequestBody(data.apiBody));
+  if (HTTP_KINDS.has(kind)) {
+    let method;
+    check(() => { method = httpMethod(kind, data); });
+    if (method && !['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'].includes(method)) errors.push('Choose a supported HTTP method.');
+    if (method && data.apiBody && !["GET", "HEAD"].includes(method)) check(() => mapValues(parseRequestBody(data.apiBody), {}));
     if (!data.apiUrl && !data.connectionId)
       errors.push("Enter an endpoint or select a connection.");
     if (data.apiAuth || data.credentialId)
@@ -242,11 +253,15 @@ function validate(node) {
       );
     if (
       Number(data.retryCount) > 0 &&
-      !["GET", "HEAD"].includes(data.apiMethod || "GET")
+      !["GET", "HEAD"].includes(method)
     )
       errors.push(
         "Set retries to zero for HTTP requests that may change data.",
       );
+    if (data.apiPagination && !['none','cursor'].includes(data.apiPagination)) errors.push('Choose supported cursor pagination.');
+    if (data.apiPagination === 'cursor' && method !== 'GET') errors.push('Cursor pagination is available only for HTTP GET.');
+    if (data.apiResource && data.apiResource !== 'sprintStories') errors.push('Choose the supported Sprint Stories resource or a standard HTTP endpoint.');
+    if (data.apiResource === 'sprintStories' && !data.connectionId) errors.push('Select a managed HelloTest HTTP API connection with an API key.');
   }
   if (kind === "mcpTool" && Number(data.retryCount) > 0)
     errors.push(
@@ -277,8 +292,6 @@ function validate(node) {
     try { require('./automationNodeInputs').validateNodeOptions(data); }
     catch (error) { errors.push(error.publicMessage || 'Check the Automation input settings.'); }
   }
-  if (data.apiPagination && !["none", "cursor"].includes(data.apiPagination)) errors.push("Choose supported cursor pagination.");
-  if (data.apiResource === "sprintStories" && !data.connectionId) errors.push("Select a managed HelloTest HTTP API connection with an API key.");
   if (
     kind === "testOpsTool" &&
     data.testOpsAction &&
@@ -301,8 +314,8 @@ async function execute({
   const context = contextFor(run, sources, { internal: kind === "artifactTask" });
   if (kind === "dataOperation") return dataOperations.execute(data, context, { readPath, mapValues, condition, signal });
   if (kind === "artifactTask") return require("./artifactTasks").execute({ run, node, sources, user, signal, onProgress, context });
-  if (data.apiResource === "sprintStories") {
-    require("./artifactTasks").checkInput(run);
+  if (HTTP_KINDS.has(kind) && data.apiResource === "sprintStories") {
+    const sprintId = require("./artifactTasks").checkSprintInput(run);
     await require("./artifactTasks").access(user, run.project_id, ["requirement.view"]);
     const { connection, url } = await connections.resolve(data.connectionId, run.project_id, data.apiUrl || undefined);
     if (!connection) throw connections.fail("Select a managed HelloTest HTTP connection with an API key.", 422);
@@ -310,7 +323,7 @@ async function execute({
     endpoint.pathname = endpoint.pathname.replace(/\/+$/, "").replace(/\/requirements$/, "") + "/requirements";
     endpoint.search = "";
     endpoint.searchParams.set("project_id", run.project_id);
-    endpoint.searchParams.set("sprint_id", String(run.input_payload.sprint_id));
+    endpoint.searchParams.set("sprint_id", sprintId);
     endpoint.searchParams.set("include_page", "true");
     endpoint.searchParams.set("page_size", "20");
     // The whole selected Sprint must fit the native Story pipeline budget.
@@ -322,14 +335,14 @@ async function execute({
       ...node,
       data: { ...data, kind: "agent", agentId: "quality-evaluator", customTask: true },
     });
-  if (["apiTool", "apiAgent", "webAgent"].includes(kind))
+  if (HTTP_KINDS.has(kind))
     return connections.callHttp({
       projectId: run.project_id,
       data: {
         ...data,
         apiUrl: interpolate(data.apiUrl, context, true),
-        apiBody: data.apiBody && !["GET", "HEAD"].includes(String(data.apiMethod || "GET").toUpperCase()) ? JSON.stringify(mapValues(parseRequestBody(data.apiBody), context)) : "",
-        apiMethod: kind === "webAgent" ? "GET" : data.apiMethod,
+        apiBody: data.apiBody && !["GET", "HEAD"].includes(httpMethod(kind, data)) ? JSON.stringify(mapValues(parseRequestBody(data.apiBody), context)) : "",
+        apiMethod: httpMethod(kind, data),
       },
       signal,
     });
@@ -516,5 +529,5 @@ module.exports = {
   KINDS,
   validate,
   execute,
-  _internals: { parseObject, readPath, mapValues, condition, contextFor, inputValue, appendInputs, mergeInputs, mergeExecutionContext, interpolate },
+  _internals: { parseObject, readPath, mapValues, condition, contextFor, inputValue, appendInputs, mergeInputs, mergeExecutionContext, interpolate, httpMethod },
 };

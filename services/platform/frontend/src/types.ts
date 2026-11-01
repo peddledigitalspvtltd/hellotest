@@ -2902,6 +2902,25 @@ export type AgenticWorkflow = {
   updated_at?: string;
 };
 
+export type AgenticWorkflowFailureDetails = {
+  code?: string;
+  provider_failure_code?: string;
+  category?: string;
+  message?: string;
+  status_code?: number;
+  upstream_status_code?: number;
+  retryable?: boolean;
+  retry_after_ms?: number;
+  operation_id?: string;
+  outcome_unknown?: boolean;
+  reconciliation_required?: boolean;
+  generation_received?: boolean;
+  provider_error?: { code?: string | null; type?: string | null; param?: string | null; request_id?: string };
+  origin?: { node_id: string; node_name?: string; loop_node_id?: string; batch_index?: number; iteration_path?: Array<string | number> };
+  validation_errors?: Array<{ path?: string; issue?: string; message?: string }>;
+  validation_feedback?: Array<{ step_id?: string; code?: string; message?: string }>;
+};
+
 export type AgenticWorkflowRun = {
   id: string;
   summary_only?: boolean;
@@ -2915,7 +2934,7 @@ export type AgenticWorkflowRun = {
   input_payload: Record<string, unknown>;
   output_payload: Record<string, unknown> | null;
   workflow_snapshot: Record<string, unknown>;
-  node_results: Array<Record<string, unknown>>;
+  node_results: Array<Record<string, unknown> & { error_details?: AgenticWorkflowFailureDetails }>;
   created_by?: string | null;
   started_at?: string | null;
   completed_at?: string | null;

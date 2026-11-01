@@ -708,7 +708,7 @@ const requestGrooming = async ({ integration, prompt, correction, timeoutMs }) =
     timeoutMs, maxAttempts: 1, compatibility: false });
   if (!response.ok) {
     const raw = await response.text();
-    throw createLlmProviderError({ status: response.status, detail: raw });
+    throw createLlmProviderError({ status: response.status, headers: response.headers, detail: raw });
   }
   const payload = await response.json();
   const content = getCompletionContent(payload);

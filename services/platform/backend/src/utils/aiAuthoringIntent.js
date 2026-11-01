@@ -43,7 +43,7 @@ async function validateAuthoringIntent({ featureKey, integration, additionalCont
         reference_images: images.map(image => ({ name: image.name })), external_references: externalLinks.map(url => ({ url, content_retrieved: false })) }) }
     ] })
   }, { integration, operation: 'authoring.validate-request', featureKey: FEATURE, contextFallback: false, maxOutputTokens: 700 });
-  if (!response.ok) throw createLlmProviderError({ status: response.status, detail: await response.text() });
+  if (!response.ok) throw createLlmProviderError({ status: response.status, headers: response.headers, detail: await response.text() });
   let verdict;
   try { verdict = parseAiJson(getCompletionContent(await response.json())); } catch { /* handled by the closed contract below */ }
   if (!verdict || Object.keys(verdict).some(key => !['decision', 'explanation', 'suggestions'].includes(key)) || !decisions.includes(verdict.decision) || typeof verdict.explanation !== 'string' || verdict.explanation.length > 1000

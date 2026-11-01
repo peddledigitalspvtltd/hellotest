@@ -57,12 +57,21 @@ async function access(user, projectId, codes) {
     if (!await permissions.hasPermission(user, code, projectId) || !await flags.areEnabled(flags.getFeatureKeysForPermission(code), { user })) throw fail(`Permission required: ${code}`, 403);
   }
 }
+function checkSprintInput(run) {
+  const sprint = run.input_payload?.sprint_id;
+  if (typeof sprint !== 'string' || !sprint.trim() || sprint !== sprint.trim() || sprint.length > 255 || /[\u0000-\u001f\u007f]/.test(sprint)) throw fail('Supply sprint_id as a Sprint ID of 1–255 visible characters without surrounding whitespace in the manual trigger input.', 422);
+  if (run.input_payload.project_id && run.input_payload.project_id !== run.project_id) throw fail('The trigger project must match the workflow project.', 403);
+  return sprint;
+}
 function checkInput(run, { generationNode } = {}) {
   if (!run.app_type_id) throw fail('Select an application before running Sprint Automator.', 422);
-  if (!String(run.input_payload?.sprint_id || '').trim()) throw fail('Supply sprint_id in the manual trigger input.', 422);
+  checkSprintInput(run);
+  if (Object.hasOwn(run.input_payload, 'integration_id')) {
+    const integration = run.input_payload.integration_id;
+    if (typeof integration !== 'string' || !integration.trim() || integration !== integration.trim() || integration.length > 255 || /[\u0000-\u001f\u007f]/.test(integration)) throw fail('Supply integration_id as a model connection ID of 1–255 visible characters without surrounding whitespace, or omit it to use the configured model.', 422);
+  }
   if (generationNode) generationOptions(generationNode.data,run.input_payload);
   else pinnedGenerationOptions(run);
-  if (run.input_payload.project_id && run.input_payload.project_id !== run.project_id) throw fail('The trigger project must match the workflow project.', 403);
   if (run.input_payload.app_type_id && run.input_payload.app_type_id !== run.app_type_id) throw fail('The trigger application must match the workflow application.', 403);
   if (run.input_payload.automation_start_url != null) automationInputs.validateNodeOptions({automationStartUrl:run.input_payload.automation_start_url});
 }
@@ -427,4 +436,4 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
     verification: { status: inputGaps.length || failedCases.length ? 'needs_input' : results.length ? 'passed' : 'not_required', checks: results.length ? ['native_contracts', 'project_and_sprint_scope', 'story_revision', 'stage_input_lineage'] : [], limitations: ['Native output validation does not prove product correctness or that generated automation has passed.'] } };
   return {__workflow_result:{output:{...metadata,data:results.map(packet=>taskResult(task,packet))},context:{...metadata,data:results}}};
 }
-module.exports = { TASKS, taskUsageKey, MAX_STORIES, checkInput, execute, access, loadStory, revision, fingerprint, authoredSteps, automationSteps, _internals: { metrics, storyBaseline, caseBaseline, assertDrafts, taskGuidance, taskResult } };
+module.exports = { TASKS, taskUsageKey, MAX_STORIES, checkInput, checkSprintInput, execute, access, loadStory, revision, fingerprint, authoredSteps, automationSteps, _internals: { metrics, storyBaseline, caseBaseline, assertDrafts, taskGuidance, taskResult } };

@@ -15,9 +15,10 @@ window.recordedOutput={status:200,records:[{id:'recorded-item',passed:false}],li
 window.largeRecordedOutput={start:'RECORDED_START',body:'x'.repeat(120000),end:'RECORDED_END'};
 window.ioRun={id:'execution-io-fixture',workflow_id:'saved-workflow',workflow_name:'Recorded data inspection',project_id:'project',app_type_id:'app',execution_mode:'review',trigger_kind:'manual',status:'completed',created_at:'2026-10-27T10:00:00Z',started_at:'2026-10-27T10:00:00Z',completed_at:'2026-10-27T10:01:00Z',input_payload:{sprint_id:'recorded-sprint'},workflow_snapshot:{nodes:savedNodes,edges:savedNodes.slice(1).map((item,index)=>({id:'edge-'+index,source:savedNodes[index].id,target:item.id}))},node_results:savedNodes.map(node=>({node_id:node.id,node_name:node.data.label,node_type:node.data.kind,status:node.id==='skipped'?'skipped':'completed',attempts:node.id==='skipped'?0:1,...(node.id==='records'?{input:{input_mode:'connected_results',request:{sprint_id:'recorded-sprint'},input:window.recordedInput,source_node_ids:['request'],upstream:[{node_id:'request',status:'completed',preview:'recorded upstream preview',truncated:true}],prompt:'Recorded exact prompt'},output:window.recordedOutput}:node.id==='large'?{input:{input:window.recordedInput},output:window.largeRecordedOutput}:node.id==='finish'?{input:null,output:null}:node.id==='request'?{input:{input:{sprint_id:'recorded-sprint'}},output:{sprint_id:'recorded-sprint'}}:{}),logs:[{at:'2026-10-27T10:00:01Z',level:'info',message:'Recorded event for '+node.id}]})),output_payload:{summary:'Saved records available for inspection.'}};
 window.iterationInput={enabled:false,count:0,item:null};
+window.recordedNodeFailure={code:'LLM_JSON_INSTRUCTION_REQUIRED',category:'provider_request',message:'The model messages did not include a JSON instruction.',status_code:400,upstream_status_code:400,retryable:false,provider_error:{code:null,type:'invalid_request_error',param:'messages',request_id:'req-workflow-browser-fixture'},origin:{node_id:'iterations',node_name:'Repeated batch step',loop_node_id:'request',batch_index:0,iteration_path:['request',0,'records',1]}};
 const repeated=window.ioRun.node_results.find(item=>item.node_id==='iterations');
 Object.assign(repeated,{output:{latest:true},input:{input:{current:'latest'}},logs:[{message:'Latest batch event'}],iterations:[
- {batch_index:0,iteration_path:['request',0,'records',1],input_start_index:0,input_item_count:1,status:'failed',attempts:1,input:{input:window.iterationInput},output:null,error:'Batch one validation failed',logs:[{level:'error',message:'First batch error event'}]},
+ {batch_index:0,iteration_path:['request',0,'records',1],input_start_index:0,input_item_count:1,status:'failed',attempts:1,input:{input:window.iterationInput},output:null,error:'Batch one validation failed',error_details:window.recordedNodeFailure,logs:[{level:'error',message:'First batch error event'}]},
  {batch_index:1,iteration_path:['request',0,'records',2],input_start_index:1,input_item_count:1,status:'skipped',attempts:0,input:null,skip_reason:'Not selected in batch two',logs:[{level:'info',message:'Second batch skipped event'}]}
 ]});
 api.agenticWorkflows.getRun=async()=>structuredClone(window.ioRun);
@@ -88,6 +89,12 @@ test('execution dialog shows actual read-only node JSON, bounds large records an
     await batch.selectOption('0');
     assert.equal(await output.inputValue(),'null','Prior batch explicit null output remains null');
     await dialog.getByRole('alert').filter({hasText:'Batch one validation failed'}).waitFor();
+    await dialog.getByText('Failure details',{exact:true}).click();
+    await dialog.getByText('req-workflow-browser-fixture',{exact:true}).waitFor();
+    await dialog.getByText('Automatic retry blocked',{exact:true}).waitFor();
+    assert.deepEqual(JSON.parse(await dialog.getByRole('textbox',{name:'Node failure details JSON',exact:true}).inputValue()),await page.evaluate(()=>window.recordedNodeFailure));
+    await dialog.getByText('Failure details',{exact:true}).scrollIntoViewIfNeeded();
+    await page.screenshot({path:screenshots+'/node-failure-details.png',fullPage:true});
     await dialog.getByRole('button',{name:'Input',exact:true}).click();
     assert.deepEqual(JSON.parse(await dialog.getByRole('textbox',{name:'Node input JSON',exact:true}).inputValue()),{enabled:false,count:0,item:null});
     await dialog.getByRole('button',{name:'Copy input JSON',exact:true}).click();
@@ -100,6 +107,7 @@ test('execution dialog shows actual read-only node JSON, bounds large records an
     assert.equal(await dialog.getByRole('textbox',{name:'Node input JSON',exact:true}).inputValue(),'null');
     await dialog.getByRole('button',{name:'Output',exact:true}).click();
     await dialog.getByText('Not selected in batch two',{exact:true}).waitFor();
+    assert.equal(await dialog.getByText('Failure details',{exact:true}).count(),0,'A skipped batch cannot inherit the earlier failure details');
     assert.equal(await output.count(),0,'Missing skipped output must never fall back to latest output');
     await page.screenshot({path:screenshots+'/iteration-selection.png',fullPage:true});
     await batch.selectOption('latest');

@@ -115,6 +115,33 @@ test("missing models and provider failures record a failed review without a fall
   assert.equal(records.some(record => record.status === "completed"), false);
 });
 
+test('native specialist provider failures retain safe diagnostics without retrying generic JSON request errors',async t=>{
+  const {records}=setupAssistant(t);
+  t.mock.method(globalThis,'fetch',async()=>Response.json({error:{code:null,type:'invalid_request_error',param:'messages',message:"'messages' must contain the word 'json' in some form, to use 'response_format' of type 'json_object'. PRIVATE_SOURCE_BODY"}},{status:400,headers:{'x-request-id':'req-native-agent-failure'}}));
+  await assert.rejects(assistant.respond(input),error=>{
+    assert.equal(error.code,'AGENT_PROVIDER_ERROR');assert.equal(error.provider_failure_code,'LLM_JSON_INSTRUCTION_REQUIRED');
+    assert.equal(error.upstreamStatusCode,400);assert.equal(error.retryable,false);
+    assert.deepEqual(error.provider_error,{code:null,type:'invalid_request_error',param:'messages',request_id:'req-native-agent-failure'});
+    assert.doesNotMatch(error.publicMessage,/PRIVATE_SOURCE_BODY/);return true;
+  });
+  assert.equal(globalThis.fetch.mock.callCount(),1,'A rejected JSON instruction must be fixed before another dispatch');
+  const failure=records.at(-1).metadata.error_details;
+  assert.equal(failure.category,'provider_request');assert.equal(failure.provider_failure_code,'LLM_JSON_INSTRUCTION_REQUIRED');
+  assert.equal(failure.provider_error.request_id,'req-native-agent-failure');assert.doesNotMatch(JSON.stringify(records),/PRIVATE_SOURCE_BODY/);
+});
+
+test('failed explicit unsupported-JSON fallback retains the second provider response status and diagnostics',async t=>{
+  const {records}=setupAssistant(t);let calls=0;
+  t.mock.method(globalThis,'fetch',async()=>++calls===1?Response.json({error:{type:'invalid_request_error',param:'response_format',message:'Unsupported parameter response_format.'}},{status:400})
+    :Response.json({error:{code:'insufficient_quota',type:'rate_limit_error',param:null,message:'PRIVATE_BILLING_DETAIL'}},{status:429,headers:{'x-request-id':'req-fallback-quota','retry-after':'7'}}));
+  await assert.rejects(assistant.respond(input),error=>{
+    assert.equal(error.code,'AGENT_PROVIDER_ERROR');assert.equal(error.provider_failure_code,'LLM_QUOTA_EXCEEDED');
+    assert.equal(error.statusCode,429);assert.equal(error.upstreamStatusCode,429);assert.equal(error.retryable,false);assert.equal(error.retryAfterMs,7000);
+    assert.equal(error.provider_error.request_id,'req-fallback-quota');assert.doesNotMatch(error.publicMessage,/PRIVATE_BILLING_DETAIL/);return true;
+  });
+  assert.equal(calls,2);assert.equal(records.at(-1).metadata.error_details.category,'provider_quota');assert.doesNotMatch(JSON.stringify(records),/PRIVATE_BILLING_DETAIL/);
+});
+
 test("repeated identical invalid model output stops repair and never becomes success", async t => {
   const { records } = setupAssistant(t);
   const calls = t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ response: "Unverified result [invented]", citation_ids: ["invented"] }) } }] }), { headers: { "content-type": "application/json" } }));

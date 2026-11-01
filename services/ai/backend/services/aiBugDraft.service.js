@@ -459,7 +459,7 @@ const requestLlmDraft = async (integration, input, context, evidenceSources, ima
       ]
     })
   }, { integration, operation: "bug-draft.generate", contextRetrievalQuery: defectRetrievalQuery(input, context, images) });
-  if (!response.ok) throw createLlmProviderError({ status: response.status, detail: await response.text() });
+  if (!response.ok) throw createLlmProviderError({ status: response.status, headers: response.headers, detail: await response.text() });
   try {
     const payload = await response.json();
     return extractJson(getCompletionContent(payload));

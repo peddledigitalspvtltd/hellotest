@@ -662,7 +662,31 @@ test('parallel branch failure aborts the other model and preserves distinct term
   assert.equal(calls, 2);
   assert.equal(done.node_results.find(row => row.node_id === 'A').status, 'failed');
   assert.equal(done.node_results.find(row => row.node_id === 'B').status, 'interrupted');
+  assert.equal(done.node_results.find(row => row.node_id === 'B').error_details.code, 'WORKFLOW_CANCELLED');
+  assert.ok(done.node_results.find(row => row.node_id === 'B').logs.some(entry=>entry.event==='node_failure_observed'));
   assert.equal(done.node_results.find(row => row.node_id === 'C').status, 'skipped');
+});
+
+test('parallel independent provider rejections keep each node diagnostic while the first failure remains the run root cause',async t=>{
+  const both=deferred();let calls=0;
+  setup(t,async input=>{
+    if(++calls===2)both.resolve();await both.promise;
+    const name=input.prompt.startsWith('Branch A')?'a':'b';
+    throw require('../src/utils/upstreamLlmError').createLlmProviderError({status:name==='a'?503:502,headers:new Headers({'x-request-id':`req-parallel-${name}`}),detail:JSON.stringify({error:{code:'service_unavailable',type:'server_error',param:null,message:'PRIVATE_PROVIDER_FAILURE'}})});
+  });
+  const done=await finished((await runtime.start(branchWorkflow('parallel'),{},user)).id);
+  assert.equal(done.status,'failed');assert.equal(calls,2);
+  for(const id of ['A','B']){
+    const result=done.node_results.find(row=>row.node_id===id);
+    assert.equal(result.error_details.code,'LLM_PROVIDER_UNAVAILABLE');
+    assert.equal(result.error_details.provider_error.request_id,`req-parallel-${id.toLowerCase()}`);
+    assert.equal(result.error_details.upstream_status_code,id==='A'?503:502);
+    assert.ok(result.logs.some(entry=>entry.event==='node_failure_observed'));
+  }
+  const root=done.node_results.find(row=>row.node_id===done.output_payload.failed_node_id);
+  assert.equal(root.status,'failed');assert.equal(done.output_payload.error_details.provider_error.request_id,root.error_details.provider_error.request_id);
+  assert.equal(done.node_results.find(row=>['A','B'].includes(row.node_id)&&row!==root).status,'interrupted');
+  assert.doesNotMatch(JSON.stringify(done),/PRIVATE_PROVIDER_FAILURE/);
 });
 
 test('parallel conditional fan-in ignores skipped branches and preserves empty and false values', async t => {

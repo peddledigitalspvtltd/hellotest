@@ -310,6 +310,7 @@ const requestChatCompletion = async ({ integration, content, fallbackContent, co
     const retryAfter = Number(response.headers.get("retry-after"));
     throw createLlmProviderError({
       status: response.status,
+      headers: response.headers,
       detail: raw,
       retryAfterMs: Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 60_000) : undefined
     });

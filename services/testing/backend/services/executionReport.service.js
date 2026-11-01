@@ -211,7 +211,7 @@ const requestAiAnalysisCompletion = async ({ integration, prompt }) => {
 
     if (!response.ok) {
       const raw = await response.text();
-      throw createLlmProviderError({ status: response.status, detail: raw });
+      throw createLlmProviderError({ status: response.status, headers: response.headers, detail: raw });
     }
 
     const payload = await response.json();

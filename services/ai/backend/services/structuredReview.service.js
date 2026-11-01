@@ -48,7 +48,7 @@ async function review({ projectId, userId, integrationId, usageKey='ai.quality.p
         body: JSON.stringify({ model: integration.model,response_format:{type:'json_object'},messages }) }, { integration, featureKey:usageKey,operation: usageKey, timeoutMs: remaining, maxAttempts: 1, maxOutputTokens, compatibility: false,
           contextFallback:Boolean(reduced)&&!contextReduced,onContextFallback:()=>{contextReduced=true;},contextFallbackContent:reduced?.content,
           contextFallbackInstructions:reduced?aiInstructionBlock(usageKey,'structuredReview.contextReduction'):undefined });
-      if (!response.ok) throw createLlmProviderError({ status: response.status, detail: await response.text() });
+      if (!response.ok) throw createLlmProviderError({ status: response.status, headers: response.headers, detail: await response.text() });
       const payload = await response.json();
       if (payload.choices?.[0]?.finish_reason === 'length') throw Object.assign(new Error('The model stopped before completing the review. Narrow the scope and retry.'), { code: 'AI_OUTPUT_TRUNCATED', statusCode: 502 });
       content=getCompletionContent(payload);

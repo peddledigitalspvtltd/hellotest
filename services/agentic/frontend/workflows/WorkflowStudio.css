@@ -469,6 +469,10 @@
 .studio-inspector details label {
   margin: 12px 0;
 }
+.studio-failure-details dl { display:grid; gap:8px; margin:12px 0; font-size:12px; }
+.studio-failure-details dl > div { display:grid; grid-template-columns:minmax(90px,1fr) minmax(0,1.6fr); gap:10px; }
+.studio-failure-details dt { color:var(--text-muted); }
+.studio-failure-details dd { margin:0; overflow-wrap:anywhere; }
 .studio-inspector > footer {
   display: flex;
   align-items: center;

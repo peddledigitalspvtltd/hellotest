@@ -39,6 +39,7 @@ const array = (value) => Array.isArray(value) ? value : [];
 const parse = (value, fallback) => { try { return typeof value === "string" ? JSON.parse(value) : value ?? fallback; } catch { return fallback; } };
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const kindOf = (node) => node.data?.kind || node.type || "agent";
+const numericScalar = value => ['number', 'string'].includes(typeof value) && String(value).trim() !== '';
 const processing = workflow => ({ mode: workflow.settings?.processing_mode === 'parallel' ? 'parallel' : 'sequential',
   max_parallel_nodes: workflow.settings?.processing_mode === 'parallel' ? Math.min(8, Math.max(1, Number(workflow.settings?.max_parallel_nodes) || 2)) : 1 });
 const nodeName = (node) => text(node.data?.label) || node.id;
@@ -192,8 +193,8 @@ function readiness(workflow, targetNodeId = "") {
   }
   const settings = object(workflow.settings);
   if (settings.processing_mode != null && !['sequential', 'parallel'].includes(settings.processing_mode)) add(null, 'Choose sequential or parallel node processing.');
-  if (settings.max_parallel_nodes != null && (typeof settings.max_parallel_nodes === 'boolean' || !Number.isInteger(Number(settings.max_parallel_nodes)) || Number(settings.max_parallel_nodes) < 1 || Number(settings.max_parallel_nodes) > 8)) add(null, 'Run between one and eight independent nodes at a time.');
-  if (settings.maxDurationMs != null && (typeof settings.maxDurationMs === 'boolean' || !Number.isInteger(Number(settings.maxDurationMs)) || Number(settings.maxDurationMs) < 1000 || Number(settings.maxDurationMs) > MAX_ARTIFACT_DURATION_MS)) add(null, 'Choose a workflow deadline between 1000 and 3600000 milliseconds.');
+  if (settings.max_parallel_nodes != null && (!numericScalar(settings.max_parallel_nodes) || !Number.isInteger(Number(settings.max_parallel_nodes)) || Number(settings.max_parallel_nodes) < 1 || Number(settings.max_parallel_nodes) > 8)) add(null, 'Run between one and eight independent nodes at a time.');
+  if (settings.maxDurationMs != null && (!numericScalar(settings.maxDurationMs) || !Number.isInteger(Number(settings.maxDurationMs)) || Number(settings.maxDurationMs) < 1000 || Number(settings.maxDurationMs) > MAX_ARTIFACT_DURATION_MS)) add(null, 'Choose a workflow deadline between 1000 and 3600000 milliseconds.');
   if (settings.requiresApproval || settings.approvalRequired || settings.human_approval_required) add(null, "Approval gates are preview-only. Remove the execution approval gate; results will still require human review before any artifact change.");
   if (settings.execution_mode && !["review", "sequential", "preview"].includes(settings.execution_mode)) add(null, "Only sequential review execution is supported. Parallel or custom execution modes are preview-only.");
   const specialists = nodes.filter(node => ["agent", "llmAgent", "repositoryAgent"].includes(kindOf(node)));
@@ -263,9 +264,9 @@ function readiness(workflow, targetNodeId = "") {
     }
     if (data.mergeMode && kind !== 'aggregator' && !['waitAllAppend', 'waitAllMerge'].includes(data.mergeMode)) add(node, 'Configure Merge modes on a Merge step.');
     const maxTimeout = kind === "artifactTask" || (kind === 'loop' && data.loopAction === 'workflow') ? MAX_ARTIFACT_DURATION_MS : kind === "repositoryAgent" ? MAX_DURATION_MS : kind === "agent" || kind === "customAI" ? 150_000 : 70_000;
-    if (data.timeoutMs != null && (!Number.isFinite(Number(data.timeoutMs)) || Number(data.timeoutMs) < 1_000 || Number(data.timeoutMs) > maxTimeout)) add(node, `Choose a step timeout between 1,000 and ${maxTimeout.toLocaleString("en-US")} milliseconds.`);
-    if (data.retryCount != null && (!Number.isInteger(Number(data.retryCount)) || Number(data.retryCount) < 0 || Number(data.retryCount) > 2)) add(node, "Review steps support zero, one or two retries within their timeout.");
-    if (data.retryDelayMs != null && (!Number.isFinite(Number(data.retryDelayMs)) || Number(data.retryDelayMs) < 0 || Number(data.retryDelayMs) > 10_000)) add(node, "Choose a retry delay between 0 and 10,000 milliseconds.");
+    if (data.timeoutMs != null && (!numericScalar(data.timeoutMs) || !Number.isInteger(Number(data.timeoutMs)) || Number(data.timeoutMs) < 1_000 || Number(data.timeoutMs) > maxTimeout)) add(node, `Choose a step timeout between 1,000 and ${maxTimeout.toLocaleString("en-US")} milliseconds.`);
+    if (data.retryCount != null && (!numericScalar(data.retryCount) || !Number.isInteger(Number(data.retryCount)) || Number(data.retryCount) < 0 || Number(data.retryCount) > 2)) add(node, "Review steps support zero, one or two retries within their timeout.");
+    if (data.retryDelayMs != null && (!numericScalar(data.retryDelayMs) || !Number.isInteger(Number(data.retryDelayMs)) || Number(data.retryDelayMs) < 0 || Number(data.retryDelayMs) > 10_000)) add(node, "Choose a retry delay between 0 and 10,000 milliseconds.");
   }
   if (nodes.some(node => node.data?.sampleOutput != null)) warnings.push("Execution uses actual connected results. Declared sample outputs are used only in previews.");
   warnings.push("AI and source analysis return reviewable results. HTTP methods and MCP tools can act on external systems only when enabled by the server connection policy.");
@@ -295,9 +296,9 @@ async function checkReadiness(workflow, targetNodeId = "", user, inputPayload) {
     if (report.steps.some(step => step.kind === 'artifactTask')) {
       try { require('../workflows/artifactTasks').checkInput({ project_id: workflow.project_id, app_type_id: workflow.app_type_id, input_payload: payload,workflow_snapshot:workflow }); }
       catch (failure) { inputBlocker(failure.publicMessage || failure.message); }
-    } else if (report.steps.some(step => workflow.nodes.find(node => node.id === step.node_id)?.data.apiResource === 'sprintStories')) {
-      if (!text(payload.sprint_id)) inputBlocker('Choose a Sprint in Workflow input before reading Sprint Stories.');
-      if (payload.project_id && payload.project_id !== workflow.project_id) inputBlocker('The trigger project must match the workflow project.');
+    } else if (report.steps.some(step => ['apiTool','apiAgent','webAgent'].includes(step.kind) && workflow.nodes.find(node => node.id === step.node_id)?.data.apiResource === 'sprintStories')) {
+      try { require('../workflows/artifactTasks').checkSprintInput({ project_id:workflow.project_id,input_payload:payload }); }
+      catch (failure) { inputBlocker(failure.publicMessage || failure.message); }
     }
   } else if (report.steps.some(step => step.kind === 'artifactTask')) {
     report.warnings.push('Trigger values have not been checked. Choose a Sprint and supply the execution input before running native tasks.');
@@ -444,7 +445,7 @@ async function executeNode(run, node, user, signal, onAttempt, onProgress = asyn
   try { return await require("@hellotest/platform/backend/src/utils/llmTraceContext").run(
     { project_id: run.project_id, actor_id: user.id, run_id: run.id, node_id: node.id },
     () => {
-      const kind=kindOf(node), effect=kind==='mcpTool'||(['apiTool','apiAgent'].includes(kind)&&!['GET','HEAD'].includes(node.data.apiMethod||'GET'));
+      const kind=kindOf(node), effect=kind==='mcpTool'||(['apiTool','apiAgent'].includes(kind)&&!['GET','HEAD','OPTIONS'].includes(operations._internals.httpMethod(kind,node.data)));
       const runTask=()=>executeNodeTask(run,node,user,signal,onAttempt,onProgress,onEvent,state);
       const aiNode=['agent','llmAgent','customAI','artifactTask','repositoryAgent'].includes(kind) || kind==='loop' && node.data.loopAction==='customAI';
       const dispatch=()=>aiNode ? nodeAiConfiguration.runNode(node,{revision:run.workflow_snapshot?.updated_at || run.workflow_snapshot?.id},runTask) : runTask();
@@ -633,7 +634,8 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
       if (inherited) result.execution_context = inherited;
     }
   } catch (failure) {
-    if (signal.aborted || [401,403,499].includes(failure.statusCode) || node.data?.onError !== "errorOutput") throw failure;
+    failure = events.withNode(failure, run, node);
+    if (signal.aborted || failure.outcome_unknown || [401,403,499].includes(failure.statusCode) || node.data?.onError !== "errorOutput") throw failure;
     result.status = "failed";
     result.error_details = events.failureInfo(failure);
     result.error = result.error_details.message;
@@ -675,6 +677,7 @@ async function runStep(run, node, user, signal, persist, shouldRun) {
       events.log(result, { event: 'library_publication_completed', message: 'Generated artifacts were saved for review; approval and execution remain separate.' });
       await persist();
     } catch (failure) {
+      failure = events.withNode(failure, run, node);
       if (failure.library_publication) { recordPublication(failure.library_publication); await checkpointPublication(failure.library_publication); }
       result.status = 'failed';
       result.error_details = events.failureInfo(failure);
@@ -743,6 +746,7 @@ async function executeLoopBody(run, node, user, signal, persist = async () => {}
           let outcome;
           try { outcome = await runStep(child, step, user, loopSignal, persist); }
           catch (failure) {
+            failure = events.withNode(failure, child, step);
             const stopped = run.node_results.find(item => item.node_id === step.id);
             stopped.status = loopSignal.aborted ? 'cancelled' : 'failed'; stopped.error_details = events.failureInfo(failure); stopped.error = stopped.error_details.message;
             stopped.completed_at = new Date().toISOString(); stopped.duration_ms = events.duration(stopped);
@@ -843,6 +847,13 @@ async function perform(run, user, controller) {
           currentNode = node.id;
           try { return await runStep(run, node, user, batchController.signal, persist); }
           catch (failure) {
+            failure = events.withNode(failure, run, node);
+            const observed = run.node_results.find(item => item.node_id === node.id);
+            if (observed) {
+              observed.error_details = events.failureInfo(failure);
+              observed.error = observed.error_details.message;
+              events.log(observed, {event:'node_failure_observed',level:failure.name==='AbortError'?'warning':'error',...observed.error_details});
+            }
             if (!batchFailure) { batchFailure = failure; currentNode = node.id; batchController.abort(); }
             throw failure;
           }
@@ -871,6 +882,8 @@ async function perform(run, user, controller) {
     }, { timeoutMs: Math.max(1, Date.parse(run.workflow_snapshot.runtime_contract.deadline_at) - Date.now()), signal: controller.signal });
   } catch (failure) {
     if (failure.code === 'WORKFLOW_TERMINAL_PERSISTENCE') throw failure;
+    const failedNode = run.workflow_snapshot.nodes.find(node => node.id === currentNode);
+    if (failedNode) failure = events.withNode(failure, run, failedNode);
     recordFailure(run, 'execution', failure, currentNode);
     const timedOut = failure.code === "DEADLINE_EXCEEDED";
     const state = timedOut ? "interrupted" : controller.signal.aborted || failure.name === "AbortError" ? "cancelled" : "failed";
@@ -886,7 +899,12 @@ async function perform(run, user, controller) {
       failedStep.duration_ms = events.duration(failedStep);
       events.log(failedStep, { event: "node_" + state, level: "error", ...failedStep.error_details });
     }
-    await persistTerminal(run, state, run.node_results, { ...run.output_payload, status: state, summary: message, failed_node_id: currentNode, error_code: timedOut ? "WORKFLOW_DEADLINE" : state === "cancelled" ? "WORKFLOW_CANCELLED" : failure.code === "NODE_TIMEOUT" ? "NODE_TIMEOUT" : "WORKFLOW_STEP_FAILED" });
+    const diagnostic = events.failureInfo(failure);
+    await persistTerminal(run, state, run.node_results, { ...run.output_payload, status: state, summary: message,
+      failed_node_id: diagnostic.origin?.node_id || currentNode,
+      ...(diagnostic.origin?.node_id && diagnostic.origin.node_id !== currentNode ? {failed_parent_node_id:currentNode} : {}),
+      error_code: timedOut ? "WORKFLOW_DEADLINE" : state === "cancelled" ? "WORKFLOW_CANCELLED" : diagnostic.code,
+      error_details:diagnostic });
   } finally { clearInterval(heartbeat); }
 }
 
