@@ -1,6 +1,34 @@
 # Case execution and parameter policy
 
+## Paired local execution
+
+Run local uses the browser-paired agent on `127.0.0.1:4311`. The API freezes the
+run and encrypts its dispatch bundle, then returns a ten-minute authorization
+bound to the owner, execution, browser origin and machine identity. The browser
+passes only that grant to its paired agent. The agent makes outbound API calls
+to claim the immutable native TestEngine plan and report signed results. No
+API-to-laptop connection or shared engine credential is required.
+
+Single cases and suites use the same native Playwright/API executor, frozen
+parameters, hooks, data iterations, scheduling policy and result callback path.
+Parallelism is bounded to eight local cases. Local browser runs reject mobile
+steps explicitly. Remote workers keep their existing queue transport.
+
+The agent saves a private receipt before executing. Retrying an uncertain
+acknowledgment reconnects the same run. Restarting an interrupted agent reports
+the interrupted attempt and never replays its steps automatically. Cancellation
+is delivered directly when possible and polled from the API every two seconds;
+revoked machine grants stop active work. Retained callback delivery can retry
+for up to seven days while the owner and project remain authorized.
+
 A run freezes its cases, steps, environment, configuration, and selected test data. Later authoring edits do not change that run. A rerun creates a new snapshot and materializes generator templates again.
+
+Suite scheduling overrides are frozen with each case in
+`test_data_options.execution_policy`. Later suite edits do not change a planned
+run. Cases without a suite override follow the run's serial/parallel settings;
+reruns retain those run settings. Executable frozen cases are validated against
+their saved source, so changing the authoring case's automation readiness does
+not invalidate an earlier run.
 
 ## Parameters and test data
 

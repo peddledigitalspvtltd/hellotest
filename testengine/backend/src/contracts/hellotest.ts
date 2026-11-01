@@ -306,7 +306,7 @@ export type EngineStepOutcome = {
 
 export type EngineCaseResultPayload = {
   hellotest_execution_result_id?: string | null;
-  status: HelloTestExecutionResultStatus;
+  status: HelloTestExecutionResultStatus | "running";
   duration_ms?: number | null;
   error?: string | null;
   logs: HelloTestExecutionLogsPayload;

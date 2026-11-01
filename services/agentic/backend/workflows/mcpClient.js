@@ -68,19 +68,20 @@ async function withServer(
         Boolean(parseResponse(body, incoming["content-type"], id)),
     });
     if (response.status === 401)
-      throw Object.assign(connections.fail("MCP authentication failed (HTTP 401). For HelloTest, create a fresh host credential in HelloTest → Connect & inspect and enter only the mcp1. token in the Bearer credential field. Login tokens and API keys are not MCP credentials.", 502), {code:"MCP_UNAUTHORIZED"});
+      throw Object.assign(connections.fail("MCP authentication failed (HTTP 401). For HelloTest, create a fresh host credential in HelloTest → Connect & inspect and enter only the mcp1. token in the Bearer credential field. Login tokens and API keys are not MCP credentials.", 502), {code:"MCP_UNAUTHORIZED",upstreamStatusCode:401,retryable:false});
     if (response.status === 403) {
       let code; try { code = JSON.parse(response.body).code; } catch { /* Do not display an untrusted server response. */ }
       const message = code === "MCP_HOST_DENIED" ? "MCP server hostname denied. Configure HELLOTEST_MCP_PUBLIC_URL to the public endpoint, preserve the proxy Host, and recreate the API container."
         : ["MCP_ORIGIN_DENIED", "CORS_ORIGIN_DENIED"].includes(code) ? "MCP browser Origin denied. Add the client's exact website origin to CORS_ORIGIN and recreate the API container."
         : "MCP access denied (HTTP 403). Check the server's allowed hostname and Origin, and the credential user's project access.";
-      throw Object.assign(connections.fail(message, 502), { code: ["MCP_HOST_DENIED", "MCP_ORIGIN_DENIED", "CORS_ORIGIN_DENIED"].includes(code) ? code : "MCP_ACCESS_DENIED" });
+      throw Object.assign(connections.fail(message, 502), { code: ["MCP_HOST_DENIED", "MCP_ORIGIN_DENIED", "CORS_ORIGIN_DENIED"].includes(code) ? code : "MCP_ACCESS_DENIED",upstreamStatusCode:403,retryable:false });
     }
     if (response.status < 200 || response.status >= 300)
-      throw connections.fail(
+      throw Object.assign(connections.fail(
         `MCP server returned HTTP ${response.status}. Check the connection.`,
         502,
-      );
+      ),{code:response.status===429?'MCP_RATE_LIMITED':'MCP_HTTP_ERROR',upstreamStatusCode:response.status,
+        retryable:[408,429,500,502,503,504].includes(response.status)});
     if (notify) return null;
     const message = parseResponse(
       response.body,
@@ -187,12 +188,15 @@ function compileSchema(schema, label) {
   catch { throw connections.fail(`The MCP tool ${label} schema is unsupported or invalid.`, 422); }
 }
 const call = (input, name, args) => {
+  let effectDispatched=false;
+  const invoke=()=>{
   if(input.connectionId === 'hellotest') return (async()=>{
     if(!input.user?.id)throw connections.fail('Verified workflow user required.',403);
     const server=require('@hellotest/mcp/backend/server');
     const tool=server.toolDefinitions().find(item=>item.name===name);
     if(!tool||input.expectedToolHash&&schemaHash(tool)!==input.expectedToolHash)throw connections.fail('Built-in tool changed or unavailable. Review the workflow.',409);
     const actor=await require('@hellotest/mcp/backend/auth').principal(input.user.id,input.projectId,'hellotest-workflow');
+    effectDispatched=true;
     const data=await server.callLocal(actor,name,args,input.signal);
     return {tool:name,data,content:[JSON.stringify(data)],schema_hash:schemaHash(tool),protocol_version:'2026-07-28',postcondition_verified:false};
   })();
@@ -219,7 +223,7 @@ const call = (input, name, args) => {
         422,
       );
     let result;
-    try { result = await rpc("tools/call", { name, arguments: args }); }
+    try { effectDispatched=true;result = await rpc("tools/call", { name, arguments: args }); }
     catch (error) { error.outcome_unknown = true; error.retryable = false; throw error; }
     if (!result.isError && validateOutput && !validateOutput(result.structuredContent)) throw Object.assign(connections.fail("The MCP tool returned data that violates its approved output schema. Review the server outcome before trying again.", 502), { code: "MCP_OUTPUT_INVALID", outcome_unknown: true, retryable: false });
     if (result.isError)
@@ -234,6 +238,13 @@ const call = (input, name, args) => {
         (item) => item.type !== "text",
       ).length,
     };
+  });
+  };
+  return Promise.resolve().then(invoke).catch(error=>{
+    // Handshake, discovery and schema checks cannot dispatch the selected tool.
+    // Once tools/call begins, even a timeout remains an uncertain outcome.
+    if(!effectDispatched&&!error.outcome_unknown&&!error.transactionOutcomeUnknown)error.effect_dispatched=false;
+    throw error;
   });
 };
 module.exports = { discover, inspect, call, _internals: { parseResponse, schemaHash, compileSchema } };

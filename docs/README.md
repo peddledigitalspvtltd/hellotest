@@ -46,6 +46,7 @@ Start with [capabilities](product/capabilities.md), [source layout](architecture
 
 - [Development debugging runbook](development/debugging.md)
 - [Workflow node audit and JSON-mode correction](development/workflow-node-audit-2026-11-02.md)
+- [Paired local automation verification](development/paired-local-automation-verification.md)
 - [Sample-data setup](development/sample-data.md)
 - [Verification scope](development/verification.md)
 - [Knowledge and Context Graph verification](development/knowledge-context-graph-verification.md)

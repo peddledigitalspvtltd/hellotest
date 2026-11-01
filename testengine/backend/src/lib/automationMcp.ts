@@ -525,7 +525,11 @@ export async function captureAutomationBrowserSnapshot(page: Page, scopeLocator?
   return output;
 }
 
-type AutomationMcpDependencies = { launchBrowser?: (options: Parameters<typeof chromium.launch>[0]) => Promise<Browser>; createProxy?: typeof createInspectionProxy };
+type AutomationMcpDependencies = {
+  launchBrowser?: (options: Parameters<typeof chromium.launch>[0]) => Promise<Browser>;
+  createProxy?: (origin?: string) => ReturnType<typeof createInspectionProxy>;
+  validateTarget?: typeof assertRemoteInspectionUrl;
+};
 /** Streamable HTTP MCP with JSON responses. Browser sessions are isolated, bounded and privileged. */
 export async function registerAutomationMcp(app: FastifyInstance, guard: preHandlerHookHandler, dependencies: AutomationMcpDependencies = {}) {
   const sessions = new Map<string, Session>();
@@ -564,7 +568,7 @@ export async function registerAutomationMcp(app: FastifyInstance, guard: preHand
       initializing++;
       try {
         const context = body.params?._meta?.hellotest;
-        await assertRemoteInspectionUrl(context?.start_url);
+        await (dependencies.validateTarget || assertRemoteInspectionUrl)(context?.start_url);
         const id = randomUUID();
         sessions.set(id, { origin: new URL(context.start_url).origin, actions: context.allow_browser_actions === true, expires: Date.now() + TTL, busy: false });
         reply.header("mcp-session-id", id);
@@ -606,7 +610,7 @@ export async function registerAutomationMcp(app: FastifyInstance, guard: preHand
       if (session.contextLost && name !== "browser_navigate") throw Object.assign(new Error("The browser context was lost. Navigate to the configured application and inspect its current state before continuing."), { code: "BROWSER_CONTEXT_LOST" });
       if (!session.page) {
         startupStage = "proxy";
-        session.proxy = await (dependencies.createProxy || createInspectionProxy)();
+        session.proxy = await (dependencies.createProxy ? dependencies.createProxy(session.origin) : createInspectionProxy());
         startupStage = "browser";
         session.browser = await (dependencies.launchBrowser || (options => chromium.launch(options)))({ headless: true, timeout: remaining(), proxy: { server: session.proxy.server, bypass: "<-loopback>" }, ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH } : {}) });
         startupStage = "context";
@@ -643,7 +647,7 @@ export async function registerAutomationMcp(app: FastifyInstance, guard: preHand
       const page = session.page;
       let output: unknown;
       if (name === "browser_navigate") {
-        await assertRemoteInspectionUrl(args.url);
+        await (dependencies.validateTarget || assertRemoteInspectionUrl)(args.url);
         if (new URL(args.url).origin !== session.origin) throw new Error("Navigation must stay within the configured application origin");
         session.navigationReady = false;
         await session.subjects?.clear();

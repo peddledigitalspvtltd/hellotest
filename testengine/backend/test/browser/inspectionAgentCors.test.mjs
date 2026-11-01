@@ -31,10 +31,12 @@ async function agentFixture(t, pairedToHostedApp) {
   for (const [key, name] of Object.entries({ recorder: "recorder", security: "testEngineSecurity", inspection_security: "inspectionSecurity", inspection_proxy: "inspectionProxy", repository_locator: "repositoryLocator" })) {
     await writeFile(join(directory, `${name}.js`), modules[key]);
   }
+  for (const [name, source] of Object.entries(modules.runtime_modules)) await writeFile(join(directory, name), source);
   const previous = process.env.HELLOTEST_INSPECTOR_TOKEN;
   process.env.HELLOTEST_INSPECTOR_TOKEN = pairToken;
   t.after(() => previous === undefined ? delete process.env.HELLOTEST_INSPECTOR_TOKEN : process.env.HELLOTEST_INSPECTOR_TOKEN = previous);
   const { registerRecorderRoutes } = await import(pathToFileURL(join(directory, "recorder.js")));
+  const { registerPairedLocalExecutionRoutes } = await import(pathToFileURL(join(directory, "pairedLocalExecution.js")));
   const { createCorsHook, resolveCorsPolicy } = await import(pathToFileURL(join(directory, "testEngineSecurity.js")));
   const app = Fastify();
   const requests = [];
@@ -42,6 +44,7 @@ async function agentFixture(t, pairedToHostedApp) {
   app.addHook("onRequest", createCorsHook(resolveCorsPolicy({ HELLOTEST_INSPECTOR_TOKEN: pairToken, TESTENGINE_CORS_ORIGINS: origin })));
   app.options("/*", async (_request, reply) => reply.code(204).send());
   app.get("/target", async (_request, reply) => reply.type("text/html").send('<!doctype html><title>Local application</title><button id="local-save">Save locally</button>'));
+  await registerPairedLocalExecutionRoutes(app, { directory: join(directory, "receipts"), origin, apiOrigin: hostedOrigin, token: pairToken });
   await registerRecorderRoutes(app);
   const baseUrl = await app.listen({ host: "127.0.0.1", port: 0 });
   t.after(() => app.close());
@@ -68,6 +71,9 @@ test("API-packaged agent permits real secure-origin CORS and exposes a wrong pai
   assert.equal(allowed.status, 200, JSON.stringify(allowed));
   assert.equal(allowed.payload.service, "hellotest-inspection-agent");
   assert.equal(allowed.payload.ready, true);
+  assert.equal(allowed.payload.capabilities.local_execution, true);
+  assert.equal(allowed.payload.execution_protocol_version, 1);
+  assert.ok(allowed.payload.agent_id);
   assert.ok(requests.some(request => request.method === "OPTIONS" && request.origin === hostedOrigin));
   const wrongPairing = await check("wrong-pairing-token");
   assert.equal(wrongPairing.status, 401, "Pairing errors remain readable instead of becoming CORS failures");

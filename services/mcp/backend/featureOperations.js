@@ -419,6 +419,7 @@ async function readMembership(storage,targetId,actor) {
  return selected;
 }
 function unavailableReason(method,path){
+ if(path.includes('/local-dispatch')||path.startsWith('/local-browser-bridges/')||path==='/automation/browser-bridges')return 'Paired local execution and browser control require a browser-origin handshake and a scoped machine grant; these credentials are not delegated to MCP clients.';
  if(method==='POST'&&path==='/agentic-workflows/:id/runs')return 'This legacy route synthesizes a completed workflow preview; use /agentic-workflows/:id/executions for actual execution.';
  if(path==='/agentic-quality/runs/:id/events')return 'This native endpoint streams server-sent events; use the bounded JSON run status tool and poll its durable identifier.';
  if(path.startsWith('/notifications'))return 'Notifications belong to the personal workspace across projects; this project-bound MCP credential has no user-wide notification grant.';

@@ -7,6 +7,7 @@ function fixture() {
   const db = { prepare(sql) { return { get:async(...args)=>{
     if(sql.startsWith('INSERT')) { if(rows.has(args[0])) return; rows.set(args[0],{id:args[0],request_hash:args[5],state:'in_flight'});return{id:args[0]}; }
     if(sql.startsWith('SELECT')) return rows.get(args[0]);
+    if(sql.startsWith('DELETE')){if(failSave)throw Error('Delete acknowledgement unavailable');const row=rows.get(args[0]);if(row?.state==='in_flight'&&row.request_hash===args[1]){rows.delete(args[0]);return{id:args[0]};}return;}
     if(failSave) throw new Error('Database acknowledgement unavailable');
     const row = rows.get(args[1]); row.state='response_received';row.response=args[0];return{id:row.id};
   },run:async(code,id)=>{const row=rows.get(id);if(row.state==='in_flight'){row.state='outcome_unknown';row.error_code=code;}} }; } };
@@ -35,4 +36,23 @@ test('receipt persistence failure preserves uncertainty instead of replaying a s
   await assert.rejects(f.journal.invoke(f.input,dispatch),error=>error.outcome_unknown===true);
   await assert.rejects(f.journal.invoke(f.input,dispatch),{code:'AGENT_OPERATION_OUTCOME_UNKNOWN'});
   assert.equal(calls,1);
+});
+
+test('proven pre-dispatch failures release only the matching reservation and preserve the original error',async()=>{
+ const f=fixture();let dispatches=0;
+ const error=Object.assign(new Error('Invalid approved input schema'),{code:'MCP_SCHEMA_CHANGED',statusCode:409,effect_dispatched:false});
+ await assert.rejects(f.journal.invoke(f.input,async()=>{throw error;}),failure=>failure===error&&!failure.outcome_unknown&&Boolean(failure.operation_id));
+ assert.equal(f.rows.size,0);
+ const dispatch=async()=>{dispatches++;return{data:{id:'created'}};};
+ await f.journal.invoke(f.input,dispatch);await f.journal.invoke(f.input,dispatch);
+ assert.equal(dispatches,1);assert.equal(f.rows.size,1);
+});
+
+test('an uncertain dispatch or a missing reservation-release receipt never becomes permission to repeat an action',async()=>{
+ for(const patch of [{outcome_unknown:true},{transactionOutcomeUnknown:true},{}]){
+  const f=fixture();if(!Object.keys(patch).length)f.failSave();let calls=0;
+  await assert.rejects(f.journal.invoke(f.input,async()=>{calls++;throw Object.assign(new Error('No safe acknowledgement'),{effect_dispatched:false,...patch});}),{outcome_unknown:true,retryable:false});
+  await assert.rejects(f.journal.invoke(f.input,async()=>{calls++;return{};}),{code:'AGENT_OPERATION_OUTCOME_UNKNOWN'});
+  assert.equal(calls,1);assert.equal([...f.rows.values()][0].state,'outcome_unknown');
+ }
 });

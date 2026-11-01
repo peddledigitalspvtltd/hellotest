@@ -2915,9 +2915,14 @@ export type AgenticWorkflowFailureDetails = {
   outcome_unknown?: boolean;
   reconciliation_required?: boolean;
   generation_received?: boolean;
+  effect_dispatched?: boolean;
+  completed_sections?: number;
+  total_sections?: number;
   provider_error?: { code?: string | null; type?: string | null; param?: string | null; request_id?: string };
   origin?: { node_id: string; node_name?: string; loop_node_id?: string; batch_index?: number; iteration_path?: Array<string | number> };
-  validation_errors?: Array<{ path?: string; issue?: string; message?: string }>;
+  artifact?: { artifact_task?: string; story_id?: string; case_index?: number; case_client_id?: string };
+  model_execution?: { model_calls?: number; max_model_calls?: number; deadline_ms?: number; format_repair_attempted?: boolean };
+  validation_errors?: Array<{ path?: string; issue?: string; message?: string; keyword?: string; required_property?: string }>;
   validation_feedback?: Array<{ step_id?: string; code?: string; message?: string }>;
 };
 

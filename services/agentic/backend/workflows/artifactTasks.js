@@ -9,7 +9,7 @@ const { storyAiSnapshot } = require('@hellotest/platform/backend/src/utils/aiArt
 const { normalizeParameterLayer } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const { referenceKey, parameterReference, createBrowserParameterResolver } = require('@hellotest/automation/backend/lib/automationBrowserParameters');
 const { fail } = require('./connections');
-const { safeMessage, failureInfo } = require('./runtimeEvents');
+const { safeMessage, failureInfo, withArtifact } = require('./runtimeEvents');
 const automationInputs = require('./automationNodeInputs');
 const { generationOptions,pinnedGenerationOptions } = require('./generationNodeOptions');
 const modelTrace = require('@hellotest/platform/backend/src/utils/llmTraceContext');
@@ -314,6 +314,7 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
     // the exact case lineage supplied below. The shared gateway must not add a
     // second generic project retrieval to these scoped model requests. Native
     // design may still explicitly retrieve its own Story-scoped context.
+    let activeCaseIndex;
     await modelTrace.run({project_id:run.project_id,app_type_id:run.app_type_id,actor_id:user.id,
       mcp_context_depth:1,mcp_context:'supplied_native_evidence',
       evidence_scope:{sprint_id:run.input_payload.sprint_id,story_id:story.id},
@@ -344,6 +345,7 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
       assertDrafts(packet.cases, story.id);
       output.case_assurance = [];
       for (let caseIndex = 0; caseIndex < packet.cases.length; caseIndex++) {
+        activeCaseIndex=caseIndex;
         assertActive(signal);
         const draft = packet.cases[caseIndex];
         const baseline = caseBaseline(core, draft);
@@ -361,6 +363,7 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
       output.automation_failures = [];
       const previous = list(resumable).find(item=>item.story_id===story.id && item.story_revision===revision(story));
       for (let caseIndex = 0; caseIndex < packet.cases.length; caseIndex++) {
+        activeCaseIndex=caseIndex;
         assertActive(signal);
         const draft = packet.cases[caseIndex];
         if (packet.case_assurance[caseIndex].case_fingerprint !== fingerprint(draft) || packet.case_assurance[caseIndex].verification?.status !== 'passed') throw fail('A generated case changed after assurance. Reassess the case before automation.', 409);
@@ -420,7 +423,8 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
         await checkpointProgress(output,index,caseIndex,packet.cases.length);
       }
     }
-    });
+    }).catch(failure=>{throw withArtifact(failure,{artifact_task:task,story_id:story.id,
+      case_index:activeCaseIndex,case_client_id:packet.cases?.[activeCaseIndex]?.client_id});});
     assertActive(signal);
     results.push(output);
     if (Buffer.byteLength(JSON.stringify(results)) > 2 * 1024 * 1024) throw fail('Sprint draft output exceeded 2 MB. Reduce cases per Story or split the Sprint scope; completed item progress is preserved.', 422);

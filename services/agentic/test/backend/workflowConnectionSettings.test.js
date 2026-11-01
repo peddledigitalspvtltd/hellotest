@@ -289,7 +289,8 @@ test('MCP authentication diagnostics explain remediation without echoing remote 
    const preview=await settings.preview({...input(),url:`http://127.0.0.1:${server.address().port}/mcp`,allowPrivateNetwork:true});
    await assert.rejects(mcp.inspect({projectId:'p',draftConnection:preview}),error=>{
     assert.match(error.message,new RegExp(`HTTP ${status}`));assert.ok(!error.message.includes('private-upstream-token'));
-    assert.equal(error.code,status===401?'MCP_UNAUTHORIZED':'MCP_ACCESS_DENIED');return true;
+    assert.equal(error.code,status===401?'MCP_UNAUTHORIZED':'MCP_ACCESS_DENIED');
+    assert.equal(error.upstreamStatusCode,status);assert.equal(error.retryable,false);return true;
    });
   }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
  }

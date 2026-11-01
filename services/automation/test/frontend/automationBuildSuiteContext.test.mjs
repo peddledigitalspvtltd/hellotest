@@ -10,12 +10,14 @@ const load = (path, resolve) => {
   const exports={};new Function('require','exports',compile(path))(resolve,exports);return exports;
 };
 const parameterLib=load('../../frontend/lib/automationBuildParameters.ts',()=>({}));
+const pairedAgentLib=load('../../../agentic/frontend/lib/pairedLocalAgent.ts',()=>({}));
+const pairedBuildLib=load('../../../testing/frontend/lib/pairedBrowserBuild.ts',id=>id.endsWith('/pairedLocalAgent')?pairedAgentLib:{});
 function apiFixture() {
   const requests=[];
   let respond=async(url,input)=>({test_case_id:url.split('/')[2],test_suite_id:input.test_suite_id || (url.includes('/two/')?'suite-two':null),parameter_plan_key:'pin:'+url,parameter_values:{},parameter_references:[],private_parameter_references:[],missing_parameter_references:[],deferred_parameter_references:[]});
   const {testingApi}=load('../../../testing/frontend/api.client.ts',id=>id.endsWith('/httpClient')?{
     request:async(url,options)=>{const input=JSON.parse(options.body);requests.push({url,input});return respond(url,input);},toQueryString:()=>''
-  }:{});
+  }:id.endsWith('/pairedBrowserBuild')?pairedBuildLib:{});
   return {api:testingApi,requests,setRespond(value){respond=value;}};
 }
 function hookFixture(api) {
@@ -35,12 +37,14 @@ test('real parameter-plan and generation API clients retain optional suite IDs a
   await api.testCases.automationParameterPlan('case /1',{test_suite_id:'suite-one'});
   await api.testCases.buildAutomation('one',{test_suite_id:'suite-one',parameter_plan_key:'reviewed'});
   await api.testCases.queueAutomationGenerator('one',{test_suite_id:'suite-one'});
-  await api.testCases.buildAutomationBatch({app_type_id:'app',test_case_ids:['one','two'],test_suite_ids_by_case:{one:'suite-one',two:null}});
+  await api.testCases.buildAutomationBatch({app_type_id:'app',test_case_ids:['one','two'],test_suite_ids_by_case:{one:'suite-one',two:null},browser_location:'remote'});
+  assert.equal(requests.length,4,'Remote build preparation must not create a paired browser bridge.');
   assert.equal(requests[0].url,'/test-cases/case%20%2F1/automation/parameter-plan');
   assert.equal(requests[0].input.test_suite_id,'suite-one');
   assert.equal(requests[1].input.test_suite_id,'suite-one');
   assert.equal(requests[2].input.test_suite_id,'suite-one');
   assert.deepEqual(requests[3].input.test_suite_ids_by_case,{one:'suite-one',two:null});
+  assert.equal(Object.hasOwn(requests[3].input,'browser_location'),false,'The actual helper consumes the browser selection before sending the API payload.');
 });
 
 test('actual review hook pins each resolved suite and never leaks the active suite into another case',async()=>{

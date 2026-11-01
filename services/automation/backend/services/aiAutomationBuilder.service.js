@@ -2779,6 +2779,7 @@ const applyBuild = async ({ build, executionGuard, createdBy, progressiveState, 
 
 const buildCaseCore = async ({
   test_case_id,
+  paired_browser_bridge_id,
   integration_id,
   ai_feature,
   created_by,
@@ -2811,6 +2812,9 @@ const buildCaseCore = async ({
 
   const access = await getOptionalEvidenceAccess({ id: created_by }, testCase.project_id, ["automation.ai", "automation.build"]);
   if (!access["automation.ai"] || !access["automation.build"]) throw Object.assign(new Error("Automation AI is disabled or your build permission is no longer available."), { statusCode: 403 });
+  const pairedBrowserScope = paired_browser_bridge_id ? {bridgeId:paired_browser_bridge_id,projectId:testCase.project_id,appTypeId:testCase.app_type_id,
+    userId:created_by,caseId:test_case_id,jobId:transaction_id} : null;
+  if (pairedBrowserScope) await require('./pairedBrowserBridge.service').authorize(pairedBrowserScope);
 
   if(pipelineOptions.verification_mode!=="generate_only"){
     const runAccess=await getOptionalEvidenceAccess({id:created_by},testCase.project_id,["automation.run.local","run.create"]);
@@ -3019,7 +3023,7 @@ const buildCaseCore = async ({
       catch(error){completionActiveStepId=error.active_step_id;await progress({phase:'automation.agent.dependencies',level:'warning',message:error.message,details:{blocked_steps:error.blocked_steps,active_step_id:error.active_step_id,generation_provider_requests:0,browser_actions:0}});throw error;}
     }
     if (startUrl && (needsFlowPlanning&&browserBuild||steps.some((step) => automationStepType(step,automationCaseType) === "web"))) {
-      const engine = await resolveTestEngineIntegration(testCase);
+      const engine = pairedBrowserScope ? {paired_browser_bridge:pairedBrowserScope} : await resolveTestEngineIntegration(testCase);
       browser = await connectAutomationBrowser({ integration: engine, startUrl, allowBrowserActions: allow_browser_actions === true, signal:execution_guard?.signal });
       const callBrowser=browser.call;
       // Tool values resolve only when the complete argument is a parameter
@@ -3235,7 +3239,7 @@ const buildCaseCore = async ({
       parameterOverrides: params.parameter_overrides, ...selection, materialize: false
     }),
     prepareRun: async () => {
-      const integration = await resolveTestEngineIntegration(testCase);
+      const integration = pairedBrowserScope ? {paired_browser_bridge:pairedBrowserScope} : await resolveTestEngineIntegration(testCase);
       return request => require('../lib/automationVerificationClient').verifyRecordedAutomation({
         integration, request, signal: execution_guard?.signal
       });
@@ -3632,6 +3636,7 @@ const finalizeRecorderBuild = async ({
 
 exports.buildAutomationForCase = async ({
   test_case_id,
+  paired_browser_bridge_id,
   integration_id,
   ai_feature,
   created_by,
@@ -3725,6 +3730,7 @@ exports.buildAutomationForCase = async ({
   try {
     const result = await buildCaseCore({
       test_case_id: normalizedCaseId,
+      paired_browser_bridge_id,
       integration_id,
       ai_feature: selectedFeature,
       execution_guard,
@@ -3813,6 +3819,7 @@ exports.buildAutomationForCase = async ({
 
 exports.buildAutomationBatch = async ({
   app_type_id,
+  paired_browser_bridge_id,
   test_case_ids = [],
   integration_id,
   created_by,
@@ -3925,6 +3932,7 @@ exports.buildAutomationBatch = async ({
       }
       const result = await buildCaseCore({
         test_case_id: testCaseId,
+        paired_browser_bridge_id,
         integration_id,
         ai_feature: selectedFeature,
         execution_guard,
@@ -5048,6 +5056,7 @@ exports.startRecorderSession = async ({
   test_case_id,
   start_url,
   recorder_mode,
+  local_transport,
   recorder_target,
   engine_base_url,
   recorder_public_base_url,
@@ -5085,7 +5094,8 @@ exports.startRecorderSession = async ({
     test_configuration_id,
     test_data_set_id
   });
-  const integration = await resolveTestEngineIntegration(testCase);
+  const paired = local_transport === "paired-agent" && normalizeText(recorder_mode) === "local";
+  const integration = paired ? { base_url: null, config: {} } : await resolveTestEngineIntegration(testCase);
   const recorderMode = normalizeText(recorder_mode) === "local" ? "local" : "remote";
   const targetStep = targetStepId ? platform.steps.find((step) => step.id === targetStepId) : null;
   if (targetStep?.step_type === "api") throw new Error("Use the request editor for API steps; choose a Web or native step for recording.");
@@ -5113,7 +5123,8 @@ exports.startRecorderSession = async ({
     throw new Error("Configure a mobile cloud provider connection before starting remote mobile recording.");
   }
 
-  const localBaseUrl = recorderMode === "local" && recorderTarget === "web" ? normalizeLocalEngineBaseUrl(engine_base_url) : null;
+  if (paired && recorderTarget !== "web") throw Object.assign(new Error("The paired browser recorder supports Web cases. Use the configured device recorder for native steps."), { statusCode: 422 });
+  const localBaseUrl = !paired && recorderMode === "local" && recorderTarget === "web" ? normalizeLocalEngineBaseUrl(engine_base_url) : null;
   const baseUrl = String(localBaseUrl || integration.base_url || "").replace(/\/+$/, "");
   const mobileBaseUrl = (recorderTarget === "mobile" && recorderMode === "local"
     ? normalizeText(engine_base_url) || resolveMobileEngineBaseUrl(integration, recorderMode)
@@ -5130,12 +5141,7 @@ exports.startRecorderSession = async ({
   const sessionEndpoint = recorderTarget === "mobile"
     ? `${mobileBaseUrl}/api/v1/mobile/recorder/sessions`
     : `${baseUrl}/api/v1/recorder/sessions`;
-  const session = await (recorderTarget === "mobile" ? readMobileEngineJson : readEngineJson)(sessionEndpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
+  const sessionPayload = {
       start_url: resolvedStartUrl,
       reuse_existing: recorderMode === "local" && recorderTarget === "web" && reuse_existing !== false,
       purpose: "automation-recording",
@@ -5150,8 +5156,12 @@ exports.startRecorderSession = async ({
         description: testCase.description || "",
         steps: steps.map(summarizeStep)
       }
-    })
-  });
+    };
+  const session = paired ? { id: uuid(), status: "running", started_at: new Date().toISOString(), paired_prepare: true }
+    : await (recorderTarget === "mobile" ? readMobileEngineJson : readEngineJson)(sessionEndpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sessionPayload)
+    });
+
   const transaction = await workspaceTransactionService.createTransaction({
     project_id: testCase.project_id || null,
     app_type_id: testCase.app_type_id || null,
@@ -5172,6 +5182,7 @@ exports.startRecorderSession = async ({
       test_data_set_id: buildContext.data_set?.id || null,
       test_suite_id: recorderSuiteId,
       recorder_session_id: session.id,
+      ...(paired ? { local_transport: "paired-agent", recorder_case_revision: Number(testCase.revision) || 0 } : {}),
       recorder_started_at: session.started_at || new Date().toISOString(),
       recorder_last_activity_at: session.last_activity_at || session.started_at || null,
       engine_base_url: baseUrl,
@@ -5213,13 +5224,14 @@ exports.startRecorderSession = async ({
 
   return {
     ...session,
+    ...(paired ? { paired_session_payload: sessionPayload, paired_recording_id: session.id } : {}),
     transaction_id: transaction.id,
     engine_base_url: baseUrl,
     recorder_target: recorderTarget,
     platform_name: mobilePlatform,
     target_step_id: targetStepId || null,
-    live_view_url: buildEngineUrl(publicBaseUrl, session.live_view_url || session.live_view_path),
-    status_url: buildEngineUrl(
+    live_view_url: paired ? null : buildEngineUrl(publicBaseUrl, session.live_view_url || session.live_view_path),
+    status_url: paired ? undefined : buildEngineUrl(
       publicBaseUrl,
       session.status_url || (recorderTarget === "mobile"
         ? `/api/v1/mobile/recorder/sessions/${session.id}`
@@ -5236,6 +5248,8 @@ exports.finishRecorderSession = async ({
   additional_context,
   agent_context,
   recorder_mode,
+  paired_recording_id,
+  captured_session,
   recorder_target,
   engine_base_url,
   target_step_id,
@@ -5255,13 +5269,17 @@ exports.finishRecorderSession = async ({
     throw new Error("Test case not found");
   }
 
-  const engineIntegration = await resolveTestEngineIntegration(testCase);
+  const pairedInput = captured_session != null;
+  const engineIntegration = pairedInput ? { base_url: null, config: {} } : await resolveTestEngineIntegration(testCase);
   const transactionId = normalizeText(transaction_id);
   const transaction = transactionId
     ? await workspaceTransactionService.getTransaction(transactionId).catch(() => null)
     : null;
   const metadata = parseTransactionMetadata(transaction);
-  if (transaction && (metadata.test_case_id !== testCaseId || metadata.recorder_session_id !== sessionId)) throw new Error("The recorder transaction does not belong to this case and session.");
+  const paired = metadata.local_transport === "paired-agent";
+  if (paired && !pairedInput) throw Object.assign(new Error("Read the stopped recording from the paired agent before saving."), { statusCode: 400 });
+  const pairedCapture = pairedInput ? require("../lib/automationPairedRecorder").validatePairedRecording({ transaction, metadata, testCase, sessionId, recordingId: paired_recording_id, capture: captured_session, userId: created_by }) : null;
+  if (transaction && (metadata.test_case_id !== testCaseId || metadata.recorder_session_id !== (paired ? paired_recording_id : sessionId))) throw new Error("The recorder transaction does not belong to this case and session.");
   let targetStepId = normalizeText(target_step_id) || normalizeText(metadata.target_step_id);
   const targetSteps = await selectStepsForCase.all(testCaseId);
   const platform = resolveAutomationCaseSteps(testCase, targetSteps, { appTypeKind: testCase.app_type_kind });
@@ -5279,13 +5297,13 @@ exports.finishRecorderSession = async ({
     const access = await getOptionalEvidenceAccess({ id: created_by }, testCase.project_id, ["mobile.manage"]);
     if (!access["mobile.manage"]) throw Object.assign(new Error("Mobile management permission is required to save native automation."), { statusCode: 403 });
   }
-  const localBaseUrl = normalizeText(recorder_mode) === "local" && target !== "mobile" ? normalizeLocalEngineBaseUrl(engine_base_url) : null;
+  const localBaseUrl = !paired && normalizeText(recorder_mode) === "local" && target !== "mobile" ? normalizeLocalEngineBaseUrl(engine_base_url) : null;
   const baseUrl = String(localBaseUrl || metadata.engine_base_url || engineIntegration.base_url || "").replace(/\/+$/, "");
   const mobileBaseUrl = String(metadata.mobile_engine_base_url || resolveMobileEngineBaseUrl(engineIntegration, normalizeText(recorder_mode) || metadata.recorder_mode || "remote")).replace(/\/+$/, "");
   const sessionBaseUrl = target === "mobile" ? mobileBaseUrl : baseUrl;
   const sessionPath = target === "mobile" ? "/api/v1/mobile/recorder/sessions" : "/api/v1/recorder/sessions";
   const readRecorderEngineJson = target === "mobile" ? readMobileEngineJson : readEngineJson;
-  const session = await readRecorderEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}`);
+  const session = paired ? pairedCapture : await readRecorderEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}`);
   const mobilePlatform = target === "mobile" ? resolveMobileRecorderPlatform({ applicationPlatform: testCase.app_type_kind, steps: targetSteps, targetStepId, recordedPlatform: session.platform || session.platform_name || metadata.platform_name }) : null;
   const allCapturedActions = normalizeCapturedActions(session.actions || []);
   if ((session.action_count || session.actions?.length || 0) > allCapturedActions.length) throw new Error(`This recording exceeds the ${MAX_CAPTURED_ACTIONS}-action build limit. Record a smaller flow or split it into reusable groups; incomplete recordings will not replace the plan.`);
@@ -5309,7 +5327,7 @@ exports.finishRecorderSession = async ({
   }
 
 
-  await readRecorderEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}/stop`, {
+  if (!paired) await readRecorderEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}/stop`, {
     method: "POST"
   }).catch(() => null);
 

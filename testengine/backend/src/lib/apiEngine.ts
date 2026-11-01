@@ -415,7 +415,7 @@ const buildApiEvidenceDataUrl = ({
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 };
 
-const runResolvedApiRequest = async (request: EngineApiRequest & {resolved_credential?:string}): Promise<ApiResponsePreview> => {
+const runResolvedApiRequest = async (request: EngineApiRequest & {resolved_credential?:string}, signal?: AbortSignal): Promise<ApiResponsePreview> => {
   const target = new URL(ensureHttpUrl(request.url));
   for(const row of request.query_params || [])target.searchParams.append(row.key,row.value);
   const method = String(request.method || "GET").toUpperCase();
@@ -451,9 +451,10 @@ const runResolvedApiRequest = async (request: EngineApiRequest & {resolved_crede
       headers,
       body: method === "GET" || method === "HEAD" ? undefined : serializeApiBody(request, headers),
       redirect: request.follow_redirects===false?"manual":"follow",
-      signal: AbortSignal.timeout(apiRequestTimeoutMs(request.timeout_ms))
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(apiRequestTimeoutMs(request.timeout_ms))]) : AbortSignal.timeout(apiRequestTimeoutMs(request.timeout_ms))
     });
   } catch (error) {
+    if (signal?.aborted) throw new Error("Local execution was cancelled.");
     if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
       throw new Error(`API request timed out after ${apiRequestTimeoutMs(request.timeout_ms)} ms`);
     }
@@ -493,10 +494,11 @@ const runResolvedApiRequest = async (request: EngineApiRequest & {resolved_crede
 export async function executeApiStepInEngine(
   envelope: EngineRunEnvelope,
   step: EngineRunStep,
-  capturedValues: Record<string, string> = {}
+  capturedValues: Record<string, string> = {},
+  signal?: AbortSignal
 ): Promise<ApiStepExecutionResult> {
   const request = resolveApiRequest(step.api_request, envelope, capturedValues, step);
-  const preview = await runResolvedApiRequest(request);
+  const preview = await runResolvedApiRequest(request, signal);
   const assertions = evaluateApiAssertions(preview, request.validations || []);
   const captures = extractCaptures(request, preview);
   const captureSource=preview.response.body_json ?? preview.response.body_text;

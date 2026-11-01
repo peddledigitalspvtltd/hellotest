@@ -1230,6 +1230,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const startUrlCaseScopeRef = useRef("");
   const [builderContext, setBuilderContext] = useState("");
   const [allowBrowserActions, setAllowBrowserActions] = useState(true);
+  const [buildBrowserLocation, setBuildBrowserLocation] = useState<"local" | "remote">("remote");
   const [buildVerificationMode,setBuildVerificationMode]=useState<AutomationBuildVerificationChoice>("generate_only");
   const canVerifyBuild=canRunLocalAutomation&&hasPermission(session,"run.create",projectId);
   const buildPipelineOptions=automationBuildPipelineRequest({mode:buildVerificationMode,driver:"mcp",canVerify:canVerifyBuild,interactive:allowBrowserActions});
@@ -1305,7 +1306,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [repositoryConfigDrawerWidth, setRepositoryConfigDrawerWidth] = useState(REPOSITORY_CONFIG_DRAWER_DEFAULT_WIDTH);
   const [isInspectOpen, setIsInspectOpen] = useState(false);
   const [isInspectBrowserMaximized, setIsInspectBrowserMaximized] = useState(false);
-  const inspectAgent = useRepositoryInspectAgent(Boolean(session) && canInspectRepository, projectId);
+  const inspectAgent = useRepositoryInspectAgent(Boolean(session) && (canInspectRepository || canUseRecorder || canRunLocalAutomation || canUseAutomationBuilder), projectId);
   const inspectCapabilities = useQuery({
     queryKey: ["repository-inspection-capabilities", projectId],
     queryFn: ({ signal }) => api.repositoryInspection.capabilities(projectId, { signal }),
@@ -3046,6 +3047,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         app_type_id: appTypeId, test_case_ids:[caseId],
         integration_id:buildAgentSelection.integrationId || undefined, agent_context:automationAgentRequest(buildAgentSelection),
         allow_browser_actions: allowBrowserActions,
+        browser_location: buildBrowserLocation,
         ...buildPipelineOptions,
         scheduled_at: scheduledAt,
         start_url: requestedStartUrl,
@@ -3160,6 +3162,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         ...reviewedParameters,
         ai_feature: "ai.agentic.automation-engineer",
         allow_browser_actions: allowBrowserActions,
+        browser_location: buildBrowserLocation,
         ...buildPipelineOptions,
         scheduled_at: getAutomationSchedule(agentScheduledAt),
         app_type_id: appTypeId,
@@ -3285,6 +3288,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             app_type_id: appTypeId,
             test_case_ids: [result.id],
             allow_browser_actions: allowBrowserActions,
+        browser_location: buildBrowserLocation,
         ...buildPipelineOptions,
             scheduled_at: scheduledAt,
             start_url: requestedStartUrl,
@@ -3429,6 +3433,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
       return api.testCases.queueAutomationGenerator(activeCase.id, {
         allow_browser_actions: allowBrowserActions,
+        browser_location: buildBrowserLocation,
         ...buildPipelineOptions,
         ai_feature: "ai.automation.review",
         ai_requested: true
@@ -5537,7 +5542,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   return (
     <div className={`page-content page-content--automation${isAutomationCaseWorkspaceOpen ? " page-content--workspace-focus" : ""}`}>
       {confirmationDialog}
-          {canInspectRepository ? <RepositoryAgentSetup connection={inspectAgent} onUseRemote={inspectCapabilities.data?.remote.available && inspectRecorderSession?.status !== "running" && !isLaunchingInspectBrowser ? () => {
+          {(canInspectRepository || canUseRecorder || canRunLocalAutomation || canUseAutomationBuilder) ? <RepositoryAgentSetup connection={inspectAgent} onUseRemote={inspectCapabilities.data?.remote.available && inspectRecorderSession?.status !== "running" && !isLaunchingInspectBrowser ? () => {
             setIsInspectOpen(true);
             void launchInspectBrowser("remote").catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to start remote inspection browser."));
           } : undefined} /> : null}
@@ -5546,7 +5551,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         eyebrow={automationPageHeader.eyebrow}
         title={automationPageHeader.title}
         description={view === "cases" && selectedCaseId ? undefined : automationPageHeader.description}
-        actions={canInspectRepository ? <RepositoryAgentStatus connection={inspectAgent} /> : undefined}
+        actions={(canInspectRepository || canUseRecorder || canRunLocalAutomation || canUseAutomationBuilder) ? <RepositoryAgentStatus connection={inspectAgent} /> : undefined}
         meta={view === "repository" ? [{ label: "Repository objects", value: learningCacheQuery.data ? learningCache.length : "—" }] : undefined}
       />
 
@@ -5886,7 +5891,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       <div className="automation-ai-intro"><span className="automation-ai-avatar"><IconWand size={23} /></span><div><strong>Automation Engineer</strong><p>Converts linked manual tests, saved steps or your prompt into editable automation.</p></div><span className={`automation-ai-status is-${activeAgentBuildStatus}`} role="status"><IconCircleDot size={13} />{buildSingleAutomation.isPending ? "Submitting" : activeAgentBuildStatus === "idle" ? "Ready" : activeAgentBuildStatus === "running" ? "Building" : activeAgentBuildStatus === "completed" ? "Built" : activeAgentBuildStatus[0].toUpperCase() + activeAgentBuildStatus.slice(1)}</span></div>
                       <AutomationBuildContext stepCount={automatedSteps.length} expectedResultCount={automatedSteps.filter((step) => richTextToPlainText(step.expected_result || "").trim()).length} manualCaseCount={linkedManualCases.length} repositoryCount={allObjectMembers.length} runtimes={automationRuntimeTypes} />
                       {automationRuntimeTypes.some(type => type === "web" || type === "api") ? <label className="form-field"><span>Start URL{automationStartUrlRequired ? " (required)" : " (optional)"}</span><input aria-label="Agent start URL" type="url" required={automationStartUrlRequired} onChange={(event) => setStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={startUrl} /><small className="muted">{automationStartUrlRequired ? "The agent opens this URL and waits for the page before developing your steps." : "Provide an API base URL if needed; native and API-only plans do not require browser navigation."}</small>{startUrl.trim() && automationStartUrlValidation ? <small role="alert">{automationStartUrlValidation}</small> : null}</label> : null}
-                      {automationStartUrlRequired ? <AutomationBrowserBuildMode interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={buildSingleAutomation.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"}/> : null}
+                      {automationStartUrlRequired ? <AutomationBrowserBuildMode location={buildBrowserLocation} onLocationChange={setBuildBrowserLocation} interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={buildSingleAutomation.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"}/> : null}
                       <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} disabled={buildSingleAutomation.isPending || scheduleAiAutomation.isPending || createAutomationCase.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"}/>
                       <AutomationAgentSetup agentId="automation-engineer" projectId={projectId} appTypeId={appTypeId} testCaseId={activeCase.id} value={buildAgentSelection} onChange={setBuildAgentSelection} integrations={asArray(automationLlmIntegrationsQuery.data)}
                         prompt={agentMission} onPromptChange={setAgentMission} onSubmit={()=>buildSingleAutomation.mutate(false)} running={buildSingleAutomation.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"} submitDisabled={!automatedSteps.length && !agentMission.trim() && !builderContext.trim() && !richTextToPlainText(activeCase.description).trim() || Boolean(automationStartUrlValidation)}
@@ -6641,7 +6646,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             <label className="form-field"><span>Build instructions (optional)</span><textarea aria-label="Build instructions (optional)" onChange={(event) => setAgentMission(event.target.value)} rows={4} value={agentMission} placeholder="Each agent uses its case’s saved plan. Add instructions that apply to all selected cases." /></label>
             <div className="automation-plan-behavior-fields">{batchHasUrlRuntime ? <label className="form-field"><span>Start URL{batchStartUrlRequired ? " (required)" : " (optional)"}</span><input aria-label="Build start URL" type="url" required={batchStartUrlRequired} onChange={(event) => setBatchStartUrl(event.target.value)} placeholder="https://your-application.example.com" value={batchStartUrl} /><small className="muted">{batchStartUrlRequired ? "Review the application URL for this build, including retries." : "API-only plans may use their configured request URLs."}</small>{batchStartUrl.trim() && batchStartUrlValidation ? <small role="alert">{batchStartUrlValidation}</small> : null}</label> : null}<label className="form-field"><span>Build time</span><input onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt} /><small className="muted">Leave empty to queue now.</small></label></div>
             <details><summary>Additional guidance & execution context</summary><div className="stack-list"><label className="form-field"><span>Guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} rows={3} value={builderContext} /></label><ExecutionContextSelector appTypeId={appTypeId} projectId={projectId} onConfigurationChange={setSelectedExecutionConfigurationId} onDataSetChange={setSelectedExecutionDataSetId} onEnvironmentChange={setSelectedExecutionEnvironmentId} selectedConfigurationId={selectedExecutionConfigurationId} selectedDataSetId={selectedExecutionDataSetId} selectedEnvironmentId={selectedExecutionEnvironmentId} /></div></details>
-            {batchStartUrlRequired ? <AutomationBrowserBuildMode interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={scheduleAiAutomation.isPending}/> : null}
+            {batchStartUrlRequired ? <AutomationBrowserBuildMode location={buildBrowserLocation} onLocationChange={setBuildBrowserLocation} interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={scheduleAiAutomation.isPending}/> : null}
                       <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} disabled={buildSingleAutomation.isPending || scheduleAiAutomation.isPending || createAutomationCase.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"}/>
             <p className="muted">Each build includes its saved steps, expected results, accessible stories, reusable objects and selected execution context.</p>
             <section className="automation-batch-readiness" aria-label="Selected build plans">
@@ -6686,7 +6691,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                         {automationCreationMode === "ai" ? (
                           <div className="automation-agent-brief automation-create-ai">
                             <label className="form-field"><span>Build instructions (optional)</span><textarea aria-label="Build instructions (optional)" onChange={(event) => setAgentMission(event.target.value)} placeholder="The linked cases and behavior plan are included. Add any priorities or constraints." rows={3} value={agentMission} /></label>
-                            {automationCreateRuntimeTypes.includes("web") ? <AutomationBrowserBuildMode interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={createAutomationCase.isPending}/> : null}
+                            {automationCreateRuntimeTypes.includes("web") ? <AutomationBrowserBuildMode location={buildBrowserLocation} onLocationChange={setBuildBrowserLocation} interactive={allowBrowserActions} onChange={setAllowBrowserActions} disabled={createAutomationCase.isPending}/> : null}
                       <AutomationBuildVerificationSettings mode={buildVerificationMode} onModeChange={setBuildVerificationMode} canVerify={canVerifyBuild} interactive={allowBrowserActions} disabled={buildSingleAutomation.isPending || scheduleAiAutomation.isPending || createAutomationCase.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"}/>
                             <details className="automation-ai-options"><summary><IconSettings size={14} />Build settings</summary><div className="automation-ai-options-body"><label className="form-field"><span>Additional guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} placeholder="Authentication, important assertions, edge cases, and repository preferences." rows={2} value={builderContext} /></label>
                             <label className="form-field"><span>Schedule build (optional)</span><input onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt} /><small>Leave blank to queue the build after the case is saved.</small></label>

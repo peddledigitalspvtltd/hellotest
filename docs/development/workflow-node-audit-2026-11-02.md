@@ -140,3 +140,87 @@ actual node configuration. The messages lacked JSON guidance before shared
 request preparation and contained trusted guidance afterward. The diagnostic
 made zero provider requests. Native pipeline verification used the local model
 fixture; no full execution against the configured external model was submitted.
+
+## Assurance and loop follow-up
+
+The subsequent `test-case-assurance` failure is an output-contract rejection,
+which is separate from the earlier invalid JSON-mode request. A retained local
+provider trace contained a dimension name in `/insights/1/kind`, where the schema
+requires a finding category. Its format repair succeeded. Local retained traces
+do not contain the newly reported terminal run, so that historical example does
+not establish the exact invalid field in the user's newer response.
+
+The audit found concrete defects that made these failures harder to prevent or
+diagnose:
+
+- The advertised review example used arrays for scalar dimension IDs,
+  priorities and finding categories, listed more locations than allowed, and
+  included a `limits` field forbidden at the response root. The example now
+  validates against its own unchanged native schema. Allowed selections and
+  budgets are separate from the example.
+- Each assurance call reviews one case, while saved/default node prose could
+  request a batch. A trusted native response-scope record now identifies the
+  exact artifact and cardinality, and new default guidance explicitly leaves
+  iteration to the host. Saved user instructions remain intact. Regression
+  coverage proves sibling cases do not enter one another's review requests.
+- A complete repair previously received half the initial output allowance.
+  Both requests now have the same 6,144-token native ceiling, still capped by
+  managed node settings. There are at most two calls, each capped at 60 seconds,
+  within a 120-second total budget and the enclosing workflow cancellation.
+- Assurance and generic-agent error wrappers dropped useful schema details and
+  paid-generation retry flags. Those boundaries now retain bounded validation
+  paths/keywords, missing properties, provider protocol metadata and model-call
+  counts. Errors identify the exact Story, case, child node, loop and batch.
+  The inspector displays those details at desktop and mobile widths, without
+  exposing prompts or raw candidates.
+- Generic AI nodes omitted `AI_OUTPUT_SCHEMA_VIOLATION` from their existing
+  bounded correction loop. They now correct it under the original call budget.
+  Exhausted schema/JSON output, refusals and deadlines cannot automatically
+  replay unchanged requests. Actual provider capacity/transport errors retain
+  their separate retry policy.
+- MCP handshake/schema/auth failures proven to precede a tool dispatch were
+  incorrectly recorded as unknown external outcomes. Only those proven
+  pre-dispatch reservations are released. Once a tool could have been sent,
+  its uncertain receipt remains retained and cannot replay.
+- `workflow_operation_receipts` had an extra unique constraint on project,
+  run and node, although its primary operation identity already includes the
+  iteration path. That constraint blocked the second loop iteration. Main
+  schema **15** removes only that exact redundant constraint, preserving the
+  primary key, existing receipts and unrelated uniqueness rules.
+
+These changes do not map invalid finding categories to different meanings,
+discard substantive findings, weaken citations, substitute a model, fabricate
+readiness, or claim a test execution passed.
+
+The full AI-feature regression passed **2,489 tests**, with ten optional tests
+skipped. The generic node/agent/workflow selection passed **374/374**, and the
+assurance/schema selection passed **98/98**. Counts overlap.
+
+The real PostgreSQL Sprint pipeline passed with 101 controlled local HTTP model
+responses. It executes the connected For Each chain, repairs a deliberately
+invalid category once per Story, and verifies a persistent invalid result stops
+with exact diagnostics while retaining the already saved pending-review case.
+Request replay makes no additional provider calls. The separate effects fixture
+tests three actual MCP writes locally and three through Temporal execution,
+including a lost loop acknowledgment and history replay without duplicate
+effects, plus fresh and version-14-to-15 migration paths.
+
+```sh
+node --test services/ai/test/backend/assuranceWorkflowContract.test.js services/platform/backend/test/aiReviewContracts.test.js services/platform/backend/test/aiArtifactRequests.test.js services/platform/backend/test/schemaReadiness.test.js
+node scripts/checks/test-sprint-automator-postgres.mjs
+node scripts/checks/test-workflow-effects-postgres.mjs
+```
+
+Production-model output quality remains a separate boundary: a second invalid
+review still fails with its exact field diagnostics. No paid provider request
+or user's saved workflow execution was submitted for these checks. Hosted
+`app.hellotest.ai` rollout still requires its deployment connection; the verified
+local build does not update that separate instance.
+
+The local API and editor were refreshed after the normal migration completed.
+Runtime verification confirmed schema receipt **15**, removal of the obsolete
+effect constraint, and matching SHA-256 digests for all ten changed backend and
+shared runtime files. The deployed Agentic UI entry is `entry-C1ffGItq.js`;
+the main frontend matches the final local build. Direct and proxied API readiness,
+the main frontend and the admin frontend all returned HTTP 200. These checks
+did not submit a saved workflow or call a production model.

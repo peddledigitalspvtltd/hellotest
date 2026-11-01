@@ -36,8 +36,13 @@ import type { TestDataOptions } from "@hellotest/platform/frontend/src/types";
 import type { ExecutionCaseIdentity, ExecutionCaseLifecycleAction } from "./lib/executionCaseLifecycle";
 import type { AiArtifactAssuranceInput, ApiRequestPreview, AiCaseAuthoringPreviewResponse, AiDesignImageInput, AiDesignPreviewResponse, AiStepRephraseResponse, AiTestDataGenerationPreviewResponse, AiTestCaseGenerationJob, AutomationBuildResponse, AutomationLearningCacheEntry, ObjectRepositoryImportEntry, ObjectRepositoryImportResult, ObjectRepositoryContext, Execution, ExecutionResult, ExecutionSchedule, ExecutionResultAttachment, KeyValueEntry, ReleaseReadinessExecutionEvidence, RecorderSessionResponse, SharedStepGroup, SharedStepMetrics, SmartExecutionPreviewResponse, TestConfiguration, TestCase, TestCaseImpactPreviewResponse, TestCaseModule, TestCaseVersionSnapshot, TestCaseVersionSummary, TestDataSet, TestDataSetMode, TestEnvironment, TestStep, TestSuite, ExecutionFailureClusterPreviewResponse, WorkspaceTransaction } from "@hellotest/platform/frontend/src/types";
 import type { ExecutionStartResponse } from "./lib/executionStartSummary";
+import { resolveServiceBase } from "@hellotest/platform/frontend/src/platform/lib/serviceEndpoints";
+import { preparePairedBrowserBuild } from "./lib/pairedBrowserBuild";
+import { startPairedRecording, finishPairedRecording, isPairedRecording } from "./lib/pairedRecorder";
+import { startPairedLocalExecution } from "./lib/pairedLocalExecution";
+import { cancelPairedLocalRun } from "@hellotest/agentic/frontend/lib/pairedLocalAgent";
 import type { ExecutionAiAnalysis } from "./lib/executionLogs";
-import { BatchQueueResponse, PagedResult, request, requestBlob, requestForm, toQueryString } from "@hellotest/platform/frontend/src/lib/httpClient";
+import { API_BASE_URL, BatchQueueResponse, PagedResult, request, requestBlob, requestForm, toQueryString } from "@hellotest/platform/frontend/src/lib/httpClient";
 
 type TestCaseImportSourceValue = "csv" | "junit_xml" | "testng_xml" | "postman_collection";
 
@@ -540,10 +545,10 @@ testCases: {
       }),
     automationParameterPlan: (id:string,input?:{test_suite_id?:string;test_environment_id?:string;test_configuration_id?:string;test_data_set_id?:string;parameter_values?:Record<string,string>}) =>
       request<{test_case_id:string;test_suite_id?:string|null;parameter_values:Record<string,string>;parameter_references:string[];private_parameter_references:string[];missing_parameter_references:string[];empty_parameter_references?:string[];deferred_parameter_references:string[];parameter_plan_key:string}>(`/test-cases/${encodeURIComponent(id)}/automation/parameter-plan`,{method:"POST",body:JSON.stringify(input||{})}),
-    buildAutomation: (id: string, input?: { agent_context?: import("@hellotest/platform/frontend/src/types").AutomationAgentContextOptions; ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps" | "ai.agentic.automation-engineer"; allow_browser_actions?: boolean; verification_mode?: "generate_only" | "verify" | "verify_repair"; verification_driver?: "native" | "playwright_test_cli"; browser_driver?: "mcp"; integration_id?: string; start_url?: string; additional_context?: string; test_suite_id?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; parameter_values?: Record<string,string>; parameter_plan_key?: string; captured_actions?: unknown[]; captured_network?: unknown[] }) =>
+    buildAutomation: async (id: string, input?: { browser_location?: "local" | "remote"; agent_context?: import("@hellotest/platform/frontend/src/types").AutomationAgentContextOptions; ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps" | "ai.agentic.automation-engineer"; allow_browser_actions?: boolean; verification_mode?: "generate_only" | "verify" | "verify_repair"; verification_driver?: "native" | "playwright_test_cli"; browser_driver?: "mcp"; integration_id?: string; start_url?: string; additional_context?: string; test_suite_id?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; parameter_values?: Record<string,string>; parameter_plan_key?: string; captured_actions?: unknown[]; captured_network?: unknown[] }) =>
       request<AutomationBuildResponse>(`/test-cases/${id}/automation/build`, {
         method: "POST",
-        body: JSON.stringify(input || {})
+        body: JSON.stringify(await preparePairedBrowserBuild({ ...input, test_case_id: id }, (path, payload) => request(path, { method: "POST", body: JSON.stringify(payload) })))
       }),
     automationBuildStatus: (transactionId: string,query?:{events_offset?:number;events_limit?:number}) =>
       request<WorkspaceTransaction & {events?: import("@hellotest/platform/frontend/src/types").WorkspaceTransactionEvent[];events_has_more?:boolean;events_next_offset?:number;events_total?:number}>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}${toQueryString(query)}`),
@@ -559,26 +564,24 @@ testCases: {
       request<Record<string,unknown>>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}/evidence/${encodeURIComponent(artifactId)}`, {signal}),
     automationAgentBuildData: (transactionId:string,artifactId:string,signal?:AbortSignal) =>
       request<Record<string,unknown>>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}/build-data/${encodeURIComponent(artifactId)}`, {signal}),
-    queueAutomationGenerator: (id: string, input?: { agent_context?: import("@hellotest/platform/frontend/src/types").AutomationAgentContextOptions; ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps" | "ai.agentic.automation-engineer"; allow_browser_actions?: boolean; verification_mode?: "generate_only" | "verify" | "verify_repair"; verification_driver?: "native" | "playwright_test_cli"; browser_driver?: "mcp"; scheduled_at?: string; integration_id?: string; start_url?: string; additional_context?: string; test_suite_id?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; parameter_values?: Record<string,string>; parameter_plan_key?: string; ai_requested?: boolean }) =>
+    queueAutomationGenerator: async (id: string, input?: { browser_location?: "local" | "remote"; agent_context?: import("@hellotest/platform/frontend/src/types").AutomationAgentContextOptions; ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps" | "ai.agentic.automation-engineer"; allow_browser_actions?: boolean; verification_mode?: "generate_only" | "verify" | "verify_repair"; verification_driver?: "native" | "playwright_test_cli"; browser_driver?: "mcp"; scheduled_at?: string; integration_id?: string; start_url?: string; additional_context?: string; test_suite_id?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; parameter_values?: Record<string,string>; parameter_plan_key?: string; ai_requested?: boolean }) =>
       request<BatchQueueResponse>(`/test-cases/${id}/automation/generator-jobs`, {
         method: "POST",
-        body: JSON.stringify(input || {})
+        body: JSON.stringify(await preparePairedBrowserBuild({ ...input, test_case_id: id }, (path, payload) => request(path, { method: "POST", body: JSON.stringify(payload) })))
       }),
-    buildAutomationBatch: (input: { ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps" | "ai.agentic.automation-engineer"; agent_context?: import("@hellotest/platform/frontend/src/types").AutomationAgentContextOptions; allow_browser_actions?: boolean; verification_mode?: "generate_only" | "verify" | "verify_repair"; verification_driver?: "native" | "playwright_test_cli"; browser_driver?: "mcp"; scheduled_at?: string; app_type_id: string; test_case_ids?: string[]; integration_id?: string; start_url?: string; additional_context?: string; test_suite_id?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; test_suite_ids_by_case?: Record<string,string|null>; parameter_values_by_case?: Record<string,Record<string,string>>; parameter_plan_keys_by_case?: Record<string,string>; failure_threshold?: number; ai_requested?: boolean }) =>
+    buildAutomationBatch: async (input: { browser_location?: "local" | "remote"; ai_feature?: "ai.automation.keyword_generation" | "ai.automation.review" | "ai.automation.gap_analysis" | "ai.execution.network_to_api_steps" | "ai.agentic.automation-engineer"; agent_context?: import("@hellotest/platform/frontend/src/types").AutomationAgentContextOptions; allow_browser_actions?: boolean; verification_mode?: "generate_only" | "verify" | "verify_repair"; verification_driver?: "native" | "playwright_test_cli"; browser_driver?: "mcp"; scheduled_at?: string; app_type_id: string; test_case_ids?: string[]; integration_id?: string; start_url?: string; additional_context?: string; test_suite_id?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; test_suite_ids_by_case?: Record<string,string|null>; parameter_values_by_case?: Record<string,Record<string,string>>; parameter_plan_keys_by_case?: Record<string,string>; failure_threshold?: number; ai_requested?: boolean }) =>
       request<BatchQueueResponse>("/test-cases/automation/build-batch", {
         method: "POST",
-        body: JSON.stringify(input)
+        body: JSON.stringify(await preparePairedBrowserBuild(input, (path, payload) => request(path, { method: "POST", body: JSON.stringify(payload) })))
       }),
     startRecorderSession: (id: string, input?: { start_url?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; recorder_public_base_url?: string; reuse_existing?: boolean; test_suite_id?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; target_step_id?: string }) =>
-      request<RecorderSessionResponse>(`/test-cases/${id}/automation/recorder-session`, {
-        method: "POST",
-        body: JSON.stringify(input || {})
-      }),
+      input?.recorder_mode === "local" && input?.recorder_target !== "mobile"
+        ? startPairedRecording(() => request(`/test-cases/${id}/automation/recorder-session`, { method: "POST", body: JSON.stringify({ ...input, local_transport: "paired-agent" }) }))
+        : request<RecorderSessionResponse>(`/test-cases/${id}/automation/recorder-session`, { method: "POST", body: JSON.stringify(input || {}) }),
     finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; target_step_id?: string }) =>
-      request<AutomationBuildResponse & { recorder_session?: { id: string; action_count: number; network_count: number } }>(`/test-cases/${id}/automation/recorder-session/${sessionId}/finish`, {
-        method: "POST",
-        body: JSON.stringify(input || {})
-      }),
+      isPairedRecording(sessionId)
+        ? finishPairedRecording(sessionId, capture => request<AutomationBuildResponse & { recorder_session?: { id: string; action_count: number; network_count: number } }>(`/test-cases/${id}/automation/recorder-session/${sessionId}/finish`, { method: "POST", body: JSON.stringify({ ...input, ...capture }) }))
+        : request<AutomationBuildResponse & { recorder_session?: { id: string; action_count: number; network_count: number } }>(`/test-cases/${id}/automation/recorder-session/${sessionId}/finish`, { method: "POST", body: JSON.stringify(input || {}) }),
     update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; labels: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; automation_status: "not_automated" | "ready" | "incomplete"; automation_case_type: TestCase["automation_case_type"]; manual_test_case_id: string | null; manual_test_case_ids: string[]; execution_hooks: TestCase["execution_hooks"]; authoring_mode: "structured" | "gherkin"; test_case_type: TestCase["test_case_type"]; gherkin_document: string | null; test_data_set_ids: string[]; test_data_options: TestDataOptions; priority: number; status: string; requirement_id: string; requirement_ids: string[]; author_id: string; reviewer_id: string | null; review_status: TestCase["review_status"]; review_history: TestCase["review_history"]; ai_quality_score: number | null; expected_revision: number; steps: Array<{ id?: string; test_case_id?: string; step_order?: number; action?: string | null; expected_result?: string | null; step_type?: TestStep["step_type"]; automation_code?: string | null; api_request?: TestStep["api_request"]; group_id?: string | null; group_name?: string | null; group_kind?: "local" | "reusable" | null; reusable_group_id?: string | null }> }>) =>
       request<{ updated: boolean; revision: number }>(`/test-cases/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     review: (id: string, input: { review_status: "accepted" | "changes_requested"; comment?: string; expected_updated_at?: string; expected_revision?: number }) =>
@@ -712,10 +715,10 @@ executions: {
       }, 70000),
     previewSmartPlan: (input: { images?: AiDesignImageInput[]; project_id: string; app_type_id: string; integration_id?: string; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; scope_description?: string; additional_context?: string; prompt_guidance?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string }) =>
       request<SmartExecutionPreviewResponse>("/executions/smart-plan-preview", { method: "POST", body: JSON.stringify(input) }),
-    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; name?: string; start_date?: string; end_date?: string; scope_source?: "smart-run"; smart_plan?: { acceptance_token: string; request_id: string; input_fingerprint: string; selected_test_case_ids: string[] }; created_by: string }) =>
-      request<{ id: string; transaction_id?: string; audit_status?: "completed" | "acceptance-recorded" }>("/executions", { method: "POST", body: JSON.stringify(input) }),
+    create: async (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; name?: string; start_date?: string; end_date?: string; scope_source?: "smart-run"; smart_plan?: { acceptance_token: string; request_id: string; input_fingerprint: string; selected_test_case_ids: string[] }; created_by: string }): Promise<{ id: string; transaction_id?: string; audit_status?: "completed" | "acceptance-recorded" }> =>
+      (input.execution_mode === "local" ? startPairedLocalExecution("/executions/local-run", input, (path, payload) => request(path, { method: "POST", body: JSON.stringify(payload) }), resolveServiceBase("/executions/local-run", API_BASE_URL)) : request<{ id: string; transaction_id?: string; audit_status?: "completed" | "acceptance-recorded" }>("/executions", { method: "POST", body: JSON.stringify(input) })),
     createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; name?: string; start_date?: string; end_date?: string; created_by: string; engine_base_url?: string }) =>
-      request<ExecutionStartResponse & { id: string; execution_mode: "local"; engine_base_url: string; acknowledgement?:"unknown" }>("/executions/local-run", { method: "POST", body: JSON.stringify(input) }),
+      startPairedLocalExecution("/executions/local-run", input, (path, payload) => request(path, { method: "POST", body: JSON.stringify(payload) }), resolveServiceBase("/executions/local-run", API_BASE_URL)),
     update: (id: string, input: { name?: string; start_date?: string | null; end_date?: string | null; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string | null; test_configuration_id?: string | null; test_data_options?: TestDataOptions; test_data_set_id?: string | null; execution_mode?: "manual" | "remote" | "local"; parallel_enabled?: boolean; parallel_count?: number; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; expected_revision?: number }) =>
       request<{ updated: boolean; revision: number }>(`/executions/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     runApiStep: (executionId: string, testCaseId: string, stepId: string, input?: { data_set_iteration_index?: number }) =>
@@ -752,7 +755,7 @@ executions: {
     rerun: (id: string, input: { failed_only?: boolean; created_by: string; name?: string }) =>
       request<{ id: string }>(`/executions/${id}/rerun`, { method: "POST", body: JSON.stringify(input) }),
     start: (id: string, input?: { execution_mode?: "local" | "remote"; engine_base_url?: string; expected_revision?: number }) =>
-      request<ExecutionStartResponse>(`/executions/${id}/start`, { method: "POST", body: JSON.stringify(input || {}) }),
+      (input?.execution_mode === "local" ? startPairedLocalExecution(`/executions/${id}/local-dispatch`, input, (path, payload) => request(path, { method: "POST", body: JSON.stringify(payload) }), resolveServiceBase("/executions/local-run", API_BASE_URL)) : request<ExecutionStartResponse>(`/executions/${id}/start`, { method: "POST", body: JSON.stringify(input || {}) })),
     downloadReportHtml: (id: string) => requestBlob(`/executions/${id}/report.html`),
     downloadReportPdf: (id: string) => requestBlob(`/executions/${id}/report.pdf`),
     downloadCaseReportPdf: (executionId: string, testCaseId: string) =>
@@ -767,8 +770,16 @@ executions: {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    complete: (id: string, input: { status: "completed" | "failed" | "blocked" | "partially_completed" | "aborted"; expected_revision?: number }) =>
-      request<{ completed: boolean; revision: number; status: Execution["status"]; counts?: { passed: number; failed: number; blocked: number; running: number; paused?: number; skipped?: number; aborted?: number; not_run: number; total: number } }>(`/executions/${id}/complete`, { method: "POST", body: JSON.stringify(input) }),
+    complete: async (id: string, input: { status: "completed" | "failed" | "blocked" | "partially_completed" | "aborted"; expected_revision?: number }) =>
+      {
+        const result = await request<{ completed: boolean; revision: number; status: Execution["status"]; counts?: { passed: number; failed: number; blocked: number; running: number; paused?: number; skipped?: number; aborted?: number; not_run: number; total: number } }>(`/executions/${id}/complete`, { method: "POST", body: JSON.stringify(input) });
+        if (input.status === "aborted") {
+          let paired = false;
+          try { paired = sessionStorage.getItem("hellotest.paired-local-execution:" + id) === "1"; } catch { /* The agent also polls persisted cancellation. */ }
+          if (paired) void cancelPairedLocalRun(id).catch(() => undefined);
+        }
+        return result;
+      },
     delete: (id: string) => request<{ deleted: boolean }>(`/executions/${id}`, { method: "DELETE" })
   },
 executionSchedules: {

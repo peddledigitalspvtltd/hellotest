@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { agenticApi } from "../api.client";
+import { getPairedAgentToken } from "../lib/pairedLocalAgent";
 
-export type RepositoryLocalAgent = { publicBaseUrl: string; token: string };
+export type RepositoryLocalAgent = { publicBaseUrl: string; token: string; localExecution?: boolean; agentId?: string };
 export type RepositoryAgentState = "unchecked" | "checking" | "connected" | "disconnected";
 const AGENT_BASE_URL = "http://127.0.0.1:4311";
-const TOKEN_KEY = "hellotest.repository-inspection.agent-token.v1";
 
 export function useRepositoryInspectAgent(enabled: boolean, projectId: string) {
   const [state, setState] = useState<RepositoryAgentState>("unchecked");
@@ -52,15 +52,8 @@ export function useRepositoryInspectAgent(enabled: boolean, projectId: string) {
   }, [enabled, projectId]);
 
   const ensureToken = useCallback(() => {
-    if (tokenRef.current) return tokenRef.current;
-    let saved = "";
-    try { saved = localStorage.getItem(TOKEN_KEY) || ""; } catch { /* Memory pairing works when storage is unavailable. */ }
-    if (!/^[a-f0-9]{64}$/.test(saved)) {
-      saved = Array.from(crypto.getRandomValues(new Uint8Array(32)), value => value.toString(16).padStart(2, "0")).join("");
-      try { localStorage.setItem(TOKEN_KEY, saved); } catch { /* Keep this tab's pairing token. */ }
-    }
-    tokenRef.current = saved;
-    return saved;
+    if (!tokenRef.current) tokenRef.current = getPairedAgentToken();
+    return tokenRef.current;
   }, []);
 
   const check = useCallback(async (silent = false): Promise<RepositoryLocalAgent | null> => {
@@ -84,10 +77,12 @@ export function useRepositoryInspectAgent(enabled: boolean, projectId: string) {
           : status?.message || "The agent responded but its inspection browser is not ready. Restart it with the command below.");
       }
       if (controller.signal.aborted || !isCurrentScope()) return null;
-      const connected = { publicBaseUrl: AGENT_BASE_URL, token: pairingToken };
+      const connected = { publicBaseUrl: AGENT_BASE_URL, token: pairingToken, agentId: status.agent_id, localExecution: Boolean(status.agent_id) && status.capabilities?.local_execution === true && status.execution_protocol_version === 1 };
       setAgent(connected);
       setState("connected");
-      setMessage("Connected to the paired inspection agent on this computer. Local session is recommended.");
+      setMessage(connected.localExecution
+        ? "This computer is paired for browser inspection, recording and local case or suite execution. Local runs stay on this computer and send results to HelloTest."
+        : "Browser inspection is paired. This older agent cannot execute saved cases. Stop its terminal and run the updated setup command below; your existing pairing is preserved.");
       return connected;
     } catch (error) {
       if (controller.signal.aborted || !isCurrentScope()) return null;

@@ -178,18 +178,51 @@ test("MCP negotiates sessions, reads JSON/SSE tools, validates arguments and cal
   assert.equal(result.output_schema_verified, true);
   assert.equal(result.postcondition_verified, false);
   assert.equal(result.data.status, "ready");
-  await assert.rejects(mcp.call(input, "read_status", { id: 12 }), /schema/);
+  await assert.rejects(mcp.call(input, "read_status", { id: 12 }),error=>/schema/.test(error.message)&&error.effect_dispatched===false&&!error.outcome_unknown);
   await assert.rejects(mcp.call(input, "delete_everything", {}), {
     statusCode: 403,
   });
   assert.equal(messages.filter((m) => m.method === "tools/call").length, 1);
   assert.equal(closed, 4);
   changedSchema = true;
-  await assert.rejects(mcp.call(input, "read_status", { id: "case-1" }), { code: "MCP_SCHEMA_CHANGED" });
+  await assert.rejects(mcp.call(input, "read_status", { id: "case-1" }), { code: "MCP_SCHEMA_CHANGED",effect_dispatched:false });
   assert.equal(messages.filter(m => m.method === "tools/call").length, 1, "Changed schemas must fail before a tool call");
   changedSchema = false; invalidOutput = true;
   await assert.rejects(mcp.call(input, "read_status", { id: "case-1" }), { code: "MCP_OUTPUT_INVALID", outcome_unknown: true, retryable: false });
   assert.equal(messages.filter(m => m.method === "tools/call").length, 2, "Ambiguous tool outcomes are never replayed");
+});
+
+test('MCP real protocol distinguishes rejected handshake/schema from a tool response lost after dispatch',async t=>{
+ let mode='unauthorized',calls=0;
+ const inputSchema={type:'object',properties:{id:{type:'string'}},required:['id'],additionalProperties:false};
+ const tool={name:'create_issue',inputSchema,outputSchema:{type:'object',properties:{id:{type:'string'}},required:['id']}};
+ const base=await server(t,async(req,res)=>{
+  if(req.method==='DELETE'){req.resume();res.writeHead(204);return res.end();}
+  let body='';for await(const chunk of req)body+=chunk;const message=JSON.parse(body);
+  if(mode==='unauthorized'||mode==='forbidden'||mode==='origin'){
+   res.writeHead(mode==='unauthorized'?401:403,{'content-type':'application/json'});
+   return res.end(JSON.stringify({code:mode==='origin'?'CORS_ORIGIN_DENIED':'PRIVATE_SERVER_DETAIL',message:'PRIVATE_TOKEN'}));
+  }
+  if(message.method==='notifications/initialized'){res.writeHead(202);return res.end();}
+  let result;
+  if(message.method==='initialize')result={protocolVersion:'2025-11-25',capabilities:{tools:{}}};
+  else if(message.method==='tools/list')result={tools:[tool]};
+  else {calls++;if(mode==='lost'){req.socket.destroy();return;}result={structuredContent:{id:'created'},content:[]};}
+  res.setHeader('content-type','application/json');res.end(JSON.stringify({jsonrpc:'2.0',id:message.id,result}));
+ });
+ process.env.AGENTIC_HTTP_CONNECTIONS=JSON.stringify([{id:'phase-mcp',kind:'mcp',url:base+'/mcp',projectIds:['p'],allowPrivateNetwork:true,tools:[tool.name],toolDefinitions:[tool]}]);
+ const input={projectId:'p',connectionId:'phase-mcp',timeoutMs:1500};
+ for(mode of ['unauthorized','forbidden','origin'])await assert.rejects(mcp.call(input,tool.name,{id:'draft'}),error=>{
+  const detail=require('../../backend/workflows/runtimeEvents').failureInfo(error);
+  assert.equal(detail.effect_dispatched,false);assert.equal(detail.outcome_unknown,undefined);assert.equal(detail.retryable,false);assert.equal(detail.category,'authorization');
+  assert.equal(detail.upstream_status_code,mode==='unauthorized'?401:403);assert.doesNotMatch(JSON.stringify(detail),/PRIVATE/);return true;
+ });
+ assert.equal(calls,0);
+ mode='ready';await assert.rejects(mcp.call(input,tool.name,{id:12}),{effect_dispatched:false,statusCode:422});assert.equal(calls,0);
+ mode='lost';await assert.rejects(mcp.call(input,tool.name,{id:'draft'}),error=>{
+  assert.equal(error.outcome_unknown,true);assert.equal(error.retryable,false);assert.notEqual(error.effect_dispatched,false);return true;
+ });
+ assert.equal(calls,1);
 });
 test("data paths cannot access prototypes and mappings preserve literal values", () => {
   assert.throws(

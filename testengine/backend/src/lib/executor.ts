@@ -27,6 +27,14 @@ type Logger = {
   error: (message: unknown, ...args: unknown[]) => void;
 };
 
+/** Local paired dispatch uses the same executor as remote/direct runs. Runtime
+ * captures stay private to the coordinator and never enter its public status. */
+export type RunExecutionOptions = {
+  signal?: AbortSignal;
+  capturedValues?: Record<string, string>;
+  onCapturedValues?: (values: Record<string, string>) => void;
+};
+
 type ExecutionContext = {
   values: Record<string, string>;
   capturedValues?: Record<string, string>;
@@ -322,12 +330,12 @@ const decorateHookOutcome = (
   ].filter(Boolean).join("\n")
 });
 
-const executeApiStep = async ({ envelope, run, step, context }: {
-  envelope: EngineRunEnvelope; run: EngineRunRecord; step: EngineRunEnvelope["steps"][number]; context: ExecutionContext;
+const executeApiStep = async ({ envelope, run, step, context, signal }: {
+  envelope: EngineRunEnvelope; run: EngineRunRecord; step: EngineRunEnvelope["steps"][number]; context: ExecutionContext; signal?: AbortSignal;
 }): Promise<ApiStepExecutionResult> => {
   const startedAt = nowIso();
   // Push and pull execution use the same interpolation, request and assertion engine.
-  const result = await executeApiStepInEngine(envelope, step, context.capturedValues || {});
+  const result = await executeApiStepInEngine(envelope, step, context.capturedValues || {}, signal);
   const summary = { step_id: step.id, ...result.detail };
   const stepKey = createHash("sha256").update(step.id).digest("hex").slice(0, 16);
   const artifactPath = path.posix.join(`artifacts/${run.id}`, "steps", `${String(step.order).padStart(2, "0")}-${stepKey}.json`);
@@ -546,7 +554,7 @@ const executeUnsupportedRun = async ({
   }
 };
 
-async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, logger: Logger) {
+async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, logger: Logger, executionOptions: RunExecutionOptions = {}) {
   const allSteps = [...envelope.steps, ...(envelope.hooks || []).flatMap((hook) => hook.steps || [])];
   const hasUnsupportedStep = allSteps.some((step) => !["api", "web", "android", "ios"].includes(step.step_type));
 
@@ -574,7 +582,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
   }
 
   const startedAt = Date.now();
-  const context = buildInitialContext(envelope);
+  const context = buildInitialContext(envelope, executionOptions.capturedValues);
   const mobileRunSession = createMobileRunSession(envelope, (error) => logger.error({ error, engineRunId: run.id }, "Unable to close Mobile Engine session"));
   const stepOutcomes: EngineStepOutcome[] = [];
   const stepSummaries: ApiStepExecutionResult["summary"][] = [];
@@ -597,6 +605,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
   let healingAttempted = false;
   let healingSucceeded = false;
   let webRunSessionStopped = false;
+  let webStartupFinished = false;
   let postHooksRun = false;
   let currentStep: EngineRunEnvelope["steps"][number] | null = null;
   const stopWebRunSession = async (status?: "passed" | "failed" | "blocked") => {
@@ -613,6 +622,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
     }
   };
   const executeEngineStep = async (step: EngineRunEnvelope["steps"][number]) => {
+    executionOptions.signal?.throwIfAborted();
     const options = automationStepOptions(step);
     if (options.skip) return {
       outcome: { step_id: step.id, status: "skipped" as const, note: "Section skipped by its saved execution options.", ended_at: nowIso() },
@@ -621,7 +631,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
     };
     let result: ExecutedEngineStepResult;
     try {
-    if (step.step_type === "api") result = await executeApiStep({ envelope, run: running, step, context: buildInitialContext(envelope, context.capturedValues, step) });
+    if (step.step_type === "api") result = await executeApiStep({ envelope, run: running, step, context: buildInitialContext(envelope, context.capturedValues, step), signal: executionOptions.signal });
     else if (step.step_type === "web" && webRunSession) result = await executeWebStep({ step, webRunSession });
     else if (step.step_type === "android" || step.step_type === "ios") {
       const mobile = (await mobileRunSession.run([step], context.capturedValues)).results.find((item) => item.step_id === step.id);
@@ -707,10 +717,19 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
     await runHookSteps("post", postHookSteps);
   };
 
+  const cancel = () => {
+    // Closing an uninitialized session cannot cancel chromium.launch. Wait for
+    // startup to settle, then the abort check/finalizer closes its actual browser.
+    if (webStartupFinished) void stopWebRunSession("blocked").catch(() => undefined);
+    void mobileRunSession.close().catch(() => undefined);
+  };
+  executionOptions.signal?.addEventListener("abort", cancel, { once: true });
   try {
+    executionOptions.signal?.throwIfAborted();
     if (webRunSession) {
-      await webRunSession.start();
+      try { await webRunSession.start(); } finally { webStartupFinished = true; }
     }
+    executionOptions.signal?.throwIfAborted();
 
     const preHooksPassed = await runHookSteps("pre", preHookSteps);
 
@@ -926,6 +945,10 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
       logger.error({ error: callbackError, engineRunId: run.id }, "Unable to emit HelloTest callback after execution failure");
     }
   } finally {
+    executionOptions.signal?.removeEventListener("abort", cancel);
+    const directCaptures: ExecutionContext = { values: {} };
+    for (const values of Object.values(stepCaptures)) syncCapturedValues(directCaptures, values);
+    executionOptions.onCapturedValues?.({ ...directCaptures.capturedValues });
     await mobileRunSession.close();
     if (webRunSession && !webRunSessionStopped) {
       try {
@@ -937,10 +960,10 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
   }
 }
 
-export function queueRunExecution(envelope: EngineRunEnvelope, run: EngineRunRecord, logger: Logger) {
+export function queueRunExecution(envelope: EngineRunEnvelope, run: EngineRunRecord, logger: Logger, options: RunExecutionOptions = {}) {
   return new Promise<void>((resolve) => {
     setImmediate(() => {
-      void executeRun(envelope, run, logger)
+      void executeRun(envelope, run, logger, options)
         .catch((error) => {
           logger.error({ error, engineRunId: run.id }, "Uncaught Test Engine execution failure");
         })
@@ -948,6 +971,9 @@ export function queueRunExecution(envelope: EngineRunEnvelope, run: EngineRunRec
     });
   });
 }
+
+export const failAcceptedRun = (envelope: EngineRunEnvelope, run: EngineRunRecord, logger: Logger, reason: string) =>
+  executeUnsupportedRun({ envelope, run, logger, reason });
 
 export function saveAcceptedRun(envelope: EngineRunEnvelope, run: EngineRunRecord) {
   return saveRun(run, envelope);

@@ -72,7 +72,7 @@ test("inspection defaults to remote without loopback probes and verifies paired 
     assert.equal(await toggle.evaluate(element => element === document.activeElement), true);
     await toggle.click();
     await menu.getByRole("option", { name: /Local session/ }).click();
-    const setup = page.getByRole("dialog", { name: "Connect local inspection agent" });
+    const setup = page.getByRole("dialog", { name: "Connect local agent" });
     await setup.waitFor();
     await setup.getByText("Agent not connected", { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => window.inspectionCalls.checks.length), 1);

@@ -24,16 +24,22 @@ test("the downloaded runtime imports and serves pairing status with only install
   for (const [key, name] of Object.entries({ recorder: "recorder", security: "testEngineSecurity", inspection_security: "inspectionSecurity", inspection_proxy: "inspectionProxy", repository_locator: "repositoryLocator" })) {
     await writeFile(join(directory, `${name}.js`), modules[key]);
   }
+  for (const [name, source] of Object.entries(modules.runtime_modules)) await writeFile(join(directory, name), source);
   const previous = process.env.HELLOTEST_INSPECTOR_TOKEN;
   const token = "isolated-inspection-pairing-token";
   process.env.HELLOTEST_INSPECTOR_TOKEN = token;
   t.after(() => { if (previous === undefined) delete process.env.HELLOTEST_INSPECTOR_TOKEN; else process.env.HELLOTEST_INSPECTOR_TOKEN = previous; });
   const { default: Fastify } = await import(pathToFileURL(join(directory, "node_modules/fastify/fastify.js")));
   const { registerRecorderRoutes } = await import(pathToFileURL(join(directory, "recorder.js")));
+  const { registerPairedLocalExecutionRoutes } = await import(pathToFileURL(join(directory, "pairedLocalExecution.js")));
   const app = Fastify();
   t.after(() => app.close());
+  await registerPairedLocalExecutionRoutes(app, { directory: join(directory, "receipts"), origin: "https://app.test", token });
   await registerRecorderRoutes(app);
   const status = await app.inject({ url: "/api/v1/recorder/agent/status", headers: { "x-hellotest-agent-token": token } });
   assert.equal(status.statusCode, 200);
   assert.equal(status.json().service, "hellotest-inspection-agent");
+  assert.equal(status.json().capabilities.local_execution, true);
+  assert.equal(status.json().execution_protocol_version, 1);
+  assert.ok(status.json().agent_id);
 });

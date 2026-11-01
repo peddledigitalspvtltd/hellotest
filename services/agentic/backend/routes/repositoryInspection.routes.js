@@ -11,6 +11,17 @@ const scope = async (fastify, req, projectId, permission = "automation.repositor
   await fastify.requirePermission(permission, { projectId })(req);
 };
 
+const localSetupScope = async (fastify, req, projectId) => {
+  if (!projectId || typeof projectId !== "string") throw Object.assign(new Error("project_id is required"), { statusCode: 400 });
+  await fastify.authenticate(req);
+  await projects.getProject(projectId, req.user.id);
+  for (const permission of ["automation.repository.manage", "automation.run.local", "automation.recorder", "automation.build"]) {
+    try { await fastify.requirePermission(permission, { projectId })(req); return; }
+    catch (error) { if (error.statusCode !== 403) throw error; }
+  }
+  throw Object.assign(new Error("Local agent setup requires browser inspection, recording, build or local execution permission."), { statusCode: 403 });
+};
+
 module.exports = async function repositoryInspectionRoutes(fastify) {
   fastify.get("/repository-inspection/capabilities", async (req, reply) => {
     await scope(fastify, req, req.query.project_id, "automation.view");
@@ -32,7 +43,7 @@ module.exports = async function repositoryInspectionRoutes(fastify) {
   });
   fastify.post("/repository-inspection/local-agent/setup", async (req, reply) => {
     const input = req.body || {};
-    await scope(fastify, req, input.project_id);
+    await localSetupScope(fastify, req, input.project_id);
     if (req.authMethod === "api_key" || !String(req.headers.authorization || "").startsWith("Bearer ")) {
       throw Object.assign(new Error("Local inspection setup requires a signed-in browser session."), { statusCode: 403 });
     }
@@ -48,7 +59,7 @@ module.exports = async function repositoryInspectionRoutes(fastify) {
   };
   fastify.get("/repository-inspection/local-agent/download", { preHandler: setupAccess }, async (req, reply) => {
     const setup = req.inspectionSetup;
-    await scope(fastify, req, setup.project_id);
+    await localSetupScope(fastify, req, setup.project_id);
     if (req.user.id !== setup.user_id) throw Object.assign(new Error("This setup link belongs to another user."), { statusCode: 403 });
     reply.header("cache-control", "no-store").header("referrer-policy", "no-referrer")
       .header("content-disposition", 'attachment; filename="hellotest-inspection-agent.mjs"').header("content-type", "text/javascript; charset=utf-8");

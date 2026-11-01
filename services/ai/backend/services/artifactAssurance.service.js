@@ -4,6 +4,7 @@ const { storyAiSnapshot, testCaseAiSnapshot, object, text, list } = require("@he
 const selection = require("@hellotest/integration/backend/services/aiLlmSelection.service");
 const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llmHttpClient");
 const { createLlmProviderError } = require("@hellotest/platform/backend/src/utils/upstreamLlmError");
+const { sanitizeAiText } = require('@hellotest/platform/backend/src/security/aiTextPolicy');
 
 const DIMENSIONS = {
   story: ["industry-standards", "usefulness", "design-maturity", "market-patterns"],
@@ -11,6 +12,7 @@ const DIMENSIONS = {
 };
 const ASSURANCE_REQUEST_TIMEOUT_MS = 60_000;
 const ASSURANCE_REPAIR_TIMEOUT_MS = 60_000;
+const ASSURANCE_TOTAL_TIMEOUT_MS = ASSURANCE_REQUEST_TIMEOUT_MS + ASSURANCE_REPAIR_TIMEOUT_MS;
 const ASSURANCE_MAX_OUTPUT_TOKENS = 6_144;
 const READINESS_STATUSES = ['ready', 'needs_input', 'unknown', 'not_applicable'];
 const READINESS_CONTEXT_KINDS = ['api_contract', 'authentication', 'test_data', 'fixture', 'application_context', 'other'];
@@ -25,13 +27,38 @@ const unknownReadiness = () => ({ status: 'unknown', summary: 'Automation suitab
 // execution keep their own contracts and approval boundaries.
 const reviewContract = (dimensionIds, sourceRefs, fieldNames, stepRefs) => ({
   summary: 'Concise evidence-grounded review',
-  dimensions: [{ id: dimensionIds, explanation: 'Supported assessment', evidence: sourceRefs, recommendation: 'Smallest useful action or preserve the supported behavior' }],
-  insights: [{ id: 'Unique finding id', priority: ['high', 'medium', 'opportunity'], kind: FINDING_KINDS,
-    title: 'Specific issue', explanation: 'Observed gap or ambiguity and why it matters', evidence: sourceRefs,
-    affected_fields: fieldNames, step_refs: stepRefs, recommendation: 'Concrete change and observable completion condition' }],
-  limitations: ['Unknown, restricted or truncated evidence; no execution or approval implied'],
-  limits: { dimensions: 4, insights: 4, source_refs_per_item: 6, affected_fields_per_insight: 6, step_refs_per_insight: 10 }
+  dimensions: [{ id: dimensionIds[0], explanation: 'Supported assessment', evidence: sourceRefs.slice(0, 6), recommendation: 'Smallest useful action or preserve the supported behavior' }],
+  insights: [{ id: 'finding-1', priority: 'medium', kind: 'artifact_quality',
+    title: 'Specific issue', explanation: 'Observed gap or ambiguity and why it matters', evidence: sourceRefs.slice(0, 6),
+    affected_fields: fieldNames.slice(0, 6), step_refs: stepRefs.slice(0, 10), recommendation: 'Concrete change and observable completion condition' }],
+  limitations: ['Unknown, restricted or truncated evidence; no execution or approval implied']
 });
+
+// Only protocol diagnostics survive the service boundary. Candidates and raw
+// provider bodies remain private to the bounded repair and retained trace.
+const failureMetadata = error => {
+  const result = {};
+  for (const key of ['retryable', 'nonRetryable', 'generation_received', 'outcome_unknown']) {
+    if (typeof error?.[key] === 'boolean') result[key] = error[key];
+  }
+  for (const key of ['upstreamStatusCode', 'upstreamStatus']) {
+    if (Number.isInteger(error?.[key]) && error[key] >= 100 && error[key] <= 599) result[key] = error[key];
+  }
+  if (Number.isFinite(error?.retryAfterMs) && error.retryAfterMs >= 0) result.retryAfterMs = Math.min(error.retryAfterMs, 86400000);
+  if (Array.isArray(error?.validation_errors)) result.validation_errors = error.validation_errors.slice(0, 8).map(item =>
+    Object.fromEntries(['path', 'keyword', 'message', 'required_property'].flatMap(key =>
+      typeof item?.[key] === 'string' ? [[key, sanitizeAiText(item[key]).text.slice(0, key === 'message' ? 500 : 200)]] : [])));
+  if (error?.provider_error && typeof error.provider_error === 'object') {
+    const provider = {};
+    for (const key of ['code', 'type', 'param', 'request_id']) {
+      const value = error.provider_error[key];
+      if (value === null) provider[key] = null;
+      else if (typeof value === 'string' && /^[A-Za-z0-9_.:[\]-]{1,160}$/.test(value) && sanitizeAiText(value).text === value) provider[key] = value;
+    }
+    if (Object.keys(provider).length) result.provider_error = provider;
+  }
+  return result;
+};
 
 const reviewOutputSchema = (dimensionIds, sourceRefs, fieldNames, stepRefs, includeReadiness) => {
   const string = maxLength => ({ type: 'string', minLength: 1, maxLength });
@@ -248,6 +275,14 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
   const transportSchema=readinessRequested?{...outputSchema,required:outputSchema.required.filter(key=>key!=='automation_readiness'),
     properties:{...outputSchema.properties,automation_readiness:{}}}:outputSchema;
   const lockedScores = normalizeBaseline(baseline, dimensionIds);
+  const responseScope = JSON.stringify({ native_review_scope: {
+    target_ref: sources[0].ref, artifact_type: artifactType, artifact_count: 1,
+    response_shape: 'one_unwrapped_review_object', host_owns_case_and_story_iteration: true,
+    example_is_structure_only: true, substantive_findings_must_come_from_supplied_evidence: true,
+    dimension_ids: dimensionIds, finding_kinds: FINDING_KINDS, priorities: ['high', 'medium', 'opportunity'],
+    allowed_evidence_refs: sourceRefs, allowed_affected_fields: fieldNames, allowed_step_refs: stepRefs,
+    limits: { dimensions: 4, insights: 4, source_refs_per_item: 6, affected_fields_per_insight: 6, step_refs_per_insight: 10 }
+  } });
   const prompt = [
     [aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.1"),String(artifactType === "story" ? "Story" : "Test Case"),aiInstructionBlock(featureKey, "artifactAssurance.service.prompt.segment.2")].join(''),
     aiInstructionBlock(featureKey, "artifactAssurance.prompt.1"),
@@ -265,8 +300,10 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     ...(readinessRequested ? [aiInstructionBlock(featureKey, 'artifactAssurance.automationReadiness'),
       JSON.stringify({ automation_readiness_contract: readinessContract(sources.map(source => source.ref), stepRefs), product_evidence_refs: [...productRefs], step_references: stepReferences })] : [])
   ].join("\n");
-  const deadline = Date.now() + ASSURANCE_REQUEST_TIMEOUT_MS;
+  const deadline = Date.now() + ASSURANCE_TOTAL_TIMEOUT_MS;
   let modelCalls = 0;
+  let repairAttempted = false;
+  let receivedGeneration = false;
   let integration;
   try {
     integration = await selection.resolveLlmIntegrationForUsage({ integrationId, userId: user?.id, projectId,
@@ -280,9 +317,11 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       const remaining = deadline - Date.now();
       if (remaining < 1000 || modelCalls >= 2) throw Object.assign(new Error("AI assurance exhausted its request budget."), { code: "AI_BUDGET_EXCEEDED", statusCode: 504 });
       modelCalls += 1;
+      if (operation.endsWith('.repair')) repairAttempted = true;
       return fetchLlmWithRetry(url, { method: "POST", headers, signal, body: JSON.stringify({
       model: integration.model,  response_format: { type: "json_object" }, messages
-    }) }, { integration, operation, featureKey, outputSchema:transportSchema, outputSchemaName:'artifact_assurance_review', timeoutMs: Math.min(timeoutMs, remaining), maxOutputTokens, maxAttempts: 1, compatibility: false, contextFallback: false });
+    }) }, { integration, operation, featureKey, outputSchema:transportSchema, outputSchemaName:'artifact_assurance_review', timeoutMs: Math.min(timeoutMs, remaining), maxOutputTokens, maxAttempts: 1, compatibility: false, contextFallback: false })
+        .then(response => { receivedGeneration ||= response.ok; return response; });
     };
     const allowedRefs = new Set(sources.map(item => item.ref));
     let review;
@@ -290,7 +329,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     let originalContent = "";
     try {
       const result = await readReviewResponse(await request([
-        { role: "system", content: aiInstructionBlock(featureKey, "artifactAssurance.result.9") },
+        { role: "system", content: [aiInstructionBlock(featureKey, "artifactAssurance.result.9"), responseScope].join('\n') },
         { role: "user", content: prompt }
       ], { operation: `quality-assurance.${artifactType}`, timeoutMs: ASSURANCE_REQUEST_TIMEOUT_MS, maxOutputTokens: ASSURANCE_MAX_OUTPUT_TOKENS }));
       originalContent = result.content;
@@ -316,9 +355,9 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
           JSON.stringify({ automation_readiness_contract: readinessContract([...allowedRefs], stepRefs), product_evidence_refs: [...productRefs], step_references: stepReferences })] : [])
       ].join("\n");
       const repairedResult = await readReviewResponse(await request([
-        { role: "system", content: aiInstructionBlock(featureKey, "artifactAssurance.repairedResult.13") },
+        { role: "system", content: [aiInstructionBlock(featureKey, "artifactAssurance.repairedResult.13"), responseScope].join('\n') },
         { role: "user", content: repairPrompt }
-      ], { operation: `quality-assurance.${artifactType}.repair`, timeoutMs: ASSURANCE_REPAIR_TIMEOUT_MS, maxOutputTokens: 3_072 }));
+      ], { operation: `quality-assurance.${artifactType}.repair`, timeoutMs: ASSURANCE_REPAIR_TIMEOUT_MS, maxOutputTokens: ASSURANCE_MAX_OUTPUT_TOKENS }));
       review = normalizeReview(repairedResult.parsed, dimensionIds, allowedRefs, normalization);
       repaired = true;
     }
@@ -326,7 +365,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       response_repaired: repaired,
       execution_status: "completed", publication_status: "proposal",
       verification: { status: "passed", verifier_version: "artifact-assurance/2", checks: ["output_shape", "evidence_references"], limitations: ["Citation matching does not verify factual correctness or readiness."] },
-      model_execution: { model_calls: modelCalls, max_model_calls: 2, deadline_ms: ASSURANCE_REQUEST_TIMEOUT_MS },
+      model_execution: { model_calls: modelCalls, max_model_calls: 2, deadline_ms: ASSURANCE_TOTAL_TIMEOUT_MS, format_repair_attempted: repairAttempted },
       integration: { id: integration.id, name: integration.name, type: integration.type, model: integration.model, generation_mode: "hybrid", direct_model_invocation: true } };
   } catch (error) {
     if (signal?.aborted) throw Object.assign(new Error('Workflow cancelled.'), { statusCode: 499, publicMessage: 'Workflow cancelled.' });
@@ -338,6 +377,8 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       AI_ASSURANCE_REVIEW_INVALID: "The provider returned invalid review fields or unsupported citations after one format repair. Retry or select another configured model.",
       AI_OUTPUT_SCHEMA_VIOLATION: "The provider returned a review that did not match the required output contract after one format repair. Review the selected model and assurance instructions.",
       AI_MANAGED_SCHEMA_INVALID: "The configured assurance output contract is invalid. Review its published AI configuration before retrying.",
+      AI_OUTPUT_SCHEMA_INVALID: "The assurance output schema is invalid. Correct its configuration before running this node again.",
+      AI_BUDGET_EXCEEDED: "The assurance request and format repair exhausted their bounded time or model-call budget. Completed drafts are retained; review the node settings before starting a new attempt.",
       AI_EMPTY_RESPONSE: "The provider returned an empty review. Retry or select another configured model."
     };
     const reason = reasons[error?.code]
@@ -346,7 +387,10 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       || ([502, 503, 504].includes(error?.statusCode) || error?.name === "AbortError" ? "The AI provider is unavailable or timed out. Check its connection and retry." : null)
       || (error instanceof SyntaxError || /evidence-grounded review/.test(error?.message || "") ? "The provider returned a review without usable cited evidence. Retry or select another configured model." : null)
       || "The configured AI provider could not complete an evidence-grounded review.";
-    throw Object.assign(new Error(reason), { code: error?.code || "AI_REVIEW_FAILED", statusCode: error?.statusCode || 502, publicMessage: reason, cause: error });
+    throw Object.assign(new Error(reason), { ...failureMetadata(error),
+      ...(receivedGeneration ? { generation_received:true, retryable:false, nonRetryable:true } : {}),
+      code: error?.code || "AI_REVIEW_FAILED", statusCode: error?.statusCode || 502, publicMessage: reason,
+      model_execution: { model_calls: modelCalls, max_model_calls: 2, deadline_ms: ASSURANCE_TOTAL_TIMEOUT_MS, format_repair_attempted: repairAttempted }, cause: error });
   }
 }
 

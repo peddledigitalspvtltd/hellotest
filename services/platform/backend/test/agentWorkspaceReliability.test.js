@@ -327,6 +327,64 @@ test("specialist repairs one malformed model response without losing the evidenc
   assert.equal(result.result.findings[0].title, "Story gaps");
 });
 
+function enforceNativeTransportSchema(t) {
+  const runtime = require('../src/utils/aiFeatureRuntime');
+  const apply = runtime.apply;
+  t.mock.method(runtime, 'apply', async (...args) => {
+    const managed = await apply(...args);
+    // Exercise the real shared transport validator, rather than manufacturing
+    // an exception that might differ from a provider response's replay flags.
+    return { ...managed, options: { ...managed.options, outputSchema: require('../../../agentic/backend/services/agentResponseContract').schema } };
+  });
+}
+
+for (const invalidKind of ['type', 'required']) test(`specialist corrects one transport ${invalidKind} schema failure with precise bounded feedback`, async t => {
+  const { events } = setupAssistant(t);
+  enforceNativeTransportSchema(t);
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (_url, request) => {
+    const body = JSON.parse(request.body); requests.push(body);
+    const payload = JSON.parse(body.messages.at(-1).content);
+    const citation = payload.citation_contract.find(item => item.id.includes('stories'));
+    const result = { response: `Story gaps need review [${citation.id}]`, citation_ids: [citation.id], findings: [{ id: 'gap-1', title: 'Story gaps', detail: 'Review missing acceptance boundaries.', priority: 'medium', requires_proposal: false, citation_ids: [citation.id] }], deliverables: [], artifacts: [], evidence_gaps: [] };
+    if (requests.length === 1) {
+      if (invalidKind === 'type') result.response = { private_candidate: 'PRIVATE_SCHEMA_CANDIDATE' };
+      else delete result.findings[0].id;
+    }
+    return Response.json({ choices: [{ message: { content: JSON.stringify(result) } }] });
+  });
+  const result = await assistant.respond(input);
+  assert.equal(requests.length, 2, 'One schema correction shares the original model-call budget.');
+  assert.equal(result.result.model_execution.model_calls, 2);
+  assert.equal(result.result.model_execution.revision_rounds, 1);
+  const original = JSON.parse(requests[0].messages.at(-1).content);
+  const { revision_feedback, ...corrected } = JSON.parse(requests[1].messages.at(-1).content);
+  assert.deepEqual(corrected, original, 'The same selected evidence and request survive correction.');
+  assert.deepEqual(revision_feedback.issues, invalidKind === 'type' ? [{ path: '/response', issue: 'type' }]
+    : [{ path: '/findings/0', issue: 'required', required_property: 'id' }]);
+  assert.equal(revision_feedback.previous_draft, null);
+  assert.doesNotMatch(JSON.stringify({ revision_feedback, events }), /PRIVATE_SCHEMA_CANDIDATE|private_candidate/);
+  assert.match(result.result.response, /Story gaps need review/);
+});
+
+for (const maxCalls of [1, 2]) test(`persistent transport schema failure consumes at most ${maxCalls} agent model calls and retains paid-generation protection`, async t => {
+  const { records } = setupAssistant(t);
+  enforceNativeTransportSchema(t);
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => { calls += 1; return Response.json({ choices: [{ message: { content: JSON.stringify({ response: 'PRIVATE_INVALID_REVIEW', findings: [], deliverables: [], artifacts: [], evidence_gaps: [] }) } }] }); });
+  await assert.rejects(assistant.respond({ ...input, workflow_policy: { allowed_tools: ['project_evidence', 'knowledge_search'], context_scopes: input.context_scopes, model_budget: { used: 0, max: maxCalls } } }), error => {
+    assert.equal(error.code, 'AGENT_OUTPUT_INVALID');
+    assert.equal(error.generation_received, true); assert.equal(error.retryable, false); assert.equal(error.nonRetryable, true);
+    assert.deepEqual(error.validation_errors, [{ path: 'output', issue: 'required', required_property: 'citation_ids' }]);
+    return true;
+  });
+  assert.equal(calls, maxCalls);
+  assert.equal(records.at(-1).status, 'failed');
+  assert.equal(records.at(-1).metadata.error_details.retryable, false);
+  assert.deepEqual(records.at(-1).metadata.error_details.validation_errors, [{ path: 'output', issue: 'required', required_property: 'citation_ids' }]);
+  assert.doesNotMatch(JSON.stringify(records), /PRIVATE_INVALID_REVIEW/);
+});
+
 test("missing task evidence produces a model-generated abstention rather than a deterministic success", async t => {
   setupAssistant(t, { model: { name: "Review provider", model: "review-model", base_url: "https://review.example.test/v1", api_key: "valid-credential-for-fixture" } });
   t.mock.method(context, "buildLiveProjectEvidence", async () => ({ hits: [context._internals.makeLiveHit({ projectId: "project-a", scope: "project-overview", title: "Project", content: JSON.stringify({ evidence_type: "authoritative_live_project_record" }) })], counts: {} }));

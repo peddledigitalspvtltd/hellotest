@@ -10,6 +10,7 @@ export function useRecorderStatus(
   const id = session?.id;
   const url = session?.status_url;
   const status = session?.status;
+  const agentToken = session?.recorder_mode === "local" ? session.inspector_agent_token : undefined;
 
   useEffect(() => {
     if (!id || !url || status !== "running") return;
@@ -24,7 +25,7 @@ export function useRecorderStatus(
         if (document.hidden) return;
         const next = await consumeApiResponse<Partial<RecorderSessionResponse> | null>(
           url,
-          { cache: "no-store", signal: lifetime.signal },
+          { cache: "no-store", credentials: "omit", signal: lifetime.signal, ...(agentToken ? { headers: { "X-HelloTest-Agent-Token": agentToken } } : {}) },
           { timeoutMs: 5000, timeoutMessage: "Recorder status refresh timed out." },
           async response => {
             if (!response.ok) return null;
@@ -55,5 +56,5 @@ export function useRecorderStatus(
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", resume);
     };
-  }, [id, url, status, setSession]);
+  }, [id, url, status, agentToken, setSession]);
 }

@@ -1097,6 +1097,21 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
   const stepSnapshots = [];
   const materializedSuiteParameters = new Map();
   const suiteContexts = await loadSuiteContexts([...suiteRows.map(row => row.suite_id), ...(options.directCases || []).map(row => row.suite_id)]);
+  // Snapshot suite scheduling with the cases. Editing/deleting a suite later
+  // must not change the scheduling contract of an already planned run.
+  const suitePolicyIds = [...new Set([...suiteRows.map(row => row.suite_id), ...(options.directCases || []).map(row => row.suite_id)].filter(Boolean))];
+  const suitePolicies = new Map();
+  for (let offset = 0; offset < suitePolicyIds.length; offset += 250) {
+    const ids = suitePolicyIds.slice(offset, offset + 250);
+    for (const row of await db.prepare(`SELECT id, parallel_enabled, parallel_count FROM test_suites WHERE id IN (${placeholdersFor(ids)})`).all(...ids)) {
+      suitePolicies.set(row.id, { suite_parallel_override: row.parallel_enabled != null,
+        parallel_enabled: row.parallel_enabled, parallel_count: row.parallel_count });
+    }
+  }
+  const freezeCaseDataOptions = (record, suiteId) => ({
+    ...require('@hellotest/platform/backend/src/utils/linkedManualParameters').effectiveLinkedDataOptions(record, linkedParameters.get(record.test_case_id)),
+    execution_policy: suitePolicies.get(suiteId) || { suite_parallel_override: false }
+  });
   const resolvedAssignedTo = normalizeText(options.assignedTo) || null;
   const resolvedAssignedToIds = normalizeTextList(options.assignedToIds || (resolvedAssignedTo ? [resolvedAssignedTo] : []));
   const casesBySuite = new Map();
@@ -1142,7 +1157,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         parameter_values: materializeParameterValues(parameterTemplateValues),
         parameter_template_values: parameterTemplateValues,
         execution_hooks: await require("./caseExecutionHooks.service").snapshotCaseExecutionHooks(suiteCase.test_case_id, suiteCase.execution_hooks, {projectId:options.projectId,appTypeId:options.appTypeId,userId:options.userId}),
-        test_data_options: require('@hellotest/platform/backend/src/utils/linkedManualParameters').effectiveLinkedDataOptions(suiteCase,linkedParameters.get(suiteCase.test_case_id)),
+        test_data_options: freezeCaseDataOptions(suiteCase, suiteRow.suite_id),
         suite_parameter_values: suiteParameterValues,
         suite_parameter_template_values: suiteParameterTemplateValues,
         sort_order: sortOrder,
@@ -1208,7 +1223,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         parameter_values: materializeParameterValues(parameterTemplateValues),
         parameter_template_values: parameterTemplateValues,
         execution_hooks: await require("./caseExecutionHooks.service").snapshotCaseExecutionHooks(directCase.test_case_id, directCase.execution_hooks, {projectId:options.projectId,appTypeId:options.appTypeId,userId:options.userId}),
-        test_data_options: require('@hellotest/platform/backend/src/utils/linkedManualParameters').effectiveLinkedDataOptions(directCase,linkedParameters.get(directCase.test_case_id)),
+        test_data_options: freezeCaseDataOptions(directCase, directCase.suite_id),
         suite_parameter_values: materializeParameterValues(suiteParameterTemplateValues),
         suite_parameter_template_values: suiteParameterTemplateValues,
         sort_order: sortOrder,
@@ -1721,6 +1736,18 @@ exports.createExecution = async ({
 };
 
 exports.createLocalRun = async (input = {}) => {
+  if(input.local_transport==='paired-agent') {
+    const paired=require('@hellotest/automation/backend/services/pairedLocalExecution.service');
+    paired.security.id(input.request_id,'request');paired.security.id(input.local_agent_id,'agent');paired.security.origin(input.paired_origin);
+    const requestHash=paired.security.digest(Object.fromEntries(Object.entries(input).filter(([key])=>!['request_id','created_by'].includes(key))));
+    const sourceKey=`paired-local:${paired.security.digest([input.project_id,input.created_by,input.request_id])}`;
+    const created=await exports.createExecution({...input,execution_mode:'manual',trigger:'local',initial_status:'queued',source_idempotency_key:sourceKey,name:input.name||'Local Run'});
+    try { return await exports.preparePairedLocalExecution(created.id,{initiated_by:input.created_by,local_agent_id:input.local_agent_id,paired_origin:input.paired_origin,request_hash:requestHash}); }
+    catch(failure) {
+      if(!created.idempotent_replay)await db.prepare("UPDATE executions SET status='failed',ended_at=CURRENT_TIMESTAMP WHERE id=? AND status='queued'").run(created.id);
+      throw failure;
+    }
+  }
   const localEngineBaseUrl = await resolveLocalEngineBaseUrl(input.engine_base_url);
   const created = await exports.createExecution({
     ...input,
@@ -1749,6 +1776,19 @@ exports.createLocalRun = async (input = {}) => {
     `).run(created.id);
     throw error;
   }
+};
+
+exports.preparePairedLocalExecution = async(id,options={})=>{
+  const execution=await loadExecutionRuntimeContext(await exports.getExecution(id,true));
+  const paired=require('@hellotest/automation/backend/services/pairedLocalExecution.service');
+  if(!['queued','running'].includes(execution.status))throw paired.security.fail('This Run has finished. Create a new Run before local execution.',409,'PAIRED_LOCAL_RUN_FINISHED');
+  if(options.expected_revision!=null&&execution.status==='queued')assertExpectedRevision(execution.revision,options.expected_revision,'Run');
+  const plan=await testEngineDispatchService.planExecutionDispatch(execution,{allowIncompleteAutomation:true,allowApiCasesWithoutAutomation:true});
+  assertExecutableDispatchPlan(plan);
+  if(plan.eligibleCases?.some(item=>item.steps.some(step=>['android','ios'].includes(step.step_type))))throw paired.security.fail('The paired browser runs Web and API cases. Select a mobile runner for Android or iOS execution.',422,'PAIRED_LOCAL_PLATFORM_UNSUPPORTED');
+  const result=await paired.prepare({execution,plan,user:{id:options.initiated_by},agentId:options.local_agent_id,applicationOrigin:options.paired_origin,requestHash:options.request_hash,
+    integration:{config:{active_web_engine:'playwright',headless:false,healing_enabled:false,trace_mode:'retain-on-failure',video_mode:'retain-on-failure'}}});
+  executionCache.delete(id);return result;
 };
 
 exports.getExecutions = async ({ project_id, app_type_id, status }) => {
@@ -1931,6 +1971,8 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
     );
 
     await db.prepare("UPDATE executions SET test_data_options = ? WHERE id = ?").run(normalizeDataOptions(sourceExecution.test_data_options), nextExecutionId);
+    await db.prepare("UPDATE executions SET parallel_enabled = ?, parallel_count = ? WHERE id = ?")
+      .run(normalizeBoolean(sourceExecution.parallel_enabled), normalizeParallelCount(sourceExecution.parallel_count), nextExecutionId);
     await db.prepare("UPDATE executions SET execution_hooks = ? WHERE id = ?").run(regenerateExecutionHooks(sourceExecution.execution_hooks), nextExecutionId);
     if (sourceExecution.release_id || sourceExecution.iteration_id) {
       await db.prepare('UPDATE executions SET release_id = ?, iteration_id = ? WHERE id = ?')

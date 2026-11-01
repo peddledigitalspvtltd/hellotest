@@ -30,7 +30,7 @@ function fixture({ queueFails = false, reviewFails = false, reviewCancels = fals
     createSourcesQuery: { data: sources },
     automationModules: [{ id: "module", name: "Accounts" }],
     agentMission: mission, agentScheduledAt: "", agentAutonomy: "supervised", agentRetryBudget: 3, agentCapabilities: ["repository"],
-    buildPipelineOptions: {verification_mode:"generate_only",browser_driver:"mcp"},
+    buildPipelineOptions: {verification_mode:"generate_only",browser_driver:"mcp"}, buildBrowserLocation: "remote",
     allowBrowserActions: true, automationCreateStartUrl: "https://example.test/reviewed?tenant=one", automationCreateStartUrlRequired: true, builderContext: "Keep assertions", selectedExecutionEnvironmentId: "env", selectedExecutionConfigurationId: "config",
     ...planExports, automationCaseMappingStatus, reviewedAutomationStartUrl, richTextToPlainText: value => String(value || '').replace(/<[^>]*>/g, ''),
     crypto: { randomUUID: () => String(++sequence) },
@@ -79,6 +79,7 @@ test("automation creation copies every source plan, preserves groups, and saves 
   assert.deepEqual(calls.queued[0].parameter_values_by_case, { created: { "r.blank": "" } });
   assert.equal(calls.queued[0].start_url, payload.automation_start_url);
   assert.equal(calls.queued[0].allow_browser_actions, true);
+  assert.equal(calls.queued[0].browser_location, "remote");
   assert.match(calls.queued[0].additional_context, /Build account journey/);
 });
 

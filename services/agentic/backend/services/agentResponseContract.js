@@ -69,7 +69,8 @@ const schema = {
 };
 
 function invalidOutput(issues = []) {
-  const details = issues.slice(0, 8).map(issue => ({ path: String(issue.path || 'output').slice(0, 255), issue: String(issue.issue || issue.code || 'invalid_value').slice(0, 160) }));
+  const details = issues.slice(0, 8).map(issue => ({ path: String(issue.path || 'output').slice(0, 255), issue: String(issue.issue || issue.code || 'invalid_value').slice(0, 160),
+    ...(typeof issue.required_property === 'string' && /^[A-Za-z0-9_.:-]{1,100}$/.test(issue.required_property) ? { required_property: issue.required_property } : {}) }));
   const message = `The model response did not satisfy the agent output contract${details.length ? ` (${details.slice(0, 3).map(issue => `${issue.path}: ${issue.issue}`).join('; ')})` : ''}. No fallback answer was produced.`;
   return Object.assign(new Error(message), { code: 'AGENT_OUTPUT_INVALID', statusCode: 422, publicMessage: message, validation_errors: details });
 }

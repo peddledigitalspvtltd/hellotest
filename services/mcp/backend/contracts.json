@@ -1868,6 +1868,45 @@
         "additionalProperties": true
       }
     },
+    "POST /executions/:id/local-dispatch": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "paired_origin": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "local_agent_id": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "expected_revision": {
+            "type": "number"
+          },
+          "local_transport": {
+            "type": "string",
+            "enum": [
+              "paired-agent"
+            ]
+          },
+          "execution_mode": {
+            "type": "string",
+            "enum": [
+              "local"
+            ]
+          },
+          "request_id": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "paired_origin",
+          "local_agent_id"
+        ],
+        "additionalProperties": true
+      }
+    },
     "POST /executions/:id/rerun": {
       "body": {
         "type": "object",
@@ -1944,6 +1983,12 @@
               "type": "string"
             }
           },
+          "suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "test_environment_id": {
             "type": "string"
           },
@@ -1996,12 +2041,29 @@
           },
           "engine_base_url": {
             "type": "string"
+          },
+          "local_transport": {
+            "type": "string",
+            "enum": [
+              "paired-agent"
+            ]
+          },
+          "paired_origin": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "local_agent_id": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "request_id": {
+            "type": "string",
+            "maxLength": 200
           }
         },
         "required": [
           "project_id",
           "app_type_id",
-          "test_case_ids",
           "created_by"
         ],
         "additionalProperties": true
@@ -4028,6 +4090,9 @@
           "integration_id": {
             "type": "string"
           },
+          "paired_browser_bridge_id": {
+            "type": "string"
+          },
           "ai_feature": {
             "type": "string",
             "enum": [
@@ -4104,6 +4169,9 @@
         "type": "object",
         "properties": {
           "integration_id": {
+            "type": "string"
+          },
+          "paired_browser_bridge_id": {
             "type": "string"
           },
           "ai_feature": {
@@ -4204,6 +4272,9 @@
           "start_url": {
             "type": "string"
           },
+          "local_transport": {
+            "type": "string"
+          },
           "recorder_mode": {
             "type": "string"
           },
@@ -4242,6 +4313,12 @@
       "body": {
         "type": "object",
         "properties": {
+          "paired_recording_id": {
+            "type": "string"
+          },
+          "captured_session": {
+            "type": "object"
+          },
           "transaction_id": {
             "type": "string"
           },
@@ -4461,6 +4538,9 @@
             }
           },
           "integration_id": {
+            "type": "string"
+          },
+          "paired_browser_bridge_id": {
             "type": "string"
           },
           "ai_feature": {

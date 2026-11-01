@@ -39,6 +39,7 @@
     "generate:mcp:coverage": "node scripts/checks/mcp-feature-inventory.mjs --markdown --check",
     "test:mcp": "npm test --workspace @hellotest/mcp",
     "test:mcp:postgres": "node scripts/checks/test-mcp-postgres.mjs",
+    "test:paired-local:postgres": "node scripts/checks/test-paired-local-postgres.mjs",
     "test:ai-attachments": "node scripts/checks/test-ai-attachments.mjs",
     "test:ai-requests": "node --test services/platform/backend/test/aiRequestEnvelope.test.js services/integration/test/backend/llmRequestPolicy.test.js services/knowledge/test/backend/knowledgeModelEfficiency.test.js services/agentic/test/backend/agentContextFallback.test.js services/agentic/test/backend/specialistChain.test.js services/ai/test/backend/structuredReview.test.js services/ai/test/backend/aiGenerationPersistenceRetry.test.js",
     "test:ai-features": "node --test --test-concurrency=4 services/agentic/test/backend/*.test.js services/agentic/test/frontend/*.test.mjs services/ai/test/backend/*.test.js services/ai/test/frontend/*.test.mjs services/automation/test/backend/*.test.js services/automation/test/frontend/*.test.mjs services/chatbot/test/backend/*.test.js services/chatbot/test/frontend/*.test.mjs services/knowledge/test/backend/*.test.js services/manual/test/backend/*.test.js services/platform/backend/test/ai*.test.js services/platform/backend/test/automationBuildPersistence.test.js services/platform/frontend/test/agenticExperienceContract.test.mjs services/platform/test/backend/storyOptionalEvidence.test.js",

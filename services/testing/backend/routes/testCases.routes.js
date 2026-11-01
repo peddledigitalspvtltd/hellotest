@@ -945,6 +945,7 @@ module.exports = async function (fastify) {
       app_type_id: { required: true, type: "string" },
       test_case_ids: { required: false, type: "array", items: "string" },
       integration_id: { required: false, type: "string" },
+      paired_browser_bridge_id: { required: false, type: "string" },
       ai_feature: { required: false, type: "string", enum: ["ai.automation.keyword_generation", "ai.automation.review", "ai.automation.gap_analysis", "ai.execution.network_to_api_steps", "ai.agentic.automation-engineer"] },
       allow_browser_actions: { required: false, type: "boolean" },
       verification_mode: { required: false, type: "string", enum: ["generate_only", "verify", "verify_repair"] },
@@ -1145,6 +1146,7 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       integration_id: { required: false, type: "string" },
+      paired_browser_bridge_id: { required: false, type: "string" },
       ai_feature: { required: false, type: "string", enum: ["ai.automation.keyword_generation", "ai.automation.review", "ai.automation.gap_analysis", "ai.execution.network_to_api_steps", "ai.agentic.automation-engineer"] },
       allow_browser_actions: { required: false, type: "boolean" },
       verification_mode: { required: false, type: "string", enum: ["generate_only", "verify", "verify_repair"] },
@@ -1170,6 +1172,7 @@ module.exports = async function (fastify) {
 
     return aiAutomationBuilderService.buildAutomationForCase({
       test_case_id: req.params.id,
+      paired_browser_bridge_id: req.body?.paired_browser_bridge_id,
       integration_id: req.body?.integration_id,
       ai_feature: req.body?.ai_feature,
       start_url: req.body?.start_url,
@@ -1196,6 +1199,7 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       integration_id: { required: false, type: "string" },
+      paired_browser_bridge_id: { required: false, type: "string" },
       ai_feature: { required: false, type: "string", enum: ["ai.automation.keyword_generation", "ai.automation.review", "ai.automation.gap_analysis", "ai.execution.network_to_api_steps", "ai.agentic.automation-engineer"] },
       allow_browser_actions: { required: false, type: "boolean" },
       verification_mode: { required: false, type: "string", enum: ["generate_only", "verify", "verify_repair"] },
@@ -1220,6 +1224,7 @@ module.exports = async function (fastify) {
 
     return automationGeneratorService.queueGeneratorJob({
       test_case_id: req.params.id,
+      paired_browser_bridge_id: req.body?.paired_browser_bridge_id,
       scheduled_at: req.body?.scheduled_at,
       integration_id: req.body?.integration_id,
       ai_feature: req.body?.ai_feature,
@@ -1245,6 +1250,7 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       start_url: { required: false, type: "string" },
+      local_transport: { required: false, type: "string" },
       recorder_mode: { required: false, type: "string" },
       recorder_target: { required: false, type: "string" },
       engine_base_url: { required: false, type: "string" },
@@ -1267,6 +1273,7 @@ module.exports = async function (fastify) {
     return aiAutomationBuilderService.startRecorderSession({
       test_case_id: req.params.id,
       start_url: req.body?.start_url,
+      local_transport: req.body?.local_transport,
       recorder_mode: req.body?.recorder_mode,
       recorder_target: req.body?.recorder_target,
       engine_base_url: req.body?.engine_base_url,
@@ -1285,6 +1292,8 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
 
     fastify.validate({
+      paired_recording_id: { required: false, type: "string" },
+      captured_session: { required: false, type: "object" },
       transaction_id: { required: false, type: "string" },
       integration_id: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
@@ -1315,6 +1324,8 @@ module.exports = async function (fastify) {
       transaction_id: req.body?.transaction_id,
       integration_id: req.body?.integration_id,
       additional_context: req.body?.additional_context,
+      paired_recording_id: req.body?.paired_recording_id,
+      captured_session: req.body?.captured_session,
       recorder_mode: req.body?.recorder_mode,
       recorder_target: req.body?.recorder_target,
       engine_base_url: req.body?.engine_base_url,

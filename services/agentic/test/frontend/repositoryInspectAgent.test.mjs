@@ -42,8 +42,9 @@ function createHarness() {
   const events = () => ({ addEventListener() {}, removeEventListener() {} });
   const api = { repositoryInspection: { localAgentSetup(input, options) { const task = deferred(); requests.push({ ...task, input, signal: options.signal }); return task.promise; } } };
   const exports = {};
+  let pairingToken;
   const hook = new Function("require", "exports", "fetch", "window", "document", "navigator", "localStorage", "crypto", "setTimeout", "clearTimeout", source + "\nreturn exports.useRepositoryInspectAgent;")(
-    name => name === "react" ? react : { agenticApi: api }, exports,
+    name => name === "react" ? react : name.includes("pairedLocalAgent") ? { getPairedAgentToken: () => pairingToken ||= Array.from(webcrypto.getRandomValues(new Uint8Array(32)), value => value.toString(16).padStart(2,"0")).join("") } : { agenticApi: api }, exports,
     (url, options) => { const task = deferred(); probes.push({ ...task, url, signal: options.signal }); return task.promise; },
     { ...events(), location: { origin: "https://app.hellotest.ai" } }, { ...events(), visibilityState: "visible" }, { onLine: true }, { getItem() { return ""; }, setItem() {} }, webcrypto,
     callback => { const id = ++nextTimer; timers.set(id, callback); return id; }, id => timers.delete(id)
@@ -167,4 +168,11 @@ test("a browser-blocked local connection stays disconnected and can be paused fo
   assert.equal(harness.current.setupOpen, false);
   assert.equal(harness.timers.size, 0, "Remote fallback stops repeated blocked local probes");
   harness.unmount();
+});
+
+for (const localExecution of [true, false]) test(`paired inspection advertises execution readiness truthfully (${localExecution})`, async () => {
+  const harness = createHarness(); harness.flush(); const task = harness.current.check();
+  harness.probes[0].resolve(new Response(JSON.stringify({ready:true,service:"hellotest-inspection-agent",protocol_version:1,agent_id:"device",capabilities:{local_execution:localExecution},execution_protocol_version:1})));
+  await task; harness.flush(); assert.equal(harness.current.agent.localExecution,localExecution);
+  assert.match(harness.current.message,localExecution ? /local case or suite execution/ : /older agent cannot execute/); harness.unmount();
 });

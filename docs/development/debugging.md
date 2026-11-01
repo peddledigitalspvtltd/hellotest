@@ -182,7 +182,12 @@ TestOps AI calls and agent model-call details have separate Copy request and Cop
 A build transaction, queued execution job and saved case result are different records. Capture their IDs from the UI before investigating.
 
 1. Confirm the run was created with the expected frozen cases, steps, hooks, configuration and data row. Later authoring edits should not silently change it.
-2. Check the TestEngine integration URL and matching secret without printing their values. `localhost` inside a container points to that container.
+2. For Run local, check Local agent setup: paired browser and execution readiness
+   must both be available. Upgrade an inspection-only agent once. Inspect the
+   scoped local dispatch and the agent's callback delivery status; the API does
+   not connect to laptop localhost. For Run remote or legacy direct runners,
+   check the integration URL and matching secret without printing their values.
+   `localhost` inside a container points to that container.
 3. Inspect engine `/health/ready`: queue configuration, last poll, consecutive failures and active jobs distinguish an idle queue from a disconnected worker.
 4. Confirm `TESTENGINE_WORKER_CLASS` can lease the job's orchestration class. Native iOS jobs use the shared `android` pool. Mixed Web+API jobs use Web orchestration.
 5. Check that progress reports and final completion reach the owning Automation API. A callback/report failure must not be reported as a passed case.
@@ -260,6 +265,14 @@ The repository inspection agent occupies 4311. Start the host Playwright executi
 For a hosted API, `host.docker.internal` refers to the deployment host. It cannot reach a browser user's computer. Configure `HELLOTEST_LOCAL_RUN_ENGINE_URL` with a full runner address reachable from the API, and `HELLOTEST_LOCAL_CALLBACK_BASE_URL` with the HelloTest origin reachable from that runner. The callback builder appends `/api/testengine/callbacks/runs`. The runner and API must share the configured TestEngine secret. Pairing the inspection-only agent does not establish this execution connection.
 
 Main schema version 13 freezes each case's `automated` ownership in run snapshots. Apply `npm --prefix services/platform/backend run migrate` before starting an API in verification mode. Manual Start, timer and outcome writes reject engine-owned cases, including cases with no result yet. Comments, attachments and traceability remain separate from engine-owned results.
+
+Main schema version 14 adds encrypted paired execution dispatches and local
+browser bridge commands/receipts. Run the same additive migration before
+starting the updated API in verification mode.
+
+Main schema version 15 removes only the obsolete project/run/node uniqueness
+constraint from workflow effect receipts. Per-iteration operation identities
+retain their primary-key protection and prior receipts remain intact.
 
 Queue polling scans past blocked pages and coordinates execution slots across worker classes. Expired leases do not count themselves or other expired jobs as active workers. A dispatch rejection fails the Run explicitly; it must not leave a running receipt with no queued engine job.
 

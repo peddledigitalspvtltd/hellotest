@@ -13,13 +13,20 @@ async function authorize({ engineRunId, headers }) {
   try { grant = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')); } catch { throw failure('Invalid engine evidence grant.', 401); }
   if (!grant || typeof grant !== 'object' || Array.isArray(grant) || grant.purpose !== 'execution-artifact' || grant.engine_run_id !== engineRunId || !Number.isFinite(grant.issued_at)
     || Math.abs(Date.now() - grant.issued_at) > 15 * 60 * 1000) throw failure('The engine evidence grant expired or does not match this run.', 401);
-  const transaction = await obsDb.prepare(`SELECT project_id,metadata FROM workspace_transactions WHERE action='testengine_run'
+  const transaction = await obsDb.prepare(`SELECT project_id,created_by,metadata FROM workspace_transactions WHERE action='testengine_run'
     AND related_kind='testengine_run' AND related_id=? ORDER BY created_at DESC LIMIT 1`).get(engineRunId);
   if (!transaction) throw failure('This engine run was not dispatched by HelloTest.', 403);
   const integration = transaction.metadata?.source === 'hellotest.local-run' ? { config: {} }
     : await require('@hellotest/integration/backend/services/integration.service').getActiveIntegrationByTypeForProject('testengine', transaction.project_id);
   if (!integration) throw failure('The dispatched TestEngine integration is unavailable.', 403);
-  const secret = require('@hellotest/platform/backend/src/security/runtimeSecrets').resolveTestEngineSecret(integration.config?.callback_secret, process.env.TESTENGINE_CALLBACK_SECRET);
+  const paired=transaction.metadata?.queue_mode==='paired-local';
+  const secret = paired
+    ? await require('./pairedLocalExecution.service').callbackSecretFor({
+      execution:await require('@hellotest/testing/backend/services/execution.service').getExecution(transaction.metadata.execution_id),
+      payload:{engine_run_id:engineRunId,hellotest_test_case_id:transaction.metadata.test_case_id,
+        data_set_iteration:transaction.metadata.data_set_iteration_index==null?null:{index:transaction.metadata.data_set_iteration_index}},
+      transaction})
+    : require('@hellotest/platform/backend/src/security/runtimeSecrets').resolveTestEngineSecret(integration.config?.callback_secret, process.env.TESTENGINE_CALLBACK_SECRET);
   const expected = createHmac('sha256', secret).update(encoded).digest();
   if (!timingSafeEqual(expected, Buffer.from(signature, 'hex'))) throw failure('Invalid engine evidence signature.', 401);
   return grant;

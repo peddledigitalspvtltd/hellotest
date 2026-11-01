@@ -25,6 +25,13 @@ async function invoke({run,node,input,user},dispatch) {
     if(!saved) throw fail('The tool returned a response, but its durable receipt could not be recorded.','AGENT_OPERATION_RECEIPT_FAILED',503);
     return {...output,operation_receipt:{id,state:'response_received',postcondition_verified:false}};
   } catch(error) {
+    if(error.effect_dispatched===false&&!error.outcome_unknown&&!error.transactionOutcomeUnknown){
+      // Only a locally proven pre-dispatch failure may release this reservation.
+      // Missing acknowledgments after dispatch still retain an immutable receipt.
+      const released=await db.prepare(`DELETE FROM workflow_operation_receipts
+        WHERE id=? AND request_hash=? AND state='in_flight' RETURNING id`).get(id,requestHash).catch(()=>null);
+      if(released)throw Object.assign(error,{operation_id:id});
+    }
     // A transport error or worker crash cannot establish that a write did not
     // happen. Never turn a missing response into permission to repeat the effect.
     await db.prepare(`UPDATE workflow_operation_receipts SET state='outcome_unknown',error_code=?,completed_at=CURRENT_TIMESTAMP WHERE id=? AND state='in_flight'`)

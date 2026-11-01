@@ -66,7 +66,14 @@ test('one bounded format correction keeps the original images, task and frozen f
  const client=isolatedHttpClient([{requirements:[{title:'Only title'}]},{requirements:[validStory]}]);
  const response=await client.fetch('http://provider.invalid',{method:'POST',body:JSON.stringify({model:'small',response_format:{type:'json_object'},messages:[{role:'user',content:imageUserContent('Explicit invalid-signin intent',[screenshot])}]})},{timeoutMs:10000,contextFallback:false,maxAttempts:1});
  assert.equal(response.ok,true);assert.equal(client.calls.length,2);assert.equal(client.finishes[0].invalid,true);assert.equal(client.finishes[0].error.code,'AI_NATIVE_CONTRACT_INVALID');
- for(const call of client.calls){assert.equal(call.body.messages[0].content[1].image_url.url,png);assert.equal(call.body.messages[0].content[0].text,'Explicit invalid-signin intent');assert.ok(call.options.deadlineMs<=10000);}
+ for(const call of client.calls){
+  const originalUser=call.body.messages.find(message=>message.role==='user'&&Array.isArray(message.content));
+  assert.deepEqual(originalUser.content,imageUserContent('Explicit invalid-signin intent',[screenshot]));
+  assert.equal(call.body.messages.flatMap(message=>Array.isArray(message.content)?message.content:[]).filter(part=>part.type==='image_url').length,1,'Correction retains the exact original image once.');
+  assert.ok(call.body.messages.some(message=>message.role==='system'&&/\bJSON\b/.test(message.content)),'JSON transport guidance remains trusted.');
+  assert.ok(call.options.deadlineMs<=10000);
+ }
+ assert.deepEqual(client.calls[1].body.messages.slice(0,client.calls[0].body.messages.length),client.calls[0].body.messages,'Correction preserves the complete original task, trusted guidance and image transcript.');
  assert.match(client.calls[1].body.messages.at(-1).content,/Format correction, once/);
  assert.doesNotMatch(client.calls[1].body.messages.at(-1).content,/Only title/);
 });

@@ -2271,7 +2271,12 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
     reply.header("cache-control", "no-store");
     if (!agentToken) { reply.code(409); return { ready: false, code: "INSPECTION_AGENT_NOT_CONFIGURED", message: "Restart the local agent using the pairing command from Object Repository." }; }
     const ready = await access(chromium.executablePath()).then(() => true, () => false);
+    const execution = (app as FastifyInstance & { pairedLocalExecution?: { agent_id: string; execution_protocol_version: number; local_execution: boolean } }).pairedLocalExecution;
     return { ready, service: "hellotest-inspection-agent", protocol_version: 1,
+      agent_id: execution?.agent_id || null,
+      execution_protocol_version: execution?.execution_protocol_version || null,
+      supported_web_engines: execution ? ["playwright"] : [],
+      capabilities: { repository_inspection: true, local_execution: Boolean(execution?.local_execution), local_browser_build: Boolean(execution?.local_execution) },
       ...(ready ? {} : { message: "Chromium is not installed. Run the setup command again to install Playwright browsers." }) };
   });
   const cleanupTimer = setInterval(() => {

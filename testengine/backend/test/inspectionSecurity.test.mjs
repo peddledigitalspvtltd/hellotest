@@ -129,6 +129,11 @@ test("API-bundled local agent matches the compiled inspection runtime", async ()
     assert.equal(createHash("sha256").update(current).digest("hex"), bundle.hashes[key], "Regenerate the local installer with npm run package:inspection-agent");
     assert.equal(modules[key], current);
   }
+  for (const [file, source] of Object.entries(modules.runtime_modules)) {
+    const current = await readFile(new URL(`../dist/lib/${file}`, import.meta.url), "utf8");
+    assert.equal(source, current, `Regenerate paired execution module ${file}`);
+    assert.equal(createHash("sha256").update(current).digest("hex"), bundle.hashes[`runtime.${file.slice(0, -3)}`]);
+  }
 });
 
 test('administrator origin routes preserve exact scheme and port scope without granting loopback access elsewhere', async t => {

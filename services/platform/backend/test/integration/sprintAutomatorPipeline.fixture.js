@@ -16,6 +16,8 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
   let expectAutomaticPublication = false;
   let multiCaseMode = false;
   let connectedMode = false, connectedGenerated = 0;
+  let assuranceFailureMode = '';
+  const assuranceAttempts = new Map();
   const providerCredential = 'disposable-native-provider-credential';
   const provider = http.createServer(async (req, res) => {
     try {
@@ -64,6 +66,14 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
         const ids = kind === 'story-assurance' ? ['industry-standards','usefulness','design-maturity','market-patterns'] : ['scenario-coverage','execution-clarity','data-reliability','trace-maintainability'];
         result = { summary:`Reviewed ${draftRef} against its supplied native evidence.`, dimensions:ids.map(id=>({id,explanation:'The supplied invoice behavior has an observable status and saved amount.',evidence:[draftRef],recommendation:'Review the declared fixture data before executing.'})), insights:[], limitations:['Native review does not establish execution success.'] };
         if (kind === 'test-case-assurance') {
+          if (assuranceFailureMode) {
+            const attempt=(assuranceAttempts.get(draftRef)||0)+1;assuranceAttempts.set(draftRef,attempt);
+            const invalid=assuranceFailureMode==='persistent'||attempt===1;
+            result.insights=[{id:'assertion-gap',priority:'medium',kind:invalid?'data_reliability':'artifact_quality',
+              title:'Name the exact amount field',explanation:'The amount assertion needs its exact response field.',evidence:[draftRef],
+              affected_fields:['steps'],step_refs:['step:1'],recommendation:'Name the response amount field and compare it with the recorded fixture value.'}];
+            if(attempt>1)assert.match(text,/\/insights\/0\/kind/,'The bounded repair receives the precise schema failure.');
+          }
           if (expectAutomaticPublication) {
             const generated = await db.prepare("SELECT COUNT(*)::integer AS count FROM test_cases WHERE app_type_id=? AND source_idempotency_key LIKE ? AND automated='no'")
               .get(appId, `workflow-draft:${runningId}:%`);
@@ -308,8 +318,40 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     const connectedCalls=calls.length;
     assert.equal((await runtime.start(connectedWorkflow,connectedInput,user)).id,connectedStart.id);
     assert.equal(calls.length,connectedCalls);
+    // Exercise the reported failure through the real node, gateway, provider,
+    // connected loop and persisted output, rather than mocking native assurance.
+    assuranceFailureMode='repair-once';connectedGenerated=0;
+    const repairInput={...input,request_id:randomUUID()},repairCallStart=calls.length;
+    const repairStart=await runtime.start(connectedWorkflow,repairInput,user);runningId=repairStart.id;
+    await runtime._internals.active.get(repairStart.id)?.promise;
+    const repairedRun=await runtime._internals.store.get(repairStart.id);
+    assert.equal(repairedRun.status,'completed',JSON.stringify(repairedRun.node_results.filter(row=>row.error).map(row=>row.error_details)));
+    const repairedAssurance=repairedRun.node_results.find(row=>row.node_id==='test-case-assurance');
+    assert.equal(repairedAssurance.iterations.length,2);
+    assert.ok(repairedAssurance.iterations.every(row=>row.output.data[0].case_assurance[0].response_repaired===true));
+    assert.equal(calls.slice(repairCallStart).filter(call=>call.kind==='test-case-assurance').length,4,'Each Story case receives exactly one bounded format repair.');
+    assert.ok(repairedAssurance.iterations.every(row=>row.output.data[0].case_assurance[0].assurance_review.insights[0].kind==='artifact_quality'));
+    assuranceFailureMode='persistent';connectedGenerated=0;
+    const failureInput={...input,request_id:randomUUID()},failureCallStart=calls.length;
+    const failureStart=await runtime.start(connectedWorkflow,failureInput,user);runningId=failureStart.id;
+    await runtime._internals.active.get(failureStart.id)?.promise;
+    const failedRun=await runtime._internals.store.get(failureStart.id);
+    assert.equal(failedRun.status,'failed');
+    const failedAssurance=failedRun.node_results.find(row=>row.node_id==='test-case-assurance');
+    assert.equal(failedAssurance.error_details.code,'AI_OUTPUT_SCHEMA_VIOLATION');
+    assert.equal(failedAssurance.error_details.category,'validation');assert.equal(failedAssurance.error_details.retryable,false);
+    assert.equal(failedAssurance.error_details.origin.node_id,'test-case-assurance');
+    assert.equal(failedAssurance.error_details.origin.batch_index,0);
+    assert.equal(failedAssurance.error_details.artifact.case_index,0);
+    assert.ok(storyIds.includes(failedAssurance.error_details.artifact.story_id));
+    assert.ok(failedAssurance.error_details.validation_errors.some(item=>item.path==='/insights/0/kind'&&item.keyword==='enum'));
+    assert.doesNotMatch(JSON.stringify(failedAssurance.error_details),/model_candidate|Name the exact amount field/);
+    assert.equal(calls.slice(failureCallStart).filter(call=>call.kind==='test-case-assurance').length,2);
+    assert.equal(calls.slice(failureCallStart).filter(call=>call.kind==='automation').length,0);
+    assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM test_cases WHERE source_idempotency_key LIKE ?').get(`workflow-draft:${failureStart.id}:%`)).count,1,'A failed assurance keeps the already saved pending-review manual case.');
+    const callsAtFailure=calls.length;assert.equal((await runtime.start(connectedWorkflow,failureInput,user)).id,failureStart.id);assert.equal(calls.length,callsAtFailure);
     assert.deepEqual(failures, []);
-    return {native_services_real:true,settings_credential_http_real:true,stories:final.data.length,model_provider:'local HTTP response fixture',model_calls:calls.length,request_replay_extra_calls:0,other_workflows_keep_manual_publication:true,native_acceptances:4,automatic_pending_review_manual_cases:14,automatic_unverified_automation_cases:11,known_native_dependency_retains_assessed_manual_draft:true,strict_unknown_and_missing_readiness_extra_automation_calls:0,independent_native_generation_resolves_upstream_readiness:true,readiness_manual_acceptance_preserved:true,blocked_automation_acceptance_rejected:true,all_cases_attempted_after_middle_failure:true,partial_success_library_receipts_idempotent:true,node_generation_limit_overrides_legacy_trigger:true,connected_foreach_real_pipeline:true,earlier_batch_receipts_and_acceptance_preserved:true};
+    return {native_services_real:true,settings_credential_http_real:true,stories:final.data.length,model_provider:'local HTTP response fixture',model_calls:calls.length,request_replay_extra_calls:0,other_workflows_keep_manual_publication:true,native_acceptances:4,automatic_pending_review_manual_cases:17,automatic_unverified_automation_cases:13,known_native_dependency_retains_assessed_manual_draft:true,strict_unknown_and_missing_readiness_extra_automation_calls:0,independent_native_generation_resolves_upstream_readiness:true,readiness_manual_acceptance_preserved:true,blocked_automation_acceptance_rejected:true,all_cases_attempted_after_middle_failure:true,partial_success_library_receipts_idempotent:true,node_generation_limit_overrides_legacy_trigger:true,connected_foreach_real_pipeline:true,earlier_batch_receipts_and_acceptance_preserved:true,bounded_assurance_repair_in_foreach:true,terminal_assurance_failure_keeps_manual_case:true};
   } finally {
     const active=runningId&&runtime._internals.active.get(runningId);
     active?.controller.abort();await active?.promise;

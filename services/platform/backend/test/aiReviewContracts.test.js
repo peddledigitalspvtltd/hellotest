@@ -209,6 +209,22 @@ test('assurance repairs a usable review whose first response omitted citation fi
   assert.ok(calls.every(call => call.policy.maxAttempts === 1 && call.policy.compatibility === false));
 });
 
+test('a slow initial response leaves a full bounded repair deadline and the same output allowance',async t=>{
+  let now=1700000000000; t.mock.method(Date,'now',()=>now);
+  const provider=fixture('unused');
+  provider.overrides['../utils/llmHttpClient'].fetchLlmWithRetry=async(url,init,policy)=>{
+    provider.calls.push({body:JSON.parse(init.body),policy});
+    if(provider.calls.length===1){now+=59000;throw Object.assign(new Error('Output contract mismatch'),{code:'AI_OUTPUT_SCHEMA_VIOLATION',generation_received:true,nonRetryable:true,retryable:false,
+      validation_errors:[{path:'/insights/0/kind',keyword:'enum',message:'must be equal to one of the allowed values'}]});}
+    return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({summary:'Review the selected Story.',dimensions:[{id:'industry-standards',explanation:'Its approval behavior is recorded.',evidence:['draft:story:story']}]})}}]}));
+  };
+  const result=await load('artifactAssurance.service',provider.overrides).reviewArtifact({artifactType:'story',savedArtifact:story,projectId:'project'});
+  assert.equal(result.response_repaired,true);assert.equal(provider.calls.length,2);
+  assert.equal(provider.calls[1].policy.timeoutMs,60000);
+  assert.equal(provider.calls[1].policy.maxOutputTokens,provider.calls[0].policy.maxOutputTokens);
+  assert.equal(result.model_execution.deadline_ms,120000);
+});
+
 function groomingOverrides(provider) {
   return { ...provider.overrides,
     '../db': { prepare() { assert.fail('Optional records must not be fetched without access'); } },

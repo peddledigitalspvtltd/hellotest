@@ -3,6 +3,11 @@ const {readBoundedResponseJson}=require('@hellotest/platform/backend/src/utils/b
 
 /** One dispatch only: a lost response is an unknown run, never an HTTP retry. */
 async function verifyRecordedAutomation({integration,request,signal}) {
+ if(integration.paired_browser_bridge){
+  const response=await require('../services/pairedBrowserBridge.service').exchange({scope:integration.paired_browser_bridge,method:'verification/run',params:request,signal,timeoutMs:70_000});
+  if(response.status!==200||!response.body)throw Object.assign(new Error('The paired browser could not accept isolated verification.'),{code:'AUTOMATION_VERIFICATION_UNAVAILABLE',statusCode:response.status});
+  return response.body;
+ }
  const endpoint=`${integration.base_url.replace(/\/+$/,'')}/api/v1/automation/verify`;
  const response=await fetch(endpoint,{method:'POST',redirect:'error',headers:{'content-type':'application/json','x-hellotest-testengine-secret':resolveTestEngineSecret(integration.config?.shared_secret)},body:JSON.stringify(request),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(70_000)]):AbortSignal.timeout(70_000)});
  if(!response.ok){

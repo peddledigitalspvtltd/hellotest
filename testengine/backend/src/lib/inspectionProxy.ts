@@ -5,7 +5,7 @@ import { resolveRemoteInspectionEndpoint } from "./inspectionSecurity.js";
 /** Browser egress is pinned to the address we checked, including redirects and
  * WebSocket tunnels. A page cannot re-resolve an allowed hostname to an internal
  * address between policy validation and connection. */
-export async function createInspectionProxy() {
+export async function createInspectionProxy(options: { pairedPrivateOrigin?: string } = {}) {
   let closed = false;
   const sockets = new Set<Socket>();
   const track = (socket: Socket) => {
@@ -24,7 +24,7 @@ export async function createInspectionProxy() {
     try {
       const url = new URL(request.url || "");
       if (url.protocol !== "http:") throw new Error("HTTP proxy requires an absolute HTTP URL.");
-      const endpoint = await resolveRemoteInspectionEndpoint(url.href);
+      const endpoint = await resolveRemoteInspectionEndpoint(url.href, undefined, options.pairedPrivateOrigin);
       if (closed || reply.destroyed) return;
       const headers: http.OutgoingHttpHeaders = { ...request.headers, host: url.host };
       delete headers["proxy-authorization"];
@@ -47,7 +47,7 @@ export async function createInspectionProxy() {
     try {
       const url = new URL(connect ? `https://${request.url}` : String(request.url || ""));
       if (!connect && url.protocol !== "ws:" && url.protocol !== "http:") throw new Error("Invalid WebSocket target.");
-      const endpoint = await resolveRemoteInspectionEndpoint(url.href.replace(/^ws:/, "http:"));
+      const endpoint = await resolveRemoteInspectionEndpoint(url.href.replace(/^ws:/, "http:"), undefined, options.pairedPrivateOrigin);
       if (closed || incoming.destroyed) return;
       const upstream = track(net.connect({ host: endpoint.address, port: endpoint.port }));
       upstream.once("connect", () => {

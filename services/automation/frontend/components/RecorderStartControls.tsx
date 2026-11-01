@@ -5,7 +5,7 @@ import { MoreHorizontalIcon, MousePointerIcon, PlugIcon, RecordIcon } from "@hel
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { InfoTooltip } from "@hellotest/platform/frontend/src/shared/components/InfoTooltip";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
-import { automationApi } from "../api.client";
+import { probePairedLocalAgent } from "@hellotest/agentic/frontend/lib/pairedLocalAgent";
 
 export type RecorderStartMode = "local" | "remote";
 
@@ -18,11 +18,6 @@ export type RecorderStartOptions = {
 
 type LocalCheckState = "idle" | "checking" | "ready" | "failed";
 
-const DEFAULT_LOCAL_BROWSER_URL = "http://localhost:4313";
-const DEFAULT_LOCAL_ENGINE_URL = "http://host.docker.internal:4313";
-const DOCKER_LOCAL_BROWSER_URL = "http://localhost:4301";
-const DOCKER_LOCAL_ENGINE_URL = "http://testengine:4301";
-
 const isMobileOrTablet = () => {
   if (typeof navigator === "undefined") {
     return false;
@@ -32,23 +27,6 @@ const isMobileOrTablet = () => {
   const touchPoints = navigator.maxTouchPoints || 0;
   return /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(userAgent) || touchPoints > 1;
 };
-
-async function readJson(url: string) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: {
-      accept: "application/json"
-    }
-  });
-
-  const payload = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(payload?.message || `Request failed with status ${response.status}`);
-  }
-
-  return payload;
-}
 
 export function RecorderStartControls({
   platform = "unified",
@@ -77,13 +55,10 @@ export function RecorderStartControls({
 }) {
   const localAvailable = useMemo(() => !isMobileOrTablet(), []);
   const [isSetupOpen, setIsSetupOpen] = useState(false);
-  const [localBrowserUrl, setLocalBrowserUrl] = useState(DEFAULT_LOCAL_BROWSER_URL);
-  const [localEngineUrl, setLocalEngineUrl] = useState(DEFAULT_LOCAL_ENGINE_URL);
   const [checkState, setCheckState] = useState<LocalCheckState>("idle");
-  const [checkMessage, setCheckMessage] = useState("Check your local Test Engine before starting the recorder.");
-  const [isLaunchingAgent, setIsLaunchingAgent] = useState(false);
-  const launchGeneration = useRef(0);
-  useEffect(() => () => { launchGeneration.current++; }, []);
+  const [checkMessage, setCheckMessage] = useState("Check the paired browser on this computer before starting the recorder.");
+  const checkGeneration = useRef(0);
+  useEffect(() => () => { checkGeneration.current++; }, []);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [moreMenuStyle, setMoreMenuStyle] = useState<CSSProperties>({});
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -92,7 +67,6 @@ export function RecorderStartControls({
     active: isSetupOpen,
     onClose: () => setIsSetupOpen(false)
   });
-  const normalizedBrowserUrl = localBrowserUrl.replace(/\/+$/, "");
   const setupModalRoot = typeof document === "undefined" ? null : document.body;
   const overlayRoot = typeof document === "undefined" ? null : document.body;
 
@@ -117,105 +91,23 @@ export function RecorderStartControls({
   };
 
   const handleCheckSetup = async () => {
+    const generation = ++checkGeneration.current;
     setCheckState("checking");
-    setCheckMessage("Checking local Test Engine health and recorder capabilities...");
-
+    setCheckMessage("Checking the paired browser on this computer…");
     try {
-      const health = await readJson(`${normalizedBrowserUrl}/health`);
-      const capabilities = await readJson(`${normalizedBrowserUrl}/api/v1/capabilities`);
-
-      if (health?.ok !== true || !capabilities?.runner) {
-        throw new Error("The local service responded, but it does not look like a HelloTest Test Engine.");
-      }
-
-      setCheckState("ready");
-      setCheckMessage("Local Playwright recorder is ready. Start capture to learn objects, locators, steps, and network/API calls.");
-      return true;
+      await probePairedLocalAgent();
+      if (generation !== checkGeneration.current) return false;
+      setCheckState("ready"); setCheckMessage("The paired browser is ready to record on this computer."); return true;
     } catch (error) {
-      setCheckState("failed");
-      setCheckMessage(error instanceof Error ? error.message : "Unable to reach the local Test Engine.");
-      return false;
+      if (generation !== checkGeneration.current) return false;
+      setCheckState("failed"); setCheckMessage(error instanceof Error ? error.message : "Open Local agent setup to connect this computer."); return false;
     }
   };
 
   const handleStartLocal = async () => {
-    const isReady = checkState === "ready" || await handleCheckSetup();
-
-    if (!isReady) {
-      setIsSetupOpen(true);
-      return;
-    }
-
-    onStart({
-      recorder_mode: "local",
-      recorder_target: "web",
-      engine_base_url: localEngineUrl.trim() || DEFAULT_LOCAL_ENGINE_URL,
-      recorder_public_base_url: normalizedBrowserUrl || DEFAULT_LOCAL_BROWSER_URL
-    });
+    if (!await handleCheckSetup()) { setIsSetupOpen(true); return; }
+    onStart({ recorder_mode: "local", recorder_target: "web" });
     setIsSetupOpen(false);
-  };
-
-  const handleLaunchLocalAgent = async () => {
-    const generation = ++launchGeneration.current;
-    setIsLaunchingAgent(true);
-    setCheckState("checking");
-    setCheckMessage("Requesting HelloTest local runner launch...");
-
-    try {
-      const result = await automationApi.localAgent.start({ target: "playwright" });
-      if (launchGeneration.current !== generation) return;
-      setCheckMessage(result.message || "Local runner launch requested.");
-      if (!result.started && !result.already_running) {
-        setCheckState("failed");
-        return;
-      }
-      const deadline = Date.now() + 180_000;
-      while (Date.now() < deadline && launchGeneration.current === generation) {
-        const status = await automationApi.localAgent.status();
-        if (launchGeneration.current !== generation) return;
-        if (status.web.ready) {
-          setLocalBrowserUrl(status.recommended.web_public_base_url || DEFAULT_LOCAL_BROWSER_URL);
-          setLocalEngineUrl(status.web.base_url || DEFAULT_LOCAL_ENGINE_URL);
-          setCheckState("ready");
-          setCheckMessage("The local Playwright runner is ready. You can start recording or execute saved cases.");
-          return;
-        }
-        await new Promise(resolve => window.setTimeout(resolve, 2000));
-      }
-      if (launchGeneration.current === generation) {
-        setCheckState("idle");
-        setCheckMessage("The runner is still starting or needs attention. Check local-run/artifacts/host-recorder/launcher.log for installation progress and startup errors, then check the connection again.");
-      }
-    } catch (error) {
-      if (launchGeneration.current !== generation) return;
-      setCheckState("failed");
-      setCheckMessage(error instanceof Error ? error.message : "Unable to request local runner launch.");
-    } finally {
-      if (launchGeneration.current === generation) setIsLaunchingAgent(false);
-    }
-  };
-
-  const handleCheckAgentStatus = async () => {
-    setCheckState("checking");
-    setCheckMessage("Checking local Playwright, mobile engine, and Appium services...");
-
-    try {
-      const status = await automationApi.localAgent.status();
-      const webReady = status.web.ready;
-      const mobileReady = status.mobile.ready;
-      const appiumReady = status.appium.ready;
-      setLocalBrowserUrl(status.recommended.web_public_base_url || DEFAULT_LOCAL_BROWSER_URL);
-      setCheckState(webReady ? "ready" : "failed");
-      setCheckMessage([!webReady ? status.web.message : "",
-        `Playwright ${webReady ? "ready" : "not reachable"}`,
-        `Mobile engine ${mobileReady ? "ready" : "not reachable"}`,
-        `Appium ${appiumReady ? "ready" : "not reachable"}`,
-        status.launch_supported ? "one-click launch enabled" : "one-click launch disabled"
-      ].join(" · "));
-    } catch (error) {
-      setCheckState("failed");
-      setCheckMessage(error instanceof Error ? error.message : "Unable to check local runner services.");
-    }
   };
 
   useEffect(() => {
@@ -328,7 +220,7 @@ export function RecorderStartControls({
                 disabled={disabled || isStarting || hasSession}
                 onClick={() => {
                   setIsMoreOpen(false);
-                  onStart({ recorder_mode: "local", recorder_target: "mobile", engine_base_url: "http://mobile-engine:4312", recorder_public_base_url: "http://localhost:4312" });
+                  onStart({ recorder_mode: "local", recorder_target: "mobile" });
                 }}
                 role="menuitem"
                 type="button"
@@ -374,7 +266,7 @@ export function RecorderStartControls({
                 <div className="modal-title-info-row">
                   <h2 className="dialog-title" id="local-recorder-setup-title">Local recorder setup</h2>
                   <InfoTooltip
-                    content="Run HelloTest local-run or a local Test Engine before recording on this computer."
+                    content="Use Local agent setup in HelloTest to pair the browser on this computer before recording."
                     label="Local recorder setup information"
                   />
                 </div>
@@ -383,48 +275,12 @@ export function RecorderStartControls({
             </div>
 
             <div className="detail-stack">
-              <div className="empty-state compact">
-                <span className="recorder-setup-copy-title-row">
-                  <strong>Local setup</strong>
-                  <InfoTooltip
-                    content="Use Start local runner when HelloTest API is installed on this machine with HELLOTEST_ALLOW_LOCAL_AGENT_LAUNCH=true. It runs the fixed HelloTest script, uses the packaged recorder when available, or installs npm/Playwright packages and starts the local Playwright service."
-                    label="Local setup information"
-                  />
-                </span>
-              </div>
-              <div className="empty-state compact">
-                <span className="recorder-setup-copy-title-row">
-                  <strong>Docker fallback</strong>
-                  <InfoTooltip
-                    content={`If one-click launch is disabled, run cd local-run, cp .env.example .env, then bin/start-host-recorder.sh on macOS/Linux or bin\\start-host-recorder.cmd on Windows. For Docker live view, use browser URL ${DOCKER_LOCAL_BROWSER_URL} and API/container URL ${DOCKER_LOCAL_ENGINE_URL}.`}
-                    label="Docker fallback information"
-                  />
-                </span>
-              </div>
-              <label className="form-field">
-                <span>Browser recorder URL</span>
-                <input data-autofocus="true" value={localBrowserUrl} onChange={(event) => setLocalBrowserUrl(event.target.value)} />
-              </label>
-              <label className="form-field">
-                <span>API/container engine URL</span>
-                <input value={localEngineUrl} onChange={(event) => setLocalEngineUrl(event.target.value)} />
-              </label>
+              <p>Open <strong>Local agent</strong> in the Automation workspace, run its setup command on this computer, and keep that terminal open. The same pairing supports inspection, recording and local execution.</p>
               <div className={checkState === "ready" ? "inline-message success-message" : checkState === "failed" ? "inline-message error-message" : "empty-state compact"}>
                 <span>{checkMessage}</span>
               </div>
               <div className="testops-recorder-actions">
-                <button className="ghost-button" disabled={isLaunchingAgent || checkState === "checking"} onClick={() => void handleLaunchLocalAgent()} type="button">
-                  <span>{isLaunchingAgent ? "Starting runner..." : "Start local runner"}</span>
-                </button>
-                <button className="ghost-button" disabled={checkState === "checking"} onClick={() => void handleCheckAgentStatus()} type="button">
-                  <span>{checkState === "checking" ? "Checking..." : "Check all services"}</span>
-                </button>
-                <button className="ghost-button" disabled={checkState === "checking"} onClick={() => void handleCheckSetup()} type="button">
-                  <span>{checkState === "checking" ? "Checking..." : "Check setup"}</span>
-                </button>
-                <button className="primary-button" disabled={checkState !== "ready" || disabled || isStarting || hasSession} onClick={() => void handleStartLocal()} type="button">
-                  <span>{isStarting ? "Starting..." : "Start local Playwright"}</span>
-                </button>
+                <button className="ghost-button" disabled={checkState === "checking"} onClick={() => void handleCheckSetup()} type="button"><span>{checkState === "checking" ? "Checking…" : "Check paired browser"}</span></button>
               </div>
             </div>
           </div>

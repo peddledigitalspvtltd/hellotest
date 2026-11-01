@@ -168,10 +168,10 @@ test("setup links expire, are user bound, contain no bearer plaintext and cannot
 });
 test("standalone installer embeds only scoped pairing and pins exact runtime dependencies", () => {
   const module = "export {};\n".repeat(20);
-  const source = buildInstaller({ recorder: module, security: module, inspection_security: module, inspection_proxy: module, repository_locator: module, origin: "https://app.example.test", agent_token: "a".repeat(48) });
+  const source = buildInstaller({ recorder: module, security: module, inspection_security: module, inspection_proxy: module, repository_locator: module, runtime_modules: { "pairedLocalExecution.js": module }, origin: "https://app.example.test", agent_token: "a".repeat(48) });
   const dependencies = JSON.parse(source.match(/dependencies: (\{[^\n]+?\}) \}\)/)[1]);
-  assert.deepEqual(dependencies, { acorn: "8.18.0", fastify: "4.29.1", playwright: "1.59.1" });
-  assert.match(source, /repository_inspection: true, local_execution: false/);
+  assert.deepEqual(dependencies, require("../../../agentic/backend/services/inspectionAgentInstaller").runtimeDependencies);
+  assert.match(source, /repository_inspection: true, local_execution: true/);
   assert.match(source, /host: "127.0.0.1", port: 4311/);
   assert.match(source, /TESTENGINE_CORS_ORIGINS = config.origin/);
   assert.ok(!source.includes(authorization));
@@ -188,7 +188,7 @@ test("standalone setup detects an occupied agent port before installation and ex
   });
   if (reserved) t.after(() => new Promise(resolve => server.close(resolve)));
   const module = "export {};\n".repeat(20);
-  const source = buildInstaller({ recorder: module, security: module, inspection_security: module, inspection_proxy: module, repository_locator: module, origin: "https://app.example.test", agent_token: "test-pairing-token" });
+  const source = buildInstaller({ recorder: module, security: module, inspection_security: module, inspection_proxy: module, repository_locator: module, runtime_modules: { "pairedLocalExecution.js": module }, origin: "https://app.example.test", agent_token: "test-pairing-token" });
   // Execute the actual generated preflight, ending before filesystem/network
   // installation work so this regression test never installs npm dependencies.
   const preflight = source.slice(0, source.indexOf("const directory ="));

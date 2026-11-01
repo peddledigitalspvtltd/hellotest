@@ -44,8 +44,10 @@ function discoveredMode(schema,args,depth=0){
 }
 
 async function connectAutomationBrowser({ integration, startUrl, allowBrowserActions = false, signal }) {
-  const endpoint = `${integration.base_url.replace(/\/+$/, "")}/api/v1/automation/mcp`;
-  const headers = { "content-type": "application/json", accept: "application/json, text/event-stream", "x-hellotest-testengine-secret": resolveTestEngineSecret(integration.config?.shared_secret), "mcp-protocol-version": MCP_PROTOCOL };
+  const pairedBridge = integration.paired_browser_bridge;
+  const transport = pairedBridge ? await require('../services/pairedBrowserBridge.service').createTransport(pairedBridge) : fetch;
+  const endpoint = pairedBridge ? 'paired-browser-mcp' : `${integration.base_url.replace(/\/+$/, "")}/api/v1/automation/mcp`;
+  const headers = { "content-type": "application/json", accept: "application/json, text/event-stream", ...(!pairedBridge ? { "x-hellotest-testengine-secret": resolveTestEngineSecret(integration.config?.shared_secret) } : {}), "mcp-protocol-version": MCP_PROTOCOL };
   let sequence = 0;
   let sessionId;
   let affinityCookie;
@@ -54,7 +56,7 @@ async function connectAutomationBrowser({ integration, startUrl, allowBrowserAct
   const call = async (method, params) => {
     if (closed) throw new Error("Automation browser session is closed");
     const id = ++sequence;
-    const response = await fetch(endpoint, { method: "POST", redirect:"error", headers: { ...headers, ...(sessionId ? { "mcp-session-id": sessionId } : {}), ...(affinityCookie ? {cookie:affinityCookie} : {}) }, body: JSON.stringify({ jsonrpc: "2.0", id, method, params }), signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000) });
+    const response = await transport(endpoint, { method: "POST", redirect:"error", headers: { ...headers, ...(sessionId ? { "mcp-session-id": sessionId } : {}), ...(affinityCookie ? {cookie:affinityCookie} : {}) }, body: JSON.stringify({ jsonrpc: "2.0", id, method, params }), signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000) });
     if (method === "initialize") {
       sessionId = response.headers.get("mcp-session-id");
       const affinity=response.headers.get("set-cookie")?.match(/(?:^|,\s*)HELLOTEST_ENGINE=([^;,\s]+)/);
@@ -84,12 +86,12 @@ async function connectAutomationBrowser({ integration, startUrl, allowBrowserAct
   const close = async () => {
     if (closed) return;
     closed = true;
-    if (sessionId) await fetch(endpoint, { method: "DELETE", redirect:"error", headers: { ...headers, "mcp-session-id": sessionId, ...(affinityCookie ? {cookie:affinityCookie} : {}) }, signal: AbortSignal.timeout(5000) }).catch(() => undefined);
+    if (sessionId) await transport(endpoint, { method: "DELETE", redirect:"error", headers: { ...headers, "mcp-session-id": sessionId, ...(affinityCookie ? {cookie:affinityCookie} : {}) }, signal: AbortSignal.timeout(5000) }).catch(() => undefined);
   };
   try {
     const initializedProtocol = await call("initialize", { protocolVersion: MCP_PROTOCOL, capabilities: {}, clientInfo: { name: "hellotest-automation", version: "1.0.0" }, _meta: { hellotest: { start_url: startUrl, allow_browser_actions: allowBrowserActions === true } } });
     if (!sessionId || initializedProtocol.protocolVersion !== MCP_PROTOCOL || !initializedProtocol.capabilities?.tools) throw new Error("Automation browser did not establish a compatible MCP tools session");
-    const initialized = await fetch(endpoint, { method: "POST", redirect:"error", headers: { ...headers, "mcp-session-id": sessionId, ...(affinityCookie ? {cookie:affinityCookie} : {}) }, body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }), signal: AbortSignal.timeout(5000) });
+    const initialized = await transport(endpoint, { method: "POST", redirect:"error", headers: { ...headers, "mcp-session-id": sessionId, ...(affinityCookie ? {cookie:affinityCookie} : {}) }, body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }), signal: AbortSignal.timeout(5000) });
     if (!initialized.ok) throw new Error("Automation browser initialization failed");
     const { tools } = await call("tools/list");
     if (!Array.isArray(tools) || tools.length > 50 || tools.some((tool) => !tool || typeof tool.name !== "string" || !tool.inputSchema)) throw new Error("Automation browser returned an invalid tool catalog");

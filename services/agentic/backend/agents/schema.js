@@ -22,9 +22,20 @@ module.exports = [
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     run_id TEXT NOT NULL, node_id TEXT NOT NULL, actor_id TEXT REFERENCES users(id) ON DELETE SET NULL,
     request_hash TEXT NOT NULL, connection_id TEXT, state TEXT NOT NULL CHECK(state IN ('in_flight','response_received','outcome_unknown')),
-    response JSONB, error_code TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at TIMESTAMPTZ,
-    UNIQUE(project_id,run_id,node_id)
+    response JSONB, error_code TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at TIMESTAMPTZ
   )`,
+  // Canonical operation IDs already include the complete nested iteration path.
+  // The old extra uniqueness prevented a second batch from executing its own
+  // node. Match columns rather than an assumed PostgreSQL-generated name, and
+  // retain the primary key and unrelated uniqueness constraints.
+  `DO $$ DECLARE obsolete RECORD; BEGIN
+    FOR obsolete IN SELECT constraint_row.conname FROM pg_constraint constraint_row
+      WHERE constraint_row.conrelid='workflow_operation_receipts'::regclass AND constraint_row.contype='u'
+      AND ARRAY(SELECT attribute.attname::text FROM unnest(constraint_row.conkey) WITH ORDINALITY AS key_column(number,position)
+        JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key_column.number
+        ORDER BY key_column.position)=ARRAY['project_id','run_id','node_id']::text[]
+    LOOP EXECUTE format('ALTER TABLE workflow_operation_receipts DROP CONSTRAINT %I',obsolete.conname); END LOOP;
+  END $$`,
   `CREATE INDEX IF NOT EXISTS idx_workflow_operation_receipts_run ON workflow_operation_receipts(project_id,run_id)`,
   `CREATE TABLE IF NOT EXISTS ai_agent_definitions (
   id TEXT PRIMARY KEY,

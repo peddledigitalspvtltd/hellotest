@@ -22,6 +22,34 @@ const run = () => ({id:'workflow-run',project_id:'project',app_type_id:'app',inp
 const packet = () => ({story_id:story.id,story_revision:tasks.revision(story)});
 const execute = async (task, input, {controller=new AbortController(),data={},onProgress=async()=>{}}={}) => (await tasks.execute({run:run(),node:{id:task,data:{artifactTask:task,...data}},user:{id:'actor'},sources:[],signal:controller.signal,onProgress,context:{input}})).__workflow_result.context;
 
+test('default case assurance guidance assigns only the selected case to each model invocation',()=>{
+ const defaults=require('../../../agentic/shared/workflowNativeTasks.json')['test-case-assurance'];
+ assert.match(defaults.task,/single Test Case supplied in this model invocation/);
+ assert.match(defaults.instructions,/one complete assessment object for only the supplied case/);
+ assert.match(defaults.instructions,/workflow runtime owns iteration/);
+ assert.match(defaults.instructions,/do not return a case collection or a results wrapper/);
+});
+
+test('per-case assurance requests include only the current draft and its selected Story context',async t=>{
+ setup(t);
+ const cases=[{...draft(),client_id:'case-one-only',title:'CASE_ONE_ONLY',description:'DESCRIPTION_ONE_ONLY'},
+  {...draft(),client_id:'case-two-only',title:'CASE_TWO_ONLY',description:'DESCRIPTION_TWO_ONLY'}];
+ const seen=[];
+ t.mock.method(assurance,'reviewArtifact',async input=>{
+  const index=cases.findIndex(item=>item.client_id===input.savedArtifact.client_id),other=cases[1-index];seen.push(index);
+  assert.ok(index>=0);const serialized=JSON.stringify(input);
+  assert.ok(serialized.includes(cases[index].title));
+  for(const forbidden of [other.title,other.description,other.client_id,'STALE_SIBLING_ASSURANCE'])assert.ok(!serialized.includes(forbidden),forbidden);
+  const context=JSON.parse(input.additionalContext);assert.equal(context.workflow_scope.story_id,story.id);
+  assert.equal(context.cases,undefined);assert.equal(context.case_assurance,undefined);assert.equal(context.selected_story.content,undefined);
+  assert.deepEqual(input.linkedEvidence,[{...story,kind:'requirement'}]);
+  return review('Current case assessment');
+ });
+ const source={...packet(),cases,story_assurance:{...review('Pinned Story findings'),story_id:story.id},case_assurance:[review('STALE_SIBLING_ASSURANCE')]};
+ const result=await execute('test-case-assurance',[source]);assert.deepEqual(seen,[0,1]);
+ assert.deepEqual(result.data[0].case_assurance.map(item=>item.client_id),cases.map(item=>item.client_id));
+});
+
 test('native task chain preserves per-Story findings, guidance, exact scope and node model override', async t => {
   setup(t);
   const generated=[],reviewed=[],built=[];
@@ -100,6 +128,33 @@ test('native public output owns only its stage while pinned lineage remains inte
   assert.equal(output.data[0].story.title,story.title);
   assert.equal(output.data[0].case_assurance[0].client_id,item.client_id);assert.equal(output.data[0].case_assurance[0].case_index,0);
   assert.deepEqual(context.data[0].cases,[item]);assert.equal(context.data[0].case_assurance[0].case_fingerprint,tasks.fingerprint(item));
+});
+
+test('every native stage attributes terminal failures to its Story and assurance/automation case without exposing draft contents',async t=>{
+ setup(t);
+ const first=draft(),second={...draft(),client_id:'draft-2',title:'PRIVATE_CASE_TITLE'};
+ const source={...packet(),story_assurance:{...review('Story review'),story_id:story.id},cases:[first,second],
+  case_assurance:[first,second].map(item=>({...review('Case review'),case_fingerprint:tasks.fingerprint(item)}))};
+ let failing='story-assurance';
+ const failure=()=>Object.assign(new Error('PRIVATE_REVIEW_CANDIDATE'),{code:'AI_OUTPUT_SCHEMA_VIOLATION',statusCode:502});
+ t.mock.method(assurance,'reviewArtifact',async input=>{
+  if(failing==='story-assurance'&&input.artifactType==='story'||failing==='test-case-assurance'&&input.savedArtifact.client_id==='draft-2')throw failure();
+  return review('Reviewed case');
+ });
+ t.mock.method(design,'previewRequirementsTestCases',async()=>{throw failure();});
+ t.mock.method(automation,'previewAutomationDraft',async input=>{
+  if(input.draft.client_id==='draft-2')throw Object.assign(new Error('PRIVATE_PROVIDER_BODY'),{code:'LLM_PROVIDER_UNAVAILABLE',statusCode:503});
+  return {steps:input.draft.steps,validation:{status:'passed'},verification_status:'unverified'};
+ });
+ for(const task of ['story-assurance','test-case-generation','test-case-assurance','automation-engineer']){
+  failing=task;
+  await assert.rejects(execute(task,[source]),error=>{
+   const diagnostic=require('../../../agentic/backend/workflows/runtimeEvents').failureInfo(error);
+   assert.deepEqual(diagnostic.artifact,{artifact_task:task,story_id:story.id,...(['test-case-assurance','automation-engineer'].includes(task)?{case_index:1,case_client_id:'draft-2'}:{})});
+   assert.doesNotMatch(JSON.stringify(diagnostic),/PRIVATE/);
+   return true;
+  });
+ }
 });
 
 test('native stages bind the exact Story scope and supplied evidence without generic gateway retrieval or scope leakage', async t => {

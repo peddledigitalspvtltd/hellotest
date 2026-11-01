@@ -400,6 +400,31 @@ execution is separate from typed MCP discovery/generation; it is not an operatin
 system sandbox. A real run receipt establishes pass/fail and linked manual
 coverage. Development observations alone do not.
 
+When the user selects the paired browser, both development and execution happen
+on that user's machine. Browser pairing advertises recording, MCP development
+and local execution separately, so an older inspection-only agent is not shown
+as ready to run. The browser delivers a short-lived, agent-bound grant to the
+loopback agent; the agent communicates outbound with the authorized API. The API
+does not try to reach the user's loopback address or use a server browser as a
+fallback. Run remote continues through the configured TestEngine worker queue.
+
+Local execution grants contain encrypted, immutable canonical engine envelopes,
+including each frozen case/data-row identity, reviewed parameters, scoped hooks
+and evidence policy. Stable engine run IDs and persisted receipts prevent a lost
+acknowledgement from repeating a case. The agent executes a local batch in order
+and reports results independently of the browser tab. Cross-case captures follow
+the same test/suite/run namespaces and matching dataset iteration as remote runs.
+
+Local Build Agent uses a different, job-bound browser bridge. The existing typed
+MCP session, tool discovery, validation, actor and source compiler are retained;
+only their transport changes to encrypted outbound command/result polling. Each
+command is delivered once, while identical result receipts may be retried. A
+missing acknowledgement closes the bridge as an unknown outcome. Actor status,
+project membership, feature flags and build permissions are rechecked before
+dispatch. Default native isolated verification uses the same paired machine and
+a fresh browser. The lightweight agent explicitly rejects the optional
+Playwright Test CLI verification driver rather than moving it to a remote host.
+
 ### Current context boundaries
 
 The interactive Engineer progressively presents the discovered browser tools

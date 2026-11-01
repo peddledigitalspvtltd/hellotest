@@ -1,6 +1,18 @@
 # Local Recorder Setup
 
-Use this when HelloTest should start recorder sessions against a local Test Engine.
+For **Run local**, **Local Playwright** recording and **Engineer → This computer**,
+open **Local agent setup** in HelloTest, copy its setup command, and keep that
+terminal running. The paired agent on port `4311` opens the browser on your
+computer. HelloTest's API does not need network access to your computer: the
+agent claims authorized plans and reports results using outbound HTTPS.
+
+If an older agent only supports inspection, stop its terminal and run the new
+setup command once. The same browser pairing is retained. Pairing with a cloud
+workspace and pairing with localhost are separate connections. Allow the
+browser's local-network permission when prompted.
+
+The remaining host-runner instructions describe the administrator-managed
+direct runner on `4313`, which is also used by legacy integrations.
 
 ## 1. Start Local Services
 
@@ -43,13 +55,12 @@ precedence, including either shared-secret alias. A runner and API with differen
 shared credentials cannot dispatch a run. One-click launches retain installation
 and startup output in `local-run/artifacts/host-recorder/launcher.log`.
 
-The Object Repository download command installs a separate inspection service
-on port `4311`. It includes all inspection dependencies, including Acorn, but
-does not execute saved test cases. The full host runner above uses port `4313`.
-The status panel reports these capabilities separately. For hosted HelloTest,
-starting an inspection agent on your laptop does not make its execution port
-reachable from the cloud API. Configure an administrator-approved runner address
-reachable from the API and a callback address reachable from the runner.
+The Local agent setup command installs the paired browser agent on port `4311`,
+including inspection, recording, browser building and saved case/suite execution.
+Its status reports execution readiness separately from basic browser pairing.
+Run local uses that paired machine. Run remote continues using the configured
+Test Engine workers. Only the legacy direct runner on `4313` requires an address
+reachable from the API and matching administrator-managed service credentials.
 
 In a test case execution, **Live Run View** appears immediately before Report
 defect and opens a separate browser tab for that case's exact engine run and
@@ -148,4 +159,9 @@ If execution fails with `ECONNREFUSED 127.0.0.1:4444`, the local integration is
 still using Selenium. Run `bin/fix-recorder-integration.sh` so local execution
 uses the bundled Playwright engine instead of requiring a Selenium grid.
 
-The repository inspection agent uses port **4311**; the host execution/recorder uses **4313**. These are separate services. If a previous host recorder runs on 4311, the backend can still probe it, but a repository inspection agent does not satisfy execution health checks. Keep `HELLOTEST_HOST_RECORDER_PORT` and `HELLOTEST_LOCAL_RUN_ENGINE_URL` aligned when selecting another port. Native callbacks use `HELLOTEST_LOCAL_CALLBACK_BASE_URL`.
+The paired browser agent uses **4311**; the legacy direct host runner uses
+**4313**. Update an inspection-only agent using Local agent setup before Run
+local. Paired runs use per-execution grants and per-attempt callback credentials;
+the API's service secret is never copied into the browser or local agent.
+Legacy direct runs still use `HELLOTEST_LOCAL_RUN_ENGINE_URL` and
+`HELLOTEST_LOCAL_CALLBACK_BASE_URL`.

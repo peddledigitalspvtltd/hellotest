@@ -22,6 +22,7 @@
     "./frontend/components/RepositoryInspectControls": "./frontend/components/RepositoryInspectControls.tsx",
     "./frontend/hooks/useRepositoryInspectAgent": "./frontend/hooks/useRepositoryInspectAgent.ts",
     "./frontend/index": "./frontend/index.ts",
+    "./frontend/lib/pairedLocalAgent": "./frontend/lib/pairedLocalAgent.ts",
     "./frontend/lib/repositoryInspectSession": "./frontend/lib/repositoryInspectSession.ts",
     "./frontend/lib/repositoryWorkspace": "./frontend/lib/repositoryWorkspace.ts",
     "./frontend/lib/qualityAgentContracts": "./frontend/lib/qualityAgentContracts.ts",

@@ -284,6 +284,7 @@ const deriveCaseStatus = (explicitStatus, stepStatuses, expectedStepIds, fallbac
   if (explicitStatus === "passed") return complete ? "passed" : "blocked";
   if (event === "run.failed" || event === "run.incident") return "failed";
   if (complete) return "passed";
+  if (event === "run.progress" && explicitStatus === "running" && !values.some(Boolean)) return "running";
   // A final callback with missing/blocked sections cannot inherit a previous
   // progress pass. Keep incomplete evidence visible as blocked.
   if (event === "run.completed") return "blocked";
@@ -453,7 +454,7 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
   let integration, boundTransaction;
   if(execution.trigger === "local") {
     const dispatch=boundTransaction=await workspaceTransactionService.findTransactionByRelated({related_kind:"testengine_run",related_id:engineRunId});
-    if(!dispatch || dispatch.project_id!==execution.project_id || dispatch.metadata?.source!=="hellotest.local-run" || dispatch.metadata?.queue_mode!=="direct-local" || dispatch.metadata?.execution_id!==execution.id || dispatch.metadata?.test_case_id!==testCaseId)throw new Error("This local callback does not match a dispatched run.");
+    if(!dispatch || dispatch.project_id!==execution.project_id || dispatch.metadata?.source!=="hellotest.local-run" || !['direct-local','paired-local'].includes(dispatch.metadata?.queue_mode) || dispatch.metadata?.execution_id!==execution.id || dispatch.metadata?.test_case_id!==testCaseId)throw new Error("This local callback does not match a dispatched run.");
     integration={config:{}};
   } else integration=await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id);
 
@@ -461,7 +462,9 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
     throw new Error("No active Test Engine integration is configured for this project");
   }
 
-  const callbackSecret = resolveCallbackSecret(integration);
+  const callbackSecret = boundTransaction?.metadata?.queue_mode==='paired-local'
+    ? await require('./pairedLocalExecution.service').callbackSecretFor({execution,payload,transaction:boundTransaction})
+    : resolveCallbackSecret(integration);
 
   if (!callbackSecret) {
     throw new Error("Unable to resolve a Test Engine callback signing secret");

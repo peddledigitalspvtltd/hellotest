@@ -500,6 +500,7 @@ exports.queueTestCaseExport = async ({ app_type_id, test_case_ids = [], created_
 
 exports.queueAutomationBuild = db.transaction(async ({
   app_type_id,
+  paired_browser_bridge_id,
   test_case_ids = [],
   integration_id,
   allow_browser_actions = false,
@@ -559,6 +560,9 @@ exports.queueAutomationBuild = db.transaction(async ({
   if (!selectedCases.length || test_case_ids.length && selectedCases.length !== new Set(test_case_ids).size) {
     throw Object.assign(new Error('Select existing cases in this application before building automation.'), { statusCode: 400, code: 'AUTOMATION_SELECTION_CHANGED' });
   }
+  if (paired_browser_bridge_id) for (const entry of selectedCases) await require('@hellotest/automation/backend/services/pairedBrowserBridge.service').authorize({
+    bridgeId:paired_browser_bridge_id,projectId:appType.project_id,appTypeId:app_type_id,userId:created_by,caseId:entry.id
+  },{requireStarted:false});
   const selectedIds=new Set(selectedCases.map(row=>row.id));
   const scopedChoices=input=>{
     if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length>2000)throw Object.assign(new Error('Build choices must be keyed by selected test case IDs.'),{statusCode:400,code:'AUTOMATION_BUILD_PARAMETERS_INVALID'});
@@ -629,6 +633,7 @@ exports.queueAutomationBuild = db.transaction(async ({
     operation: "automation_build",
     payload: {
       app_type_id,
+      paired_browser_bridge_id,
       test_case_ids,
       integration_id,
       allow_browser_actions: allow_browser_actions === true,

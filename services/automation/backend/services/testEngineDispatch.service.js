@@ -417,6 +417,18 @@ const toRowArray = (value) => {
 const resolveExecutionPolicy = async (execution, caseSnapshot) => {
   const runParallelEnabled = normalizeBoolean(execution?.parallel_enabled, false);
   const runParallelCount = Math.max(1, normalizeInteger(execution?.parallel_count, 1) ?? 1);
+  const frozenPolicy = caseSnapshot?.test_data_options?.execution_policy;
+  if (frozenPolicy && typeof frozenPolicy === 'object' && !Array.isArray(frozenPolicy)) {
+    const hasSuiteOverride = Boolean(frozenPolicy.suite_parallel_override && caseSnapshot?.suite_id);
+    const parallelEnabled = hasSuiteOverride ? normalizeBoolean(frozenPolicy.parallel_enabled, false) : runParallelEnabled;
+    return {
+      parallel_enabled: parallelEnabled,
+      parallel_count: parallelEnabled ? Math.max(1, normalizeInteger(hasSuiteOverride ? frozenPolicy.parallel_count : runParallelCount, runParallelCount) ?? runParallelCount) : 1,
+      suite_parallel_override: hasSuiteOverride,
+      suite_id: caseSnapshot?.suite_id || null,
+      execution_order: Math.max(1, normalizeInteger(caseSnapshot?.sort_order, 1) ?? 1)
+    };
+  }
   const suiteConfig = caseSnapshot?.suite_id ? await selectSuiteParallelConfig.get(caseSnapshot.suite_id) : null;
   const hasSuiteOverride = suiteConfig && suiteConfig.parallel_enabled !== null && suiteConfig.parallel_enabled !== undefined;
   const parallelEnabled = hasSuiteOverride ? normalizeBoolean(suiteConfig.parallel_enabled, false) : runParallelEnabled;
@@ -670,7 +682,7 @@ const resolveExecutionHooks = ({ execution, integrationHooks, caseSnapshot, step
 
     const steps = targetCaseIds
       .filter((testCaseId) => testCaseId !== caseSnapshot.test_case_id)
-      .flatMap((testCaseId) => stepsByCaseId.get(testCaseId) || [])
+      .flatMap((testCaseId) => stepsByCaseId?.get(testCaseId) || [])
       .map((stepSnapshot, index) => buildHookStepFromSnapshot(stepSnapshot, index, appTypeKind))
       .filter(Boolean);
 
@@ -1370,7 +1382,7 @@ async function planExecutionDispatch(execution, options = {}) {
 
     automatedCaseCount += 1;
 
-    if (!isApiOnlyRunnableCase && caseRecord?.automation_status && caseRecord.automation_status !== "ready") {
+    if (!isApiOnlyRunnableCase && caseSnapshot.automated == null && caseRecord?.automation_status && caseRecord.automation_status !== "ready") {
       warnings.push(`${caseSnapshot.test_case_title}: automation is incomplete because a required repository object is missing or still needs review.`);
       if (!allowIncompleteAutomation) {
         unsupportedAutomatedCaseCount += 1;
@@ -1636,6 +1648,111 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
   };
 }
 
+const localPlaywrightIntegration = (integration, engineHost) => ({
+  ...(integration || {}),
+  base_url: engineHost,
+  config: {
+    ...(integration?.config || {}),
+    active_web_engine: "playwright",
+    headless: integration?.config?.headless === true,
+    video_mode: normalizeText(integration?.config?.video_mode) || "on",
+    trace_mode: normalizeText(integration?.config?.trace_mode) || "on",
+    max_video_attachment_mb: integration?.config?.max_video_attachment_mb ?? 16,
+    web_session_mode: "new",
+    web_session_reuse_key: null,
+    connect_over_cdp_endpoint: null,
+    playwright_cdp_endpoint: null,
+    live_view_url: `${engineHost}/api/v1/live-session?provider=playwright`
+  }
+});
+
+// Prepare the same frozen engine contract used by remote workers. The browser
+// delivers the grant to its paired runner; the API never connects to loopback.
+// callbackFor provides a per-run credential, never the shared engine secret.
+async function preparePairedLocalDispatch({ plan, integration, initiatedBy, callbackFor, liveBaseUrl = "http://127.0.0.1:4311", pairedDispatchId } = {}) {
+  if (typeof callbackFor !== 'function') throw new Error('Paired local execution requires a scoped callback provider.');
+  let parsedHost;
+  try { parsedHost = new URL(liveBaseUrl); } catch { /* Rejected below. */ }
+  if (!parsedHost || !['http:', 'https:'].includes(parsedHost.protocol) || parsedHost.username || parsedHost.password
+    || parsedHost.search || parsedHost.hash || !['localhost', '127.0.0.1', '[::1]'].includes(parsedHost.hostname) || parsedHost.pathname !== '/') {
+    throw new Error('Paired local execution requires a browser-reachable loopback runner origin.');
+  }
+  const engineHost = parsedHost.origin;
+  if (!normalizeText(pairedDispatchId)) throw new Error('Paired local execution requires a dispatch identity.');
+  const directIntegration = localPlaywrightIntegration(integration, engineHost);
+  const envelopes = [];
+  const repositories = new Map();
+  for (const item of plan?.eligibleCases || []) {
+    const caseId = item.case_snapshot.test_case_id;
+    if (!repositories.has(caseId)) repositories.set(caseId, await listObjectRepositoryForEnvelope({
+      projectId: plan.execution.project_id,
+      appTypeId: plan.execution.app_type_id,
+      testCaseId: caseId
+    }));
+    const envelope = await buildEngineEnvelope({
+      engineRunId: item.engine_run_id,
+      execution: plan.execution,
+      project: plan.project,
+      appType: plan.appType,
+      caseSnapshot: item.case_snapshot,
+      steps: item.steps,
+      stepsByCaseId: plan.stepsByCaseId,
+      integration: directIntegration,
+      objectRepository: repositories.get(caseId),
+      dataSetIteration: item.data_set_iteration
+    });
+    envelope.callback = await callbackFor(item, envelope);
+    envelopes.push(envelope);
+  }
+  for (let index = 0; index < envelopes.length; index += 1) {
+    const envelope = envelopes[index], item = plan.eligibleCases[index];
+    const orchestrationClass = resolveOrchestrationClass([...item.steps, ...(envelope.hooks || []).flatMap(hook => hook.steps)], plan.appType?.type || 'web');
+    const liveViewUrl = orchestrationClass === 'api' ? null : buildProviderLiveViewUrl(directIntegration, 'playwright');
+    const transaction = await workspaceTransactionService.createTransaction({
+      project_id: plan.execution.project_id,
+      app_type_id: plan.execution.app_type_id || null,
+      category: 'automation',
+      action: 'testengine_run',
+      status: 'queued',
+      title: `Local run for ${item.case_snapshot.test_case_title}`,
+      description: 'Prepared for execution on the paired user machine.',
+      metadata: {
+        source: 'hellotest.local-run',
+        queue_mode: 'paired-local',
+        paired_dispatch_id: pairedDispatchId,
+        engine_run_id: item.engine_run_id,
+        execution_id: plan.execution.id,
+        test_case_id: item.case_snapshot.test_case_id,
+        data_set_iteration_index: envelope.data_set?.iteration?.index ?? null,
+        data_set_iteration_key: envelope.data_set?.iteration?.key || null,
+        engine_host: engineHost,
+        orchestration_class: orchestrationClass,
+        active_web_engine: 'playwright',
+        live_view_url: liveViewUrl,
+        artifact_policy: envelope.artifact_policy,
+        capture_failure_override: item.steps.some(step => /^\s*\/\/\s*@hellotest-options\s+[^\r\n]*\bscreenshotOnFailure\b/i.test(step.automation_code || ''))
+      },
+      related_kind: 'testengine_run',
+      related_id: item.engine_run_id,
+      created_by: initiatedBy || plan.execution.created_by || null
+    });
+    await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+      level: 'info', phase: 'local-run.prepared',
+      message: `Prepared ${item.case_snapshot.test_case_title} for the paired local runner.`,
+      details: { execution_id: plan.execution.id, test_case_id: item.case_snapshot.test_case_id, engine_run_id: item.engine_run_id }
+    });
+  }
+  return {
+    envelopes,
+    automated_case_count: plan?.automated_case_count || 0,
+    local_run_count: envelopes.length,
+    queued_for_engine_count: 0,
+    manual_case_count: plan?.manual_case_count || 0,
+    unsupported_automated_case_count: plan?.unsupported_automated_case_count || 0,
+    warnings: plan?.warnings || []
+  };
+}
+
 async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineBaseUrl } = {}) {
   if (!plan?.eligibleCases?.length) {
     return {
@@ -1653,23 +1770,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
   }
 
   const activeWebEngine = "playwright";
-  const directIntegration = {
-    ...(integration || {}),
-    base_url: engineHost,
-    config: {
-      ...(integration?.config || {}),
-      active_web_engine: activeWebEngine,
-      headless: integration?.config?.headless === true,
-      video_mode: normalizeText(integration?.config?.video_mode) || "on",
-      trace_mode: normalizeText(integration?.config?.trace_mode) || "on",
-      max_video_attachment_mb: integration?.config?.max_video_attachment_mb ?? 16,
-      web_session_mode: "new",
-      web_session_reuse_key: null,
-      connect_over_cdp_endpoint: null,
-      playwright_cdp_endpoint: null,
-      live_view_url: `${engineHost}/api/v1/live-session?provider=playwright`
-    }
-  };
+  const directIntegration = localPlaywrightIntegration(integration, engineHost);
   const callback = buildDirectCallback({...directIntegration,config:{...directIntegration.config,callback_secret:null}});
   const dispatchSecret = resolveTestEngineSecret();
 
@@ -1686,6 +1787,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       appType: plan.appType,
       caseSnapshot: item.case_snapshot,
       steps: item.steps,
+      stepsByCaseId: plan.stepsByCaseId,
       integration: directIntegration,
       objectRepository,
       dataSetIteration: item.data_set_iteration
@@ -2975,6 +3077,7 @@ exports._internals = { scanEligibleJobs };
 exports.planExecutionDispatch = planExecutionDispatch;
 exports.queueExecutionDispatch = queueExecutionDispatch;
 exports.runExecutionDirectLocal = runExecutionDirectLocal;
+exports.preparePairedLocalDispatch = preparePairedLocalDispatch;
 exports.queueSingleStepDispatch = queueSingleStepDispatch;
 exports.settleExecutionIfComplete = settleExecutionIfComplete;
 

@@ -141,6 +141,7 @@ const normalizeJob = (job) => job
 
 exports.queueGeneratorJob = db.transaction(async ({
   test_case_id,
+  paired_browser_bridge_id,
   integration_id,
   start_url,
   allow_browser_actions = false,
@@ -179,6 +180,7 @@ exports.queueGeneratorJob = db.transaction(async ({
     throw new Error("Test case not found");
   }
   if(testCase.app_type_id!==observed.app_type_id)throw Object.assign(new Error('The test case application changed while this build was being queued. Refresh the case before starting a new build.'),{statusCode:409,code:'AUTOMATION_TARGET_CHANGED'});
+  if (paired_browser_bridge_id) await require('./pairedBrowserBridge.service').authorize({bridgeId:paired_browser_bridge_id,projectId:testCase.project_id,appTypeId:testCase.app_type_id,userId:created_by,caseId:testCaseId},{requireStarted:false});
   await require('../lib/automationBuildPipelineOptions').assertBuildVerificationAccess({mode:verification_mode,createdBy:created_by,projectId:testCase.project_id});
   const buildValues=require('../lib/automationBuildParameterPlan').buildParameterValues(parameter_values||{});
   if(test_suite_id!=null&&(typeof test_suite_id!=='string'||!test_suite_id.trim()))throw Object.assign(new Error('Select a valid Test Suite for this build.'),{statusCode:400,code:'AUTOMATION_BUILD_SUITE_INVALID'});
@@ -230,6 +232,7 @@ exports.queueGeneratorJob = db.transaction(async ({
   const payload = {
     scheduled_at: scheduledAt,
     test_case_id: testCaseId,
+    paired_browser_bridge_id: normalizeText(paired_browser_bridge_id),
     title: testCase.title,
     app_type_id: testCase.app_type_id,
     app_type_kind: testCase.app_type_kind,
@@ -384,6 +387,7 @@ exports.runLeasedJob = async ({ job_id, worker_id, agent_plan, llm_model } = {})
       created_by: job.created_by,
       start_url: jobStartUrl,
       start_url_review: payload.start_url_review,
+      paired_browser_bridge_id: payload.paired_browser_bridge_id,
       allow_browser_actions: payload.allow_browser_actions === true,
       verification_mode: payload.verification_mode,
       browser_driver: payload.browser_driver,

@@ -145,6 +145,8 @@ exports.resolveSetup = (token) => {
 };
 exports.downloadSetup = async (setup) => {
   const bundle = require("@hellotest/platform/backend/src/assets/inspection-agent-runtime.json");
-  const source = JSON.parse(require("node:zlib").gunzipSync(Buffer.from(bundle.gzip_base64, "base64"), { maxOutputLength: 3 * 1024 * 1024 }).toString("utf8"));
-  return require("./inspectionAgentInstaller").buildInstaller({ ...source, origin: setup.origin, agent_token: setup.agent_token });
+  const source = JSON.parse(require("node:zlib").gunzipSync(Buffer.from(bundle.gzip_base64, "base64"), { maxOutputLength: 16 * 1024 * 1024 }).toString("utf8"));
+  const publicApi = new URL(process.env.HELLOTEST_PUBLIC_API_BASE_URL || setup.origin);
+  if(!['http:','https:'].includes(publicApi.protocol)||publicApi.username||publicApi.password||publicApi.search||publicApi.hash)throw error('The public API origin is invalid. Contact the installation administrator.',503);
+  return require("./inspectionAgentInstaller").buildInstaller({ ...source, origin: setup.origin, api_origin:publicApi.origin, agent_token: setup.agent_token });
 };

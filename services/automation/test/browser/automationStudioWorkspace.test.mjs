@@ -16,7 +16,7 @@ test('automation studio preserves section drafts, precondition order, AI scope a
   fixture += "\nimport '/src/product-experience.css';";
   fixture = fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';", "import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';").replace('element:<TestCasesPage/>', 'element:<AutomationPage/>');
   fixture = fixture.replace("const router=createMemoryRouter([{path:'/test-cases',element:<AutomationPage/>}]", "const router=createMemoryRouter([{path:'/test-cases',element:<AutomationPage/>},{path:'/executions',element:<div>Execution destination</div>}]" );
-  fixture = fixture.replace('const client=new QueryClient', `item.automated='yes';item.automation_status='ready';steps.forEach(step=>step.automation_code='await web.click("Login.Submit");');
+  fixture = fixture.replace('const client=new QueryClient', `item.automated='yes';item.automation_status='ready';item.automation_start_url='https://checkout.test/login';steps.forEach(step=>step.automation_code='await web.click("Login.Submit");');
     window.calls=[];window.failRun=false;api.testCases.automationAgentActivity=async()=>null;api.testCases.automationBuildStatus=async()=>({id:'build-job',project_id:'p',app_type_id:'a',status:'queued',metadata:{total_items:1,input_test_case_ids:['case1']},events:[]});
     api.testSteps.list=async()=>steps.map(step=>structuredClone(step));
     api.testEnvironments.list=async()=>[{id:'qa',project_id:'p',app_type_id:'a',name:'QA'}];

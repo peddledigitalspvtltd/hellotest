@@ -193,9 +193,9 @@ function aggregateUsage(records) {
     ? records.reduce((sum, record) => sum + record.usage[key], 0) : null])),
     usage_unknown_calls: records.filter(record => keys.some(key => record.usage?.[key] == null)).length };
 }
-const correctableOutputError = error => error instanceof SyntaxError || ['AI_INVALID_JSON', 'AI_INVALID_RESPONSE', 'AI_MANAGED_SCHEMA_INVALID'].includes(error?.code);
+const correctableOutputError = error => error instanceof SyntaxError || ['AI_INVALID_JSON', 'AI_INVALID_RESPONSE', 'AI_MANAGED_SCHEMA_INVALID', 'AI_OUTPUT_SCHEMA_VIOLATION'].includes(error?.code);
 function outputErrorIssues(error) {
-  if (error.code === 'AI_MANAGED_SCHEMA_INVALID') return (error.validation_errors?.length ? error.validation_errors : [{ path: 'output', keyword: 'published_schema_constraint' }]).slice(0, 5).map(item => ({
+  if (['AI_MANAGED_SCHEMA_INVALID', 'AI_OUTPUT_SCHEMA_VIOLATION'].includes(error.code)) return (error.validation_errors?.length ? error.validation_errors : [{ path: 'output', keyword: 'published_schema_constraint' }]).slice(0, 5).map(item => ({
     path: normalizeText(item.path, 255), issue: normalizeText(item.keyword, 80) || 'published_schema_constraint',
     ...(typeof item.required_property === 'string' ? { required_property: normalizeText(item.required_property, 120) } : {})
   }));
@@ -1197,7 +1197,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         outcome_preview: Object.fromEntries(['headline', 'executive_summary', 'findings', 'artifacts', 'sections', 'tables', 'charts'].map(key => [key, currentResult[key]])) });
     };
     let result = baseline, modelObservation = null, repairPatch = null, contextReductionUsed = false;
-    let revisionRound = 0, outcomeRevisionRounds = 0, previousCandidate = null, previousRejectedHash = null, lastOutputIssues = [];
+    let revisionRound = 0, outcomeRevisionRounds = 0, previousCandidate = null, previousRejectedHash = null, lastOutputIssues = [], lastOutputFailure = null;
     const rejectedHashes = new Set();
     while (budget.used < budget.max && Date.now() < deadline && revisionRound <= executionPolicy.max_revision_rounds) {
       const repair = revisionRound > 0;
@@ -1230,6 +1230,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         if (!correctableOutputError(failure)) throw failure;
         result = baseline;
         issues = outputErrorIssues(failure);
+        lastOutputFailure = failure;
       }
       if (result !== baseline) break;
       lastOutputIssues = issues;
@@ -1241,7 +1242,11 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       boundedPayload.revision_feedback = revisionFeedback(previousCandidate, issues, revisionRound);
       if (budget.used < budget.max && revisionRound <= executionPolicy.max_revision_rounds) await appendEvent(transactionId, { level: "warning", phase: "outcome.revision", message: "The outcome needs a correction. The agent is receiving the specific contract issues.", details: { revision_round: revisionRound, issues, model_calls: budget.used, model_max_calls: budget.max, progress: 72 } });
     }
-    if (result === baseline) throw responseContract.invalidOutput(lastOutputIssues);
+    if (result === baseline) {
+      const failure = responseContract.invalidOutput(lastOutputIssues);
+      if (lastOutputFailure?.generation_received === true) Object.assign(failure, { generation_received: true, retryable: false, nonRetryable: true });
+      throw failure;
+    }
     const followupPlan = ((registered || !policy.custom_task) ? artifacts.planFollowups(normalizedAgentId, requestedScopes, result, {refineExisting:outcomeContract.refine_existing_proposals}) : []).slice(0, executionPolicy.max_followups);
     result.outcome_contract = outcomeContract;
     result.evidence_scope = evidenceScope;

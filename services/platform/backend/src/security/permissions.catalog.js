@@ -593,6 +593,8 @@ const ROUTE_PERMISSION_RULES = [
   ["POST", "/executions/manual-run-suggestion", "run.ai"],
   ["POST", "/executions", "run.create"],
   ["POST", "/executions/local-run", "automation.run.local"],
+  ["POST", "/executions/:id/local-dispatch", "automation.run.local"],
+  ["POST", "/automation/browser-bridges", "automation.build"],
   ["PUT", "/executions/:id", "run.update"],
   ["PUT", "/executions/:id/cases/:testCaseId/assignment", "run.update"],
   ["PUT", "/executions/:id/:level/:scopeId/assignment", "run.update"],

@@ -116,6 +116,7 @@ test("run membership validates app scope and preserves cases with recorded histo
 test("adding a suite snapshots only new cases and retains existing case and step history", async (context) => {
   const writes = stubDatabase(context, (sql, values) => {
     if (/WITH RECURSIVE selected/.test(sql)) return values.map(id => ({ id, app_type_id: "app-1" }));
+    if (/SELECT id, parallel_enabled, parallel_count FROM test_suites/.test(sql)) return values.map(id => ({id,parallel_enabled:true,parallel_count:4}));
     if (/SELECT \* FROM executions/.test(sql)) return [run];
     if (/FROM test_suites\s+WHERE id/.test(sql)) return [{ id: values[0], name: values[0], app_type_id: "app-1" }];
     if (/FROM execution_case_snapshots/.test(sql)) return [{ test_case_id: "case-1", suite_id: "suite-1", test_case_title: "Original title" }];
@@ -127,6 +128,8 @@ test("adding a suite snapshots only new cases and retains existing case and step
   const inserts = writes.filter((entry) => /INSERT INTO execution_case_snapshots/.test(entry.sql));
   assert.equal(inserts.length, 1);
   assert.equal(inserts[0].values[1], "case-2");
+  const columns=inserts[0].sql.match(/INSERT INTO execution_case_snapshots\s*\(([^)]+)\)/)[1].split(',').map(column=>column.trim());
+  assert.deepEqual(JSON.parse(inserts[0].values[columns.indexOf('test_data_options')]).execution_policy,{suite_parallel_override:true,parallel_enabled:true,parallel_count:4});
   assert.equal(writes.some((entry) => /DELETE FROM execution_(case|step)_snapshots|DELETE FROM execution_results/.test(entry.sql)), false);
 });
 
@@ -189,6 +192,7 @@ test("failed-only reruns preserve only the explicit pins included in the rerun s
   const mobile = require("../services/mobileFeature.service");
   context.mock.method(mobile, "assertExecutionMobileFeatureEnabled", async () => undefined);
   context.mock.method(execution, "getExecution", async () => ({ ...run, status: "completed", direct_test_case_ids: ["case-1", "case-2"],
+    parallel_enabled: true, parallel_count: 4,
     case_snapshots: ["case-1", "case-2"].map((test_case_id) => ({ test_case_id, test_case_title: test_case_id, suite_id: "suite-1" })),
     suite_snapshots: [{ id: "suite-1", name: "Suite" }], step_snapshots: [] }));
   const writes = stubDatabase(context, (sql) => {
@@ -201,6 +205,7 @@ test("failed-only reruns preserve only the explicit pins included in the rerun s
   const columns = insert.sql.match(/INSERT INTO executions\s*\(([^)]+)\)/)[1].split(",").map((column) => column.trim());
   assert.equal(columns.length - 2, insert.values.length, "Trigger and status are the two literal values.");
   assert.deepEqual(JSON.parse(insert.values[columns.indexOf("direct_test_case_ids") - 2]), ["case-1"]);
+  assert.deepEqual(writes.find(entry => /UPDATE executions SET parallel_enabled/.test(entry.sql)).values.slice(0,2),[true,4]);
 });
 
 test("reruns restore private frozen hooks and preserve code after the source case changes", async (context) => {

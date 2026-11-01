@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { failureInfo, retryable, canRetry, withNode } = require('../../backend/workflows/runtimeEvents');
+const { failureInfo, retryable, canRetry, withNode, withArtifact } = require('../../backend/workflows/runtimeEvents');
 const { createLlmProviderError } = require('@hellotest/platform/backend/src/utils/upstreamLlmError');
 
 test('native completion failures retain actionable bounded diagnostics without provider payloads or secrets', () => {
@@ -65,4 +65,50 @@ test('node attribution preserves private correction candidates on the original e
   assert.equal(same,failure);assert.equal(same.model_candidate,'PRIVATE_REPAIR_CANDIDATE');assert.equal(Object.getOwnPropertyDescriptor(same,'model_candidate').enumerable,false);
   assert.deepEqual(failureInfo(same).origin,{node_id:'generate',node_name:'Generate Test Cases',loop_node_id:'stories',batch_index:2,iteration_path:['stories',2]});
   assert.doesNotMatch(JSON.stringify(failureInfo(same)),/PRIVATE|Private provider/);
+});
+
+test('terminal generated-output failures are validation issues rather than transient execution failures',()=>{
+ for(const code of ['AI_OUTPUT_SCHEMA_VIOLATION','AI_OUTPUT_SCHEMA_INVALID','AI_MANAGED_SCHEMA_INVALID','AI_NATIVE_CONTRACT_INVALID',
+   'AI_INVALID_JSON','AI_INVALID_TOOL_ARGUMENTS','AI_ASSURANCE_REVIEW_INVALID','AI_REVIEW_INVALID','AI_OUTPUT_TRUNCATED']){
+  const info=failureInfo({code,statusCode:502,validation_errors:[{path:'automation_readiness.status',message:'must equal a supported status',candidate:'PRIVATE_PROVIDER_BODY'}]});
+  assert.equal(info.category,'validation',code);assert.equal(info.retryable,false,code);
+  assert.deepEqual(info.validation_errors,[{path:'automation_readiness.status',message:'must equal a supported status'}]);
+  assert.doesNotMatch(JSON.stringify(info),/PRIVATE_PROVIDER_BODY/);
+ }
+ for(const code of ['AI_BUDGET_EXCEEDED','AGENT_BUDGET_EXCEEDED','AGENT_DEADLINE','DEADLINE_EXCEEDED','WORKFLOW_DEADLINE'])assert.equal(retryable({code,statusCode:504}),false,code);
+ assert.equal(failureInfo({code:'AI_PROVIDER_REFUSAL',statusCode:502}).category,'provider_request');
+ assert.equal(retryable({code:'AI_PROVIDER_REFUSAL',statusCode:502}),false);
+ for(const statusCode of [408,429,500,502,503,504])assert.equal(retryable({code:'LLM_PROVIDER_UNAVAILABLE',statusCode}),true);
+});
+
+test('case attribution composes with loop origin while omitting untrusted fields and private identifiers',()=>{
+ const error=Object.assign(new Error('PRIVATE_REVIEW_BODY'),{code:'AI_OUTPUT_SCHEMA_VIOLATION',statusCode:502});
+ Object.defineProperty(error,'model_candidate',{value:'PRIVATE_CANDIDATE',enumerable:false});
+ assert.equal(withArtifact(error,{artifact_task:'test-case-assurance',story_id:'story-1',case_index:1,case_client_id:'draft-2',title:'PRIVATE_TITLE'}),error);
+ const projected=failureInfo(withNode(error,{loop_owner:'each-story',iteration_index:0,iteration_path:['each-story',0]},{id:'test-case-assurance',data:{label:'AI Test Case Quality Assurance'}}));
+ assert.deepEqual(projected.artifact,{artifact_task:'test-case-assurance',story_id:'story-1',case_index:1,case_client_id:'draft-2'});
+ assert.equal(projected.origin.batch_index,0);assert.equal(projected.retryable,false);
+ assert.equal(error.model_candidate,'PRIVATE_CANDIDATE');assert.equal(Object.getOwnPropertyDescriptor(error,'workflow_artifact').enumerable,false);
+ assert.doesNotMatch(JSON.stringify(projected),/PRIVATE/);
+ assert.deepEqual(failureInfo(withArtifact({code:'AI_REVIEW_INVALID',statusCode:502},{artifact_task:'test-case-assurance',story_id:'story-1',case_index:1000,case_client_id:'password=PRIVATE'})).artifact,
+  {artifact_task:'test-case-assurance',story_id:'story-1'});
+ assert.equal(failureInfo(withArtifact({},{artifact_task:'unknown',story_id:'story-1'})).artifact,undefined);
+});
+
+test('schema diagnostics preserve bounded keyword and required field names without candidate or enum data',()=>{
+ const result=failureInfo({code:'AI_OUTPUT_SCHEMA_VIOLATION',statusCode:502,validation_errors:[
+  {path:'automation_readiness',keyword:'required',required_property:'status',candidate:'PRIVATE_CANDIDATE',allowed_values:['PRIVATE_ENUM']},
+  {path:'dimensions[0].evidence_refs',keyword:'minItems',required_property:'x'.repeat(101)},
+  {keyword:'password=PRIVATE_PASSWORD',required_property:'token=PRIVATE_TOKEN'}]});
+ assert.deepEqual(result.validation_errors,[{path:'automation_readiness',keyword:'required',required_property:'status'},
+  {path:'dimensions[0].evidence_refs',keyword:'minItems'}]);
+ assert.doesNotMatch(JSON.stringify(result),/PRIVATE/);
+});
+
+test('terminal model-call diagnostics retain only bounded native execution counters',()=>{
+ const model_execution={model_calls:2,max_model_calls:2,deadline_ms:120000,format_repair_attempted:true,prompt:'PRIVATE_PROMPT',candidate:'PRIVATE_BODY'};
+ assert.deepEqual(failureInfo({model_execution}).model_execution,{model_calls:2,max_model_calls:2,deadline_ms:120000,format_repair_attempted:true});
+ for(const value of [{model_calls:9,max_model_calls:0,deadline_ms:Infinity,format_repair_attempted:'true'},[],null])assert.equal(failureInfo({model_execution:value}).model_execution,undefined);
+ assert.equal(failureInfo({model_execution:{model_calls:0,format_repair_attempted:false}}).model_execution.format_repair_attempted,false);
+ assert.doesNotMatch(JSON.stringify(failureInfo({model_execution})),/PRIVATE/);
 });

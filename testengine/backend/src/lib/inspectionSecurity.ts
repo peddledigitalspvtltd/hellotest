@@ -67,14 +67,14 @@ function configuredOriginTarget(origin: string): URL | null {
   return Object.hasOwn(entries, origin) ? new URL(String(entries[origin])) : null;
 }
 
-export async function resolveRemoteInspectionEndpoint(value: string, resolver = lookup) {
+export async function resolveRemoteInspectionEndpoint(value: string, resolver = lookup, pairedPrivateOrigin?: string) {
   let url: URL;
   try { url = new URL(value); } catch { throw new InspectionTargetError("INSPECTION_URL_INVALID", "Enter an HTTP or HTTPS URL without embedded credentials."); }
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new InspectionTargetError("INSPECTION_URL_INVALID", "Inspection supports HTTP(S) URLs without embedded credentials.");
   const mapped = configuredOriginTarget(url.origin), endpoint = mapped || url;
   const host = endpoint.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   const allowlisted = (process.env.RECORDER_ALLOWED_PRIVATE_HOSTS || "").split(",").map(item => item.trim().toLowerCase()).filter(Boolean);
-  const allowedPrivate = Boolean(mapped) || allowlisted.includes(host);
+  const allowedPrivate = Boolean(mapped) || allowlisted.includes(host) || url.origin === pairedPrivateOrigin;
   if (!allowedPrivate && isPrivateInspectionAddress(host)) throw new InspectionTargetError("INSPECTION_PRIVATE_TARGET", "This address is private to the Test Engine. Use a connected local session, or ask an administrator to allow this exact hostname.");
   let addresses: Array<{ address: string }>;
   addresses = isIP(host) ? [{ address: host }] : await lookupInspectionHost(host, resolver);
