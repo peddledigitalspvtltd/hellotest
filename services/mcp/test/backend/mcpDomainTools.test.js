@@ -16,7 +16,7 @@ function fixture() {
   const queries=[],reads=[],plans=[];
   const projections={entities:{test_cases:{}},query:async(...args)=>{queries.push(args);return {rows:[{id:'case-1',title:'Registration'}],next_offset:25,observed_at:'2026-10-31T00:00:00Z'};}};
   const backplane={read:async(...args)=>{reads.push(args);return {data:{id:'case-1',title:'Registration'},bounded:true,observed_at:'2026-10-31T00:00:00Z'};},prepare:async(...args)=>{plans.push(args);return {plan_id:'plan',state:'requires_authorization'};}};
-  return {tools:createDomainTools({backplane,projections,registry:{all:()=>operations},fail}),backplane,operations,queries,reads,plans};
+  return {tools:createDomainTools({backplane,projections,registry:{all:()=>operations},fail}),backplane,projections,operations,queries,reads,plans};
 }
 async function call(f,name,args={}) {
   const tool=f.tools[name];return tool.run(actor,tool.schema.parse(args));
@@ -61,6 +61,30 @@ test('unsupported named tools stay out of discovery and cannot activate an unwra
   assert.equal(f.tools.hellotest_test_case_create_prepare.available(),false);
   await assert.rejects(call(f,'hellotest_test_case_create_prepare',{app_type_id:'app',title:'Registration'}),{code:'MCP_OPERATION_UNAVAILABLE'});
   assert.equal(f.plans.length,0);
+});
+
+test('agent and workflow evidence tools use audited routes and projection fields with exact native identifiers',async()=>{
+  const f=fixture();
+  const domains=[
+    ['test_modules','/test-case-modules','module_id','name'],['schedules','/execution-schedules','schedule_id','name'],
+    ['workflow_runs','/agentic-workflow-runs','workflow_run_id','id'],['agents','/agentic-workflows/agents','agent_id','name'],
+    ['repository_runs','/repository-agents/runs','repository_run_id','id'],['knowledge_collections','/knowledge/collections','collection_id','name'],
+    ['dashboards','/quality-dashboards','dashboard_id','name']
+  ];
+  for(const [name,path,key,field]of domains){
+    const parameter=name==='agents'?'agentId':'id';
+    assert.equal(f.tools[`hellotest_${name}_list`].available(),false,'Unaudited deployments omit this named tool');
+    f.projections.entities[name]={};
+    f.operations.push({id:`list-${name}`,method:'GET',path,read:true},{id:`get-${name}`,method:'GET',path:`${path}/:${parameter}`,read:true});
+    assert.equal(f.tools[`hellotest_${name}_list`].available(),true);
+    const tool=f.tools[`hellotest_${name}_list`],args={search:'saved',...(tool.schema.shape.status?{status:'running'}:{}),...(tool.schema.shape.application_id?{application_id:'app'}:{})};
+    await call(f,`hellotest_${name}_list`,args);
+    const query=f.queries.at(-1)[1];assert.equal(query.entity,name);assert.deepEqual(query.filters[0],{field,op:'contains',value:'saved'});
+    if(args.application_id)assert.ok(query.filters.some(item=>item.field==='app_type_id'&&item.value==='app'));
+    await call(f,`hellotest_${name}_get`,{[key]:'saved-id'});
+    assert.deepEqual(f.reads.at(-1)[1],{operation_id:`get-${name}`,arguments:{path:{[parameter]:'saved-id'}}});
+    assert.equal(f.tools[`hellotest_${name}_get`].schema.safeParse({[key]:'saved-id',project_id:'foreign'}).success,false);
+  }
 });
 
 test('updates prepare only requested fields and never inject a structured-mode default',async()=>{

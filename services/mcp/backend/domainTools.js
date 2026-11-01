@@ -29,6 +29,13 @@ const resources = [
   {name:'sprints',label:'Sprints',entity:'sprints',path:'/requirement-iterations',key:'sprint_id',search:'name'},
   {name:'data_sets',label:'Test Data Sets',entity:'data_sets',path:'/test-data-sets',key:'data_set_id',search:'name'},
   {name:'workflows',label:'workflows',entity:'workflows',path:'/agentic-workflows',key:'workflow_id',search:'name'},
+  {name:'test_modules',label:'test modules',entity:'test_modules',path:'/test-case-modules',key:'module_id',search:'name',application:true},
+  {name:'schedules',label:'execution schedules',entity:'schedules',path:'/execution-schedules',key:'schedule_id',search:'name',application:true},
+  {name:'workflow_runs',label:'workflow runs',entity:'workflow_runs',path:'/agentic-workflow-runs',key:'workflow_run_id',search:'id',status:true,application:true},
+  {name:'agents',label:'agent definitions',entity:'agents',path:'/agentic-workflows/agents',parameter:'agentId',key:'agent_id',search:'name'},
+  {name:'repository_runs',label:'repository agent runs',entity:'repository_runs',path:'/repository-agents/runs',key:'repository_run_id',search:'id',status:true,application:true},
+  {name:'knowledge_collections',label:'Knowledge collections',entity:'knowledge_collections',path:'/knowledge/collections',key:'collection_id',search:'name',status:true,application:true},
+  {name:'dashboards',label:'quality dashboards',entity:'dashboards',path:'/quality-dashboards',key:'dashboard_id',search:'name'},
 ];
 
 function createDomainTools({backplane, projections, registry, fail}) {
@@ -41,7 +48,7 @@ function createDomainTools({backplane, projections, registry, fail}) {
   };
   for(const resource of resources) {
     const paths=[resource.path,...resource.aliases || []];
-    const listShape={search:z.string().max(200).optional().describe('Optional literal name/title substring; no query language or wildcard syntax.'),limit:z.number().int().min(1).max(50).default(25).describe('Maximum summaries in this page.'),offset:z.number().int().min(0).max(10000).default(0).describe('Use next_offset from the previous result; omit for the first page.'),
+    const listShape={search:z.string().max(200).optional().describe(`Optional literal ${resource.search==='id'?'saved identifier':'name/title'} substring; no query language or wildcard syntax.`),limit:z.number().int().min(1).max(50).default(25).describe('Maximum summaries in this page.'),offset:z.number().int().min(0).max(10000).default(0).describe('Use next_offset from the previous result; omit for the first page.'),
       ...(resource.status?{status:z.string().min(1).max(120).optional()}:{}),...(resource.application?{application_id:identifier.optional()}:{})};
     result[`hellotest_${resource.name}_list`]={
       title:`List ${resource.label}`,description:`List ${resource.label} summaries in this credential's project. Search is a literal substring; pagination uses a bounded authorized database projection. Use the matching get tool for full fields.`,
@@ -58,14 +65,15 @@ function createDomainTools({backplane, projections, registry, fail}) {
         return {resource:resource.name,items:value.rows,next_offset:value.next_offset,observed_at:value.observed_at,projection:'authorized_summary',...(value.delivery?{delivery:value.delivery}:{})};
       }
     };
-    const detailPaths=paths.map(path=>`${path}/:id`);
+    const parameter=resource.parameter || 'id';
+    const detailPaths=paths.map(path=>`${path}/:${parameter}`);
     result[`hellotest_${resource.name}_get`]={
       title:`Get ${resource.label}`,description:`Read one saved ${resource.label} record by its exact identifier, using native domain checks and the credential's project. Sensitive environment and configuration values remain omitted.`,
       schema:z.object({[resource.key]:identifier}).strict(),output:detailOutput,
       available:()=>Boolean(operation('GET',detailPaths)?.read),
       run:async(actor,args,signal)=>{
         const op=executable('GET',detailPaths,'read');
-        const value=await backplane.read(actor,{operation_id:op.id,arguments:{path:{id:args[resource.key]}}},signal);
+        const value=await backplane.read(actor,{operation_id:op.id,arguments:{path:{[parameter]:args[resource.key]}}},signal);
         if(!value.data || typeof value.data!=='object' || Array.isArray(value.data))throw fail('The domain returned no single record. Inspect its operation contract.',502,'MCP_DOMAIN_SHAPE_INVALID');
         return {resource:resource.name,record:value.data,observed_at:value.observed_at,bounded:true,...(value.delivery?{delivery:value.delivery}:{})};
       }

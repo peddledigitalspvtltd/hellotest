@@ -59,7 +59,7 @@ test('each connected loop batch receives its own native Story input, while Done 
   t.mock.method(require('../../backend/workflows/artifactTasks'), 'execute', async ({ context }) => {
     seen.push(structuredClone(context.input));
     const packets = context.input.map(packet => ({ ...packet, completed_native_task: true }));
-    return { __workflow_result: { output: { data: packets.map(packet => ({ story_id: packet.story_id, story_revision: packet.story_revision })) }, context: { data: packets } } };
+    return { __workflow_result: { output: { data: packets.map(packet => ({ story_id: packet.story_id, story_revision: packet.story_revision, result_detail: 'native output '.repeat(6500) })) }, context: { data: packets } } };
   });
   const loop = node('loop', 'loop', { loopAction: 'workflow', loopSourceKey: 'input', loopMaxIterations: 2, loopBatchSize: 1 });
   const nodes = [node('source', 'artifactTask'), loop, node('body', 'artifactTask', { artifactTask: 'story-assurance', timeoutMs: 1000 }), node('done', 'artifactTask', { artifactTask: 'story-assurance', timeoutMs: 1000 })];
@@ -73,6 +73,7 @@ test('each connected loop batch receives its own native Story input, while Done 
   assert.deepEqual(seen.map(batch => batch.map(item => item.story_id)), [['a'], ['b']], 'Accumulated Done lineage must not replace the next batch input.');
   assert.deepEqual(seen.map(batch => batch.map(item => item.story_revision)), [['revision-a'], ['revision-b']], 'Batch selection preserves the exact upstream native revision.');
   assert.deepEqual(result.output.data.map(item => item.story_id), ['a', 'b']);
+  assert.ok(Buffer.byteLength(JSON.stringify(result.output)) > 128 * 1024, 'Native foreach collection retains the native artifact budget above the generic limit');
   assert.deepEqual(result.execution_context.data.map(item => item.story_id), ['a', 'b']);
   assert.ok(result.execution_context.data.every(item => item.completed_native_task));
   await runtime._internals.runStep(run, nodes.at(-1), { id: 'actor' }, new AbortController().signal, async () => {});

@@ -44,6 +44,19 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
    const response=await app.inject({method:'POST',url:'/mcp',headers:{host:'localhost',authorization:'Bearer '+token,accept:'application/json, text/event-stream','MCP-Protocol-Version':'2026-07-28','Mcp-Method':'tools/call','Mcp-Name':name,...extra},payload:{jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:args,_meta:meta}}});
    return {response,result:response.statusCode===200?response.json().result:null};
   };
+  const memoryFixture=await require('./contextGraphMemory.fixture').verify({app,db,user:{id:'mcp-a'},headers,createToken});
+  const memoryList=await rpc('hellotest_context_graph_list',{feature_id:memoryFixture.featureId});
+  assert.equal(memoryList.result.isError,undefined,JSON.stringify(memoryList.result));
+  assert.ok(memoryList.result.structuredContent.data.items.some(item=>item.trace_id===memoryFixture.traceId));
+  const memoryGraph=await rpc('hellotest_context_graph_explore',{trace_id:memoryFixture.traceId});
+  assert.equal(memoryGraph.result.isError,undefined,JSON.stringify(memoryGraph.result));
+  const memoryData=memoryGraph.result.structuredContent.data;
+  assert.equal(memoryData.contract_type,'ContextGraph');assert.equal(memoryData.limitations.model_input_verified,false);
+  const memoryNodes=new Set(memoryData.nodes.map(node=>node.id));
+  assert.equal(memoryNodes.size,memoryData.nodes.length);
+  assert.ok(memoryData.edges.every(edge=>memoryNodes.has(edge.source)&&memoryNodes.has(edge.target)));
+  assert.ok(memoryData.timeline.every(event=>!event.node_id||memoryNodes.has(event.node_id)));
+  assert.equal((await rpc('hellotest_context_graph_list',{user_id:'another-owner'})).result.isError,true);
   const builtinStatus=await app.inject({method:'GET',url:'/agentic-workflows/mcp/status?project_id=mcp-p-a',headers});assert.equal(builtinStatus.statusCode,200,builtinStatus.body);assert.equal(builtinStatus.json().status,'connected');assert.equal(builtinStatus.headers['cache-control'],'no-store');
   const connection=await app.inject({method:'GET',url:'/agentic-workflows/mcp/server?project_id=mcp-p-a',headers});assert.equal(connection.statusCode,200,connection.body);const descriptor=connection.json();assert.equal(descriptor.client_contract.authentication,'manual_bearer');assert.equal(descriptor.client_contract.oauth_supported,false);assert.ok(descriptor.tools.find(tool=>tool.name==='hellotest_graph_trace').input_schema.properties.token_budget);assert.ok(descriptor.discovery.resource_templates.includes('hellotest://projects/{project_id}/graph/ontology'));
   const graphSchema=await rpc('hellotest_graph_schema');assert.equal(graphSchema.result.isError,undefined,JSON.stringify(graphSchema.result));assert.ok(graphSchema.result.structuredContent.data.ontology.node_kinds.includes('requirement'));
@@ -102,6 +115,25 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   const otherApplication=await rpc('hellotest_context_build',{question:'Show app context',app_type_id:'mcp-app-b'});assert.equal(otherApplication.result.isError,true);
   const context=await rpc('hellotest_context_build',{question:'What test cases are available?',token_budget:1000});assert.equal(context.result.isError,undefined,JSON.stringify(context.result));assert.equal(context.result.structuredContent.data.context_transport,'mcp');assert.ok(Array.isArray(context.result.structuredContent.data.packet.evidence));require('@hellotest/knowledge/backend/services/knowledgeContracts.service').buildModelRequest({contextPacket:context.result.structuredContent.data.packet,question:'What test cases are available?'});assert.ok(!JSON.stringify(context.result).includes('B private case'));
   const tokenCountBefore=(await db.prepare('SELECT COUNT(*)::int AS count FROM mcp_credentials').get()).count;
+  const contextReceipt=context.result.structuredContent.data.packet.retrieval.context_graph;
+  assert.equal(contextReceipt.status,'recorded',JSON.stringify(contextReceipt));
+  const capturedContext=await rpc('hellotest_context_graph_explore',{trace_id:contextReceipt.trace_id});
+  assert.equal(capturedContext.result.isError,undefined,JSON.stringify(capturedContext.result));
+  assert.equal(capturedContext.result.structuredContent.data.trace.feature_id,'mcp.context');
+  // Exercise the real assistant retrieval and post-persistence outcome hook,
+  // without a model provider. This is an evidence-search turn, not synthesis.
+  const assistant=require('../../../../chatbot/backend/services/knowledgeAssistant.service');
+  const ownedSession=await assistant.createSession({projectId:'mcp-p-a',appTypeId:'mcp-app-a',user:{id:'mcp-a'},title:'Context memory integration'});
+  const assistantTurn=await assistant.respond({sessionId:ownedSession.id,user:{id:'mcp-a'},message:'How do I visualize the Knowledge Graph and Context Graph?',responseMode:'evidence',clientTurnId:'context-memory-turn',retrievalBudgets:{max_rounds:1,max_context_tokens:1500,deadline_ms:5000,max_tool_calls:4}});
+  const assistantReceipt=assistantTurn.context_packet?.retrieval?.context_graph;
+  assert.equal(assistantReceipt?.status,'recorded',JSON.stringify(assistantTurn.retrieval));
+  assert.equal(assistantTurn.retrieval.context_graph_outcome.status,'recorded');
+  const assistantMemory=await require('@hellotest/knowledge/backend/services/knowledgeContextGraph.service').explore({projectId:'mcp-p-a',user:{id:'mcp-a'},traceId:assistantReceipt.trace_id});
+  assert.equal(assistantMemory.trace.feature_id,'ai.knowledge.assistant');assert.equal(assistantMemory.trace.session_id,ownedSession.id);
+  assert.ok(assistantMemory.timeline.some(event=>event.type==='OUTCOME_RECORDED'&&event.reference_id===assistantTurn.assistant_message.id&&event.status===assistantTurn.assistant_message.status));
+  const eventCount=await db.prepare('SELECT COUNT(*)::int AS count FROM ai_context_graph_events WHERE trace_id=?').get(assistantReceipt.trace_id);
+  const replayedTurn=await assistant.respond({sessionId:ownedSession.id,user:{id:'mcp-a'},message:'How do I visualize the Knowledge Graph and Context Graph?',responseMode:'evidence',clientTurnId:'context-memory-turn'});
+  assert.equal(replayedTurn.idempotent_replay,true);assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM ai_context_graph_events WHERE trace_id=?').get(assistantReceipt.trace_id)).count,eventCount.count);
   const originalFetch=global.fetch;let modelMessages;
   global.fetch=async(url,init)=>{
    if(String(url)!=='https://mcp-model-fixture.invalid/chat/completions')return originalFetch(url,init);

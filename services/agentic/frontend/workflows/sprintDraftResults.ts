@@ -4,14 +4,26 @@ export type SprintDraft = { client_id?: string; title: string; description?: str
 type Assessment = { client_id?: string; case_index?: number; analysis: AiArtifactAssuranceAnalysis; assurance_review?: AiArtifactAssuranceReview };
 export type SprintAutomation = { client_id?: string; case_index?: number; title?: string; steps?: Array<Record<string, unknown>>; instructions?: Array<{step_order: number; action: string; expected_result: string; runtime: string}>; executable?: {filename: string; language: string; framework: string; code: string} | null; validation?: {status: string}; verification_status?: string };
 export type SprintPacket = { story_id: string; story_revision?: string; story?: {title: string}; story_assurance?: {analysis: AiArtifactAssuranceAnalysis}; cases: SprintDraft[]; case_assurance?: Assessment[]; automation?: Array<SprintAutomation | null>; automation_input_required?: Array<{ case_index: number; message: string; required_context?: string[]; required_parameters?: string[]; blocked_steps?: Array<{ reason?: string; required_context?: string[]; required_parameters?: string[] }> }>; automation_failures?: Array<{case_index: number; client_id?: string; code?: string; message: string; validation_feedback?: unknown; completed_sections?: number; total_sections?: number}>; automation_progress?: {completed: number; failed: number; needs_input: number; processed: number; total: number} };
-type Target = { nodeId: string; storyIndex: number };
+type Target = { nodeId: string; storyIndex: number; iterationPath?: Array<string | number> };
 export type SprintDraftResult = { packet: SprintPacket; manualTarget?: Target; automationTarget?: Target };
+
+/** A loop node's latest result is only its final batch; earlier batches own saved drafts too. */
+export function sprintTaskRecords(run: AgenticWorkflowRun): Array<Record<string, unknown>> {
+  return run.node_results.filter(item => item.node_type === "artifactTask").flatMap(item => [
+    ...(Array.isArray(item.iterations) ? item.iterations.filter(record => record && typeof record === "object").map(record => ({ ...record, node_id: item.node_id, node_type: item.node_type })) : []),
+    item,
+  ]);
+}
 
 /** Only saved native receipts identify Library records; draft IDs are not Library IDs. */
 export function savedSprintCaseIds(run: AgenticWorkflowRun, accepted: Record<string, string> = {}, generatedNodeId?: string): string[] {
-  const generated = generatedNodeId ? (run.node_results.find(item => item.node_id === generatedNodeId)?.output as {data?: Partial<SprintPacket>[]} | undefined)?.data : undefined;
-  if (generatedNodeId && !Array.isArray(generated)) return [];
-  const ids = run.node_results.filter(item => item.node_type === "artifactTask").flatMap(item => {
+  const records = sprintTaskRecords(run);
+  const generated = generatedNodeId ? records.filter(item => item.node_id === generatedNodeId).flatMap(item => {
+    const data = (item.output as {data?: Partial<SprintPacket>[]} | undefined)?.data;
+    return Array.isArray(data) ? data : [];
+  }) : undefined;
+  if (generatedNodeId && !generated?.length) return [];
+  const ids = records.flatMap(item => {
     const output = item.output as {data?: Partial<SprintPacket>[]; library_publication?: {receipts?: Array<{id?: string; kind?: string; saved?: boolean; story_id?: string; case_index?: number; client_id?: string}>}};
     return (output?.library_publication?.receipts || []).filter(receipt => {
       if (receipt.saved !== true || receipt.kind !== "manual") return false;
@@ -44,8 +56,7 @@ export function sprintReviewLinks(run: Pick<AgenticWorkflowRun, "project_id" | "
 /** Compose a review presentation from stage-owned outputs, never from private checkpoints. */
 export function collectSprintDrafts(run: AgenticWorkflowRun): SprintDraftResult[] {
   const stories = new Map<string, SprintDraftResult>();
-  for (const result of run.node_results) {
-    if (result.node_type !== "artifactTask") continue;
+  for (const result of sprintTaskRecords(run)) {
     const nodeId = typeof result.node_id === "string" ? result.node_id : "";
     if (!nodeId) continue;
     // Public progress contains whole-case results only. Private recovery
@@ -55,6 +66,7 @@ export function collectSprintDrafts(run: AgenticWorkflowRun): SprintDraftResult[
       : (result.progress as {completed_items?: Partial<SprintPacket>[]} | undefined)?.completed_items;
     if (!Array.isArray(rows)) continue;
     rows.forEach((row, storyIndex) => {
+      const target: Target = { nodeId, storyIndex, ...(Array.isArray(result.iteration_path) ? { iterationPath: result.iteration_path as Array<string | number> } : {}) };
       if (typeof row.story_id !== "string" || !row.story_id) return;
       const key = `${row.story_id}:${row.story_revision || "legacy"}`;
       let entry = stories.get(key);
@@ -74,14 +86,14 @@ export function collectSprintDrafts(run: AgenticWorkflowRun): SprintDraftResult[
         || Boolean(packet.cases[item.case_index ?? index]) && (!item.client_id || item.client_id === packet.cases[item.case_index ?? index].client_id));
       if (Array.isArray(row.case_assurance) && matches(row.case_assurance)) {
         packet.case_assurance = row.case_assurance;
-        entry.manualTarget = {nodeId, storyIndex};
+        entry.manualTarget = target;
       }
       if (Array.isArray(row.automation) && matches(row.automation)) {
         packet.automation = row.automation;
         packet.automation_input_required = row.automation_input_required || [];
         packet.automation_failures = Array.isArray(row.automation_failures) && matches(row.automation_failures) ? row.automation_failures : [];
         packet.automation_progress = row.automation_progress;
-        if (result.status === "completed") entry.automationTarget = {nodeId, storyIndex};
+        if (result.status === "completed") entry.automationTarget = target;
         // This node's private lineage also owns the assessed manual drafts.
         if (packet.case_assurance?.length && entry.automationTarget) entry.manualTarget = entry.automationTarget;
       }

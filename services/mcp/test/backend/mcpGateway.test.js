@@ -96,6 +96,18 @@ test('background model integrations bind their verified identity without an ambi
  assert.equal(called.user.id,'worker-user');assert.equal(called.projectId,'worker-project');assert.match(result.body,/Verified worker evidence/);
 });
 
+test('trusted feature and session labels reach local retrieval without becoming model-controlled identity',async()=>{
+ const integration={id:'model'};traces.bindIntegration(integration,{userId:'verified-worker',projectId:'verified-project',usageKey:'execution-report.generate'});
+ const observed=[];
+ const instance=gateway(async(actor)=>{observed.push({actor,scope:traces.current()});return {packet:{project_id:actor.projectId,evidence:[{content:'Authorized evidence'}]}};});
+ await instance.enrichChatRequest(request('Explain this execution'),{integration});
+ assert.equal(observed[0].scope.feature,'execution-report.generate');assert.equal(observed[0].actor.user.id,'verified-worker');
+ await traces.run({session_id:'owned-session',task_id:'persisted-task'},()=>instance.retrievePacket({user:{id:'verified-worker'},projectId:'verified-project',integration,query:'Explain coverage'}));
+ assert.equal(observed[1].scope.feature,'execution-report.generate');assert.equal(observed[1].scope.session_id,'owned-session');assert.equal(observed[1].scope.task_id,'persisted-task');
+ await instance.contextCall({userId:'verified-worker',projectId:'verified-project',args:{question:'Inspect'},traceScope:{feature:'approved-feature',actor_id:'forged',project_id:'foreign',mcp_context_depth:0}});
+ assert.equal(observed[2].scope.feature,'approved-feature');assert.equal(observed[2].actor.user.id,'verified-worker');assert.equal(observed[2].actor.projectId,'verified-project');assert.equal(observed[2].scope.mcp_context_depth,1);
+});
+
 test('MCP retrieval uses the normalized retrieval budget and remaining assistant turn',()=>{
  const instance=gateway(async()=>({}));
  assert.equal(instance.retrievalTimeout({request:{budgets:{deadline_ms:60000}}}),62000);

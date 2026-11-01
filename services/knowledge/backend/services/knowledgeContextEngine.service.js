@@ -54,27 +54,33 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
   const nativeSourceKinds = unique(array(filters.requested_scopes).flatMap(scope => ({stories:['requirement'],'test-cases':['test_case'],automation:['test_case'],runs:['execution'],bugs:['bug']}[scope] || [])));
   const requestedScopes = array(filters.requested_scopes).length ? filters.requested_scopes : unique(array(filters.source_kinds).map(kind => PLAN_SCOPE_BY_SOURCE_KIND[kind]).filter(Boolean));
   const route = planContext({ prompt: request.query, mode: "chat", history, requestedScopes, agentId: filters.agent_id });
+  const productGuide = route.query_category === "tool_help";
   const plannedKinds = unique(array(intentPlan?.source_kinds).map((kind) => String(kind || "").trim().toLowerCase()).filter((kind) => PLAN_SCOPE_BY_SOURCE_KIND[kind]));
   const plannedScopes = unique(plannedKinds.map((kind) => PLAN_SCOPE_BY_SOURCE_KIND[kind]));
-  if (!array(filters.requested_scopes).length && !array(filters.source_kinds).length && !pinned && plannedScopes.length) {
+  if (!productGuide && !array(filters.requested_scopes).length && !array(filters.source_kinds).length && !pinned && plannedScopes.length) {
     route.effective_scopes = unique([...plannedScopes, ...array(route.effective_scopes), "knowledge"]);
     route.priority_scopes = unique([...plannedScopes, ...array(route.priority_scopes)]).filter((scope) => route.effective_scopes.includes(scope));
     route.live_scopes = route.effective_scopes.filter((scope) => scope !== "knowledge");
     route.indexed_source_kinds = unique([...plannedKinds, ...array(route.indexed_source_kinds)]);
   }
   if (Array.isArray(filters.requested_scopes)) {
-    route.effective_scopes = [...filters.requested_scopes];
-    route.live_scopes = filters.requested_scopes.filter(scope => scope !== 'knowledge');
-    route.priority_scopes = array(route.priority_scopes).filter(scope => filters.requested_scopes.includes(scope));
+    route.effective_scopes = filters.requested_scopes.filter(scope => !productGuide || scope === 'knowledge');
+    route.live_scopes = route.effective_scopes.filter(scope => scope !== 'knowledge');
+    route.priority_scopes = array(route.priority_scopes).filter(scope => route.effective_scopes.includes(scope));
     const selectedKinds = { stories: ['requirement'], 'test-cases': ['test_case'], automation: ['test_case'], runs: ['execution'], bugs: ['bug'], knowledge: ['knowledge_item','file','text','chat','url'] };
-    route.indexed_source_kinds = unique(filters.requested_scopes.flatMap(scope => selectedKinds[scope] || []));
+    route.indexed_source_kinds = productGuide
+      ? route.effective_scopes.includes('knowledge') ? ['product_help'] : []
+      : unique(filters.requested_scopes.flatMap(scope => selectedKinds[scope] || []));
   }
   route.information_needs = unique([...array(intentPlan?.information_needs), ...array(route.information_needs)]).slice(0, 12);
   route.intent_plan_applied = Boolean(plannedKinds.length || array(intentPlan?.queries).length);
   route.query_class = request.query_class;
   const allowedKinds = new Set(route.indexed_source_kinds || []);
   const selectedKinds = Array.isArray(filters.requested_scopes) && array(filters.source_kinds).length ? filters.source_kinds.filter(kind => allowedKinds.has(kind)) : filters.source_kinds;
-  const indexedSelectionConflict = Array.isArray(filters.requested_scopes) && array(filters.source_kinds).length > 0 && !array(selectedKinds).length;
+  const indexedSelectionConflict = Array.isArray(filters.requested_scopes) && (
+    productGuide && !filters.requested_scopes.includes('knowledge')
+    || array(filters.source_kinds).length > 0 && !array(selectedKinds).length
+  );
   const effectiveFilters = array(filters.source_kinds).length || pinned ? {...filters,...(Array.isArray(filters.requested_scopes) ? {source_kinds:array(filters.source_kinds).length ? selectedKinds : route.indexed_source_kinds} : {})} : { ...filters, source_kinds: route.indexed_source_kinds };
   const projectScope = { project_id: request.project_id, app_type_id: filters.app_type_id || null, filters: effectiveFilters, context_route: route };
   execution.emit("QUERY_UNDERSTANDING", "completed", { query_class: request.query_class });
@@ -98,7 +104,7 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
   let queries = initialQueries;
   execution.emit("RETRIEVAL_PLANNING", "completed", { query_count: queries.length });
   while (queries.length && budget.canContinue()) {
-    const liveEnabled = (!Array.isArray(filters.requested_scopes) || array(route.live_scopes).length > 0) && !rounds.length && (!pinned || scopedLive) && !filters.as_of && budget.remaining().tool_calls >= 2;
+    const liveEnabled = !productGuide && (!Array.isArray(filters.requested_scopes) || array(route.live_scopes).length > 0) && !rounds.length && (!pinned || scopedLive) && !filters.as_of && budget.remaining().tool_calls >= 2;
     // Reserve part of the candidate budget for current native facts. Previously
     // indexed queries could consume every slot before the failed run or pinned
     // Story was added, silently losing the very evidence the user selected.

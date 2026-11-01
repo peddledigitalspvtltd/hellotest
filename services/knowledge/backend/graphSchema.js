@@ -85,7 +85,48 @@ const statements = [
     next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     processing_version TEXT NOT NULL
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_graph_projection_pending ON ai_knowledge_graph_projection_states (next_attempt_at, document_id) WHERE unresolved_count > 0`
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_graph_projection_pending ON ai_knowledge_graph_projection_states (next_attempt_at, document_id) WHERE unresolved_count > 0`,
+  `CREATE TABLE IF NOT EXISTS ai_context_graph_traces (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    app_type_id TEXT REFERENCES app_types(id) ON DELETE SET NULL,
+    feature_id TEXT NOT NULL,
+    context_packet_id TEXT NOT NULL,
+    task_ref TEXT,
+    session_id TEXT,
+    trace_ref TEXT,
+    query_hash TEXT,
+    selection_hash TEXT NOT NULL,
+    selection JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(selection) = 'object'),
+    evidence_refs JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(evidence_refs) = 'array' AND jsonb_array_length(evidence_refs) <= 30),
+    coverage JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(coverage) = 'object'),
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (project_id, actor_id, context_packet_id, feature_id),
+    UNIQUE (id, project_id, actor_id),
+    CHECK (length(feature_id) BETWEEN 1 AND 160),
+    CHECK (octet_length(evidence_refs::text) <= 49152)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_context_graph_traces_owner ON ai_context_graph_traces (project_id, actor_id, recorded_at DESC, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_context_graph_traces_feature ON ai_context_graph_traces (project_id, actor_id, feature_id, recorded_at DESC, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_context_graph_traces_session ON ai_context_graph_traces (project_id, actor_id, session_id, recorded_at DESC) WHERE session_id IS NOT NULL`,
+  `CREATE TABLE IF NOT EXISTS ai_context_graph_events (
+    id TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK (event_type IN ('REQUESTED','CONTEXT_SELECTED','POLICY_CHECKED','PROPOSAL_PREPARED','REVIEW_RECORDED','OPERATION_SUBMITTED','OUTCOME_RECORDED')),
+    status TEXT NOT NULL,
+    rationale TEXT,
+    reference_id TEXT,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    payload_hash TEXT NOT NULL,
+    PRIMARY KEY (trace_id, id),
+    FOREIGN KEY (trace_id, project_id, actor_id) REFERENCES ai_context_graph_traces(id, project_id, actor_id) ON DELETE CASCADE,
+    CHECK (length(status) BETWEEN 1 AND 80), CHECK (rationale IS NULL OR length(rationale) <= 600)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_context_graph_events_trace ON ai_context_graph_events (project_id, actor_id, trace_id, occurred_at, id)`
 ];
 
 module.exports = { statements, sql: statements.map(statement => `${statement};`).join('\n\n') };

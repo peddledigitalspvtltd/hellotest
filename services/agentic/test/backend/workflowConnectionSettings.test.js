@@ -294,3 +294,41 @@ test('MCP authentication diagnostics explain remediation without echoing remote 
   }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
  }
 });
+
+test('full MCP catalogs have a separate bounded discovery budget and saved contracts without widening tool results',async t=>{
+  setup(t);
+  let mode='full',calls=0;
+  const inputSchema={type:'object',properties:{},additionalProperties:false};
+  const outputSchema={type:'object',properties:{value:{type:'string'}},required:['value'],additionalProperties:false};
+  const tools=(count,length,offset=0)=>Array.from({length:count},(_,i)=>({name:`catalog_read_${i+offset}`,description:'d'.repeat(length),inputSchema,outputSchema,annotations:{readOnlyHint:true}}));
+  const server=http.createServer(async(req,res)=>{
+    let body='';for await(const chunk of req)body+=chunk;
+    const message=JSON.parse(body);
+    if(message.method==='notifications/initialized'){res.writeHead(202);res.end();return;}
+    let result;
+    if(message.method==='initialize')result={protocolVersion:'2025-11-25',serverInfo:{name:'Full catalog'},capabilities:{tools:{}}};
+    else if(message.method==='tools/list'){
+      result=mode==='full'?{tools:tools(70,1800)}:mode==='page-limit'?{tools:tools(70,9000)}:
+        mode==='aggregate-limit'?{tools:tools(40,7000,message.params.cursor?40:0),...(!message.params.cursor?{nextCursor:'second'}:{})}:
+        mode==='duplicate'?{tools:[...tools(1,0),...tools(1,0)]}:mode==='invalid'?{tools:[null]}:{tools:tools(101,0)};
+    }else{calls++;result={structuredContent:{value:'x'.repeat(140000)},content:[]};}
+    res.setHeader('Content-Type','application/json');res.end(JSON.stringify({jsonrpc:'2.0',id:message.id,result}));
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
+  const draft={...input(),url:`http://127.0.0.1:${server.address().port}/mcp`,allowPrivateNetwork:true,authType:'none',secret:'',tools:[]};
+  const preview=await settings.preview(draft);
+  const discovered=await mcp.inspect({projectId:'p',draftConnection:preview});
+  assert.equal(discovered.tools.length,70);assert.ok(Buffer.byteLength(JSON.stringify(discovered.tools))>128*1024);
+  const saved=await settings.save({...draft,toolDefinitions:discovered.tools,tools:discovered.tools.map(tool=>tool.name),protocolVersion:discovered.protocolVersion,discovered_at:discovered.discovered_at},null,'admin');
+  assert.equal(saved.tools.length,70);assert.equal(saved.toolDefinitions.length,70);
+  await assert.rejects(mcp.call({projectId:'p',connectionId:saved.id},'catalog_read_0',{}),error=>error.code==='AGENT_HTTP_RESPONSE_LIMIT'&&error.outcome_unknown===true,'Execution responses retain the 128 KB cap and uncertain-outcome handling.');
+  assert.equal(calls,1);
+  mode='page-limit';await assert.rejects(mcp.inspect({projectId:'p',draftConnection:preview}),{code:'AGENT_HTTP_RESPONSE_LIMIT'});
+  mode='aggregate-limit';await assert.rejects(mcp.inspect({projectId:'p',draftConnection:preview}),/512 KB across its pages/);
+  mode='duplicate';await assert.rejects(mcp.inspect({projectId:'p',draftConnection:preview}),/duplicate tool names/);
+  mode='invalid';await assert.rejects(mcp.inspect({projectId:'p',draftConnection:preview}),/invalid tool definition/);
+  mode='count-limit';await assert.rejects(mcp.inspect({projectId:'p',draftConnection:preview}),/exceeds 100 tools/);
+  assert.equal(calls,1,'Rejected discovery never dispatches a tool.');
+  await assert.rejects(settings.save({...saved,toolDefinitions:tools(70,9000)},saved.id,'admin'),/512 KB/);
+});

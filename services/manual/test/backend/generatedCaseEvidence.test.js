@@ -17,7 +17,7 @@ function fixture({deny=false,failCopy=false}={}){
   const module={exports:{}};new Function('require','module','exports',fs.readFileSync(file,'utf8'))(id=>overrides[id]||local(id),module,module.exports);
   return{service:module.exports,events};
 }
-const candidate={title:'Checkout retains delivery address',description:'Preserve the chosen delivery address.',priority:3,test_case_type:'functional',steps:[{action:'Submit the checkout',expected_result:'The order uses the chosen address'}],reference_attachment_ids:['source-file']};
+const candidate={title:'Checkout retains delivery address',description:'Preserve the chosen delivery address.',priority:3,test_case_type:'functional',parameter_values:{},steps:[{action:'Submit the checkout',expected_result:'The order uses the chosen address'}],reference_attachment_ids:['source-file']};
 const request={requirements:[],appType:{id:'app',project_id:'project'},created_by:'author',cases:[candidate]};
 
 test('accepted cases retain the supplied source evidence and validate all sources before any creation',async()=>{

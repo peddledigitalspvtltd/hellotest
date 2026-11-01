@@ -95,7 +95,9 @@ test("lost, timed-out and cancelled write responses are unknown outcomes with no
   await assert.rejects(connections.callHttp({ projectId: "project-a", data: { ...data, apiUrl: `${base}/lost`, apiMethod: "PATCH", apiBody: '{"changed":true}' } }), failure => {
     assert.equal(failure.outcome_unknown, true); assert.equal(failure.retryable, false); assert.match(failure.operation_id, /^http-/); return true;
   });
-  await assert.rejects(connections.callHttp({ projectId: "project-a", data: { ...data, apiUrl: `${base}/timeout`, apiMethod: "PUT", apiBody: "{}", timeoutMs: 50 } }), failure => {
+  // Leave enough time for the real request to reach the server under parallel
+  // test load. A deadline during preflight has a known no-dispatch outcome.
+  await assert.rejects(connections.callHttp({ projectId: "project-a", data: { ...data, apiUrl: `${base}/timeout`, apiMethod: "PUT", apiBody: "{}", timeoutMs: 1000 } }), failure => {
     assert.equal(failure.statusCode, 504); assert.equal(failure.outcome_unknown, true); assert.equal(events.retryable(failure), false); return true;
   });
   const controller = new AbortController(), arrived = observed();

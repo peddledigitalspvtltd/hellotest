@@ -95,7 +95,9 @@ const dedicatedTools=[
  {tool:'hellotest_graph_schema',family:'knowledge_graph',native_operations:['GET /projects/:project_id/knowledge/graph'],purpose:'Describe supported graph kinds, provenance and traversal limits.'},
  {tool:'hellotest_graph_resolve',family:'knowledge_graph',native_operations:['POST /projects/:project_id/knowledge/graph/resolve'],purpose:'Resolve exact typed current entities, titles and curated aliases without automatic fuzzy merging.'},
  {tool:'hellotest_graph_context',family:'knowledge_graph',native_operations:['POST /projects/:project_id/knowledge/graph/expand'],purpose:'Retrieve bounded relationship witnesses and exact authorized evidence passages.'},
- {tool:'hellotest_graph_trace',family:'knowledge_graph',native_operations:['POST /projects/:project_id/knowledge/graph/expand'],purpose:'Trace witnessed paths between two exact project entities with bounded traversal.'}
+ {tool:'hellotest_graph_trace',family:'knowledge_graph',native_operations:['POST /projects/:project_id/knowledge/graph/expand'],purpose:'Trace witnessed paths between two exact project entities with bounded traversal.'},
+ {tool:'hellotest_context_graph_list',family:'context_graph',native_operations:['GET /projects/:project_id/knowledge/context-graph'],purpose:'List owner-private persisted context receipts by trusted application, feature and recording time.'},
+ {tool:'hellotest_context_graph_explore',family:'context_graph',native_operations:['POST /projects/:project_id/knowledge/context-graph/explore'],purpose:'Read the recorded task/evidence/decision overlay with fresh source authorization and exact version checks.'}
 ];
 const serverSource=readFileSync(resolve(root,'services/mcp/backend/mcpServer.js'),'utf8');
 for(const entry of dedicatedTools){

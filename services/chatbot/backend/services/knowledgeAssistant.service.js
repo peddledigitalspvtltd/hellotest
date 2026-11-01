@@ -441,7 +441,8 @@ const requestGroundedAnswer = async ({ integration, question, hits, history = []
   const data = JSON.parse(modelRequest.messages[1].content);
   data.answer_focus = {
     answer_depth: projectScope?.context_route?.answer_depth,
-    outcome_sections: projectScope?.context_route?.outcome_sections
+    outcome_sections: projectScope?.context_route?.outcome_sections,
+    response_kind: projectScope?.context_route?.query_category === "tool_help" ? "product_guide" : "project_answer"
   };
   data.reviewed_smart_context = normalizeText(reviewedContext, 1200);
   // Synthesis sees the combined evidence packet after all retrieval rounds,
@@ -1328,6 +1329,14 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
   execution.current().turn.pendingMessageId = null;
   await db.prepare("UPDATE ai_knowledge_assistant_messages SET status = 'answered', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(userMessage.id);
   await db.prepare("UPDATE ai_knowledge_assistant_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(sessionId);
+  if (contextPacket?.retrieval?.context_graph?.status === 'recorded' && terminalAssistantMessage?.id) {
+    retrieval.context_graph_outcome = await require('@hellotest/mcp/backend/contextGraph').rememberDecision({
+      projectId: sessionRow.project_id, user, packet: contextPacket,
+      event: { id: `assistant-message:${terminalAssistantMessage.id}`, type: 'OUTCOME_RECORDED',
+        status: terminalAssistantMessage.status, reference_id: terminalAssistantMessage.id,
+        rationale: 'The assistant response was persisted after the native answer and grounding checks. This records its observed response status, not execution of a proposed action.' }
+    });
+  }
   execution.emit("COMPLETED", "completed");
   return formatTurnResponse({
     sessionRow,

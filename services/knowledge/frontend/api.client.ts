@@ -9,20 +9,31 @@ export type KnowledgeRefresh = {
   last_completed_at?: string; last_error?: string | null;
   last_result: { scanned?: number; queued?: number; unchanged?: number; inaccessible?: number };
 };
-export type KnowledgeGraphNode = { id: string; source_id: string; kind: string; ref_id: string; title: string; aliases: string[]; alias_revision?: string };
+export type KnowledgeGraphNode = { id: string; source_id: string; kind: string; ref_id: string; title: string; aliases: string[]; alias_revision?: string; metadata?: Record<string, unknown>; observed_at?: string; source_version?: string | number; source_status?: string; valid_from?: string | null; valid_to?: string | null };
 export type KnowledgeGraphEvidence = { chunk_id: string; source_id: string; title: string; content: string; citation: { id: string; document_id?: string; source_version?: string } };
+export type KnowledgeGraphEdge = { id: string; source: string; target: string; type: string; provenance_type: string; depth?: number; evidence_ids: string[]; observed_at?: string; valid_from?: string | null; valid_to?: string | null; confidence?: number | null; metadata?:Record<string,unknown> };
 export type KnowledgeGraph = {
   nodes: KnowledgeGraphNode[];
-  edges: Array<{ id: string; source: string; target: string; type: string; provenance_type: string; depth: number; evidence_ids: string[] }>;
+  edges: KnowledgeGraphEdge[];
   evidence: KnowledgeGraphEvidence[];
   limitations: { partial: boolean; budget_reached?: boolean; fanout_reached?: boolean; token_budget_reached?: boolean; gaps: string[] };
   stats: { node_count: number; edge_count: number; evidence_count: number; frontier_queries: number };
+};
+export type ContextGraphTrace = { id: string; trace_id: string; feature_id: string; app_type_id?: string | null; recorded_at: string; evidence_count: number; context_packet_id?: string | null; task_ref?: string | null; session_id?: string | null; status: string };
+export type ContextGraphNode = { id: string; kind: string; title: string; source_id?: string; observed_at?: string; metadata?: Record<string, unknown> };
+export type ContextGraph = {
+  contract_type: 'ContextGraph'; schema_version: string; trace: ContextGraphTrace;
+  nodes: ContextGraphNode[]; edges: KnowledgeGraphEdge[];
+  timeline: Array<{id: string; type: string; status: string; label: string; occurred_at: string; recorded_at?:string; rationale?: string; reference_id?: string; node_id?: string}>;
+  evidence?: KnowledgeGraphEvidence[];
+  stats?: {node_count: number; edge_count: number; evidence_count?: number};
+  limitations: {partial: boolean; gaps: string[]; [key: string]: unknown};
 };
 export type KnowledgeGraphCandidate = { id: string; source_title: string; target_title: string; relation_type: string; excerpt: string; source_id: string; document_id: string; document_version: number; chunk_id: string; review_revision: string };
 export const knowledgeApi = {
 knowledgeRepo: {
 graph: {
-  schema: (projectId: string) => request<{ schema_version: string; node_kinds: string[]; relation_types: string[]; limits: Record<string, number> }>(`/projects/${projectId}/knowledge/graph`),
+  schema: (projectId: string) => request<{ schema_version: string; node_kinds: string[]; relation_types: string[]; relation_definitions?: Record<string, {label?: string; description: string}>; limits: Record<string, number> }>(`/projects/${projectId}/knowledge/graph`),
   resolve: (projectId: string, identifiers: string[], options?: { signal?: AbortSignal }) => request<{ nodes: KnowledgeGraphNode[]; unresolved: string[]; ambiguous: boolean; partial: boolean }>(`/projects/${projectId}/knowledge/graph/resolve`, { method: "POST", body: JSON.stringify({ identifiers }), signal: options?.signal }),
   expand: (projectId: string, seeds: string[], hops: number, options?: { signal?: AbortSignal }) => request<KnowledgeGraph>(`/projects/${projectId}/knowledge/graph/expand`, { method: "POST", body: JSON.stringify({ seeds, hops, fanout: 5, max_nodes: 60, max_edges: 80, max_evidence: 20, token_budget: 4000 }), signal: options?.signal }),
   reconcile: (projectId: string, cursor?: string) => request<{ processed: number; next_cursor: string | null }>(`/projects/${projectId}/knowledge/graph/reconcile`, { method: "POST", body: JSON.stringify({ cursor }) }),
@@ -30,6 +41,10 @@ graph: {
   candidates: (projectId: string, options?: { signal?: AbortSignal }) => request<{ candidates: KnowledgeGraphCandidate[]; truncated: boolean }>(`/projects/${projectId}/knowledge/graph/candidates`, { signal: options?.signal }),
   extract: (projectId: string, nodeIds: string[]) => request<{ candidates: Array<{ id: string }>; rejected: number; truncated: boolean }>(`/projects/${projectId}/knowledge/graph/extract`, { method: "POST", body: JSON.stringify({ node_ids: nodeIds }) }, AI_REQUEST_TIMEOUT_MS),
   review: (projectId: string, edgeId: string, decision: "approve" | "reject", expectedRevision: string) => request<{ id: string; status: string }>(`/projects/${projectId}/knowledge/graph/candidates/${encodeURIComponent(edgeId)}/review`, { method: "POST", body: JSON.stringify({ decision, expected_revision: expectedRevision }) })
+},
+contextGraph: {
+  list: (projectId: string, filters: {app_type_id?: string; feature_id?: string; from?: string; to?: string; limit?: number; cursor?: string} = {}, options?: {signal?: AbortSignal}) => request<{schema_version: string; project_id: string; items: ContextGraphTrace[]; next_cursor: string | null}>(`/projects/${projectId}/knowledge/context-graph${toQueryString(filters)}`, {signal: options?.signal}),
+  explore: (projectId: string, traceId: string, appTypeId?: string, options?: {signal?: AbortSignal}) => request<ContextGraph>(`/projects/${projectId}/knowledge/context-graph/explore`, {method: 'POST', body: JSON.stringify({trace_id: traceId, ...(appTypeId ? {app_type_id: appTypeId} : {})}), signal: options?.signal})
 },
 refresh: {
   get: (projectId: string) => request<KnowledgeRefresh>(`/projects/${projectId}/knowledge/refresh`),

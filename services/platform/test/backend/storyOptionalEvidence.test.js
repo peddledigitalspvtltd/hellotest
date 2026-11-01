@@ -7,6 +7,7 @@ const { createRequire } = require("node:module");
 const permissionService = require("../../backend/services/permission.service");
 const featureFlagService = require("../../backend/services/featureFlag.service");
 const { getOptionalEvidenceAccess } = require("../../backend/services/optionalEvidenceAccess.service");
+const { groomingCandidate } = require('../../backend/test/helpers/groomingCandidate');
 
 const project = { id: "project-one", display_id: "PRJ_1", name: "Story project" };
 const member = { id: "author", role: "member" };
@@ -87,7 +88,7 @@ function optimizationFixture({ permittedCases = false, provider = false } = {}) 
     "./aiLlmSelection.service": { async resolveLlmIntegrationForUsage() { return provider ? { id: "llm", type: "llm", name: "Fixture reviewer", model: "fixture", is_active: true, base_url: "https://llm.invalid/v1" } : null; } },
     "../utils/llmHttpClient": { async fetchLlmWithRetry(_url, options) {
       prompts.push(JSON.parse(options.body));
-      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ title: story.title, description: story.description, priority: story.priority, status: story.status, evidence_refs: [`story:${story.id}`], field_evidence: { title: [`story:${story.id}`], description: [`story:${story.id}`] } }) } }] }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ title: story.title, description: story.description, priority: story.priority, status: story.status, acceptance_criteria: ['The reviewer can inspect the report before deciding its next state.'], evidence_refs: [`story:${story.id}`], field_evidence: { title: [`story:${story.id}`], description: [`story:${story.id}`], acceptance_criteria: [`story:${story.id}`] } }) } }] }), { status: 200, headers: { "content-type": "application/json" } });
     } }
   });
   return { service, queries, knowledgeRequests, prompts };
@@ -140,7 +141,7 @@ function groomingFixture(allowedSources = []) {
   const service = loadService("requirementWorkspace", {
     "../../backend/src/db": db,
     "./aiLlmSelection.service": { resolveLlmIntegrationForUsage: async () => ({ id: "fixture", model: "fixture", is_active: true, type: "llm", base_url: "https://llm.invalid/v1" }) },
-    "../utils/llmHttpClient": { fetchLlmWithRetry: async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ layman: { explanation: "Review the report before deciding its next state.", evidence_refs: [`requirement:${story.id}`] } }) } }] })) }
+    "../utils/llmHttpClient": { fetchLlmWithRetry: async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(groomingCandidate({ref: `requirement:${story.id}`})) } }] })) }
   });
   return { service, queries };
 }

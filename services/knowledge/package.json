@@ -36,7 +36,8 @@
     "./backend/refreshSchema": "./backend/refreshSchema.js",
     "./backend/vectorProjectionSchema": "./backend/vectorProjectionSchema.js",
     "./backend/graphSchema": "./backend/graphSchema.js",
-    "./backend/services/knowledgeGraph.service": "./backend/services/knowledgeGraph.service.js"
+    "./backend/services/knowledgeGraph.service": "./backend/services/knowledgeGraph.service.js",
+    "./backend/services/knowledgeContextGraph.service": "./backend/services/knowledgeContextGraph.service.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs knowledge",

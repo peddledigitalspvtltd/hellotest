@@ -6,8 +6,8 @@ exports.verify=async({app,db,createToken})=>{
   const project='mcp-p-a',application='mcp-app-a',user='mcp-a';
   const headers={authorization:'Bearer '+createToken({id:user})};
   const meta={'io.modelcontextprotocol/protocolVersion':'2026-07-28','io.modelcontextprotocol/clientCapabilities':{}};
-  const wanted=['testcase.update','testcase.ai','suite.view','suite.create','suite.update','feedback.manage','integration.view'];
-  const added=[],records={test_cases:[],test_suites:[],requirements:[],feedback:[]},plans=[];
+  const wanted=['testcase.update','testcase.ai','suite.view','suite.create','suite.update','feedback.manage','integration.view','schedule.view','dashboard.view'];
+  const added=[],records={test_cases:[],test_suites:[],requirements:[],feedback:[],test_case_modules:[]},plans=[];
   let credential,modelId,primaryError;
   const existingCases=new Set((await db.prepare('SELECT id FROM test_cases WHERE app_type_id=? AND created_by=?').all(application,user)).map(row=>row.id));
   const preferenceKey='workspace_preferences:'+user,priorPreferences=(await db.prepare('SELECT value FROM app_settings WHERE key=?').get(preferenceKey))?.value;
@@ -38,6 +38,23 @@ exports.verify=async({app,db,createToken})=>{
   try{
     const issued=await app.inject({method:'POST',url:'/agentic-workflows/mcp/credentials',headers,payload:{project_id:project,client_id:'feature-integration'}});
     assert.equal(issued.statusCode,200,issued.body);credential=issued.json();
+
+    const readable=await call('hellotest_capabilities',{query:'list test cases',limit:50});
+    assert.ok(readable.operations.some(operation=>operation.method==='GET'&&operation.path==='/test-cases'));
+    assert.ok(readable.operations.every(operation=>operation.method==='GET'),'A read phrase retains the explicit requested effect.');
+    for(const name of ['test_modules','schedules','workflow_runs','agents','repository_runs','knowledge_collections','dashboards']){
+      const page=await call(`hellotest_${name}_list`,{limit:5});
+      assert.equal(page.resource,name);assert.ok(Array.isArray(page.items));assert.ok(page.items.length<=5);
+      assert.ok(page.items.every(item=>!item.project_id||item.project_id===project),name+' retains the credential project');
+    }
+    for(const [id,app]of [['mcp-feature-module-own',application],['mcp-feature-module-foreign','mcp-app-b']]){
+      records.test_case_modules.push(id);
+      await db.prepare('INSERT INTO test_case_modules(id,app_type_id,name) VALUES(?,?,?)').run(id,app,'Feature fixture module');
+    }
+    const modules=await call('hellotest_test_modules_list',{search:'Feature fixture module',application_id:application});
+    assert.deepEqual(modules.items.map(item=>item.id),['mcp-feature-module-own']);
+    assert.equal((await call('hellotest_test_modules_get',{module_id:'mcp-feature-module-own'})).record.id,'mcp-feature-module-own');
+    const hiddenModule=await rpc('hellotest_test_modules_get',{module_id:'mcp-feature-module-foreign'});assert.equal(hiddenModule.isError,true);
 
     // More than one full page, including a title that would be a wildcard if
     // it were interpolated rather than treated as a literal SQL predicate.

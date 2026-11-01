@@ -10,6 +10,10 @@
 .mcp-server-dialog section { display:grid; gap:10px; }
 .mcp-tool-row,.mcp-plan { padding:12px 0; border-top:1px solid var(--border); }
 .mcp-tool-row small { color:var(--text-secondary); font-size:10px; }
+.mcp-tool-filters { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:12px; margin-top:14px; }
+.mcp-tool-filters label { display:grid; gap:6px; font-size:12px; min-width:0; }
+.mcp-tool-filters :is(input,select) { width:100%; min-width:0; }
+@media(max-width:600px){.mcp-tool-filters{grid-template-columns:minmax(0,1fr)}}
 .mcp-credential-row { display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12px; }
 @media(max-width:600px){.mcp-server-dialog > header,.mcp-server-dialog-body{padding:16px}.mcp-server-dialog .workflow-connection-form{padding:16px}}
 .mcp-credential-row span { min-width:0; overflow-wrap:anywhere; }

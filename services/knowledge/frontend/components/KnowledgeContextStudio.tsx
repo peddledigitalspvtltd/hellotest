@@ -605,7 +605,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
         {([
           ["sources", "Sources", IconFileText],
           ["search", "Search", IconSearch],
-          ["graph", "Graph", IconStack2],
+          ["graph", "Graphs", IconStack2],
           ["collections", "Collections", IconFolders],
           ["activity", "Activity", IconClock]
         ] as Array<[StudioTab, string, typeof IconStack2]>).filter(([tab]) => tab !== "build" || canManage).map(([tab, label, Icon]) => (
@@ -640,7 +640,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
         ))}
       </div>
 
-      {activeTab === "graph" ? <Suspense fallback={<LoadingState label="Loading context graph" />}><KnowledgeGraphPanel key={projectId} projectId={projectId} canManage={canManage} sources={allSources} onOpenSource={(sourceId, revisionId) => { setSelectedDetailSourceId(sourceId); setSelectedDetailRevisionId(revisionId || ""); }} /></Suspense> : null}
+      {activeTab === "graph" ? <Suspense fallback={<LoadingState label="Loading knowledge and context graphs" />}><KnowledgeGraphPanel key={projectId} projectId={projectId} appTypeId={appTypeId} canManage={canManage} sources={allSources} onOpenSource={(sourceId, revisionId) => { setSelectedDetailSourceId(sourceId); setSelectedDetailRevisionId(revisionId || ""); }} /></Suspense> : null}
 
       {activeTab === "build" && canManage ? (
         <div aria-labelledby="knowledge-add-sources-title" className="knowledge-builder" id="knowledge-panel-build" role="tabpanel">

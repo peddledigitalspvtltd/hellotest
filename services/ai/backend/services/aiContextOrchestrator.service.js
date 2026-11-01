@@ -112,10 +112,17 @@ const INTENT_RULES = [
   { id: "project_overview", scopes: ["stories", "test-cases", "runs", "bugs", "automation", "knowledge"], pattern: /\b(?:project|summary|overview|quality|health|readiness|risk|status|metrics?)\b/i }
 ];
 
-const EXPLICIT_PRODUCT_HELP = /\b(?:how (?:do|can|to)|where (?:do|can|is)|walk ?through|how to|use hellotest|navigate|explain (?:the )?(?:knowledge repo(?:sitory)?|context studio|ask hellotest|chatbot)|what (?:is|can i do (?:in|with)) (?:the )?(?:knowledge repo(?:sitory)?|context studio|ask hellotest|chatbot)|what (?:features?|capabilit(?:y|ies))|features? (?:of|in)|capabilit(?:y|ies) (?:of|in)|what (?:does|can) (?:hellotest|the chatbot|the assistant))\b/i;
+const EXPLICIT_PRODUCT_HELP = /\b(?:how (?:do|can|to)|where (?:do|can|is)|walk ?through|how to|use hellotest|navigate|explain (?:the )?(?:knowledge repo(?:sitory)?|context studio|ask hellotest|chatbot|sprint automator|foreach|for each|mcp)|what (?:is|can i do (?:in|with)) (?:the )?(?:knowledge repo(?:sitory)?|context studio|ask hellotest|chatbot|sprint automator|foreach|for each|mcp)|what (?:features?|capabilit(?:y|ies))|features? (?:of|in)|capabilit(?:y|ies) (?:of|in)|what (?:does|can) (?:hellotest|the chatbot|the assistant))\b/i;
+const PRODUCT_BEHAVIOR_QUESTION = /\bhow (?:does|do) (?:the )?(?:sprint automator|foreach|for each|loop over items|mcp|ask hellotest|chatbot|knowledge repo(?:sitory)?)\b/i;
+const PRODUCT_CONCEPT_QUESTION = /^\s*(?:what (?:is|are)|explain|guide me (?:through|on)) (?:the |a |an )?(?:test cases?|test runs?|stories|story|defects?|bugs?|sprints?|releases?|workflows?|shared steps?|object repository|environments?|configurations?|automation|sprint automator|foreach|for each|mcp)(?:\s+in hellotest)?[?.!]*\s*$/i;
 const CURRENT_PROJECT_FACTS = /\b(?:my|our|current|existing|selected|this project|how many|which|list|show|status|open|closed|failed|blocked|linked|unlinked|recent|today)\b/i;
+// Possessives and UI nouns occur in usage questions too ("configure my run",
+// "where can I view failed runs"). Requesting that workflow is different from
+// asking the assistant to inspect the current records.
+const PRODUCT_USAGE_ACTION = /\b(?:(?:how (?:do|can|to)|where (?:do|can))\s+(?:(?:i|we|you)\s+)?(?:create|add|configure|enable|disable|connect|use|find|view|see|open|access|navigate|set up|select|choose|save|upload|import|export|manage|edit|delete|link|run|start)|show(?: me)? how to|walk(?: me)? through)\b/i;
+const EXPLICIT_PROJECT_REQUEST = /\b(?:how many|which\s+(?!button|menu|screen|tab|page|setting|option|permission|role)\w+(?:\s+\w+){0,4}\s+(?:are|were|have|failed|need)|(?:analy[sz]e|summari[sz]e|investigate|diagnose|improve|fix|compare)\b|(?:and|also|then)\s+(?:show|list|check|tell|find)\b|(?:show|list)\s+(?:me\s+)?(?:all|the|our|my|current|recent)\b|(?:TC|RUN|STORY|BUG|REQ)[_-]\d+)\b/i;
 const REFERENTIAL_FOLLOW_UP = /^(?:and|also|then|so|what about|how about|why|which|where|when)|\b(?:it|its|that|those|them|this|these|same|ones?)\b/i;
-const ANALYTICAL_QUESTION = /\b(?:analy[sz]e|compare|explain|why|risk|recommend|improve|impact|root cause|readiness|trend|gap|quality)\b/i;
+const ANALYTICAL_QUESTION = /\b(?:analy[sz]e|compare|explain|why|risk|recommend|improve|impact|root cause|readiness|trend|gap|quality|insights?|summary|summari[sz]e|overview)\b/i;
 const DETAILED_ANSWER = /\b(?:detail(?:ed)?|elaborate|deep|thorough|step[- ]by[- ]step|walk ?through|explain|why|how)\b/i;
 const SOURCE_KINDS_BY_SCOPE = Object.freeze({
   stories: ["requirement"],
@@ -141,20 +148,24 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
   const question = normalizeText(prompt, 8_000);
   const wordCount = question.split(/\s+/).filter(Boolean).length;
   const previousUserMessage = [...asArray(history)].reverse().find((entry) => entry?.role === "user" && normalizeText(entry.content, 2_500));
-  const conversationReferenceUsed = Boolean(previousUserMessage && wordCount <= 20 && REFERENTIAL_FOLLOW_UP.test(question));
+  const explicitStandaloneGuide = (EXPLICIT_PRODUCT_HELP.test(question) || PRODUCT_BEHAVIOR_QUESTION.test(question) || PRODUCT_CONCEPT_QUESTION.test(question))
+    && !/\b(?:it|its|that|those|them|these|same|ones?)\b|\bthis(?!\s+(?:project|application|product)\b)/i.test(question);
+  const conversationReferenceUsed = Boolean(previousUserMessage && !explicitStandaloneGuide && wordCount <= 20 && REFERENTIAL_FOLLOW_UP.test(question));
   const resolvedQuestion = conversationReferenceUsed
     ? normalizeText(`Previous project question: ${previousUserMessage.content}\nCurrent follow-up: ${question}`, 5_000)
     : question;
   const matchedIntents = INTENT_RULES.filter((rule) => rule.pattern.test(resolvedQuestion));
   const domainIntents = matchedIntents.filter((rule) => rule.id !== "product_help");
-  const hasProductHelpIntent = matchedIntents.some((rule) => rule.id === "product_help");
+  const explicitProductHelp = EXPLICIT_PRODUCT_HELP.test(resolvedQuestion) || PRODUCT_BEHAVIOR_QUESTION.test(resolvedQuestion) || PRODUCT_CONCEPT_QUESTION.test(resolvedQuestion);
+  const hasProductHelpIntent = matchedIntents.some((rule) => rule.id === "product_help") || explicitProductHelp;
   const hasCurrentProjectSignal = CURRENT_PROJECT_FACTS.test(resolvedQuestion);
   const pureProductHelp = !agentId
-    && matchedIntents.some((rule) => rule.id === "product_help")
-    && EXPLICIT_PRODUCT_HELP.test(resolvedQuestion)
-    && !CURRENT_PROJECT_FACTS.test(resolvedQuestion);
+    && hasProductHelpIntent
+    && explicitProductHelp
+    && !/\b(?:TC|RUN|STORY|BUG|REQ|SPR|SPRINT)[_-]\d+\b/i.test(resolvedQuestion)
+    && (!hasCurrentProjectSignal || PRODUCT_USAGE_ACTION.test(resolvedQuestion) && !EXPLICIT_PROJECT_REQUEST.test(resolvedQuestion));
   const routedIntents = pureProductHelp
-    ? matchedIntents.filter((rule) => rule.id === "product_help")
+    ? [INTENT_RULES[0]]
     : matchedIntents;
   const intentScopes = unique(routedIntents.flatMap((rule) => rule.scopes));
   const chatPriorityScopes = /\b(?:stor(?:y|ies)|requirements?)\b/i.test(resolvedQuestion) && /\b(?:coverage|covered|uncovered|linked|unlinked)\b/i.test(resolvedQuestion)
@@ -178,13 +189,13 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
       ? "tool_help"
       : hasProductHelpIntent && (hasCurrentProjectSignal || domainIntents.length)
         ? "mixed"
-        : hasCurrentProjectSignal
-          ? "project_facts"
-          : ANALYTICAL_QUESTION.test(resolvedQuestion)
-            ? "project_analysis"
+        : ANALYTICAL_QUESTION.test(resolvedQuestion)
+          ? "project_analysis"
+          : hasCurrentProjectSignal
+            ? "project_facts"
             : "project_knowledge";
   const validRequested = unique(asArray(requestedScopes).map((scope) => normalizeText(scope, 80).toLowerCase()).filter((scope) => CONTEXT_SCOPES.includes(scope)));
-  const baseScopes = validRequested.length ? validRequested : policy.priority_scopes;
+  const baseScopes = pureProductHelp ? ["knowledge"] : validRequested.length ? validRequested : policy.priority_scopes;
   // Knowledge is a governed evidence source for every specialist. It is added
   // even when the caller chooses only relational scopes; ACL checks still run.
   const effectiveScopes = unique([...baseScopes, "knowledge"])
@@ -234,7 +245,7 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
     retrieval_query: normalizeText(`${resolvedQuestion}\nSpecialist retrieval focus: ${policy.retrieval_focus}`, 4_800),
     retrieval_focus: policy.retrieval_focus,
     outcome_sections: pureProductHelp
-      ? ["direct answer", "how to use it", "important behavior", "limitations or prerequisites"]
+      ? ["product guide", "prerequisites and navigation", "ordered usage steps", "expected result", "limitations or missing documentation"]
       : policy.outcome_sections,
     decision_question: policy.decision_question || "What answer is supported by the available project evidence?",
     deliverable_contract: policy.deliverable_contract || "A direct evidence-backed answer with limitations and a useful next step."

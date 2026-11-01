@@ -38,6 +38,7 @@ test("evidence-only turns explicitly bypass models and carry their reviewed sour
   await run.submit();
   assert.equal(run.calls[0].responseMode, "evidence");
   assert.equal(run.calls[0].integrationId, "");
+  assert.equal(run.calls[0].onAnswerDelta, undefined, "The UI waits for the complete answer contract");
   assert.deepEqual(run.calls[0].filters.source_kinds, ["text", "knowledge_item", "product_help"]);
   assert.deepEqual(run.calls[0].smartContext.source_ids, ["source-1"]);
   assert.equal(run.messages()[1].scope.project_id, "project-1");

@@ -102,3 +102,64 @@ test('workflow execution projection protects API automation steps and legacy spe
   assert.equal(JSON.stringify(specialist).includes('legacy_private_source'),false);
   assert.equal(specialist.node_results[0].output.automation_source_hidden,true);
 });
+
+test('native foreach histories redact generated source at every iteration and keep private checkpoints server-only', async t => {
+  t.mock.method(flags, 'getDisabledPermissionCodes', async () => []);
+  let canCode = false;
+  t.mock.method(permissions, 'hasPermission', async (_, permission) => permission === 'automation.view' || canCode);
+  const { publicRun } = require('../../backend/workflows/executionReadAccess');
+  const code = 'await page.getByRole("button", {name:"private-source-marker"}).click();';
+  const packet = { automation: [{ executable: { code }, steps: [{ step_type: 'web', automation_code: code }] }] };
+  const snapshot = {
+    status: 'completed', iteration_path: ['outer', 0, 'inner', 0],
+    input: { input: packet }, output: { data: [packet] },
+    execution_context: { data: [{ native: 'private-lineage-marker' }] },
+    progress: { completed_items: [packet], automation_checkpoint: { data: 'private-checkpoint-marker' } },
+    logs: [{ message: code }], error: code, error_details: { message: code }
+  };
+  const internal = { project_id: 'project', workflow_snapshot: { nodes: [
+    { id: 'manual', data: { artifactTask: 'test-case-generation' } },
+    { id: 'native', data: { artifactTask: 'automation-engineer' } }
+  ], edges: [] }, node_results: [
+    { node_id: 'manual', output: { data: [{ title: 'Readable manual case' }] }, iterations: [{ status: 'completed', output: { data: [{ title: 'Earlier manual case' }] }, execution_context: { internal: 'private-lineage-marker' } }] },
+    { node_id: 'native', status: 'completed', output: { data: [] }, iterations: [{ ...snapshot, iterations: [snapshot] }] }
+  ], output_payload: { status: 'completed', results: [{ execution_context: { native: 'private-lineage-marker' }, output: { data: [packet] } }] } };
+  const before = JSON.stringify(internal);
+  const denied = await publicRun(internal, { id: 'reader' });
+  assert.doesNotMatch(JSON.stringify(denied), /private-source-marker|private-lineage-marker|private-checkpoint-marker/);
+  assert.equal(denied.node_results[0].iterations[0].output.data[0].title, 'Earlier manual case');
+  const history = denied.node_results[1].iterations[0];
+  for (const entry of [history, history.iterations[0]]) {
+    for (const field of ['input', 'output', 'progress', 'error_details']) assert.equal(entry[field].automation_source_hidden, true);
+    assert.deepEqual(entry.logs, []);
+    assert.equal(Object.hasOwn(entry, 'execution_context'), false);
+    assert.deepEqual(entry.iteration_path, snapshot.iteration_path);
+  }
+  canCode = true;
+  const allowed = await publicRun(internal, { id: 'reader' });
+  const allowedHistory = allowed.node_results[1].iterations[0];
+  assert.equal(allowedHistory.output.data[0].automation[0].executable.code, code);
+  assert.equal(allowedHistory.iterations[0].input.input.automation[0].steps[0].automation_code, code);
+  assert.deepEqual(allowedHistory.progress.completed_items, [packet]);
+  assert.doesNotMatch(JSON.stringify(allowed), /private-lineage-marker|private-checkpoint-marker|execution_context|automation_checkpoint/);
+  assert.equal(allowed.output_payload.results[0].output.data[0].automation[0].executable.code, code);
+  assert.equal(JSON.stringify(internal), before, 'Projection must retain all saved acceptance/replay checkpoints internally');
+});
+
+test('historical typed sources retain their read boundary after a later batch replaces the current output', async t => {
+  t.mock.method(flags, 'getDisabledPermissionCodes', async () => []);
+  t.mock.method(permissions, 'hasPermission', async () => false);
+  const { publicRun } = require('../../backend/workflows/executionReadAccess');
+  const code = 'historical-source-marker';
+  const internal = { project_id: 'project', workflow_snapshot: { nodes: [], edges: [{ source: 'worker', target: 'summary' }] }, node_results: [
+    { node_id: 'worker', output: { data: [] }, iterations: [{ status: 'completed',
+      input: { item: { step_type: 'api', api_request: { method: 'GET', url: `https://example.test/${code}` } } },
+      output: { data: code }, progress: { completed_items: [code] }, logs: [{ message: code }] }] },
+    { node_id: 'summary', output: { response: code }, iterations: [{ output: { data: code }, logs: [{ message: code }] }] }
+  ] };
+  const result = await publicRun(internal, { id: 'reader' });
+  assert.doesNotMatch(JSON.stringify(result), /historical-source-marker/);
+  assert.equal(result.node_results[0].iterations[0].input.automation_source_hidden, true);
+  assert.equal(result.node_results[1].iterations[0].output.automation_source_hidden, true);
+  assert.deepEqual(result.node_results[1].iterations[0].logs, []);
+});

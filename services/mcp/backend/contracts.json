@@ -1011,6 +1011,9 @@
           "case_index": {
             "type": "number"
           },
+          "iteration_path": {
+            "type": "array"
+          },
           "kind": {
             "type": "string",
             "enum": [

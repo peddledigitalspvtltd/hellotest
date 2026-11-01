@@ -130,8 +130,9 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     if (process.env.BROWSER_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, "knowledge-assistant-retry-390.png"), animations: "disabled" });
     await page.setViewportSize({ width: 1440, height: 1050 });
     await page.evaluate(() => window.qa.deliver());
-    await page.getByRole("article", { name: "Receiving checked answer" }).waitFor();
-    assert.equal(await page.locator(".is-delivering").getAttribute("aria-busy"), "true", "Answer delivery stays pending until the saved result arrives");
+    assert.equal(await page.locator(".is-delivering").count(), 0, "Legacy answer chunks do not expose a partial preview");
+    assert.equal(await page.locator(".grounded-assistant-message.is-assistant").count(), 0, "The answer appears together with its completed contract");
+    assert.equal(await page.getByRole("region", { name: "Answer progress" }).isVisible(), true);
     await page.evaluate(() => window.qa.finish());
     await page.locator(".knowledge-answer-paragraphs").waitFor();
     assert.equal(await input.inputValue(), "Keep this next question");

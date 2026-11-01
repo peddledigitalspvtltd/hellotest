@@ -57,11 +57,16 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     await page.locator('.studio-node[data-kind="artifactTask"]').first().waitFor();
     assert.equal(await page.locator('.studio-node[data-kind="artifactTask"]').count(),4);
     assert.equal(await page.locator('.studio-node[data-kind="loop"]').count(),1);
+    const loop=page.locator('.studio-node[data-kind="loop"]');
+    for(const port of ['loop','done','continue']) assert.equal(await loop.locator(`[data-handleid="${port}"]`).count(),1,`Sprint foreach exposes its ${port} port`);
+    await page.screenshot({path:'/tmp/hellotest-sprint-foreach-editor.png',fullPage:true});
     await page.getByText('Read all Sprint Stories',{exact:true}).click();
     await page.getByLabel('API connection',{exact:true}).selectOption('stories-api');
     await page.getByText(/All cursor pages are read/).waitFor();
     await page.getByRole('button',{name:'Save changes',exact:true}).click();
     await page.waitForFunction(()=>Boolean(window.previewWorkflow));
+    assert.equal(await page.evaluate(()=>window.previewWorkflow.nodes.find(node=>node.data.kind==='loop').data.loopAction),'workflow');
+    assert.equal(await page.evaluate(()=>window.previewWorkflow.edges.some(edge=>edge.source==='automation-engineer' && edge.target==='each-story' && edge.targetHandle==='continue')),true);
     await page.evaluate(()=>window.openSprintRun());
     await page.getByRole('button',{name:'Results',exact:true}).click();
     const drafts=page.getByRole('region',{name:'Sprint Test Case drafts'});

@@ -4,14 +4,18 @@ Choose **Agentic Studio → Workflows → Sprint Automator**. The template creat
 
 1. Manual Sprint trigger.
 2. Read all Sprint Stories through an authenticated HTTP API connection.
-3. For each Story, establish a project/Sprint-scoped packet and pin its current revision.
+3. For each Story, enter the connected loop body with a batch of one. Story Assurance authorizes the selected project/Sprint Story and pins its current revision.
 4. AI Story Assurance.
 5. AI Test Case Generator.
 6. AI Test Case Quality Assurance.
 7. AI Automation Engineer.
 8. Show saved Library cases, automation outcomes and missing inputs.
 
-Select the project and application in the workspace. The **Sprint Automator setup** panel preloads ten permitted Sprints and supports searching by name or ID. Choose the Sprint, Stories API connection, model, case count, format and generation guidance. Saving preserves these template fields and restores them when the workflow is reopened. Other arbitrary trigger fields are not copied into the saved Sprint defaults.
+The loop's **loop** output connects to Story Assurance. Automation Engineer returns its result to **continue**; **done** connects to Sprint results after every Story has finished the four native stages. Each Story completes its entire chain before the next Story starts. Batch input, output and saved Library receipts remain inspectable for every iteration, including when a later Story fails.
+
+The original eight-step template upgrades to this connected loop when opened through the workflow service. Saved task guidance, connection, Sprint and explicit publication policies are retained. Customized graphs keep their connections. Accepted run snapshots keep their original graph.
+
+Select the project and application in the workspace. The **Sprint Automator setup** panel preloads ten permitted Sprints and supports searching by name or ID. Choose the Sprint and configure the Stories API connection, model, case count, format and generation guidance in their nodes. Use **Configure AI Automation Engineer** to set the reviewed browser start URL before generating browser automation. Saving preserves the Sprint scope and each node's configuration. Other arbitrary trigger fields are not copied into the saved Sprint defaults.
 
 Create a personal key under **Settings → API Keys**. A **Read** key is sufficient for this template; **Design** or **User** scope is needed to create or update Stories and remains subject to the owner's current project permissions. In Integrations, create a managed HTTP connection pointing to this HelloTest installation's API base, for example `https://your-instance.example/api`, using `X-API-Key` authentication and GET access. Select it in the setup panel or **Read all Sprint Stories** node. Authentication is applied by the server and never copied into workflow input, model context or output. Private deployments require the connection's private-network setting. Do not paste an API key into the trigger JSON.
 

@@ -5,7 +5,8 @@ import { createRequire } from 'node:module';
 const require = createRequire(new URL('../../../platform/frontend/package.json', import.meta.url));
 const ts = require('typescript');
 function load(path, modules = {}) { const exports = {}; new Function('exports', 'require', ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(exports, name => modules[name] || (() => { throw Error(`Unexpected import ${name}`); })()); return exports; }
-const readiness=load('../../../ai/frontend/lib/draftReadiness.ts');
+const parameters=load('../../../platform/frontend/src/shared/lib/stepParameters.ts',{'acorn':require('acorn')});
+const readiness=load('../../../ai/frontend/lib/draftReadiness.ts',{'@hellotest/platform/frontend/src/shared/lib/stepParameters':parameters});
 const {agentArtifactIssues,agentArtifactSavedRoute}=load('../../frontend/lib/agentArtifactReview.ts',{'@hellotest/ai/frontend/lib/draftReadiness':readiness});
 const base={title:'Reviewed checkout',description:'One order after retry.',priority:'P2',citation_ids:['source-1']};
 test('library approval requires the artifact-specific mandatory fields and accepts native case parameter names',()=>{
@@ -19,7 +20,7 @@ test('library approval requires the artifact-specific mandatory fields and accep
   assert.ok(agentArtifactIssues({...base,kind:'run',test_case_ids:['case-1'],exit_criteria:[' ']}).length);
 });
 test('automation proposals remain Plans and route to the saved automation case',()=>{
-  const plan={...base,kind:'automation',steps:[{step_type:'web',action:'Open checkout',expected_result:'Checkout is visible'}]};
+  const plan={...base,kind:'automation',parameter_values:{},steps:[{step_type:'web',action:'Open checkout',expected_result:'Checkout is visible'}]};
   assert.match(agentArtifactIssues(plan).join(' '),/start URL/);
   assert.deepEqual(agentArtifactIssues({...plan,start_url:'http://localhost:8080/checkout'}),[]);
   assert.equal(agentArtifactSavedRoute('automation','case 1'),'/automation?case=case%201');

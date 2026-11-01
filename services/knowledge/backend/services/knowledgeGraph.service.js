@@ -10,8 +10,11 @@ const {KINDS,RELATIONS,PERMISSIONS,LIMITS,describe,fail,text,list,number} = requ
 const {reachableGraph,packGraph} = require('./knowledgeGraphPacking');
 const {compactGraphEvidence} = require('./knowledgeGraphEvidence');
 
+const date = value => value && Number.isFinite(new Date(value).getTime()) ? new Date(value).toISOString() : null;
 const publicNode = row => ({id:row.id,source_id:row.id,kind:row.entity_type,type:row.entity_type,ref_id:row.entity_key,key:row.entity_key,
-  title:sanitizeAiText(text(row.title,500)).text,aliases:list(row.aliases,30).filter(value=>typeof value==='string').map(value=>sanitizeAiText(text(value,255)).text).filter(Boolean)});
+  title:sanitizeAiText(text(row.title,500)).text,aliases:list(row.aliases,30).filter(value=>typeof value==='string').map(value=>sanitizeAiText(text(value,255)).text).filter(Boolean),
+  ...(row.created_at ? {created_at:date(row.created_at)} : {}),...(row.updated_at ? {updated_at:date(row.updated_at)} : {}),
+  evidence_state:'CURRENT',confidence:null});
 
 function createGraph(dependencies={}) {
   const store=dependencies.db||db,acl=dependencies.authorization||authorization,grants=dependencies.permissions||permissions;
@@ -43,7 +46,9 @@ function createGraph(dependencies={}) {
       ${appTypeId?`AND(${source}.app_type_id=? OR ${source}.app_type_id IS NULL)`:''}
       AND EXISTS(SELECT 1 FROM ai_knowledge_documents ${documents} JOIN ai_knowledge_chunks ${chunks} ON ${chunks}.document_id=${documents}.id AND ${chunks}.source_id=${source}.id
         JOIN ai_knowledge_index_states ${indexes} ON ${indexes}.document_id=${documents}.id WHERE ${documents}.source_id=${source}.id AND ${documents}.project_id=${source}.project_id
-        AND ${chunks}.project_id=${source}.project_id AND ${documents}.is_active=TRUE AND ${indexes}.required_indexes_ready=TRUE AND ${indexes}.is_current=TRUE
+        AND ${chunks}.project_id=${source}.project_id AND ${documents}.is_active=TRUE
+        AND ${documents}.effective_from<=CURRENT_TIMESTAMP AND(${documents}.effective_to IS NULL OR ${documents}.effective_to>CURRENT_TIMESTAMP)
+        AND ${indexes}.required_indexes_ready=TRUE AND ${indexes}.is_current=TRUE
         AND ${indexes}.project_id=${source}.project_id AND ${indexes}.source_id=${source}.id AND ${indexes}.document_version=${documents}.version
         AND ${acl.applicationContextPredicate({source,document:documents})} AND ${policy.sql})`,params:[access.projectId,...access.kinds,...access.permissions,...(appTypeId?[appTypeId]:[]),...policy.params]};
   };
@@ -56,10 +61,10 @@ function createGraph(dependencies={}) {
       else if(identifier&&KINDS.includes(identifier.kind)&&text(identifier.ref_id)){selectors.push('(nodes.entity_type=? AND(nodes.entity_key=? OR nodes.id=?))');args.push(identifier.kind,text(identifier.ref_id),text(identifier.ref_id));}
       else throw fail('Use canonical source IDs or typed native record identifiers.');
     }
-    if(text(query)){selectors.push('(nodes.id=? OR nodes.entity_key=? OR LOWER(nodes.title)=LOWER(?) OR EXISTS(SELECT 1 FROM jsonb_array_elements_text(nodes.aliases) alias(value) WHERE LOWER(alias.value)=LOWER(?)))');args.push(text(query),text(query),text(query),text(query));}
+    if(text(query)){selectors.push('(nodes.id=? OR nodes.entity_key=? OR LOWER(sources.title)=LOWER(?) OR EXISTS(SELECT 1 FROM jsonb_array_elements_text(nodes.aliases) alias(value) WHERE LOWER(alias.value)=LOWER(?)))');args.push(text(query),text(query),text(query),text(query));}
     if(!selectors.length)return [];
     const gate=visible('sources',access,appTypeId);
-    return work.run(()=>store.prepare(`SELECT nodes.id,nodes.entity_type,nodes.entity_key,nodes.title,nodes.aliases FROM ai_knowledge_graph_nodes nodes
+    return work.run(()=>store.prepare(`SELECT nodes.id,nodes.entity_type,nodes.entity_key,sources.title AS title,nodes.aliases,nodes.created_at,nodes.updated_at FROM ai_knowledge_graph_nodes nodes
       JOIN ai_knowledge_sources sources ON sources.id=nodes.source_id AND sources.project_id=nodes.project_id
       WHERE nodes.project_id=? AND nodes.tombstoned_at IS NULL AND(${selectors.join(' OR ')}) AND ${gate.sql} ORDER BY nodes.entity_type,nodes.entity_key,nodes.id LIMIT ?`).all(access.projectId,...args,...gate.params,limit));
   };
@@ -77,9 +82,9 @@ function createGraph(dependencies={}) {
     const proof=acl.predicate({user:access.user,projectId:access.projectId,source:'proof_sources',document:'proof_documents',chunk:'proof_chunks'});
     const permission=access.permissions.length?`(proof_sources.required_permission IS NULL OR proof_sources.required_permission IN(${access.permissions.map(()=>'?').join(',')}))`:'proof_sources.required_permission IS NULL';
     const direction=options.direction==='outbound'?'edges.source_node_id=?':options.direction==='inbound'?'edges.target_node_id=?':'(edges.source_node_id=? OR edges.target_node_id=?)';
-    return work.run(()=>store.prepare(`SELECT edges.id,edges.source_node_id,edges.target_node_id,edges.relation_type,edges.provenance_type,
-      source_nodes.entity_type AS source_kind,source_nodes.entity_key AS source_key,source_nodes.title AS source_title,source_nodes.aliases AS source_aliases,
-      target_nodes.entity_type AS target_kind,target_nodes.entity_key AS target_key,target_nodes.title AS target_title,target_nodes.aliases AS target_aliases,witness.*
+    return work.run(()=>store.prepare(`SELECT edges.id,edges.source_node_id,edges.target_node_id,edges.relation_type,edges.provenance_type,edges.valid_from,edges.valid_to,edges.created_at AS observed_at,
+      source_nodes.entity_type AS source_kind,source_nodes.entity_key AS source_key,origins.title AS source_title,source_nodes.aliases AS source_aliases,
+      target_nodes.entity_type AS target_kind,target_nodes.entity_key AS target_key,targets.title AS target_title,target_nodes.aliases AS target_aliases,witness.*
       FROM ai_knowledge_graph_edges edges JOIN ai_knowledge_graph_nodes source_nodes ON source_nodes.id=edges.source_node_id AND source_nodes.project_id=edges.project_id
       JOIN ai_knowledge_graph_nodes target_nodes ON target_nodes.id=edges.target_node_id AND target_nodes.project_id=edges.project_id
       JOIN ai_knowledge_sources origins ON origins.id=source_nodes.source_id JOIN ai_knowledge_sources targets ON targets.id=target_nodes.source_id
@@ -90,7 +95,9 @@ function createGraph(dependencies={}) {
         JOIN ai_knowledge_documents proof_documents ON proof_documents.id=evidence.document_id AND proof_documents.source_id=evidence.source_id AND proof_documents.version=evidence.document_version AND proof_documents.checksum_sha256=evidence.version_hash
         JOIN ai_knowledge_sources proof_sources ON proof_sources.id=evidence.source_id AND proof_sources.project_id=evidence.project_id
         JOIN ai_knowledge_index_states proof_indexes ON proof_indexes.document_id=proof_documents.id
-        WHERE evidence.edge_id=edges.id AND evidence.project_id=edges.project_id AND proof_documents.is_active=TRUE AND proof_indexes.required_indexes_ready=TRUE AND proof_indexes.is_current=TRUE AND proof_sources.extraction_status='ready'
+        WHERE evidence.edge_id=edges.id AND evidence.project_id=edges.project_id AND proof_documents.is_active=TRUE
+        AND proof_documents.effective_from<=CURRENT_TIMESTAMP AND(proof_documents.effective_to IS NULL OR proof_documents.effective_to>CURRENT_TIMESTAMP)
+        AND proof_indexes.required_indexes_ready=TRUE AND proof_indexes.is_current=TRUE AND proof_sources.extraction_status='ready'
         AND proof_indexes.project_id=edges.project_id AND proof_indexes.source_id=proof_sources.id AND proof_indexes.document_version=proof_documents.version
         AND evidence.provenance_type IN('DETERMINISTIC','SOURCE_EXPLICIT','HUMAN_VERIFIED') AND ${permission}
         AND proof_sources.source_kind IN(${access.kinds.map(()=>'?').join(',')||'NULL'})
@@ -136,7 +143,9 @@ function createGraph(dependencies={}) {
         if(!nodes.has(neighbor)&&nodes.size>=input.maxNodes){budgetReached=true;continue;}
         if(!nodes.has(neighbor))nodes.set(neighbor,publicNode(row.source_node_id===neighbor?{id:neighbor,entity_type:row.source_kind,entity_key:row.source_key,title:row.source_title,aliases:row.source_aliases}:{id:neighbor,entity_type:row.target_kind,entity_key:row.target_key,title:row.target_title,aliases:row.target_aliases}));
         evidence.set(proof.chunk_id,proof);
-        edges.set(row.id,{id:row.id,source:row.source_node_id,target:row.target_node_id,type:row.relation_type,provenance_type:row.provenance_type,depth:current.depth+1,path:[...current.path,neighbor],evidence_ids:[proof.citation.id],witness_span:{evidence_id:proof.citation.id,start:row.span_start,end:row.span_end,offset_unit:'unicode_codepoint',offset_basis:'source_chunk'}});
+        edges.set(row.id,{id:row.id,source:row.source_node_id,target:row.target_node_id,type:row.relation_type,provenance_type:row.provenance_type,
+          valid_from:date(row.valid_from),valid_to:date(row.valid_to),observed_at:date(row.observed_at),confidence:null,
+          depth:current.depth+1,path:[...current.path,neighbor],evidence_ids:[proof.citation.id],witness_span:{evidence_id:proof.citation.id,start:row.span_start,end:row.span_end,offset_unit:'unicode_codepoint',offset_basis:'source_chunk'}});
         if(!queued.has(neighbor)&&current.depth+1<input.hops){queued.add(neighbor);frontier.push({id:neighbor,depth:current.depth+1,path:[...current.path,neighbor]});}
         if(edges.size>=input.maxEdges){budgetReached=true;break;}
       }

@@ -424,7 +424,7 @@ const needsAttention = source => source.status === 'failed' || ['limited','limit
 
 function terminalSummary(run, status, nodes, fallback) {
   const saved = new Map();
-  for (const node of nodes) for (const receipt of array(node.output?.library_publication?.receipts)) {
+  for (const node of nodes.flatMap(node => [...array(node.iterations), node])) for (const receipt of array(node.output?.library_publication?.receipts)) {
     if (receipt.saved === true && text(receipt.id) && ['manual', 'automation'].includes(receipt.kind)) saved.set(`${receipt.kind}:${receipt.id}`, receipt);
   }
   if (!saved.size) return fallback;
@@ -434,7 +434,7 @@ function terminalSummary(run, status, nodes, fallback) {
   if (manual) messages.push(`Saved ${manual} manual Test Case${manual === 1 ? '' : 's'} pending review.`);
   if (automation) messages.push(`Saved ${automation} automation Test Case${automation === 1 ? '' : 's'} pending review and unverified.`);
   if (typeof fallback === 'string' && fallback.startsWith(messages.join(' '))) return fallback;
-  if (status === 'needs_review') messages.push(nodes.some(node => node.output?.verification?.status === 'needs_input')
+  if (status === 'needs_review') messages.push(nodes.flatMap(node => [...array(node.iterations), node]).some(node => node.output?.verification?.status === 'needs_input')
     ? 'Additional automation inputs are still needed.' : 'The remaining workflow findings need attention.');
   else if (status !== 'completed' || run.workflow_snapshot?.runtime_contract?.target_node_id) messages.push(fallback);
   return messages.filter(Boolean).join(' ');
@@ -696,6 +696,11 @@ async function executeLoopBody(run, node, user, signal, persist = async () => {}
   const max = Number(node.data.loopMaxIterations), size = Number(node.data.loopBatchSize || 1);
   if (items.length > max) throw error(`Loop Over Items received ${items.length} items; its configured limit is ${max}. Reduce the input or increase the limit to at most 100.`, 422);
   const bodyIds = graphContract.loopBodies(run.workflow_snapshot.nodes, run.workflow_snapshot.edges)[node.id];
+  // Native stages already permit 2 MB artifacts. A connected Sprint loop must
+  // retain the same output budget instead of failing at the generic 128 KB cap.
+  const nativeBody = run.workflow_snapshot.nodes.some(step => bodyIds.includes(step.id) && kindOf(step) === 'artifactTask');
+  const collectionLimit = nativeBody ? 2 * 1024 * 1024 : 128 * 1024;
+  const historyLimit = nativeBody ? 16 * 1024 * 1024 : 2 * 1024 * 1024;
   const bodies = graphContract.loopBodies(run.workflow_snapshot.nodes, run.workflow_snapshot.edges);
   const nestedIds = new Set(Object.entries(bodies).filter(([id]) => bodyIds.includes(id)).flatMap(([, ids]) => ids));
   const directIds = bodyIds.filter(id => !nestedIds.has(id));
@@ -762,7 +767,7 @@ async function executeLoopBody(run, node, user, signal, persist = async () => {}
         if (nativeSources.some(source => !source.execution_context)) lineageComplete = false;
         const inherited = lineageComplete ? mergeExecutionContext([...(collectedLineage ? [{ execution_context: collectedLineage }] : []), ...nativeSources]) : null;
         if (inherited) collectedLineage = inherited;
-        if (Buffer.byteLength(JSON.stringify(collected)) > 128 * 1024 || collected.length > 1000) throw error('Collected loop output exceeds 1000 items or 128 KB. Reduce the input or aggregate inside the body.', 422);
+        if (Buffer.byteLength(JSON.stringify(collected)) > collectionLimit || collected.length > 1000) throw error(`Collected loop output exceeds 1000 items or ${collectionLimit / 1024} KB. Reduce the input or aggregate inside the body.`, 422);
       } finally {
         for (const id of bodyIds) {
           const result = run.node_results.find(item => item.node_id === id);
@@ -771,7 +776,7 @@ async function executeLoopBody(run, node, user, signal, persist = async () => {}
           const { iterations, ...snapshot } = result;
           iterations.push({ ...structuredClone(snapshot), batch_index: batchIndex, iteration_path: child.iteration_path, input_start_index: batchIndex * size, input_item_count: batch.length });
         }
-        if (Buffer.byteLength(JSON.stringify(run.node_results)) > 2 * 1024 * 1024) throw error('Loop execution records exceed 2 MB. Reduce the loop input or step output.', 422);
+        if (Buffer.byteLength(JSON.stringify(run.node_results)) > historyLimit) throw error(`Loop execution records exceed ${historyLimit / 1024 / 1024} MB. Reduce the loop input or step output.`, 422);
         await persist();
       }
       if (limited) break;

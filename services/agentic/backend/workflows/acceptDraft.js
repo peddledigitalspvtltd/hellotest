@@ -9,7 +9,14 @@ async function accept(app, req, run) {
   if (!['completed', 'needs_review'].includes(run.status) || run.execution_mode !== 'review') throw fail('Wait for a completed native workflow before accepting its drafts.', 409);
   const { node_id: nodeId, story_index: storyIndex, case_index: caseIndex, kind = 'manual' } = req.body || {};
   if (!['manual', 'automation'].includes(kind) || !Number.isInteger(storyIndex) || storyIndex < 0 || !Number.isInteger(caseIndex) || caseIndex < 0) throw fail('Choose a recorded Story, Test Case and draft kind.');
-  const node = run.node_results.find(row => row.node_id === nodeId && row.node_type === 'artifactTask' && row.status === 'completed');
+  let node = run.node_results.find(row => row.node_id === nodeId && row.node_type === 'artifactTask');
+  const path = req.body?.iteration_path;
+  if (path !== undefined) {
+    if (!Array.isArray(path) || !path.length || path.length > 8 || path.length % 2
+      || path.some((part, index) => index % 2 === 0 ? typeof part !== 'string' || !part || part.length > 160 : !Number.isInteger(part) || part < 0 || part > 99)) throw fail('Choose a valid recorded loop iteration.');
+    node = node?.iterations?.find(item => JSON.stringify(item.iteration_path) === JSON.stringify(path));
+  }
+  if (node?.status !== 'completed') throw fail('Choose a completed native task or loop iteration.', 409);
   const packet = (node?.execution_context || node?.output)?.data?.[storyIndex];
   const draft = packet?.cases?.[caseIndex];
   if (!draft || !packet.case_assurance?.[caseIndex] || packet.case_assurance[caseIndex].verification?.status !== 'passed' || packet.case_assurance[caseIndex].case_fingerprint !== tasks.fingerprint(draft)) throw fail('Choose a recorded, assessed Test Case draft.', 409);

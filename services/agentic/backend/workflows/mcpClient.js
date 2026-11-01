@@ -4,6 +4,7 @@ const { randomUUID, createHash } = require("node:crypto");
 const Ajv2020 = require("ajv/dist/2020");
 const Ajv = require("ajv");
 const connections = require("./connections");
+const { MAX_CATALOG_BYTES, MAX_CATALOG_TOOLS, MAX_CATALOG_PAGES } = require('./mcpLimits');
 const VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 function parseResponse(body, contentType, id) {
   if (/text\/event-stream/i.test(contentType || "")) {
@@ -55,6 +56,7 @@ async function withServer(
       headers,
       signal,
       timeoutMs: deadline - Date.now(),
+      ...(method === 'tools/list' ? { maxResponseBytes: MAX_CATALOG_BYTES } : {}),
       body: JSON.stringify({
         jsonrpc: "2.0",
         ...(id ? { id } : {}),
@@ -115,14 +117,24 @@ async function withServer(
     headers["MCP-Protocol-Version"] = initialized.protocolVersion;
     await rpc("notifications/initialized", undefined, true);
     const tools = [];
+    const names = new Set();
+    let catalogBytes = 0;
     let cursor;
-    for (let page = 0; page < 5; page++) {
+    for (let page = 0; page < MAX_CATALOG_PAGES; page++) {
       const result = await rpc("tools/list", cursor ? { cursor } : {});
       if (!Array.isArray(result.tools))
         throw connections.fail(
           "The MCP server returned an invalid tool catalog.",
           502,
         );
+      catalogBytes += Buffer.byteLength(JSON.stringify(result.tools));
+      if (catalogBytes > MAX_CATALOG_BYTES) throw connections.fail('The MCP catalog exceeds 512 KB across its pages. Configure a smaller catalog for this connection.', 422);
+      for (const tool of result.tools) {
+        if (!tool || typeof tool.name !== 'string' || !/^[\w.:-]{1,128}$/.test(tool.name) || !tool.inputSchema || typeof tool.inputSchema !== 'object' || Array.isArray(tool.inputSchema)) throw connections.fail('The MCP server returned an invalid tool definition.', 502);
+        if (names.has(tool.name)) throw connections.fail('The MCP catalog contains duplicate tool names. Refresh the server catalog before execution.', 422);
+        names.add(tool.name);
+      }
+      if (names.size > MAX_CATALOG_TOOLS) throw connections.fail('The server catalog exceeds 100 tools. Configure a smaller catalog for this connection.', 422);
       tools.push(
         ...result.tools.filter(
           (tool) =>
@@ -130,7 +142,6 @@ async function withServer(
             (discoverAll || connection.tools?.includes(tool.name)),
         ),
       );
-      if (tools.length > 100) throw connections.fail("The server catalog exceeds 100 tools. Configure a smaller catalog for this connection.", 422);
       cursor = result.nextCursor;
       if (!cursor) break;
     }

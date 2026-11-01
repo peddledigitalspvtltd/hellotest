@@ -14,6 +14,23 @@ const story = id => ({story_id:id,story_revision:'r1',story:{title:'Story '+id}}
 const draft = id => ({client_id:'case-'+id,title:'Case '+id});
 const assessment = id => ({client_id:'case-'+id,case_index:0,analysis:{},assurance_review:{summary:'Reviewed '+id}});
 
+test('connected foreach results retain every Story, publication receipt and exact historical acceptance target', () => {
+  const row = (id, task) => ({...story(id), ...(task === 'generate' ? {cases:[draft(id)]} : task === 'assess' ? {case_assurance:[assessment(id)]} : {automation:[{client_id:'case-'+id,case_index:0}]})});
+  const run = {node_results:['generate','assess','build'].map(task => ({...stage(task,[row('b',task)]), iterations:['a','b'].map((id,index) => ({
+    status:'completed',iteration_path:['each',index],output:{data:[row(id,task)],library_publication:{mode:'automatic',receipts:task === 'generate' ? [{id:'saved-'+id,kind:'manual',saved:true,story_id:id,case_index:0,client_id:'case-'+id}] : []}}
+  }))}))};
+  const results = collectSprintDrafts(run);
+  assert.deepEqual(results.map(result=>result.packet.story_id),['a','b']);
+  assert.ok(results.every(result=>result.packet.case_assurance.length===1 && result.packet.automation.length===1));
+  assert.deepEqual(results[0].automationTarget,{nodeId:'build',storyIndex:0,iterationPath:['each',0]});
+  assert.deepEqual(results[1].automationTarget,{nodeId:'build',storyIndex:0});
+  assert.deepEqual(savedSprintCaseIds(run),['saved-a','saved-b']);
+  assert.deepEqual(savedSprintCaseIds(run,{},'generate'),['saved-a','saved-b']);
+  run.node_results[2].status='failed';
+  run.node_results[2].output=undefined;
+  assert.equal(collectSprintDrafts(run)[0].packet.automation.length,1,'A later batch failure retains earlier successful automation');
+});
+
 test('owned stage outputs assemble complete results and target the correct native checkpoint after reordered inputs', () => {
   const run = {node_results:[
     stage('stories',['a','b'].map(id=>({...story(id),story_assurance:{analysis:{summary:'Assessed '+id}}}))),

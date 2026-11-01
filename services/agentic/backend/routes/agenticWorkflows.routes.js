@@ -318,6 +318,7 @@ module.exports = async function (fastify) {
       node_id: { required: true, type: "string", minLength: 1, maxLength: 160 },
       story_index: { required: true, type: "number" },
       case_index: { required: true, type: "number" },
+      iteration_path: { required: false, type: "array" },
       kind: { required: false, type: "string", enum: ["manual", "automation"] }
     }, req.body || {});
     const run = await agenticWorkflowService.getWorkflowRun(req.params.id);

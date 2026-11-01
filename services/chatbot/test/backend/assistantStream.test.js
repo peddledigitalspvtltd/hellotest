@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const test = require("node:test");
-const { streamAssistant, answerDeliveryEvents, runConnectedAssistant } = require("../../backend/http/assistantStream");
+const { streamAssistant, runConnectedAssistant } = require("../../backend/http/assistantStream");
 
 function fixture() {
   const raw = new EventEmitter();
@@ -17,16 +17,7 @@ function fixture() {
 }
 const saved = { assistant_message: { id: "answer-1", role: "assistant", content: "Café 🧪 is cited evidence.", citations: [] } };
 
-test("answer delivery is Unicode-safe, bounded and does not deliver pending turns", () => {
-  const deltas = [...answerDeliveryEvents(saved, 5)];
-  assert.equal(deltas.map(delta => delta.text).join(""), saved.assistant_message.content);
-  assert.deepEqual(deltas.map(delta => delta.sequence), deltas.map((_, index) => index));
-  assert.ok(deltas.every(delta => delta.verification === "complete" && !/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/.test(delta.text)));
-  assert.deepEqual([...answerDeliveryEvents({ pending: true })], []);
-  assert.equal([...answerDeliveryEvents(saved, 0)].length, 1);
-});
-
-test("progress precedes checked deltas and only the authoritative result completes delivery", async () => {
+test("progress precedes one complete checked result without answer chunks", async () => {
   const run = fixture();
   let finish;
   const pending = new Promise(resolve => { finish = resolve; });
@@ -39,7 +30,9 @@ test("progress precedes checked deltas and only the authoritative result complet
   assert.match(run.frames[0], /^event: progress/);
   finish();
   await operation;
-  assert.match(run.frames[1], /^event: answer_delta/);
+  assert.equal(run.frames.length, 2);
+  assert.doesNotMatch(run.frames.join(""), /event: answer_delta/);
+  assert.deepEqual(JSON.parse(run.frames[1].split("data: ")[1]), saved);
   assert.match(run.frames.at(-1), /^event: result/);
   assert.equal(run.raw.writableEnded, true);
   assert.equal(run.raw.listenerCount("close"), 0);
@@ -67,20 +60,25 @@ test("a failing provider sends a public error, never provider text or a success 
   assert.equal(run.raw.writableEnded, true);
 });
 
-test("a slow reader is awaited before more answer data is written", async () => {
+test("a slow reader is awaited before closing the complete answer", async () => {
   const run = fixture();
   let writes = 0;
   run.raw.write = value => { run.frames.push(value); writes++; if (writes === 1) { queueMicrotask(() => run.raw.emit("drain")); return false; } return true; };
   await streamAssistant(run.req, run.reply, async () => ({ assistant_message: { ...saved.assistant_message, content: "x".repeat(600) } }));
-  assert.equal(run.frames.filter(frame => frame.startsWith("event: answer_delta")).length, 3);
+  assert.equal(run.frames.length, 1);
+  assert.equal(run.frames.filter(frame => frame.startsWith("event: answer_delta")).length, 0);
   assert.match(run.frames.at(-1), /^event: result/);
   assert.equal(run.raw.listenerCount("drain"), 0);
 });
 
-test('verified delivery preserves paragraph boundaries and Markdown across small chunks',()=>{
- const content="First paragraph.\n\nSecond paragraph with **evidence**.\n\n- First outcome\n- Second outcome";
- const events=[...answerDeliveryEvents({assistant_message:{...saved.assistant_message,content}},7)];
- assert.equal(events.map(event=>event.text).join(''),content);
+test('the single result preserves a long Unicode answer, paragraphs and its citation contract', async () => {
+ const run = fixture();
+ const content = "Café 🧪 first paragraph.\n\nSecond paragraph with **evidence**.\n\n- First outcome\n- Second outcome".repeat(80);
+ const complete = { assistant_message: { ...saved.assistant_message, content, answer_contract: { supported_claims: [{ statement: content, citation_ids: ['e1'] }] }, citations: [{ id: 'e1' }] } };
+ await streamAssistant(run.req, run.reply, async () => complete);
+ assert.equal(run.frames.length, 1);
+ assert.match(run.frames[0], /^event: result/);
+ assert.deepEqual(JSON.parse(run.frames[0].split('data: ')[1]), complete);
 });
 
 test('JSON responses cancel the same active task on disconnect and release connection listeners',async()=>{

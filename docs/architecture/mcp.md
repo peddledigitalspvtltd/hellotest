@@ -4,6 +4,14 @@ HelloTest serves MCP from the dedicated `services/mcp` workspace package (`@hell
 
 The attached implementation guide was used as a reference design. Its proposed private routes and sidecar were not treated as existing application contracts. The implementation discovers real registered routes and extracts their declared validation schemas.
 
+The [Stitch MCP reference](https://stitch.withgoogle.com/docs/mcp/reference) was
+reviewed for named domain tools, precise identifier contracts, shared response
+types, effect annotations and recovery after uncertain long-running calls. Its
+[Agent Skills guide](https://stitch.withgoogle.com/docs/skills/get-started/)
+describes reusable task instructions layered over the MCP connection. HelloTest
+keeps task recipes in its tool reference and permission-aware application agents;
+tool discovery, instructions and annotations do not grant access or verify an effect.
+
 ## Start and connect
 
 Build the changed application using the existing command:
@@ -38,6 +46,8 @@ The direct API endpoint is `/mcp`; the browser reverse-proxy endpoint is `/api/m
 | `hellotest_graph_context` | Exact typed entity seeds, bounded graph expansion and authorized source passages |
 | `hellotest_graph_trace` | Witnessed paths between two exact entities, with provenance and evidence |
 | `hellotest_graph_schema` | Native graph vocabulary, provenance and traversal limits |
+| `hellotest_context_graph_list` | Owner-private retained task contexts, filtered by application, feature and recording time |
+| `hellotest_context_graph_explore` | One retained task's retrieval references, source versions and observed events under fresh authorization |
 | `hellotest_browser_mission_prepare` | Reviewable, bounded same-origin browser mission plan |
 | `hellotest_browser_mission_status` | Scoped browser mission progress, measured findings and artifact references |
 | `hellotest_operation_prepare` | Persist an immutable action preview, with no business effect |
@@ -46,7 +56,8 @@ The direct API endpoint is `/mcp`; the browser reverse-proxy endpoint is `/api/m
 
 Named list/get tools cover applications, Stories, Test Cases, suites, runs,
 Defects, environments, configurations, releases, Sprints, datasets and workflows,
-with current-project and Knowledge-source detail tools. Named prepare tools cover
+plus test modules, schedules, workflow runs, agent definitions, repository runs,
+Knowledge collections and dashboards, with current-project and Knowledge-source detail tools. Named prepare tools cover
 Story, Test Case, suite, run and Defect authoring. They appear only when the
 corresponding audited adapter is callable. Lists use bounded database summaries;
 detail tools call native domain APIs and preserve delivery-omission metadata.
@@ -56,6 +67,21 @@ schemas, task recipes and durable state meanings, the
 native operations and gaps, and the
 [context delivery audit](../development/mcp-context-accuracy.md) for retrieval
 contracts and their verification.
+
+Capability searches accept short phrases such as `list test cases`, `find requirements`
+and `show bugs`. Deterministic product/native aliases handle Stories/requirements,
+Defects/bugs and Sprints/iterations; every requested term must match. Search does
+not confer permission or choose a route for execution. The built-in tool inspector
+supports search and read/action filters. External connection discovery keeps tools
+disabled until selected; its **Enable shown tools** and **Disable shown tools**
+controls apply only to the current search/access filter and preserve hidden selections.
+An external tool is classified as declared read only only when the server explicitly
+publishes `readOnlyHint:true`; missing hints remain under actions or unspecified.
+External discovery accepts at most 100 unique tools over five pages and 512 KB
+across the catalog, with the same 512 KB ceiling for saved tool contracts. This
+allows the complete HelloTest catalog to be inspected and selected. Ordinary
+workflow MCP tool results retain their separate 128 KB transport limit; oversized
+results are rejected without returning a successful prefix.
 
 The server also publishes `hellotest://schema`, project operation and graph ontology resource templates, and an `investigate_failure` prompt. Every successful tool result carries a versioned envelope with its verified project and subject. **Connect & inspect** exposes the actual tool input/output schemas, supported protocols, resource templates and manual bearer connection contract. Discovery does not grant permission to call a tool.
 
@@ -111,6 +137,45 @@ For example, the tool arguments below trace an authored Story to a selected Test
 Returned paths retain canonical node IDs, edge provenance and exact source witnesses. An authorized domain link and an extracted passage relationship have different provenance. A path is evidence of the recorded relationship; it does not establish root cause, a passing test or an approved decision. No path within the selected bounds is an explicit retrieval gap. Source deletion, access changes and stale revisions remain authoritative over cached or indexed relationships.
 
 The graph ontology is also readable at `hellotest://projects/{project_id}/graph/ontology`. Reading another project's resource is rejected. The operation ontology at `hellotest://projects/{project_id}/ontology` remains compatible with existing clients.
+
+### Retained task context
+
+Knowledge Graph describes current source relationships. Context Graph connects a
+private task trace to its returned retrieval packet, exact evidence references,
+recorded access checks and persisted feature outcomes. Both use the existing
+PostgreSQL ledger; neither requires Neo4j. See the
+[graph architecture](knowledge-context-graphs.md) for the distinct contracts.
+
+The two `hellotest_context_graph_*` tools are reads. They derive the owner and
+project from verified identity, require current Knowledge access, and cannot
+write events or grant approval. Exact source/document/fragment access is checked
+again during exploration. A denied selected fragment is omitted even when
+another fragment of the same source remains readable. Authorized old revisions
+and live snapshots retain honest state labels; live snapshots do not assert
+current content or invent an indexed Knowledge node.
+
+Successful native ContextPackets can carry `retrieval.context_graph` with a
+recorded trace receipt or an explicit unavailable status. Capture is optional:
+its failure does not replace valid evidence or replay a feature operation. An
+immutable selection digest prevents a packet identity from silently acquiring a
+different selection. Chatbot and specialist hooks record observed outcomes after
+their native result is persisted. Other decisions, approvals and external effects
+are not inferred from generated prose.
+
+Capture describes the MCP retrieval result. Later host packing may select fewer
+passages, so `RETRIEVED_EVIDENCE`, `stage:retrieval_result` and
+`model_input_verified:false` do not establish provider consumption. Trusted
+in-process feature/session metadata is retained where supplied; remote MCP
+credentials carry principal/project scope, not unsigned caller feature labels.
+Missing remote labels remain generic `mcp.context` observations. Events preserve
+occurrence time separately from recording time. Date filters select recording
+time and do not reconstruct a historical Knowledge Graph.
+
+Trace/event metadata currently has no automatic expiry or session purge. Database
+deletion of its owning user or project cascades the records. Bounded reads do not
+bound stored history. Source bodies, raw prompts and hidden model reasoning are
+not copied into this ledger. Verification scope is recorded in the
+[graph verification guide](../development/knowledge-context-graph-verification.md).
 
 All registered API routes are inventoried. Ordinary catalog discovery returns
 callable canonical operations matching the user's permissions, feature access,

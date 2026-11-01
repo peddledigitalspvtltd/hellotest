@@ -17,6 +17,7 @@ Start with [capabilities](product/capabilities.md), [source layout](architecture
 - [Case execution and parameter policy](architecture/execution-runtime.md)
 - [Capability implementation contracts](architecture/implementation-boundaries.md)
 - [Knowledge Repository and AskHelloTest context engine](architecture/knowledge-context.md)
+- [Knowledge Graph and Context Graph](architecture/knowledge-context-graphs.md)
 - [HelloTest MCP](architecture/mcp.md)
 - [Browser quality agents](architecture/quality-agent-engine.md)
 - [Reliability and development refactor](architecture/refactor-review.md)
@@ -46,6 +47,7 @@ Start with [capabilities](product/capabilities.md), [source layout](architecture
 - [Development debugging runbook](development/debugging.md)
 - [Sample-data setup](development/sample-data.md)
 - [Verification scope](development/verification.md)
+- [Knowledge and Context Graph verification](development/knowledge-context-graph-verification.md)
 - [Detail, run, login, and AI triage UI review](development/visual-qa.md)
 
 ## Deployment and operational procedures
@@ -68,6 +70,7 @@ Start with [capabilities](product/capabilities.md), [source layout](architecture
 - [Portable execution report](research/execution-html-report.md)
 - [Instance setup and Product Management corrections](research/instance-setup-product-planning.md)
 - [Knowledge ingestion and Ask AI reliability](research/knowledge-reliability-review.md)
+- [Knowledge and Context Graph research](research/knowledge-context-graphs-2026-11-01.md)
 - [Product access and feature availability research](research/product-access.md)
 - [Product Management metrics review](research/product-management-metrics-audit.md)
 - [HelloTest product maturity: research, decisions and implementation](research/product-maturity.md)

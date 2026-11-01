@@ -1,6 +1,7 @@
 const {aiInstructionBlock}=require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { normalizeParameterKey } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const { normalizeAutomationStartUrl } = require('@hellotest/platform/backend/src/utils/automationStartUrl');
+const { validGherkinCase } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
 const { outcomeContract } = require('./agentOutcomeContracts');
 const profiles = require('../../shared/workflowSpecialists.json');
 const artifactKinds = new Set(require('../../shared/agentOutcomeContracts.json').artifact_kinds);
@@ -55,8 +56,7 @@ function normalizeArtifacts(value,citations,targets = [], {requireMetadata = fal
    if(!['structured','gherkin'].includes(artifact.authoring_mode))throw fail();
    if(artifact.authoring_mode === 'gherkin') {
     artifact.gherkin_document = text(a.gherkin_document,16000);
-    let delimiter = ''; const structural = artifact.gherkin_document.split(/\r?\n/).filter(line => {const marker=line.trim().match(/^("""|```)/)?.[1];if(marker){delimiter=delimiter?delimiter===marker?'':delimiter:marker;return false;}return !delimiter;}).join('\n');
-    if(delimiter || !/^[ \t]*Feature[ \t]*:[ \t]*\S/im.test(structural) || !/^[ \t]*Scenario(?: Outline| Template)?[ \t]*:[ \t]*\S/im.test(structural) || !/^[ \t]*(?:Given|When)[ \t]+\S/im.test(structural) || !/^[ \t]*Then[ \t]+\S/im.test(structural) || (structural.match(/^\s*(?:Given|When|Then|And|But|\*)[ \t]+\S/gim)||[]).length > 30)throw fail();
+    if(!validGherkinCase(artifact.gherkin_document))throw fail(path('gherkin_document'));
     artifact.steps = [];
    } else { if(!Array.isArray(a.steps)||!a.steps.length||a.steps.length>30)throw fail();artifact.steps=a.steps.map(s=>{if(!s||s.automation_code!=null||s.api_request!=null||s.step_type != null && !['web','api','android','ios'].includes(s.step_type))throw fail();return {action:text(s.action,4000),expected_result:text(s.expected_result,4000),...(s.step_type?{step_type:s.step_type}:{})};}); }
    if(a.kind==='automation'){

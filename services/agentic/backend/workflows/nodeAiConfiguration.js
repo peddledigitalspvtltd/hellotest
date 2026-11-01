@@ -61,7 +61,7 @@ function scopeForNode(node, { revision } = {}) {
     .filter(([, value]) => typeof value === 'string' && value.trim()).map(([label, value]) => `${label}:\n${value.trim()}`).join('\n\n');
   if (prompt.length > 24000) throw fail('Keep the node task, instructions and review criteria within 24,000 characters.');
   if (data.guardrails != null && (typeof data.guardrails !== 'string' || data.guardrails.length > 16000)) throw fail('Keep node guardrails within 16,000 characters.');
-  return { source: 'workflow_node', id: node.id || 'node', revision, feature_id: primary,
+  return { source: 'workflow_node', id: node.id || 'node', revision: revision instanceof Date ? revision.toISOString() : revision, feature_id: primary,
     config: { ...normalize(definition?.ai_configuration), ...definitionLimits, ...normalize(data.aiConfiguration), ...(prompt ? { prompt } : {}),
       ...(typeof (data.guardrails ?? profile?.guardrails) === 'string' && (data.guardrails ?? profile?.guardrails).trim() ? { guardrails: (data.guardrails ?? profile?.guardrails).trim() } : {}),
       ...(data.llmIntegrationId ? { integration_id: data.llmIntegrationId } : {}) } };

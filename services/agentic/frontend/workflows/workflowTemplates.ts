@@ -104,7 +104,7 @@ export function draftFromTemplate(template: WorkflowTemplate): {
     const definitions: Array<[string, string, Record<string, unknown>]> = [
       ["request", "trigger", { label: "Manual Sprint trigger" }],
       ["sprint-stories", "apiTool", { label: "Read all Sprint Stories", apiResource: "sprintStories", apiPagination: "cursor", apiMethod: "GET", connectionId: "", apiUrl: "", timeoutMs: "70000", retryCount: "0", outputKey: "sprint_stories" }],
-      ["each-story", "loop", { label: "For each Story", loopSourceKey: "input.items", loopMaxIterations: "100", loopAction: "storyPackets", timeoutMs: "70000", outputKey: "story_packets" }],
+      ["each-story", "loop", { label: "For each Story", loopSourceKey: "input.items", loopMaxIterations: "100", loopBatchSize: "1", loopAction: "workflow", timeoutMs: "3600000", outputKey: "story_packets" }],
       ["story-assurance", "artifactTask", { label: "AI Story Assurance", artifactTask: "story-assurance" }],
       ["test-case-generation", "artifactTask", { label: "AI Test Case Generator", artifactTask: "test-case-generation" }],
       ["test-case-assurance", "artifactTask", { label: "AI Test Case Quality Assurance", artifactTask: "test-case-assurance" }],
@@ -112,8 +112,18 @@ export function draftFromTemplate(template: WorkflowTemplate): {
       ["sprint-output", "output", { label: "Sprint results and Library cases" }],
     ];
     draft.nodes = definitions.map(([id, kind, data], index) => ({ id, type: "agenticStep", position: { x: 80 + index * 310, y: 140 }, data: { ...buildNodeDefaults(kind as Parameters<typeof buildNodeDefaults>[0], index), ...(kind === "artifactTask" ? nativeTaskDefaults(String(data.artifactTask)) : {}), ...data } }));
-    draft.edges = draft.nodes.slice(1).map((node, index) => createFlowEdge(draft.nodes[index].id, node.id));
-    draft.settings = { execution_mode: "review", maxDurationMs: 3600000, template_id: "sprint-automator", library_publication_mode: "automatic", requires_human_review: false, processing_mode: "sequential" };
+    draft.edges = [
+      createFlowEdge("request", "sprint-stories"),
+      createFlowEdge("sprint-stories", "each-story"),
+      { ...createFlowEdge("each-story", "story-assurance"), sourceHandle: "loop" },
+      createFlowEdge("story-assurance", "test-case-generation"),
+      createFlowEdge("test-case-generation", "test-case-assurance"),
+      createFlowEdge("test-case-assurance", "automation-engineer"),
+      { ...createFlowEdge("automation-engineer", "each-story"), targetHandle: "continue" },
+      { ...createFlowEdge("each-story", "sprint-output"), sourceHandle: "done" },
+    ];
+    draft.nodes = layoutWorkflow(draft.nodes, draft.edges);
+    draft.settings = { execution_mode: "review", maxDurationMs: 3600000, template_id: "sprint-automator", template_version: 2, library_publication_mode: "automatic", requires_human_review: false, processing_mode: "sequential" };
     return { draft, input: JSON.stringify({ sprint_id: "" }, null, 2) };
   }
   if (["foreach", "custom"].includes(template.id)) {

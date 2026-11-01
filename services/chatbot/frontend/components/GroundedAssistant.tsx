@@ -53,7 +53,7 @@ import { KnowledgeFormattedText } from "./KnowledgeFormattedText";
 import { KnowledgeProcessingTrace } from "./KnowledgeProcessingTrace";
 import { KnowledgeSourceDetail } from "@hellotest/knowledge/frontend/components/KnowledgeSourceDetail";
 import { knowledgeCitationHref, knowledgeCitationLocation, validateKnowledgeAnswer } from "../lib/knowledgeAnswer";
-import { appendKnowledgeProgressEvent, KnowledgeStreamError, knowledgeModelFailureMessage, knowledgeTurnNotice, resumePendingKnowledgeTurn, type KnowledgeTurnNotice, type KnowledgeAnswerDelta } from "../lib/knowledgeAssistantStream";
+import { appendKnowledgeProgressEvent, KnowledgeStreamError, knowledgeModelFailureMessage, knowledgeTurnNotice, resumePendingKnowledgeTurn, type KnowledgeTurnNotice } from "../lib/knowledgeAssistantStream";
 import { KnowledgeTurnProgress } from "./KnowledgeTurnProgress";
 import { assistantConversationMarkdown, assistantMessageMarkdown, findAssistantConversations } from "../lib/assistantExperience";
 import "./GroundedAssistant.css";
@@ -184,7 +184,6 @@ export function GroundedAssistant() {
   const userSelectedIntegration = useRef(false);
   const [smartContext, setSmartContext] = useState<SmartContextSelection | null>(null);
   const [activeRequestIntegrationId, setActiveRequestIntegrationId] = useState("");
-  const [answerDelivery, setAnswerDelivery] = useState<{ id: string; text: string } | null>(null);
   const [copiedAnswerId, setCopiedAnswerId] = useState("");
   const [copyError, setCopyError] = useState("");
   const [showLatest, setShowLatest] = useState(false);
@@ -259,7 +258,7 @@ export function GroundedAssistant() {
       }, { signal })
   });
   const sendMessageMutation = useMutation({
-    mutationFn: ({ clientTurnId, id, integrationId, message, filters, smartContext, responseMode, retryProvider, signal, onProgress, onAnswerDelta }: { clientTurnId: string; id: string; integrationId: string; message: string; filters: KnowledgeSearchFilters; smartContext?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; responseMode: "answer" | "evidence"; retryProvider?: boolean; signal: AbortSignal; onProgress: (event: KnowledgeRetrievalEvent) => void; onAnswerDelta: (delta: KnowledgeAnswerDelta) => void }) =>
+    mutationFn: ({ clientTurnId, id, integrationId, message, filters, smartContext, responseMode, retryProvider, signal, onProgress }: { clientTurnId: string; id: string; integrationId: string; message: string; filters: KnowledgeSearchFilters; smartContext?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; responseMode: "answer" | "evidence"; retryProvider?: boolean; signal: AbortSignal; onProgress: (event: KnowledgeRetrievalEvent) => void }) =>
       chatbotApi.assistant.streamMessage(id, {
         message,
         client_turn_id: clientTurnId,
@@ -268,7 +267,7 @@ export function GroundedAssistant() {
         filters,
         response_mode: responseMode,
         smart_context: smartContext
-      }, { signal, onProgress, onAnswerDelta })
+      }, { signal, onProgress })
   });
   const downloadCitationMutation = useMutation({
     mutationFn: async (citation: KnowledgeCitation) => ({
@@ -315,7 +314,6 @@ export function GroundedAssistant() {
     setSelectedCitation(null);
     setIsRestoringSession(false);
     setSourceKinds(DEFAULT_ASSISTANT_SOURCE_KINDS);
-    setAnswerDelivery(null);
     setCopyError("");
     setCopiedAnswerId("");
     followConversationRef.current = true;
@@ -371,7 +369,7 @@ export function GroundedAssistant() {
     if (!isOpen) return;
     if (followConversationRef.current) conversationEndRef.current?.scrollIntoView({ block: "nearest" });
     else setShowLatest(true);
-  }, [messages, isSending, answerDelivery, progressEvents, isOpen]);
+  }, [messages, isSending, progressEvents, isOpen]);
 
   useEffect(() => {
     const input = composerRef.current;
@@ -397,7 +395,6 @@ export function GroundedAssistant() {
     setKnowledgeAsOf("");
     setProgressEvents([]);
     setSessionError("");
-    setAnswerDelivery(null);
     setCopyError("");
     followConversationRef.current = true;
     setShowLatest(false);
@@ -422,7 +419,6 @@ export function GroundedAssistant() {
       setPrompt("");
       setSmartContext(null);
       setSourceKinds(restored.filters?.source_kinds ? restored.filters.source_kinds.filter((kind) => DEFAULT_ASSISTANT_SOURCE_KINDS.includes(kind)) : DEFAULT_ASSISTANT_SOURCE_KINDS);
-      setAnswerDelivery(null);
       followConversationRef.current = true;
       setShowLatest(false);
       if (canReviewHistory && restored.filters?.as_of) {
@@ -468,7 +464,6 @@ export function GroundedAssistant() {
     setActiveRequestIntegrationId(requestIntegrationId);
     setRequestStartedAt(Date.now());
     setProgressEvents([]);
-    setAnswerDelivery(null);
     followConversationRef.current = true;
     setShowLatest(false);
     const isStale = () => controller.signal.aborted || requestGeneration !== scopeGenerationRef.current;
@@ -533,17 +528,12 @@ export function GroundedAssistant() {
         onProgress: (progress) => {
           if (isStale()) return;
           setProgressEvents((current) => appendKnowledgeProgressEvent(current, progress));
-        },
-        onAnswerDelta: (delta) => {
-          if (isStale()) return;
-          setAnswerDelivery((current) => ({ id: delta.answer_id, text: (current?.id === delta.answer_id ? current.text : "") + delta.text }));
         }
       }), {
         signal: controller.signal,
         maxConnectionRetries: 1,
         onReconnecting: () => {
           if (isStale()) return;
-          setAnswerDelivery(null);
           setProgressEvents((current) => [...current, { contract_type: "RetrievalEvent", contract_version: "1.0", stage: "CONNECTION_RECOVERY", status: "IN_PROGRESS", message: "Checking the original turn after a connection interruption. Your question will not be duplicated." }]);
         },
         onPending: () => {
@@ -589,7 +579,6 @@ export function GroundedAssistant() {
         requestControllerRef.current = null;
         setActiveRequestIntegrationId("");
         setRequestStartedAt(null);
-        setAnswerDelivery(null);
       }
     }
   };
@@ -879,8 +868,7 @@ export function GroundedAssistant() {
               );
             })}
 
-            {isSending && answerDelivery ? <article className="grounded-assistant-message is-assistant is-delivering" aria-label="Receiving checked answer" aria-busy="true"><div className="grounded-assistant-message-label"><IconSparkles size={14} /><span>HelloTest</span><span className="grounding-chip"><IconShieldCheck size={13} />Receiving answer</span></div><div className="grounded-assistant-message-content"><KnowledgeFormattedText text={answerDelivery.text} /></div></article> : null}
-            {isSending && requestStartedAt !== null && !answerDelivery ? <KnowledgeTurnProgress events={progressEvents} opening={createSessionMutation.isPending} startedAt={requestStartedAt} /> : null}
+            {isSending && requestStartedAt !== null ? <KnowledgeTurnProgress events={progressEvents} opening={createSessionMutation.isPending} startedAt={requestStartedAt} /> : null}
 
             {citationDownloadError ? <div className="grounded-assistant-download-error" role="alert">{citationDownloadError}</div> : null}
             {copyError ? <p className="grounded-assistant-download-error" role="alert">{copyError}</p> : null}

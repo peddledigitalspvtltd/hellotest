@@ -52,8 +52,15 @@ The named list/get pairs avoid generic route details for common records:
 | `hellotest_sprints_list` | `hellotest_sprints_get` | `sprint_id` | — |
 | `hellotest_data_sets_list` | `hellotest_data_sets_get` | `data_set_id` | — |
 | `hellotest_workflows_list` | `hellotest_workflows_get` | `workflow_id` | — |
+| `hellotest_test_modules_list` | `hellotest_test_modules_get` | `module_id` | `application_id` |
+| `hellotest_schedules_list` | `hellotest_schedules_get` | `schedule_id` | `application_id` |
+| `hellotest_workflow_runs_list` | `hellotest_workflow_runs_get` | `workflow_run_id` | `status`, `application_id` |
+| `hellotest_agents_list` | `hellotest_agents_get` | `agent_id` | — |
+| `hellotest_repository_runs_list` | `hellotest_repository_runs_get` | `repository_run_id` | `status`, `application_id` |
+| `hellotest_knowledge_collections_list` | `hellotest_knowledge_collections_get` | `collection_id` | `status`, `application_id` |
+| `hellotest_dashboards_list` | `hellotest_dashboards_get` | `dashboard_id` | — |
 
-Every list accepts optional `search` (literal name/title substring, at most 200 characters), `limit` (1–50, default 25) and `offset` (0–10,000, default 0). `%` and `_` are literal search characters. Lists use bounded authorized database summaries, including where the native collection API lacks pagination. Continue with the exact returned `next_offset`; stop when it is `null`. Pages are live observations rather than a frozen snapshot.
+Every list accepts optional `search` (literal name/title substring, at most 200 characters; workflow and repository run lists search the saved run ID), `limit` (1–50, default 25) and `offset` (0–10,000, default 0). `%` and `_` are literal search characters. Lists use bounded authorized database summaries, including where the native collection API lacks pagination. Continue with the exact returned `next_offset`; stop when it is `null`. Pages are live observations rather than a frozen snapshot.
 
 List output:
 
@@ -136,6 +143,8 @@ Some native operations commit before a later runner dispatch or shared-step sync
 | `hellotest_graph_context` | Required `seeds` (1–6 typed `{kind,ref_id}` objects); bounded traversal options. Returns authorized nodes, edges, supporting passages and explicit gaps. |
 | `hellotest_graph_trace` | Required typed `source` and `target`; optional `max_paths` (1–5) and traversal bounds. Returns witnessed paths rather than inferred dependencies. |
 | `hellotest_graph_expand` | Required `entity_id`; optional `limit` (1–50). Returns the simpler native relationship witnesses. |
+| `hellotest_context_graph_list` | No required arguments. Lists only the credential owner's retained task contexts; optional `app_type_id`, `feature_id`, UTC `from`/`to`, `limit` (1–20, default 12) and returned opaque `cursor`. Returns `items`, `next_cursor`, project identity, privacy and retention information. |
+| `hellotest_context_graph_explore` | Required `trace_id` from the list; optional `app_type_id`. Returns one owner-private `ContextGraph` with trace metadata, nodes, typed directed edges, timeline, counts and explicit limitations. |
 
 Context filters accept `requested_scopes` (`stories`, `test-cases`, `runs`, `bugs`, `automation`, `knowledge`), exact `evidence_scope` (`story_id`, `test_case_id`, `execution_id`, `release_id`, `sprint_id`), `source_ids`, `collection_ids`, supported `source_kinds`, `agent_id` and `as_of`. An explicit empty `requested_scopes` disables retrieval. When top-level and filtered `source_ids` are both supplied, their intersection applies. Selectors narrow the authorized boundary; they never add access.
 
@@ -146,6 +155,36 @@ Budgets also bound deadlines, retrieval rounds/calls, candidates, evidence items
 Use returned `evidence_id`, `source_id`, document/chunk/version identifiers and integrity metadata when citing a claim. A context packet shortened or redacted for MCP delivery marks changed evidence as `MCP_DELIVERY_EXCERPT` with partial visibility and a rendered evidence hash. Immutable source-version hashes remain unchanged. Removed offsets and relationship witnesses cannot be reconstructed from the excerpt; inspect `retrieval.delivery` and packet limitations. `hellotest_knowledge_fetch` likewise reports excerpt/rendering changes in its `delivery` metadata. These delivery shapes differ from ordinary record-read omission counts.
 
 Missing evidence or a missing graph path is a retrieval gap. It does not establish independence, root cause, complete coverage or a passing test. Distinguish stored execution observations from a model's explanation.
+
+### Inspect recorded task context
+
+Use `hellotest_context_graph_list`, then pass one returned `trace_id` to
+`hellotest_context_graph_explore`. Current project, account, Knowledge feature and
+permission checks apply. Another user's trace cannot be selected through tool
+arguments. Exploration rechecks the exact selected source/document/fragment;
+denied references and their identifiers are omitted rather than relabeled stale.
+
+Context graphs describe recorded retrieval selections and observed application
+events. `RETRIEVED_EVIDENCE` and `model_input_verified:false` do not prove that a
+passage reached a provider after later context packing. Source states distinguish
+current, stale, expired, not-yet-valid and unknown evidence. `RECORDED_SNAPSHOT`
+identifies retained live project provenance whose current access was checked;
+its former content is not claimed to match current records. Inspect limitations
+and counts before treating the loaded graph as complete.
+
+Timeline occurrence time and recording time are separate. List date filters use
+recording time; they are not historical Knowledge Graph queries. The tools cannot
+record an approval or execute a plan. A recorded response or proposal does not
+establish an applied business effect. History currently has no automatic expiry
+or session purge; deletion of its owning user or project cascades the metadata.
+Raw prompts, source bodies and hidden model reasoning are not retained here.
+
+Successful native retrieval packets report optional capture through
+`retrieval.context_graph`; an unavailable capture remains an explicit gap. Older
+messages are not silently backfilled. In-process task labels use trusted native
+metadata; remote MCP calls retain verified principal/project scope and generic
+`mcp.context` labels when caller task metadata is unavailable. See the
+[graph architecture](../architecture/knowledge-context-graphs.md) for details.
 
 ## Browser missions
 
@@ -166,6 +205,13 @@ For visual comparison, discover the callable baseline metadata read and select a
 **Save a recorded workflow draft.** Read the authorized workflow run and its assessed draft. Discover and describe its draft-accept operation, selecting the recorded `node_id`, `story_index`, `case_index` and draft `kind`. Prepare, authorize and execute the plan. Native fingerprint and Story/Sprint revision checks govern acceptance. The saved Test Case remains a draft with review pending; this action does not approve its content or verify its automation. The native acceptance ledger also prevents duplicate saves across equivalent reviewed plans.
 
 **Investigate a failed run.** Read the saved run and its permitted results through named tools or discovered `run_results` operations. Build context with `evidence_scope.execution_id` and relevant requested scopes. Resolve exact related entities, then trace witnessed paths to Stories and defects. Cite observations and versioned passages, state retrieval gaps, and keep an inferred cause distinct from observed evidence. The `investigate_failure` MCP prompt supplies the published Admin AI guidance; it does not run the investigation or grant actions.
+
+**Inspect the evidence returned for an earlier task.** List your recorded
+contexts with the relevant application, feature or recording-time range. Explore
+the returned trace ID, inspect exact accessible source revisions and observed
+event status, and report unavailable or changed evidence. Retrieve fresh context
+for a new answer; an earlier trace or rationale does not grant current access or
+authorize another action.
 
 **Read a larger feature family.** Discover the family, describe the operation, then select bounded database projections or named lists where available. Follow every `next_offset` required for the task. Use native metadata/detail reads for fields absent from summaries. Check delivery omissions before making completeness claims.
 
@@ -196,6 +242,6 @@ The server marks only eligible read failures as retryable. A timeout is not perm
 
 ## Implementation and verification
 
-The published definitions are generated from [mcpServer.js](../../services/mcp/backend/mcpServer.js), [domainTools.js](../../services/mcp/backend/domainTools.js), [toolContracts.js](../../services/mcp/backend/toolContracts.js), [contextRequest.js](../../services/mcp/backend/contextRequest.js) and audited registry/policy contracts. Native request contracts are extracted from controllers rather than copied into client instructions.
+The published definitions are generated from [mcpServer.js](../../services/mcp/backend/mcpServer.js), [domainTools.js](../../services/mcp/backend/domainTools.js), [toolContracts.js](../../services/mcp/backend/toolContracts.js), [contextRequest.js](../../services/mcp/backend/contextRequest.js), [contextGraph.js](../../services/mcp/backend/contextGraph.js) and audited registry/policy contracts. Native request contracts are extracted from controllers rather than copied into client instructions.
 
 Run `npm run check:mcp` to check extracted native contracts, `npm run test:mcp` for focused transport/schema/security tests, and `npm run test:mcp:postgres` for real PostgreSQL authorization, pagination, reviewed mutations, stale-plan and generated-proposal checks. Passing checks establish the tested local behavior; deployment availability still comes from live discovery.

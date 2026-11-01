@@ -95,8 +95,9 @@ function visibility(nodeAlias, projectId, user, allowed) {
 }
 async function getNodes(projectId, user, ids, allowed) {
   const visible = visibility('n', projectId, user, allowed);
-  return db.prepare(`SELECT n.id, n.source_id, n.entity_type, n.entity_key, n.title, n.aliases
-    FROM ai_knowledge_graph_nodes n WHERE n.project_id = ? AND n.id IN (${ids.map(() => '?').join(',')}) AND ${visible.sql}`)
+  return db.prepare(`SELECT n.id, n.source_id, n.entity_type, n.entity_key, current_sources.title AS title, n.aliases
+    FROM ai_knowledge_graph_nodes n JOIN ai_knowledge_sources current_sources ON current_sources.id = n.source_id AND current_sources.project_id = n.project_id
+    WHERE n.project_id = ? AND n.id IN (${ids.map(() => '?').join(',')}) AND ${visible.sql}`)
     .all(projectId, ...ids, ...visible.params);
 }
 async function lockSources(projectId, ids, chunkId = null) {
@@ -125,10 +126,11 @@ async function setAliases({ projectId, user, nodeId, input }) {
     if (aliasRevision(node) !== input.expected_revision) throw fail('Aliases changed. Reload before saving.', 409, 'KNOWLEDGE_GRAPH_STALE');
     if (aliases.length) {
       const conflict = await db.prepare(`SELECT n.id FROM ai_knowledge_graph_nodes n
+        JOIN ai_knowledge_sources current_sources ON current_sources.id = n.source_id AND current_sources.project_id = n.project_id
         WHERE n.project_id = ? AND n.id <> ? AND n.tombstoned_at IS NULL AND (
           lower(n.entity_key) IN (SELECT lower(value) FROM jsonb_array_elements_text(?::jsonb))
           OR lower(n.id) IN (SELECT lower(value) FROM jsonb_array_elements_text(?::jsonb))
-          OR lower(n.title) IN (SELECT lower(value) FROM jsonb_array_elements_text(?::jsonb))
+          OR lower(current_sources.title) IN (SELECT lower(value) FROM jsonb_array_elements_text(?::jsonb))
           OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(n.aliases) a(value)
             JOIN jsonb_array_elements_text(?::jsonb) b(value) ON lower(a.value) = lower(b.value))) LIMIT 1`)
         .get(projectId, nodeId, aliases, aliases, aliases, aliases);
@@ -251,7 +253,7 @@ async function propose({ projectId, user, input, signal }) {
 const reviewRevision = row => fingerprint(JSON.stringify([row.id, row.status, row.provenance_type, row.source_node_id, row.target_node_id,
   row.relation_type, row.chunk_id, row.document_id, row.document_version, row.version_hash, row.span_start, row.span_end,
   row.origin_document_id, row.origin_version_hash, row.target_document_id, row.target_version_hash,
-  row.source_kind, row.source_key, row.source_aliases, row.target_kind, row.target_key, row.target_aliases, row.proposal_revision]));
+  row.source_kind, row.source_key, row.source_title, row.source_aliases, row.target_kind, row.target_key, row.target_title, row.target_aliases, row.proposal_revision]));
 async function candidateRows(projectId, user, allowed, edgeId = null) {
   const left = visibility('origin', projectId, user, allowed);
   const right = visibility('target', projectId, user, allowed);
@@ -263,10 +265,12 @@ async function candidateRows(projectId, user, allowed, edgeId = null) {
     target_document.id AS target_document_id, target_document.checksum_sha256 AS target_version_hash,
     origin.entity_type AS source_kind, origin.entity_key AS source_key, origin.aliases AS source_aliases,
     target.entity_type AS target_kind, target.entity_key AS target_key, target.aliases AS target_aliases,
-    origin.title AS source_title,target.title AS target_title,v.chunk_id,v.document_id,v.source_id,v.document_version,v.version_hash,v.span_start,v.span_end,
+    origin_source.title AS source_title,target_source.title AS target_title,v.chunk_id,v.document_id,v.source_id,v.document_version,v.version_hash,v.span_start,v.span_end,
     substring(chunks.content FROM v.span_start + 1 FOR v.span_end - v.span_start) AS excerpt
     FROM ai_knowledge_graph_edges e JOIN ai_knowledge_graph_nodes origin ON origin.id = e.source_node_id AND origin.project_id = e.project_id
     JOIN ai_knowledge_graph_nodes target ON target.id = e.target_node_id AND target.project_id = e.project_id
+    JOIN ai_knowledge_sources origin_source ON origin_source.id = origin.source_id AND origin_source.project_id = e.project_id
+    JOIN ai_knowledge_sources target_source ON target_source.id = target.source_id AND target_source.project_id = e.project_id
     JOIN ai_knowledge_documents origin_document ON origin_document.source_id = origin.source_id AND origin_document.project_id = e.project_id AND origin_document.is_active = TRUE
     JOIN ai_knowledge_documents target_document ON target_document.source_id = target.source_id AND target_document.project_id = e.project_id AND target_document.is_active = TRUE
     JOIN ai_knowledge_graph_edge_evidence v ON v.edge_id = e.id AND v.project_id = e.project_id

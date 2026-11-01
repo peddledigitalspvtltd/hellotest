@@ -32,7 +32,7 @@ export const agenticApi = {
   },
   mcp: {
     status: (projectId:string) => request<{status:string;tool_count:number;checked_at:string;external_transport?:{public_endpoint_configured:boolean;request_host_allowed:boolean;request_origin_allowed:boolean}}>(`/agentic-workflows/mcp/status${toQueryString({project_id:projectId})}`,{cache:"no-store"},10000),
-    server: (projectId:string) => request<{id:string;name:string;endpoint:string;operation_count:number;protocol_versions?:string[];authentication?:string;client_contract?:{authentication:string;credential_ttl_seconds:number;project_id:string;accept:string;stateless:boolean;standalone_get_supported:boolean;oauth_supported:boolean};discovery?:{tools:number;resources:string[];resource_templates:string[];prompts:string[]};tools:Array<{name:string;description:string;read_only:boolean;input_schema?:Record<string,unknown>;output_schema?:Record<string,unknown>}>}>(`/agentic-workflows/mcp/server${toQueryString({project_id:projectId})}`),
+    server: (projectId:string) => request<{id:string;name:string;endpoint:string;operation_count:number;protocol_versions?:string[];authentication?:string;client_contract?:{authentication:string;credential_ttl_seconds:number;project_id:string;accept:string;stateless:boolean;standalone_get_supported:boolean;oauth_supported:boolean};discovery?:{tools:number;resources:string[];resource_templates:string[];prompts:string[]};tools:Array<{name:string;title?:string;description:string;read_only:boolean;input_schema?:Record<string,unknown>;output_schema?:Record<string,unknown>}>}>(`/agentic-workflows/mcp/server${toQueryString({project_id:projectId})}`),
     credentials: (projectId:string) => request<Array<{id:string;client_id:string;expires_at:string;revoked_at:string|null}>>(`/agentic-workflows/mcp/credentials${toQueryString({project_id:projectId})}`),
     issue: (projectId:string) => request<{id:string;token:string;expires_at:string}>("/agentic-workflows/mcp/credentials",{method:"POST",body:JSON.stringify({project_id:projectId,client_id:"external-host"})}),
     revoke: (projectId:string,id:string) => request(`/agentic-workflows/mcp/credentials/${encodeURIComponent(id)}${toQueryString({project_id:projectId})}`,{method:"DELETE"}),
@@ -222,7 +222,7 @@ agenticWorkflows: {
         : request<AgenticWorkflowReadiness>(`/agentic-workflows/${encodeURIComponent(id)}/readiness`, { method: "POST", body: JSON.stringify({ target_node_id: targetNodeId, input_payload: inputPayload }), cache: "no-store" }),
     execute: (id: string, input: { request_id: string; input_payload: Record<string, unknown>; target_node_id?: string }) =>
       request<AgenticWorkflowRun>(`/agentic-workflows/${encodeURIComponent(id)}/executions`, { method: "POST", body: JSON.stringify(input) }),
-    acceptWorkflowDraft: (id: string, input: { node_id: string; story_index: number; case_index: number; kind: "manual" | "automation" }) =>
+    acceptWorkflowDraft: (id: string, input: { node_id: string; story_index: number; case_index: number; kind: "manual" | "automation"; iteration_path?: Array<string | number> }) =>
       request<{ id: string; title: string; kind: string; saved: boolean; reused?: boolean }>(`/agentic-workflow-runs/${encodeURIComponent(id)}/drafts/accept`, { method: "POST", body: JSON.stringify(input) }),
     cancelRun: (id: string) =>
       request<AgenticWorkflowRun>(`/agentic-workflow-runs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),

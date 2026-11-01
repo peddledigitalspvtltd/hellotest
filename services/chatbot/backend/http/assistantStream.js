@@ -1,23 +1,6 @@
 const { randomUUID } = require("node:crypto");
 const { publicKnowledgeError } = require("@hellotest/platform/backend/src/utils/knowledgeAssistantErrors");
 
-/** Deliver only the answer that has passed grounding, access checks and persistence.
- * Raw provider tokens may contain rejected claims and are never sent to a browser.
- */
-const answerDeliveryEvents = function* (result, chunkSize = 240) {
-  if (result?.pending) return;
-  const answer = result?.assistant_message || result?.message;
-  if (!answer?.id || typeof answer.content !== "string") return;
-  const width = Number.isSafeInteger(chunkSize) && chunkSize > 0 ? Math.min(chunkSize, 2_048) : 240;
-  const characters = Array.from(answer.content);
-  for (let offset = 0, sequence = 0; offset < characters.length; offset += width, sequence += 1) {
-    yield {
-      contract_type: "AnswerDelta", contract_version: "1.0", verification: "complete",
-      answer_id: String(answer.id), sequence, text: characters.slice(offset, offset + width).join("")
-    };
-  }
-};
-
 // JSON clients receive the same disconnect cancellation as the streaming UI.
 const runConnectedAssistant = async (req, reply, task) => {
   const controller = new AbortController();
@@ -66,12 +49,10 @@ const streamAssistant = async (req, reply, task) => {
   heartbeat.unref?.();
   try {
     const result = await task({ signal: controller.signal, onProgress: (event) => send("progress", event) });
-    // Progress is transport activity. Only the terminal result completes a turn.
-    for (const delta of answerDeliveryEvents(result)) {
-      if (!active()) break;
-      if (!send("answer_delta", delta)) await waitForDrain();
-    }
-    send("result", result);
+    // Deliver the complete saved contract once. Artificially splitting an
+    // already-validated answer duplicates its content and exposes an incomplete
+    // preview before the structured answer and its citations arrive.
+    if (active() && !send("result", result)) await waitForDrain();
   } catch (error) {
     if (active()) {
       req.log?.error({ err: error, trace_id: traceId }, "Assistant stream failed");
@@ -86,4 +67,4 @@ const streamAssistant = async (req, reply, task) => {
   }
 };
 
-module.exports = { streamAssistant, answerDeliveryEvents, runConnectedAssistant };
+module.exports = { streamAssistant, runConnectedAssistant };

@@ -4,12 +4,13 @@ const {withDeadline}=require('./mcpDeadline');
 const {MCP_CONTEXT_PREFIX,compactEvidenceText,retainMcpRelationships}=require('@hellotest/platform/backend/src/utils/llmContextFallback');
 let transport;
 const installTransport=call=>{transport=call;};
-async function contextCall({userId,projectId,args,signal,privateInput,timeoutMs=30000}){
+async function contextCall({userId,projectId,args,signal,privateInput,traceScope,timeoutMs=30000}){
  return withDeadline(async boundedSignal=>{
   const actor=await principal(userId,projectId,'hellotest-internal');
   if(privateInput)Object.assign(actor,privateInput);
   if(!transport)throw Object.assign(new Error('MCP context transport is not initialized.'),{code:'MCP_CONTEXT_UNAVAILABLE'});
-  return traces.run({mcp_context_depth:1},()=>transport(actor,'hellotest_context_build',args,boundedSignal));
+  const metadata=Object.fromEntries(['feature','session_id','task_id','request_id','trace_id'].filter(key=>typeof traceScope?.[key]==='string').map(key=>[key,traceScope[key]]));
+  return traces.run({...metadata,mcp_context_depth:1},()=>transport(actor,'hellotest_context_build',args,boundedSignal));
  },{signal,timeoutMs});
 }
 function verifyPacket(packet,projectId){
@@ -87,12 +88,12 @@ async function retrieveContext(input){
  const remote=Boolean(process.env.HELLOTEST_MCP_INTERNAL_URL);
  const args=remote?packetArguments({projectId:input.request.project_id,query:input.request.query,appTypeId:input.request.filters?.app_type_id,
   integrationId:input.integration?.id,filters:input.request.filters,budgets:input.request.budgets,intentPlan:input.intentPlan}):{question:input.request.query};
- const result=await contextCall({userId:input.user.id,projectId:input.request.project_id,args,signal:input.signal,timeoutMs:retrievalTimeout(input),...(!remote?{privateInput:{retrievalInput:input}}:{})});
+ const result=await contextCall({userId:input.user.id,projectId:input.request.project_id,args,signal:input.signal,traceScope:traces.current(input.integration),timeoutMs:retrievalTimeout(input),...(!remote?{privateInput:{retrievalInput:input}}:{})});
  const context=remote?contextFromPacket(verifyPacket(result.packet,input.request.project_id),input.request):result.result;verifyPacket(context?.packet,input.request.project_id);
  traces.update({mcp_context:'retrieved'});context.retrieval={...context.retrieval,context_transport:'mcp'};return context;
 }
 async function retrievePacket(input){
- const result=await contextCall({userId:input.user.id,projectId:input.projectId,args:packetArguments(input),signal:input.signal,timeoutMs:retrievalTimeout(input),
+ const result=await contextCall({userId:input.user.id,projectId:input.projectId,args:packetArguments(input),signal:input.signal,traceScope:traces.current(input.integration),timeoutMs:retrievalTimeout(input),
   ...(!process.env.HELLOTEST_MCP_INTERNAL_URL?{privateInput:{packetInput:input}}:{})});
  const packet=verifyPacket(result.packet,input.projectId);
  traces.update({mcp_context:'retrieved'});return {...packet,retrieval:{...packet.retrieval,context_transport:'mcp'}};
@@ -134,7 +135,7 @@ async function enrichChatRequest(init,options={}){
   if(trace.app_type_id&&selectedApp&&trace.app_type_id!==selectedApp)throw Object.assign(new Error('MCP application selectors do not match the active task.'),{code:'MCP_CONTEXT_SCOPE_MISMATCH',statusCode:403});
   const packetInput={projectId:trace.project_id,appTypeId:trace.app_type_id||selectedApp,query:scopedQuestion,filters:options.mcpContextFilters,integrationId:options.integration?.id,
    budgets:{max_context_tokens:policy?.token_budget||2000,max_evidence_items:policy?.max_items||12,deadline_ms:Math.max(0,timeoutMs-500)}};
-  const result=await contextCall({userId:trace.actor_id,projectId:trace.project_id,args:packetArguments(packetInput),signal,timeoutMs,
+  const result=await contextCall({userId:trace.actor_id,projectId:trace.project_id,args:packetArguments(packetInput),signal,timeoutMs,traceScope:trace,
     ...(options.mcpContextFilters&&!process.env.HELLOTEST_MCP_INTERNAL_URL?{privateInput:{packetInput}}:{})});
   const packet=verifyPacket(result.packet,trace.project_id);
   const evidence=packet.evidence;

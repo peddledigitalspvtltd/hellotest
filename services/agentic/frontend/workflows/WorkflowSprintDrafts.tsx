@@ -3,7 +3,7 @@ import type { AgenticWorkflowRun, AiArtifactAssuranceReview } from "@hellotest/p
 import { ArtifactAssuranceWorkspace } from "@hellotest/ai/frontend/components/ArtifactAssuranceWorkspace";
 import { useCapabilityAccess } from "@hellotest/platform/frontend/src/platform/hooks/useCapabilityAccess";
 import { agenticApi } from "../api.client";
-import { collectSprintDrafts, savedSprintCaseIds } from "./sprintDraftResults";
+import { collectSprintDrafts, savedSprintCaseIds, sprintTaskRecords } from "./sprintDraftResults";
 import { WorkflowLibraryReviewActions } from "./WorkflowLibraryReviewActions";
 import { WorkflowDataView } from "./WorkflowDataView";
 import { WorkflowCodeView } from "./WorkflowCodeView";
@@ -29,7 +29,7 @@ export function WorkflowSprintDrafts({ run }: { run: AgenticWorkflowRun }) {
   const [accepted, setAccepted] = useState<{runId: string; cases: Record<string, string>}>({runId: run.id, cases: {}});
   const saved = accepted.runId === run.id ? accepted.cases : {};
   const drafts = collectSprintDrafts(run);
-  const publicationReceipts = run.node_results.filter(item => item.node_type === "artifactTask").flatMap(item => {
+  const publicationReceipts = sprintTaskRecords(run).flatMap(item => {
     const publication = (item.output as { library_publication?: { mode?: string; receipts?: PublicationReceipt[] } })?.library_publication;
     return publication?.mode === "automatic" ? publication.receipts || [] : [];
   }).filter(receipt => receipt.saved === true && typeof receipt.id === "string" && receipt.id.trim());
@@ -40,7 +40,7 @@ export function WorkflowSprintDrafts({ run }: { run: AgenticWorkflowRun }) {
     setBusy(key); setError("");
     const target = kind === "automation" ? drafts[storyIndex].automationTarget : drafts[storyIndex].manualTarget;
     if (!target) { setError("The assessed draft is not available for acceptance yet."); setBusy(""); return; }
-    try { const receipt = await agenticApi.agenticWorkflows.acceptWorkflowDraft(run.id, { node_id: target.nodeId, story_index: target.storyIndex, case_index: caseIndex, kind }); setAccepted(current => ({runId: run.id, cases: {...(current.runId === run.id ? current.cases : {}), [key]: receipt.id}})); }
+    try { const receipt = await agenticApi.agenticWorkflows.acceptWorkflowDraft(run.id, { node_id: target.nodeId, story_index: target.storyIndex, case_index: caseIndex, kind, ...(target.iterationPath ? { iteration_path: target.iterationPath } : {}) }); setAccepted(current => ({runId: run.id, cases: {...(current.runId === run.id ? current.cases : {}), [key]: receipt.id}})); }
     catch (failure) { setError(failure instanceof Error ? failure.message : "The draft could not be saved. Review its permissions and evidence."); }
     finally { setBusy(""); }
   };

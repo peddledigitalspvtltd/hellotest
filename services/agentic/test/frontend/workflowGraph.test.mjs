@@ -39,6 +39,14 @@ test('Sprint template snapshots the correct editable intent for each native task
   assert.equal(draft.settings.library_publication_mode, 'automatic');
   assert.equal(tasks.find(node => node.data.artifactTask === 'automation-engineer').data.readinessPolicy, 'verify-inputs');
   assert.equal(draft.settings.requires_human_review, false);
+  const loop = draft.nodes.find(node => node.data.kind === 'loop');
+  assert.equal(loop.data.loopAction, 'workflow');
+  assert.equal(Number(loop.data.loopBatchSize), 1);
+  assert.equal(Number(loop.data.timeoutMs), 3600000);
+  assert.ok(draft.edges.some(edge => edge.source === loop.id && edge.sourceHandle === 'loop' && edge.target === 'story-assurance'));
+  assert.ok(draft.edges.some(edge => edge.source === 'automation-engineer' && edge.target === loop.id && edge.targetHandle === 'continue'));
+  assert.ok(draft.edges.some(edge => edge.source === loop.id && edge.sourceHandle === 'done' && edge.target === 'sprint-output'));
+  assert.equal(draft.edges.some(edge => edge.source === 'automation-engineer' && edge.target === 'sprint-output'), false);
 });
 
 test('opening legacy native tasks preserves user guidance and intentionally empty fields', () => {

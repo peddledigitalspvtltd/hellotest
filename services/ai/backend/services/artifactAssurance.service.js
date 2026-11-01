@@ -336,6 +336,8 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       AI_OUTPUT_TRUNCATED: "The provider stopped before completing its review. Retry with a smaller draft or shorter guidance.",
       AI_INVALID_JSON: "The provider returned an invalid review format. Check that the selected model supports JSON responses.",
       AI_ASSURANCE_REVIEW_INVALID: "The provider returned invalid review fields or unsupported citations after one format repair. Retry or select another configured model.",
+      AI_OUTPUT_SCHEMA_VIOLATION: "The provider returned a review that did not match the required output contract after one format repair. Review the selected model and assurance instructions.",
+      AI_MANAGED_SCHEMA_INVALID: "The configured assurance output contract is invalid. Review its published AI configuration before retrying.",
       AI_EMPTY_RESPONSE: "The provider returned an empty review. Retry or select another configured model."
     };
     const reason = reasons[error?.code]

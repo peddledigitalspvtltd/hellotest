@@ -14,7 +14,7 @@ const nativeCase = (mode = 'structured') => ({
   title: 'Sign-in form provides credential inputs', description: 'Check the inputs visible in the supplied screen.', priority: 3,
   test_case_type: 'functional', parameter_values: {}, authoring_mode: mode, requirement_refs: [],
   steps: [{ step_type: 'web', action: 'View the sign-in form', expected_result: 'Email and password inputs are displayed' }],
-  ...(mode === 'gherkin' ? { gherkin_document: 'Feature: Sign-in form\n  Scenario: Credential inputs\n    Given the sign-in form is displayed\n    Then email and password inputs are visible' } : {})
+  ...(mode === 'gherkin' ? { gherkin_document: 'Feature: Sign-in form\n  Scenario: Credential inputs\n    Given the sign-in form is available\n    When the visitor views the sign-in form\n    Then email and password inputs are visible' } : {})
 });
 
 function fixture(serviceName, reply) {

@@ -17,6 +17,8 @@
 .sprint-combobox-menu button { background:transparent; border:0; color:var(--accent-color,#315ee7); text-decoration:underline; cursor:pointer; }
 .sprint-combobox button:focus-visible { outline:2px solid var(--accent-color,#466ff5); outline-offset:1px; }
 .sprint-automator-setup .sprint-setup-error { flex-basis:100%; color:var(--danger-color,#b72d3f); }
+.sprint-automation-guidance { flex-basis:100%; }
+.sprint-automation-guidance button { border:0; padding:0; background:transparent; color:var(--accent-color,#315ee7); font:inherit; text-decoration:underline; cursor:pointer; }
 :root[data-theme=dark] .sprint-combobox-control,:root[data-theme=dark] .sprint-combobox-menu { background:#111d2a; color:#edf4ff; border-color:#415166; }
 :root[data-theme=dark] .sprint-combobox-menu [role=option].is-active { background:#26364a; }
 @media(max-width:600px) { .sprint-automator-setup { padding:10px 12px; gap:8px; } .sprint-scope-label { flex-direction:row; align-items:center; flex-wrap:wrap; gap:8px; } .sprint-combobox { flex-basis:100%; } }

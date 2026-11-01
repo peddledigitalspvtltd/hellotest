@@ -18,7 +18,7 @@ const auth={authInfo:{token:'test',clientId:'host',scopes:[],extra:{actor}}};
 test.after(()=>server.handler.close());
 test('real SDK serves the modern stateless tool catalog and caller-bound results',async()=>{
  const response=await server.handler.fetch(request({jsonrpc:'2.0',id:1,method:'tools/list',params:{_meta:meta}},{'MCP-Protocol-Version':'2026-07-28','Mcp-Method':'tools/list'}),auth);
- assert.equal(response.status,200);const catalog=await response.json();assert.equal(catalog.result.tools.length,17);assert.ok(catalog.result.tools.every(tool=>tool.inputSchema.additionalProperties===false));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_prepare'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_status'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_graph_resolve'));
+ assert.equal(response.status,200);const catalog=await response.json();assert.equal(catalog.result.tools.length,19);assert.ok(catalog.result.tools.every(tool=>tool.inputSchema.additionalProperties===false));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_prepare'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_browser_mission_status'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_graph_resolve'));assert.ok(catalog.result.tools.some(tool=>tool.name==='hellotest_context_graph_explore'));
  const result=await server.callLocal(actor,'hellotest_capabilities',{});assert.equal(result.owner,'user-a');assert.equal(result.project,'project-a');
 });
 test('legacy initialize remains compatible without protocol session authority',async()=>{
@@ -115,7 +115,7 @@ test('delivery preserves validated provenance hashes and reports field and item 
 test('catalog discovery avoids repeated permission queries and rechecks permissions on the next request',async()=>{
  let checks=0,allowed=true;const operations=[{id:'a',method:'GET',path:'/test-cases',permission:'testcase.view'},{id:'b',method:'GET',path:'/test-cases/:id',permission:'testcase.view'}];
  const real=load('backplane',{'@hellotest/platform/backend/src/db':fakeDb,'./auth':{permit:async(a,permission)=>{await permit(a);if(permission==='testcase.view'){checks++;if(!allowed)throw Object.assign(new Error('Denied'),{statusCode:403});}},fail:(message,statusCode,code)=>Object.assign(new Error(message),{statusCode,code})},'./registry':{all:()=>operations,revision:()=> 'revision'}});
- assert.equal((await real.catalog(actor,{query:'test-cases'})).operations.length,2);assert.equal(checks,1);allowed=false;assert.equal((await real.catalog(actor,{query:'test-cases'})).operations.length,0);assert.equal(checks,2);
+ assert.equal((await real.catalog(actor,{query:'list test cases'})).operations.length,2);assert.equal(checks,1);allowed=false;assert.equal((await real.catalog(actor,{query:'list test cases'})).operations.length,0);assert.equal(checks,2);
 });
 
 test('built-in status inspects the real SDK without executing the full capability catalog',async()=>{

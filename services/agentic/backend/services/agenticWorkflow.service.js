@@ -180,7 +180,7 @@ const hydrateWorkflow = (workflow) => {
     return workflow;
   }
 
-  return workflowCredentialPolicy.safeDefinition({
+  return workflowCredentialPolicy.safeDefinition(require('../workflows/sprintWorkflowMigration').upgradeSprintWorkflow({
     ...workflow,
     nodes: withNativeTaskDefaults(normalizeArray(parseJsonValue(workflow.nodes, []))),
     edges: normalizeArray(parseJsonValue(workflow.edges, [])),
@@ -189,7 +189,7 @@ const hydrateWorkflow = (workflow) => {
     run_count: Number(workflow.run_count || 0),
     latest_run_at: workflow.latest_run_at || null,
     latest_run_status: workflow.latest_run_status || null
-  });
+  }));
 };
 
 const hydrateWorkflowRun = (run) => {

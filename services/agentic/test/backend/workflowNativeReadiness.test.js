@@ -12,6 +12,17 @@ const graph = () => {
     { id: 'output', data: { kind: 'output' } }];
   return { id: 'native-workflow', project_id: 'project', app_type_id: 'app', trigger_kind: 'manual', nodes, edges: nodes.slice(1).map((node, index) => ({ source: nodes[index].id, target: node.id })) };
 };
+test('persisted PostgreSQL workflow timestamps form valid revision-pinned native AI scopes', async () => {
+  const configuration = require('../../backend/workflows/nodeAiConfiguration');
+  const execution = require('@hellotest/platform/backend/src/utils/aiExecutionConfiguration');
+  const node = graph().nodes[1];
+  const timestamp = new Date('2026-10-31T12:15:00Z');
+  await configuration.runNode(node, { revision: timestamp }, async () => {
+    assert.equal(execution.current().revision, timestamp.toISOString());
+    assert.equal(execution.current().feature_id, tasks.taskUsageKey('story-assurance'));
+  });
+  assert.equal(execution.current(), null, 'Node configuration is scoped to its own execution');
+});
 function allow(t) {
   t.mock.method(permissions, 'hasPermission', async () => true);
   t.mock.method(flags, 'areEnabled', async () => true);

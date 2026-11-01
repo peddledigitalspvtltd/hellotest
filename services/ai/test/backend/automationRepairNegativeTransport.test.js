@@ -5,7 +5,8 @@ const dispatch=fs.readFileSync(require.resolve('../../../automation/backend/serv
 function envelopeBuilder(){
  const part=(start,end)=>dispatch.slice(dispatch.indexOf(start),dispatch.indexOf(end,dispatch.indexOf(start)));
  const normalizeText=value=>value==null?null:String(value).trim();
- const dependencies={normalizeText,normalizeJsonValue:(value,fallback)=>value??fallback,normalizeInteger:(value,fallback)=>value==null?fallback:Number(value),
+ const dependencies={require:require('node:module').createRequire(require.resolve('../../../automation/backend/services/testEngineDispatch.service')),normalizeText,normalizeJsonValue:(value,fallback)=>value??fallback,normalizeInteger:(value,fallback)=>value==null?fallback:Number(value),
+  resolveAutomationCaseType:require('../../../platform/backend/src/utils/automationCaseType').resolveAutomationCaseType,
   preserveFrozenEngineEnvelope:require('../../../platform/backend/src/utils/frozenRunParameterCompatibility').preserveFrozenEngineEnvelope,
   configurationTargetsForRead:()=>[],normalizeEngineBrowser:(value,fallback)=>value||fallback,resolveExecutionPolicy:async()=>({}),
   normalizeSessionMode:(value,fallback)=>value||fallback,normalizeTestEngineWebEngine:(value,fallback)=>value||fallback,

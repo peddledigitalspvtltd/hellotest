@@ -1416,7 +1416,7 @@ export function AgenticWorkflowsPage() {
         error={reviewStartError} input={runInput} onInput={setRunInput}
         inputSetup={isSprintAutomator(nodes) ? <SprintAutomatorSetup projectId={projectId} input={runInput} onInput={setRunInput}
           editable={canManageAgenticWorkflows} canRun={canRunAgenticWorkflows} busy={saveMutation.isPending || checkingReview || executeReviewMutation.isPending}
-          canViewSprints={can("requirement_iteration.view")} /> : undefined}
+          canViewSprints={can("requirement_iteration.view")} onConfigureAutomation={() => { const automation = nodes.find(node => node.data.kind === "artifactTask" && node.data.artifactTask === "automation-engineer"); if (automation) setSelectedNodeId(automation.id); }} /> : undefined}
         onDraft={patch => setDraft(current => current ? { ...current, ...patch } : null)}
         onBack={closeDraft} onSave={() => void checkReviewReadiness()} onPreview={() => void runCurrentDraft()}
         onExecute={target => void prepareAndExecute(target)} onCheck={() => void checkReviewReadiness()}

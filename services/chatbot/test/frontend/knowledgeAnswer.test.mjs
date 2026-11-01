@@ -28,6 +28,17 @@ test("validated claims render once with readable citations instead of the derive
   assert.match(withoutClaims, /No permitted evidence answers this question/);
 });
 
+test("product guidance has a Product guide label and retains one cited response", () => {
+  const input = message();
+  input.retrieval = { context_route: { query_category: "tool_help" } };
+  const markup = html(input);
+  assert.match(markup, /aria-label="Product guide"/);
+  assert.match(markup, />Product guide</);
+  assert.equal(markup.split("The source supports this statement.").length - 1, 1);
+  assert.match(markup, /aria-label="Source 1/);
+  assert.doesNotMatch(html(message()), />Product guide</);
+});
+
 test("saved processing stages render canonical events and legacy traces with status", () => {
   const traceExports = {};
   const traceSource = readFileSync(new URL("../../frontend/components/KnowledgeProcessingTrace.tsx", import.meta.url), "utf8");

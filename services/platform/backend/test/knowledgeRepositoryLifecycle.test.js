@@ -67,7 +67,7 @@ test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain
         await db.query(statement.replace("CREATE TABLE IF NOT EXISTS ai_knowledge_vector_jobs", "CREATE TEMP TABLE ai_knowledge_vector_jobs"));
       }
       for (const statement of require("../../../knowledge/backend/graphSchema").statements) {
-        await db.query(statement.replace(/CREATE TABLE IF NOT EXISTS ai_knowledge_graph_/g, "CREATE TEMP TABLE ai_knowledge_graph_"));
+        await db.query(statement.replace(/CREATE TABLE IF NOT EXISTS (ai_knowledge_graph_|ai_context_graph_)/g, "CREATE TEMP TABLE $1"));
       }
       const extension = await db.prepare("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') AS available").get();
       if (extension.available) await db.query("ALTER TABLE ai_knowledge_chunks ADD COLUMN embedding_vector vector");

@@ -99,7 +99,7 @@ function normalize(input, previous = {}) {
     names.add(lower); resolvedHeaders[name] = resolved;
   }
   const toolDefinitions = kind === "mcp" ? input.toolDefinitions ?? previous.toolDefinitions ?? [] : [];
-  if (!Array.isArray(toolDefinitions) || toolDefinitions.length > 100 || toolDefinitions.some(tool => !tool || typeof tool.name !== "string" || !/^[\w.:-]{1,128}$/.test(tool.name) || !tool.inputSchema || typeof tool.inputSchema !== "object" || Array.isArray(tool.inputSchema)) || Buffer.byteLength(JSON.stringify(toolDefinitions)) > 98304) throw fail("The tool catalog must contain up to 100 tools with valid input schemas and fit within 96 KB.");
+  if (!Array.isArray(toolDefinitions) || toolDefinitions.length > 100 || toolDefinitions.some(tool => !tool || typeof tool.name !== "string" || !/^[\w.:-]{1,128}$/.test(tool.name) || !tool.inputSchema || typeof tool.inputSchema !== "object" || Array.isArray(tool.inputSchema)) || Buffer.byteLength(JSON.stringify(toolDefinitions)) > require('./mcpLimits').MAX_CATALOG_BYTES) throw fail("The tool catalog must contain up to 100 tools with valid input schemas and fit within 512 KB.");
   if (new Set(toolDefinitions.map(tool => tool.name)).size !== toolDefinitions.length) throw fail("The tool catalog contains duplicate names.");
   if (toolDefinitions.length && tools.some(name => !toolDefinitions.some(tool => tool.name === name))) throw fail("Select enabled tools from the discovered server catalog.");
   const keepCatalogMetadata = !Object.hasOwn(input, "toolDefinitions");

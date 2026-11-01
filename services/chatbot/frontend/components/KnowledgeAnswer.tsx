@@ -7,6 +7,7 @@ export function KnowledgeAnswer({ message, onEvidenceOpen }: { message: Knowledg
   if (!answer) return null;
   const sources = Array.from(answer.citations.values());
   const excerptsOnly = message.safety?.extractive_grounded_fallback === true;
+  const productGuide = message.retrieval?.context_route?.query_category === "tool_help";
   const evidenceLinks = (ids: string[]) => <span className="knowledge-claim-citations">{ids.map((id) => {
     const citation = answer.citations.get(id);
     if (!citation) return null;
@@ -33,7 +34,8 @@ export function KnowledgeAnswer({ message, onEvidenceOpen }: { message: Knowledg
     ...(answer.partial && !limitations.length && !answer.gaps.length ? ["The answer uses the authorized evidence available for this turn."] : [])
   ])];
   return <div className="knowledge-validated-answer" aria-label="Evidence-linked answer">
-    <section aria-label="Response" className="knowledge-answer-response">
+    <section aria-label={productGuide ? "Product guide" : "Response"} className="knowledge-answer-response">
+      {productGuide ? <strong className="knowledge-answer-guide-label">Product guide</strong> : null}
       {excerptsOnly ? <p className="knowledge-answer-summary">The model could not complete an answer. Retry the response; the retrieved source excerpts are available below.</p> : null}
       {!answer.claims.length && answer.summary ? <KnowledgeFormattedText className="knowledge-answer-summary" text={answer.summary} /> : null}
       {answer.claims.length ? excerptsOnly ? <details className="knowledge-answer-limitations"><summary>Retrieved excerpts · {answer.claims.length}</summary>{answer.claims.map(claim => <blockquote key={claim.id}><KnowledgeFormattedText text={claim.text} />{evidenceLinks(claim.evidenceIds)}</blockquote>)}</details> : <div className="knowledge-answer-paragraphs">{answer.claims.map((claim) => <div key={claim.id}>{claim.classification === "INTERPRETATION" ? <span className="knowledge-interpretation-label">Interpretation</span> : null}<KnowledgeFormattedText text={claim.text} />{evidenceLinks(claim.evidenceIds)}</div>)}</div> : null}

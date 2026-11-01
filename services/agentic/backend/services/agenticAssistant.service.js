@@ -879,6 +879,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
     acceptance: definition?.acceptance || { require_evidence: true }, limits: definition?.limits || { max_model_calls: 8, max_output_tokens: 16384 } };
   const configuration = require('@hellotest/platform/backend/services/aiConfiguration.service');
   const governedProfile = await configuration.resolve(configuration.featureId(agent.configurationKey, 'ai.agentic.workflow'));
+  require('@hellotest/platform/backend/src/utils/llmTraceContext').update({ feature: agent.configurationKey });
   const executionPolicy = governedProfile.config.agent_execution || configuration.catalog.find(item => item.id === 'ai.agentic.workflow').defaults.agent_execution;
   agent.outputInstructions = governedProfile.config.prompt;
   agent.limits = {
@@ -1431,6 +1432,15 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       }
     });
     const events = await workspaceTransactionService.listTransactionEvents(transactionId);
+    const contextPacket = knowledgeRetrieval.context_packet;
+    if (contextPacket?.retrieval?.context_graph?.status === 'recorded') {
+      result.context_graph_outcome = await require('@hellotest/mcp/backend/contextGraph').rememberDecision({
+        projectId, user, packet: contextPacket,
+        event: { id: `agent-outcome:${transactionId}`, type: result.artifacts?.length ? 'PROPOSAL_PREPARED' : 'OUTCOME_RECORDED',
+          status: result.verification?.status || result.readiness.status, reference_id: transactionId,
+          rationale: 'The specialist result was persisted after native evidence and output checks. Artifact proposals still require their own review and do not establish an applied effect.' }
+      });
+    }
 
     return {
       transaction: completed,

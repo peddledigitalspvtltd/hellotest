@@ -36,7 +36,7 @@ test("agent workbench exposes every governed QA specialist as a first-class acti
   assert.match(page, /<AgentActivityTimeline/);
   assert.match(page, /<AgenticOutcomePanel/);
   assert.doesNotMatch(page, /Plan a reusable workflow/);
-  assert.match(page, /Model calls/);
+  assert.match(component, /label: "Model calls"/);
   assert.match(page, /setAssistantContextScopes\(agent\.contextScopes\)/);
   assert.match(component, /contextScopes: profile.scopes/);
 });
@@ -69,9 +69,9 @@ test("agent traces expose evidence and evaluation without hidden reasoning", asy
   assert.doesNotMatch(component, /Evidence review diagnostics|className="agent-outcome-evidence"/);
 
   assert.match(component, /Human decision/);
-  assert.match(component, /Decision summary/);
-  assert.match(component, /Evidence-backed findings/);
-  assert.match(component, /Specialist deliverables/);
+  assert.match(component, /Outcome summary/);
+  assert.match(component, /Findings and supporting evidence/);
+  assert.match(component, /Drafts and supporting reports/);
   assert.match(component, /Evidence gaps/);
   assert.match(component, /Why this evidence was selected/);
   assert.doesNotMatch(component, /chain.of.thought/i);
@@ -101,7 +101,11 @@ test("every AI output is review-first, editable, selectable, and explicitly acce
   ]);
 
   assert.match(experience, /export function AiFeatureComposer/);
-  assert.match(experience, /Accept agent output/);
+  assert.match(experience, /<AgentArtifactReview[^>]*approvalBlocked=\{review.blockedReason\}/);
+  const artifactReview = await readSource("../../../agentic/frontend/agents/AgentArtifactReview.tsx");
+  assert.match(artifactReview, /Accept and create/);
+  assert.match(artifactReview, /Accept and update Story/);
+  assert.match(artifactReview, /!canAccept \|\| !valid/);
   assert.match(experience, /A person can edit, select, accept, or discard/);
   assert.match(storyStudio, /Proposal ready/);
   assert.doesNotMatch(storyStudio, /<AiFeatureComposer/);
@@ -112,7 +116,7 @@ test("every AI output is review-first, editable, selectable, and explicitly acce
   assert.match(insights, /Accept review plan/);
   assert.match(bugs, /Accept into Defect form/);
   assert.match(automation, /Build instructions \(optional\)/);
-  assert.match(automation, /Build step plan/);
+  assert.match(automation, /submitLabel=\{agentScheduledAt \? "Schedule build" : "Build plan"\}/);
   assert.match(automation, /aria-label="Automation step plan"/);
   assert.match(automation, /Save section/);
   assert.match(executions, /Accept reviewed summary/);
@@ -202,7 +206,7 @@ test("core AI authoring flows share the compact context, draft, and generation-f
   assert.match(insights, /disabled=\{Boolean\(onAccept\)/);
 
   assert.match(contextPanel, /linked page content is not fetched/);
-  assert.match(contextPanel, /unsupported provider will show a fallback or error/);
+  assert.match(contextPanel, /Reference images/);
 });
 
 test("AI context uses accessible tabs while keeping inactive context panels mounted", async () => {

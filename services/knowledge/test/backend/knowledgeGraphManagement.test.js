@@ -34,7 +34,7 @@ test('review digest binds the candidate to its immutable proof and state', () =>
   const row = { id: 'edge', status: 'CANDIDATE', provenance_type: 'LLM_CANDIDATE', source_node_id: 'a', target_node_id: 'b',
     relation_type: 'DEPENDS_ON', chunk_id: 'c', document_id: 'd', document_version: 1, version_hash: 'hash', span_start: 2, span_end: 20 };
   const revision = management._internals.reviewRevision(row);
-  for (const change of [{ status: 'ACTIVE' }, { version_hash: 'changed' }, { document_version: 2 }, { target_node_id: 'other' }, { span_end: 21 }, { source_aliases: ['Rebound alias'] }, { proposal_revision: 'resubmitted' }]) assert.notEqual(management._internals.reviewRevision({ ...row, ...change }), revision);
+  for (const change of [{ status: 'ACTIVE' }, { version_hash: 'changed' }, { document_version: 2 }, { target_node_id: 'other' }, { span_end: 21 }, { source_title: 'Renamed source' }, { target_title: 'Renamed target' }, { source_aliases: ['Rebound alias'] }, { proposal_revision: 'resubmitted' }]) assert.notEqual(management._internals.reviewRevision({ ...row, ...change }), revision);
 });
 test('relationship extraction spends context on co-mentioned entities, including evidence near the end of a chunk', () => {
   const nodes = [{ id: 'a', title: 'Auth service' }, { id: 'b', title: 'Checkout service' }];

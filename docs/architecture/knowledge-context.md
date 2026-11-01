@@ -44,6 +44,11 @@ RetrievalRequest, RetrievalEvent, ContextPacket, and AnswerContract. Their
 schemas and runtime validation live in `knowledgeContractSchemas.service.js`.
 The legacy schema identifier remains available as `schema_id` for migration.
 
+The [Knowledge Graph and Context Graph](knowledge-context-graphs.md) add typed
+source exploration and persistent owner-private retrieval/event lineage over
+these same authorized evidence identities. Context Studio provides separate
+maps, relationship lists, provenance inspectors and recorded-task timelines.
+
 ## Answer and conversation behavior
 
 - Evidence-only mode skips answer generation and model planning explicitly.
@@ -78,8 +83,9 @@ The legacy schema identifier remains available as `schema_id` for migration.
 | `GET /knowledge/sources/:id/revisions` | Authorized revision history |
 | `PUT /knowledge/sources/:id/security` | Replace source/revision/fragment bindings |
 
-Streaming uses authenticated POST fetch with `progress`, `answer_delta`, `result`, and `error`
-SSE events. Disconnect aborts work. Client retries preserve the selected scope,
+Streaming uses authenticated POST fetch with `progress`, `result`, and `error`
+SSE events. The complete validated assistant answer appears in one result.
+Disconnect aborts work. Client retries preserve the selected scope,
 model, response mode, and turn ID. Server identity and permissions are never
 taken from client-supplied authorization fields. OpenAPI documents the routes.
 

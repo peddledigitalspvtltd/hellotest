@@ -12,6 +12,7 @@
     "./backend/server": "./backend/mcpServer.js",
     "./backend/auth": "./backend/auth.js",
     "./backend/gateway": "./backend/gateway.js",
+    "./backend/contextGraph": "./backend/contextGraph.js",
     "./backend/registry": "./backend/registry.js",
     "./backend/schema": "./backend/mcpSchema.js"
   },

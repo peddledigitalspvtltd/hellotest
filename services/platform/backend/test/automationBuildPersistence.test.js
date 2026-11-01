@@ -67,15 +67,25 @@ const loadBuilderTestFunctions = (records) => {
 test("complete AI mappings preserve API/native capabilities and never overwrite step prose", async () => {
   const mixedSteps = [
     ...sourceSteps,
-    { id: "native", action: "Tap sign in", expected_result: "Welcome appears", step_type: "android", automation_code: "await driver.back();" }
+    { id: "native", action: "Tap sign in", expected_result: "Welcome appears", step_type: "android", automation_code: "await driver.back(); await driver.$('~Welcome').waitForDisplayed();" }
   ];
   const records = new Map(mixedSteps.map((step) => [step.id, { ...step }]));
   const { normalizeLlmBuild, applyBuild } = loadBuilderTestFunctions(records);
-  const build = normalizeLlmBuild({ steps: mixedSteps.map(step => ({ step_id: step.id, step_type: step.step_type, automation_code: step.automation_code, api_request: step.api_request })) }, mixedSteps, [], "https://example.test");
+  const build = normalizeLlmBuild({ steps: mixedSteps.map(step => ({
+    step_id: step.id,
+    step_type: step.step_type,
+    automation_code: step.step_type === "web" ? `${step.automation_code}\nawait web.expectVisible('#dashboard');` : step.automation_code,
+    api_request: step.step_type === "api" ? { ...step.api_request, validations: [
+      { kind: "status", expected: "200" },
+      { kind: "json_path", target: "$.status", operator: "eq", expected: "active" }
+    ] } : step.api_request
+  })) }, mixedSteps, [], "https://example.test");
   await applyBuild({ build });
   assert.equal(records.get("setup").api_request.url, "/accounts");
   assert.equal(records.get("setup").step_type, "api");
-  assert.equal(records.get("native").automation_code, "await driver.back();");
+  assert.ok(records.get("setup").api_request.validations.some(check => check.kind === "json_path" && check.expected === "active"));
+  assert.match(records.get("login").automation_code, /web\.expectVisible\('#dashboard'\)/);
+  assert.equal(records.get("native").automation_code, mixedSteps[2].automation_code);
   for (const step of mixedSteps) {
     assert.equal(records.get(step.id).action, step.action);
     assert.equal(records.get(step.id).expected_result, step.expected_result);
@@ -85,7 +95,7 @@ test("complete AI mappings preserve API/native capabilities and never overwrite 
 test("an agent that lost its durable lease cannot apply validated instructions",async()=>{
  const original={id:"step",test_case_id:"case",step_order:1,action:"Submit",expected_result:"Saved",step_type:"web",automation_code:'await web.click("#old");'};
  const records=new Map([[original.id,{...original}]]),{normalizeLlmBuild,applyBuild}=loadBuilderTestFunctions(records);
- const build=normalizeLlmBuild({steps:[{step_id:original.id,automation_code:'await web.click("#new");'}]},[original],[],null);
+ const build=normalizeLlmBuild({steps:[{step_id:original.id,automation_code:'await web.click("#new"); await web.expectText("#status", "Saved");'}]},[original],[],null);
  await assert.rejects(applyBuild({build,executionGuard:{ensureOwnership:async()=>{throw Object.assign(new Error("Lease ownership changed"),{code:"BATCH_JOB_LEASE_LOST"});}}}),{code:"BATCH_JOB_LEASE_LOST"});
  assert.equal(records.get(original.id).automation_code,original.automation_code);
 });
@@ -93,8 +103,21 @@ test("an agent that lost its durable lease cannot apply validated instructions",
 const loadService = (relativeFile, overrides) => {
   const file = path.join(__dirname, relativeFile);
   const exported = {};
+  const buildParameterPlan = require('../../../automation/backend/lib/automationBuildParameterPlan');
+  const helpers = {
+    crypto: require('crypto'),
+    automationSchedule: { normalizeScheduledAt },
+    automationStartUrl: require('../src/utils/automationStartUrl'),
+    automationCaseType: require('../src/utils/automationCaseType'),
+    'automationQueuedStartUrl.service': require('../../../automation/backend/services/automationQueuedStartUrl.service'),
+    automationBuildPipelineOptions: require('../../../automation/backend/lib/automationBuildPipelineOptions'),
+    automationBuildParameterPlan: buildParameterPlan,
+    'automationBuildParameterPlan.service': { buildParameterValues: buildParameterPlan.buildParameterValues,
+      load: async () => assert.fail('This scheduling fixture does not select a parameter plan') },
+    automationCaseBlueprint: { buildAutomationCaseBlueprint }
+  };
   const sandbox = { module: { exports: exported }, exports: exported, process, URL, Buffer, setTimeout: () => 0, clearTimeout: () => {}, console,
-    require: (id) => overrides[Object.keys(overrides).find(key => key.split('/').pop() === id.split('/').pop())] || (id === "crypto" ? require("crypto") : dependencyName(id) === "automationSchedule" ? { normalizeScheduledAt } : dependencyName(id) === "automationStartUrl" ? require('../src/utils/automationStartUrl') : dependencyName(id) === "automationQueuedStartUrl.service" ? require('../../../automation/backend/services/automationQueuedStartUrl.service') : dependencyName(id) === "automationCaseBlueprint" ? { buildAutomationCaseBlueprint } : {}) };
+    require: (id) => overrides[Object.keys(overrides).find(key => key.split('/').pop() === id.split('/').pop())] || helpers[dependencyName(id)] || {} };
   vm.runInNewContext(fs.readFileSync(file, "utf8"), sandbox, { filename: file });
   return sandbox.module.exports;
 };

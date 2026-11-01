@@ -142,4 +142,4 @@ function validateNativeArtifactOutput(id, parsed, { testCaseTypes } = {}) {
     throw error;
   }
 }
-module.exports = { caseOutputSchema, stepOutputSchema, nativeArtifactContract, validateNativeArtifactOutput, validateCaseParameterBindings };
+module.exports = { caseOutputSchema, stepOutputSchema, nativeArtifactContract, validateNativeArtifactOutput, validateCaseParameterBindings, validGherkinCase };

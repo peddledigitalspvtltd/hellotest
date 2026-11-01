@@ -1,6 +1,7 @@
 const graph = require('../services/knowledgeGraph.service');
 const management = require('../services/knowledgeGraphManagement.service');
 const extraction = require('../services/knowledgeGraphExtraction.service');
+const contextGraph = require('../services/knowledgeContextGraph.service');
 const execution = require('../services/knowledgeExecution.service');
 const { validateAppTypeScope, createProjectAccess } = require('../http/requestScope');
 
@@ -41,6 +42,22 @@ module.exports = async function registerKnowledgeGraph(fastify) {
     finally { req.raw.removeListener('aborted', disconnect); reply.raw.removeListener('close', disconnect); }
   };
   const base = '/projects/:project_id/knowledge/graph';
+  const contextBase = '/projects/:project_id/knowledge/context-graph';
+  fastify.get(contextBase, { schema: { querystring: object({
+    app_type_id: id, feature_id: { type: 'string', minLength: 1, maxLength: 160 },
+    from: { type: 'string', minLength: 1, maxLength: 80 }, to: { type: 'string', minLength: 1, maxLength: 80 },
+    limit: { type: 'integer', minimum: 1, maximum: 20 }, cursor: { type: 'string', minLength: 1, maxLength: 2048 }
+  }) } }, async (req, reply) => {
+    await authorize(req, reply);
+    return connected(req, reply, signal => contextGraph.list({ projectId: req.params.project_id, user: req.user,
+      appTypeId: req.query.app_type_id, featureId: req.query.feature_id, from: req.query.from, to: req.query.to,
+      limit: req.query.limit ?? 20, cursor: req.query.cursor, signal }));
+  });
+  fastify.post(`${contextBase}/explore`, closedBody({ ...object({ trace_id: id, app_type_id: id }), required: ['trace_id'] }), async (req, reply) => {
+    await authorize(req, reply);
+    return connected(req, reply, signal => contextGraph.explore({ projectId: req.params.project_id, user: req.user,
+      traceId: req.body.trace_id, appTypeId: req.body.app_type_id, signal }));
+  });
   fastify.get(base, async (req, reply) => {
     await authorize(req, reply);
     return graph.describe();

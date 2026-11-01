@@ -1,7 +1,7 @@
 // Versioned, deterministic HelloTest product context. This catalog is kept
 // separate from the retrieval engine so feature guidance can evolve without
 // coupling product language to database/vector implementation details.
-const PRODUCT_HELP_VERSION = "2026.09";
+const PRODUCT_HELP_VERSION = "2026.11.02";
 
 const PRODUCT_HELP_SECTIONS = Object.freeze([
   {
@@ -17,10 +17,34 @@ const PRODUCT_HELP_SECTIONS = Object.freeze([
     content: "Knowledge Repo can index selected Stories, Test Cases, Test Runs, Defects, text, chat notes, URLs, and supported files into reusable collections. Processing validates the input, extracts or accepts supplied text, redacts supported sensitive identifiers, neutralizes instruction-like content, versions the source, preserves document and section context, chunks the content, and builds hybrid lexical and semantic indexes. PDF and Office extraction uses the configured Apache Tika service. Images need a user-supplied caption; audio and video need a transcript. The source inventory shows whether content is searchable, needs extraction, or failed and can be retried. Search results are citation-ready and remain project and permission scoped."
   },
   {
+    id: "knowledge-context-graphs",
+    title: "Knowledge Graph and Context Graph exploration",
+    aliases: ["knowledge graph", "context graph", "graph map", "evidence inspector", "graph visualization", "recorded context"],
+    content: "In Knowledge Repo → Context Studio, choose Knowledge graph to explore current authorized source records and the meaning of their directed relationships. Search for a record, select it, and explore its neighborhood. Use Map or List, filter record type, relationship or provenance, and select a record or link to inspect its source revision and supporting evidence. Curated aliases and relationship suggestions remain subject to the existing review permissions. Choose Context graph to inspect your own recorded AI retrieval tasks, selected source revisions, access checks and saved outcomes. Filter by feature and recording dates, then open a task. The timeline distinguishes when an event occurred from when it was recorded. Stale or expired evidence is labeled, and evidence unavailable with your current permissions is omitted. Live project snapshots describe a past observation without asserting that the content is still current. A recorded retrieval does not prove every passage reached the model; recorded proposals and responses do not establish approval or successful execution. Graph views are bounded and may show explicit gaps; they are not complete historical snapshots of the project."
+  },
+  {
     id: "ask-hellotest",
     title: "Ask HelloTest grounded assistant",
     aliases: ["ask hellotest", "chatbot", "assistant", "ai chat", "grounded answer", "context injection", "citations"],
-    content: "Ask HelloTest classifies each question as product guidance, current project facts, project analysis, or a mixed request. It can combine permitted live project snapshots with matching Knowledge Repo chunks, expand retrieval when evidence is incomplete, and send only bounded citation-ready evidence to the configured project-safe LLM. Answers are structured into a summary, findings, recommended next steps, and evidence gaps. A second grounding check is used when available. If no LLM is configured or the provider is unavailable, Ask HelloTest returns a deterministic citation-backed live or extractive answer instead of inventing facts. Follow-up questions use recent conversation only to resolve references and still retrieve fresh project evidence."
+    content: "Ask HelloTest classifies each question as product guidance, current project facts, project analysis, or a mixed request. Open Ask HelloTest in the current project and application, choose an active project-compatible LLM, and ask your question. Product usage questions return a cited Product guide. Project questions combine permitted current records with relevant Knowledge Repository evidence through the built-in HelloTest MCP context service. Retrieval expands within its limits when evidence is incomplete; the completed answer and its citations appear together after access and grounding checks. Source selection and Add context narrow the evidence boundary. Evidence only returns deterministic citation-backed current facts or passages without model synthesis. AI answers require a configured LLM; model failures offer retry or evidence search instead of inventing conclusions. Follow-up questions use recent conversation to resolve references and still retrieve fresh project evidence."
+  },
+  {
+    id: "workflows-foreach",
+    title: "Agentic workflow editor and For Each loops",
+    aliases: ["foreach", "for each", "loop over items", "loop", "continue", "done", "workflow editor", "loop body"],
+    content: "In Agentic Studio → Workflows, add a For Each loop to process an array through connected workflow nodes. Select the connected workflow mode, map the array source, and set the batch size and maximum iterations. Connect the Loop output to the first body node, the final body node back to the loop's Continue input, and the Done output to the next step after the loop. Batch size 1 processes individual items. Each batch runs its connected body before the next batch begins. Done collects the actual returned body outputs after all batches, including an empty result when the source array is empty. Branches inside the body must return to the same loop; arbitrary cycles and connections that leak body nodes outside the loop are rejected. Inspect execution input/output and iterations to identify a failed batch. Connections and models must be configured for the body nodes before running."
+  },
+  {
+    id: "sprint-automator",
+    title: "Sprint Automator setup and execution",
+    aliases: ["sprint automator", "sprint automation", "sprint workflow", "stories api", "max cases per story"],
+    content: "Open Agentic Studio → Workflows → Sprint Automator in the intended project and application. In Sprint Automator setup, choose a permitted Sprint, an authenticated managed Stories API connection, a compatible model, case count, authoring format, and generation guidance. Configure the connection for this installation's API base and X-API-Key authentication; keep credentials in the managed connection. Save the workflow, check readiness, and run the Sprint trigger using the saved Sprint ID. The workflow reads every paginated Sprint Story within its supported limits, then processes each Story through assurance, Test Case generation, case quality review, and eligible automation generation. Successfully generated manual cases are saved to the Library as AI generated Drafts with Review pending. Missing automation inputs preserve the saved cases and are shown in the result. Web automation requires a reviewed start URL; API-only cases use their supplied API contracts. Review execution node data, missing inputs, and the saved Library links before treating automation as ready. A passing Test Engine run is required to establish executed behavior."
+  },
+  {
+    id: "mcp-servers",
+    title: "HelloTest MCP server and external tool connections",
+    aliases: ["mcp", "mcp server", "enable tools", "discover tools", "connect and inspect", "tool connection"],
+    content: "Open Agent Studio → MCP Servers in the selected project. The built-in HelloTest server is available through the signed-in user's current project permissions; Connect & inspect shows its endpoint and discoverable tools. Tool availability also depends on enabled application features. For an external server, choose Create MCP server, provide a connection name, endpoint and supported authentication, then Test connection and discover tools. Inspect the tool contracts, select the tools this connection may use, and Save connection. Discovery does not execute tools. Enabling a tool does not grant extra project permissions. External host connections use project-bound expiring credentials; keep credentials in the secure connection or host configuration. Mutating HelloTest tools first prepare an immutable action plan. The originating user reviews it under MCP Servers → Action plans and authorizes the exact plan before execution. The model cannot approve its own plan. Use operation discovery and exact returned schemas for additional supported application capabilities."
   },
   {
     id: "stories-delivery",
