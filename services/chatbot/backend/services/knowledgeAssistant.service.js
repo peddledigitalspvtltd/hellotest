@@ -309,6 +309,8 @@ const buildSeedQueries = (question, history = []) => {
 
 
 const normalizeRetrievalPlanDetails = (candidate, existingQueries = []) => {
+  const retrievalStrategy = candidate?.retrieval_strategy === undefined ? 'hybrid_evidence' : candidate.retrieval_strategy;
+  if (!['hybrid_evidence', 'graph_expand'].includes(retrievalStrategy)) throw Object.assign(new Error('Invalid retrieval strategy.'), { code: 'MODEL_INVALID_RESPONSE' });
   const existing = new Set(existingQueries.map((query) => String(query || "").trim().toLowerCase()).filter(Boolean));
   const rawQueries = asArray(candidate?.search_queries || candidate?.queries || candidate?.retrieval_queries);
   const planned = [];
@@ -332,6 +334,7 @@ const normalizeRetrievalPlanDetails = (candidate, existingQueries = []) => {
     queries: planned,
     source_kinds: sourceKinds,
     information_needs: informationNeeds,
+    retrieval_strategy: retrievalStrategy,
     stop_if_sufficient: candidate?.stop_if_sufficient !== false
   };
 };
@@ -454,6 +457,7 @@ const requestGroundedAnswer = async ({ integration, question, hits, history = []
     evidence_count: contextPacket.evidence.length,
     information_needs: asArray(retrievalPlan?.intent_plan?.information_needs).slice(0, 8)
   };
+  data.retrieval_outcome.retrieval_strategy = retrievalPlan?.retrieval_strategy || null;
   const deadlineAt = Date.now() + answerModelTimeout();
   const request = {
     integration,
@@ -1171,7 +1175,10 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
     let intentModelCompletedAt = 0;
     const retrievalDisabled = Array.isArray(mergedFilters.requested_scopes) && !mergedFilters.requested_scopes.length
       || ['max_rounds', 'max_queries', 'max_candidates', 'max_evidence_items', 'max_context_tokens', 'max_tool_calls'].some(key => retrievalRequest.budgets[key] === 0);
-    if (integration && !retrievalDisabled) {
+    // Keep one retrieval operation and one synthesis call available. Optional
+    // planning must not consume the entire budget before evidence is read.
+    const canPlanIntent = integration && !retrievalDisabled && retrievalRequest.budgets.max_tool_calls >= 3;
+    if (canPlanIntent) {
       execution.emit("INTENT_ANALYSIS", "started", { message: "Understanding your intent and deciding which project information is needed." });
       try {
         const candidate = await requestRetrievalPlan({
@@ -1202,13 +1209,19 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
       execution.emit("INTENT_ANALYSIS", "completed", { message: "Understood the intent using the bounded project evidence rules." });
     }
     if (mergedFilters.as_of) await assistantRead(() => knowledgeAuthorization.assertHistoricalAccess(user, sessionRow.project_id));
-    const context = await require("@hellotest/mcp/backend/gateway").retrieveContext({ request: retrievalRequest, user, history, smartContext, integration, intentPlan, signal: execution.current()?.signal, timeoutMs: Math.max(1, execution.current().turn.deadlineAt - Date.now() - ANSWER_FINALIZATION_RESERVE_MS) });
-    execution.current().modelBudget.max_tool_calls = execution.current().modelStats.calls + Math.max(0, retrievalRequest.budgets.max_tool_calls - context.budget.tool_calls_used);
+    const intentModelCalls = execution.current().modelStats.calls;
+    const contextRequest = { ...retrievalRequest, budgets: { ...retrievalRequest.budgets,
+      max_tool_calls: Math.max(0, retrievalRequest.budgets.max_tool_calls - intentModelCalls - (integration && !retrievalDisabled ? 1 : 0)) } };
+    const context = await require("@hellotest/mcp/backend/gateway").retrieveContext({ request: contextRequest, user, history, smartContext, integration, intentPlan, signal: execution.current()?.signal, timeoutMs: Math.max(1, execution.current().turn.deadlineAt - Date.now() - ANSWER_FINALIZATION_RESERVE_MS) });
+    // The planner was already charged by the model gateway. Do not add its
+    // calls back when reconciling the observed retrieval work.
+    execution.current().modelBudget.max_tool_calls = Math.max(0, retrievalRequest.budgets.max_tool_calls - context.budget.tool_calls_used);
     contextPacket = context.packet;
     if (retrieval.history_unavailable) contextPacket.retrieval.history_unavailable = true;
     retrieval = { ...retrieval, ...context.retrieval, selected_integration_id: integration?.id || null,
-      intent_plan: intentPlan ? { source_kinds: intentPlan.source_kinds, information_needs: intentPlan.information_needs, query_count: intentPlan.queries.length } : null,
-      intent_planning_model_used: Boolean(intentPlan), ...(retrievalDisabled ? { intent_planning_skipped: 'RETRIEVAL_DISABLED' } : {}) };
+      intent_plan: intentPlan ? { source_kinds: intentPlan.source_kinds, information_needs: intentPlan.information_needs, retrieval_strategy: intentPlan.retrieval_strategy, query_count: intentPlan.queries.length } : null,
+      intent_planning_model_used: Boolean(intentPlan), intent_model_calls: intentModelCalls,
+      ...(retrievalDisabled ? { intent_planning_skipped: 'RETRIEVAL_DISABLED' } : integration && !canPlanIntent ? { intent_planning_skipped: 'MODEL_CALL_RESERVE' } : {}) };
     let hits = context.hits;
     execution.emit("CONTEXT_ASSEMBLY", "completed", {
       evidence_count: hits.length,
@@ -1294,6 +1307,8 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
   retrieval.answer_structure = outcome.answer_structure;
   retrieval.model_usage = execution.current().usage;
   retrieval.model_budget = { calls_used: execution.current().modelStats.calls, retries_used: Number(execution.current().modelStats.retries || 0), cost_limit_enforced: execution.current().modelBudget?.max_query_cost_usd != null,
+    total_tool_call_limit: retrievalRequest.budgets.max_tool_calls,
+    retrieval_tool_calls_used: Number(contextPacket?.budget?.used?.tool_calls || 0),
     provider_requests: Number(execution.current().modelStats.provider_requests || 0),
     compatibility_retries: Number(execution.current().modelStats.compatibility_retries || 0),
     cost_usd: execution.current().usage.length && execution.current().usage.every((item) => item.cost_usd != null)
@@ -1329,13 +1344,23 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
   execution.current().turn.pendingMessageId = null;
   await db.prepare("UPDATE ai_knowledge_assistant_messages SET status = 'answered', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(userMessage.id);
   await db.prepare("UPDATE ai_knowledge_assistant_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(sessionId);
-  if (contextPacket?.retrieval?.context_graph?.status === 'recorded' && terminalAssistantMessage?.id) {
+  if (contextPacket?.retrieval?.context_graph?.status === 'recorded' && assistantMessage?.id) {
     retrieval.context_graph_outcome = await require('@hellotest/mcp/backend/contextGraph').rememberDecision({
       projectId: sessionRow.project_id, user, packet: contextPacket,
       event: { id: `assistant-message:${terminalAssistantMessage.id}`, type: 'OUTCOME_RECORDED',
         status: terminalAssistantMessage.status, reference_id: terminalAssistantMessage.id,
         rationale: 'The assistant response was persisted after the native answer and grounding checks. This records its observed response status, not execution of a proposed action.' }
     });
+    // Save the actual outcome receipt beside the original packet. Returning it
+    // only in memory made history and idempotent replay lose the task lineage.
+    // A concurrent losing turn must never attach its packet to the saved reply.
+    await execution.bounded(() => db.prepare(`UPDATE ai_knowledge_assistant_messages
+      SET retrieval = retrieval || ?::jsonb WHERE id = ? AND session_id = ? AND project_id = ? AND role = 'assistant'`)
+      .run({ context_graph_outcome: retrieval.context_graph_outcome }, assistantMessage.id, sessionId, sessionRow.project_id),
+    { timeoutMs: 1500, signal: new AbortController().signal }).catch(() => {
+      retrieval.context_graph_outcome_persistence = 'unavailable';
+    });
+    assistantMessage.retrieval = retrieval;
   }
   execution.emit("COMPLETED", "completed");
   return formatTurnResponse({

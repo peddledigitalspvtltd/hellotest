@@ -191,7 +191,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(requests[0].body.mode, 'agent'); assert.ok(!requests[0].body.context_scopes.includes('bugs'));
     assert.equal(await page.getByRole('button', { name: 'Accept agent output', exact: true }).count(), 0);
     await page.getByText('Limited evidence', { exact: true }).waitFor();
-    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/Review & approve/}).click();
+    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/^Outcome/}).click();
     const proposals=page.getByRole('region',{name:'Structured agent proposals'});
     await page.getByRole('heading',{name:'Proposals for review'}).waitFor();
     await page.getByText('Acceptance Criteria:',{exact:true}).waitFor();
@@ -214,8 +214,8 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(await outputTabs.getByRole('tab',{name:/Findings/}).getAttribute('aria-selected'),'true');
     await outcome.getByText(result.findings[0].detail,{exact:true}).waitFor();assert.equal(await outcome.getByRole('tabpanel').count(),1,'One output section is presented at a time');
     await page.keyboard.press('End');assert.equal(await outputTabs.getByRole('tab',{name:/Model calls/}).evaluate(element=>element===document.activeElement),true);
-    await outputTabs.getByRole('tab',{name:/Review & approve/}).click();
-    const nextAction=outcome.locator('.agent-brief-action-selection input').first();await nextAction.uncheck();assert.equal(await nextAction.isChecked(),false,'Next actions can be selected before entering editing');await nextAction.check();
+    await outputTabs.getByRole('tab',{name:/^Outcome/}).click();
+    await outcome.getByText(/^Follow-up considerations \(/).click();const nextAction=outcome.locator('.agent-brief-action-selection input').first();await nextAction.uncheck();assert.equal(await nextAction.isChecked(),false,'Next actions can be selected before entering editing');await nextAction.check();
     await outputTabs.getByRole('tab',{name:'Full brief',exact:true}).click();
     const completeOutput = outcome.getByRole('region',{name:'Complete specialist output'});
     await completeOutput.getByRole('heading',{name:'Design rationale'}).waitFor();
@@ -228,7 +228,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     await capture(page, screenshots + '/04-specialist-result.png');
     assert.equal(await page.getByRole('button',{name:'Edit brief',exact:true}).count(),0);
     assert.equal(await page.locator('.agent-outcome-action-dock').count(),0);
-    await outputTabs.getByRole('tab',{name:/Review & approve/}).click();
+    await outputTabs.getByRole('tab',{name:/^Outcome/}).click();
     await outcome.locator('.agent-brief-action-selection input').nth(1).uncheck();
     const downloadPromise = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download brief', exact: true }).click();
@@ -340,7 +340,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(await page.getByRole('button', { name: 'Accept agent output', exact: true }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Create workflow draft', exact: true }).count(), 0);
     await page.locator('.agent-outcome-panel').getByRole('tab',{name:'Overview',exact:true}).click();
-    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/Review & approve/}).click();
+    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/^Outcome/}).click();
     await page.getByRole('button', { name: 'Download brief', exact: true }).waitFor();
     assert.deepEqual(errors, []);
   } finally {

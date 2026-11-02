@@ -40,12 +40,28 @@ test('mission decisions receive the full task, specialist intent and governed sk
  await f.decideMission({...request,kind:'accessibility',smart_context:{reviewed_context:reviewed}}, {id:'user'},current,[],{observations:previous});
  const body=JSON.parse(f.requests[0].body),packet=block(body.messages,'context');
  assert.equal(packet.task_brief.goal,request.goal);assert.equal(packet.goal,undefined);assert.equal(packet.reviewed_context,reviewed);assert.equal(packet.task_brief.agent_id,'browser-accessibility');
+ assert.equal(packet.execution_phase.current,'browser_navigation');assert.equal(packet.execution_phase.native_checks_after_completion.kind,'accessibility');assert.equal(packet.execution_phase.native_checks_after_completion.status,'pending');
  assert.match(packet.task_brief.intent,/accessibility/);assert.ok(packet.task_brief.checks.length);assert.ok(packet.task_brief.limitations.length);
  assert.ok(body.messages.some(message=>/ai.agentic.browser.accessibility:browserMissionPlanner.skill/.test(message.content)));
  assert.match(body.messages[0].content,/axe-core|accessibility/i);
  assert.ok(JSON.stringify(packet.prior_observations).length<12500);assert.ok(packet.prior_observations.length<11);
  assert.ok(packet.context_manifest.prior_observations_excerpted>0);assert.equal(packet.context_manifest.prior_observations_available,11);
  assert.equal(packet.observation.text,current.text);assert.deepEqual(packet.observation.elements,current.elements);
+});
+
+test('native decision contract enforces nested completion output and selects strict provider shape',async()=>{
+ const contract=require('../../backend/services/browserMissionDecisionContract');
+ const validate=new (require('ajv'))({strict:false}).compile(contract.SCHEMA);
+ for(const value of [{action:'complete',summary:'Ready'},{action:'complete',summary:'Ready',outcome:null},{action:'extract',summary:'Facts',title:'Top-level facts',columns:[],rows:[]}])assert.equal(validate(value),false);
+ const complete={action:'complete',summary:'The requested surface is observed.',outcome:{title:'Surface observed',summary:'The current page is ready for native checks.',columns:[],rows:[]}};
+ assert.equal(validate(complete),true,JSON.stringify(validate.errors));
+ const policy=require('@hellotest/platform/backend/src/utils/llmRequestPolicy');
+ assert.equal(policy.strictProviderSchema(contract.PROVIDER_SCHEMA),true);
+ const prepared=policy.prepareChatRequest({body:JSON.stringify({model:'gpt-4o',messages:[{role:'user',content:'Inspect the observed page.'}],max_tokens:4096,response_format:{type:'json_object'}})},
+  {outputSchema:contract.SCHEMA,providerOutputSchema:contract.PROVIDER_SCHEMA,outputSchemaName:'browser_mission_decision',providerUrl:'https://api.openai.com/v1/chat/completions'}).payload;
+ assert.equal(prepared.response_format.type,'json_schema');assert.equal(prepared.response_format.json_schema.strict,true);
+ const f=fixture({model:'configured'});await f.decideMission(request,{id:'user'},observation);
+ assert.deepEqual(f.requests[0].policy.outputSchema,contract.SCHEMA);assert.deepEqual(f.requests[0].policy.providerOutputSchema,contract.PROVIDER_SCHEMA);
 });
 
 test('host-rejected decisions get one concrete correction without browser replay or raw model content',async()=>{

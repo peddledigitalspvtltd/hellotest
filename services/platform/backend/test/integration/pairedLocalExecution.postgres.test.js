@@ -59,10 +59,25 @@ test('paired browser owns real local case/suite execution, outbound claims, pers
    assert.equal(result.statusCode,202,result.body);assert.equal(result.json().accepted,true);return result.json();
   };
   const wait=async(fn,label)=>{const until=Date.now()+40000;for(;;){const value=await fn();if(value)return value;if(Date.now()>until)throw Error(`Timed out: ${label}`);await new Promise(resolve=>setTimeout(resolve,100));}};
-  const individual=await prepare({test_case_ids:[generatedCases[0]]});await accept(individual);
+  // A rejected preflight must not poison the browser's persisted request ID.
+  const individualInput={test_case_ids:[generatedCases[0]],request_id:randomUUID()};
+  const actualPlan=dispatch.planExecutionDispatch;let rejectPreflight=true;
+  const preflight=t.mock.method(dispatch,'planExecutionDispatch',async(...args)=>{
+   if(rejectPreflight){rejectPreflight=false;throw Object.assign(new Error('Fixture preflight temporarily unavailable'),{statusCode:503,code:'FIXTURE_PREFLIGHT_UNAVAILABLE'});}
+   return actualPlan(...args);
+  });
+  const rejected=await api.inject({method:'POST',url:'/executions/local-run',headers,payload:{project_id:'paired-project',app_type_id:'paired-app',created_by:actor.id,local_transport:'paired-agent',paired_origin:origin,local_agent_id:capabilities.agent_id,...individualInput}});
+  assert.equal(rejected.statusCode,503,rejected.body);
+  const queued=await db.prepare("SELECT id,status FROM executions WHERE project_id='paired-project'").all();
+  assert.equal(queued.length,1);assert.equal(queued[0].status,'queued');
+  const individual=await prepare(individualInput);assert.equal(individual.id,queued[0].id);preflight.mock.restore();await accept(individual);
   await wait(async()=>{const row=await db.prepare('SELECT status FROM executions WHERE id=?').get(individual.id);return row.status==='completed'?row:false;},'individual callback');
   assert.equal((await db.prepare('SELECT count(*)::int AS count FROM test_case_effective_results WHERE execution_id=?').get(individual.id)).count,1);
-  const targetsBeforeReplay=targetRequests;await accept(individual);await new Promise(resolve=>setTimeout(resolve,200));assert.equal(targetRequests,targetsBeforeReplay,'Lost acknowledgements cannot execute the case twice.');
+  const targetsBeforeReplay=targetRequests;
+  const noReplan=t.mock.method(dispatch,'planExecutionDispatch',()=>assert.fail('A completed accepted dispatch must reconnect its existing receipt.'));
+  const replay=await prepare(individualInput);noReplan.mock.restore();
+  assert.equal(replay.id,individual.id);assert.equal(replay.local_dispatch.grant_token,individual.local_dispatch.grant_token);
+  await accept(replay);await new Promise(resolve=>setTimeout(resolve,200));assert.equal(targetRequests,targetsBeforeReplay,'Lost acknowledgements cannot execute the case twice.');
   const suite=await prepare({suite_ids:['paired-suite'],test_case_ids:[]});const accepted=await accept(suite);assert.equal(accepted.engine_run_ids.length,3);
   await wait(async()=>{const row=await db.prepare('SELECT status FROM executions WHERE id=?').get(suite.id);return row.status==='completed'?row:false;},'suite callbacks');
   const results=await db.prepare('SELECT test_case_id,status FROM test_case_effective_results WHERE execution_id=? ORDER BY test_case_id').all(suite.id);
@@ -85,7 +100,7 @@ test('paired browser owns real local case/suite execution, outbound claims, pers
   await browser.exchange({scope,method:'session/delete',sessionId:initialized.session_id,timeoutMs:15000});
   await db.prepare("UPDATE automation_paired_browser_bridges SET status='closed' WHERE id=?").run(bridge.id);
   assert.ok(forwarded.some(url=>url.endsWith('/local-dispatch/claim')));assert.ok(forwarded.some(url=>url==='/testengine/callbacks/runs'));
-  t.diagnostic(JSON.stringify({individual_native_case:true,suite_native_cases:results.length,source_modes:3,api_to_runner_requests:0,local_agent_outbound_claims:true,signed_results_persisted:true,replay_additional_target_requests:0,native_browser_mcp_outbound_relay:true}));
+  t.diagnostic(JSON.stringify({individual_native_case:true,suite_native_cases:results.length,source_modes:3,preflight_retry_same_run:true,completed_receipt_reconnect:true,api_to_runner_requests:0,local_agent_outbound_claims:true,signed_results_persisted:true,replay_additional_target_requests:0,native_browser_mcp_outbound_relay:true}));
  }finally{
   if(agent)await agent.close();if(proxy){proxy.closeAllConnections?.();await new Promise(resolve=>proxy.close(resolve));}if(api)await api.close();await db.close();await obs.close();await fs.rm(directory,{recursive:true,force:true});
  }

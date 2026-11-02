@@ -203,6 +203,8 @@ export function KnowledgeRepoPage() {
             key={`${projectId}:${appTypeId}`}
             initialSourceId={searchParams.get("source_id") || ""}
             initialRevisionId={searchParams.get("revision_id") || ""}
+            initialGraphMode={searchParams.get("view") === "context" ? "context" : searchParams.get("view") === "graph" ? "knowledge" : undefined}
+            initialTraceId={searchParams.get("view") === "context" ? searchParams.get("trace_id") || "" : ""}
             appTypeId={appTypeId}
             canManage={canManageKnowledge}
             onError={showError}

@@ -224,3 +224,60 @@ shared runtime files. The deployed Agentic UI entry is `entry-C1ffGItq.js`;
 the main frontend matches the final local build. Direct and proxied API readiness,
 the main frontend and the admin frontend all returned HTTP 200. These checks
 did not submit a saved workflow or call a production model.
+
+## Constrained assurance generation
+
+The follow-up code audit found that native assurance's bounded schema never
+qualified for the shared strict-output path: its root `anyOf`, string length and
+uniqueness constraints, and advisory optional readiness prevented promotion.
+Even the configured official `gpt-4o` integration therefore received only
+`json_object`. JSON mode guarantees parseable JSON, rather than adherence to
+finding categories and citation enums; see the
+[official Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=chat).
+
+Assurance now supplies a separate provider generation schema with the supported
+shape, required keys, enum values, citation inventories and array bounds. The
+original native schema still validates every response locally and remains in
+the trusted prompt. The provider-only schema omits root cross-field assertions,
+string lengths and uniqueness; it uses required nullable typed readiness, with
+null normalized to unknown. No original local acceptance check is removed.
+Promotion remains limited to known supported official models. Earlier 4o
+snapshots and audio variants retain their existing JSON-mode behavior.
+
+The real HTTP transport fixture redirects an official-origin request to a local
+test server and verifies the final strict schema. It separately rejects duplicate
+citations, oversized text, empty assessments, invalid categories and invented
+references under the unchanged full native contract, each with at most one
+repair. These are controlled provider responses, not external model calls.
+
+A separate source-checkout run used the existing local project's configured
+official OpenAI `gpt-4o` integration and completed every Sprint Automator node:
+trigger, authorized Stories HTTP read, connected For Each, Story Assurance,
+Test Case Generation, Test Case Assurance, Automation Engineer and Output.
+The isolated Story was **Read the API readiness contract 84ad55a3**
+(`7c072427-127f-4623-942f-3342e3b4b781`), with an explicit unauthenticated
+GET `/health` response contract. Workflow
+`860bd0b4-c5de-4883-a917-d3d8adf9d157`, run
+`review-07a12caa948fa3b856680a77d6cc97cd3169c3d5`, completed with five real
+provider calls, all HTTP 200, and no format repair. Both assurance requests used
+`json_schema` in the retained request traces.
+
+The run saved manual case `f924c263-f363-4746-9589-41aa4a1b9334` and automation
+`c00b84d2-d269-428d-ac09-85b097e1ebc4`, with Draft and Review pending retained;
+automation remains incomplete/unverified. The temporary source-runtime API
+endpoint is now closed and its verification key and HTTP connection were
+revoked. The sample history remains inspectable; the generated automation was
+not executed. No original Story or workflow was changed. A sanitized local
+report is retained under `.hellotest/reports/sprint-source-live-verification-2026-11-02.json`.
+
+The final AI-feature gate passed 2,499 tests, with ten optional tests skipped and
+zero failures. Request-policy/envelope, assurance transport and workflow adapter
+suites separately cover the changed boundaries; their counts overlap with that
+gate. The disposable PostgreSQL pipeline also passed all eight nodes for two
+invoice Stories with 101 controlled local provider calls.
+
+The local Compose API and frontend were rebuilt and recreated after these
+checks. All four changed backend source hashes match the running API, and its
+Testing capability bundle includes stale-finished-intent recovery. Direct API
+readiness, proxied API readiness, main frontend and admin frontend return HTTP
+200 on the existing local ports. No schema migration was needed for this fix.

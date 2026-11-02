@@ -1742,11 +1742,10 @@ exports.createLocalRun = async (input = {}) => {
     const requestHash=paired.security.digest(Object.fromEntries(Object.entries(input).filter(([key])=>!['request_id','created_by'].includes(key))));
     const sourceKey=`paired-local:${paired.security.digest([input.project_id,input.created_by,input.request_id])}`;
     const created=await exports.createExecution({...input,execution_mode:'manual',trigger:'local',initial_status:'queued',source_idempotency_key:sourceKey,name:input.name||'Local Run'});
-    try { return await exports.preparePairedLocalExecution(created.id,{initiated_by:input.created_by,local_agent_id:input.local_agent_id,paired_origin:input.paired_origin,request_hash:requestHash}); }
-    catch(failure) {
-      if(!created.idempotent_replay)await db.prepare("UPDATE executions SET status='failed',ended_at=CURRENT_TIMESTAMP WHERE id=? AND status='queued'").run(created.id);
-      throw failure;
-    }
+    // Preparation commits the immutable dispatch and running status together.
+    // A rejected preparation has not executed anything; retain the queued Run
+    // so a browser retry with the same request identity can still prepare it.
+    return exports.preparePairedLocalExecution(created.id,{initiated_by:input.created_by,local_agent_id:input.local_agent_id,paired_origin:input.paired_origin,request_hash:requestHash});
   }
   const localEngineBaseUrl = await resolveLocalEngineBaseUrl(input.engine_base_url);
   const created = await exports.createExecution({
@@ -1779,14 +1778,16 @@ exports.createLocalRun = async (input = {}) => {
 };
 
 exports.preparePairedLocalExecution = async(id,options={})=>{
-  const execution=await loadExecutionRuntimeContext(await exports.getExecution(id,true));
+  const execution=await exports.getExecution(id,true);
   const paired=require('@hellotest/automation/backend/services/pairedLocalExecution.service');
-  if(!['queued','running'].includes(execution.status))throw paired.security.fail('This Run has finished. Create a new Run before local execution.',409,'PAIRED_LOCAL_RUN_FINISHED');
-  if(options.expected_revision!=null&&execution.status==='queued')assertExpectedRevision(execution.revision,options.expected_revision,'Run');
-  const plan=await testEngineDispatchService.planExecutionDispatch(execution,{allowIncompleteAutomation:true,allowApiCasesWithoutAutomation:true});
-  assertExecutableDispatchPlan(plan);
-  if(plan.eligibleCases?.some(item=>item.steps.some(step=>['android','ios'].includes(step.step_type))))throw paired.security.fail('The paired browser runs Web and API cases. Select a mobile runner for Android or iOS execution.',422,'PAIRED_LOCAL_PLATFORM_UNSUPPORTED');
-  const result=await paired.prepare({execution,plan,user:{id:options.initiated_by},agentId:options.local_agent_id,applicationOrigin:options.paired_origin,requestHash:options.request_hash,
+  const result=await paired.prepare({execution,expectedRevision:options.expected_revision,
+    plan:async()=>{
+      const runtime=await loadExecutionRuntimeContext(await exports.getExecution(id,true));
+      const plan=await testEngineDispatchService.planExecutionDispatch(runtime,{allowIncompleteAutomation:true,allowApiCasesWithoutAutomation:true});
+      assertExecutableDispatchPlan(plan);
+      if(plan.eligibleCases?.some(item=>item.steps.some(step=>['android','ios'].includes(step.step_type))))throw paired.security.fail('The paired browser runs Web and API cases. Select a mobile runner for Android or iOS execution.',422,'PAIRED_LOCAL_PLATFORM_UNSUPPORTED');
+      return plan;
+    },user:{id:options.initiated_by},agentId:options.local_agent_id,applicationOrigin:options.paired_origin,requestHash:options.request_hash,
     integration:{config:{active_web_engine:'playwright',headless:false,healing_enabled:false,trace_mode:'retain-on-failure',video_mode:'retain-on-failure'}}});
   executionCache.delete(id);return result;
 };

@@ -51,6 +51,36 @@ test('lost acknowledgements reuse an immutable owner/machine-bound dispatch and 
     await assert.rejects(f.service.prepare({...f.input,...patch}),error=>error.statusCode===409);
   }
 });
+test('a preparation failure leaves its Run available for the same request to retry',async()=>{
+  const f=fixture();let attempts=0;
+  const input={...f.input,plan:async()=>{
+    if(++attempts===1)throw Object.assign(new Error('Dispatch preflight unavailable'),{statusCode:503});
+    return f.input.plan;
+  }};
+  await assert.rejects(f.service.prepare(input),/preflight unavailable/);
+  assert.equal(f.runs.get(execution.id).status,'queued');assert.equal(f.rows.size,0);assert.equal(f.prepared(),0);
+  const result=await f.service.prepare(input);
+  assert.equal(result.id,execution.id);assert.equal(f.runs.get(execution.id).status,'running');assert.equal(f.prepared(),1);
+});
+test('completed accepted attempts reconnect their frozen receipt without replanning or redispatching',async()=>{
+  const f=fixture(),first=await f.service.prepare(f.input);
+  await f.service.claim({executionId:execution.id,grantToken:first.local_dispatch.grant_token,agentId:'machine'});
+  f.runs.get(execution.id).status='completed';
+  [...f.rows.values()][0].claim_expires_at=new Date(Date.now()-1).toISOString();
+  const again=await f.service.prepare({...f.input,execution:{...execution,status:'completed'},plan:()=>assert.fail('Reconnect must use its original plan.')});
+  assert.equal(again.idempotent_replay,true);assert.equal(again.local_dispatch.grant_token,first.local_dispatch.grant_token);assert.equal(f.prepared(),1);
+  assert.equal(f.runs.get(execution.id).status,'completed');
+  await assert.rejects(f.service.claim({executionId:execution.id,grantToken:first.local_dispatch.grant_token,agentId:'machine'}),{code:'PAIRED_LOCAL_EXPIRED'});
+});
+test('the locked Run status and revision prevent stale starts and terminal Run re-execution',async()=>{
+  const f=fixture();f.runs.get(execution.id).status='completed';
+  await assert.rejects(f.service.prepare({...f.input,plan:()=>assert.fail('A finished Run cannot prepare new work.')}),{code:'PAIRED_LOCAL_RUN_FINISHED'});
+  assert.equal(f.prepared(),0);assert.equal(f.rows.size,0);
+  f.runs.get(execution.id).status='queued';f.runs.get(execution.id).revision=2;
+  await assert.rejects(f.service.prepare({...f.input,expectedRevision:1}),{code:'REVISION_CONFLICT'});
+  assert.equal(f.prepared(),0);
+  await f.service.prepare({...f.input,expectedRevision:2});assert.equal(f.prepared(),1);
+});
 test('claim credentials cannot cross machines, executions, expiry, active-account or current permission boundaries',async()=>{
   const f=fixture(),receipt=(await f.service.prepare(f.input)).local_dispatch;
   const valid={executionId:execution.id,grantToken:receipt.grant_token,agentId:'machine'};

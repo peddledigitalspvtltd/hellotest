@@ -32,6 +32,18 @@ test('MCP display changes preserve immutable source provenance and remove only u
  assert.equal(normalizePacket(delivered),delivered,'Normalizing a delivered representation must be idempotent.');
 });
 
+test('strategy receipts count only graph witnesses surviving actual MCP delivery',()=>{
+ const {packet}=fixture();
+ packet.retrieval.retrieval_strategy={requested:'graph_expand',applied:'graph_expand',graph_expansion_status:'completed',
+  graph_expansion_reason:null,graph_tool_calls:1,graph_evidence_count:2,graph_relationship_count:2};
+ packet.evidence[0].content='A redacted display cannot witness its original relationship.';
+ const delivered=normalizePacket(packet);
+ assert.equal(delivered.retrieval.retrieval_strategy.graph_tool_calls,1);
+ assert.equal(delivered.retrieval.retrieval_strategy.graph_evidence_count,1);
+ assert.equal(delivered.retrieval.retrieval_strategy.graph_relationship_count,1);
+ assert.equal(packet.retrieval.retrieval_strategy.graph_relationship_count,2,'The source receipt stays immutable.');
+});
+
 test('local chatbot packet, hits and retained packet metadata use one normalized delivered representation',()=>{
  const {packet,hits}=fixture();
  packet.evidence[0].content='Shortened source excerpt';

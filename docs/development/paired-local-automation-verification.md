@@ -107,6 +107,15 @@ the initial claim deadline if the agent already accepted it. An interrupted
 agent never automatically replays browser actions. Callback retry eligibility
 expires after seven days and also requires fresh owner/project authorization.
 
+Preparation failures leave a newly created Run queued because no local attempt
+has started. Retrying the browser's persisted request identity prepares that
+same Run. An accepted dispatch can return its original receipt after the Run
+has completed, without rebuilding its plan or repeating application actions.
+New dispatches still check the locked Run status and revision. For a stale
+creation intent rejected as finished by an older API, the browser releases the
+intent so the next explicit Run local action can create a new Run; unknown
+network outcomes retain their identity for reconciliation.
+
 See [execution runtime](../architecture/execution-runtime.md),
 [automation authoring](../architecture/automation-workflow.md), and
 [local setup](../../local-run/RECORDER_LOCAL_SETUP.md) for the implementation

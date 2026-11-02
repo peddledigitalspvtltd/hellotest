@@ -4,6 +4,7 @@ const permissions = require('@hellotest/platform/backend/services/permission.ser
 const projects = require('@hellotest/platform/backend/public/projectAccess');
 const flags = require('@hellotest/platform/backend/services/featureFlag.service');
 const security = require('../lib/pairedLocalSecurity');
+const {assertExpectedRevision} = require('@hellotest/platform/backend/src/utils/revision');
 const {fail,id,origin,digest,derive,equal,seal,open,publicApiBase} = security;
 const aad = row => `${row.id}:${row.execution_id}:${row.actor_id}`;
 const token = row => derive('execution-claim',row.id,row.execution_id,row.actor_id,row.agent_id,row.grant_nonce);
@@ -23,19 +24,27 @@ function createService(dependencies={}) {
       ||!await features.areEnabled(features.getFeatureKeysForPermission('automation.run.local'),{user}))throw fail('Local execution permission is no longer available.',403,'PAIRED_LOCAL_FORBIDDEN');
     return user;
   }
-  async function prepare({execution,plan,user,agentId,applicationOrigin,requestHash,integration}={}) {
+  async function prepare({execution,plan,user,agentId,applicationOrigin,requestHash,integration,expectedRevision}={}) {
     id(execution?.id,'execution');id(user?.id,'owner');agentId=id(agentId,'agent');applicationOrigin=origin(applicationOrigin);
     await authorize(execution.project_id,user.id);
-    if(!['queued','running'].includes(execution.status))throw fail('This Run has finished. Create a new Run to execute its saved cases.',409,'PAIRED_LOCAL_RUN_FINISHED');
     return store.transaction(async()=>{
-      await store.prepare('SELECT id FROM executions WHERE id=? FOR UPDATE').get(execution.id);
+      const locked=await store.prepare('SELECT id,status,project_id,revision FROM executions WHERE id=? FOR UPDATE').get(execution.id);
+      if(!locked||locked.project_id!==execution.project_id)throw fail('The local Run is unavailable.',404,'PAIRED_LOCAL_NOT_FOUND');
       const current=await store.prepare('SELECT * FROM automation_paired_dispatches WHERE execution_id=?').get(execution.id);
       if(current) {
         if(current.actor_id!==user.id||current.agent_id!==agentId||current.application_origin!==applicationOrigin)throw fail('This Run is already assigned to another paired browser or machine.',409,'PAIRED_LOCAL_ASSIGNED');
         if(requestHash&&current.request_hash!==requestHash)throw fail('This request identity belongs to different local Run inputs.',409,'PAIRED_LOCAL_REQUEST_CONFLICT');
-        if(current.state==='cancelled'||new Date(current.claim_expires_at).getTime()<=Date.now())throw fail('The original local dispatch has expired or stopped. Inspect its results before starting a new Run.',409,'PAIRED_LOCAL_EXPIRED');
+        if(current.state==='cancelled'||['aborted','cancelled'].includes(locked.status))throw fail('The original local dispatch has expired or stopped. Inspect its results before starting a new Run.',409,'PAIRED_LOCAL_EXPIRED');
+        // Reconnect an accepted attempt even if its result arrived before a
+        // lost API acknowledgment was retried. The agent retains the attempt;
+        // no new plan or callback credentials are created here.
+        if(current.state!=='claimed'&&new Date(current.claim_expires_at).getTime()<=Date.now())throw fail('The original local dispatch has expired or stopped. Inspect its results before starting a new Run.',409,'PAIRED_LOCAL_EXPIRED');
+        if(!['queued','running'].includes(locked.status)&&current.state!=='claimed')throw fail('This Run has finished. Create a new Run to execute its saved cases.',409,'PAIRED_LOCAL_RUN_FINISHED');
         return {id:execution.id,started:true,execution_mode:'local',local_dispatch:receipt(current),idempotent_replay:true};
       }
+      if(!['queued','running'].includes(locked.status))throw fail('This Run has finished. Create a new Run before local execution.',409,'PAIRED_LOCAL_RUN_FINISHED');
+      if(locked.status==='queued')assertExpectedRevision(locked.revision,expectedRevision,'Run');
+      plan=typeof plan==='function'?await plan():plan;
       if(!plan?.eligibleCases?.length||plan.eligibleCases.length>100)throw fail('Select between one and 100 executable case/data-row instances for a paired local Run.',422,'PAIRED_LOCAL_BUDGET');
       const row={id:randomUUID(),execution_id:execution.id,project_id:execution.project_id,actor_id:user.id,agent_id:agentId,application_origin:applicationOrigin,
         request_hash:requestHash||digest({execution_id:execution.id,agentId,applicationOrigin}),grant_nonce:randomBytes(32).toString('hex'),claim_expires_at:new Date(Date.now()+10*60*1000).toISOString(),callback_expires_at:new Date(Date.now()+7*24*60*60*1000).toISOString()};

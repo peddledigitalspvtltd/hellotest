@@ -37,6 +37,15 @@ test('revision retains whole untrusted output or an explicit omission within a b
   assert.equal(large.previous_draft, null);assert.equal(large.previous_draft_omitted, true);
   assert.doesNotThrow(() => JSON.parse(JSON.stringify(large)));
 });
+
+test('valid long outcome lists retain all accepted items and final obligations',()=>{
+ const values=Array.from({length:18},(_,index)=>`Item ${index}: ${'a'.repeat(2350)} Final obligation ${index}.`);
+ const candidate={...base(),recommendations:values,assumptions:values,evidence_gaps:values,suggested_handoffs:values,activity_summary:'a'.repeat(2400)};
+ assert.deepEqual(presentationIssues(candidate,citations),[]);
+ const result=normalizeResult(candidate,{evaluation:{}},citations);
+ for(const field of ['recommendations','assumptions','evidence_gaps','suggested_handoffs'])assert.deepEqual(result[field],values,field);
+ assert.equal(result.activity_summary,candidate.activity_summary);
+});
 test('session token totals remain unknown when any provider call lacks usage', () => {
   const a = { usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 } };
   const b = { usage: { input_tokens: 2, output_tokens: 3, total_tokens: 5 } };

@@ -44,6 +44,7 @@ test('source-agent outcomes show prerequisites, formatted contracts and native s
     assert.equal(await preview.getByRole('table').count(), 1);
     assert.equal(await preview.locator('.ai-test-generator-step-row').count(), 2);
     await preview.getByText('Expected outcome is not established by source evidence.', { exact: true }).waitFor();
+    await page.getByRole('region',{name:'Source review batch 1',exact:true}).getByRole('tab',{name:/^Outcome/}).click();
     await page.getByRole('heading', { name: 'Model proposed retry coverage', exact: true }).waitFor();
     assert.deepEqual(await page.evaluate(() => window.reviewLoads), ['model-review-1'], 'Closed batches do not request all saved reviews eagerly');
     assert.equal(await page.getByText('Cached model response must not bypass current source access.', { exact: true }).count(), 0);

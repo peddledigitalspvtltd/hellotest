@@ -27,10 +27,10 @@ g.review=async(p,id,decision,revision)=>{window.graphCalls.review.push({id,decis
 g.reconcile=async()=>({processed:2,next_cursor:null});
 const trace={id:'trace-1',trace_id:'trace-1',feature_id:'ai.knowledge.assistant',app_type_id:'app',recorded_at:'2026-11-01T12:30:00Z',evidence_count:2,status:'completed'};
 knowledgeApi.knowledgeRepo.contextGraph.list=async(p,filters)=>{window.graphCalls.contexts.push({project:p,filters});return{schema_version:'context-graph/1',project_id:p,items:new URLSearchParams(location.search).has('empty-context')?[]:[trace],next_cursor:null};};
-knowledgeApi.knowledgeRepo.contextGraph.explore=async(p,id,app)=>{window.graphCalls.explore.push({project:p,id,app});if(window.contextRevoked||new URLSearchParams(location.search).has('context-error'))throw new Error('This recorded trace is unavailable with current access.');return{contract_type:'ContextGraph',schema_version:'context-graph/1',trace,nodes:[{id:'task-1',kind:'task',title:'ai.knowledge.assistant',metadata:{feature_id:'ai.knowledge.assistant',query_category:'project_analysis'}},{id:'packet-1',kind:'context_packet',title:'Retrieved context',observed_at:trace.recorded_at},...nodes.map(node=>({...node,metadata:{source_version:2,document_id:'revision-2',source_status:node.id==='b'?'STALE':'CURRENT'}})),{id:'policy-1',kind:'policy_check',title:'Context access boundaries',observed_at:trace.recorded_at,metadata:{status:'enforced',project_scope_enforced:true,source_acl_enforced:true}},{id:'event-1',kind:'decision_event',title:'Evidence access checked',observed_at:'2026-11-01T12:31:00Z',metadata:{occurred_at:trace.recorded_at,recorded_at:'2026-11-01T12:31:00Z',status:'passed',rationale:'Current project membership and source permissions were checked.'}}],edges:[{id:'used-context',source:'task-1',target:'packet-1',type:'SELECTED_CONTEXT',provenance_type:'OBSERVED_EVENT',observed_at:trace.recorded_at,evidence_ids:[]},...nodes.map(node=>({id:'context-'+node.id,source:'packet-1',target:node.id,type:'RETRIEVED_EVIDENCE',provenance_type:'OBSERVED_EVENT',evidence_ids:[]})),{id:'policy-event',source:'packet-1',target:'policy-1',type:'APPLIED_ACCESS_POLICY',provenance_type:'OBSERVED_EVENT',evidence_ids:[]},{id:'recorded-event',source:'packet-1',target:'event-1',type:'RECORDED_EVENT',provenance_type:'OBSERVED_EVENT',evidence_ids:[]}],timeline:[{id:'policy-1',node_id:'policy-1',type:'POLICY_CHECKED',status:'enforced',label:'Context access boundaries',occurred_at:trace.recorded_at},{id:'event-1',node_id:'event-1',type:'ACCESS_CHECK',status:'passed',label:'Evidence access checked',occurred_at:trace.recorded_at,recorded_at:'2026-11-01T12:31:00Z',rationale:'Current project membership and source permissions were checked.'}],limitations:{partial:true,gaps:['One source has changed since this task was recorded.']}};};
+knowledgeApi.knowledgeRepo.contextGraph.explore=async(p,id,app)=>{window.graphCalls.explore.push({project:p,id,app});if(window.contextRevoked||new URLSearchParams(location.search).has('context-error'))throw new Error('This recorded trace is unavailable with current access.');return{contract_type:'ContextGraph',schema_version:'context-graph/1',trace,nodes:[{id:'task-1',kind:'task',title:'ai.knowledge.assistant',metadata:{feature_id:'ai.knowledge.assistant',query_category:'project_analysis',retrieval_strategy:{requested:'graph_expand',applied:'graph_expand',graph_expansion_status:'completed',graph_tool_calls:1}}},{id:'packet-1',kind:'context_packet',title:'Retrieved context',observed_at:trace.recorded_at},...nodes.map(node=>({...node,metadata:{source_version:2,document_id:'revision-2',source_status:node.id==='b'?'STALE':'CURRENT'}})),{id:'policy-1',kind:'policy_check',title:'Context access boundaries',observed_at:trace.recorded_at,metadata:{status:'enforced',project_scope_enforced:true,source_acl_enforced:true}},{id:'event-1',kind:'decision_event',title:'Evidence access checked',observed_at:'2026-11-01T12:31:00Z',metadata:{occurred_at:trace.recorded_at,recorded_at:'2026-11-01T12:31:00Z',status:'passed',rationale:'Current project membership and source permissions were checked.'}}],edges:[{id:'used-context',source:'task-1',target:'packet-1',type:'SELECTED_CONTEXT',provenance_type:'OBSERVED_EVENT',observed_at:trace.recorded_at,evidence_ids:[]},...nodes.map(node=>({id:'context-'+node.id,source:'packet-1',target:node.id,type:'RETRIEVED_EVIDENCE',provenance_type:'OBSERVED_EVENT',evidence_ids:[]})),{id:'policy-event',source:'packet-1',target:'policy-1',type:'APPLIED_ACCESS_POLICY',provenance_type:'OBSERVED_EVENT',evidence_ids:[]},{id:'recorded-event',source:'packet-1',target:'event-1',type:'RECORDED_EVENT',provenance_type:'OBSERVED_EVENT',evidence_ids:[]}],timeline:[{id:'policy-1',node_id:'policy-1',type:'POLICY_CHECKED',status:'enforced',label:'Context access boundaries',occurred_at:trace.recorded_at},{id:'event-1',node_id:'event-1',type:'ACCESS_CHECK',status:'passed',label:'Evidence access checked',occurred_at:trace.recorded_at,recorded_at:'2026-11-01T12:31:00Z',rationale:'Current project membership and source permissions were checked.'}],limitations:{partial:true,gaps:['One source has changed since this task was recorded.']}};};
 const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});
 const sources=nodes.map(node=>({id:node.id,source_kind:node.kind,title:node.title,extraction_status:'ready'}));
-createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><main style={{maxWidth:1200,margin:'2rem auto',padding:'0 16px'}}><KnowledgeGraphPanel projectId="p" appTypeId="app" canManage={!readonly} sources={sources} onOpenSource={(sourceId,revisionId)=>window.graphCalls.open.push({sourceId,revisionId})}/></main></QueryClientProvider>);
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><main style={{maxWidth:1200,margin:'2rem auto',padding:'0 16px'}}><KnowledgeGraphPanel projectId="p" appTypeId="app" canManage={!readonly} sources={sources} initialMode={new URLSearchParams(location.search).get('view')==='context'?'context':undefined} initialTraceId={new URLSearchParams(location.search).get('trace_id')||''} onOpenSource={(sourceId,revisionId)=>window.graphCalls.open.push({sourceId,revisionId})}/></main></QueryClientProvider>);
 `;
 test('graph paths expose source proofs; aliases and candidate review stay editable, scoped and responsive', { timeout: 60000 }, async () => {
   const name = 'knowledge-graph-' + randomUUID(), html = new URL(name + '.html', root), tsx = new URL(name + '.tsx', root);
@@ -100,6 +100,11 @@ test('graph paths expose source proofs; aliases and candidate review stay editab
     await page.getByRole('heading',{name:'Recorded sequence',exact:true}).waitFor();
     assert.deepEqual(await page.evaluate(()=>window.graphCalls.explore),[{project:'p',id:'trace-1',app:'app'}]);
     assert.deepEqual(await page.evaluate(()=>window.graphCalls.contexts[0].filters),{app_type_id:'app',limit:20});
+    await page.getByRole('group',{name:'Task: ai.knowledge.assistant',exact:true}).click();
+    await inspector.getByRole('heading',{name:'Recorded retrieval plan',exact:true}).waitFor();
+    await inspector.getByText('Requested retrieval',{exact:true}).waitFor();
+    await inspector.getByText('Observed retrieval',{exact:true}).waitFor();
+    assert.equal(await inspector.getByText('Graph expand',{exact:true}).count(),2);
     await page.locator('.knowledge-map-timeline li').filter({hasText:'Evidence access checked'}).getByRole('button',{name:'Inspect event',exact:true}).click();
     assert.equal(await page.locator('.knowledge-map-timeline time small').count(),1);
     await page.getByRole('heading',{name:'Recorded rationale',exact:true}).waitFor();
@@ -127,6 +132,12 @@ test('graph paths expose source proofs; aliases and candidate review stay editab
     await page.screenshot({path:'/tmp/qaira-context-graph-ui/context-map-dark.png',fullPage:true});
     await page.setViewportSize({width:320,height:740});
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+    await page.getByRole('button',{name:'Fit graph',exact:true}).click();
+    await page.waitForFunction(()=>{
+      const canvas=document.querySelector('.knowledge-map-canvas')?.getBoundingClientRect();
+      const nodes=[...document.querySelectorAll('.react-flow__node')];
+      return canvas&&nodes.length===6&&nodes.every(node=>{const box=node.getBoundingClientRect();return box.left>=canvas.left-1&&box.right<=canvas.right+1&&box.top>=canvas.top-1&&box.bottom<=canvas.bottom+1;});
+    });
     await page.screenshot({path:'/tmp/qaira-context-graph-ui/context-map-320.png',fullPage:true});
     await page.evaluate(()=>window.contextRevoked=true);
     await page.getByRole('button',{name:'Refresh recorded context',exact:true}).click();
@@ -142,4 +153,28 @@ test('graph paths expose source proofs; aliases and candidate review stay editab
     assert.equal(await page.getByRole('region',{name:'Context graph map',exact:true}).count(),0);
     assert.deepEqual(errors, []);
   } finally { await browser?.close(); await Promise.allSettled([unlink(html), unlink(tsx)]); }
+});
+
+test('a linked task opens its exact context outside the loaded history and hides it when access is revoked', { timeout: 30000 }, async () => {
+  const name='knowledge-context-link-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);
+  let browser;
+  try {
+    await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#root{height:auto!important;overflow:visible!important}</style></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    await writeFile(tsx,fixture);
+    browser=await chromium.launch({headless:true});
+    const page=await browser.newPage({viewport:{width:1440,height:1000}});
+    await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html?readonly&empty-context&view=context&trace_id=trace-1`);
+    await page.getByRole('region',{name:'Context graph map',exact:true}).waitFor();
+    assert.equal(await page.getByLabel('Recorded AI context',{exact:true}).inputValue(),'trace-1');
+    assert.equal(await page.getByRole('button',{name:'Context graph',exact:true}).getAttribute('aria-pressed'),'true');
+    assert.equal(await page.getByRole('heading',{name:'No recorded context in this view',exact:true}).count(),0);
+    assert.deepEqual(await page.evaluate(()=>window.graphCalls.explore),[{project:'p',id:'trace-1',app:'app'}]);
+    assert.equal(await page.evaluate(()=>window.graphCalls.candidateReads),0);
+    await page.evaluate(()=>window.contextRevoked=true);
+    await page.getByRole('button',{name:'Refresh recorded context',exact:true}).click();
+    await page.getByText('This recorded trace is unavailable with current access.',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('region',{name:'Context graph map',exact:true}).count(),0);
+    assert.equal(await page.getByLabel('Recorded AI context',{exact:true}).inputValue(),'trace-1');
+    assert.ok((await page.evaluate(()=>window.graphCalls.explore)).every(call=>call.id==='trace-1'),'Access failure must never switch to another task.');
+  } finally {await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)]);}
 });

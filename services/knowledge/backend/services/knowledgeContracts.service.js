@@ -157,7 +157,9 @@ class RetrievalBudget {
   canContinue(now = Date.now()) {
     if (this.termination_reason)
       return false;
-    const checks = [[now >= this.deadline_at_ms, "DEADLINE"], [this.rounds_used >= this.limits.max_rounds, "MAX_ROUNDS"], [this.tool_calls_used >= this.limits.max_tool_calls, "MAX_TOOL_CALLS"], [this.queries_used >= this.limits.max_queries, "MAX_QUERIES"], [this.candidates_seen >= this.limits.max_candidates, "CANDIDATE_BUDGET"], [this.context_tokens_used >= this.limits.max_context_tokens, "CONTEXT_BUDGET"], [this.cost_usd_used >= this.limits.max_cost_usd, "COST_BUDGET"]];
+    // A zero monetary allowance disables paid work, not free lexical/live/graph
+    // reads. Positive-cost reservations still reject against the zero limit.
+    const checks = [[now >= this.deadline_at_ms, "DEADLINE"], [this.rounds_used >= this.limits.max_rounds, "MAX_ROUNDS"], [this.tool_calls_used >= this.limits.max_tool_calls, "MAX_TOOL_CALLS"], [this.queries_used >= this.limits.max_queries, "MAX_QUERIES"], [this.candidates_seen >= this.limits.max_candidates, "CANDIDATE_BUDGET"], [this.context_tokens_used >= this.limits.max_context_tokens, "CONTEXT_BUDGET"], [this.limits.max_cost_usd > 0 && this.cost_usd_used >= this.limits.max_cost_usd, "COST_BUDGET"]];
     const exhausted = checks.find(([condition]) => condition);
     if (exhausted)
       this.terminate(TERMINATION_REASONS[exhausted[1]]);

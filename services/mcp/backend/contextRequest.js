@@ -28,14 +28,15 @@ const budgets = z.object(Object.fromEntries(Object.entries(budgetLimits).map(([n
 ))).strict();
 
 // A caller may supply an already reviewed retrieval hint. It never chooses
-// identity, permissions, tools, model credentials or a wider source boundary.
+// identity, permissions, arbitrary tools, credentials or a wider source boundary.
 const intentPlan = z.object({
+ retrieval_strategy:z.enum(['hybrid_evidence','graph_expand']).optional().describe('Host-selected bounded strategy. graph_expand requests one witnessed relationship expansion from authorized search hits, without widening selectors, historical boundaries or budgets.'),
  queries:z.array(z.string().min(1).max(700)).max(3).optional(),
  search_queries:z.array(z.string().min(1).max(700)).max(3).optional(),
  source_kinds:z.array(z.enum(sourceKinds)).max(8).optional(),
  information_needs:z.array(z.string().min(1).max(400)).max(8).optional(),
  stop_if_sufficient:z.boolean().optional()
-}).strict().refine(value=>(value.queries?.length||value.search_queries?.length||value.source_kinds?.length||value.information_needs?.length),'Provide at least one retrieval hint.');
+}).strict().refine(value=>(value.retrieval_strategy||value.queries?.length||value.search_queries?.length||value.source_kinds?.length||value.information_needs?.length),'Provide at least one retrieval hint.');
 
 function packetBudgets(input = {}) {
  return Object.fromEntries(Object.entries(budgetLimits).filter(([key]) => input[key] !== undefined)

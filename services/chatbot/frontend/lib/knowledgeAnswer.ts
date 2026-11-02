@@ -30,7 +30,7 @@ export function knowledgeCitationLocation(citation: KnowledgeCitation) {
   return location?.heading || (location?.chunk_index !== undefined && location.chunk_index !== null ? `Passage ${location.chunk_index + 1}` : "");
 }
 
-export function validateKnowledgePresentation(input: unknown, evidenceIds: Set<string>): ValidatedKnowledgePresentation {
+export function validateKnowledgePresentation(input: unknown, evidenceIds: Set<string>, relationships: unknown = [], sources: KnowledgeCitation[] = []): ValidatedKnowledgePresentation {
   const presentation = record(input);
   const type = String(presentation.recommended_type || "TEXT").toUpperCase();
   const payload = record(presentation.structured_payload);
@@ -62,11 +62,17 @@ export function validateKnowledgePresentation(input: unknown, evidenceIds: Set<s
     return { type, payload: { items: payload.items.map((item) => ({ evidence_id: String(record(item).evidence_id) })) } };
   }
   if (type === "RELATIONSHIP_GRAPH") {
-    if (!Array.isArray(payload.nodes) || !Array.isArray(payload.edges) || payload.nodes.length > 100 || payload.edges.length > 200) return fallback;
+    if (!Array.isArray(payload.nodes) || !payload.nodes.length || !Array.isArray(payload.edges) || payload.nodes.length > 100 || payload.edges.length > 200) return fallback;
     const nodes = payload.nodes.map(record);
     const edges = payload.edges.map(record);
     const nodeIds = new Set(nodes.map((node) => text(node.id, 100)));
-    if (nodes.some((node) => !text(node.id, 100) || !text(node.label, 500) || !evidence(node)) || nodeIds.size !== nodes.length || edges.some((edge) => !nodeIds.has(String(edge.source)) || !nodeIds.has(String(edge.target)) || !evidence(edge))) return fallback;
+    const canonicalNode = (node: Record<string, unknown>) => sources.some(source => strings(node.evidence_ids).includes(source.evidence_id || source.id)
+      && [source.canonical_id, source.source_id, source.evidence_id || source.id].includes(String(node.id)));
+    const witnesses = Array.isArray(relationships) ? relationships.map(record) : [];
+    const witnessed = (edge: Record<string, unknown>) => witnesses.some(witness => witness.source === edge.source && witness.target === edge.target && witness.type === edge.type
+      && ["DETERMINISTIC", "SOURCE_EXPLICIT", "HUMAN_VERIFIED"].includes(String(witness.provenance_type))
+      && evidence(witness) && strings(edge.evidence_ids).every(id => strings(witness.evidence_ids).includes(id)));
+    if (nodes.some((node) => !text(node.id, 100) || !canonicalNode(node) || !text(node.label, 500) || !evidence(node)) || nodeIds.size !== nodes.length || edges.some((edge) => !nodeIds.has(String(edge.source)) || !nodeIds.has(String(edge.target)) || !evidence(edge) || !witnessed(edge))) return fallback;
     return { type, payload: { nodes: nodes.map((node) => ({ id: text(node.id, 100), label: text(node.label, 500), type: text(node.type, 100), evidence_ids: strings(node.evidence_ids) })), edges: edges.map((edge) => ({ source: text(edge.source, 100), target: text(edge.target, 100), type: text(edge.type, 100), evidence_ids: strings(edge.evidence_ids) })) } };
   }
   return fallback;
@@ -111,7 +117,48 @@ export function validateKnowledgeAnswer(message: KnowledgeAssistantMessage) {
     summary: rejectedClaims ? "Some statements could not be verified against the returned evidence. The supported statements are shown below." : text(contract.answer?.summary || contract.summary),
     claims, citations, gaps, partial,
     limitations: limitations as NonNullable<KnowledgeAnswerContract["limitations"]>,
-    presentation: validateKnowledgePresentation(contract.presentation, evidenceIds),
+    presentation: validateKnowledgePresentation(contract.presentation, evidenceIds, packet?.relationships || packet?.relationship_evidence, [...citations.values()]),
     terminationReason: text(contract.termination_reason || packet?.retrieval?.termination_reason, 200)
   };
+}
+
+export function knowledgeContextProvenance(message: KnowledgeAssistantMessage) {
+  const answer = validateKnowledgeAnswer(message);
+  const packet = message.context_packet || message.retrieval?.context_packet;
+  if (!answer || !packet) return null;
+  const evidence = [...answer.citations.values()];
+  const supported = new Set(evidence.map(item => item.evidence_id || item.id));
+  const rawRelationships = Array.isArray(packet.relationships) ? packet.relationships : Array.isArray(packet.relationship_evidence) ? packet.relationship_evidence : [];
+  const relationships = rawRelationships.map(record).filter(edge => Array.isArray(edge.evidence_ids) && edge.evidence_ids.length
+    && edge.evidence_ids.every(id => typeof id === "string" && supported.has(id))
+    && ["DETERMINISTIC", "SOURCE_EXPLICIT", "HUMAN_VERIFIED"].includes(String(edge.provenance_type || "")));
+  const receipt = packet.retrieval?.context_graph;
+  const traceId = receipt?.status === "recorded" && typeof receipt.trace_id === "string" && receipt.trace_id.length <= 255 && !/[\u0000-\u001f]/.test(receipt.trace_id) ? receipt.trace_id : "";
+  const retrieval = message.retrieval;
+  const strategy = retrieval?.retrieval_strategy;
+  const strategyLabel = (value?: string) => value === "graph_expand" ? "Expand witnessed graph links" : value === "hybrid_evidence" ? "Hybrid evidence retrieval" : "Not recorded";
+  return {
+    evidenceCount: evidence.length,
+    sourceCount: new Set(evidence.map(item => item.source_id || item.id)).size,
+    versionCount: new Set(evidence.filter(item => item.source_kind !== "live_project").map(item => item.document_id || item.knowledge_id).filter(Boolean)).size,
+    liveCount: evidence.filter(item => item.source_kind === "live_project").length,
+    relationshipCount: relationships.length,
+    transport: retrieval?.context_transport === "mcp" ? "MCP · hellotest_context_build" : "Not recorded",
+    planning: retrieval?.intent_planning_model_used === true || retrieval?.intent_planning_mode === "llm" ? "Model-assisted evidence plan"
+      : retrieval?.intent_planning_model_used === false || retrieval?.intent_planning_mode === "standard" ? "Bounded project rules" : "Not recorded",
+    contextHref: traceId ? `/knowledge?${new URLSearchParams({ view: "context", trace_id: traceId })}` : "",
+    memory: traceId ? "Recorded task context" : receipt?.status === "unavailable" ? "Task context could not be recorded" : "Task context was not recorded",
+    outcomeRecorded: Boolean(traceId && retrieval?.context_graph_outcome?.status === "recorded" && retrieval.context_graph_outcome.trace_id === traceId),
+    requestedStrategy: strategy ? strategyLabel(strategy.requested) : "",
+    appliedStrategy: strategy ? `${strategyLabel(strategy.applied)}${strategy.graph_expansion_status && strategy.graph_expansion_status !== "not_requested" ? ` · graph read ${strategy.graph_expansion_status}` : ""}` : ""
+  };
+}
+
+export function knowledgeAnswerGrounding(message: KnowledgeAssistantMessage, answer = validateKnowledgeAnswer(message)) {
+  const status = (message.answer_contract || message.retrieval?.answer_contract)?.status || message.status;
+  if (status === "provider_unavailable" || message.grounding_status === "provider_unavailable") return "provider_unavailable";
+  if (status === "refused" || message.grounding_status === "refused") return "refused";
+  if (!answer) return message.grounding_status || "insufficient_context";
+  if (!answer.claims.length) return "insufficient_context";
+  return answer.partial || status === "insufficient_context" ? "partially_grounded" : "grounded";
 }

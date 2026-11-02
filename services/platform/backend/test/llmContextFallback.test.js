@@ -50,6 +50,24 @@ test('structured live evidence remains valid JSON when excerpts are compressed',
  assert.ok(compactEvidenceText('x'.repeat(900),500).length<=500);
 });
 
+test('compressed mixed case snapshots retain Gherkin content, authoring mode and completeness',()=>{
+ const gherkin='Feature: Stock reset\nScenario: Reset after one reservation\n Given stock is 3\n When one item is reserved\n Then stock is 2\n When stock is reset\n Then stock is 3';
+ const source={evidence_type:'authoritative_live_test_case_snapshot',evidence_permissions:['testcase.view'],returned_records:2,total_records:2,records:[
+  {id:'manual-case',title:'Single reservation',description:'Complete saved action.',authoring_mode:'structured',test_case_type:'functional',step_excerpt_complete:true,steps:[{action:'Reserve once',expected_result:'Stock is 2'}],nonessential_metadata:'x'.repeat(8000)},
+  {id:'gherkin-case',title:'Reset after reservation',description:'Complete Gherkin reset.',authoring_mode:'gherkin',test_case_type:'functional',gherkin_excerpt:gherkin,gherkin_excerpt_complete:true,step_excerpt_complete:true,nonessential_metadata:'x'.repeat(8000)}]};
+ const compact=JSON.parse(compactEvidenceText(JSON.stringify(source),1800));
+ assert.equal(compact.records.length,2);
+ const saved=compact.records.find(record=>record.id==='gherkin-case');
+ assert.equal(saved.authoring_mode,'gherkin');assert.equal(saved.gherkin_excerpt,gherkin);assert.equal(saved.gherkin_excerpt_complete,true);assert.equal(saved.test_case_type,'functional');
+ assert.equal(compact.records[0].step_excerpt_complete,true);
+});
+
+test('further native excerpt reduction cannot retain a false complete-Gherkin or complete-step flag',()=>{
+ const source={evidence_type:'authoritative_live_test_case_snapshot',evidence_permissions:['testcase.view'],records:[{id:'case',title:'Long saved case',authoring_mode:'gherkin',gherkin_excerpt:'Feature: Stock\nScenario: Reset\n Given '+ 'the saved obligation '.repeat(80),gherkin_excerpt_complete:true,step_excerpt_complete:true,steps:Array.from({length:4},(_,index)=>({action:`Saved action ${index}: ${'a'.repeat(160)}`,expected_result:'The saved result remains visible.'}))}]};
+ const compact=JSON.parse(compactEvidenceText(JSON.stringify(source),900));
+ assert.equal(compact.records.length,1);assert.equal(compact.records[0].gherkin_excerpt_complete,false);assert.equal(compact.records[0].step_excerpt_complete,false);assert.equal(compact.context_window.bounded,true);
+});
+
 test('provider size correction retains only delivered graph proofs and never detached or altered witness spans',()=>{
  const content='A depends on B.',hash=require('node:crypto').createHash('sha256').update(content).digest('hex');
  const proof={evidence_id:'proof',content,integrity:{chunk_hash:hash,evidence_hash:hash}};

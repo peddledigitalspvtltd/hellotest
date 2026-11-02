@@ -51,10 +51,23 @@ test('native output schemas are enforced locally and promoted only for supported
   assert.equal(again.messages.filter(message=>message.content.includes('Output schema:')).length,1);
  }
  assert.equal(policy.strictProviderSchema({...schema,required:[]}),false,'Optional fields are not silently made mandatory.');
+ assert.equal(policy.strictProviderSchema({...schema,anyOf:[schema]}),false,'Providers do not support a root anyOf.');
+ assert.equal(policy.strictProviderSchema({...schema,properties:{status:{}}}),false,'Unconstrained properties cannot advertise strict output.');
  await assert.rejects(policy.validateChatResponse(completion({status:'invented'}),prepared),{code:'AI_OUTPUT_SCHEMA_VIOLATION'});
  await policy.validateChatResponse(completion({status:'ready'}),prepared);
  const correction=policy.compatibleChatRequest({body:JSON.stringify(prepared)},400,'Unsupported response_format json_schema');
  assert.equal(JSON.parse(correction.body).response_format.type,'json_object');assert.ok(JSON.parse(correction.body).messages.some(message=>message.content.includes(JSON.stringify(schema))));
+});
+
+test('strict output excludes legacy snapshots and audio variants without changing their JSON-mode contract',()=>{
+ for(const model of ['gpt-4o-2024-05-13','gpt-4o-audio-preview','gpt-4o-mini-audio-preview','gpt-realtime','gpt-4.1-transcribe']){
+  const prepared=policy.prepareChatRequest(body({model}),{outputSchema:schema,providerUrl:'https://api.openai.com/v1/chat/completions'}).payload;
+  assert.equal(prepared.response_format.type,'json_object',model);
+ }
+ for(const model of ['gpt-4o','gpt-4o-mini','gpt-4o-2024-08-06','gpt-4o-mini-2024-07-18','gpt-4.1','gpt-5','o3']){
+  const prepared=policy.prepareChatRequest(body({model}),{outputSchema:schema,providerUrl:'https://api.openai.com/v1/chat/completions'}).payload;
+  assert.equal(prepared.response_format.type,'json_schema',model);
+ }
 });
 
 test('tool argument types, required fields, enum values and extra fields are checked before a call can be considered usable',async()=>{

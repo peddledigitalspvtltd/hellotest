@@ -204,6 +204,25 @@ test('unknown model generation cannot be replayed after worker recovery and engi
   assert.equal(failed.status,'failed');assert.equal(failed.error.code,'QUALITY_AGENT_MODEL_OUTCOME_UNKNOWN');assert.equal(decisions,0);assert.deepEqual(failed.findings,[{id:'retained'}]);
 });
 
+test('first completed visual poll can read its just-checkpointed screenshot for model assessment',async()=>{
+ const bytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64');
+ const artifact={id:'visual-capture-a',type:'screenshot',name:'Candidate.png',content_type:'image/png',bytes:bytes.length,sha256:C.hash(bytes)};
+ let prepared;
+ const f=fixture({resolveMissionModel:async()=>({id:'model'}),assessQualityRun:async(request,actor,engine,trace)=>{
+   prepared=await trace.visualEvidence({id:'model',model:'gpt-4o',config:{supports_vision:true}});
+   return {title:'First capture',summary:'No reviewed baseline exists.',conclusion:'needs_review',generation_mode:'llm'};
+ },http:async(url,init)=>{
+   if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});
+   if(url.includes('/artifacts/'))return new Response(bytes,{headers:{'content-type':'image/png'}});
+   const body=JSON.parse(init.body);
+   return Response.json({contract_version:'1.0',id:'visual-engine-1234',client_run_id:body.client_run_id,kind:'visual',target_url:body.target_url,scope:body.scope,state:'completed',outcome:'needs_review',stages:[],findings:[],metrics:{},artifacts:[artifact],limitations:['No reviewed baseline.']});
+ }});
+ const run=await f.service.createRun({...input,execution_mode:'agent',kind:'visual',goal:'Capture the current page for first review'},user);
+ await f.service.processQueuedRuns();const done=await f.service.getRun(run.id,user);
+ assert.equal(done.status,'completed',JSON.stringify(done.error));assert.equal(prepared.manifest.image_input_prepared,true);
+ assert.equal(prepared.manifest.images[0].artifact_id,artifact.id);assert.equal(prepared.imageParts.some(part=>part.type==='image_url'),true);
+});
+
 test('model budget failure prevents another dispatch',async()=>{
   let run,f,called=0;f=fixture({resolveMissionModel:async()=>({}),decideMission:async(request,actor,observation,history,trace)=>{await trace.beforeDispatch({call_id:'budget-call',payload:{max_tokens:4096},phase:'decision'});called++;return {action:'blocked',summary:'Blocked.'};},http:async(url,init)=>{
     if(url.endsWith('/capabilities'))return Response.json({missions:{supported:true}});if(url.endsWith('/cancel'))return Response.json({cancelled:true});const body=JSON.parse(init.body);return Response.json({contract_version:'1.0',id:'engine-mission-1234',client_run_id:body.client_run_id,kind:body.kind,target_url:body.target_url,scope:body.scope,state:'running',outcome:null,stages:[],findings:[],metrics:{},artifacts:[],limitations:[],decision_request:{sequence:1,url:input.target_url,title:'Page',text:'Observed',elements:[]}});

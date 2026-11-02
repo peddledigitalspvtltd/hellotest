@@ -3,7 +3,7 @@ import { FormattedText } from "@hellotest/platform/frontend/src/shared/component
 import { AgentArtifactReview } from "../agents/AgentArtifactReview";
 import { AgentReportVisuals, AgentStructuredValue } from './AgentStructuredValue';
 import { agentOutputText } from '../lib/agentOutputValue';
-import { agentArtifactLabel, agentFindingProposals, agentHandoffStatus, agentOutcomeBrief, agentOutcomeCalls, agentOutcomeCitationIds, agentOutcomeReviewState, agentOutcomeSources } from '../lib/agentOutcomeView';
+import { agentArtifactLabel, agentFindingProposals, agentHandoffStatus, agentOutcomeBrief, agentOutcomeCalls, agentOutcomeCitationIds, agentOutcomeResult, agentOutcomeReviewState, agentOutcomeSources } from '../lib/agentOutcomeView';
 import { AutomationRepairReview } from "@hellotest/ai/frontend/components/AutomationRepairReview";
 import { QualityEvidencePanel } from "@hellotest/ai/frontend/components/QualityEvidencePanel";
 import specialistProfiles from "../../shared/workflowSpecialists.json";
@@ -1030,6 +1030,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   const assumptions = result.assumptions || [];
   const evidenceGaps = result.evidence_gaps || [];
   const review = agentOutcomeReviewState(result, citations);
+  const outcome = agentOutcomeResult(result);
   const allSources = agentOutcomeSources(agentOutcomeCitationIds(result), citations);
   const displayedSources = evidenceCitationIds ? agentOutcomeSources(evidenceCitationIds, citations) : allSources;
   const reportCount = deliverables.length + (result.sections?.length || 0) + (result.tables?.length || 0) + (result.charts?.length || 0);
@@ -1058,7 +1059,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
     { id: "findings", label: "Findings", count: findings.length },
     { id: "deliverables", label: "Artifacts", count: artifacts.length + reportCount },
     { id: "details", label: "Full brief", count: undefined },
-    { id: "actions", label: review.label, count: artifacts.length || undefined },
+    { id: "actions", label: "Outcome", count: artifacts.length || undefined },
     { id: "calls", label: "Model calls", count: calls.length || undefined }
   ];
 
@@ -1109,7 +1110,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
       <section aria-labelledby={`${surfaceId}-tab-deliverables`} className="agent-outcome-deliverables" hidden={activeSection !== "deliverables"} id={`${surfaceId}-deliverables`} role="tabpanel">
         <header><span>Drafts and supporting reports</span><strong>{artifacts.length} native draft{artifacts.length === 1 ? "" : "s"} · {reportCount} report item{reportCount === 1 ? "" : "s"}</strong></header>
         {!artifacts.length && !reportCount && <p className="agent-outcome-empty">No native drafts or supporting reports were returned. The full brief contains the agent assessment.</p>}
-        {artifacts.length > 0 && <div>{artifacts.map((artifact, index) => <article key={index}><span>{agentArtifactLabel(artifact.kind)} · {artifact.target_id ? `update ${artifact.target_id}` : 'new draft'}</span><strong>{artifact.title}</strong><AgentStructuredValue value={artifact.description} />{sourceButton(artifact.citation_ids)}<small>{artifact.addressed_finding_ids?.length ? `Addresses findings: ${artifact.addressed_finding_ids.join(', ')}` : 'No finding links recorded'}</small><button className="ghost-button compact" type="button" onClick={() => { setProposalIndex(index); setActiveSection("actions"); }}>Review draft {index + 1}</button></article>)}</div>}
+        {artifacts.length > 0 && <div>{artifacts.map((artifact, index) => <article key={index}><span>{agentArtifactLabel(artifact.kind)} · {artifact.target_id ? `update ${artifact.target_id}` : 'new draft'}</span><strong>{artifact.title}</strong><AgentStructuredValue value={artifact.description} />{sourceButton(artifact.citation_ids)}<small>{artifact.addressed_finding_ids?.length ? `Linked findings: ${artifact.addressed_finding_ids.join(', ')}` : 'No finding links recorded'}</small><button className="ghost-button compact" type="button" onClick={() => { setProposalIndex(index); setActiveSection("actions"); }}>Review draft {index + 1}</button></article>)}</div>}
         {reportCount > 0 && <h3>Supporting analysis</h3>}
         <div>{deliverables.map((deliverable, index) => <article key={index}><span>{deliverable.type?.replace(/_/g, " ") || "Report"}</span><strong>{agentOutputText(deliverable.title)}</strong><AgentStructuredValue value={deliverable.detail} />{sourceButton(deliverable.citation_ids)}</article>)}</div>
         <AgentReportVisuals sections={result.sections} tables={result.tables} charts={result.charts} />
@@ -1121,18 +1122,18 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
       </section>
 
       <section aria-labelledby={`${surfaceId}-tab-actions`} className="agent-outcome-section agent-outcome-recommendation-review" hidden={activeSection !== "actions"} id={`${surfaceId}-actions`} role="tabpanel">
-        <header className="agent-next-actions-heading"><div><h3>{review.title}</h3><p>{review.description}</p></div></header>
+        <header className="agent-next-actions-heading"><div><h3>{outcome.title}</h3><p>{outcome.description}</p></div></header>
         {result.outcome_issues?.length ? <div className="agent-brief-limitations" role="alert"><strong>Completion requirements remain open</strong><ul>{result.outcome_issues.map((issue,index) => <li key={index}>{typeof issue === 'string' ? issue : agentOutputText(issue.message)}</li>)}</ul></div> : null}
-        {(result.agent_chain?.length || 0) > 1 && <div className="agent-outcome-sequence"><h4>Assessment to proposed changes</h4><ol className="agent-handoff-list" aria-label="Agent handoffs">{result.agent_chain!.map((step, index) => <li key={`${step.agent_id}-${index}`} data-status={step.status}><div><strong>{step.name}</strong><span>{agentHandoffStatus(step)}</span></div>{step.reason && <p>{step.reason}</p>}{step.detail && <p>{step.detail}</p>}{step.finding_ids?.length ? <p>Requested findings: {step.finding_ids.join(', ')}</p> : null}{step.addressed_finding_ids?.length ? <p>Drafts address: {step.addressed_finding_ids.join(', ')}</p> : null}{step.verification && <details><summary>Draft completion checks · {step.verification.status === 'passed' ? 'passed' : 'needs input'}</summary><ul>{step.verification.checks.map(check => <li key={check.id}>{check.passed ? 'Passed' : 'Unmet'}: {check.label}</li>)}</ul></details>}</li>)}</ol></div>}
-        {(result.agent_chain?.length || 0) > 1 && result.primary_review && <details className="agent-outcome-details"><summary>Original specialist assessment</summary>{result.primary_review.summary && <AgentStructuredValue value={result.primary_review.summary} />}{result.primary_review.findings?.map((finding,index) => <div key={finding.id || index}><h4>{finding.title}</h4><AgentStructuredValue value={finding.detail} />{sourceButton(finding.citation_ids)}</div>)}</details>}
+        {artifacts.length === 0 && !result.automation_repair && <div className="agent-outcome-result" aria-label="Resulting agent assessment"><AgentStructuredValue value={outcome.body} />{deliverables.map((deliverable,index) => <section key={index}><h4>{agentOutputText(deliverable.title)}</h4><AgentStructuredValue value={deliverable.detail} />{sourceButton(deliverable.citation_ids)}</section>)}<AgentReportVisuals sections={result.sections} tables={result.tables} charts={result.charts} /></div>}
         {result.automation_repair && <AutomationRepairReview summary={result.automation_repair}/>}
         {artifacts.length > 0 && <AgentArtifactReview artifacts={artifacts} chain={result.agent_chain || []} sessionId={sessionId} findings={findings} approvalBlocked={review.blockedReason} proposalIndex={proposalIndex} />}
-        {draftRecommendations.length > 0 && <><h4>Follow-up considerations</h4><p className="agent-outcome-selection-hint">Select items to include in the copied or downloaded brief. Selecting a consideration does not save a record.</p></>}
+        {(result.agent_chain?.length || 0) > 1 && <details className="agent-outcome-details"><summary>How this outcome was produced</summary><div className="agent-outcome-sequence"><ol className="agent-handoff-list" aria-label="Agent handoffs">{result.agent_chain!.map((step, index) => <li key={`${step.agent_id}-${index}`} data-status={step.status}><div><strong>{step.name}</strong><span>{agentHandoffStatus(step)}</span></div>{step.reason && <p>{step.reason}</p>}{step.detail && <p>{step.detail}</p>}{step.finding_ids?.length ? <p>Requested findings: {step.finding_ids.join(', ')}</p> : null}{step.addressed_finding_ids?.length ? <p>Draft finding links: {step.addressed_finding_ids.join(', ')}</p> : null}{step.verification && <details><summary>Draft completion checks · {step.verification.status === 'passed' ? 'passed' : 'needs input'}</summary><ul>{step.verification.checks.map(check => <li key={check.id}>{check.passed ? 'Passed' : 'Unmet'}: {check.label}</li>)}</ul></details>}</li>)}</ol></div>{result.primary_review && <section><h4>Original specialist assessment</h4>{result.primary_review.summary && <AgentStructuredValue value={result.primary_review.summary} />}{result.primary_review.findings?.map((finding,index) => <div key={finding.id || index}><h4>{finding.title}</h4><AgentStructuredValue value={finding.detail} />{sourceButton(finding.citation_ids)}</div>)}</section>}</details>}
+        {draftRecommendations.length > 0 && <details className="agent-outcome-details"><summary>Follow-up considerations ({draftRecommendations.length})</summary><p className="agent-outcome-selection-hint">Select items to include in the copied or downloaded brief. Selecting a consideration does not save a record.</p>
         <div className="agent-brief-action-selection">{draftRecommendations.map((item, index) => <label key={index}><input checked={selectedRecommendationIndexes.includes(index)} onChange={event => { setSelectedRecommendationIndexes(current => event.target.checked ? [...new Set([...current, index])] : current.filter(itemIndex => itemIndex !== index)); }} type="checkbox" /><div className="agent-next-action-copy"><FormattedText text={item} /></div></label>)}</div>
-        {!artifacts.length && !draftRecommendations.length && !result.automation_repair && <p className="agent-outcome-empty">No executable approval action is available in this outcome.</p>}
+        </details>}
       </section>
 
-      <section role="tabpanel" aria-labelledby={`${surfaceId}-tab-calls`} id={`${surfaceId}-calls`} hidden={activeSection !== "calls"}><AgentModelCalls projectId={projectId} chain={result.agent_chain} records={result.model_call_records} sessionId={sessionId} execution={result.model_execution} /></section>
+      <section role="tabpanel" aria-labelledby={`${surfaceId}-tab-calls`} id={`${surfaceId}-calls`} hidden={activeSection !== "calls"}>{activeSection === 'calls' && <AgentModelCalls projectId={projectId} chain={result.agent_chain} records={result.model_call_records} sessionId={sessionId} execution={result.model_execution} />}</section>
       <AiEvidenceFlyout
         description="Inspect the recorded references and boundaries used for this assessment. A source reference does not establish that a proposed change has been executed."
         eyebrow="Agent outcome · Evidence"

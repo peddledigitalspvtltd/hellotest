@@ -51,8 +51,9 @@ import { SmartContextWorkbench, type SmartContextSelection } from "@hellotest/ai
 import { KnowledgeAnswer } from "./KnowledgeAnswer";
 import { KnowledgeFormattedText } from "./KnowledgeFormattedText";
 import { KnowledgeProcessingTrace } from "./KnowledgeProcessingTrace";
+import { KnowledgeContextProvenance } from "./KnowledgeContextProvenance";
 import { KnowledgeSourceDetail } from "@hellotest/knowledge/frontend/components/KnowledgeSourceDetail";
-import { knowledgeCitationHref, knowledgeCitationLocation, validateKnowledgeAnswer } from "../lib/knowledgeAnswer";
+import { knowledgeAnswerGrounding, knowledgeCitationHref, knowledgeCitationLocation, validateKnowledgeAnswer } from "../lib/knowledgeAnswer";
 import { appendKnowledgeProgressEvent, KnowledgeStreamError, knowledgeModelFailureMessage, knowledgeTurnNotice, resumePendingKnowledgeTurn, type KnowledgeTurnNotice } from "../lib/knowledgeAssistantStream";
 import { KnowledgeTurnProgress } from "./KnowledgeTurnProgress";
 import { assistantConversationMarkdown, assistantMessageMarkdown, findAssistantConversations } from "../lib/assistantExperience";
@@ -751,8 +752,8 @@ export function GroundedAssistant() {
               const sourcesExpanded = Boolean(expandedSources[message.id]);
               const notice = turnNotices[message.id];
               const retryTurn = retryTurns[message.id];
-              const modelUnavailable = message.grounding_status === "provider_unavailable";
-              const effectiveGrounding = modelUnavailable ? "provider_unavailable" : validatedAnswer?.partial ? "partially_grounded" : message.grounding_status;
+              const effectiveGrounding = knowledgeAnswerGrounding(message, validatedAnswer);
+              const modelUnavailable = effectiveGrounding === "provider_unavailable";
               return (
                 <article className={`grounded-assistant-message is-${message.role}${notice ? ` is-${notice.kind}` : message.status === "failed" ? " is-error" : ""}`} key={message.id}>
                   <div className="grounded-assistant-message-label">
@@ -831,6 +832,7 @@ export function GroundedAssistant() {
                         <span>{message.retrieval.processing_trace?.length || 0} stages</span>
                       </summary>
                       <div className="grounded-assistant-processing-trace">
+                        <KnowledgeContextProvenance message={message} />
                         <KnowledgeProcessingTrace items={message.retrieval.processing_trace || []} />
                         <div className="grounded-assistant-retrieval-note">
                           <span>{contextRouteLabel(message.retrieval.context_route?.query_category || message.retrieval.context_route?.input_type)}</span>

@@ -30,10 +30,10 @@ function InnerCanvas({nodes,edges,selection,onSelect,mode}:Props) {
     style:{stroke:selection?.id===edge.id?'#087f89':'#9dafb9',strokeWidth:selection?.id===edge.id?2:1.4,strokeDasharray:edge.provenance_type==='HUMAN_VERIFIED'?'5 4':undefined},
     labelStyle:{fill:'var(--text-secondary, #526473)',fontSize:11,fontWeight:500},labelBgPadding:[7,4] as [number,number],labelBgBorderRadius:5,labelBgStyle:{fill:'var(--surface-color, #fff)',fillOpacity:1},interactionWidth:24
   })),[edges,selection,byId]);
-  useEffect(()=>{if(initialized&&width>0&&height>0)void flow.fitView({padding:.22,minZoom:.35,maxZoom:1,duration:0});},[initialized,width,height,nodes,edges,flow]);
+  useEffect(()=>{if(initialized&&width>0&&height>0)void flow.fitView({padding:.22,minZoom:.05,maxZoom:1,duration:0});},[initialized,width,height,nodes,edges,flow]);
   // Keyboard selection arrives as changes; companion deselections must not clear the newly selected record.
   return <div className="knowledge-map-canvas" role="region" aria-label={mode==='knowledge'?'Knowledge graph map':'Context graph map'} onKeyDownCapture={event=>{if(event.key===' '&&(event.target as Element).closest('.react-flow__node, .react-flow__edge'))event.preventDefault();}}>
-    <ReactFlow nodes={displayedNodes} edges={displayedEdges} nodeTypes={nodeTypes} fitView fitViewOptions={{padding:.22,minZoom:.35,maxZoom:1}} minZoom={.15} maxZoom={1.75} nodesDraggable={false} nodesConnectable={false} edgesFocusable nodesFocusable deleteKeyCode={null} zoomOnDoubleClick={false}
+    <ReactFlow nodes={displayedNodes} edges={displayedEdges} nodeTypes={nodeTypes} fitView fitViewOptions={{padding:.22,minZoom:.05,maxZoom:1}} minZoom={.05} maxZoom={1.75} nodesDraggable={false} nodesConnectable={false} edgesFocusable nodesFocusable deleteKeyCode={null} zoomOnDoubleClick={false}
       onNodesChange={changes=>{for(const change of changes)if(change.type==='select'&&change.selected)onSelect({kind:'node',id:change.id});}}
       onEdgesChange={changes=>{for(const change of changes)if(change.type==='select'&&change.selected)onSelect({kind:'edge',id:change.id});}}
       onNodeClick={(_,node)=>onSelect({kind:'node',id:node.id})} onEdgeClick={(_,edge)=>onSelect({kind:'edge',id:edge.id})} onPaneClick={()=>onSelect(null)}>
@@ -41,7 +41,7 @@ function InnerCanvas({nodes,edges,selection,onSelect,mode}:Props) {
       <Controls showInteractive={false}/>
     </ReactFlow>
     <div className="knowledge-map-caption"><IconStack2 size={14}/><span>{nodes.length} nodes · {edges.length} directed links</span></div>
-    <button type="button" className="knowledge-map-fit" onClick={()=>void flow.fitView({padding:.22,minZoom:.35,maxZoom:1,duration:0})}><IconFocus2 size={16}/>Fit graph</button>
+    <button type="button" className="knowledge-map-fit" onClick={()=>void flow.fitView({padding:.22,minZoom:.05,maxZoom:1,duration:0})}><IconFocus2 size={16}/>Fit graph</button>
   </div>;
 }
 export function KnowledgeGraphCanvas(props:Props) { return <ReactFlowProvider><InnerCanvas {...props}/></ReactFlowProvider>; }

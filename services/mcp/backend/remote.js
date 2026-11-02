@@ -7,7 +7,11 @@ async function call(actor,name,args,signal){
  const url=new URL(process.env.HELLOTEST_MCP_INTERNAL_URL);
  if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.search||url.hash||!url.pathname.endsWith('/mcp'))throw fail('Configure a fixed internal MCP endpoint.',500,'MCP_CONFIGURATION');
  if(actor.retrievalInput||actor.packetInput)throw fail('Private retrieval callbacks require the API-process transport.',500,'MCP_CONFIGURATION');
- const credential=await issue(actor.user,actor.projectId,actor.clientId);
+ // Async-local task/session context does not cross HTTP. Bind only trusted
+ // host correlation labels into this signed, revoked-after-call credential;
+ // model-supplied tool arguments and protocol metadata cannot set them.
+ const contextAttribution=require('./contextAttribution').select(require('@hellotest/platform/backend/src/utils/llmTraceContext').current());
+ const credential=await issue(actor.user,actor.projectId,actor.clientId,{contextAttribution});
  try{
   const payload={jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:args,_meta:{'io.modelcontextprotocol/protocolVersion':'2026-07-28','io.modelcontextprotocol/clientCapabilities':{}}}};
   const response=await fetch(url,{method:'POST',redirect:'error',signal:AbortSignal.any([...(signal?[signal]:[]),AbortSignal.timeout(require('./contextRequest').requestTimeoutMs(payload))]),headers:{'Content-Type':'application/json',Authorization:'Bearer '+credential.token,Accept:'application/json, text/event-stream','MCP-Protocol-Version':'2026-07-28','Mcp-Method':'tools/call','Mcp-Name':name},body:JSON.stringify(payload)});

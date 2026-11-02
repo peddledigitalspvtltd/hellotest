@@ -3,6 +3,7 @@ const { resolveSessionSecret } = require('@hellotest/platform/backend/src/securi
 const db = require('@hellotest/platform/backend/src/db');
 const projectService = require('@hellotest/platform/backend/public/projectAccess');
 const permissionService = require('@hellotest/platform/backend/services/permission.service');
+const attribution = require('./contextAttribution');
 const fail = (message, statusCode = 403, code = 'MCP_ACCESS_DENIED') => Object.assign(new Error(message), { statusCode, code, publicMessage: message });
 const key = () => process.env.HELLOTEST_MCP_SIGNING_KEY || createHmac('sha256', resolveSessionSecret()).update('hellotest-mcp-resource-v1').digest('base64');
 const sign = encoded => createHmac('sha256', key()).update(encoded).digest('base64url');
@@ -22,11 +23,13 @@ async function permit(actor, permission) {
  if(required.length && !await flags.areEnabled(required,{user:actor.user}))throw fail('This feature is disabled.',403,'FEATURE_DISABLED');
  if (!(await permissionService.hasPermission(actor.user, permission, actor.projectId))) throw fail(`Permission required: ${permission}`);
 }
-async function issue(user, projectId, clientId = 'external-host') {
+async function issue(user, projectId, clientId = 'external-host', { contextAttribution } = {}) {
  const actor = await principal(user.id, projectId, clientId);
  await permit(actor, 'project.view');
  const now = Math.floor(Date.now()/1000), id = randomUUID();
  const payload = { sub: user.id, project_id: projectId, client_id: clientId, aud: 'hellotest:mcp', iss: 'hellotest', jti: id, iat: now, exp: now + 3600 };
+ const context = attribution.select(contextAttribution);
+ if(Object.keys(context).length)payload.context_attribution=context;
  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
  await db.prepare('INSERT INTO mcp_credentials(id,user_id,project_id,client_id,expires_at) VALUES (?,?,?,?,?)').run(id,user.id,projectId,clientId,new Date(payload.exp*1000).toISOString());
  return { id, token: `mcp1.${encoded}.${sign(encoded)}`, expires_at: new Date(payload.exp*1000).toISOString(), audience: payload.aud };
@@ -39,12 +42,14 @@ function decode(token) {
  let p;try {p=JSON.parse(Buffer.from(encoded,'base64url').toString());}catch{throw fail('Invalid MCP credential.',401,'MCP_UNAUTHORIZED');}
  const now=Math.floor(Date.now()/1000);
  if(p.aud!=='hellotest:mcp'||p.iss!=='hellotest'||typeof p.sub!=='string'||!p.sub||typeof p.project_id!=='string'||!p.project_id||typeof p.client_id!=='string'||!p.client_id||typeof p.jti!=='string'||!p.jti||!Number.isInteger(p.exp)||!Number.isInteger(p.iat)||p.exp<=now||p.iat>now+30||p.exp-p.iat>3600) throw fail('MCP credential expired or invalid.',401,'MCP_UNAUTHORIZED');
+ if(p.context_attribution!==undefined&&!attribution.isValid(p.context_attribution))throw fail('MCP context attribution is invalid.',401,'MCP_UNAUTHORIZED');
  return p;
 }
 async function authenticate(token) {
  const p=decode(token);
  const row=await db.prepare('SELECT id FROM mcp_credentials WHERE id=? AND user_id=? AND project_id=? AND client_id=? AND revoked_at IS NULL AND expires_at>NOW()').get(p.jti,p.sub,p.project_id,p.client_id);
  if(!row)throw fail('MCP credential revoked or expired.',401,'MCP_UNAUTHORIZED');
- return principal(p.sub,p.project_id,p.client_id);
+ const actor=await principal(p.sub,p.project_id,p.client_id);
+ return p.context_attribution ? {...actor,contextAttribution:p.context_attribution} : actor;
 }
 module.exports = { principal, permit, issue, decode, authenticate, fail };

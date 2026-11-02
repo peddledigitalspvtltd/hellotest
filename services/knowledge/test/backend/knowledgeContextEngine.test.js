@@ -355,3 +355,124 @@ test('selected evidence scope survives every search round and prevents relations
   await execution.run({}, () => engine.retrieve({ request: contracts.buildRetrievalRequest({ projectId: 'project-1', query: 'Investigate release risk', queryClass: 'INVESTIGATIVE', filters: { requested_scopes: ['knowledge'], evidence_scope: evidenceScope }, budgets: { max_rounds: 1 } }), user: { id: 'user-1' }, dependencies }));
   assert.equal(expansions, 0); assert.equal(calls.length, 1); assert.deepEqual(calls[0].evidence_scope, evidenceScope);
 });
+
+const strategyRequest = (dependencies, { filters = {}, budgets = {}, strategy = 'graph_expand' } = {}) => execution.run({}, () => engine.retrieve({
+  request: contracts.buildRetrievalRequest({ projectId: 'project-1', query: 'release dependencies', queryClass: 'SEARCH',
+    filters: { requested_scopes: ['knowledge'], ...filters }, budgets: { max_rounds: 1, ...budgets } }),
+  user: { id: 'user-1' }, intentPlan: { retrieval_strategy: strategy }, dependencies
+}));
+const strategyProof = () => {
+  const proof = { ...hit('strategy-proof', 'The release depends on checkout.'), score: 0 };
+  const relationship = { source_canonical_id: 'release-node', target_canonical_id: 'checkout-node', relationship_type: 'DEPENDS_ON',
+    evidence_ids: ['K-strategy-proof'], provenance_type: 'HUMAN_VERIFIED', endpoints_authorized: true };
+  return { results: [proof], relationships: [relationship], retrieval: { vector_mode: 'graph_witnesses' } };
+};
+
+test('a model-selected graph strategy runs one witnessed expansion even when initial passages are sufficient', async () => {
+  const { mergeRetrievalResults } = require('../../backend/services/knowledgeRetrieval.service');
+  let calls = 0;
+  const result = await strategyRequest(fixtures({ merge: mergeRetrievalResults,
+    expandParents: () => assert.fail('An optional parent read must not spend the requested graph allowance.'),
+    expandRelationships: async input => {
+      calls++; assert.equal(input.projectId, 'project-1'); assert.equal(input.user.id, 'user-1');
+      assert.deepEqual(input.hits.map(item => item.citation.id), ['K-1']);
+      assert.deepEqual(input.sourceKinds, ['knowledge_item','file','text','chat','url']);
+      return strategyProof();
+    }
+  }), { budgets: { max_tool_calls: 2 } });
+  assert.equal(calls, 1); assert.equal(result.budget.tool_calls_used, 2, 'Search and graph traversal consume the same tool budget.');
+  assert.equal(result.packet.relationships.length, 1); assert.ok(result.packet.evidence.some(item => item.evidence_id === 'K-strategy-proof'));
+  assert.deepEqual(result.packet.retrieval.retrieval_strategy, { requested: 'graph_expand', applied: 'graph_expand',
+    graph_expansion_status: 'completed', graph_expansion_reason: null, graph_tool_calls: 1, graph_evidence_count: 1, graph_relationship_count: 1 });
+});
+
+test('the ordinary hybrid strategy still stops on sufficient passages without an extra graph call', async () => {
+  const result = await strategyRequest(fixtures({ expandRelationships: () => assert.fail('No graph read was selected or needed.') }), { strategy: 'hybrid_evidence' });
+  assert.equal(result.packet.retrieval.retrieval_strategy.requested, 'hybrid_evidence');
+  assert.equal(result.packet.retrieval.retrieval_strategy.graph_expansion_status, 'not_requested');
+  assert.equal(result.budget.tool_calls_used, 1);
+});
+
+for (const [name, filters, budgets, reason] of [
+  ['pinned sources', { source_ids: ['selected-source'] }, {}, 'selected_sources_or_collections'],
+  ['pinned collections', { collection_ids: ['selected-collection'] }, {}, 'selected_sources_or_collections'],
+  ['explicit source kinds', { source_kinds: ['text'] }, {}, 'selected_source_kinds'],
+  ['exact record scope', { evidence_scope: { story_id: 'selected-story' } }, {}, 'selected_evidence_scope'],
+  ['historical scope', { as_of: '2026-01-01T00:00:00Z' }, {}, 'historical_scope'],
+  ['exhausted tool budget', {}, { max_tool_calls: 1 }, 'tool_call_budget'],
+  ['zero tool budget', {}, { max_tool_calls: 0 }, 'tool_call_budget'],
+  ['exhausted candidate budget', {}, { max_candidates: 1 }, 'candidate_budget']
+]) test(`a graph strategy cannot widen ${name}`, async () => {
+  const result = await strategyRequest(fixtures({ expandRelationships: () => assert.fail('The selected boundary must prevent this read.') }), { filters, budgets });
+  const value = result.packet.retrieval.retrieval_strategy;
+  assert.equal(value.requested, 'graph_expand'); assert.equal(value.applied, 'hybrid_evidence');
+  assert.equal(value.graph_expansion_status, 'skipped'); assert.equal(value.graph_expansion_reason, reason); assert.equal(value.graph_tool_calls, 0);
+  assert.deepEqual(result.packet.applied_filters.source_ids, filters.source_ids || []);
+  assert.ok(result.budget.tool_calls_used <= result.budget.limits.max_tool_calls);
+});
+
+test('a selected graph strategy discloses unavailable seeds and adapters instead of fabricating a path', async () => {
+  const noSeeds = await strategyRequest(fixtures({ search: async () => ({ results: [], errors: [] }),
+    expandRelationships: () => assert.fail('An empty search cannot authorize graph seeds.') }));
+  assert.equal(noSeeds.packet.retrieval.retrieval_strategy.graph_expansion_reason, 'no_authorized_seeds');
+  assert.equal(noSeeds.packet.relationships.length, 0);
+  const noAdapter = await strategyRequest(fixtures());
+  assert.equal(noAdapter.packet.retrieval.retrieval_strategy.graph_expansion_reason, 'adapter_unavailable');
+  await assert.rejects(strategyRequest(fixtures(), { strategy: 'execute_sql' }), { code: 'RETRIEVAL_PLAN_INVALID' });
+});
+
+test('graph strategy failures retain found evidence and disclose the charged failed adapter', async () => {
+  const result = await strategyRequest(fixtures({ expandRelationships: async () => { throw Object.assign(new Error('PRIVATE_DATABASE_DETAIL'), { code: 'GRAPH_UNAVAILABLE' }); } }));
+  const value = result.packet.retrieval.retrieval_strategy;
+  assert.equal(value.graph_expansion_status, 'failed'); assert.equal(value.graph_expansion_reason, 'GRAPH_UNAVAILABLE');
+  assert.equal(value.graph_tool_calls, 1); assert.equal(value.applied, 'hybrid_evidence');
+  assert.equal(result.packet.evidence.length, 1); assert.equal(result.packet.relationships.length, 0);
+  assert.doesNotMatch(JSON.stringify(result.packet), /PRIVATE_DATABASE_DETAIL/);
+});
+
+test('a requested graph path is withheld when any exact witness is revoked before delivery', async () => {
+  let checks = 0;
+  const result = await strategyRequest(fixtures({ expandRelationships: async () => strategyProof(),
+    authorize: async items => { checks++; return { allowed: checks > 1 ? items.filter(item => item.chunk_id !== 'strategy-proof') : items,
+      denied_ids: checks > 1 ? ['K-strategy-proof'] : [], partial: checks > 1 }; }
+  }));
+  assert.ok(checks >= 3); assert.equal(result.packet.relationships.length, 0);
+  assert.equal(result.packet.retrieval.retrieval_strategy.graph_evidence_count, 0);
+  assert.equal(result.packet.retrieval.retrieval_strategy.graph_relationship_count, 0);
+});
+
+test('explicit graph planning reserves candidate capacity before an exhaustive lexical search', async () => {
+  let searchLimit, graphLimit;
+  const result = await strategyRequest(fixtures({
+    search: async input => {
+      searchLimit = input.maxCandidates;
+      return { results: [{ query: 'release', result: { results: [hit('1')], retrieval: { candidate_count: input.maxCandidates, vector_mode: 'disabled' } } }], errors: [] };
+    },
+    expandRelationships: async input => { graphLimit = input.maxCandidates; return strategyProof(); }
+  }), { budgets: { max_candidates: 80, max_tool_calls: 2 } });
+  assert.equal(searchLimit, 74); assert.equal(graphLimit, 6);
+  assert.equal(result.packet.retrieval.retrieval_strategy.applied, 'graph_expand');
+  assert.equal(result.packet.retrieval.retrieval_strategy.graph_tool_calls, 1);
+  assert.equal(result.packet.relationships.length, 1); assert.ok(result.retrieval.candidate_count <= 80);
+  assert.equal(result.budget.tool_calls_used, 2);
+});
+
+test('an optional live lookup cannot consume the one tool slot needed by the selected graph strategy', async () => {
+  const result = await strategyRequest(fixtures({ planContext: () => ({ indexed_source_kinds: ['text'], live_scopes: ['stories'] }),
+    liveEvidence: () => assert.fail('The remaining slot belongs to the selected graph expansion.'),
+    expandRelationships: async () => strategyProof()
+  }), { filters: { requested_scopes: ['stories','knowledge'] }, budgets: { max_tool_calls: 2 } });
+  assert.equal(result.packet.retrieval.retrieval_strategy.graph_tool_calls, 1);
+  assert.equal(result.budget.tool_calls_used, 2);
+});
+
+test('a zero monetary allowance retains free retrieval and still rejects any paid reservation', async () => {
+  const budget = new contracts.RetrievalBudget({ max_cost_usd: 0 });
+  assert.equal(budget.canContinue(), true);
+  assert.equal(budget.reserve({ toolCalls: 1, costUsd: 0 }), true);
+  assert.equal(budget.reserve({ costUsd: 0.001 }), false);
+  assert.equal(budget.cost_usd_used, 0); assert.equal(budget.termination_reason, 'cost_budget_reached');
+  const result = await strategyRequest(fixtures({ expandRelationships: async () => strategyProof() }), { budgets: { max_cost_usd: 0, max_tool_calls: 2 } });
+  assert.equal(result.packet.retrieval.retrieval_strategy.applied, 'graph_expand');
+  assert.equal(result.packet.relationships.length, 1); assert.equal(result.budget.cost_usd_used, 0);
+});

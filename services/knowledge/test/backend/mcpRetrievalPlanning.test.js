@@ -34,9 +34,10 @@ test('caller retrieval hints stay anchored to the original task and cannot repla
  const f=fixture(),question='Explain checkout failures';
  const packet=await f.service.retrieveDirect({projectId:'project',query:question,user:{id:'reader'},planningMode:'deterministic',
   filters:{requested_scopes:['runs'],evidence_scope:{execution_id:'run'},source_ids:['allowed-source']},
-  intentPlan:{queries:['checkout failing step','unrelated records'],source_kinds:['execution'],information_needs:['Observed result']}});
+  intentPlan:{retrieval_strategy:'graph_expand',queries:['checkout failing step','unrelated records'],source_kinds:['execution'],information_needs:['Observed result']}});
  assert.equal(packet.retrieval.intent_planning_mode,'caller_supplied');assert.equal(packet.retrieval.intent_model_calls,0);
  assert.deepEqual(f.calls[0].intentPlan.queries,['checkout failing step']);
+ assert.equal(f.calls[0].intentPlan.retrieval_strategy,'graph_expand');
  assert.equal(f.calls[0].request.query,question);assert.deepEqual(f.calls[0].request.filters.source_ids,['allowed-source']);
  assert.deepEqual(f.calls[0].request.filters.evidence_scope,{execution_id:'run'});
  await assert.rejects(f.service.retrieveDirect({projectId:'project',query:question,user:{id:'reader'},planningMode:'deterministic',intentPlan:{queries:['unrelated records']}}),{code:'RETRIEVAL_PLAN_INVALID',statusCode:400});

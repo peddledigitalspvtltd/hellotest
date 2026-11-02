@@ -63,6 +63,37 @@ test('projection uses native structured references, explicit serializer lines an
   const content='😀 header\nRequirement IDs: req\nExpected outcome';const proof=proofFor([{id:'chunk',content}],reference);
   assert.equal(proof.span_start,9);assert.equal(Array.from(content).slice(proof.span_start,proof.span_end).join(''),'Requirement IDs: req');
 });
+
+test('every declared native Story and Defect link retains its typed witness after real chunking',()=>{
+  const {serializeRequirement,serializeBug}=require('../../backend/services/knowledgeRag.service')._internals;
+  const {chunkText}=require('../../backend/services/knowledgeProcessing.service');
+  const ids=Array.from({length:100},(_,index)=>`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`);
+  const sources=[serializeRequirement({id:'story',title:'Review checkout',description:'Observe checkout confirmation.'},ids),
+    serializeBug({id:'defect',title:'Checkout failed',linked_requirement_ids:ids.slice(0,50),linked_test_case_ids:ids.slice(50)})];
+  for(const source of sources){
+    const refs=extractReferences(source),chunks=chunkText(source.content,{});
+    assert.equal(refs.length,100,source.source_kind+' must preserve its whole declared inventory.');
+    assert.ok(chunks.length>1);
+    for(const ref of refs)assert.ok(proofFor(chunks,ref),`${source.source_kind} ${ref.ref_id} lost its exact typed witness.`);
+  }
+});
+
+test('bounded native association projection reports omitted links instead of claiming exhaustive construction',async()=>{
+  const {serializeRequirement}=require('../../backend/services/knowledgeRag.service')._internals;
+  const ids=Array.from({length:100},(_,index)=>'case-'+index);
+  const source={...serializeRequirement({id:'story',title:'Checkout'},ids,121),id:'source',project_id:'project'};
+  assert.equal(source.metadata.linked_test_case_count,121);
+  assert.equal(source.metadata.indexed_linked_test_case_count,100);assert.equal(source.metadata.linked_test_cases_truncated,true);
+  assert.match(source.content,/first 100 of 121 linked Test Cases/);
+  const writes=[];
+  const store={prepare:sql=>({run:async(...args)=>{writes.push({sql,args});return{changes:1};},get:async()=>undefined})};
+  const result=await createProjection({db:store}).syncDocument({projectId:'project',source,document:{id:'document',version:1,checksum_sha256:'hash'},chunks:[]});
+  assert.equal(result.partial,true);assert.equal(result.omitted_reference_count,21);
+  assert.equal(writes.find(write=>write.sql.includes('SET metadata=metadata')).args[0].projection_omitted_references,21);
+  const oversized={...source,metadata:{linked_test_case_ids:[...ids,'case-101']}};
+  const capped=await createProjection({db:store}).syncDocument({projectId:'project',source:oversized,document:{id:'document',version:1,checksum_sha256:'hash'},chunks:[]});
+  assert.equal(capped.partial,true);assert.equal(capped.omitted_reference_count,1);
+});
 test('large document graph projection is bounded and cannot cancel valid canonical ingestion or overwrite curated aliases',async()=>{
   const writes=[];const store={prepare(sql){return{run:async(...args)=>{writes.push({sql,args});return{changes:1};},get:async()=>{throw Error('No native references should be queried');}};}};
   const source={id:'source',project_id:'project',source_kind:'file',source_ref_id:'file-id',title:'Large document',metadata:{}};

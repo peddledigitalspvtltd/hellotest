@@ -5469,7 +5469,8 @@ exports.loadAutomationAgentCaseContext = async ({projectId,appTypeId,user,caseId
   // materialized once by the actual build, then shown from its pinned artifact.
   const resolver=await require('../lib/automationBrowserParameters').loadBrowserParameterResolver({testCase,projectId,userId:user.id,
     caseValues:parameters.runtime_parameter_values,privateParameterNames:parameters.private_parameter_names,parameterOverrides:parameters.parameter_overrides,steps:[...sections,...manual.flatMap(item=>item.steps)],materialize:false,allowUnselectedSuite:true});
-  return {linked_manual_cases:resolver.projectManualCases(manual),case:{...resolver.projectCase({id:testCase.id,title:testCase.title,description:testCase.description,gherkin_document:testCase.gherkin_document,priority:testCase.priority,labels:safeJson(testCase.labels,[])}),parameter_values:resolver.publicParameterValues},
+  const stories=await loadAutomationStoryContext({caseId,projectId,userId:user.id});
+  return {evidence_permissions:[...permissions,...(access['data.view']?['data.view']:[]),...(stories.stories?.length?['requirement.view']:[])],linked_manual_cases:resolver.projectManualCases(manual),case:{...resolver.projectCase({id:testCase.id,title:testCase.title,description:testCase.description,gherkin_document:testCase.gherkin_document,priority:testCase.priority,labels:safeJson(testCase.labels,[])}),revision:testCase.revision,automated:testCase.automated,parameter_values:resolver.publicParameterValues},
     sections:resolver.projectSteps(sections),deferred_parameter_references:resolver.deferredParameterNames,private_parameter_references:resolver.privateParameterNames,suite_selection_required:resolver.suite_selection_required===true,
-    stories:await loadAutomationStoryContext({caseId,projectId,userId:user.id})};
+    stories};
 };

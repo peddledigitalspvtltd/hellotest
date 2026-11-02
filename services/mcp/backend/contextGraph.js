@@ -72,11 +72,13 @@ function createContextGraph({ permit, fail, db, bounded, service = nativeService
 // or make an old answer authoritative in a later task.
 async function rememberContext(actor, packet, { appTypeId, request, signal, service = nativeService } = {}) {
   if (packet?.contract_type !== 'ContextPacket' || !validId(packet.context_packet_id || packet.packet_id)) return packet;
-  const scope = traceContext.current();
+  // Remote attribution comes only from the signed resource credential. Public
+  // MCP arguments/_meta cannot choose another task, session or feature owner.
+  const scope = actor.contextAttribution || require('./contextAttribution').select(traceContext.current());
   const selected = { projectId: actor.projectId, user: actor.user, packet,
     featureId: scope.feature || (request?.conversation?.session_id ? 'ai.knowledge.assistant' : 'mcp.context'),
     appTypeId: appTypeId || packet.applied_filters?.app_type_id || null,
-    taskRef: scope.task_id || scope.request_id || packet.request_id || null,
+    taskRef: scope.task_id || scope.run_id || scope.request_id || packet.request_id || null,
     sessionId: scope.session_id || request?.conversation?.session_id || null,
     traceId: scope.trace_id || packet.trace_id || null };
   let receipt;

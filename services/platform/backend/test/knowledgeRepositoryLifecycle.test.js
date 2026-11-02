@@ -215,9 +215,11 @@ test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain
       // still tombstone its old knowledge, graph and vector recovery command.
       await db.query(`INSERT INTO requirements(id,project_id) VALUES ('removed-story','project')`);
       const removedSource = await rag._internals.createSource({ projectId: "project", userId: admin.id,
-        input: { source_kind: "requirement", source_ref_id: "removed-story", title: "Removed native story", content: "A formerly active native story.", metadata: {} } });
+        input: { source_kind: "requirement", source_ref_id: "removed-story", title: "Removed native story", content: "A formerly active native story.", metadata: { snapshot_fingerprint: 'native-snapshot-fingerprint' } } });
       const removedDocument = await rag._internals.persistDocument({ projectId: "project", source: removedSource,
         content: "A formerly active native story.", embeddingRuntime: { configured: false } });
+      assert.equal(removedDocument.document.metadata.snapshot_fingerprint,'native-snapshot-fingerprint',
+        'The trusted native fingerprint must survive in the immutable revision used by refresh and replay.');
       await db.query(`DELETE FROM requirements WHERE id = 'removed-story'`);
       assert.deepEqual(await lifecycle.archiveMissingApplicationSources(), { archived: 1 });
       assert.equal((await db.prepare(`SELECT extraction_status FROM ai_knowledge_sources WHERE id = ?`).get(removedSource.id)).extraction_status, "archived");

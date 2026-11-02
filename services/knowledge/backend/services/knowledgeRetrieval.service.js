@@ -297,7 +297,7 @@ const retrieveDirect = (input) => execution.run({ signal: input.signal || execut
   const { context_packet, ...diagnostics } = result.retrieval;
   result.packet.retrieval = { ...diagnostics, ...result.packet.retrieval, intent_planning_mode: planning.mode,
     intent_planning_model_used: planning.mode === "llm", intent_model_calls: intentModelCalls, intent_plan_error_code: planning.reason,
-    model_context_plan: planning.plan ? { source_kinds: planning.plan.source_kinds, information_needs: planning.plan.information_needs } : null };
+    model_context_plan: planning.plan ? { source_kinds: planning.plan.source_kinds, information_needs: planning.plan.information_needs, retrieval_strategy: planning.plan.retrieval_strategy } : null };
   execution.emit("COMPLETED", "completed");
   return result.packet;
 });

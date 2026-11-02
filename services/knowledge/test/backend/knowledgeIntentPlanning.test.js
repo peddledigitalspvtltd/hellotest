@@ -19,15 +19,29 @@ test("intent planning uses the project/user model before retrieval and preserves
   let request;
   context.mock.method(gateway, "request", async value => {
     request = value;
-    return { source_kinds: ["requirement", "test_case", "passwords"], information_needs: ["negative payment coverage"], search_queries: ["payment negative test coverage", "unrelated mountain weather"] };
+    return { retrieval_strategy: 'graph_expand', source_kinds: ["requirement", "test_case", "passwords"], information_needs: ["negative payment coverage"], search_queries: ["payment negative test coverage", "unrelated mountain weather"] };
   });
   const result = await execution.run({}, () => planning.planIntent(input));
   assert.equal(result.mode, "llm");
   assert.deepEqual(result.plan.queries, ["payment negative test coverage"]);
   assert.deepEqual(result.plan.source_kinds, ["requirement", "test_case"]);
+  assert.equal(result.plan.retrieval_strategy, 'graph_expand');
   assert.equal(calls[0].projectId, "project-1"); assert.equal(calls[0].userId, "user-1");
   assert.equal(request.operation, "knowledge.context.plan-intent");
   assert.equal(request.timeoutMs, 4000);
+});
+
+test('retrieval strategies are a closed host contract with backward-compatible defaults',()=>{
+  assert.equal(planning.normalizePlan({search_queries:['payment coverage']},input.request.query).retrieval_strategy,'hybrid_evidence');
+  assert.equal(planning.normalizePlan({retrieval_strategy:'graph_expand'},input.request.query).retrieval_strategy,'graph_expand');
+  for(const retrieval_strategy of ['execute_sql','graph_trace','read_all_sessions',{},[],true,null])assert.throws(()=>planning.normalizePlan({retrieval_strategy,search_queries:['payment coverage']},input.request.query),{code:'MODEL_INVALID_RESPONSE'});
+  const catalog=require('../../../platform/shared/aiFeatureCatalog.json');
+  const intent=catalog.find(value=>value.id==='ai.knowledge.intent');
+  for(const key of ['knowledgeIntentPlanning.candidate.1','knowledgeAssistant.requestRetrievalPlan.2']){
+    assert.match(intent.defaults.instruction_blocks[key],/retrieval_strategy/);
+    assert.match(intent.defaults.instruction_blocks[key],/graph_expand/);
+    assert.match(intent.defaults.instruction_blocks[key],/no strategy can widen/);
+  }
 });
 
 test("model failure and invalid output produce explicit standard retrieval fallback", async context => {

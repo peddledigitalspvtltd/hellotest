@@ -62,6 +62,11 @@ Run local uses that paired machine. Run remote continues using the configured
 Test Engine workers. Only the legacy direct runner on `4313` requires an address
 reachable from the API and matching administrator-managed service credentials.
 
+If local preparation fails before the agent starts, retrying uses the same queued
+Run. If a response is lost after the agent accepts the work, retry reconnects the
+original attempt and its results, including when it has already finished. It
+does not execute a finished Run again; use a new Run or rerun for another attempt.
+
 In a test case execution, **Live Run View** appears immediately before Report
 defect and opens a separate browser tab for that case's exact engine run and
 data row. The action stays visible with setup/waiting guidance when no browser

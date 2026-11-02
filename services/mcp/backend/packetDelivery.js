@@ -21,11 +21,15 @@ function normalizePacket(packet){
  const relationships=retain(packet.relationships),relationshipEvidence=retain(packet.relationship_evidence);
  const removed=Math.max((packet.relationships?.length||0)-relationships.length,(packet.relationship_evidence?.length||0)-relationshipEvidence.length);
  const note='MCP delivery redacted or shortened these source excerpts. Immutable source/chunk/version hashes remain unchanged. Removed offsets and relationship witnesses cannot be inferred from the delivered text; original retrieval coverage is not proof of complete source review.';
+ const strategy=packet.retrieval?.retrieval_strategy;
+ const deliveredStrategy=strategy?.graph_tool_calls===1?{...strategy,
+  graph_evidence_count:new Set(relationships.flatMap(edge=>edge.evidence_ids||[])).size,
+  graph_relationship_count:relationships.length}:strategy;
  const result={...packet,evidence,relationships,relationship_evidence:relationshipEvidence,
   authorization_coverage:{...packet.authorization_coverage,fully_visible_objects:evidence.filter(item=>item.visibility?.state==='FULL').length,
    partially_visible_objects:Math.max(packet.authorization_coverage?.partially_visible_objects||0,evidence.filter(item=>item.visibility?.state==='PARTIAL').length)},
   limitations:{...packet.limitations,authorization_partial:true,retrieval_status:packet.limitations?.retrieval_status==='FAILED'?'FAILED':'PARTIAL'},
-  retrieval:{...packet.retrieval,status:packet.retrieval?.status==='FAILED'?'FAILED':'PARTIAL',delivery:{...packet.retrieval?.delivery,evidence:changed,omitted_relationship_count:removed,note}}};
+    retrieval:{...packet.retrieval,...(deliveredStrategy?{retrieval_strategy:deliveredStrategy}:{}),status:packet.retrieval?.status==='FAILED'?'FAILED':'PARTIAL',delivery:{...packet.retrieval?.delivery,evidence:changed,omitted_relationship_count:removed,note}}};
  if(Buffer.byteLength(JSON.stringify(result),'utf8')>180000)throw Object.assign(new Error('The delivered context exceeds its safe result budget. Narrow the selected sources or evidence budget.'),{statusCode:413,code:'MCP_RESULT_TOO_LARGE'});
  return result;
 }

@@ -36,6 +36,14 @@ test('lost API acknowledgment reuses the original idempotency request and concur
  const h=executionHarness();h.loseApiAck();await assert.rejects(h.startPairedLocalExecution('/executions/local-run',input,h.request),/API response lost/);
  await Promise.all([h.startPairedLocalExecution('/executions/local-run',input,h.request),h.startPairedLocalExecution('/executions/local-run',input,h.request)]);assert.equal(h.apiCalls.length,2);assert.equal(h.apiCalls[0].input.request_id,h.apiCalls[1].input.request_id);assert.equal(h.agentCalls.length,1);
 });
+test('an explicitly finished creation request releases an old failed intent for the next user retry',async()=>{
+ const h=executionHarness(),requests=[];let reject=true;
+ const request=async(path,payload)=>{requests.push(payload);if(reject){reject=false;throw Object.assign(new Error('This Run has finished.'),{code:'PAIRED_LOCAL_RUN_FINISHED'});}return h.request(path,payload);};
+ await assert.rejects(h.startPairedLocalExecution('/executions/local-run',input,request),{code:'PAIRED_LOCAL_RUN_FINISHED'});
+ assert.equal(h.agentCalls.length,0);assert.equal(h.sessionStorage.items.size,0);
+ await h.startPairedLocalExecution('/executions/local-run',input,request);
+ assert.notEqual(requests[0].request_id,requests[1].request_id);assert.equal(h.agentCalls.length,1);
+});
 test('inspection-only agents fail before an execution is created and existing starts use the dispatch endpoint',async()=>{
  const old=executionHarness({ready:false});await assert.rejects(old.startPairedLocalExecution('/executions/local-run',input,old.request),/older inspection agent/);assert.equal(old.apiCalls.length,0);
  const h=executionHarness();await h.startPairedLocalExecution('/executions/run/local-dispatch',{execution_mode:'local'},h.request);assert.equal(h.apiCalls[0].path,'/executions/run/local-dispatch');

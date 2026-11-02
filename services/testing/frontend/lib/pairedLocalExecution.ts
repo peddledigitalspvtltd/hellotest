@@ -35,7 +35,18 @@ export async function startPairedLocalExecution(
     // An accepted agent retains this receipt past the initial claim deadline.
     // Reconnect it first; renewing at the API could hide a completed attempt.
     if (!intent.receipt) {
-      intent.receipt = await request(path, { ...input, local_transport: "paired-agent", paired_origin: window.location.origin, local_agent_id: agent.agentId, request_id: intent.requestId });
+      try {
+        intent.receipt = await request(path, { ...input, local_transport: "paired-agent", paired_origin: window.location.origin, local_agent_id: agent.agentId, request_id: intent.requestId });
+      } catch (error) {
+        // Older APIs marked preparation failures as finished Runs. A definitive
+        // rejection can release that stale creation intent for the next click;
+        // transport failures still retain their identity for reconciliation.
+        if (path === "/executions/local-run" && (error as { code?: string })?.code === "PAIRED_LOCAL_RUN_FINISHED") {
+          pending.delete(key);
+          try { sessionStorage.removeItem(PREFIX + key); } catch { /* Memory was cleared above. */ }
+        }
+        throw error;
+      }
       remember();
     }
     const receipt = intent.receipt;

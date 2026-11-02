@@ -27,19 +27,21 @@ module.exports = function compactNativeEvidence(input, maximum) {
   if (encode().length>maximum && Array.isArray(reduced.records)) {
     const core = new Set(['id','display_id','title','name','description','revision','acceptance_criteria','specification_content','gherkin_scenarios',
       'priority','status','automated','steps','requirement_ids','parameter_values','prerequisites','expected_result',
+      'authoring_mode','test_case_type','step_count','step_excerpt_complete','description_excerpt_complete','gherkin_excerpt','gherkin_excerpt_complete',
       'execution_mode','release','sprint','build','result_count','passed_count','failed_count','blocked_count','created_at','ended_at']);
     reduced.records = reduced.records.map(record => Object.fromEntries(Object.entries(record).filter(([key])=>core.has(key))));
     omitted=true;note();
   }
   for (let round=0;encode().length>maximum && round<200;round++) {
     const strings=[],lists=[];
-    const visit=(node,path=[])=>{
+    const visit=(node,path=[],record=null)=>{
       if (!node || typeof node!=='object') return;
+      if(path.length===2&&path[0]==='records')record=node;
       for (const [key,item] of Object.entries(node)) {
         if (key==='evidence_permissions'||key==='context_window') continue;
-        if (typeof item==='string'&&!identity.test(key)&&item.length>80) strings.push({node,key,length:item.length});
-        else if (Array.isArray(item)) { if(item.length>1) lists.push({node,key,length:item.length,path:[...path,key].join('.')}); item.forEach((entry,index)=>visit(entry,[...path,key,index])); }
-        else visit(item,[...path,key]);
+        if (typeof item==='string'&&!identity.test(key)&&item.length>80) strings.push({node,key,length:item.length,record,path:[...path,key]});
+        else if (Array.isArray(item)) { if(item.length>1) lists.push({node,key,length:item.length,path:[...path,key].join('.'),record}); item.forEach((entry,index)=>visit(entry,[...path,key,index],record)); }
+        else visit(item,[...path,key],record);
       }
     };
     visit(reduced);
@@ -47,14 +49,23 @@ module.exports = function compactNativeEvidence(input, maximum) {
     const long = strings.filter(item=>item.length>320).sort((a,b)=>b.length-a.length)[0];
     const list = lists.sort((a,b)=>b.length-a.length)[0];
     const short = strings.sort((a,b)=>b.length-a.length)[0];
-    if(long) long.node[long.key]=long.node[long.key].slice(0,Math.max(160,Math.floor(long.length/2)));
+    const shorten=(item,minimum)=>{
+      item.node[item.key]=item.node[item.key].slice(0,Math.max(minimum,Math.floor(item.length/2)));
+      if(item.record){
+        if(item.key==='gherkin_excerpt')item.record.gherkin_excerpt_complete=false;
+        if(item.key==='description')item.record.description_excerpt_complete=false;
+        if(item.path.includes('steps'))item.record.step_excerpt_complete=false;
+      }
+    };
+    if(long) shorten(long,160);
     else if(list) {
       const entries=list.node[list.key];
       const removable=list.key==='steps'?entries.map((entry,index)=>({entry,index})).filter(({entry})=>!['failed','blocked'].includes(entry?.observed_status)).at(-1)?.index:entries.length-1;
       if(removable==null) break; // Keep every observed failing step, or omit the packet explicitly.
       entries.splice(removable,1);omittedItems[list.path]=(omittedItems[list.path]||0)+1;
+      if(list.key==='steps'&&list.record)list.record.step_excerpt_complete=false;
     }
-    else if(short) short.node[short.key]=short.node[short.key].slice(0,Math.max(80,Math.floor(short.length/2)));
+    else if(short) shorten(short,80);
     else break;
     omitted=true;note();
   }

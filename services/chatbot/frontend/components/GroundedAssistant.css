@@ -185,6 +185,14 @@
 .grounded-assistant-panel .knowledge-answer-documents li { display: grid; gap: 5px; padding: 12px; border: 1px solid var(--chat-border); border-radius: 9px; }
 .grounded-assistant-panel .knowledge-answer-documents li > span { color: var(--chat-secondary); font-size: 10px; }
 .grounded-assistant-panel .knowledge-answer-relationships { display: grid; gap: 9px; padding-left: 17px; }
+.grounded-assistant-panel .knowledge-context-provenance { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--chat-border); border-radius: 10px; min-width: 0; }
+.grounded-assistant-panel .knowledge-context-provenance > strong { font-size: 12px; }
+.grounded-assistant-panel .knowledge-context-provenance dl { display: grid; gap: 9px; margin: 0; }
+.grounded-assistant-panel .knowledge-context-provenance dl > div { display: grid; grid-template-columns: minmax(85px, 1fr) minmax(0, 2fr); gap: 12px; }
+.grounded-assistant-panel .knowledge-context-provenance dt { color: var(--chat-secondary); font-size: 11px; }
+.grounded-assistant-panel .knowledge-context-provenance dd { margin: 0; font-size: 11px; overflow-wrap: anywhere; }
+.grounded-assistant-panel .knowledge-context-provenance > a { width: fit-content; font-size: 12px; }
+.grounded-assistant-panel .knowledge-context-provenance > small { color: var(--chat-secondary); font-size: 10px; line-height: 1.6; }
 @media (max-width: 620px) {
   .grounded-assistant-panel { inset: 0; width: 100%; height: 100dvh; max-height: none; margin: 0; border-radius: 0; border: 0; }
   .grounded-assistant-header { flex-wrap: wrap; padding: 14px 16px; gap: 10px; }

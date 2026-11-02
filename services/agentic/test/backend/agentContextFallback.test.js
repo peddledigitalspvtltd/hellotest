@@ -34,6 +34,12 @@ test('context-size correction preserves user intent and schema, shrinks evidence
 test('evidence revoked between the rejected request and its size correction is never sent again',async()=>{
  const f=fixture(true),task=input();await assert.rejects(execution.run({},()=>f.requestLlmResult(task)),error=>error.statusCode===403);assert.equal(f.calls.length,1);assert.equal(task.budget.used,1);
 });
+test('native evidence access revoked after retrieval blocks dispatch without spending the model budget',async()=>{
+ const f=fixture(false,{rejectFirst:false}),task=input();let checked=0;
+ task.assertEvidenceAccess=async()=>{checked++;throw Object.assign(new Error('Native case evidence access changed'),{statusCode:403});};
+ await assert.rejects(execution.run({},()=>f.requestLlmResult(task)),error=>error.statusCode===403);
+ assert.equal(checked,1);assert.equal(f.calls.length,0);assert.equal(task.budget.used,0);assert.equal(f.dispatches.length,0);
+});
 test('actual inner provider dispatches share the agent limit and retain every reported usage receipt',async()=>{
  const f=fixture(false,{posts:2,rejectFirst:false}),task=input(),records=[];task.budget.onCall=async record=>records.push(record);
  await execution.run({},()=>f.requestLlmResult(task));assert.equal(task.budget.used,2);assert.equal(records.length,2);assert.equal(f.dispatches.length,2);
@@ -77,6 +83,18 @@ test('selected whole-case intent stays exact before broad excerpts and survives 
  assert.throws(()=>f.buildBoundedAgentPromptPayload({mode:'agent',prompt:'Improve whole case',context,citations:[],contextRoute:{},maxBytes:1000}),error=>error.code==='AGENT_CONTEXT_BUDGET');
 });
 
+test('authorized Run candidate identities remain exact ahead of broad history and provider size reduction',()=>{
+ const f=fixture(),source={evidence_type:'authoritative_live_test_case_snapshot',records:Array.from({length:30},(_,i)=>({id:`case-${i}`,title:'Exact candidate '+i,revision:3,automated:'no'}))};
+ const item={id:'K-run-selection',source_kind:'live_project',content:JSON.stringify(source),citation:{id:'K-run-selection'}};
+ const packed=JSON.parse(f.buildBoundedAgentPromptPayload({mode:'agent',prompt:'Plan the scoped Run',context:{live_project:[{id:'broad',content:'Run history '.repeat(1000)}],run_selection:[item]},citations:[item.citation],contextRoute:{}}));
+ assert.equal(Object.keys(packed.bounded_workspace_context)[0],'run_selection');
+ assert.equal(packed.bounded_workspace_context.run_selection[0].content,item.content);
+ const targets=require('../../backend/services/agentArtifacts').storyTargets(packed.bounded_workspace_context);assert.equal(targets.length,30);
+ packed.test_case_targets=targets;
+ const reduced=require('../../backend/services/agentMinimalContext').minimalContext(packed);
+ assert.equal(reduced.payload.bounded_workspace_context.run_selection[0].content,item.content);assert.equal(reduced.payload.test_case_targets.length,30);
+});
+
 test('workflow inputs remain complete valid JSON, retain final subjects and survive context correction',()=>{
  const f=fixture(),source={items:Array.from({length:35},(_,index)=>({id:`item-${index}`,obligation:`Verify complete subject ${index}: ${'a'.repeat(480)}`})),final_obligation:'The final subject must be reviewed.'};
  const supplied=f.suppliedInputEvidence(source);assert.ok(Buffer.byteLength(supplied.text)>16000);assert.deepEqual(JSON.parse(supplied.text),source);
@@ -93,4 +111,42 @@ test('exact task input limits use UTF-8 bytes and fail instead of dropping requi
  const f=fixture();assert.throws(()=>f.suppliedInputEvidence({text:'界'.repeat(12000)}),error=>error.code==='AGENT_INPUT_BUDGET');
  const source=f.suppliedInputEvidence({text:'界'.repeat(3000)});
  assert.throws(()=>f.buildBoundedAgentPromptPayload({mode:'agent',prompt:'Review all input',context:{task_input:[{id:'input',content:source.text}]},citations:[],contextRoute:{},maxBytes:8000}),error=>error.code==='AGENT_CONTEXT_BUDGET');
+});
+
+test('full reviewed and domain briefs precede retrieval and remain exact after context-size correction',()=>{
+ const f=fixture(),reviewed=`Reviewed task ${'r'.repeat(11850)} Final obligation: retain every assertion.`,domain=`Domain task ${'d'.repeat(3800)} Final constraint: preserve the oracle.`;
+ const context={knowledge:Array.from({length:6},(_,index)=>({id:`source-${index}`,content:'Optional retrieval excerpt '.repeat(400),citation:{id:`source-${index}`}})),reviewed_context:[{id:'reviewed',content:reviewed,evidence_boundary:'Unverified user focus; verify claims against current evidence.'}],task_context:[{id:'domain',content:domain,citation:{id:'domain',source_kind:'task_context'}}]};
+ const packed=JSON.parse(f.buildBoundedAgentPromptPayload({mode:'agent',prompt:'Use the full brief.',context,citations:[{id:'domain'}],contextRoute:{}}));
+ assert.deepEqual(Object.keys(packed.bounded_workspace_context).slice(0,2),['reviewed_context','task_context']);
+ assert.equal(packed.bounded_workspace_context.reviewed_context[0].content,reviewed);
+ assert.equal(packed.bounded_workspace_context.reviewed_context[0].evidence_boundary,context.reviewed_context[0].evidence_boundary);
+ const reduced=require('../../backend/services/agentMinimalContext').minimalContext(packed);
+ assert.equal(reduced.payload.bounded_workspace_context.reviewed_context[0].content,reviewed);
+ assert.equal(reduced.payload.bounded_workspace_context.task_context[0].content,domain);
+ assert.throws(()=>f.normalizeSmartContext({reviewed_context:'r'.repeat(12001)}),error=>error.code==='AGENT_INPUT_BUDGET');
+});
+
+test('context reduction preserves complete assigned findings and proposals being refined',()=>{
+ const finding={id:'finding-1',detail:`Observed gap ${'g'.repeat(1500)} Final acceptance obligation.`,citation_ids:['source-1']};
+ const artifact={kind:'test_case',title:'Complete test',steps:[{action:'Use the complete brief',expected_result:'The final obligation is checked.'}],citation_ids:['source-1']};
+ const task={request:'Refine the full proposal.',bounded_workspace_context:{knowledge:[{id:'source-1',content:'Evidence '.repeat(1000),citation:{id:'source-1'}}]},citation_contract:[{id:'source-1'}],previous_specialist_review:{findings:[finding],provenance:'untrusted_prior_model_review'},completed_proposals:[artifact]};
+ const reduced=require('../../backend/services/agentMinimalContext').minimalContext(task);
+ assert.deepEqual(reduced.payload.previous_specialist_review,task.previous_specialist_review);
+ assert.deepEqual(reduced.payload.completed_proposals,task.completed_proposals);
+ assert.equal(reduced.payload.bounded_workspace_context.knowledge[0].excerpt_truncated,true);
+});
+
+test('an oversized request cannot bypass the model packet budget when no evidence is present',()=>{
+ const f=fixture();
+ assert.throws(()=>f.buildBoundedAgentPromptPayload({mode:'agent',prompt:'界'.repeat(16000),context:{},citations:[],contextRoute:{},maxBytes:40000}),error=>error.code==='AGENT_CONTEXT_BUDGET');
+});
+
+test('several complete brief sections cannot evict all current source evidence during reduction',()=>{
+ const inputs=Object.fromEntries(['workflow_input','reviewed_context','task_context'].map(scope=>[scope,[{id:scope,content:`Complete ${scope} final obligation.`,...(scope!=='reviewed_context'?{citation:{id:scope}}:{})}]]));
+ const live={id:'native',source_kind:'live_project',content:JSON.stringify({records:[{id:'case-1',title:'Current authorized case'}]}),citation:{id:'native'}};
+ const task={request:'Author using the complete brief and current evidence.',bounded_workspace_context:{...inputs,live_project:[live],knowledge:[{id:'extra',content:'Optional unrelated excerpt',citation:{id:'extra'}}]},citation_contract:[{id:'native'},{id:'workflow_input'},{id:'task_context'},{id:'extra'}]};
+ const reduced=require('../../backend/services/agentMinimalContext').minimalContext(task);
+ for(const scope of Object.keys(inputs))assert.equal(reduced.payload.bounded_workspace_context[scope][0].content,inputs[scope][0].content);
+ assert.equal(reduced.payload.bounded_workspace_context.live_project[0].id,'native');
+ assert.ok(reduced.ids.has('native'));assert.equal(reduced.ids.has('extra'),false);
 });

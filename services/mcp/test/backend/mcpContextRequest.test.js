@@ -41,9 +41,10 @@ test('the public MCP context contract represents source selection, evidence scop
 });
 
 test('retrieval hints are bounded data and cannot add model, identity or permission arguments',()=>{
- const input={question:'Explain checkout failures',intent_plan:{queries:['checkout observed failures'],source_kinds:['execution'],information_needs:['Recorded failing step'],stop_if_sufficient:true}};
+ const input={question:'Explain checkout failures',intent_plan:{retrieval_strategy:'graph_expand',queries:['checkout observed failures'],source_kinds:['execution'],information_needs:['Recorded failing step'],stop_if_sufficient:true}};
  assert.deepEqual(contextSchema.parse(input).intent_plan,input.intent_plan);
- for(const intent_plan of [{},{...input.intent_plan,user_id:'admin'},{...input.intent_plan,source_kinds:['credentials']},{...input.intent_plan,queries:['x'.repeat(701)]},{...input.intent_plan,tools:['execute_sql']}])assert.equal(contextSchema.safeParse({...input,intent_plan}).success,false);
+ for(const intent_plan of [{},{...input.intent_plan,user_id:'admin'},{...input.intent_plan,source_kinds:['credentials']},{...input.intent_plan,queries:['x'.repeat(701)]},{...input.intent_plan,tools:['execute_sql']},{...input.intent_plan,retrieval_strategy:'execute_sql'}])assert.equal(contextSchema.safeParse({...input,intent_plan}).success,false);
+ assert.equal(contextSchema.parse({question:'Inspect dependencies',intent_plan:{retrieval_strategy:'graph_expand'}}).intent_plan.retrieval_strategy,'graph_expand');
  for(const value of [NaN,Infinity,-Infinity,'not-a-number'])assert.throws(()=>packetBudgets({deadline_ms:value}),{code:'MCP_INVALID_ARGUMENT'});
  assert.equal(packetBudgets({max_queries:2.9}).max_queries,2);
 });

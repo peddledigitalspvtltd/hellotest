@@ -21,7 +21,7 @@ const completion = value => ({choices:[{finish_reason:'stop',message:{content:JS
 const review = ref => ({summary:'The supplied case traces to the invoice Story.',dimensions:[{id:'scenario-coverage',explanation:'The invoice read is observable.',evidence:[ref],recommendation:'Preserve the recorded amount assertion.'}],
   insights:[{id:'assertion-gap',priority:'medium',kind:'artifact_quality',title:'Name the exact amount field',explanation:'The outcome omits its exact field.',evidence:[ref],affected_fields:['steps'],step_refs:['step:1'],recommendation:'Name the returned amount field and compare its saved value.'}],limitations:[]});
 
-async function fixture(t, respond, {artifact=draft,linked=[story]}={}) {
+async function fixture(t, respond, {artifact=draft,linked=[story],official=false}={}) {
   const calls=[];
   const server=http.createServer(async(req,res)=>{
     try {
@@ -33,7 +33,11 @@ async function fixture(t, respond, {artifact=draft,linked=[story]}={}) {
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   t.after(()=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve);}));
-  const integration={id:'local-provider',type:'llm',name:'Controlled provider',model:'schema-fixture',base_url:`http://127.0.0.1:${server.address().port}/v1`,config:{project_id:'project'}};
+  const localUrl=`http://127.0.0.1:${server.address().port}/v1`;
+  const integration={id:'local-provider',type:'llm',name:'Controlled provider',model:official?'gpt-4.1':'schema-fixture',base_url:official?'https://api.openai.com/v1':localUrl,config:{project_id:'project'}};
+  // Exercise the real official-origin request policy and HTTP parser without
+  // spending a provider call or sending any fixture data outside this process.
+  if(official){const fetch=globalThis.fetch;t.mock.method(globalThis,'fetch',(url,init)=>fetch(String(url).replace('https://api.openai.com/v1',localUrl),init));}
   t.mock.method(selection,'resolveLlmIntegrationForUsage',async()=>integration);
   t.mock.method(selection,'recordSuccessfulLlmIntegration',async()=>{});
   t.mock.method(capture,'begin',async()=>null);t.mock.method(capture,'finish',async()=>{});t.mock.method(capture,'dispatch',()=>{});
@@ -92,4 +96,52 @@ test('the advertised review example satisfies its own schema, including long fie
   },{artifact:{...draft,steps:Array.from({length:25},(_,index)=>({...draft.steps[0],id:`step-${index+1}`}))},
     linked:Array.from({length:6},(_,index)=>({...story,id:index?'story-'+index:'story'}))});
   await f.run();assert.equal(checked,1);assert.equal(f.calls.length,1);
+});
+
+test('a capable official model receives constrained assurance fields and citations on the actual HTTP request',async t=>{
+  const f=await fixture(t,payload=>{
+    assert.equal(payload.response_format.type,'json_schema');
+    const schema=payload.response_format.json_schema.schema;
+    assert.equal(payload.response_format.json_schema.strict,true);
+    assert.equal(policy.strictProviderSchema(schema),true);
+    assert.equal(Object.hasOwn(schema,'anyOf'),false);
+    const finding=schema.properties.insights.items;
+    assert.deepEqual(finding.properties.kind.enum,['business_ambiguity','missing_context','artifact_quality','traceability','change_impact','automation_input']);
+    assert.deepEqual(finding.properties.evidence.items.enum,['draft:test-case:case','requirement:story']);
+    assert.equal(finding.additionalProperties,false);
+    assert.ok(schema.required.includes('automation_readiness'));
+    assert.deepEqual(schema.properties.automation_readiness.anyOf[1],{type:'null'});
+    const value={...review('draft:test-case:case'),automation_readiness:null};
+    const validate=new(require('ajv'))({strict:false}).compile(schema);
+    assert.ok(validate(value),JSON.stringify(validate.errors));
+    return value;
+  },{official:true});
+  const result=await f.run();
+  assert.equal(f.calls.length,1);assert.equal(result.response_repaired,false);
+  assert.equal(result.assurance_review.automation_readiness.status,'unknown');
+});
+
+for(const [name,change,path,keyword] of [
+  ['duplicate citations',value=>{value.dimensions[0].evidence.push(value.dimensions[0].evidence[0]);},'/dimensions/0/evidence','uniqueItems'],
+  ['oversized review text',value=>{value.summary='x'.repeat(1201);},'/summary','maxLength'],
+  ['empty assessment',value=>{value.dimensions=[];value.insights=[];},'','anyOf'],
+  ['unsupported finding category',value=>{value.insights[0].kind='data-reliability';},'/insights/0/kind','enum'],
+  ['unsupported citation',value=>{value.insights[0].evidence=['requirement:foreign'];},'/insights/0/evidence/0','enum']
+])test(`constrained assurance retains full local validation for ${name}`,async t=>{
+  const f=await fixture(t,payload=>{
+    assert.equal(payload.response_format.type,'json_schema');
+    const advertised=payload.messages.find(message=>message.content.startsWith('Output schema:'));
+    assert.ok(advertised,'The full native contract must remain visible with the provider projection.');
+    const local=JSON.parse(advertised.content.slice('Output schema:'.length));
+    assert.equal(local.properties.summary.maxLength,1200);
+    assert.equal(local.properties.dimensions.items.properties.evidence.uniqueItems,true);
+    assert.ok(local.anyOf);
+    const value=review('draft:test-case:case');change(value);return value;
+  },{official:true});
+  await assert.rejects(f.run(),error=>{
+    assert.equal(error.code,'AI_OUTPUT_SCHEMA_VIOLATION');
+    assert.ok(error.validation_errors.some(item=>item.path===path&&item.keyword===keyword),JSON.stringify(error.validation_errors));
+    assert.equal(error.model_execution.model_calls,2);assert.equal(error.retryable,false);return true;
+  });
+  assert.equal(f.calls.length,2,'A rejected result receives one format repair, never a fresh node replay.');
 });

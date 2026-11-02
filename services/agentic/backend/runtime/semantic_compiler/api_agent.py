@@ -94,6 +94,29 @@ def valid_media_type(value):
     return isinstance(value, str) and len(value) <= 200 and bool(re.fullmatch(r'[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+(?:\s*;[^\r\n]+)?', value))
 
 
+def declared_responses(responses, document, produces=None):
+    """Retain bounded response evidence; a status alone establishes no body."""
+    result = []
+    if not isinstance(responses, dict): return result
+    for status, raw in list(responses.items())[:30]:
+        if not (str(status).isdigit() and 100 <= int(status) <= 599): continue
+        response = resolve_ref(raw, document)
+        if not isinstance(response, dict): continue
+        content = response.get('content') if isinstance(response.get('content'), dict) else {}
+        media = []
+        for content_type, value in list(content.items())[:5]:
+            if not valid_media_type(content_type) or not isinstance(value, dict): continue
+            schema = value.get('schema')
+            media.append({'content_type': content_type, 'schema': schema_summary(schema, document, budget=[80]) if isinstance(schema, dict) else None})
+        # Swagger 2 declares response schemas outside `content`.
+        if isinstance(response.get('schema'), dict):
+            types = [value for value in (produces if isinstance(produces, list) else [])[:5] if valid_media_type(value)]
+            media.extend({'content_type': value, 'schema': schema_summary(response['schema'], document, budget=[80])} for value in (types or [None]))
+        result.append({'status': int(status), 'description': str(response.get('description') or '')[:500],
+                       'content': media, 'body_schema_declared': any(item['schema'] is not None for item in media)})
+    return result
+
+
 def openapi_contracts(file, document, warnings=None):
     warnings = [] if warnings is None else warnings
     result = []
@@ -159,6 +182,7 @@ def openapi_contracts(file, document, warnings=None):
                 'parameters': parameters, 'body': body or None, 'body_required': body_required,
                 'content_type': content_type, 'body_media_type_established': media_established,
                 'expected_status': success[0] if success else None, 'observed_statuses': statuses,
+                'declared_responses': declared_responses(operation.get('responses'), document, operation.get('produces', document.get('produces', []))),
                 'security_required': bool(operation.get('security', document.get('security', []))),
                 'evidence': [evidence(file, offset)], 'confidence': 0.96,
                 'origin': 'openapi', 'assumptions': assumptions,
@@ -278,6 +302,9 @@ def make_source_contract(file, method, path, handler, offset, options):
         'method': method, 'path': path, 'parameters': params, 'body': body,
         'body_required': body_required, 'content_type': 'application/json' if body else None,
         'expected_status': success[0] if success else None, 'observed_statuses': statuses,
+        'declared_responses': [{'status': int(status), 'description': '', 'content': [{'content_type': None, 'schema': schema_summary(value, {}, budget=[80])}], 'body_schema_declared': True}
+                               for status, value in list((schema.get('response') or {}).items())[:30]
+                               if str(status).isdigit() and 100 <= int(status) <= 599 and isinstance(value, dict)] if isinstance(schema, dict) and isinstance(schema.get('response'), dict) else [],
         'security_required': bool(re.search(r'\b(?:fastify|app|server)\.authenticate\s*\(', handler_code)),
         'evidence': [evidence(file, offset)], 'confidence': 0.8 if body or success else 0.7,
         'origin': 'source', 'assumptions': assumptions,
@@ -340,6 +367,7 @@ def generate_tests(contracts):
                 'name': c['title'], 'method': c['method'], 'path': c['path'], 'case_kind': kind,
                 'parameters': c['parameters'], 'body': body, 'body_schema': c['body'],
                 'content_type': c['content_type'], 'body_media_type_established': c.get('body_media_type_established', True), 'expected_status': status,
+                'declared_statuses': c['observed_statuses'], 'declared_responses': c.get('declared_responses', []),
                 'steps': [
                     {'action': 'Prepare the API environment and required test data' + (' without authentication credentials.' if kind == 'authentication' else '.'), 'expected_result': 'Base URL, route parameters and test data are reviewed.'},
                     {'action': 'Send {} {}{}.'.format(c['method'], c['path'], ' without the ' + field + ' body field' if field else ''), 'expected_result': expectation},

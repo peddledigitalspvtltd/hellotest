@@ -387,3 +387,25 @@ test('uncited synthesis is regenerated once with the original MCP evidence and e
  });
  const result=await assistant.respond({...input,responseMode:'answer'});assert.equal(result.assistant_message.status,'answered');assert.equal(synthesisCalls,2);assert.ok(!result.assistant_message.content.includes('Uncited draft'));assert.equal(messages.length,2);
 }));
+
+for(const limit of [2,3,4])test(`intent, retrieval and synthesis share the caller's ${limit}-operation budget`,async context=>fixture(async({input})=>{
+ context.mock.method(llmSelection,'resolveLlmIntegrationForUsage',async()=>({id:'budget-model',type:'llm',is_active:true,api_key:'test-credential',base_url:'https://shared-budget.invalid/v1',model:'test',config:{}}));
+ context.mock.method(llmSelection,'recordSuccessfulLlmIntegration',async()=>{});
+ const requests=[];
+ context.mock.method(global,'fetch',async(_url,init)=>{
+  const body=JSON.parse(init.body);requests.push(body);
+  const planning=body.messages[0].content.includes('You plan evidence retrieval');
+  const value=planning?{information_needs:['release approval'],source_kinds:['text'],search_queries:['release approval'],stop_if_sufficient:true}
+   :{status:'answered',supported_claims:[{statement:'Release approval requires a passing checkout test.',citation_ids:['K-chunk-1']}]};
+  return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(value)},finish_reason:'stop'}]}));
+ });
+ const result=await assistant.respond({...input,responseMode:'answer',retrievalBudgets:{max_tool_calls:limit,max_rounds:1}});
+ assert.equal(result.assistant_message.status,'answered');
+ const budget=result.retrieval.model_budget;
+ assert.equal(budget.total_tool_call_limit,limit);
+ assert.equal(budget.calls_used,requests.length);
+ assert.ok(budget.calls_used+budget.retrieval_tool_calls_used<=limit,JSON.stringify(budget));
+ assert.ok(budget.retrieval_tool_calls_used>0,'The receipt must include actual retrieval work.');
+ if(limit===2){assert.equal(result.retrieval.intent_planning_skipped,'MODEL_CALL_RESERVE');assert.equal(requests.length,1);}
+ else assert.equal(result.retrieval.intent_model_calls,1);
+}));

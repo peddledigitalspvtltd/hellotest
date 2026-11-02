@@ -85,14 +85,33 @@ const reviewOutputSchema = (dimensionIds, sourceRefs, fieldNames, stepRefs, incl
 const readinessContract = (sourceRefs, stepRefs) => {
   const refs = { type: 'array', maxItems: 6, uniqueItems: true, items: { type: 'string', enum: sourceRefs } };
   return { type: 'object', additionalProperties: false, required: ['status', 'summary', 'evidence_refs', 'missing_context'], properties: {
-    status: { enum: READINESS_STATUSES }, summary: { type: 'string', minLength: 1, maxLength: 800 }, evidence_refs: refs,
+    status: { type: 'string', enum: READINESS_STATUSES }, summary: { type: 'string', minLength: 1, maxLength: 800 }, evidence_refs: refs,
     missing_context: { type: 'array', maxItems: 8, items: { type: 'object', additionalProperties: false,
       required: ['kind', 'reason', 'evidence_refs', 'step_refs'], properties: {
-        kind: { enum: READINESS_CONTEXT_KINDS }, reason: { type: 'string', minLength: 1, maxLength: 600 },
+        kind: { type: 'string', enum: READINESS_CONTEXT_KINDS }, reason: { type: 'string', minLength: 1, maxLength: 600 },
         evidence_refs: { ...refs, minItems: 1 }, step_refs: { type: 'array', maxItems: Math.min(10, stepRefs.length), uniqueItems: true,
           items: stepRefs.length ? { type: 'string', enum: stepRefs } : { type: 'string' } }
       } } }
   } };
+};
+
+// Structured Outputs cannot express the root cross-field assertion, string
+// lengths or uniqueItems. Keep those checks in the full local contract; the
+// provider still constrains field names, required fields, enums and citations.
+// Readiness remains advisory: null means unknown, never permission to build.
+const providerReviewSchema = outputSchema => {
+  const schema = structuredClone(outputSchema);
+  delete schema.anyOf;
+  if (schema.properties.automation_readiness) {
+    schema.properties.automation_readiness = { anyOf: [schema.properties.automation_readiness, { type: 'null' }] };
+  }
+  const project = value => {
+    if (Array.isArray(value)) return value.map(project);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.entries(value).filter(([key]) => !['minLength', 'maxLength', 'uniqueItems'].includes(key))
+      .map(([key, item]) => [key, project(item)]));
+  };
+  return project(schema);
 };
 
 // Suitability is distinct from verifying the review's schema/citations. A
@@ -274,6 +293,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
   // or malformed. Its failure cannot discard an otherwise supported review.
   const transportSchema=readinessRequested?{...outputSchema,required:outputSchema.required.filter(key=>key!=='automation_readiness'),
     properties:{...outputSchema.properties,automation_readiness:{}}}:outputSchema;
+  const providerOutputSchema = providerReviewSchema(outputSchema);
   const lockedScores = normalizeBaseline(baseline, dimensionIds);
   const responseScope = JSON.stringify({ native_review_scope: {
     target_ref: sources[0].ref, artifact_type: artifactType, artifact_count: 1,
@@ -320,7 +340,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       if (operation.endsWith('.repair')) repairAttempted = true;
       return fetchLlmWithRetry(url, { method: "POST", headers, signal, body: JSON.stringify({
       model: integration.model,  response_format: { type: "json_object" }, messages
-    }) }, { integration, operation, featureKey, outputSchema:transportSchema, outputSchemaName:'artifact_assurance_review', timeoutMs: Math.min(timeoutMs, remaining), maxOutputTokens, maxAttempts: 1, compatibility: false, contextFallback: false })
+    }) }, { integration, operation, featureKey, outputSchema:transportSchema, providerOutputSchema, outputSchemaName:'artifact_assurance_review', timeoutMs: Math.min(timeoutMs, remaining), maxOutputTokens, maxAttempts: 1, compatibility: false, contextFallback: false })
         .then(response => { receivedGeneration ||= response.ok; return response; });
     };
     const allowedRefs = new Set(sources.map(item => item.ref));

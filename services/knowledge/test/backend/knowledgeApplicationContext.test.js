@@ -52,6 +52,17 @@ test("indexed run context retains current run facts and counts without copying r
   assert.equal(snapshot.metadata.context_permission_profile, authorization.APPLICATION_CONTEXT_PROFILE);
 });
 
+test("bounded indexed case relationships retain exact witnesses and disclose the complete native association count",async t=>{
+  t.mock.method(db,'prepare',sql=>({all:async()=>sql.includes('FROM requirement_test_cases')
+    ? Array.from({length:50},(_,index)=>({requirement_id:`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`,total_link_count:75})) : []}));
+  const snapshot=await rag._internals.serializeTestCase({id:'case',title:'Review invoice behavior'});
+  assert.equal(snapshot.metadata.requirement_count,75);assert.equal(snapshot.metadata.indexed_requirement_count,50);
+  assert.equal(snapshot.metadata.requirements_truncated,true);assert.match(snapshot.content,/first 50 of 75 linked Stories/);
+  const {extractReferences,proofFor}=require('../../backend/services/knowledgeGraphProjection.service');
+  const chunks=require('../../backend/services/knowledgeProcessing.service').chunkText(snapshot.content,{});
+  for(const reference of extractReferences(snapshot))assert.ok(proofFor(chunks,reference),reference.ref_id);
+});
+
 test("legacy application source fetches expose version metadata but withhold old cross-permission passages until refreshed", async t => {
   t.mock.method(permissions, 'hasPermission', async () => true);
   const source = { id: 'source-1', project_id: 'project-1', source_kind: 'test_case', extraction_status: 'ready', required_permission: 'testcase.view' };

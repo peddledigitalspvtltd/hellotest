@@ -32,3 +32,20 @@ Recovery checks remain attached for up to 150 seconds, with a bounded number of 
 Smart Context narrows explicit source IDs and source kinds. Disjoint selections return an actionable validation error; they never broaden the evidence scope. Collection, application, historical-date and evidence filters remain in force, and retrieved source permissions are rechecked before an answer is shown.
 
 Product usage questions retrieve versioned product documentation and display a **Product guide** with prerequisites, navigation, ordered steps, expected results and documented limitations. Possessives or navigation to failed records do not by themselves trigger project analysis. Current project facts, summaries, insights and mixed questions retrieve authorized current records and supporting Knowledge evidence through the same MCP context backplane. A model retrieval plan cannot expand a pure usage question into native project reads or override explicit source selections.
+
+The host's optional intent model proposes evidence needs before calling the
+typed `hellotest_context_build` tool. Planning, actual retrieval operations and
+answer calls share the turn's original tool-call budget; small budgets preserve
+retrieval and synthesis by skipping optional model planning. The MCP server
+enforces project/source scope and assembles the permitted evidence rather than
+starting another unbounded model loop.
+
+**How this answer was built** shows the observed planner mode, MCP delivery,
+retained evidence and document-version counts, witnessed Knowledge links and
+the recorded task context. Its Context Graph link opens the exact retained
+trace under current authorization. The assistant's persisted outcome receipt
+survives history reload and same-turn replay; a concurrent losing turn cannot
+attach its packet to a different saved reply. Recording an answer does not
+approve a proposed action or establish that automation executed successfully.
+Relationship presentations require exact directed, typed packet witnesses and
+canonical endpoints, in addition to visible citations.

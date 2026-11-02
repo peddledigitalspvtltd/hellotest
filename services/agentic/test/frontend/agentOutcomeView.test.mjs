@@ -6,7 +6,7 @@ const require = createRequire(new URL('../../../platform/frontend/package.json',
 const ts = require('typescript');
 function load(path, modules = {}) { const exports = {}; new Function('exports', 'require', ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(exports, name => modules[name] || (() => { throw Error(`Unexpected import ${name}`); })()); return exports; }
 const output = load('../../frontend/lib/agentOutputValue.ts');
-const { agentOutcomeCitationIds, agentOutcomeSources, agentFindingProposals, agentOutcomeCalls, agentOutcomeReviewState, agentHandoffStatus, agentOutcomeBrief } = load('../../frontend/lib/agentOutcomeView.ts', { './agentOutputValue': output });
+const { agentOutcomeCitationIds, agentOutcomeSources, agentFindingProposals, agentOutcomeCalls, agentOutcomeReviewState, agentHandoffStatus, agentOutcomeBrief, agentOutcomeResult } = load('../../frontend/lib/agentOutcomeView.ts', { './agentOutputValue': output });
 const citations = [{ id: 'story-1', scope: 'stories', label: 'Approved retry behavior' }, { id: 'case-1', scope: 'test-cases', label: 'Existing checkout test' }];
 const finding = { id: 'retry-gap', title: 'Missing retry assertion', detail: 'The existing case omits the retry boundary.', artifact_kind: 'test_case', citation_ids: ['case-1'], requires_proposal: true };
 const draft = { kind: 'test_case', title: 'Retry once', description: 'Verify the approved retry outcome.', priority: 'P2', addressed_finding_ids: ['retry-gap'], citation_ids: ['case-1'] };
@@ -36,6 +36,23 @@ test('all builtin output contracts choose honest review actions from actual outp
   assert.equal(agentOutcomeReviewState(result({ outcome_contract: { mode: 'author' }, no_changes_required: true, verification: { status: 'passed' } })).label, 'Review conclusions');
 });
 
+test('the resulting assessment uses the actual full response rather than recommendations or a short summary',()=>{
+  const value=agentOutcomeResult(result({response:'Complete assessment: the recorded retry has two orders.\nThe evidence supports a duplicate-order defect.',executive_summary:'Retry reviewed.',recommendations:['Investigate later.']}));
+  assert.equal(value.kind,'assessment');assert.equal(value.title,'Assessment outcome');
+  assert.match(value.body,/two orders/);assert.match(value.body,/duplicate-order defect/);assert.equal(value.body.includes('Investigate later.'),false);
+});
+
+test('outcome presentation distinguishes native drafts, clean assessments, incomplete authoring and repairs',()=>{
+  for(const [kind,label]of [['story','Story'],['test_case','Test Case'],['defect','Defect'],['run','Run draft'],['automation','Automation Plan']]){
+    const value=agentOutcomeResult(result({artifacts:[{...draft,kind}]}));
+    assert.equal(value.kind,'drafts');assert.equal(value.title,`${label} outcome`);
+  }
+  assert.equal(agentOutcomeResult(result({artifacts:[draft,{...draft,kind:'story'}]})).title,'Resulting drafts');
+  assert.equal(agentOutcomeResult(result({outcome_contract:{mode:'author'}})).kind,'incomplete');
+  assert.equal(agentOutcomeResult(result({outcome_contract:{mode:'author'},no_changes_required:true,verification:{status:'passed'}})).kind,'assessment');
+  assert.equal(agentOutcomeResult(result({automation_repair:{status:'proposal'}})).kind,'repair');
+});
+
 test('acceptance requires resolved source references and completion checks', () => {
   const valid = result({ artifacts: [draft], verification: { status: 'passed' } });
   assert.equal(agentOutcomeReviewState(valid, citations).blocked, false);
@@ -63,4 +80,9 @@ test('the full brief preserves finding rationale, proposals, scope, agent sequen
   const brief = agentOutcomeBrief(result({ headline: 'Checkout review', evidence_scope: { sprint_id: 'sprint-2' }, findings: [{ ...finding, impact: 'A duplicate order could be missed.', acceptance_check: 'One order after retry.' }], artifacts: [draft], citation_ids: ['retired'], agent_chain: [{ name: 'Case author', status: 'completed', artifact_count: 1, finding_ids: ['retry-gap'] }], outcome_issues: [{ message: 'Runtime evidence not supplied.' }], recommendations: ['Review the oracle.', 'Run the test.'] }), citations, ['Run the test.']);
   for (const value of ['sprint-2', 'A duplicate order could be missed.', 'One order after retry.', '"addressed_finding_ids"', 'Case author', 'retired · source unavailable', 'Runtime evidence not supplied.', 'Run the test.']) assert.ok(brief.includes(value), value);
   assert.equal(brief.includes('Review the oracle.'), false);
+});
+
+test('full brief export retains the actual typed repair and quality outcomes with model receipts',()=>{
+  const brief=agentOutcomeBrief(result({automation_repair:{status:'proposal',detail:'The locator patch still requires native runner validation.',patch:{before:'old locator',after:'observed locator',rationale:'The supplied DOM identifies the field.',hash:'patch-digest'}},quality_assessment:{kind:'coverage',data:{observed_percent:0,complete:false}},model_call_records:[{name:'Repair assessment',status:'succeeded',trace_id:'model-repair-1',attempt:1}]}));
+  for(const text of ['old locator','observed locator','patch-digest','native runner validation','"observed_percent": 0','"complete": false','model-repair-1'])assert.ok(brief.includes(text),text);
 });

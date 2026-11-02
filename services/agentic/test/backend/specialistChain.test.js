@@ -1,6 +1,6 @@
 const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');const {createRequire}=require('node:module');
 const filename=path.resolve(__dirname,'../../backend/services/agenticAssistant.service.js');
-function fixture({ reviewPatch = {}, failKind = null, sequence = [], executionPatch = {}, revokeAfterModel = false } = {}){
+function fixture({ reviewPatch = {}, failKind = null, sequence = [], executionPatch = {}, revokeAfterModel = false, failKnowledge = false } = {}){
  const native=createRequire(filename),orchestrator=native('@hellotest/ai/backend/services/aiContextOrchestrator.service');
  const events=[],requests=[],retrievals=[];let transaction={id:'review',metadata:{}};
  const citation={id:'K-live-stories-1',scope:'stories',label:'Approved checkout story',source_kind:'live_project',source_id:'live-project-p-stories'};
@@ -10,6 +10,7 @@ function fixture({ reviewPatch = {}, failKind = null, sequence = [], executionPa
  const configuration=native('@hellotest/platform/backend/services/aiConfiguration.service');
  const sourceHit={chunk_id:citation.id,title:'Approved checkout story',source_kind:'live_project',source_id:citation.source_id,content:JSON.stringify({evidence_type:'authoritative_live_story_snapshot',evidence_permissions:['requirement.view'],records:[{id:'story-checkout',title:'Checkout',description:'Checkout creates one order.',revision:3}]}),citation};
  const mocks={
+  ...(failKnowledge ? {'@hellotest/knowledge/backend/services/aiKnowledge.service':{buildKnowledgeContextPackage:async()=>{throw new Error('Optional knowledge lookup unavailable');}},'@hellotest/platform/backend/services/featureFlag.service':{getFeatureKeysForPermission:()=>[],areEnabled:async()=>true}} : {}),
   '@hellotest/platform/backend/services/dropdownCatalog.service':{getField:async()=>({options:[{value:'functional',active:true},{value:'regression',active:true},{value:'disabled',active:false}]})},
   '@hellotest/platform/backend/services/aiConfiguration.service':{...configuration,resolve:async id=>{const defaults=configuration.catalog.find(item=>item.id===id).defaults;return {config:{...defaults,agent_execution:{...defaults.agent_execution,...executionPatch}}};}},
   '@hellotest/knowledge/backend/services/knowledgeRetrieval.service':{retrieveSearch:async input=>{retrievals.push(input);return {results:[sourceHit],retrieval:{context_transport:'mcp',live_context_counts:{stories:1}}};},authorizeFreshEvidence:async({hits})=>({allowed:hits,denied_ids:[]})},
@@ -109,6 +110,53 @@ test('successor repairs missing original finding references before it is marked 
  const payload=JSON.parse(f.requests[2].messages.at(-1).content);
  assert.equal(payload.previous_specialist_review.findings[0].id,'finding-1');
  assert.ok(payload.revision_feedback.issues.some(issue=>issue.code==='AGENT_OUTCOME_FINDING_UNRESOLVED'));
+});
+test('primary and successor corrections retain the complete caller brief and supplied task data',async()=>{
+ const sequence=[],f=fixture({sequence});
+ sequence.push(f.reviewer,f.author,{...f.author,artifacts:f.author.artifacts.map(item=>({...item,addressed_finding_ids:['finding-1']}))});
+ const prompt=`Evaluate every requested clause. ${'Full task obligation. '.repeat(450)} Final direct obligation: retain हिन्दी.`,reviewed=`User-curated constraints ${'Reviewed obligation. '.repeat(400)} Final reviewed obligation: one order remains.`,task={scenario:'Checkout retry',exact_obligations:Array.from({length:20},(_,index)=>`Clause ${index}: retain the supplied observable contract.`),final_obligation:'Retain the final supplied task constraint.'};
+ await f.service.respond({project_id:'p',user:{id:'u'},agent_id:'quality-evaluator',context_scopes:['stories'],prompt,smart_context:{reviewed_context:reviewed},inputs:task});
+ assert.equal(f.requests.length,3);
+ for(const request of f.requests){
+  const packet=JSON.parse(request.messages.at(-1).content);
+  assert.equal(packet.request,prompt);
+  assert.equal(packet.bounded_workspace_context.reviewed_context[0].content,reviewed);
+  assert.deepEqual(JSON.parse(packet.bounded_workspace_context.task_input[0].content),task);
+  assert.equal(packet.citation_contract.some(item=>item.scope==='reviewed_context'),false,'User-curated focus is not authoritative source evidence.');
+ }
+ assert.equal(JSON.parse(f.requests[2].messages.at(-1).content).previous_specialist_review.provenance,'untrusted_prior_model_review');
+});
+test('successor receives complete connected workflow input and configured domain context as unverified data',async()=>{
+ const f=fixture(),{policy}=require('../../backend/workflows/specialistPolicy');
+ const connected={request:{intent:'Complete the supplied retry contract'},input:{obligations:['Preserve one order.','Do not add sign-in requirements.'],last_clause:'Keep this final workflow subject.'}};
+ await f.service.respond({project_id:'p',user:{id:'u'},agent_id:'quality-evaluator',context_scopes:['stories'],prompt:'Review and complete the supplied story.',workflow_policy:{...policy({agentId:'quality-evaluator'}),connected_input:connected,context:'Use only the supplied retry contract; keep the final domain constraint.'}});
+ assert.equal(f.requests.length,2);
+ for(const request of f.requests){const packet=JSON.parse(request.messages.at(-1).content);assert.deepEqual(JSON.parse(packet.bounded_workspace_context.workflow_input[0].content),connected);assert.equal(packet.bounded_workspace_context.task_context[0].content,'Use only the supplied retry contract; keep the final domain constraint.');}
+});
+test('over-limit direct briefs fail before retrieval or model dispatch instead of losing their tail',async()=>{
+ const f=fixture();
+ await assert.rejects(f.service.respond({project_id:'p',user:{id:'u'},agent_id:'quality-evaluator',prompt:`${'x'.repeat(16000)}Final obligation`}),error=>error.code==='AGENT_INPUT_BUDGET');
+ assert.equal(f.retrievals.length,0);assert.equal(f.requests.length,0);
+});
+test('final persisted review retains all accepted long list items and their final clauses',async()=>{
+ const values=Array.from({length:18},(_,index)=>`Recorded item ${index}: ${'a'.repeat(2300)} Tail obligation ${index}.`);
+ const sequence=[],f=fixture({sequence});sequence.push({...f.reviewer,findings:[],recommendations:values,assumptions:values,evidence_gaps:values});
+ const reply=await f.service.respond({project_id:'p',user:{id:'u'},agent_id:'quality-evaluator',context_scopes:['stories'],prompt:'Preserve each recorded conclusion and unknown.'});
+ for(const field of ['recommendations','assumptions','evidence_gaps'])assert.deepEqual(reply.result[field].slice(0,18),values,field);
+ assert.equal(reply.result.recommendations.length,18);assert.equal(reply.transaction.metadata.result.recommendations.length,18);
+});
+test('combined successor gaps exceeding the native list bound remain visible in review limitations',async()=>{
+ const f=fixture({reviewPatch:{evidence_gaps:Array.from({length:20},(_,index)=>`Recorded unknown ${index}: product runtime evidence remains unavailable.`)}});
+ f.author.evidence_gaps=['Successor-specific unknown: the final concurrent retry oracle is not defined.'];
+ const reply=await f.service.respond({project_id:'p',user:{id:'u'},agent_id:'quality-evaluator',context_scopes:['stories'],prompt:'Complete the story with supported fields and preserve unknowns.'});
+ assert.equal(reply.result.evidence_gaps.length,20);
+ assert.ok(reply.result.readiness.limitations.includes(f.author.evidence_gaps[0]));
+});
+test('optional knowledge retrieval failure cannot discard the user-supplied reviewed brief',async()=>{
+ const f=fixture({failKnowledge:true}),reviewed='The complete user brief still requires one order after retry.';
+ const reply=await f.service.respond({project_id:'p',user:{id:'u'},agent_id:'quality-evaluator',context_scopes:['stories','knowledge'],prompt:'Review checkout acceptance.',smart_context:{reviewed_context:reviewed}});
+ assert.ok(reply.result.readiness.limitations.some(item=>item.includes('Knowledge retrieval was unavailable')));
+ for(const request of f.requests)assert.equal(JSON.parse(request.messages.at(-1).content).bounded_workspace_context.reviewed_context[0].content,reviewed);
 });
 test('published schema rejection gets safe concrete revision feedback under the same call budget',async()=>{
  const sequence=[],f=fixture({sequence});

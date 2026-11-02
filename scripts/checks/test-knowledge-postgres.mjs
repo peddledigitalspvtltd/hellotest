@@ -24,6 +24,7 @@ try {
   const testUrl = new URL(adminUrl); testUrl.pathname = '/' + name;
   const child = spawn(process.execPath, ['--test', '--test-concurrency=1',
     'services/platform/backend/test/knowledgeRepositoryLifecycle.test.js',
+    'services/knowledge/test/backend/knowledgeOverviewAuthorization.test.js',
     'services/knowledge/test/backend/knowledgeVectorConsistency.postgres.test.js'], {
     stdio: 'inherit', env: { ...process.env, DATABASE_URL: testUrl.href, OBS_DATABASE_URL: testUrl.href,
       KNOWLEDGE_POSTGRES_TEST: '1', KNOWLEDGE_VECTOR_POSTGRES_TEST: '1', APP_MODE: 'local',

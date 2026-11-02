@@ -59,9 +59,19 @@ const liveDefinition = scope => LIVE_SCOPES[scope] || (/^run-failure-(?:[1-9]|1[
 function selectionMetadata(packet) {
   const request = object(packet.interpreted_request) ? packet.interpreted_request : {}, retrieval = object(packet.retrieval) ? packet.retrieval : {};
   const select = (value, max) => typeof value === 'string' && value.length <= max && /^[\w .:+/-]+$/.test(value) ? value : null;
+  const strategy = retrieval.retrieval_strategy;
+  const safeStrategy = object(strategy) && ['hybrid_evidence','graph_expand'].includes(strategy.requested)
+    && ['hybrid_evidence','graph_expand'].includes(strategy.applied)
+    && ['not_requested','skipped','completed','failed'].includes(strategy.graph_expansion_status) ? {
+      requested: strategy.requested, applied: strategy.applied, graph_expansion_status: strategy.graph_expansion_status,
+      graph_expansion_reason: select(strategy.graph_expansion_reason, 100),
+      ...Object.fromEntries([['graph_tool_calls',1],['graph_evidence_count',30],['graph_relationship_count',100]].map(([key,max])=>
+        [key,Number.isSafeInteger(strategy[key])&&strategy[key]>=0&&strategy[key]<=max?strategy[key]:null]))
+    } : null;
   return {stage:'retrieval_result',model_input_verified:false,query_category: select(request.query_category, 80), input_type: select(request.input_type, 80), agent_id: select(request.agent_id, 160),
     effective_scopes: Array.isArray(request.effective_scopes) ? [...new Set(request.effective_scopes.filter(scope => ['stories','test-cases','runs','bugs','automation','knowledge'].includes(scope)))] : [],
     chain_strategy: select(retrieval.chain_strategy, 160), termination_reason: select(retrieval.termination_reason, 100),
+    ...(safeStrategy ? {retrieval_strategy:safeStrategy} : {}),
     authorization: { project_scope_enforced: packet.authorization?.project_scope_enforced === true, source_acl_enforced: packet.authorization?.source_acl_enforced === true } };
 }
 function evidenceReferences(packet, projectId) {

@@ -234,11 +234,12 @@ function createQualityAgentService(deps) {
       }
       if(r.execution_mode==='agent'&&engine.state==='completed'&&!m.agent_assessment) {
         if(!assessQualityRun)throw C.fail('The Quality Agent assessment adapter is unavailable. Observed browser evidence is preserved.',503,'QUALITY_AGENT_MODEL_REQUIRED');
-        if(!await store.checkpoint(row,{engine_run_id:engine.id,run_status:'running',engine_status:'completed',stages:engine.stages,mission_report:engine.mission_report,metrics:engine.metrics,findings:engine.findings,artifacts:engine.artifacts,limitations:engine.limitations,mission_progress:progress('assessing','Interpreting the completed quality evidence.')}))return;
+        const assessmentRow=await store.checkpoint(row,{engine_run_id:engine.id,run_status:'running',engine_status:'completed',stages:engine.stages,mission_report:engine.mission_report,metrics:engine.metrics,findings:engine.findings,artifacts:engine.artifacts,limitations:engine.limitations,mission_progress:progress('assessing','Interpreting the completed quality evidence.')});
+        if(!assessmentRow)return;
         const controller=new AbortController();activeDecisions.set(m.id,controller);
         const trace=modelTrace(row,actor,controller,'assessment');
         try {
-          const assessment=await assessQualityRun(r,actor,engine,{...trace,visualEvidence:integration=>require('./qualityAgentVisualEvidence').prepareVisualEvidence({request:r,engine,integration,user:actor,run_id:m.id,signal:controller.signal,getArtifact:id=>verifiedArtifact(row,id,actor,{signal:controller.signal}),getBaseline:()=>getBaselineArtifact(r.baseline_id,actor)})});await trace.flush();
+          const assessment=await assessQualityRun(r,actor,engine,{...trace,visualEvidence:integration=>require('./qualityAgentVisualEvidence').prepareVisualEvidence({request:r,engine,integration,user:actor,run_id:m.id,signal:controller.signal,getArtifact:id=>verifiedArtifact(assessmentRow,id,actor,{signal:controller.signal}),getBaseline:()=>getBaselineArtifact(r.baseline_id,actor)})});await trace.flush();
           if(Date.now()>=deadline)throw deadlineFailure();
           if(!await store.checkpoint(row,{agent_assessment:assessment,model_dispatch:null,mission_progress:progress('completed','Observed evidence and the final AI assessment are ready for review.')}))return;
         }finally {trace.dispose();if(!controller.signal.aborted)try{await trace.flush();}catch{controller.abort();}if(activeDecisions.get(m.id)===controller)activeDecisions.delete(m.id);}

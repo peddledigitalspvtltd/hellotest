@@ -299,3 +299,20 @@ test('specialist execution limits are published configuration with bounded total
  assert.deepEqual(configuration.validate({...base,agent_execution:allowed},id).agent_execution,allowed);
  for(const policy of [{...allowed,max_model_calls:0},{...allowed,max_model_calls:9},{...allowed,max_revision_rounds:2},{...allowed,max_followups:4},{...allowed,timeout_ms:200000},{...allowed,unsafe_extra:1}])assert.throws(()=>configuration.validate({...base,agent_execution:policy},id),{statusCode:400});
 });
+
+test('native artifact finding defaults clarify independent authoring while retaining pinned custom instructions',async()=>{
+ const key='agentArtifacts.nativeProposalContract';
+ for(const id of ['ai.agentic.workflow','ai.agentic.automation-engineer']){
+  const item=configuration.catalog.find(feature=>feature.id===id),current=item.defaults.instruction_blocks[key],previous=item.instruction_default_migrations[key].at(-1);
+  assert.match(current,/addressed_finding_ids:\[\]/);
+  assert.match(current,/does not resolve unavailable runtime or browser evidence/);
+  assert.match(current,/Never invent a timeout, duration, retry count, threshold or tolerance/);
+  assert.match(current,/pending must occur before assertions that it has completed/);
+  assert.match(current,/missing control as a prerequisite or blocker/);
+  assert.notEqual(previous,current);
+  assert.equal((await configuration.resolve(id)).config.instruction_blocks[key],current);
+  const custom='Reviewed organization-specific finding guidance.';
+  const configured=await require('../src/utils/aiExecutionConfiguration').run({source:'agent_run',id:'reviewed',feature_id:id,config:{instruction_blocks:{[key]:custom}}},()=>configuration.resolve(id));
+  assert.equal(configured.config.instruction_blocks[key],custom);
+ }
+});

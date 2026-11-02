@@ -35,6 +35,13 @@ function withCandidate(error,content){
 }
 const positiveInteger = (value) => Number.isFinite(Number(value)) && Number(value) > 0 ? Math.floor(Number(value)) : null;
 const isReasoningModel = (model) => /^(?:gpt-[5-9](?:[.\-]|$)|o[1-9](?:[.\-]|$))/i.test(String(model || '').split('/').at(-1));
+const supportsStrictOutput = model => {
+ const name=String(model||'');
+ const fourO=/^gpt-4o(-mini)?(?:-(\d{4}-\d{2}-\d{2}))?$/i.exec(name);
+ if(fourO)return !fourO[2]||fourO[2]>=(fourO[1]?'2024-07-18':'2024-08-06');
+ return /^(?:gpt-(?:4\.[1-9](?:[.\-]|$)|[5-9](?:[.\-]|$))|o[3-9](?:[.\-]|$))/i.test(name)
+  && !/(?:audio|realtime|transcribe|tts)/i.test(name);
+};
 function validator(schema){
  const key=JSON.stringify(schema);let compiled=schemas.get(key);
  if(!compiled){try{compiled=schemaAjv.compile(schema);}catch{throw policyError('The configured output or tool schema is invalid. Correct the contract before generation.','AI_OUTPUT_SCHEMA_INVALID',422);}
@@ -43,9 +50,10 @@ function validator(schema){
 }
 const issues=validate=>(validate.errors||[]).slice(0,8).map(error=>({path:error.instancePath,keyword:error.keyword,message:error.message,required_property:error.params?.missingProperty}));
 function strictProviderSchema(schema){
- const keywords=new Set(['type','properties','required','additionalProperties','items','enum','anyOf','description','title']);
+ const keywords=new Set(['type','properties','required','additionalProperties','items','enum','anyOf','description','title','minItems','maxItems']);
  function inspect(value){
   if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!keywords.has(key)))return false;
+  if(!value.type&&!value.anyOf)return false;
   if(value.type==='object'||value.properties){
    const keys=Object.keys(value.properties||{});
    if(value.additionalProperties!==false||!Array.isArray(value.required)||value.required.length!==keys.length||keys.some(key=>!value.required.includes(key)))return false;
@@ -55,7 +63,7 @@ function strictProviderSchema(schema){
   if(value.anyOf&&!value.anyOf.every(inspect))return false;
   return true;
  }
- return schema?.type==='object'&&inspect(schema);
+ return schema?.type==='object'&&!schema.anyOf&&inspect(schema);
 }
 function assertInputBudget(payload,options={}){
  const textPayload=JSON.stringify({...payload,messages:payload.messages.map(message=>({...message,
@@ -87,14 +95,18 @@ const prepareChatRequest = (init, options = {}) => {
   try { payload = JSON.parse(init.body); } catch { return { init }; }
   if (!payload || !Array.isArray(payload.messages)) return { init };
   if(options.outputSchema)validator(options.outputSchema);
+  if(options.providerOutputSchema)validator(options.providerOutputSchema);
   if(payload.response_format?.json_schema?.schema)validator(payload.response_format.json_schema.schema);
   for(const tool of payload.tools||[])if(tool?.type==='function'&&tool.function?.parameters)validator(tool.function.parameters);
   let official=false;try{official=new URL(options.providerUrl).origin==='https://api.openai.com';}catch{}
-  const schemaModel=/^(?:gpt-(?:4o(?:-|$)|4\.[1-9]|[5-9](?:[.\-]|$))|o[3-9](?:[.\-]|$))/i.test(String(payload.model||''));
-  if(options.structuredOutput!==false&&official&&schemaModel&&options.outputSchema&&strictProviderSchema(options.outputSchema)&&!payload.tools?.length&&payload.response_format?.type!=='json_schema'){
-   payload.response_format={type:'json_schema',json_schema:{name:String(options.outputSchemaName||'hellotest_output').replace(/[^A-Za-z0-9_-]/g,'_').slice(0,64),strict:true,schema:options.outputSchema}};
+  const schemaModel=supportsStrictOutput(payload.model);
+  // A native service may supply a provider-compatible generation shape. The
+  // complete outputSchema still governs local admission and prompt guidance.
+  const providerSchema=options.providerOutputSchema||options.outputSchema;
+  if(options.structuredOutput!==false&&official&&schemaModel&&options.outputSchema&&strictProviderSchema(providerSchema)&&!payload.tools?.length&&payload.response_format?.type!=='json_schema'){
+   payload.response_format={type:'json_schema',json_schema:{name:String(options.outputSchemaName||'hellotest_output').replace(/[^A-Za-z0-9_-]/g,'_').slice(0,64),strict:true,schema:providerSchema}};
   }
-  if(options.outputSchema&&payload.response_format?.type!=='json_schema')ensureSchemaGuidance(payload,options.outputSchema);
+  if(options.outputSchema&&(payload.response_format?.type!=='json_schema'||JSON.stringify(providerSchema)!==JSON.stringify(options.outputSchema)))ensureSchemaGuidance(payload,options.outputSchema);
   ensureJsonObjectGuidance(payload);
   payload = require('./aiReferenceImages').applyReferenceImagePolicy(payload, { integration: options.integration, policy: options.referenceImagePolicy });
   const maximum = Math.min(16_384, positiveInteger(options.maxOutputTokens) || OUTPUT_LIMITS[options.operation] || 4096);

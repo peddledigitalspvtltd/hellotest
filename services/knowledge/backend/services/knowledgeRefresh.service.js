@@ -25,18 +25,22 @@ const get = async (projectId) =>
     )
     .get(projectId)) || defaults(projectId);
 async function authorize(user, projectId) {
+  // Workers cannot reuse the profile that configured a refresh: a suspended
+  // administrator would otherwise pass the permission service's admin fast path.
+  const actor = user?.id ? await db.prepare("SELECT id, is_workspace_admin FROM users WHERE id = ? AND status = 'active'").get(user.id) : null;
   if (
-    !user?.id ||
-    !(await permissions.hasPermission(user, "knowledge.manage", projectId))
+    !actor ||
+    !(await permissions.hasPermission(actor, "knowledge.manage", projectId))
   )
     throw fail("Permission required: knowledge.manage", 403);
   if (
     !(await flags.areEnabled(
       flags.getFeatureKeysForPermission("knowledge.manage"),
-      { user },
+      { user: actor },
     ))
   )
     throw fail("Knowledge Repo is disabled.", 403);
+  return actor;
 }
 const interval = (value) => {
   const ms = Number(value);
@@ -94,11 +98,9 @@ async function processDue() {
         .get();
       if (!row) return null;
       projectId = row.project_id;
-      const user = await db
-        .prepare("SELECT id, is_workspace_admin FROM users WHERE id = ?")
-        .get(row.created_by);
+      let user;
       try {
-        await authorize(user, row.project_id);
+        user = await authorize({ id: row.created_by }, row.project_id);
       } catch {
         await db
           .prepare(

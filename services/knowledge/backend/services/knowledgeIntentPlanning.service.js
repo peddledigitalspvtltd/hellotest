@@ -4,18 +4,21 @@ const gateway = require("./knowledgeModelGateway.service");
 const execution = require("./knowledgeExecution.service");
 const { normalizeText, sanitizeAiText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
 const KINDS = new Set(["requirement", "test_case", "execution", "bug", "knowledge_item", "file", "text", "chat", "url", "product_help"]);
+const RETRIEVAL_STRATEGIES = Object.freeze(['hybrid_evidence', 'graph_expand']);
 const array = value => Array.isArray(value) ? value : [];
 
 function normalizePlan(candidate, question) {
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) throw Object.assign(new Error("Invalid intent plan."), { code: "MODEL_INVALID_RESPONSE" });
+  const retrieval_strategy = candidate.retrieval_strategy === undefined ? 'hybrid_evidence' : candidate.retrieval_strategy;
+  if (!RETRIEVAL_STRATEGIES.includes(retrieval_strategy)) throw Object.assign(new Error('Unsupported context retrieval strategy.'), { code: 'MODEL_INVALID_RESPONSE' });
   const anchors = new Set(String(question).toLowerCase().match(/[\p{L}\p{N}_-]{3,}/gu) || []);
   const queries = [...new Set(array(candidate.search_queries || candidate.queries)
     .map(value => sanitizeAiText(normalizeText(typeof value === "string" ? value : value?.query, 700)).text)
     .filter(query => query && (query.toLowerCase().match(/[\p{L}\p{N}_-]{3,}/gu) || []).some(word => anchors.has(word))))].slice(0, 3);
   const source_kinds = [...new Set(array(candidate.source_kinds).filter(kind => KINDS.has(kind)))].slice(0, 8);
   const information_needs = array(candidate.information_needs).map(value => sanitizeAiText(normalizeText(value, 400)).text).filter(Boolean).slice(0, 8);
-  if (!queries.length && !source_kinds.length && !information_needs.length) throw Object.assign(new Error("Empty intent plan."), { code: "MODEL_INVALID_RESPONSE" });
-  return { queries, source_kinds, information_needs, stop_if_sufficient: candidate.stop_if_sufficient !== false };
+  if (!queries.length && !source_kinds.length && !information_needs.length && candidate.retrieval_strategy === undefined) throw Object.assign(new Error("Empty intent plan."), { code: "MODEL_INVALID_RESPONSE" });
+  return { queries, source_kinds, information_needs, retrieval_strategy, stop_if_sufficient: candidate.stop_if_sufficient !== false };
 }
 
 async function resolveIntegration({ projectId, user, integrationId, integration, signal, timeoutMs = 1_500 }) {
@@ -62,4 +65,4 @@ async function planIntent({ request, user, integration, integrationId, history =
     return { plan: null, mode: "standard", reason };
   }
 }
-module.exports = { planIntent, normalizePlan, resolveIntegration };
+module.exports = { planIntent, normalizePlan, resolveIntegration, RETRIEVAL_STRATEGIES };

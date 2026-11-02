@@ -36,6 +36,12 @@ const anchoredQueries = (queries, { question, hits, seen }) => {
 // so the same budgets and authorization boundaries can be evaluated offline.
 const retrieve = async ({ request, user, history = [], smartContext = {}, integration, intentPlan, dependencies }) => {
   const { search, liveEvidence, planContext, merge, assess, planQueries, authorize, expandParents, expandRelationships } = dependencies;
+  const requestedStrategy = intentPlan?.retrieval_strategy === undefined ? 'hybrid_evidence' : intentPlan.retrieval_strategy;
+  if (!['hybrid_evidence', 'graph_expand'].includes(requestedStrategy)) throw Object.assign(new Error('Choose a supported context retrieval strategy.'), { code: 'RETRIEVAL_PLAN_INVALID', statusCode: 400 });
+  const forceGraph = requestedStrategy === 'graph_expand';
+  const strategy = { requested: requestedStrategy, applied: 'hybrid_evidence', graph_expansion_status: forceGraph ? 'pending' : 'not_requested',
+    graph_expansion_reason: null, graph_tool_calls: 0, graph_evidence_count: 0, graph_relationship_count: 0 };
+  const graphProofIds = new Set();
   const budget = new contracts.RetrievalBudget(request.budgets);
   // Retrieval/enrichment must leave time to recheck live ACLs. Previously each
   // optional job could consume the entire budget and erase already-found hits.
@@ -73,7 +79,7 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
       : unique(filters.requested_scopes.flatMap(scope => selectedKinds[scope] || []));
   }
   route.information_needs = unique([...array(intentPlan?.information_needs), ...array(route.information_needs)]).slice(0, 12);
-  route.intent_plan_applied = Boolean(plannedKinds.length || array(intentPlan?.queries).length);
+  route.intent_plan_applied = Boolean(plannedKinds.length || array(intentPlan?.queries).length || forceGraph);
   route.query_class = request.query_class;
   const allowedKinds = new Set(route.indexed_source_kinds || []);
   const selectedKinds = Array.isArray(filters.requested_scopes) && array(filters.source_kinds).length ? filters.source_kinds.filter(kind => allowedKinds.has(kind)) : filters.source_kinds;
@@ -104,16 +110,23 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
   let queries = initialQueries;
   execution.emit("RETRIEVAL_PLANNING", "completed", { query_count: queries.length });
   while (queries.length && budget.canContinue()) {
-    const liveEnabled = !productGuide && (!Array.isArray(filters.requested_scopes) || array(route.live_scopes).length > 0) && !rounds.length && (!pinned || scopedLive) && !filters.as_of && budget.remaining().tool_calls >= 2;
+    const graphEligible = forceGraph && !strategy.graph_tool_calls && expandRelationships && !scopedLive && !pinned && !array(filters.source_kinds).length && !filters.as_of;
+    const graphToolReserve = graphEligible && budget.remaining().tool_calls >= 2 ? 1 : 0;
+    const liveEnabled = !productGuide && (!Array.isArray(filters.requested_scopes) || array(route.live_scopes).length > 0) && !rounds.length && (!pinned || scopedLive) && !filters.as_of && budget.remaining().tool_calls >= 2 + graphToolReserve;
     // Reserve part of the candidate budget for current native facts. Previously
     // indexed queries could consume every slot before the failed run or pinned
     // Story was added, silently losing the very evidence the user selected.
     const remainingCandidates = Math.max(0, budget.limits.max_candidates - candidateCount);
+    // A selected graph read needs candidate capacity as well as a tool slot.
+    // Hybrid search commonly examines its entire candidate allowance even
+    // when it returns few hits; reserve bounded graph capacity beforehand.
+    const graphCandidateReserve = graphToolReserve ? Math.min(6, Math.max(0, remainingCandidates - 1)) : 0;
+    const searchCandidateBudget = remainingCandidates - graphCandidateReserve;
     const scopedRunDetails = Object.keys(filters.evidence_scope || {}).length > 0 && array(route.live_scopes).includes('runs');
     const liveCandidateBudget = liveEnabled
-      ? Math.min(Math.max(scopedRunDetails ? 12 : 1, array(route.live_scopes).length), Math.max(1, Math.floor(remainingCandidates / 2)), remainingCandidates)
+      ? Math.min(Math.max(scopedRunDetails ? 12 : 1, array(route.live_scopes).length), Math.max(1, Math.floor(searchCandidateBudget / 2)), searchCandidateBudget)
       : 0;
-    const indexedCandidateBudget = remainingCandidates - liveCandidateBudget;
+    const indexedCandidateBudget = searchCandidateBudget - liveCandidateBudget;
     if (!budget.consumeRound(queries.length, liveEnabled ? 2 : 1)) break;
     queries.forEach((query) => seen.add(query.toLowerCase()));
     const before = new Set(hits.map(identity));
@@ -135,9 +148,9 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
       // A one-candidate request tries its explicitly selected live fact first.
       // If that fact is absent/unavailable, spend the same reserved slot on an
       // allowed KB lookup; do not return empty context solely due to reservation.
-      if (!indexedCandidateBudget && !indexedSelectionConflict && remainingCandidates > 0
+      if (!indexedCandidateBudget && !indexedSelectionConflict && searchCandidateBudget > 0
         && !(settled[1]?.status === "fulfilled" && array(settled[1].value?.hits).length) && stageTime(5_000) > 0) {
-        [settled[0]] = await Promise.allSettled([readIndexed(remainingCandidates, stageTime(5_000))]);
+        [settled[0]] = await Promise.allSettled([readIndexed(searchCandidateBudget, stageTime(5_000))]);
       }
       for (const [index, entry] of settled.entries()) {
         if (entry.status === "rejected") {
@@ -166,7 +179,7 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
       const reservedLiveCandidates = results.filter(entry => !entry.counted && entry.result.retrieval?.mode === "live_project")
         .reduce((count, entry) => count + array(entry.result.results).length, 0);
       for (const entry of results) {
-        const available = Math.max(0, budget.limits.max_candidates - candidateCount
+        const available = Math.max(0, budget.limits.max_candidates - graphCandidateReserve - candidateCount
           - (entry.result.retrieval?.mode === "live_project" ? 0 : reservedLiveCandidates));
         if (entry.counted) continue;
         entry.result.results = array(entry.result.results).slice(0, available);
@@ -190,15 +203,20 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
       hits = authorized.allowed;
       partialAuthorization ||= Boolean(authorized.partial || authorized.denied_ids?.length);
       execution.emit("AUTHORIZATION", "completed", { evidence_count: hits.length, partial: partialAuthorization });
-      if (!rounds.length && hits.length && assess(hits, { contextRoute: route, question: request.query }).requires_more_context && stageTime(1_500, authorizationReserveMs * 2) > 0) {
+      const needsMore = assess(hits, { contextRoute: route, question: request.query }).requires_more_context;
+      if ((!rounds.length || forceGraph && !strategy.graph_tool_calls) && hits.length && (needsMore || forceGraph) && stageTime(1_500, authorizationReserveMs * 2) > 0) {
         const expansionJobs = [];
         const expansionTimeoutMs = stageTime(1_500, authorizationReserveMs * 2);
-        if (expandParents && candidateCount < budget.limits.max_candidates && budget.reserve({ toolCalls: 1 })) {
+        // An explicit graph strategy spends its one expansion allowance on
+        // relationships rather than letting optional parent excerpts starve it.
+        if (!forceGraph && expandParents && candidateCount < budget.limits.max_candidates && budget.reserve({ toolCalls: 1 })) {
           execution.emit("PARENT_EXPANSION", "started");
           expansionJobs.push({ stage: "PARENT_EXPANSION", job: stage((signal) => expandParents({ signal, timeoutMs: expansionTimeoutMs, maxCandidates: Math.max(0, budget.limits.max_candidates - candidateCount), projectId: request.project_id, user, hits, window: 1, limit: Math.min(8, budget.remaining().candidates), asOf: filters.as_of }), "PARENT_EXPANSION_TIMEOUT", expansionTimeoutMs) });
         }
         if (expandRelationships && !scopedLive && !pinned && !array(filters.source_kinds).length && !filters.as_of
-          && candidateCount < budget.limits.max_candidates && ["LOOKUP", "ANALYTICAL", "INVESTIGATIVE"].includes(request.query_class) && budget.reserve({ toolCalls: 1 })) {
+          && candidateCount < budget.limits.max_candidates && (forceGraph || ["LOOKUP", "ANALYTICAL", "INVESTIGATIVE"].includes(request.query_class)) && budget.reserve({ toolCalls: 1 })) {
+          strategy.graph_tool_calls = 1;
+          strategy.graph_expansion_status = 'started';
           execution.emit("RELATIONSHIP_SEARCH", "started");
           expansionJobs.push({ stage: "RELATIONSHIP_SEARCH", job: stage((signal) => expandRelationships({ signal, timeoutMs: expansionTimeoutMs, mode: searchMode, maxCandidates: Math.max(0, budget.limits.max_candidates - candidateCount), projectId: request.project_id, app_type_id:filters.app_type_id,
             ...(Array.isArray(filters.requested_scopes)?{sourceKinds:route.indexed_source_kinds}:{}), user, hits, query: request.query, limit: 6 }), "RELATIONSHIP_SEARCH_TIMEOUT", expansionTimeoutMs) });
@@ -210,10 +228,18 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
             execution.assertActive();
             degraded = true;
             errors.push(expansion.reason?.code || "EXPANSION_UNAVAILABLE");
+            if (expansionJobs[index].stage === 'RELATIONSHIP_SEARCH') {
+              strategy.graph_expansion_status = 'failed';
+              strategy.graph_expansion_reason = expansion.reason?.code || 'EXPANSION_UNAVAILABLE';
+            }
             execution.emit(expansionJobs[index].stage, "failed");
             continue;
           }
           const additions = array(expansion.value.results).slice(0, Math.max(0, budget.limits.max_candidates - candidateCount));
+          if (expansionJobs[index].stage === 'RELATIONSHIP_SEARCH') {
+            strategy.applied = 'graph_expand'; strategy.graph_expansion_status = 'completed';
+            additions.forEach(item => { const id = item.citation?.id || (item.chunk_id ? `K-${item.chunk_id}` : null); if (id) graphProofIds.add(id); });
+          }
           errors.push(...array(expansion.value.retrieval?.error_codes));
           degraded ||= Boolean(expansion.value.retrieval?.degraded);
           candidateCount += additions.length;
@@ -280,6 +306,18 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
     ? assess(hits, { contextRoute: route, question: request.query }).requires_more_context
       ? contracts.TERMINATION_REASONS.NO_NEW_QUERY : contracts.TERMINATION_REASONS.CONTEXT_SUFFICIENT
     : contracts.TERMINATION_REASONS.NO_EVIDENCE);
+  if (forceGraph && strategy.graph_expansion_status === 'pending') {
+    strategy.graph_expansion_status = 'skipped';
+    // A model request is not authority to broaden selectors or reset a budget.
+    strategy.graph_expansion_reason = !expandRelationships ? 'adapter_unavailable'
+      : scopedLive ? 'selected_evidence_scope' : pinned ? 'selected_sources_or_collections'
+        : array(filters.source_kinds).length ? 'selected_source_kinds' : filters.as_of ? 'historical_scope'
+          : budget.limits.max_tool_calls <= budget.tool_calls_used ? 'tool_call_budget'
+            : budget.limits.max_candidates <= candidateCount ? 'candidate_budget'
+              : stageTime(1_500, authorizationReserveMs * 2) <= 0 ? 'deadline_budget'
+                : !budget.limits.max_rounds ? 'retrieval_round_budget' : !budget.limits.max_queries ? 'query_budget'
+                  : !hits.length ? 'no_authorized_seeds' : 'retrieval_stopped';
+  }
   const liveMetadata = (evidence) => {
     const visible = new Set(evidence.map(identity));
     const allowedLive = live.hits.filter((hit) => visible.has(identity(hit)));
@@ -290,6 +328,7 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
   };
   const retrieval = {
     chain_strategy: "authorized-hybrid+reciprocal-rank-fusion+bounded-expansion",
+    retrieval_strategy: strategy,
     retrieval_request: request, query_class: request.query_class, context_route: route,
     search_mode: searchMode, cost_limited_keyword_mode: searchMode === "keyword", skipped_query_count: skippedQueryCount, budget_partial: skippedQueryCount > 0,
     candidate_count: candidateCount, query_count: seen.size, query_chain: accessChangedBeforeAssembly ? [request.query] : [...seen], seed_query_count: initialQueries.length,
@@ -307,6 +346,10 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
   // Stage failures do not identify unavailable sources: local evidence can stay
   // accessible after an embedding or optional enrichment provider times out.
   const packet = contracts.buildContextPacket({ retrievalRequest: request, interpretedRequest: route, evidence: hits, relationships: evidenceRelationships, authorization: { project_scope_enforced: true, source_acl_enforced: true, authorization_partial: partialAuthorization }, retrieval, budget });
+  const graphRelationships = packet.relationships.filter(edge => array(edge.evidence_ids).some(id => graphProofIds.has(id)));
+  strategy.graph_evidence_count = new Set(graphRelationships.flatMap(edge => edge.evidence_ids).filter(id => graphProofIds.has(id))).size;
+  strategy.graph_relationship_count = graphRelationships.length;
+  packet.retrieval.retrieval_strategy = { ...strategy };
   hits = packetHits(hits, packet);
   Object.assign(retrieval, liveMetadata(hits));
   Object.assign(retrieval, { context_packet: packet, budget: budget.snapshot(), termination_reason: budget.termination_reason, result_count: hits.length, grounded_result_count: hits.length, returned_count: hits.length });

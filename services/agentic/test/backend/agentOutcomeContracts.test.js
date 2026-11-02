@@ -8,6 +8,18 @@ const caseDraft={...base,kind:'test_case',test_case_type:'functional',parameter_
 const finding={id:'finding-1',title:'Missing test coverage',detail:'Add a Test Case for the approved retry boundary.',citation_ids:['case-source']};
 const review=(extra={})=>({response:'Observed the recorded behavior.',citation_ids:['case-source'],findings:[],artifacts:[],evidence_gaps:[],...extra});
 
+test('scoped native automation context supplies exact manual linkage targets without treating automation as manual',()=>{
+ const citation={id:'K-automation-case'};
+ const item={source_kind:'authoritative_live_automation',citation,content:JSON.stringify({case:{id:'selected-manual',automated:'no',title:'Source intent'},linked_manual_cases:[{id:'linked-manual',title:'Linked intent'}]})};
+ const targets=require('../../backend/services/agentArtifacts').storyTargets({automation_case:[item]});
+ assert.deepEqual(targets.map(target=>target.id),['selected-manual','linked-manual']);assert.ok(targets.every(target=>target.citation_id===citation.id));
+ item.content=JSON.stringify({case:{id:'automated-case',automated:'yes'},linked_manual_cases:[]});assert.deepEqual(require('../../backend/services/agentArtifacts').storyTargets({automation_case:[item]}),[]);
+ item.content=JSON.stringify({evidence_permissions:['requirement.view'],stories:{stories:[{id:'linked-story'}],related_stories:[{id:'neighbor-story'}]}});
+ assert.deepEqual(require('../../backend/services/agentArtifacts').storyTargets({automation_case:[item]}),[{id:'linked-story',kind:'story_link',citation_id:citation.id}]);
+ item.content=JSON.stringify({stories:{stories:[{id:'ungranted-story'}]}});assert.deepEqual(require('../../backend/services/agentArtifacts').storyTargets({automation_case:[item]}),[]);
+ assert.deepEqual(require('../../backend/services/agentArtifacts').storyTargets({task_input:[{...item,source_kind:'task_input',content:JSON.stringify({case:{id:'unverified',automated:'no'}})}]}),[]);
+});
+
 test('every builtin has a bounded output contract, and clean readonly reviews need no invented artifacts',()=>{
  assert.deepEqual(Object.keys(catalog.agents).sort(),Object.keys(profiles).sort());
  for(const id of Object.keys(profiles)){const contract=outcomeContract(id);assert.equal(contract.schema,'agent-outcome/1');assert.ok(['author','review'].includes(contract.mode));}
@@ -70,6 +82,21 @@ test('typed cited findings route without English keywords while explicit no-prop
  assert.deepEqual(planFollowups('failure-analyst',['bugs'],review({findings:[{...typed,artifact_kind:'defect',detail:'Possible product defect without observed failure evidence.'}]})),[]);
 });
 
+test('independent authoring does not falsely claim to resolve an analysis-only runtime-evidence gap',()=>{
+ const analysis={...finding,requires_proposal:false,artifact_kind:'test_case',citation_ids:['runtime-source'],detail:'Current browser runtime evidence is unavailable.'};
+ const standalone={...caseDraft,addressed_finding_ids:[]};
+ const contract=outcomeContract('test-designer');
+ assert.deepEqual(outcomeIssues(review({findings:[analysis],artifacts:[standalone]}),contract),[]);
+ const [issue]=outcomeIssues(review({findings:[analysis],artifacts:[{...standalone,addressed_finding_ids:['finding-1']}]}),contract);
+ assert.equal(issue.code,'AGENT_OUTCOME_FINDING_REFERENCE_INVALID');
+ assert.equal(issue.path,'artifacts[0].addressed_finding_ids');
+ assert.equal(issue.issue,'finding_supporting_citation_required');
+ assert.deepEqual(issue.required_citation_ids,['runtime-source']);
+ assert.match(issue.message,/addressed_finding_ids:\[\]/);
+ const missing=outcomeIssues(review({artifacts:[{...standalone,addressed_finding_ids:['absent']}]}),contract)[0];
+ assert.equal(missing.issue,'recorded_finding_id_required');
+});
+
 test('strict generated artifact metadata survives normalization without accepting invalid types, params or missing fields',()=>{
  const [artifact]=normalizeArtifacts([caseDraft],citations,[],{requireMetadata:true,testCaseTypes:['functional','customer_contract']});
  assert.equal(artifact.test_case_type,'functional');assert.deepEqual(artifact.parameter_values,caseDraft.parameter_values);
@@ -78,6 +105,36 @@ test('strict generated artifact metadata survives normalization without acceptin
  assert.equal(normalizeArtifacts([{...caseDraft,priority:2}],citations,[],{requireMetadata:true})[0].priority,'P2','native integer priority is an unambiguous supported alias');
  assert.equal(normalizeArtifacts([{...base,kind:'test_case',steps:caseDraft.steps}],citations)[0].test_case_type,undefined,'old saved drafts remain readable');
  assert.throws(()=>normalizeArtifacts([{...base,kind:'defect',severity:'unknown',reproduction_steps:['Retry'],expected_result:'One request',actual_result:'Two requests'}],citations));
+});
+
+test('a correction identifies every missing case metadata field in one response',()=>{
+ const {test_case_type,parameter_values,...missing}=caseDraft;
+ assert.throws(()=>normalizeArtifacts([missing],citations,[],{requireMetadata:true}),error=>{
+  assert.deepEqual(error.validation_errors,[{path:'artifacts[0].test_case_type',keyword:'required',required_property:'test_case_type'},{path:'artifacts[0].parameter_values',keyword:'required',required_property:'parameter_values'}]);
+  return error.code==='AI_INVALID_RESPONSE';
+ });
+});
+
+test('unsupported type and parameter diagnostics point to exact native fields without exposing values',()=>{
+ for(const [changed,path,keyword]of [[{...caseDraft,test_case_type:'API Test'},'test_case_type','supported_type_slug_required'],[{...caseDraft,test_case_type:'retired'},'test_case_type','application_contract_type_required'],[{...caseDraft,parameter_values:{'s.private':'PRIVATE_VALUE'}},'parameter_values','unique_case_owned_text_parameters_required']]){
+  assert.throws(()=>normalizeArtifacts([changed],citations,[],{requireMetadata:true,testCaseTypes:['functional']}),error=>{
+   assert.deepEqual(error.validation_errors,[{path:`artifacts[0].${path}`,keyword}]);assert.doesNotMatch(JSON.stringify(error.validation_errors),/PRIVATE_VALUE/);return true;
+  });
+ }
+ assert.deepEqual(normalizeArtifacts([{...caseDraft,parameter_values:{id:'fixture-1'}}],citations,[],{requireMetadata:true})[0].parameter_values,{'t.id':'fixture-1'});
+});
+
+test('invalid native target references identify each proposal field before correction',()=>{
+ const automation={...caseDraft,kind:'automation',start_url:'https://fixture.test/',manual_test_case_ids:['unknown-case']};
+ const run={...base,kind:'run',priority:'P2',test_case_ids:['unknown-case'],exit_criteria:['Every selected case passes.']};
+ for(const [artifact,field]of [[{...caseDraft,requirement_ids:['unknown-story']},'requirement_ids'],[automation,'manual_test_case_ids'],[run,'test_case_ids']])assert.throws(()=>normalizeArtifacts([artifact],citations,[],{requireMetadata:true}),error=>error.code==='AI_INVALID_RESPONSE'&&error.validation_path===`artifacts[0].${field}`&&error.validation_errors[0].path===`artifacts[0].${field}`);
+});
+
+test('a no-change conclusion with positive findings gets exact corrective guidance rather than a required-draft loop',()=>{
+ const issues=outcomeIssues(review({no_changes_required:true,findings:[{...finding,requires_proposal:false,title:'Story is complete'}]}),outcomeContract('story-completion'));
+ const conflict=issues.find(issue=>issue.code==='AGENT_OUTCOME_NO_CHANGE_CONFLICT');
+ assert.equal(conflict.path,'no_changes_required');assert.match(conflict.message,/findings:\[\]/);
+ assert.deepEqual(outcomeIssues(review({no_changes_required:true,findings:[]}),outcomeContract('story-completion')),[]);
 });
 
 test('automation artifacts contain a cited Plan and start URL, never executable scripts or invented manual targets',()=>{

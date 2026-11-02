@@ -115,6 +115,30 @@ class IngestionTests(unittest.TestCase):
 
 
 class ApiTests(unittest.TestCase):
+    def test_model_review_retains_response_fields_statuses_and_missing_error_body(self):
+        document = {'openapi': '3.0.3', 'paths': {'/products/{id}': {'get': {'responses': {
+            '200': {'description': 'Product found', 'content': {'application/json': {'schema': {'$ref': '#/components/schemas/Product'}}}},
+            '404': {'description': 'Product not found'},
+        }}}}, 'components': {'schemas': {'Product': {'type': 'object', 'required': ['id', 'name', 'price'], 'properties': {
+            'id': {'type': 'integer'}, 'name': {'type': 'string'}, 'price': {'type': 'number'},
+        }}}}}
+        case = compile_files('api_tests', {'openapi.json': json.dumps(document)})['findings']['test_cases'][0]
+        self.assertEqual(case['declared_statuses'], [200, 404])
+        success, missing = case['declared_responses']
+        self.assertEqual(success['content'][0]['schema']['required'], ['id', 'name', 'price'])
+        self.assertEqual(success['content'][0]['schema']['properties']['price']['type'], 'number')
+        self.assertTrue(success['body_schema_declared'])
+        self.assertEqual(missing, {'status': 404, 'description': 'Product not found', 'content': [], 'body_schema_declared': False})
+        self.assertFalse(case['assumptions'] == [])
+
+    def test_fastify_response_schema_is_carried_to_model_review_without_assuming_media(self):
+        source = "fastify.get('/health', {schema:{response:{200:{type:'object',required:['status'],properties:{status:{type:'string'}}}}}}, async(req,reply)=>reply.code(200).send({status:'ok'}));"
+        case = compile_files('api_tests', {'routes.js': source})['findings']['test_cases'][0]
+        response = case['declared_responses'][0]
+        self.assertEqual(response['status'], 200)
+        self.assertIsNone(response['content'][0]['content_type'])
+        self.assertEqual(response['content'][0]['schema']['required'], ['status'])
+
     def test_openapi_contract_preserves_documented_status_and_schema(self):
         document = {'openapi': '3.0.3', 'paths': {'/users/{id}': {'post': {
             'parameters': [{'name': 'id', 'in': 'path', 'required': True, 'schema': {'type': 'string'}}],

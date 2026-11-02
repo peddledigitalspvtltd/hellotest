@@ -38,9 +38,22 @@ test('visual assessment may cite an approved baseline only when verified image p
 test('assessment streams genuine provider deltas with a structured validated final outcome and one counted dispatch',async()=>{
   let admissions=0;const usage=[],f=fixture();const report=await f.assess({beforeDispatch:async()=>admissions++,onUsage:async value=>usage.push(value)});
   assert.equal(admissions,1);assert.equal(f.calls.length,1);assert.equal(report.observations[0].finding_id,'missing-header');
-  assert.deepEqual(f.calls[0].options.outputSchema,original.SCHEMA);assert.equal(f.calls[0].options.maxAttempts,1);assert.equal(f.calls[0].options.contextFallback,false);
+  assert.deepEqual(f.calls[0].options.outputSchema.properties.observations.items.properties.finding_id.enum,['missing-header']);assert.equal(f.calls[0].options.maxAttempts,1);assert.equal(f.calls[0].options.contextFallback,false);
   assert.match(f.calls[0].payload.messages[0].content,/OWASP/);assert.match(f.calls[0].payload.messages[1].content,/<context>/);
   assert.deepEqual(f.events.map(event=>event.type),['model_start','text','model_done']);assert.equal(f.events[1].data.text,'{"title":"Observed');assert.equal(usage[0].completion_tokens,20);
+});
+
+test('assessment generation binds finding IDs, metric names and conclusions to retained evidence',()=>{
+ const passed={...engine,outcome:'passed',findings:[]},schema=original.assessmentSchema({...request,kind:'performance'},passed);
+ assert.equal(schema.properties.observations.maxItems,0);
+ assert.deepEqual(schema.properties.conclusion.enum,['no_findings_observed','needs_review']);
+ assert.deepEqual(schema.properties.metric_notes.items.properties.metric.enum,['http_status']);
+ const validate=new (require('ajv'))({strict:false}).compile(schema);
+ assert.equal(validate({...value(),conclusion:'observed_findings'}),false);
+ assert.equal(validate({...value(),conclusion:'no_findings_observed',observations:[],skill_reference_ids:[]}),true);
+ const visual=original.assessmentSchema({...request,kind:'visual'},{...passed,outcome:'needs_review'});
+ assert.deepEqual(visual.properties.conclusion.enum,['needs_review']);
+ assert.equal(require('@hellotest/platform/backend/src/utils/llmRequestPolicy').strictProviderSchema(require('../../backend/services/browserMissionDecisionContract').providerSchema(schema)),true);
 });
 test('unsupported evidence gets one user-authority correction, while truncated output is never repaired',async()=>{
   const f=fixture(call=>({choices:[{finish_reason:'stop',message:{content:JSON.stringify(call===1?{...value(),observations:[{...value().observations[0],finding_id:'invented'}]}:value())}}]}));

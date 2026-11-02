@@ -84,7 +84,7 @@ test('successors receive only assigned findings and fresh evidence, and preserve
   });
   t.mock.method(globalThis,'fetch',async(_url,request)=>{
     const payload=JSON.parse(JSON.parse(request.body).messages.at(-1).content);payloads.push(payload);
-    const citation=payload.citation_contract[0].id;
+    const citation=payload.citation_contract.find(source=>source.id.startsWith('K-fresh-')).id;
     const findings=payloads.length===1 ? [
       {id:'story-gap',title:'Missing acceptance boundary',detail:'Story needs the documented retry boundary.',artifact_kind:'story',requires_proposal:true,citation_ids:[citation]},
       {id:'analysis-only',title:'Review owner',detail:'A person must review the output.',requires_proposal:false,citation_ids:[citation]}
@@ -97,7 +97,9 @@ test('successors receive only assigned findings and fresh evidence, and preserve
   assert.equal(retrievals.length,2);
   assert.deepEqual(payloads[1].previous_specialist_review.findings.map(f=>f.id),['story-gap']);
   assert.equal(payloads[1].previous_specialist_review.provenance,'untrusted_prior_model_review');
-  assert.deepEqual(payloads[1].citation_contract.map(c=>c.id),['K-fresh-2']);
+  assert.deepEqual(payloads[1].citation_contract.map(c=>c.id),['K-task-input','K-fresh-2']);
+  assert.deepEqual(JSON.parse(payloads[1].bounded_workspace_context.task_input[0].content),scope);
+  assert.equal(payloads[1].citation_contract.find(source=>source.id==='K-task-input').source_kind,'task_input');
   assert.deepEqual(retrievals[1].filters.evidence_scope,scope);
   assert.deepEqual(payloads[1].evidence_scope,scope);
   assert.deepEqual(review.result.agent_chain[1].addressed_finding_ids,['story-gap']);

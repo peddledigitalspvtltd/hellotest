@@ -39,6 +39,19 @@ function evidencePacket(request, engine) {
   if (Buffer.byteLength(JSON.stringify(packet)) > 64000) throw C.fail('The full task and retained quality evidence exceed the assessment context budget. Narrow the review scope.',422,'QUALITY_AGENT_ASSESSMENT_BUDGET');
   return packet;
 }
+function assessmentSchema(request, engine, packet = evidencePacket(request,engine)) {
+  const schema=structuredClone(SCHEMA),props=schema.properties;
+  const findingIds=packet.findings.map(item=>item.id),artifactIds=engine.artifacts.map(item=>item.id);
+  if(packet.visual_evidence?.mode==='images')artifactIds.push(...(packet.visual_evidence.images||[]).map(item=>item.artifact_id));
+  const constrain=(array,values)=>{if(values.length)array.items.enum=[...new Set(values)];else array.maxItems=0;};
+  if(findingIds.length)props.observations.items.properties.finding_id.enum=findingIds;else props.observations.maxItems=0;
+  constrain(props.observations.items.properties.artifact_ids,artifactIds);
+  const metrics=Object.keys(engine.metrics);if(metrics.length)props.metric_notes.items.properties.metric.enum=metrics;else props.metric_notes.maxItems=0;
+  constrain(props.skill_reference_ids,skills.profile(request.kind).references.map(item=>item.id));
+  props.conclusion.enum=engine.findings.length?['observed_findings','needs_review']
+    :engine.outcome==='passed'&&!packet.evidence_manifest.findings_omitted?['no_findings_observed','needs_review']:['needs_review'];
+  return schema;
+}
 function validateAssessment(value, request, engine, packet = evidencePacket(request,engine)) {
   if (!validateSchema(value)) throw C.fail('The model assessment does not satisfy its output contract.',502,'QUALITY_AGENT_ASSESSMENT_INVALID');
   const validateFinal=validateFinalConfiguration(request);
@@ -58,6 +71,7 @@ async function assessQualityRun(request,user,engine,trace = {}) {
   const integration = await require('./browserMissionPlanner').resolveMissionModel(request,user);
   const visual = request.kind === 'visual' && trace.visualEvidence ? await trace.visualEvidence(integration) : null;
   if (request.kind === 'visual') packet.visual_evidence = visual?.manifest || { mode:'manifest_only', limitations:['No image pixels were supplied to the model. Interpret only the observed pixel metrics and artifact metadata; visual appearance has not been assessed by the model.'] };
+  const outputSchema=assessmentSchema(request,engine,packet);
   const featureKey = `ai.agentic.browser.${request.kind}`;
   const base = (integration.base_url || 'https://api.openai.com/v1').replace(/\/+$/,'');
   const endpoint = /\/chat\/completions$/.test(base) ? base : `${base}/chat/completions`;
@@ -79,7 +93,7 @@ async function assessQualityRun(request,user,engine,trace = {}) {
       method:'POST',signal:trace.signal,headers:{'Content-Type':'application/json',...(require('@hellotest/integration/backend/services/integration.service').isUsableApiCredential(integration.api_key)?{Authorization:`Bearer ${integration.api_key}`}:{})},
       body:JSON.stringify({model:integration.model,max_tokens:4096,response_format:{type:'json_object'},messages:validation?envelope.repairMessages(messages,{candidate:priorCandidate,issues:validation}):messages}),
     },{integration,featureKey,operation:`agentic-quality.assess.${request.kind}`,timeoutMs:Math.max(1000,deadline-Date.now()),maxOutputTokens:4096,maxAttempts:1,contextFallback:false,
-      outputSchema:SCHEMA,outputSchemaName:'quality_agent_assessment',contextRetrievalQuery:request.goal,...(visual?.requestOptions||{}),
+      outputSchema,providerOutputSchema:require('./browserMissionDecisionContract').providerSchema(outputSchema),outputSchemaName:'quality_agent_assessment',contextRetrievalQuery:request.goal,...(visual?.requestOptions||{}),
       beforeDispatch:meta=>trace.beforeDispatch?.({...meta,call_id,phase:'assessment',revision}),
       onTextDelta:(text,meta)=>trace.onEvent?.('text',{call_id,stage:'assessment',kind:request.kind,revision,text,...meta}),
       mcpContextFilters:{agent_id:`browser-${request.kind}`,app_type_id:request.app_type_id,requested_scopes:request.context_scopes,evidence_scope:request.evidence_scope,source_ids:request.smart_context?.source_ids,source_kinds:request.smart_context?.source_kinds},
@@ -107,4 +121,4 @@ async function assessQualityRun(request,user,engine,trace = {}) {
     }
   }
 }
-module.exports = { SCHEMA, validateFinalConfiguration, evidencePacket, validateAssessment, assessQualityRun:(request,user,engine,trace)=>require('../workflows/nodeAiConfiguration').runRequest({...request,session_id:trace?.session_id},`ai.agentic.browser.${request.kind}`,()=>assessQualityRun(request,user,engine,trace)) };
+module.exports = { SCHEMA, assessmentSchema, validateFinalConfiguration, evidencePacket, validateAssessment, assessQualityRun:(request,user,engine,trace)=>require('../workflows/nodeAiConfiguration').runRequest({...request,session_id:trace?.session_id},`ai.agentic.browser.${request.kind}`,()=>assessQualityRun(request,user,engine,trace)) };

@@ -1,14 +1,16 @@
 const {createHash} = require('crypto');
 const {KINDS,fail,text,list,number} = require('./knowledgeGraphContracts');
 const {assertRetrievalActive} = require('@hellotest/platform/backend/src/utils/knowledgeRetrievalTiming');
-const VERSION='source-graph/1';
+const VERSION='source-graph/2';
 const edgeId=(project,source,type,target)=>`KGE-${createHash('sha256').update(JSON.stringify([project,source,type,target])).digest('hex')}`;
 
 // Only structured fields emitted by the native application serializers qualify.
 // Arbitrary uploaded text mentioning an ID is not a verified product relation.
 function extractReferences(source) {
   const refs=[], metadata=source.metadata || {};
-  const add=(kind,ids,type,reverse=false,marker='')=>{for(const id of list(typeof ids==='string'?[ids]:ids,50)){if(text(id))refs.push({kind,ref_id:text(id),type,reverse,marker});}};
+  // Native Stories serialize up to 100 linked cases. Keep that complete bounded
+  // inventory rather than silently dropping its second half during projection.
+  const add=(kind,ids,type,reverse=false,marker='')=>{for(const id of list(typeof ids==='string'?[ids]:ids,100)){if(text(id))refs.push({kind,ref_id:text(id),type,reverse,marker});}};
   if(source.source_kind==='requirement')add('test_case',metadata.linked_test_case_ids,'TESTS',true,'Linked Test Case IDs');
   if(source.source_kind==='test_case')add('requirement',metadata.requirement_ids,'TESTS',false,'Requirement IDs');
   if(source.source_kind==='bug'){
@@ -17,6 +19,17 @@ function extractReferences(source) {
     add('execution',metadata.linked_test_run_id,'HAS_DEFECT',true,'Linked Test Run ID');
   }
   return [...new Map(refs.map(ref=>[JSON.stringify(ref),ref])).values()];
+}
+function declaredReferenceCount(source) {
+  const metadata=source.metadata||{};
+  const fields={requirement:[['linked_test_case_ids','linked_test_case_count']],test_case:[['requirement_ids','requirement_count']],
+    bug:[['linked_requirement_ids','linked_requirement_count'],['linked_test_case_ids','linked_test_case_count'],['linked_test_run_id']]}[source.source_kind]||[];
+  return fields.reduce((total,[field,countField])=>{
+    const raw=typeof metadata[field]==='string'?[metadata[field]]:Array.isArray(metadata[field])?metadata[field]:[];
+    const known=new Set(raw.filter(value=>typeof value==='string'&&text(value)).map(value=>text(value))).size;
+    const declared=metadata[countField];
+    return total+Math.max(known,Number.isSafeInteger(declared)&&declared>=0?declared:0);
+  },0);
 }
 const proofFor=(chunks,reference)=>{
   for(const chunk of chunks){
@@ -59,9 +72,11 @@ function createProjection({db}) {
     if(chunks.length)await connection.prepare(`INSERT INTO ai_knowledge_graph_chunk_entities(project_id,chunk_id,node_id,source_id,document_id)
       SELECT ?,fragment.id,?,fragment.source_id,fragment.document_id FROM jsonb_to_recordset(?::jsonb) AS fragment(id TEXT,source_id TEXT,document_id TEXT)
       ON CONFLICT DO NOTHING`).run(projectId,source.id,chunks.map(chunk=>({id:chunk.id,source_id:chunk.source_id,document_id:chunk.document_id})));
-    await connection.prepare(`UPDATE ai_knowledge_graph_nodes SET metadata=metadata||?::jsonb WHERE id=? AND project_id=?`).run({projection_fragment_limit:3000,projection_omitted_fragments:omittedChunks},source.id,projectId);
+    const references=extractReferences(source),declaredReferences=declaredReferenceCount(source),omittedReferences=Math.max(0,declaredReferences-references.length);
+    await connection.prepare(`UPDATE ai_knowledge_graph_nodes SET metadata=metadata||?::jsonb WHERE id=? AND project_id=?`).run({projection_fragment_limit:3000,projection_omitted_fragments:omittedChunks,
+      projection_reference_limit_per_field:100,projection_declared_references:declaredReferences,projection_omitted_references:omittedReferences},source.id,projectId);
     let unresolved=0,edges=0;
-    for(const ref of extractReferences(source)){
+    for(const ref of references){
       active();
       const proof=proofFor(chunks,ref);
       if(!proof){unresolved++;continue;}
@@ -96,7 +111,7 @@ function createProjection({db}) {
       VALUES (?,?,?,?,?,CURRENT_TIMESTAMP+INTERVAL '60 seconds') ON CONFLICT(document_id) DO UPDATE SET unresolved_count=EXCLUDED.unresolved_count,
       projected_edge_count=EXCLUDED.projected_edge_count,processing_version=EXCLUDED.processing_version,reconciled_at=CURRENT_TIMESTAMP,next_attempt_at=EXCLUDED.next_attempt_at`).run(document.id,projectId,unresolved,edges,VERSION);
     active();
-    return {document_id:document.id,node_id:source.id,edge_count:edges,unresolved_count:unresolved,processing_version:VERSION,partial:omittedChunks>0,omitted_chunk_count:omittedChunks};
+    return {document_id:document.id,node_id:source.id,edge_count:edges,unresolved_count:unresolved,processing_version:VERSION,partial:omittedChunks>0||omittedReferences>0||unresolved>0,omitted_chunk_count:omittedChunks,omitted_reference_count:omittedReferences};
   };
   const archiveSource=async({projectId,sourceId}={},options={})=>{const connection=options.db||db;await connection.prepare('UPDATE ai_knowledge_graph_nodes SET tombstoned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND source_id=?').run(projectId,sourceId);
     await connection.prepare("UPDATE ai_knowledge_graph_edges SET status='TOMBSTONED',valid_to=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE project_id=? AND status='ACTIVE' AND(source_node_id=? OR target_node_id=?)").run(projectId,sourceId,sourceId);

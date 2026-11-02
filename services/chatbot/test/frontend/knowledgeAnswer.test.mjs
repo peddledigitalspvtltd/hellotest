@@ -126,3 +126,57 @@ test("deep links allow only safe web/internal destinations and preserve evidence
   input.citations[0].uri = "https://forged.test";
   assert.equal(helpers.validateKnowledgeAnswer(input).citations.get("e1").uri, "https://example.test/source");
 });
+
+test("relationship presentation requires the packet's exact directed typed witness, beyond valid citation IDs", () => {
+  const input=message({presentation:{recommended_type:'RELATIONSHIP_GRAPH',structured_payload:{
+    nodes:[{id:'source-a',label:'Checkout',type:'Story',evidence_ids:['e1']},{id:'source-b',label:'Refund',type:'Story',evidence_ids:['e2']}],
+    edges:[{source:'source-a',target:'source-b',type:'DEPENDS_ON',evidence_ids:['e1']}]
+  }}});
+  input.context_packet.evidence[0].source_id='source-a';
+  input.context_packet.evidence.push({id:'e2',evidence_id:'e2',source_id:'source-b',title:'Refund',visibility:{state:'FULL'}});
+  const witness={source:'source-a',target:'source-b',type:'DEPENDS_ON',evidence_ids:['e1'],provenance_type:'SOURCE_EXPLICIT'};
+  input.context_packet.relationships=[witness];
+  assert.equal(helpers.validateKnowledgeAnswer(input).presentation.type,'RELATIONSHIP_GRAPH');
+  for(const patch of [{source:'source-b',target:'source-a'},{type:'CAUSES'},{provenance_type:'LLM_CANDIDATE'},{evidence_ids:['hidden']}]){
+    input.context_packet.relationships=[{...witness,...patch}];
+    assert.equal(helpers.validateKnowledgeAnswer(input).presentation.type,'TEXT',JSON.stringify(patch));
+  }
+  input.context_packet.relationships=[];
+  assert.equal(helpers.validateKnowledgeAnswer(input).presentation.type,'TEXT');
+  input.context_packet.relationships=[witness];
+  input.answer_contract.presentation.structured_payload.nodes[0].evidence_ids=['e2'];
+  assert.equal(helpers.validateKnowledgeAnswer(input).presentation.type,'TEXT','A canonical node cannot borrow another source citation.');
+});
+
+test("context provenance exposes observed MCP delivery and retained task history without inferring model or execution success",()=>{
+  const input=message();
+  input.context_packet.evidence[0].document_id='doc-v1';
+  input.context_packet.evidence[0].source_id='source-a';
+  input.context_packet.retrieval.context_graph={status:'recorded',trace_id:'trace:one'};
+  input.retrieval={context_transport:'mcp',intent_planning_model_used:true,context_graph_outcome:{status:'recorded',trace_id:'trace:one',event_id:'answer-event'}};
+  const component={};
+  const code=readFileSync(new URL('../../frontend/components/KnowledgeContextProvenance.tsx',import.meta.url),'utf8');
+  new Function('require','exports',ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText)(id=>id==='../lib/knowledgeAnswer'?helpers:require(id),component);
+  const markup=renderToStaticMarkup(createElement(component.KnowledgeContextProvenance,{message:input}));
+  for(const phrase of ['Context for this answer','Model-assisted evidence plan','hellotest_context_build','1 document version','0 witnessed links','response outcome recorded','/knowledge?view=context&amp;trace_id=trace%3Aone','does not verify what reached the model or whether a proposed action ran'])assert.ok(markup.includes(phrase),phrase);
+  input.retrieval.context_graph_outcome.trace_id='another-trace';
+  assert.equal(helpers.knowledgeContextProvenance(input).outcomeRecorded,false,'A different task outcome cannot certify this context.');
+  input.retrieval={};input.context_packet.retrieval.context_graph={status:'unavailable'};
+  const unknown=helpers.knowledgeContextProvenance(input);
+  assert.equal(unknown.contextHref,'');assert.equal(unknown.planning,'Not recorded');assert.equal(unknown.outcomeRecorded,false);
+  assert.equal(unknown.memory,'Task context could not be recorded');
+});
+
+test('restored answers derive their status from the retained contract without needing transient response metadata',()=>{
+  const input=message();
+  assert.equal(input.grounding_status,undefined);
+  assert.equal(helpers.knowledgeAnswerGrounding(input),'grounded');
+  input.answer_contract.limitations={retrieval_status:'PARTIAL'};
+  assert.equal(helpers.knowledgeAnswerGrounding(input),'partially_grounded');
+  input.answer_contract.status='provider_unavailable';
+  assert.equal(helpers.knowledgeAnswerGrounding(input),'provider_unavailable');
+  input.answer_contract.status='refused';
+  assert.equal(helpers.knowledgeAnswerGrounding(input),'refused');
+  input.answer_contract.status='answered';input.answer_contract.claims=[];
+  assert.equal(helpers.knowledgeAnswerGrounding(input),'insufficient_context');
+});

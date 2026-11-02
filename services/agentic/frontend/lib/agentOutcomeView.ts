@@ -65,6 +65,24 @@ export function agentHandoffStatus(step: NonNullable<AgenticAssistantResult['age
   return 'Assessment completed';
 }
 
+/** The result is the produced draft/report; recommendations remain follow-up. */
+export function agentOutcomeResult(result: AgenticAssistantResult) {
+  const kinds = [...new Set((result.artifacts || []).map(item => item.kind))];
+  const clean = result.no_changes_required === true && result.verification?.status === 'passed' && !result.outcome_issues?.length;
+  const incomplete = !kinds.length && !result.automation_repair && (result.outcome_contract?.mode === 'author' && !clean || Boolean(result.outcome_issues?.length));
+  const kind = kinds.length ? 'drafts' : result.automation_repair ? 'repair' : incomplete ? 'incomplete' : 'assessment';
+  return {
+    kind,
+    title: kinds.length === 1 ? `${agentArtifactLabel(kinds[0])} outcome` : kinds.length > 1 ? 'Resulting drafts' : kind === 'repair' ? 'Repair outcome' : incomplete ? 'Outcome needs input' : 'Assessment outcome',
+    body: typeof result.response === 'string' && result.response.trim() ? result.response : result.executive_summary || '',
+    description: kinds.length ? 'Inspect the resulting draft in full, then review its evidence before saving.'
+      : kind === 'repair' ? 'Inspect the proposed repair and its recorded validation. Application remains a separate reviewed action.'
+        : incomplete ? 'The requested deliverable is incomplete. The recorded assessment and missing inputs are shown below.'
+          : clean ? 'The assessment found no supported change to make. Review its conclusion and evidence.'
+            : 'Read the resulting assessment, supporting reports and evidence. Follow-up considerations are listed separately.'
+  };
+}
+
 /** One export contains the assessment, proposals, evidence and completion state. */
 export function agentOutcomeBrief(result: AgenticAssistantResult, citations: AgenticAssistantCitation[] = [], selectedRecommendations = result.recommendations || []): string {
   const sourceText = (ids: string[] = []) => {
@@ -82,11 +100,14 @@ export function agentOutcomeBrief(result: AgenticAssistantResult, citations: Age
     result.deliverables?.length ? `## Supporting deliverables\n${result.deliverables.map(item => `### ${item.title}\n${item.detail}\nSources: ${sourceText(item.citation_ids)}`).join('\n\n')}` : '',
     ...(['sections','tables','charts'] as const).map(field => result[field]?.length ? `## ${field === 'sections' ? 'Report sections' : field === 'tables' ? 'Report tables' : 'Report measures'}\n${agentOutputText(result[field])}` : ''),
     result.artifacts?.length ? `## Proposed changes · review before saving\n\`\`\`json\n${JSON.stringify(result.artifacts, null, 2)}\n\`\`\`` : '',
+    result.automation_repair ? `## Automation repair outcome\n\`\`\`json\n${JSON.stringify(result.automation_repair, null, 2)}\n\`\`\`` : '',
+    result.quality_assessment ? `## Quality assessment outcome\n\`\`\`json\n${JSON.stringify(result.quality_assessment, null, 2)}\n\`\`\`` : '',
     result.agent_chain?.length ? `## Agent sequence\n${result.agent_chain.map(step => `- ${step.name}: ${agentHandoffStatus(step)}${step.detail ? ` · ${step.detail}` : ''}${step.finding_ids?.length ? ` · findings: ${step.finding_ids.join(', ')}` : ''}`).join('\n')}` : '',
     result.primary_review ? `## Original specialist assessment\n${result.primary_review.summary || ''}\n${(result.primary_review.findings || []).map(finding => `### ${finding.title}\n${finding.detail}\nSources: ${sourceText(finding.citation_ids)}`).join('\n\n')}` : '',
     list('Selected follow-up considerations', selectedRecommendations),
     list('Assumptions to verify', result.assumptions), list('Evidence gaps', result.evidence_gaps),
     result.verification ? `## Completion checks · ${result.verification.status}\n${result.verification.checks.map(check => `- ${check.passed ? 'Passed' : 'Unmet'}: ${check.label}`).join('\n')}` : '',
+    result.model_call_records?.length ? `## Model call receipts\n${result.model_call_records.map(call => `- ${call.name}: ${call.status}${call.trace_id ? ` · trace ${call.trace_id}` : ''}${call.attempt ? ` · attempt ${call.attempt}` : ''}`).join('\n')}` : '',
     list('Open outcome requirements', (result.outcome_issues || []).map(issue => typeof issue === 'string' ? issue : issue.message)),
     list('Review limitations', [...new Set([...(result.readiness?.limitations || []), ...(result.verification?.limitations || [])])]),
     `## Sources\n${sources.ids.length ? sourceText(sources.ids) : 'No source references supplied.'}`,

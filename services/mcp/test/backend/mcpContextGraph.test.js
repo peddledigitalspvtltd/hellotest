@@ -73,6 +73,16 @@ test('recording binds delivered evidence to verified identity and trusted featur
   assert.deepEqual(result.retrieval.context_graph, { status: 'recorded', trace_id: 'context-trace', recorded_at: '2026-11-01T00:00:00Z' });
   assert.equal(input.retrieval.context_graph, undefined, 'The original evidence packet is immutable.');
 });
+test('signed remote attribution wins over unrelated transport traces and preserves workflow task lineage', async () => {
+  const calls = [], input = packet();
+  const remote = { ...actor, contextAttribution: { feature: 'ai.agentic.workflow', session_id: 'owned-session', run_id: 'workflow-run', trace_id: 'host-trace' } };
+  await traces.run({ feature: 'transport.feature', session_id: 'unrelated-session', task_id: 'unrelated-task' }, () => memory.rememberContext(remote, input, {
+    service: () => ({ recordContext: async value => { calls.push(value); return { trace_id: 'recorded' }; } })
+  }));
+  assert.equal(calls[0].featureId, 'ai.agentic.workflow'); assert.equal(calls[0].sessionId, 'owned-session');
+  assert.equal(calls[0].taskRef, 'workflow-run'); assert.equal(calls[0].traceId, 'host-trace');
+  assert.equal(calls[0].user, actor.user); assert.equal(calls[0].projectId, actor.projectId);
+});
 test('optional memory failure remains an explicit gap and never retries or discards a valid context packet', async () => {
   const input = packet(); let calls = 0;
   const result = await memory.rememberContext(actor, input, { service: () => ({ recordContext: async () => { calls++; throw Error('Unavailable ledger'); } }) });

@@ -45,6 +45,7 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
    return {response,result:response.statusCode===200?response.json().result:null};
   };
   const memoryFixture=await require('./contextGraphMemory.fixture').verify({app,db,user:{id:'mcp-a'},headers,createToken});
+  await require('./mcpContextAttribution.fixture').verify({app,db,rpc,graphFixture});
   const memoryList=await rpc('hellotest_context_graph_list',{feature_id:memoryFixture.featureId});
   assert.equal(memoryList.result.isError,undefined,JSON.stringify(memoryList.result));
   assert.ok(memoryList.result.structuredContent.data.items.some(item=>item.trace_id===memoryFixture.traceId));
@@ -134,6 +135,9 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   const eventCount=await db.prepare('SELECT COUNT(*)::int AS count FROM ai_context_graph_events WHERE trace_id=?').get(assistantReceipt.trace_id);
   const replayedTurn=await assistant.respond({sessionId:ownedSession.id,user:{id:'mcp-a'},message:'How do I visualize the Knowledge Graph and Context Graph?',responseMode:'evidence',clientTurnId:'context-memory-turn'});
   assert.equal(replayedTurn.idempotent_replay,true);assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM ai_context_graph_events WHERE trace_id=?').get(assistantReceipt.trace_id)).count,eventCount.count);
+  assert.deepEqual(replayedTurn.retrieval.context_graph_outcome,assistantTurn.retrieval.context_graph_outcome,'Replay retains the original observed outcome receipt.');
+  const assistantHistory=await assistant.getSession({id:ownedSession.id,user:{id:'mcp-a'}});
+  assert.deepEqual(assistantHistory.messages.find(message=>message.id===assistantTurn.assistant_message.id).retrieval.context_graph_outcome,assistantTurn.retrieval.context_graph_outcome,'Reloaded history retains its context lineage.');
   const originalFetch=global.fetch;let modelMessages;
   global.fetch=async(url,init)=>{
    if(String(url)!=='https://mcp-model-fixture.invalid/chat/completions')return originalFetch(url,init);

@@ -3389,7 +3389,9 @@ export type KnowledgeContextPacket = {
   packet_id: string;
   context_packet_id?: string;
   evidence?: Array<KnowledgeCitation & { evidence_id: string; content?: string; visibility?: { state?: string }; locator?: KnowledgeCitation["location"] }>;
-  retrieval?: { status?: string; rounds?: number; termination_reason?: string };
+  relationships?: Array<{ source: string; target: string; type: string; evidence_ids: string[]; provenance_type?: string }>;
+  relationship_evidence?: Array<{ source: string; target: string; type: string; evidence_ids: string[]; provenance_type?: string }>;
+  retrieval?: { status?: string; rounds?: number; termination_reason?: string; context_graph?: { status: string; trace_id?: string; recorded_at?: string; code?: string } };
   authorization_coverage?: { fully_visible_objects?: number; partially_visible_objects?: number; unavailable_objects?: number };
   request_id?: string | null;
   coverage?: {
@@ -3432,6 +3434,10 @@ export type KnowledgeRetrievalSummary = {
   intent_planning_mode?: "llm" | "standard";
   intent_planning_model_used?: boolean;
   intent_plan_error_code?: string | null;
+  intent_model_calls?: number;
+  intent_planning_skipped?: string;
+  context_graph_outcome?: { status: string; trace_id?: string; event_id?: string; code?: string };
+  retrieval_strategy?: { requested?: "hybrid_evidence" | "graph_expand"; applied?: "hybrid_evidence" | "graph_expand"; graph_expansion_status?: string; graph_expansion_reason?: string | null; graph_tool_calls?: number; graph_evidence_count?: number; graph_relationship_count?: number };
   context_transport?: string;
   mode?: KnowledgeSearchMode | string;
   query?: string;

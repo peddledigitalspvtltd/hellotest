@@ -74,6 +74,16 @@ test('selection identity binds canonical applied filter metadata without retaini
     await assert.rejects(f.record({packet:packet({applied_filters})}),error=>error.code==='CONTEXT_GRAPH_SELECTION_CONFLICT');
   assert.equal(f.traces.size,1);
 });
+test('context memory preserves the observed bounded retrieval strategy without model rationale or arbitrary tool data',async()=>{
+  const f=fixture(),strategy={requested:'graph_expand',applied:'hybrid_evidence',graph_expansion_status:'skipped',
+    graph_expansion_reason:'selected_sources_or_collections',graph_tool_calls:0,graph_evidence_count:0,graph_relationship_count:0,
+    model_reasoning:'PRIVATE_REASONING',tool_arguments:{password:'PRIVATE_SECRET'}};
+  const input=packet({retrieval:{...packet().retrieval,retrieval_strategy:strategy}});
+  const receipt=await f.record({packet:input}),selection=f.traces.get(receipt.trace_id).selection;
+  assert.deepEqual(selection.retrieval_strategy,{requested:'graph_expand',applied:'hybrid_evidence',graph_expansion_status:'skipped',
+    graph_expansion_reason:'selected_sources_or_collections',graph_tool_calls:0,graph_evidence_count:0,graph_relationship_count:0});
+  assert.doesNotMatch(JSON.stringify(selection),/PRIVATE_REASONING|PRIVATE_SECRET|tool_arguments/);
+});
 test('ledger capture rejects a foreign scope, application, disabled account and oversized evidence atomically',async()=>{
   const f=fixture();await assert.rejects(f.record({packet:packet({project_id:'foreign'})}),error=>error.statusCode===403);
   await assert.rejects(f.record({appTypeId:'foreign-app'}),error=>error.statusCode===403);

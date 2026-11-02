@@ -23,7 +23,7 @@ function setup(t, options = {}) {
       sql.includes("FROM ai_knowledge_refresh WHERE (enabled")
         ? row
         : sql.includes("FROM users")
-          ? { id: "u" }
+          ? options.missingActor ? undefined : { id: "u" }
           : sql.includes("FROM ai_knowledge_ingestion_jobs")
             ? options.pending
             : undefined,
@@ -115,6 +115,14 @@ test("a revoked owner or disabled capability stops automatic refresh", async (t)
   assert.match(writes[0].sql, /enabled = FALSE/);
   assert.equal(queued.length, 0);
 });
+test("a suspended or deleted refresh owner is blocked before permission checks and record reads", async (t) => {
+  const { writes, queued, checked } = setup(t, { missingActor: true });
+  t.mock.method(permissions, "hasPermission", () => assert.fail("An inactive administrator must not enter the admin permission fast path."));
+  assert.equal((await refresh.processDue()).status, "blocked");
+  assert.match(writes[0].sql, /enabled = FALSE/);
+  assert.equal(queued.length, 0);assert.equal(checked.length, 0);
+  await assert.rejects(refresh.configure("p", { enabled: true, interval_ms: 5000 }, { id: "u", is_workspace_admin: true }), { statusCode: 403 });
+});
 test("refresh intervals are validated and denied writes never reach the database", async (t) => {
   for (const ms of [0, -1, 300, 4999, 86400001, "NaN", 5000.5])
     assert.throws(() => refresh._internals.interval(ms), /interval/);
@@ -169,4 +177,35 @@ test("archived sources remain archived and child-content fingerprints detect cha
     await rag.isApplicationRecordIndexed("p", "requirement", "s"),
     false,
   );
+});
+
+test("acceptance-criteria-only Story changes invalidate the indexed snapshot without copying other additional fields", async (t) => {
+  let criteria = ['An approved invoice records its approver.'];
+  let saved;
+  const queries=[];
+  t.mock.method(db,"prepare",sql=>({
+    get:async()=>{
+      queries.push(sql);
+      if(sql.includes('FROM ai_knowledge_sources s'))return saved;
+      if(sql.includes('FROM requirements WHERE'))return {id:'story',title:'Approve invoice',description:'Invoice approval.',acceptance_criteria:criteria,updated_at:'unchanged-parent-time'};
+      throw new Error(sql);
+    },all:async()=>[]
+  }));
+  const record=await rag._internals.loadApplicationRecord('p','requirement','story');
+  assert.match(record.content,/Acceptance criteria:\n1\. An approved invoice records its approver\./);
+  saved={extraction_status:'ready',metadata:{snapshot_fingerprint:rag._internals.applicationSnapshotFingerprint(record)}};
+  assert.equal(await rag.isApplicationRecordIndexed('p','requirement','story'),true);
+  criteria=['An approved invoice records its approver and approval timestamp.'];
+  assert.equal(await rag.isApplicationRecordIndexed('p','requirement','story'),false);
+  const sql=queries.find(value=>value.includes('FROM requirements WHERE'));
+  assert.match(sql,/additional_fields->'acceptance_criteria' AS acceptance_criteria/);
+  assert.doesNotMatch(sql,/, additional_fields,/,'Only the product criteria are projected, not arbitrary private or administrative fields.');
+});
+
+test("native source reuse compares immutable snapshot fingerprints even when passage text is unchanged",()=>{
+  const input={existing:{extraction_status:'ready',checksum_sha256:'same-content'},readyDocument:{checksum_sha256:'same-content',metadata:{snapshot_fingerprint:'old-native-snapshot'}},
+    contentHash:'same-content',documentHash:'same-content',snapshotFingerprint:'new-native-snapshot'};
+  assert.equal(rag._internals.canReuseSourceVersion(input),false,'Changed child/context metadata requires a complete new immutable revision instead of endless refresh/reuse.');
+  input.readyDocument.metadata.snapshot_fingerprint=input.snapshotFingerprint;
+  assert.equal(rag._internals.canReuseSourceVersion(input),true);
 });

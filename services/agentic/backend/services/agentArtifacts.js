@@ -15,7 +15,13 @@ function normalizeArtifacts(value,citations,targets = [], {requireMetadata = fal
  const allowed=new Set(citations.map(c=>c.id));
  return value.map((a,index)=>{
   const path=key=>`artifacts[${index}].${key}`;
+  const invalidField=(key,keyword)=>Object.assign(fail(path(key)),{validation_errors:[{path:path(key),keyword}]});
   if(!a||!['story','test_case','defect','run','automation'].includes(a.kind))throw fail();
+  if(requireMetadata){
+   const required=['priority',...(['test_case','automation'].includes(a.kind)?['test_case_type','parameter_values']:[])];
+   const missing=required.filter(key=>a[key]==null);
+   if(missing.length)throw Object.assign(fail(path(missing[0])),{validation_errors:missing.map(key=>({path:path(key),keyword:'required',required_property:key}))});
+  }
   const ids=strings(a.citation_ids,36);if(ids.some(id=>!allowed.has(id)))throw fail();
   const priority=Number.isInteger(a.priority)&&a.priority>=1&&a.priority<=5?`P${a.priority}`:a.priority;
   if((requireMetadata||a.priority!=null)&&!['P1','P2','P3','P4','P5'].includes(priority))throw fail(path('priority'));
@@ -35,19 +41,19 @@ function normalizeArtifacts(value,citations,targets = [], {requireMetadata = fal
   if(a.kind==='test_case'||a.kind==='automation'){
    for(const key of ['test_data','cleanup','prerequisites'])if(a[key]!=null&&(!Array.isArray(a[key])||a[key].length>20))throw fail(path(key));
    if(requireMetadata&&a.test_case_type==null)throw fail(path('test_case_type'));
-   if(a.test_case_type!=null){artifact.test_case_type=text(a.test_case_type,120).toLowerCase();if(!/^[a-z][a-z0-9_-]{0,119}$/.test(artifact.test_case_type)||Array.isArray(testCaseTypes)&&!testCaseTypes.includes(artifact.test_case_type))throw fail();}
+   if(a.test_case_type!=null){artifact.test_case_type=text(a.test_case_type,120).toLowerCase();if(!/^[a-z][a-z0-9_-]{0,119}$/.test(artifact.test_case_type))throw invalidField('test_case_type','supported_type_slug_required');if(Array.isArray(testCaseTypes)&&!testCaseTypes.includes(artifact.test_case_type))throw invalidField('test_case_type','application_contract_type_required');}
    if(requireMetadata&&a.parameter_values==null)throw fail(path('parameter_values'));
    if(a.parameter_values!=null){
-    if(typeof a.parameter_values!=='object'||Array.isArray(a.parameter_values)||Object.keys(a.parameter_values).length>40)throw fail();
+    if(typeof a.parameter_values!=='object'||Array.isArray(a.parameter_values)||Object.keys(a.parameter_values).length>40)throw invalidField('parameter_values','bounded_parameter_object_required');
     artifact.parameter_values={};
     for(const [raw,value] of Object.entries(a.parameter_values)){
      const key=normalizeParameterKey(raw,'t');
-     if(!key.startsWith('t.')||key.length>130||/[\x00-\x1f]/.test(key)||typeof value!=='string'||value.length>4000||Object.hasOwn(artifact.parameter_values,key))throw fail();
+     if(!key.startsWith('t.')||key.length>130||/[\x00-\x1f]/.test(key)||typeof value!=='string'||value.length>4000||Object.hasOwn(artifact.parameter_values,key))throw invalidField('parameter_values','unique_case_owned_text_parameters_required');
      Object.defineProperty(artifact.parameter_values,key,{value,enumerable:true,writable:true,configurable:true});
     }
    }
    artifact.requirement_ids = a.requirement_ids == null || (Array.isArray(a.requirement_ids) && !a.requirement_ids.length) ? [] : strings(a.requirement_ids,16);
-   if (artifact.requirement_ids.some(id => !targets.some(target => target.id === id && target.kind !== 'test_case' && ids.includes(target.citation_id)))) throw fail();
+   if (artifact.requirement_ids.some(id => !targets.some(target => target.id === id && target.kind !== 'test_case' && ids.includes(target.citation_id)))) throw invalidField('requirement_ids','supplied_story_target_with_supporting_citation_required');
    artifact.test_data = Array.isArray(a.test_data) && a.test_data.length <= 20 ? a.test_data.map(s => text(s,2000)) : [];
    artifact.cleanup = Array.isArray(a.cleanup) && a.cleanup.length <= 20 ? a.cleanup.map(s => text(s,2000)) : [];
    artifact.prerequisites=Array.isArray(a.prerequisites)&&a.prerequisites.length<=20?a.prerequisites.map(s=>text(s,2000)):[];
@@ -61,11 +67,11 @@ function normalizeArtifacts(value,citations,targets = [], {requireMetadata = fal
    } else { if(!Array.isArray(a.steps)||!a.steps.length||a.steps.length>30)throw fail();artifact.steps=a.steps.map(s=>{if(!s||s.automation_code!=null||s.api_request!=null||s.step_type != null && !['web','api','android','ios'].includes(s.step_type))throw fail();return {action:text(s.action,4000),expected_result:text(s.expected_result,4000),...(s.step_type?{step_type:s.step_type}:{})};}); }
    if(a.kind==='automation'){
     artifact.manual_test_case_ids=a.manual_test_case_ids==null||Array.isArray(a.manual_test_case_ids)&&!a.manual_test_case_ids.length?[]:strings(a.manual_test_case_ids,16);
-    if(artifact.manual_test_case_ids.some(id=>!targets.some(target=>target.kind==='test_case'&&target.id===id&&ids.includes(target.citation_id))))throw fail();
+    if(artifact.manual_test_case_ids.some(id=>!targets.some(target=>target.kind==='test_case'&&target.id===id&&ids.includes(target.citation_id))))throw invalidField('manual_test_case_ids','supplied_manual_case_target_with_supporting_citation_required');
     try{artifact.start_url=normalizeAutomationStartUrl(a.start_url,{required:artifact.steps.some(step=>(step.step_type||'web')==='web')});}catch{throw fail();}
    }
   }
-  if(a.kind==='run') { artifact.test_case_ids = strings(a.test_case_ids,50); if(artifact.test_case_ids.some(id => !targets.some(target => target.kind === 'test_case' && target.id === id && ids.includes(target.citation_id)))) throw fail(); artifact.exit_criteria = strings(a.exit_criteria,20); }
+  if(a.kind==='run') { artifact.test_case_ids = strings(a.test_case_ids,50); if(artifact.test_case_ids.some(id => !targets.some(target => target.kind === 'test_case' && target.id === id && ids.includes(target.citation_id)))) throw invalidField('test_case_ids','supplied_case_target_with_supporting_citation_required'); artifact.exit_criteria = strings(a.exit_criteria,20); }
   if(a.kind==='defect'){artifact.reproduction_steps=strings(a.reproduction_steps);artifact.expected_result=text(a.expected_result,4000);artifact.actual_result=text(a.actual_result,4000);if((requireMetadata||a.severity!=null)&&!['critical','high','medium','low'].includes(a.severity))throw fail();artifact.severity=a.severity||'medium';}
   return artifact;
  });
@@ -110,13 +116,15 @@ function planFollowups(agentId, scopes, result, {max=3,refineExisting=false} = {
  if (scope.has('automation') && scope.has('test-cases')) add('automation-engineer',actionable.filter(f=>matches(f,'automation',/\b(?:create|prepare|generate|missing|add)\b.{0,50}\bautomation (?:plan|case|coverage)\b/i)));
  return planned.sort((left,right)=>Number(right.typed)-Number(left.typed)).slice(0,Number.isInteger(max)?Math.min(5,Math.max(1,max)):3).map(({typed,...item})=>item);
 }
-function remainingRecommendations(original, authored, completedKinds) {
+function remainingRecommendations(original, authored, completedKinds, { onOverflow } = {}) {
  const kinds=new Set(completedKinds);
- return [...new Set([...original.filter(item => !(
+ const combined=[...new Set([...original.filter(item => !(
   kinds.has('story') && /(?:complete|clarif|improv|add|fix).*(?:story|stories|acceptance|requirement)/i.test(item)
   || kinds.has('test_case') && /(?:design|create|add|generat|prepare).*(?:test|coverage|scenario|assertion)/i.test(item)
   || kinds.has('defect') && /(?:create|record|prepare|report|file).*(?:defect|bug|failure)/i.test(item)
- )), ...authored])].slice(0,8);
+ )), ...authored])];
+ if(combined.length>20)onOverflow?.(combined.slice(20));
+ return combined.slice(0,20);
 }
 function followup(agentId, scopes, result) { return planFollowups(agentId, scopes, result)[0]?.agent_id || null; }
 function outcomeIssues(result, contract) {
@@ -125,6 +133,7 @@ function outcomeIssues(result, contract) {
  const blocked=artifacts.length===0&&concreteGap;
  const add=(code,message,extra={})=>issues.push({code,message,...extra,...(blocked&&['AGENT_OUTCOME_PROPOSAL_REQUIRED','AGENT_OUTCOME_FINDING_UNRESOLVED'].includes(code)?{blocked:true}:{})});
  const clean=contract.allow_clean_review===true&&result?.no_changes_required===true&&!findings.length&&!(result?.evidence_gaps||[]).length&&(result?.citation_ids||[]).length>0;
+ if(contract.allow_clean_review===true&&result?.no_changes_required===true&&(findings.length||artifacts.length||(result?.evidence_gaps||[]).length))add('AGENT_OUTCOME_NO_CHANGE_CONFLICT','A cited no-change outcome requires no_changes_required:true with findings:[], artifacts:[] and evidence_gaps:[]. Put positive observations in the response or report sections. If a gap or draft remains, do not claim no change is required.',{path:'no_changes_required',issue:'empty_findings_artifacts_and_gaps_for_no_change'});
  if(contract.mode==='author'&&!clean){
   const allowed=new Set(contract.artifact_kinds||[]),count=artifacts.filter(item=>allowed.has(item.kind)).length;
   if(count<(contract.minimum_artifacts||1))add('AGENT_OUTCOME_PROPOSAL_REQUIRED',`The requested ${[...allowed].join('/')} output requires at least ${contract.minimum_artifacts||1} complete structured proposal(s), or specific missing evidence. Review comments do not satisfy this output.`,{kind:[...allowed][0]});
@@ -134,9 +143,12 @@ function outcomeIssues(result, contract) {
  const byId=new Map(findings.filter(f=>typeof f.id==='string'&&f.id).map(f=>[f.id,f]));
  if(byId.size!==findings.filter(f=>typeof f.id==='string'&&f.id).length)add('AGENT_OUTCOME_FINDING_CONTRACT_INVALID','Each finding must have a unique identity so its evidence and proposal coverage remain unambiguous.');
  for(const finding of findings)if(finding.artifact_kind!=null&&!artifactKinds.has(finding.artifact_kind)||finding.requires_proposal!=null&&typeof finding.requires_proposal!=='boolean')add('AGENT_OUTCOME_FINDING_CONTRACT_INVALID','Finding proposal kinds and completion flags must use the declared typed contract.',{finding_ids:finding.id?[finding.id]:[]});
- for(const artifact of artifacts)for(const id of artifact.addressed_finding_ids||[]){
+ for(const [index,artifact] of artifacts.entries())for(const id of artifact.addressed_finding_ids||[]){
   const finding=byId.get(id);
-  if(!finding||(finding.citation_ids||[]).every(source=>!(artifact.citation_ids||[]).includes(source)))add('AGENT_OUTCOME_FINDING_REFERENCE_INVALID','A proposal must address an exact recorded finding and cite evidence supporting that finding.',{finding_ids:[id],kind:artifact.kind});
+  if(!finding||(finding.citation_ids||[]).every(source=>!(artifact.citation_ids||[]).includes(source)))add('AGENT_OUTCOME_FINDING_REFERENCE_INVALID',
+   finding ? 'This proposal claims to resolve the referenced finding but cites none of its supporting sources. Cite the relevant supplied finding evidence only if the proposal resolves that finding; otherwise remove this finding ID. Independent authoring can use addressed_finding_ids:[]; missing runtime evidence remains an explicit gap.'
+    : 'The proposal references a finding ID absent from this response. Use only an exact recorded finding ID that the proposal resolves, or addressed_finding_ids:[] for independent authoring.',
+   {path:`artifacts[${index}].addressed_finding_ids`,issue:finding?'finding_supporting_citation_required':'recorded_finding_id_required',finding_ids:[id],kind:artifact.kind,...(finding?{required_citation_ids:finding.citation_ids||[]}: {})});
  }
  if(contract.findings_require_proposals||contract.mode==='author'){
   const required=planFollowups('quality-orchestrator',contract.context_scopes||[],{...result,artifacts:[]},{max:5});
@@ -153,6 +165,17 @@ function outcomeIssues(result, contract) {
 function storyTargets(boundedContext) {
  const targets=[];
  for (const item of Object.values(boundedContext || {}).flat()) {
+  if(item.source_kind === 'authoritative_live_automation' && item.citation?.id) {
+   try {
+    const snapshot=JSON.parse(item.content);
+    // This projection is loaded by the scoped, permission-checked native
+    // automation reader. An indexed excerpt or supplied task cannot add IDs.
+    const manual=[...(snapshot.case?.automated==='no'?[snapshot.case]:[]),...(Array.isArray(snapshot.linked_manual_cases)?snapshot.linked_manual_cases:[])];
+    for(const record of manual)if(typeof record?.id==='string')targets.push({id:record.id,title:record.title,kind:'test_case',citation_id:item.citation.id});
+    if(snapshot.evidence_permissions?.includes('requirement.view'))for(const record of snapshot.stories?.stories || [])if(typeof record?.id==='string')targets.push({id:record.id,kind:'story_link',citation_id:item.citation.id});
+   } catch { /* An incomplete native projection cannot identify targets. */ }
+   continue;
+  }
   if(item.source_kind !== 'live_project' || !item.citation?.id) continue;
   try {
    const snapshot=JSON.parse(item.content);

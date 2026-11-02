@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { knowledgeApi, type KnowledgeGraph, type KnowledgeGraphNode } from "../api.client";
 import { IconChartDots3, IconHistory, IconInfoCircle, IconRoute } from "@tabler/icons-react";
@@ -11,7 +11,7 @@ import "./KnowledgeGraphExplorer.css";
 const graphApi = knowledgeApi.knowledgeRepo.graph;
 const message = (error: unknown) => error instanceof Error ? error.message : "The graph request could not finish.";
 const label = (value: string) => value.replace(/_/g, " ").toLowerCase().replace(/^./, letter => letter.toUpperCase());
-type Props = { projectId: string; appTypeId?: string; canManage: boolean; sources: KnowledgeSource[]; onOpenSource: (sourceId: string, revisionId?: string) => void };
+type Props = { projectId: string; appTypeId?: string; canManage: boolean; sources: KnowledgeSource[]; initialMode?: "knowledge" | "context"; initialTraceId?: string; onOpenSource: (sourceId: string, revisionId?: string) => void };
 
 function Aliases({ projectId, node }: { projectId: string; node: KnowledgeGraphNode }) {
   const cache = useQueryClient();
@@ -28,9 +28,10 @@ function Aliases({ projectId, node }: { projectId: string; node: KnowledgeGraphN
     </form></details>;
 }
 
-export default function KnowledgeGraphPanel({ projectId, appTypeId, canManage, sources, onOpenSource }: Props) {
+export default function KnowledgeGraphPanel({ projectId, appTypeId, canManage, sources, initialMode, initialTraceId = "", onOpenSource }: Props) {
   const cache = useQueryClient();
-  const [mode, setMode] = useState<"knowledge" | "context">("knowledge");
+  const [mode, setMode] = useState<"knowledge" | "context">(initialMode || "knowledge");
+  useEffect(() => { if (initialMode) setMode(initialMode); }, [initialMode, initialTraceId]);
   const [selected, setSelected] = useState<string[]>([]);
   const [choice, setChoice] = useState("");
   const [hops, setHops] = useState(2);
@@ -60,7 +61,7 @@ export default function KnowledgeGraphPanel({ projectId, appTypeId, canManage, s
     <div className="knowledge-graph-heading"><div className="knowledge-graph-title"><span className="knowledge-graph-eyebrow">PROJECT KNOWLEDGE</span><h3>Understand the connections</h3><p>Explore what your knowledge means, then follow the context behind a specific AI task.</p></div>
       <div className="knowledge-graph-mode" role="group" aria-label="Graph layer"><button type="button" aria-pressed={mode==='knowledge'} onClick={()=>setMode('knowledge')}><IconChartDots3 size={17}/>Knowledge graph</button><button type="button" aria-pressed={mode==='context'} onClick={()=>setMode('context')}><IconHistory size={17}/>Context graph</button></div>
     </div>
-    {mode==='context'?<ContextGraphPanel projectId={projectId} appTypeId={appTypeId} onOpenSource={onOpenSource}/>:<>
+    {mode==='context'?<ContextGraphPanel projectId={projectId} appTypeId={appTypeId} initialTraceId={initialTraceId} onOpenSource={onOpenSource}/>:<>
     <div className="knowledge-graph-layer-heading"><div><strong>Facts with meaning and source evidence</strong><p>Typed relationships connect indexed records. Select a starting source to explore a bounded part of the graph.</p></div>{canManage ? <button type="button" className="ghost-button compact" onClick={() => reconcile.mutate()} disabled={reconcile.isPending}>{reconcile.isPending ? "Updating…" : cursor ? "Update next graph batch" : "Update graph"}</button> : null}</div>
     <form className="knowledge-graph-controls" onSubmit={openGraph}>
       <label>Start from indexed sources<select value={choice} onChange={event => setChoice(event.target.value)}><option value="">Choose a source</option>{ready.filter(source => !selected.includes(source.id)).map(source => <option key={source.id} value={source.id}>{source.title} · {label(source.source_kind)}</option>)}</select></label>

@@ -8,6 +8,9 @@ const MAX_PACKET_CHARS = 64000;
 function missionContext(request, observed, previous = [], history = []) {
   const packet = {
     task_brief:C.taskBrief(request),kind:request.kind,
+    execution_phase:{current:'browser_navigation',native_checks_after_completion:request.kind==='web'?null:{
+      kind:request.kind,status:'pending',executor:'native_quality_engine',
+      checks:C.AGENTS.find(agent=>agent.id===request.kind).checks}},
     origin:new URL(request.target_url).origin,
     allow_form_submission:request.options.mission.allow_form_submission,
     remaining_actions:Math.max(0,request.options.mission.max_actions-observed.sequence+1),

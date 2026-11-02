@@ -9,7 +9,7 @@ async function contextCall({userId,projectId,args,signal,privateInput,traceScope
   const actor=await principal(userId,projectId,'hellotest-internal');
   if(privateInput)Object.assign(actor,privateInput);
   if(!transport)throw Object.assign(new Error('MCP context transport is not initialized.'),{code:'MCP_CONTEXT_UNAVAILABLE'});
-  const metadata=Object.fromEntries(['feature','session_id','task_id','request_id','trace_id'].filter(key=>typeof traceScope?.[key]==='string').map(key=>[key,traceScope[key]]));
+  const metadata=require('./contextAttribution').select(traceScope);
   return traces.run({...metadata,mcp_context_depth:1},()=>transport(actor,'hellotest_context_build',args,boundedSignal));
  },{signal,timeoutMs});
 }

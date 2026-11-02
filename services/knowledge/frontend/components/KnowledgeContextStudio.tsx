@@ -81,6 +81,8 @@ type KnowledgeContextStudioProps = {
   projectId: string;
   initialSourceId?: string;
   initialRevisionId?: string;
+  initialGraphMode?: "knowledge" | "context";
+  initialTraceId?: string;
 };
 
 const emptySelectedRecords = (): KnowledgeSelectedRecords => ({
@@ -255,11 +257,12 @@ function idempotencyPrefix() {
   return `knowledge-build:${randomId}`;
 }
 
-export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSuccess, projectId, initialSourceId = "", initialRevisionId = "" }: KnowledgeContextStudioProps) {
+export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSuccess, projectId, initialSourceId = "", initialRevisionId = "", initialGraphMode, initialTraceId = "" }: KnowledgeContextStudioProps) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const buildAttemptRef = useRef<{ fingerprint: string; key: string } | null>(null);
-  const [requestedTab, setActiveTab] = useState<StudioTab>("sources");
+  const [requestedTab, setActiveTab] = useState<StudioTab>(initialGraphMode ? "graph" : "sources");
+  useEffect(() => { if (initialGraphMode) setActiveTab("graph"); }, [initialGraphMode, initialTraceId]);
   const [buildKind, setBuildKind] = useState<BuildKind>("files");
   const [showSearchFilters, setShowSearchFilters] = useState(false);
   const [showSourceFilters, setShowSourceFilters] = useState(false);
@@ -640,7 +643,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
         ))}
       </div>
 
-      {activeTab === "graph" ? <Suspense fallback={<LoadingState label="Loading knowledge and context graphs" />}><KnowledgeGraphPanel key={projectId} projectId={projectId} appTypeId={appTypeId} canManage={canManage} sources={allSources} onOpenSource={(sourceId, revisionId) => { setSelectedDetailSourceId(sourceId); setSelectedDetailRevisionId(revisionId || ""); }} /></Suspense> : null}
+      {activeTab === "graph" ? <Suspense fallback={<LoadingState label="Loading knowledge and context graphs" />}><KnowledgeGraphPanel key={projectId} projectId={projectId} appTypeId={appTypeId} canManage={canManage} sources={allSources} initialMode={initialGraphMode} initialTraceId={initialTraceId} onOpenSource={(sourceId, revisionId) => { setSelectedDetailSourceId(sourceId); setSelectedDetailRevisionId(revisionId || ""); }} /></Suspense> : null}
 
       {activeTab === "build" && canManage ? (
         <div aria-labelledby="knowledge-add-sources-title" className="knowledge-builder" id="knowledge-panel-build" role="tabpanel">

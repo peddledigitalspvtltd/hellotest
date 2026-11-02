@@ -171,13 +171,14 @@ const processingProfile = (chunking = {}) => {
     fingerprint: fingerprint(JSON.stringify({ version: KNOWLEDGE_PROCESSING_VERSION, chunking: normalizedChunking }))
   };
 };
-const canReuseSourceVersion = ({ existing, readyDocument, contentHash, documentHash, processingFingerprint, metadataFingerprint }) => Boolean(
+const canReuseSourceVersion = ({ existing, readyDocument, contentHash, documentHash, processingFingerprint, metadataFingerprint, snapshotFingerprint }) => Boolean(
   readyDocument
   && existing?.extraction_status === "ready"
   && existing?.checksum_sha256 === contentHash
   && (!documentHash || readyDocument.checksum_sha256 === documentHash)
   && (!processingFingerprint || asObject(readyDocument.metadata).processing_pipeline?.fingerprint === processingFingerprint)
   && (!metadataFingerprint || asObject(readyDocument.metadata).repository_provenance_fingerprint === metadataFingerprint)
+  && (!snapshotFingerprint || asObject(readyDocument.metadata).snapshot_fingerprint === snapshotFingerprint)
 );
 const resolveAllowedSourcePermissions = async (user, projectId) => {
   if (!user) return [];
@@ -520,7 +521,7 @@ const compactJson = (value, maxLength = 2_000) => {
   }
 };
 
-const serializeRequirement = (row, linkedTestCaseIds = []) => ({
+const serializeRequirement = (row, linkedTestCaseIds = [], totalLinkedTestCases = linkedTestCaseIds.length) => ({
   source_kind: "requirement",
   source_ref_id: row.id,
   app_type_id: null,
@@ -532,18 +533,22 @@ const serializeRequirement = (row, linkedTestCaseIds = []) => ({
     row.release ? `Release: ${row.release}` : "",
     row.sprint ? `Sprint: ${row.sprint}` : "",
     row.description || "",
+    asArray(row.acceptance_criteria).length ? `Acceptance criteria:\n${asArray(row.acceptance_criteria).map((criterion, index) => `${index + 1}. ${criterion}`).join("\n")}` : "",
     row.specification_content || "",
     asArray(row.gherkin_scenarios).length ? compactJson(row.gherkin_scenarios, 8_000) : "",
     asArray(row.labels).length ? `Labels: ${compactJson(row.labels, 1_000)}` : "",
     sanitizeExternalReferences(row.external_references).length ? `External references: ${compactJson(sanitizeExternalReferences(row.external_references), 2_000)}` : "",
-    linkedTestCaseIds.length ? `Linked Test Case IDs (${linkedTestCaseIds.length}): ${linkedTestCaseIds.join(", ")}` : "Linked Test Case IDs: none"
+    ...(linkedTestCaseIds.length ? linkedTestCaseIds.map(id => `Linked Test Case IDs: ${id}`) : ["Linked Test Case IDs: none"]),
+    totalLinkedTestCases > linkedTestCaseIds.length ? `Indexed Story relationship window: first ${linkedTestCaseIds.length} of ${totalLinkedTestCases} linked Test Cases. Retrieve the current Story through MCP before assessing complete coverage.` : ""
   ].filter(Boolean).join("\n\n"),
   metadata: {
     display_id: row.display_id,
     status: row.status,
     priority: row.priority,
     linked_test_case_ids: linkedTestCaseIds,
-    linked_test_case_count: linkedTestCaseIds.length,
+    linked_test_case_count: totalLinkedTestCases,
+    indexed_linked_test_case_count: linkedTestCaseIds.length,
+    linked_test_cases_truncated: totalLinkedTestCases > linkedTestCaseIds.length,
     source_updated_at: row.updated_at || row.created_at
   }
 });
@@ -555,9 +560,11 @@ const serializeTestCase = async (row) => {
   `).all(row.id);
   const [requirementLinks, modules] = await Promise.all([
     db.prepare(`
-      SELECT requirement_id FROM requirement_test_cases
-      WHERE test_case_id = ? ORDER BY requirement_id LIMIT 50
-    `).all(row.id),
+      SELECT requirement_id, COUNT(*) OVER() AS total_link_count FROM (
+        SELECT requirement_id FROM requirement_test_cases WHERE test_case_id = ?
+        UNION SELECT ?::TEXT WHERE ?::TEXT IS NOT NULL
+      ) linked_requirements ORDER BY requirement_id LIMIT 50
+    `).all(row.id, normalizeId(row.requirement_id) || null, normalizeId(row.requirement_id) || null),
     db.prepare(`
       SELECT modules.id, modules.name
       FROM test_case_module_cases links
@@ -569,6 +576,7 @@ const serializeTestCase = async (row) => {
     normalizeId(row.requirement_id),
     ...requirementLinks.map((link) => normalizeId(link.requirement_id))
   ].filter(Boolean))].slice(0, 50);
+  const totalRequirementCount = Number(requirementLinks[0]?.total_link_count) || requirementIds.length;
   const totalStepCount = Number(steps[0]?.total_step_count) || steps.length;
   return {
     source_kind: "test_case",
@@ -581,7 +589,8 @@ const serializeTestCase = async (row) => {
       `Priority: ${row.priority ?? "not recorded"}`,
       `Authoring mode: ${row.authoring_mode || "structured"}`,
       `Review status: ${row.review_status || "not_requested"}`,
-      requirementIds.length ? `Requirement IDs: ${requirementIds.join(", ")}` : "",
+      ...requirementIds.map(id => `Requirement IDs: ${id}`),
+      totalRequirementCount > requirementIds.length ? `Indexed Test Case relationship window: first ${requirementIds.length} of ${totalRequirementCount} linked Stories. Retrieve the current Test Case through MCP before assessing complete coverage.` : "",
       row.suite_id ? `Suite ID: ${row.suite_id}` : "",
       modules.length ? `Modules: ${modules.map((module) => `${module.name} (${module.id})`).join(", ")}` : "",
       Object.keys(asObject(row.parameter_values)).length ? `Test parameter names: ${compactJson(Object.keys(row.parameter_values), 4_000)}. Values require live, permission-checked test-data retrieval.` : "",
@@ -601,6 +610,9 @@ const serializeTestCase = async (row) => {
       indexed_step_count: steps.length,
       steps_truncated: totalStepCount > steps.length,
       requirement_ids: requirementIds,
+      requirement_count: totalRequirementCount,
+      indexed_requirement_count: requirementIds.length,
+      requirements_truncated: totalRequirementCount > requirementIds.length,
       module_ids: modules.map((module) => module.id),
       suite_id: row.suite_id || null,
       context_permission_profile: knowledgeAuthorization.APPLICATION_CONTEXT_PROFILE,
@@ -667,8 +679,10 @@ const serializeBug = (row) => ({
     row.sprint ? `Sprint: ${row.sprint}` : "",
     row.fix_version ? `Fix version: ${row.fix_version}` : "",
     row.linked_test_run_id ? `Linked Test Run ID: ${row.linked_test_run_id}` : "",
-    asArray(row.linked_requirement_ids).length ? `Linked Story IDs: ${asArray(row.linked_requirement_ids).slice(0, 50).join(", ")}` : "",
-    asArray(row.linked_test_case_ids).length ? `Linked Test Case IDs: ${asArray(row.linked_test_case_ids).slice(0, 50).join(", ")}` : "",
+    ...asArray(row.linked_requirement_ids).slice(0, 50).map(id => `Linked Story IDs: ${id}`),
+    ...asArray(row.linked_test_case_ids).slice(0, 50).map(id => `Linked Test Case IDs: ${id}`),
+    asArray(row.linked_requirement_ids).length > 50 || asArray(row.linked_test_case_ids).length > 50
+      ? `Indexed Defect relationship window: first ${Math.min(50,asArray(row.linked_requirement_ids).length)} of ${asArray(row.linked_requirement_ids).length} linked Stories and first ${Math.min(50,asArray(row.linked_test_case_ids).length)} of ${asArray(row.linked_test_case_ids).length} linked Test Cases. Retrieve the current Defect through MCP before assessing complete coverage.` : "",
     asArray(row.linked_test_suite_ids).length ? `Linked Suite IDs: ${asArray(row.linked_test_suite_ids).slice(0, 50).join(", ")}` : "",
     asArray(row.linked_module_ids).length ? `Linked Module IDs: ${asArray(row.linked_module_ids).slice(0, 50).join(", ")}` : "",
     row.message || "",
@@ -685,6 +699,8 @@ const serializeBug = (row) => ({
     linked_test_run_id: row.linked_test_run_id || null,
     linked_requirement_ids: asArray(row.linked_requirement_ids).slice(0, 50),
     linked_test_case_ids: asArray(row.linked_test_case_ids).slice(0, 50),
+    linked_requirement_count: asArray(row.linked_requirement_ids).length,
+    linked_test_case_count: asArray(row.linked_test_case_ids).length,
     source_updated_at: row.updated_at || row.created_at
   }
 });
@@ -693,15 +709,16 @@ const loadApplicationRecord = async (projectId, kind, id) => {
   if (kind === "requirement") {
     const row = await db.prepare(`
       SELECT id, display_id, title, description, gherkin_scenarios, specification_content,
+        additional_fields->'acceptance_criteria' AS acceptance_criteria,
         external_references, labels, priority, status, sprint, release, created_at, updated_at
       FROM requirements WHERE id = ? AND project_id = ?
     `).get(id, projectId);
     if (!row) throw createError(`Story ${id} was not found in this project.`, 404);
     const linkedTestCases = await db.prepare(`
-      SELECT test_case_id FROM requirement_test_cases
+      SELECT test_case_id, COUNT(*) OVER() AS total_link_count FROM requirement_test_cases
       WHERE requirement_id = ? ORDER BY test_case_id LIMIT 100
     `).all(id);
-    return serializeRequirement(row, linkedTestCases.map((link) => link.test_case_id));
+    return serializeRequirement(row, linkedTestCases.map((link) => link.test_case_id), Number(linkedTestCases[0]?.total_link_count) || linkedTestCases.length);
   }
   if (kind === "test_case") {
     const row = await db.prepare(`
@@ -1070,7 +1087,8 @@ const createSource = async ({ projectId, collectionId, input, userId, jobId, lea
       SELECT id, checksum_sha256, metadata FROM ai_knowledge_documents
       WHERE source_id = ? AND is_active = TRUE LIMIT 1
     `).get(existing.id);
-    const reusable = canReuseSourceVersion({ existing, readyDocument, contentHash, documentHash, processingFingerprint: input.processing_fingerprint, metadataFingerprint: input.metadata_fingerprint });
+    const reusable = canReuseSourceVersion({ existing, readyDocument, contentHash, documentHash, processingFingerprint: input.processing_fingerprint,
+      metadataFingerprint: input.metadata_fingerprint, snapshotFingerprint: asObject(input.metadata).snapshot_fingerprint });
     const graphReady = !reusable || !input.graph_projection_required || Boolean((await db.prepare(`SELECT 1 AS ready
       FROM ai_knowledge_graph_nodes nodes JOIN ai_knowledge_graph_projection_states projections ON projections.project_id = nodes.project_id
       WHERE nodes.source_id = ? AND nodes.project_id = ? AND nodes.tombstoned_at IS NULL AND projections.document_id = ?
@@ -1345,7 +1363,8 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
     `).run(
       documentId, projectId, source.id, source.title, sanitized.text, version,
       Math.ceil(sanitized.text.length / 4), sanitized.text.length, checksum,
-      { ...metadata, source_snapshot: { source_kind: source.source_kind, source_ref_id: source.source_ref_id || null,
+      { ...metadata, ...(source.metadata?.snapshot_fingerprint ? { snapshot_fingerprint: source.metadata.snapshot_fingerprint } : {}),
+        source_snapshot: { source_kind: source.source_kind, source_ref_id: source.source_ref_id || null,
         title: source.title, source_uri: sanitizeSourceUri(source.source_uri), attachment_id: source.attachment_id || null,
         checksum_sha256: source._pending_checksum || source.checksum_sha256 || null,
         context_permission_profile: source.metadata?.context_permission_profile || null },
@@ -1901,16 +1920,20 @@ const processQueuedIngestions = async ({ limit = 2, staleAfterMinutes = 60 } = {
     }, 30_000);
     heartbeat.unref?.();
     try {
+      jobConfig = asObject(job.config);
+      const workerUser = job.created_by ? await db.prepare(`
+        SELECT id, is_workspace_admin FROM users WHERE id = ? AND status = 'active'
+      `).get(job.created_by) : null;
+      if (!workerUser || !await permissionService.hasPermission(workerUser, 'knowledge.manage', job.project_id)
+        || !await featureFlagService.areEnabled(featureFlagService.getFeatureKeysForPermission('knowledge.manage'), { user: workerUser })) {
+        throw createError('The ingestion owner is no longer authorized to process Knowledge sources.', 403, 'KNOWLEDGE_SOURCE_PERMISSION_REQUIRED');
+      }
+      if (workerUser?.is_workspace_admin) workerUser.role = "admin";
       queuedInputs = await db.prepare(`
         SELECT payload FROM ai_knowledge_ingestion_inputs
         WHERE job_id = ? ORDER BY input_index ASC
       `).all(job.id);
       if (!queuedInputs.length) throw createError("Queued knowledge inputs are unavailable.", 409);
-      jobConfig = asObject(job.config);
-      const workerUser = job.created_by ? await db.prepare(`
-        SELECT id, is_workspace_admin FROM users WHERE id = ?
-      `).get(job.created_by) : null;
-      if (workerUser?.is_workspace_admin) workerUser.role = "admin";
       const result = jobConfig.upload
         ? await processQueuedUpload({ job, payload: asObject(queuedInputs[0].payload), user: workerUser, leaseOwner: KNOWLEDGE_WORKER_ID, signal: leaseController.signal })
         : await ingest({
@@ -3290,25 +3313,40 @@ const unlinkCollectionSources = async (collectionId, sourceIds, user) => {
 
 const getOverview = async ({ projectId, userId, user }) => {
   const allowedSourcePermissions = await resolveAllowedSourcePermissions(user, projectId);
-  const sourceAcl = allowedSourcePermissions.length
-    ? `(required_permission IS NULL OR required_permission IN (${allowedSourcePermissions.map(() => "?").join(", ")}))`
-    : "required_permission IS NULL";
+  const sourcePermission = allowedSourcePermissions.length
+    ? `(sources.required_permission IS NULL OR sources.required_permission IN (${allowedSourcePermissions.map(() => "?").join(", ")}))`
+    : "sources.required_permission IS NULL";
+  const sourceAcl = knowledgeAuthorization.predicate({ user, projectId });
+  const documentAcl = knowledgeAuthorization.predicate({ user, projectId, document: 'documents' });
+  const fragmentAcl = knowledgeAuthorization.predicate({ user, projectId, document: 'documents', chunk: 'chunks' });
+  // Repository/graph dashboards are an evidence surface too. An aggregate must
+  // not disclose denied sources or count fragments the viewer cannot retrieve.
+  const visible = `WITH visible_sources AS (
+      SELECT sources.id, sources.project_id, sources.extraction_status FROM ai_knowledge_sources sources
+      WHERE sources.project_id = ? AND sources.extraction_status <> 'archived'
+        AND ${sourcePermission} AND ${sourceAcl.sql}
+    ), visible_documents AS (
+      SELECT documents.id, documents.source_id, documents.metadata FROM ai_knowledge_documents documents
+      JOIN visible_sources sources ON sources.id=documents.source_id AND sources.project_id=documents.project_id
+      WHERE documents.is_active=TRUE AND ${documentAcl.sql}
+    ), visible_fragments AS (
+      SELECT chunks.id, chunks.document_id FROM ai_knowledge_chunks chunks
+      JOIN visible_documents documents ON documents.id=chunks.document_id
+      JOIN visible_sources sources ON sources.id=chunks.source_id AND sources.project_id=chunks.project_id
+      WHERE ${fragmentAcl.sql}
+    )`;
+  const visibleParams = [projectId, ...allowedSourcePermissions, ...sourceAcl.params, ...documentAcl.params, ...fragmentAcl.params];
   const counts = await db.prepare(`
-    WITH visible_sources AS (
-      SELECT id, extraction_status FROM ai_knowledge_sources
-      WHERE project_id = ? AND ${sourceAcl}
-    )
+    ${visible}
     SELECT
       (SELECT COUNT(*)::INTEGER FROM ai_knowledge_collections WHERE project_id = ?) AS collections,
       (SELECT COUNT(*)::INTEGER FROM visible_sources) AS sources,
-      (SELECT COUNT(*)::INTEGER FROM ai_knowledge_documents documents JOIN visible_sources sources ON sources.id = documents.source_id WHERE documents.is_active = TRUE) AS documents,
-      (SELECT COUNT(*)::INTEGER FROM ai_knowledge_chunks chunks
-        JOIN ai_knowledge_documents documents ON documents.id = chunks.document_id AND documents.is_active = TRUE
-        JOIN visible_sources sources ON sources.id = chunks.source_id) AS chunks,
+      (SELECT COUNT(*)::INTEGER FROM visible_documents) AS documents,
+      (SELECT COUNT(*)::INTEGER FROM visible_fragments) AS chunks,
       (SELECT COUNT(*)::INTEGER FROM visible_sources WHERE extraction_status = 'ready') AS ready_sources,
       (SELECT COUNT(*)::INTEGER FROM visible_sources WHERE extraction_status IN ('pending', 'processing', 'needs_extraction')) AS processing_sources,
       (SELECT COUNT(*)::INTEGER FROM visible_sources WHERE extraction_status = 'failed') AS failed_sources
-  `).get(projectId, ...allowedSourcePermissions, projectId);
+  `).get(...visibleParams, projectId);
   const recentJobs = isKnowledgeAdmin(user)
     ? await db.prepare("SELECT * FROM ai_knowledge_ingestion_jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT 10").all(projectId)
     : await db.prepare("SELECT * FROM ai_knowledge_ingestion_jobs WHERE project_id = ? AND created_by = ? ORDER BY created_at DESC LIMIT 10").all(projectId, user?.id || "__no_user__");
@@ -3317,13 +3355,16 @@ const getOverview = async ({ projectId, userId, user }) => {
   let contextQuality = { active_documents: 0, current_pipeline_documents: 0, review_required_documents: 0, average_score: null };
   try {
     const qualityRow = await db.prepare(`
+      ${visible}
       SELECT COUNT(*)::INTEGER AS active_documents,
         COUNT(*) FILTER (WHERE metadata->'processing_pipeline'->>'version' = ?)::INTEGER AS current_pipeline_documents,
         COUNT(*) FILTER (WHERE COALESCE((metadata->'context_quality'->>'requires_review')::BOOLEAN, FALSE))::INTEGER AS review_required_documents,
         ROUND(AVG(NULLIF(metadata->'context_quality'->>'score', '')::NUMERIC), 1) AS average_score
-      FROM ai_knowledge_documents
-      WHERE project_id = ? AND is_active = TRUE
-    `).get(KNOWLEDGE_PROCESSING_VERSION, projectId);
+      FROM visible_documents documents
+      WHERE NOT EXISTS (SELECT 1 FROM ai_knowledge_chunks all_fragments
+        WHERE all_fragments.document_id=documents.id AND NOT EXISTS(
+          SELECT 1 FROM visible_fragments permitted WHERE permitted.id=all_fragments.id))
+    `).get(...visibleParams, KNOWLEDGE_PROCESSING_VERSION);
     contextQuality = {
       active_documents: Number(qualityRow?.active_documents || 0),
       current_pipeline_documents: Number(qualityRow?.current_pipeline_documents || 0),
