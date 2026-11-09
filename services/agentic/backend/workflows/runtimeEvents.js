@@ -48,6 +48,7 @@ function providerInfo(value) {
 }
 function failureInfo(input) {
  const failure = input && typeof input === 'object' ? input : {}, code = failureCode(failure);
+ const requiredPermission=failure.required_permission||failure.permission;
  const provider = providerInfo(failure.provider_error);
  const origin = failure.workflow_failure && typeof failure.workflow_failure === 'object' ? failure.workflow_failure : {};
  const artifact=failure.workflow_artifact&&typeof failure.workflow_artifact==='object'?failure.workflow_artifact:{};
@@ -75,6 +76,7 @@ function failureInfo(input) {
   ...(providerCode ? {provider_failure_code:providerCode}:{}),
   ...(Number.isInteger(failure.statusCode) ? { status_code: failure.statusCode } : {}),
   ...(Number.isInteger(failure.upstreamStatusCode || failure.upstreamStatus) ? { upstream_status_code: failure.upstreamStatusCode || failure.upstreamStatus } : {}),
+  ...(typeof requiredPermission==='string'&&/^[a-z][a-z0-9_.-]{1,127}$/.test(requiredPermission)?{required_permission:requiredPermission}:{}),
   ...(provider ? {provider_error:provider} : {}),
   ...(identifier(origin.node_id) ? {origin:{node_id:origin.node_id,node_name:safeMessage(origin.node_name).slice(0,255),
     ...(identifier(origin.loop_node_id)?{loop_node_id:origin.loop_node_id}:{}),

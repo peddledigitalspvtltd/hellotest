@@ -2,11 +2,25 @@ import { parse } from "acorn";
 
 /** Use captured attributes as data; never evaluate a locator or captured HTML. */
 export function buildAttributeLocator(tag: string, attributes: Array<[string, string]>, scope = "", index?: number) {
+  if (index !== undefined && (!Number.isSafeInteger(index) || index < 0)) throw new Error("Match index must be a whole number starting at 0.");
   const quote = (value: string) => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\n\r\f]/g, "\\a ")}"`;
   const element = /^[a-z][a-z0-9-]*$/i.test(tag) ? tag.toLowerCase() : "*";
   const selector = element + attributes.filter(([name]) => /^[a-z_][a-z0-9_-]*$/i.test(name)).map(([name, value]) => `[${name}=${quote(value)}]`).join("");
   const scoped = scope.trim() ? `${scope.trim()} ${selector}` : selector;
   return index !== undefined && Number.isInteger(index) && index >= 0 ? `${scoped} >> nth=${index}` : scoped;
+}
+
+type FieldLocatorCandidate = {locator:string;strategy:string;confidenceScore:number;isPrimary?:boolean;isFallback?:boolean;matchCount?:number;lastValidatedStatus?:string};
+/** Keep exactly one primary and preserve distinct alternatives when it changes. */
+export function changeRepositoryFieldLocator(field:{locator:string;locatorKind:string;locatorCandidates?:FieldLocatorCandidate[];fallbackLocators:FieldLocatorCandidate[]}, locator:string, strategy = field.locatorKind) {
+  const candidates = [...(field.locatorCandidates || []), ...field.fallbackLocators];
+  if (!candidates.some(candidate => candidate.locator === field.locator)) candidates.push({locator:field.locator,strategy:field.locatorKind,confidenceScore:0});
+  const selected = candidates.find(candidate => candidate.locator === locator) || {locator,strategy,confidenceScore:0};
+  const ordered = [selected, ...candidates.filter(candidate => candidate.locator !== locator)]
+    .filter((candidate,index,all) => all.findIndex(other => other.locator === candidate.locator) === index)
+    .map((candidate,index) => ({...candidate,isPrimary:index===0,isFallback:index>0,matchCount:undefined,lastValidatedStatus:"pending"}));
+  return {locator,locatorKind:selected.strategy,locatorCandidates:ordered,fallbackLocators:ordered.slice(1),
+    validationStatus:"unverified" as const,validatedAt:undefined,validationWarning:"Locator changed. Validate it on the current page."};
 }
 
 type Member = { ref: string; entry: { id: string; test_case_id?: string | null; locator?: string | null;metadata?:{reference_aliases?:unknown;merged_into_entry_id?:unknown;observed_route_sha256?:unknown;instruction_usages?:unknown} } };

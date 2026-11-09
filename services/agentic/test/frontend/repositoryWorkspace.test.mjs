@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergeInspectedFields, mergeRepositoryEntries, persistRepositoryScreenBundle, retainUnsavedInspectedFields } from "../../frontend/lib/repositoryWorkspace.ts";
+import { applyInspectedFieldValidation, mergeInspectedFields, mergeRepositoryEntries, persistRepositoryScreenBundle, retainUnsavedInspectedFields } from "../../frontend/lib/repositoryWorkspace.ts";
 
 test("saving one screen and its fields preserves other loaded screens", () => {
   assert.deepEqual(mergeRepositoryEntries([{ id: "existing" }, { id: "screen", name: "old" }], [{ id: "screen", name: "saved" }, { id: "field" }]), [
@@ -65,4 +65,11 @@ test("editing a selected field while a save is pending retains the newer draft o
   assert.deepEqual(retainUnsavedInspectedFields([edited], [original], []), [edited]);
   assert.deepEqual(retainUnsavedInspectedFields([edited], [original], [original]), [edited]);
   assert.deepEqual(retainUnsavedInspectedFields([original], [original], []), []);
+});
+
+test("late save failures and validation never reselect fields removed during their requests", () => {
+  const email = {locator:'#email',name:'Email'}, password = {locator:'#password',name:'Password'};
+  assert.deepEqual(retainUnsavedInspectedFields([email], [email,password], [password]), []);
+  assert.deepEqual(applyInspectedFieldValidation([email], [email,password], [{...email,validated:true},{...password,validated:true}]), [{...email,validated:true}]);
+  assert.deepEqual(applyInspectedFieldValidation([{...email,name:'Edited'}, {locator:'#new',name:'New'}], [email], [{...email,validated:true}]), [{...email,name:'Edited'}, {locator:'#new',name:'New'}]);
 });

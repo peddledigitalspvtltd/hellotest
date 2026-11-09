@@ -10,7 +10,7 @@ const validationSchema = {
   type: 'object', additionalProperties: false,
   required: ['decision', 'explanation', 'suggestions'],
   properties: {
-    decision: { enum: decisions },
+    decision: { type: 'string', enum: decisions },
     explanation: { type: 'string', maxLength: 1000 },
     suggestions: { type: 'array', maxItems: 3, items: { type: 'string', maxLength: 300 } }
   }
@@ -31,7 +31,8 @@ async function validateAuthoringIntent({ featureKey, integration, additionalCont
   if (!request.user_request) return;
 
   const base = String(integration.base_url || 'https://api.openai.com/v1').replace(/\/+$/, '');
-  const response = await fetchCompletion(/\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`, {
+  let response;
+  try { response = await fetchCompletion(/\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(integration.api_key ? { Authorization: `Bearer ${integration.api_key}` } : {}) },
     body: JSON.stringify({ model: integration.model, response_format: { type: 'json_object' }, messages: [
@@ -42,7 +43,16 @@ async function validateAuthoringIntent({ featureKey, integration, additionalCont
         reviewed_context: request.reviewed_context, selected_template: request.selected_template,
         reference_images: images.map(image => ({ name: image.name })), external_references: externalLinks.map(url => ({ url, content_retrieved: false })) }) }
     ] })
-  }, { integration, operation: 'authoring.validate-request', featureKey: FEATURE, contextFallback: false, maxOutputTokens: 700 });
+  }, { integration, operation: 'authoring.validate-request', featureKey: FEATURE, contextFallback: false, maxOutputTokens: 4096,
+    outputSchema: validationSchema,
+    providerOutputSchema: { ...validationSchema, properties: { decision: validationSchema.properties.decision, explanation: {type:'string'}, suggestions: {type:'array',items:{type:'string'}} } },
+    outputSchemaName: 'authoring_relevance' }); }
+  catch (error) {
+    if (error.code === 'AI_OUTPUT_TRUNCATED') throw Object.assign(new Error('The model could not finish checking the authoring request. No Test Cases were generated. Review the request-validation output budget in AI Controls and try again.'), {
+      code:'AI_AUTHORING_VALIDATION_TRUNCATED',statusCode:502,publicMessage:'The model could not finish checking the authoring request. No Test Cases were generated. Review the request-validation output budget in AI Controls and try again.'
+    });
+    throw error;
+  }
   if (!response.ok) throw createLlmProviderError({ status: response.status, headers: response.headers, detail: await response.text() });
   let verdict;
   try { verdict = parseAiJson(getCompletionContent(await response.json())); } catch { /* handled by the closed contract below */ }

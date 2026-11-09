@@ -42,6 +42,21 @@ test('feature output budgets preserve a lower requested cap and the exact prompt
   assert.deepEqual(prepareChatRequest(nonChat).init, nonChat);
 });
 
+test('only the official GPT-5 relevance check defaults to minimal reasoning within the existing caps',()=>{
+  const options={operation:'authoring.validate-request',providerUrl:'https://api.openai.com/v1/chat/completions',maxOutputTokens:4096};
+  for(const model of ['gpt-5','gpt-5-mini','gpt-5-nano','gpt-5-2025-08-07']){
+    const body=prepareChatRequest(init({model}),options).payload;
+    assert.equal(body.reasoning_effort,'minimal');assert.equal(body.max_completion_tokens,4096);assert.equal(body.model,model);
+    const capped=prepareChatRequest(init({model,max_completion_tokens:700}),options).payload;
+    assert.equal(capped.max_completion_tokens,700,'A lower administrator/runtime cap remains authoritative.');
+    assert.equal(prepareChatRequest(init({model,reasoning_effort:'low'}),options).payload.reasoning_effort,'low');
+  }
+  for(const model of ['gpt-5-pro','gpt-5.1','gpt-4o','o3','provider-reasoning'])assert.equal(prepareChatRequest(init({model}),options).payload.reasoning_effort,undefined);
+  assert.equal(prepareChatRequest(init({model:'gpt-5'}),{...options,providerUrl:'https://compatible.invalid/v1/chat/completions'}).payload.reasoning_effort,undefined);
+  assert.equal(prepareChatRequest(init({model:'gpt-5'}),{...options,operation:'requirement-design.generate',maxOutputTokens:8192}).payload.reasoning_effort,undefined);
+  assert.equal(prepareChatRequest(init({model:'gpt-5'}),{...options,operation:'requirement-design.generate',maxOutputTokens:8192}).payload.max_completion_tokens,8192);
+});
+
 test('JSON mode supplies a trusted output instruction independently of editable prompts and serialized schemas', () => {
   const messages=[{role:'system',content:'Generate the cases required by the supplied schema.'},
     {role:'user',content:JSON.stringify({story:{id:'story-1',title:'Checkout'},output_schema:{type:'object',properties:{testCases:{type:'array'}}}})}];

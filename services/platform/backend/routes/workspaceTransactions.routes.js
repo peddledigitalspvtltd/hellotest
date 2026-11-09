@@ -116,6 +116,8 @@ module.exports = async function (fastify) {
       await requireTransactionPermission(fastify, req, transaction, "data.view");
     }
 
+    workspaceTransactionService.assertTransactionArtifactReadable(transaction, artifact);
+
     const content = artifact.content || "";
     const dataUrlMatch = typeof content === "string"
       ? content.match(/^data:([^;,]+)?(?:;[^,]*)?;base64,(.*)$/s)

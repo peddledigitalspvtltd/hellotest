@@ -2339,6 +2339,20 @@ DO $$ BEGIN
     END IF;
   END $$;
 
+-- A successful recorder import is committed atomically with its saved steps.
+CREATE TABLE IF NOT EXISTS automation_recording_imports (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  source_test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+  test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+  created_by TEXT NOT NULL,
+  recorder_session_id TEXT NOT NULL,
+  input_sha256 TEXT NOT NULL,
+  result JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_automation_recording_imports_case ON automation_recording_imports(test_case_id);
+
 -- Typed automation repair proposals and validation receipts
 CREATE TABLE IF NOT EXISTS ai_automation_repairs (
   id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

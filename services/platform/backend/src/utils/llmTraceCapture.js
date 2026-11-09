@@ -56,9 +56,10 @@ function generationCorrelation(scope) {
   const result = {};
   if (bounded(scope.test_case_id)) result.test_case_id = scope.test_case_id;
   if (Number.isSafeInteger(scope.completion_attempt) && scope.completion_attempt > 0 && scope.completion_attempt <= 100) result.completion_attempt = scope.completion_attempt;
-  if (['case_attempt','section_attempt','section_semantic_review','section_prerequisite_review','case_metadata','flow_plan'].includes(scope.generation_scope) && result.test_case_id) {
+  const sectionScopes=['section_attempt','section_semantic_review','section_prerequisite_review','upstream_browser_actor','upstream_source','upstream_instruction_mapping','upstream_api_source'];
+  if (['case_attempt',...sectionScopes,'case_metadata','flow_plan'].includes(scope.generation_scope) && result.test_case_id) {
     result.generation_scope = scope.generation_scope;
-    if (['section_attempt','section_semantic_review','section_prerequisite_review'].includes(scope.generation_scope) && Number.isSafeInteger(scope.section_attempt) && scope.section_attempt > 0 && scope.section_attempt <= 3) result.section_attempt = scope.section_attempt;
+    if (sectionScopes.includes(scope.generation_scope) && Number.isSafeInteger(scope.section_attempt) && scope.section_attempt > 0 && scope.section_attempt <= 3) result.section_attempt = scope.section_attempt;
     const sections = [...new Set((Array.isArray(scope.generation_section_ids) ? scope.generation_section_ids : []).filter(bounded))];
     result.generation_section_ids = sections.slice(0, 500);
     result.generation_section_count = sections.length;

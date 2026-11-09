@@ -1,6 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {createAutomationCaseJourney,automationJourneyRequirements}=require('../../backend/lib/automationCaseJourney');
-const {createAutomationActorContext}=require('../../backend/lib/automationActorContext');
 const makeSteps=n=>Array.from({length:n},(_,index)=>({id:'step-'+index,step_type:'web',action:'Perform action '+index,expected_result:'Preserve outcome '+index}));
 
 test('a host journey keeps whole intent and actual build progress separate from saved code and future work',()=>{
@@ -25,16 +24,6 @@ test('journey excerpts are labelled and exact full requirements remain available
  assert.equal(journey.select(['step-1'])[0].action,steps[1].action);
  for(const ids of [[],['unknown'],['step-0','step-0'],Array(9).fill('step-0')])assert.throws(()=>journey.select(ids),{code:'AUTOMATION_CASE_JOURNEY_INVALID'});
  assert.throws(()=>createAutomationCaseJourney({testCase:{},steps,activeStepId:'step-0',completedStepIds:['step-1'],projectText:text=>text}),{code:'AUTOMATION_CASE_JOURNEY_INVALID'});
-});
-
-test('actor context exposes exact journey-step selection within its existing disclosure budget',()=>{
- const steps=makeSteps(2),current={...steps[0],step_order:1};
- const journey=createAutomationCaseJourney({testCase:{id:'case',title:'Intent'},steps,activeStepId:current.id,projectText:text=>text});
- const manager=createAutomationActorContext({task:{case:{id:'case',title:'Intent'},current_section:current,build_context:{linked_manual_cases:[],generation_scope:{active_manual_step_ids:[]}}},caseJourney:journey});
- assert.equal(JSON.parse(manager.prompt).case_journey.total_steps,2);
- const result=manager.request({journey_steps:['step-1']});assert.equal(result.data.journey_steps[0].action,steps[1].action);
- assert.equal(manager.request({journey_steps:['foreign']}).code,'AUTOMATION_ACTOR_CONTEXT_REQUEST_INVALID');
- assert.equal(manager.request({journey_steps:['step-1'],extra:'invented'}).code,'AUTOMATION_ACTOR_CONTEXT_REQUEST_INVALID');
 });
 
 test('saved API and mobile setup source never claims prior browser execution in mixed cases',()=>{

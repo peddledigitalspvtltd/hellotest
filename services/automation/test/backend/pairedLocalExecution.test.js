@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {createService,security}=require('../../backend/services/pairedLocalExecution.service');
 const execution={id:'execution',project_id:'project',status:'queued',created_by:'owner'};
-function fixture() {
+function fixture({marked=false,hooksOnly=false}={}) {
   const rows=new Map(),runs=new Map([[execution.id,{...execution}]]),calls=[];
   let active=true,allowed=true,prepared=0;
   const store={transaction:fn=>(...args)=>fn(...args),prepare:sql=>({
@@ -27,7 +27,10 @@ function fixture() {
     flags:{getFeatureKeysForPermission:()=>['local'],areEnabled:async()=>allowed},dispatch:{preparePairedLocalDispatch:async input=>{
       prepared++;return {local_run_count:input.plan.eligibleCases.length,envelopes:input.plan.eligibleCases.map(item=>({engine_run_id:item.engine_run_id,
         hellotest_execution_id:execution.id,hellotest_test_case_id:item.case_snapshot.test_case_id,project:{id:'project'},
-        run_parameters:{password:'PRIVATE_RUNTIME_VALUE'},callback:input.callbackFor(item)}))};
+        run_parameters:{password:'PRIVATE_RUNTIME_VALUE'},
+        steps:marked&&!hooksOnly?[{automation_code:'// @hellotest-parameter-bindings expressions-v1\nawait page.locator("#field").fill(params["r.value"]);'}]:[],
+        hooks:marked&&hooksOnly?[{steps:[{automation_code:'// @hellotest-parameter-bindings expressions-v1\nawait page.locator("#field").fill(params["r.value"]);'}]}]:[],
+        callback:input.callbackFor(item)}))};
     }}});
   const input={execution:{...execution},user:{id:'owner'},agentId:'machine',applicationOrigin:'https://app.example.test',requestHash:security.digest('input'),
     plan:{eligibleCases:[{engine_run_id:'engine-1',case_snapshot:{test_case_id:'case-1'}},{engine_run_id:'engine-2',case_snapshot:{test_case_id:'case-2'}}]}};
@@ -50,6 +53,20 @@ test('lost acknowledgements reuse an immutable owner/machine-bound dispatch and 
   for(const patch of [{agentId:'other'},{applicationOrigin:'https://foreign.example.test'},{requestHash:security.digest('changed')}]){
     await assert.rejects(f.service.prepare({...f.input,...patch}),error=>error.statusCode===409);
   }
+});
+
+test('API claims with marked sections or hooks require runtime capability before releasing any frozen envelopes',async()=>{
+ for(const hooksOnly of [false,true]){
+  const f=fixture({marked:true,hooksOnly}),prepared=await f.service.prepare(f.input),row=[...f.rows.values()][0];
+  const grant={executionId:execution.id,grantToken:prepared.local_dispatch.grant_token,agentId:'machine'};
+  const cipher=structuredClone(row.envelope_cipher);
+  for(const agentCapabilities of [undefined,[],['local_execution'],['PARAMETER_EXPRESSIONS_V1']]){
+   await assert.rejects(f.service.claim({...grant,agentCapabilities}),{code:'PAIRED_LOCAL_AGENT_UPGRADE_REQUIRED',statusCode:409});
+   assert.equal(row.state,'pending');assert.deepEqual(row.envelope_cipher,cipher);
+  }
+  const accepted=await f.service.claim({...grant,agentCapabilities:['parameter_expressions_v1']});
+  assert.equal(accepted.envelopes.length,2);assert.equal(row.state,'claimed');
+ }
 });
 test('a preparation failure leaves its Run available for the same request to retry',async()=>{
   const f=fixture();let attempts=0;

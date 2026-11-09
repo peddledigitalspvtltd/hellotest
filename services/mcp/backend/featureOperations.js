@@ -239,7 +239,16 @@ for(const [path,family,status]of [
  ['/agentic-workflows/:id/executions','workflow_runs','/agentic-workflow-runs/:id'],
  ['/agentic-quality/runs','browser_agents','/agentic-quality/runs/:id']
 ])add('POST',path,{family,effect:'command',scope:path.startsWith('/agentic-workflows/:id')?{entity:'workflow',path_parameter:'id'}:{project:true},verification:{method:'GET',path:status,targetParameter:status.includes(':jobId')?'jobId':'id',idFromResponse:'id',async:true}});
-for(const path of ['/test-cases/:id/automation/generator-jobs','/test-cases/automation/build-batch'])add('POST',path,{family:'automation',effect:'command',scope:path.includes('/:id/')?{entity:'test_case',path_parameter:'id'}:{project:true},verification:{method:'GET',path:'/test-cases/automation/jobs/:transactionId',targetParameter:'transactionId',idFromResponse:'transaction_id',async:true}});
+for(const path of ['/test-cases/:id/automation/generator-jobs','/test-cases/automation/build-batch'])add('POST',path,{family:'automation',effect:'command',scope:path.includes('/:id/')?{entity:'test_case',path_parameter:'id'}:{project:true},
+ label:path.includes('/:id/')?'Build Test Case automation with Automation Engineer':'Build selected Test Case automation with Automation Engineer',
+ summary:'Queue the native Automation Engineer domain service used by saved Test Cases and the workflow node. Preserve reviewed inputs, project authorization and durable job status. Generation completion does not establish a passing execution.',
+ verification:{method:'GET',path:'/test-cases/automation/jobs/:transactionId',targetParameter:'transactionId',idFromResponse:'transaction_id',async:true,...(path==='/test-cases/:id/automation/generator-jobs'?{capture_target:false}:{})}});
+policy.get('POST /test-cases/:id/automation/generator-jobs').required_permissions=['automation.ai','automation.view','automation.code.view'];
+policy.get('GET /test-cases/automation/jobs/:transactionId').required_permissions=['automation.view','automation.code.view','automation.ai'];
+add('POST','/test-cases/:id/automation/parameter-plan',{family:'automation',effect:'generate',scope:{entity:'test_case',path_parameter:'id'},
+ label:'Preview Automation Engineer build parameters',
+ summary:'Resolve the native Automation Engineer parameter plan without creating a job or changing the Test Case. The returned parameter_plan_key binds the later build to the reviewed case and input revisions.',
+ verification:{response:'proposal',capture_target:false}});
 add('POST','/test-cases/automation/learning-cache/:id/ai-improve',{family:'object_repository',effect:'generate',scope:{entity:'learning_object',path_parameter:'id'},verification:{response:'proposal'}});
 add('GET','/ai/automation-repairs/:id',{family:'automation_repair',scope:{entity:'automation_repair',path_parameter:'id'}});
 add('GET','/test-cases/automation/learning-cache/:id',{family:'object_repository',scope:{entity:'learning_object',path_parameter:'id'}});
@@ -430,4 +439,20 @@ function unavailableReason(method,path){
  return null;
 }
 function policyFor(method,path){return policy.get(`${method} ${path}`) || null;}
-module.exports={policyFor,describe:policyFor,unavailableReason,assertScope,assertResponseScope,assertEntity,readMembership,scopeQueries,scopeDatabases,memberships,policies:()=>[...policy].map(([route,value])=>({route,...value}))};
+function additionalPermissions(op,args={}) {
+ const permissions=[...(op?.policy?.required_permissions||[])],body=args.body||{};
+ if(op?.method==='POST'&&op.path==='/test-cases'){
+  if(body.requirement_ids?.length)permissions.push('requirement.view');
+  if(body.suite_ids?.length)permissions.push('suite.update');
+  if(body.test_data_options!==undefined||body.test_data_set_ids?.length||Object.keys(body.parameter_values||{}).length)permissions.push('data.view');
+  if(Array.isArray(body.steps)&&body.steps.some(step=>['android','ios'].includes(step?.step_type)))permissions.push('mobile.manage');
+ }
+ if(['/test-cases/:id/automation/generator-jobs','/test-cases/:id/automation/parameter-plan'].includes(op?.path)){
+  if(body.test_suite_id)permissions.push('suite.view','data.view');
+  if(body.test_data_set_id||Object.keys(body.parameter_values||{}).length)permissions.push('data.view');
+  if(body.test_environment_id)permissions.push('environment.view','data.view');
+  if(body.test_configuration_id)permissions.push('configuration.view','data.view');
+ }
+ return [...new Set(permissions)];
+}
+module.exports={policyFor,describe:policyFor,unavailableReason,additionalPermissions,assertScope,assertResponseScope,assertEntity,readMembership,scopeQueries,scopeDatabases,memberships,policies:()=>[...policy].map(([route,value])=>({route,...value}))};

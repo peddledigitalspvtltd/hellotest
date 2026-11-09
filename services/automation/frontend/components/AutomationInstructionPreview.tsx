@@ -2,13 +2,14 @@ import type { ReactNode } from "react";
 import type { StepApiRequest } from "@hellotest/platform/frontend/src/types";
 import { formatAutomationSourceLines, stripAutomationSettingsComments } from "../lib/automationInstructions";
 import { buildReadableAutomationInstructions, readableApiInstructions, type AutomationReadableContext } from "../lib/automationReadableInstructions";
+import { mappedAutomationInstructions } from "../../shared/automationInstructionMapping.mjs";
 
 export function automationProgramLines(code: string) {
   return formatAutomationSourceLines(stripAutomationSettingsComments(code)).replace(/\r\n/g, "\n").split("\n")
     .filter((line, index, lines) => line.trim() || (index > 0 && index < lines.length - 1));
 }
 
-export function AutomationInstructionPreview({ code, apiRequest, sectionName, emptyAction, view = "source", renderArgument, context }: {
+export function AutomationInstructionPreview({ code, apiRequest, sectionName, emptyAction, view = "source", renderArgument, context, stepId, instructionMapping }: {
   code: string;
   apiRequest?: StepApiRequest | null;
   sectionName: string;
@@ -16,10 +17,13 @@ export function AutomationInstructionPreview({ code, apiRequest, sectionName, em
   view?: "instructions" | "source";
   renderArgument?: (argument: string) => ReactNode;
   context?: AutomationReadableContext;
+  stepId?: string;
+  instructionMapping?: unknown;
 }) {
   const structuredApi = !code.trim() && apiRequest?.url?.trim();
   if (view === "instructions") {
-    const instructions = structuredApi ? readableApiInstructions(apiRequest!) : buildReadableAutomationInstructions(code, context);
+    const mapped = stepId ? mappedAutomationInstructions(instructionMapping, { source: code, stepId }) : null;
+    const instructions = structuredApi ? readableApiInstructions(apiRequest!) : mapped || buildReadableAutomationInstructions(code, context);
     if (!instructions.length) return <div className="automation-instruction-empty"><span className="automation-line-number" aria-hidden="true">1</span><span>No instructions yet</span>{emptyAction}</div>;
     return <div className="automation-instruction-source" aria-label={`${sectionName} ${structuredApi ? "API request" : "instructions"}`} role="region" tabIndex={0}>
       {instructions.map((instruction,index) => <div className="automation-instruction-line" data-instruction-kind={instruction.kind} key={index}>

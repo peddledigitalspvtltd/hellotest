@@ -159,3 +159,92 @@ test('adapters without native page identity retain the safe extra actor decision
   assert.deepEqual(state.calls.map(call => call.name), ['browser_click', 'browser_snapshot', 'browser_assert']);
   assert.equal(state.saves.length, 1);
 });
+
+const mutationNames=['browser_navigate','browser_click','browser_fill','browser_press_key','browser_select_option','browser_hover','browser_check','browser_uncheck'];
+const readNames=['browser_snapshot','browser_assert','browser_validate_locator','browser_wait_for','browser_screenshot'];
+const catalogFrom=prompt=>JSON.parse(prompt.match(/^Tool catalog: (.+)$/m)[1]);
+const deferredFrom=prompt=>JSON.parse(prompt.match(/^Deferred tool names .*?: (.+)$/m)?.[1]||'[]');
+function proofFixture(){
+  const state=fixture({pageIdentity:false}),original=state.options.browser.call;
+  for(const name of [...mutationNames,...readNames]){
+    if(state.options.browser.tools.some(tool=>tool.name===name))continue;
+    const fields=name==='browser_navigate'?['url']:['browser_snapshot','browser_screenshot'].includes(name)?[]:
+      name==='browser_fill'||name==='browser_select_option'?['locator','value']:name==='browser_press_key'?['locator','key']:['locator'];
+    state.options.browser.tools.push({name,description:'Complete discovered '+name+' contract',inputSchema:{type:'object',properties:Object.fromEntries(fields.map(field=>[field,{type:'string'}])),required:fields,additionalProperties:false}});
+  }
+  state.options.browser.call=async(name,args)=>{
+    if(['browser_hover','browser_validate_locator','browser_wait_for','browser_screenshot','browser_navigate'].includes(name)){
+      state.calls.push({name,args:structuredClone(args)});
+      return receipt(name==='browser_validate_locator'?{match_count:1,unique:true}:name==='browser_hover'||name==='browser_navigate'?{action_outcome:'completed'}:{optional:true});
+    }
+    return original(name,args);
+  };
+  return state;
+}
+
+test('a completed click followed by an unattempted stale check prefers full read schemas without declaring the goal complete',async()=>{
+  const state=proofFixture();let actors=0;
+  const result=await runAutomationBrowserAgent({...state.options,complete:async prompt=>state.complete(prompt,page=>{
+    if(++actors===1)return actor(state.requests(page));
+    assert.equal(actors,2);
+    assert.deepEqual(catalogFrom(prompt).map(tool=>tool.name),state.options.browser.tools.filter(tool=>readNames.includes(tool.name)).map(tool=>tool.name));
+    assert.deepEqual(deferredFrom(prompt),state.options.browser.tools.filter(tool=>mutationNames.includes(tool.name)).map(tool=>tool.name));
+    for(const tool of catalogFrom(prompt))assert.deepEqual(tool,state.options.browser.tools.find(item=>item.name===tool.name));
+    assert.equal(page.tool_presentation.scope,'presentation_only');assert.equal(page.verification_boundary,undefined);
+    assert.equal(page.pending_contract.expected_result_check,'required');
+    return actor([state.requests(page)[1]]);
+  })});
+  assert.equal(actors,2);assert.equal(state.calls.filter(call=>call.name==='browser_click').length,1);
+  assert.equal(state.calls.filter(call=>call.name==='browser_assert').length,1);assert.equal(state.saves.length,1);
+  assert.equal((result.steps[0].automation_code.match(/\.click\(/g)||[]).length,1);
+});
+
+test('explicit discovery restores an admissible mutation and its real dispatch reopens ordinary presentation',async()=>{
+  const state=proofFixture();let actors=0;
+  state.options.execution.action='Click Apply and hover the control while reviewing the result';
+  await assert.rejects(runAutomationBrowserAgent({...state.options,complete:async prompt=>state.complete(prompt,page=>{
+    actors++;
+    if(actors===1)return actor(state.requests(page));
+    if(actors===2){assert.ok(!catalogFrom(prompt).some(tool=>tool.name==='browser_hover'));return JSON.stringify({tool_catalog_request:['browser_hover']});}
+    if(actors===3){
+      assert.deepEqual(catalogFrom(prompt).find(tool=>tool.name==='browser_hover'),state.options.browser.tools.find(tool=>tool.name==='browser_hover'));
+      return JSON.stringify({stage:'act',step_id:'apply',section_complete:false,tool_calls:[{name:'browser_hover',arguments:{locator:page.current_snapshot.targets.find(target=>target.name==='Apply').ref}}]});
+    }
+    assert.equal(page.tool_presentation,undefined);assert.ok(catalogFrom(prompt).some(tool=>tool.name==='browser_click'));throw stop;
+  })}),{code:'TEST_PAUSE_OBSERVED'});
+  assert.equal(actors,4);assert.equal(state.calls.filter(call=>call.name==='browser_click').length,1);
+  assert.equal(state.calls.filter(call=>call.name==='browser_hover').length,1);assert.equal(state.saves.length,0);
+});
+
+for(const sectionComplete of[true,false])test(`an incomplete mutation batch does not prefer proof schemas (completion ${sectionComplete})`,async()=>{
+  const state=proofFixture();let actors=0;
+  await assert.rejects(runAutomationBrowserAgent({...state.options,complete:async prompt=>state.complete(prompt,page=>{
+    if(++actors===1){const requests=state.requests(page);if(sectionComplete)requests.push({name:'browser_click',arguments:{locator:page.current_snapshot.targets.find(target=>target.name==='Record A'||target.context_text==='Record A').ref}});
+      return JSON.stringify({stage:'act',step_id:'apply',section_complete:sectionComplete,tool_calls:requests});}
+    assert.equal(page.tool_presentation,undefined);assert.ok(catalogFrom(prompt).some(tool=>tool.name==='browser_click'));throw stop;
+  })}),{code:'TEST_PAUSE_OBSERVED'});
+  assert.equal(state.calls.filter(call=>call.name==='browser_click').length,1);
+  assert.equal(state.calls.filter(call=>call.name==='browser_assert').length,0);
+});
+
+for(const outcome of['failed-completed','not_attempted','missing'])test(`a ${outcome} mutation receipt cannot establish proof preference`,async()=>{
+  const state=proofFixture(),original=state.options.browser.call;let actors=0;
+  state.options.browser.call=async(name,args)=>name==='browser_click'
+    ?outcome==='failed-completed'?{...receipt({action_outcome:'completed',retry_safe:true,code:'BROWSER_TOOL_FAILED'}),isError:true}:
+      receipt(outcome==='missing'?{}:{action_outcome:'not_attempted'}):original(name,args);
+  await assert.rejects(runAutomationBrowserAgent({...state.options,complete:async prompt=>state.complete(prompt,page=>{
+    if(++actors===1)return actor([state.requests(page)[0]]);
+    assert.equal(page.tool_presentation,undefined);assert.ok(catalogFrom(prompt).some(tool=>tool.name==='browser_click'));throw stop;
+  })}),{code:'TEST_PAUSE_OBSERVED'});
+  assert.equal(actors,2);assert.equal(state.saves.length,0);
+});
+
+test('bootstrap navigation and copied completed history do not establish a current-batch proof preference',async()=>{
+  const state=proofFixture();state.options.startUrl='https://app.test/form';
+  state.options.initialObservations.push({tool:'browser_click',execution_step_id:'apply',result:receipt({action_outcome:'completed'})});
+  await assert.rejects(runAutomationBrowserAgent({...state.options,complete:async prompt=>state.complete(prompt,page=>{
+    assert.equal(page.tool_presentation,undefined);assert.ok(catalogFrom(prompt).some(tool=>tool.name==='browser_click'));throw stop;
+  })}),{code:'TEST_PAUSE_OBSERVED'});
+  assert.equal(state.calls.filter(call=>call.name==='browser_navigate').length,1);
+  assert.equal(state.saves.length,0);
+});

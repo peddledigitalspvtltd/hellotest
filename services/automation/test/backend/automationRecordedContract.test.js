@@ -31,6 +31,21 @@ test('host seal binds exact serialized authored requirements, operation order, o
   assert.equal(validateRecordedContractMetadata(recordedContractMetadata(contract)), true);
 });
 
+test('host seal preserves ordered frame identity and excludes later mutable path edits', () => {
+  const input = fixture();
+  input.requests.forEach(request => { request.arguments.frame = ['#outer', '#inner']; });
+  input.source = compileRecordedProgram(input.requests).source;
+  const contract = seal(input), artifacts = readRecordedSectionArtifacts(contract);
+  const plan = JSON.parse(artifacts.plan_json);
+  assert.deepEqual(plan.operations.map(row => row.arguments.frame), [['#outer', '#inner'], ['#outer', '#inner']]);
+  input.requests[0].arguments.frame[0] = '#sibling';
+  assert.deepEqual(readRecordedSectionArtifacts(contract), artifacts);
+  const changed = fixture(); changed.requests.forEach(request => { request.arguments.frame = ['#other']; });
+  changed.source = compileRecordedProgram(changed.requests).source;
+  assert.notEqual(seal(changed).plan_sha256, contract.plan_sha256);
+  reject({ ...input, source: artifacts.automation_code || plan.automation_code }, 'compiled_source_mismatch');
+});
+
 test('all public metadata contains only bounded digests/counts and no authored prose, locators or input values', () => {
   const input = fixture(), secret = 'private-name-value-do-not-disclose';
   input.execution.obligations[0].action = input.execution.source_obligations[0].action = `Enter ${secret}`;

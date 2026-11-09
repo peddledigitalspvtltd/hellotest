@@ -6,7 +6,8 @@ const playwrightModules=new Set(['@playwright/test','playwright/test']);
 const suiteMethods=new Set(['describe','use','beforeEach','afterEach','beforeAll','afterAll','extend','only','skip','fixme']);
 const webBindings=['page','web','expect','params','capture','playwrightPage','driver','bindings'];
 const browserAsyncMethods=new Set(['goto','click','dblclick','fill','check','uncheck','press','selectOption','hover','waitFor','waitForURL','waitForTimeout','waitForLoadState','waitForSelector','waitForFunction','setInputFiles','scrollIntoViewIfNeeded','screenshot','textContent','innerText','inputValue','title']);
-const locatorMatchers=new Set(['toBeVisible','toBeHidden','toBeEnabled','toBeDisabled','toBeChecked','toBeAttached','toHaveText','toContainText','toHaveURL','toHaveTitle','toHaveAttribute','toHaveCount','toHaveValue','toHaveValues','toHaveClass','toHaveCSS','toHaveJSProperty']);
+const locatorMatchers=new Set(['toBeVisible','toBeHidden','toBeEnabled','toBeDisabled','toBeEditable','toBeChecked','toBeAttached','toHaveText','toContainText','toHaveURL','toHaveTitle','toHaveAttribute','toHaveCount','toHaveValue','toHaveValues','toHaveClass','toHaveCSS','toHaveJSProperty']);
+const testRunnerMatchers=new Set(['toMatchAriaSnapshot','toHaveScreenshot','toMatchSnapshot']);
 const member=node=>node?.type==='MemberExpression'?(node.computed?node.property?.value:node.property?.name):null;
 const isFunction=node=>['FunctionDeclaration','FunctionExpression','ArrowFunctionExpression'].includes(node?.type);
 const parseProgram=source=>parse(source,{ecmaVersion:'latest',sourceType:'module',allowAwaitOutsideFunction:true,allowReturnOutsideFunction:true});
@@ -98,6 +99,7 @@ function normalizeGeneratedProgram(input,{runtime='web'}={}) {
     }
     if(runtime==='web'&&node.type==='CallExpression') {
       const root=rootName(node.callee),method=member(node.callee);
+      if(root==='expect'&&testRunnerMatchers.has(method))throw Object.assign(new Error(`${method} requires Playwright Test testInfo and snapshot state, which the native step runner does not provide. Preserve completed actions and use supported awaited toBeVisible, toHaveText or toHaveCount checks against the actual observed locator/frame. For iframe results, use the observed iframe target; a main-page body snapshot does not establish its contents. Correct only the source without replaying browser actions.`),{code:'AUTOMATION_RUNNER_MATCHER_UNSUPPORTED',statusCode:422,matcher:method});
       const selector=node.arguments[0];
       const selectorText=selector?.type==='Literal'?selector.value:selector?.type==='TemplateLiteral'&&!selector.expressions.length?selector.quasis[0].value.cooked:null;
       if(['page','playwrightPage'].includes(root)&&method==='locator'&&typeof selectorText==='string'&&/^\s*(?:(?:page|playwrightPage)\.)?getBy(?:Role|Label|Text|TestId|Placeholder|Title|AltText)\s*\(/.test(selectorText))fail('A Playwright locator expression is wrapped in a selector string. Call page.getByRole/getByLabel directly, or use an observed CSS/repository selector. Correct the source without replaying completed browser actions.');
@@ -145,7 +147,7 @@ function assertionContracts(source,{coalesceAdjacent=false}={}) {
     if(pollingExpectation(node)){
       const declarations=ancestors.some(isFunction)?'':precedingDeclarations(tree,normalized,node.start);
       const tools=deriveProgramTools({payload:{steps:[{step_id:'native-poll-contract',automation_code:`${declarations}\nawait ${normalized.slice(node.start,node.end)};`}]},execution:{required:true,step_id:'native-poll-contract'}});
-      const native=tools?.length===1&&tools[0].name==='browser_assert'&&['valid','invalid','field_valid'].includes(tools[0].arguments.assertion)?tools[0]:null;
+      const native=tools?.length===1&&tools[0].name==='browser_assert'&&['valid','invalid','field_valid','input_type'].includes(tools[0].arguments.assertion)?tools[0]:null;
       // Pin the known read-only predicate and subject, not just toBe(true).
       // Exact legacy field readers migrate to the same typed requirement;
       // changed callbacks, polarity, targets or options cannot use that path.

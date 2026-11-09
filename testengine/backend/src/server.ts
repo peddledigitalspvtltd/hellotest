@@ -1,6 +1,7 @@
 import { retryRunCallbacks } from "./lib/callbackDelivery.js";
 import { registerAutomationVerification } from "./lib/automationVerification.js";
 import { registerAutomationMcp } from "./lib/automationMcp.js";
+import { registerAutomationPlaywrightMcp, PLAYWRIGHT_MCP_RUNTIME } from "./lib/automationPlaywrightMcp.js";
 import { registerQualityAgentRoutes } from "./lib/qualityAgents/routes.js";
 import Fastify from "fastify";
 import { randomUUID } from "node:crypto";
@@ -156,7 +157,7 @@ app.get("/health/ready", async (_request, reply) => {
 app.get("/health", async () => ({
   ...buildLiveHealth(),
   ready: !shuttingDown && sharedSecretConfig.ready && Boolean(opsTelemetry) && Boolean(queueWorker?.getHealthSnapshot().ready),
-  capabilities: { repository_inspection: true, local_execution: true },
+  capabilities: { repository_inspection: true, local_execution: true, parameter_expressions_v1: true, playwright_mcp_runtime: PLAYWRIGHT_MCP_RUNTIME },
   supported_web_engines: ["playwright", "selenium"],
   queue_worker: queueWorker?.getHealthSnapshot() || null,
   ops_telemetry: getOpsTelemetry().getHealthSnapshot()
@@ -367,6 +368,7 @@ const startServer = async () => {
   await opsTelemetry.register(app);
   await registerRecorderRoutes(app);
   await registerAutomationMcp(app, privilegedRunGuard);
+  await registerAutomationPlaywrightMcp(app, privilegedRunGuard);
   await registerAutomationVerification(app, privilegedRunGuard);
   await registerQualityAgentRoutes(app, privilegedRunGuard);
   queueWorker = startQueueWorker(app.log, opsTelemetry);

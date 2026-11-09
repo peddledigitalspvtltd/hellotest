@@ -1,4 +1,5 @@
 import { resolveRepositoryLocator } from "./repositoryLocator.js";
+import { validateInspectionLocatorCandidates } from "./inspectionLocatorCandidates.js";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -88,6 +89,7 @@ type RecorderSession = {
 type RecorderElementRect = { x: number; y: number; width: number; height: number };
 
 type RecorderInspectElement = {
+  selection_token?: string;
   friendly_name: string;
   html_tag: string;
   role: string;
@@ -485,17 +487,20 @@ const recorderInitScript = `
   };
   window.__hellotestRecorderLocatorFor = locatorFor;
   window.__hellotestRecorderVisibleTextFor = visibleText;
+  const pendingEmissions = new Set();
   const emit = (event) => {
     if (typeof window.__hellotestRecorderEmit === "function") {
-      window.__hellotestRecorderEmit({
+      const pending = window.__hellotestRecorderEmit({
         ...event,
         source: "page-recorder",
         url: window.location.href,
         timestamp: new Date().toISOString()
       }).catch(() => {});
+      pendingEmissions.add(pending);
+      pending.finally(() => pendingEmissions.delete(pending));
     }
   };
-  const inputTimers = new WeakMap();
+  const inputTimers = new Map();
   const lastInputValues = new WeakMap();
   const controlLabel = (target) => attr(target, "name") || attr(target, "placeholder") || attr(target, "aria-label") || visibleText(target);
   const selectedOptions = (target) => Array.from(target.selectedOptions || []).map((option) => ({
@@ -572,7 +577,20 @@ const recorderInitScript = `
     });
   };
 
+  const flushInputs = () => {
+    for (const [target, timer] of inputTimers) {
+      clearTimeout(timer);
+      recordInput(target, "fill");
+    }
+    inputTimers.clear();
+  };
+  window.__hellotestRecorderFlush = async () => {
+    flushInputs();
+    await Promise.all([...pendingEmissions]);
+  };
+
   document.addEventListener("click", (event) => {
+    flushInputs();
     const target = event.target && event.target.closest ? event.target.closest("button,a,input,select,textarea,[role=button],[role=link],[role=option],[role=menuitem],[role=combobox],[aria-haspopup],[data-testid],[data-test],[data-qa]") : event.target;
     emit({
       type: "click",
@@ -596,10 +614,13 @@ const recorderInitScript = `
     if (!target || !("value" in target)) return;
     const existing = inputTimers.get(target);
     if (existing) clearTimeout(existing);
-    inputTimers.set(target, setTimeout(() => recordInput(target, "fill"), 800));
+    inputTimers.set(target, setTimeout(() => { inputTimers.delete(target); recordInput(target, "fill"); }, 800));
   }, true);
 
   document.addEventListener("change", (event) => {
+    const timer = inputTimers.get(event.target);
+    if (timer) clearTimeout(timer);
+    inputTimers.delete(event.target);
     recordInput(event.target, "change");
   }, true);
 
@@ -608,12 +629,14 @@ const recorderInitScript = `
     if (!target || !("value" in target)) return;
     const existing = inputTimers.get(target);
     if (existing) clearTimeout(existing);
+    inputTimers.delete(target);
     recordInput(target, "change");
   }, true);
 
   document.addEventListener("keydown", (event) => {
     const key = String(event.key || "");
     if (!["Enter", "Tab", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(key)) return;
+    flushInputs();
     emit({
       type: key === "Tab" ? "tab" : "press",
       locator: locatorFor(event.target),
@@ -644,6 +667,7 @@ const recorderInitScript = `
   }, true);
 
   document.addEventListener("submit", (event) => {
+    flushInputs();
     emit({
       type: "submit",
       locator: locatorFor(event.target),
@@ -855,6 +879,7 @@ const installInspectMode = async (page: Page) => {
       __hellotestInspectCleanup?: () => void;
       __hellotestInspectResult?: unknown;
       __hellotestInspectSelections?: unknown[];
+      __hellotestInspectTargets?: Map<string, Element>;
       __hellotestRecorderLocatorFor?: (element: Element | null) => string | null;
       __hellotestRecorderVisibleTextFor?: (element: Element | null) => string | null;
     };
@@ -862,6 +887,7 @@ const installInspectMode = async (page: Page) => {
     inspectWindow.__hellotestInspectCleanup?.();
     inspectWindow.__hellotestInspectResult = null;
     inspectWindow.__hellotestInspectSelections = [];
+    inspectWindow.__hellotestInspectTargets = new Map();
 
     const clean = (value: unknown) => String(value || "").replace(/\s+/g, " ").trim();
     const cssEscape = (value: string) => {
@@ -888,6 +914,14 @@ const installInspectMode = async (page: Page) => {
         .join("") || "element";
     };
     const locatorCandidates = (element: Element) => {
+      // Identify the clicked node itself. Recorder action heuristics may
+      // redirect a container to an editable descendant and cannot supply this.
+      const parts: string[] = [];
+      for (let current: Element | null = element; current; current = current.parentElement) {
+        const siblings = current.parentElement ? [...current.parentElement.children].filter(child => child.tagName === current!.tagName) : [];
+        parts.unshift(current.tagName.toLowerCase() + (siblings.length > 1 ? `:nth-of-type(${siblings.indexOf(current) + 1})` : ""));
+      }
+      const structuralLocator = parts.join(" > ");
       const testAttribute = ["data-testid", "data-test", "data-qa", "data-cy"]
         .map((attribute) => ({ attribute, value: clean(element.getAttribute(attribute)) }))
         .find((candidate) => candidate.value);
@@ -952,7 +986,7 @@ const installInspectMode = async (page: Page) => {
         id && dynamicValue(id) ? { locator: `#${cssEscape(id)}`, strategy: "dynamic id", confidenceScore: 0.42, matchCount: safeCount(`#${cssEscape(id)}`), stabilitySignals: ["unique in current DOM"], warning: "ID appears generated and may change between builds." } : null,
         name ? { locator: `${tag}[name="${name.replace(/"/g, '\\"')}"]`, strategy: "name attribute", confidenceScore: 0.84, matchCount: safeCount(`${tag}[name="${cssEscape(name)}"]`), stabilitySignals: ["semantic form attribute"], warning: null } : null,
         text && ["button", "a"].includes(tag) ? { locator: `getByText(${quoted(text)})`, strategy: "playwright text", confidenceScore: 0.72, matchCount: [...document.querySelectorAll(tag)].filter((candidate) => clean(candidate.textContent) === clean(text)).length, stabilitySignals: ["user-facing text"], warning: "Visible copy can change with content or localization." } : null,
-        { locator: inspectWindow.__hellotestRecorderLocatorFor?.(element) || tag, strategy: "css", confidenceScore: 0.55, matchCount: 1, stabilitySignals: ["DOM fallback"], warning: "Structural selectors are a last-resort fallback." }
+        { locator: structuralLocator, strategy: "css", confidenceScore: 0.55, matchCount: safeCount(structuralLocator), stabilitySignals: ["DOM fallback"], warning: "Structural selectors are a last-resort fallback." }
       ].filter((candidate): candidate is { locator: string; strategy: string; confidenceScore: number; matchCount: number; stabilitySignals: string[]; warning: string | null } => Boolean(candidate))
         .filter((candidate, index, candidates) => candidates.findIndex((other) => other.locator === candidate.locator) === index)
         .map((candidate) => ({
@@ -1074,9 +1108,13 @@ const installInspectMode = async (page: Page) => {
       const ancestor = element.closest("form,[role=dialog],section,fieldset,main,article") || element.parentElement;
       const rect = element.getBoundingClientRect();
       const ancestorRect = ancestor?.getBoundingClientRect();
+      const selectionToken = `${Date.now()}-${Math.random()}`;
+      inspectWindow.__hellotestInspectTargets?.set(selectionToken, element);
+      if ((inspectWindow.__hellotestInspectTargets?.size || 0) > 80) inspectWindow.__hellotestInspectTargets?.delete(inspectWindow.__hellotestInspectTargets.keys().next().value!);
       const domStructure = element.outerHTML.slice(0, 12_000);
       const ancestorDom = ancestor?.outerHTML.slice(0, 30_000) || null;
       const selection = {
+        selection_token: selectionToken,
         friendly_name: friendlyName(element),
         html_tag: tag,
         role,
@@ -2212,6 +2250,10 @@ const renderLiveViewHtml = (session: RecorderSession) => {
 
 const stopSession = async (session: RecorderSession) => {
   if (session.status === "running") {
+    await Promise.all(session.context.pages().flatMap(page => page.frames()).map(frame => frame.evaluate(async () => {
+      const recorderWindow = window as typeof window & { __hellotestRecorderFlush?: () => Promise<void> };
+      await recorderWindow.__hellotestRecorderFlush?.();
+    }).catch(() => undefined)));
     session.status = "stopped";
   }
 
@@ -2271,12 +2313,13 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
     reply.header("cache-control", "no-store");
     if (!agentToken) { reply.code(409); return { ready: false, code: "INSPECTION_AGENT_NOT_CONFIGURED", message: "Restart the local agent using the pairing command from Object Repository." }; }
     const ready = await access(chromium.executablePath()).then(() => true, () => false);
-    const execution = (app as FastifyInstance & { pairedLocalExecution?: { agent_id: string; execution_protocol_version: number; local_execution: boolean } }).pairedLocalExecution;
+    const execution = (app as FastifyInstance & { pairedLocalExecution?: { agent_id: string; execution_protocol_version: number; local_execution: boolean; parameter_expressions_v1?: boolean } }).pairedLocalExecution;
     return { ready, service: "hellotest-inspection-agent", protocol_version: 1,
       agent_id: execution?.agent_id || null,
       execution_protocol_version: execution?.execution_protocol_version || null,
       supported_web_engines: execution ? ["playwright"] : [],
-      capabilities: { repository_inspection: true, local_execution: Boolean(execution?.local_execution), local_browser_build: Boolean(execution?.local_execution) },
+      capabilities: { repository_inspection: true, local_execution: Boolean(execution?.local_execution), local_browser_build: Boolean(execution?.local_execution), parameter_expressions_v1: execution?.parameter_expressions_v1 === true,
+        playwright_mcp_runtime: (app as FastifyInstance & { playwrightMcpRuntime?: unknown }).playwrightMcpRuntime || null },
       ...(ready ? {} : { message: "Chromium is not installed. Run the setup command again to install Playwright browsers." }) };
   });
   const cleanupTimer = setInterval(() => {
@@ -2651,6 +2694,14 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
         }).catch(() => null);
       };
       const selections = await Promise.all(validElements.map(async (element) => {
+        const validatedCandidates = await validateInspectionLocatorCandidates(page, element.locator_candidates || [], element.selection_token);
+        const primary = validatedCandidates[0];
+        element = { ...element, locator: primary?.locator || element.locator, locator_kind: primary?.strategy || element.locator_kind,
+          locator_candidates: primary ? validatedCandidates : (element.locator_candidates || []).map(candidate => ({ ...candidate, matchCount: 0, recommended: false,
+            warning: "The captured field is no longer available. Reinspect it before using this locator." })) };
+        if (element.selection_token) await page.evaluate(token => {
+          (window as typeof window & { __hellotestInspectTargets?: Map<string, Element> }).__hellotestInspectTargets?.delete(token);
+        }, element.selection_token).catch(() => undefined);
         const [elementScreenshot, ancestorScreenshot] = await Promise.all([
           screenshotClip(element.rect),
           screenshotClip(element.ancestor_rect)
@@ -3171,19 +3222,20 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
         const normalizedType = RECORDER_ACTION_TYPES.has(type as RecorderAction["type"]) ? type as RecorderAction["type"] : "click";
         const sourcePage = source.page || null;
 
-        pushRecorderAction(session, {
+        const recorded = pushRecorderAction(session, {
           type: normalizedType,
           locator: normalizeText(payload.locator),
           text: normalizeText(payload.text),
-          value: ["fill", "change", "upload", "select", "check", "uncheck", "press", "tab", "scroll"].includes(normalizedType) ? normalizeText(payload.value) : null,
+          value: ["fill", "change", "upload", "select", "check", "uncheck", "press", "tab", "scroll"].includes(normalizedType) && typeof payload.value === 'string' ? payload.value : null,
           url: normalizeText(payload.url) || sourcePage?.url() || null,
           page_id: getRecorderPageId(sourcePage),
-          page_title: await resolvePageTitle(sourcePage),
+          page_title: null,
           x: normalizePositiveNumber(payload.x),
           y: normalizePositiveNumber(payload.y),
           source: normalizeText(payload.source) === "page-recorder" ? "page-recorder" : "browser",
           timestamp: normalizeText(payload.timestamp) || new Date().toISOString()
         });
+        if (recorded) recorded.page_title = await resolvePageTitle(sourcePage);
       });
       await context.addInitScript(recorderInitScript);
       context.on("page", (page) => attachPageCapture(session, page, app.log));

@@ -2,6 +2,9 @@ import type { AiDesignImageInput, AiDesignedTestCaseCandidate } from "@hellotest
 import type { Requirement } from "@hellotest/platform/frontend/src/types";
 
 export const AI_CONTEXT_PACK_LIMIT = 18_000;
+export const AI_DESIGN_DRAFT_COUNTS = [1, 2, 3] as const;
+export const AI_DESIGN_DEFAULT_DRAFT_COUNT: number = 3;
+export const AI_REFERENCE_IMAGE_LIMITS = { default: 6, storyCreation: 4, testCaseGeneration: 4 } as const;
 export const SMART_CONTEXT_START = "[HELLOTEST_SMART_CONTEXT_START]";
 export const SMART_CONTEXT_END = "[HELLOTEST_SMART_CONTEXT_END]";
 export const TEMPLATE_CONTEXT_START = "[HELLOTEST_TEMPLATE_CONTEXT_START]";
@@ -14,7 +17,7 @@ const FILE_CONTEXT_MAX_FILES = 5;
 const FILE_CONTEXT_MAX_FILE_BYTES = 1_500_000;
 const FILE_CONTEXT_MAX_TOTAL_BYTES = 3_500_000;
 const FILE_CONTEXT_READ_LIMIT = 180_000;
-const REFERENCE_IMAGE_MAX_COUNT = 6;
+const REFERENCE_IMAGE_MAX_COUNT = AI_REFERENCE_IMAGE_LIMITS.default;
 const REFERENCE_IMAGE_MAX_TOTAL_CHARS = 950_000;
 const REFERENCE_IMAGE_MAX_FILE_BYTES = 8_000_000;
 const TEXT_CONTEXT_EXTENSIONS = new Set(["txt", "md", "markdown", "csv", "json", "xml", "yaml", "yml", "feature", "log"]);
@@ -320,9 +323,10 @@ export const compressImageDataUrl = async (dataUrl: string, maxEdge = 1280, qual
   return encoded;
 };
 
-export const readImageFiles = async (files: FileList | null) => {
+export const readImageFiles = async (files: FileList | null, imageLimit: number = REFERENCE_IMAGE_MAX_COUNT) => {
   const collection = Array.from(files || []);
-  if (collection.length > REFERENCE_IMAGE_MAX_COUNT) throw new Error(`Choose at most ${REFERENCE_IMAGE_MAX_COUNT} reference images.`);
+  const limit = Math.min(imageLimit, REFERENCE_IMAGE_MAX_COUNT);
+  if (collection.length > limit) throw new Error(`Choose at most ${limit} reference images.`);
   if (collection.some(file => !['image/png', 'image/jpeg', 'image/webp'].includes(file.type))) throw new Error('Choose PNG, JPEG, or WebP screenshots.');
   const oversized = collection.find((file) => file.size > REFERENCE_IMAGE_MAX_FILE_BYTES);
   if (oversized) {
@@ -346,14 +350,15 @@ export const appendUniqueImages = (current: AiDesignImageInput[], incoming: AiDe
   return Array.from(byUrl.values());
 };
 
-export const mergeAiReferenceImagesWithinBudget = (current: AiDesignImageInput[], incoming: AiDesignImageInput[]) => {
+export const mergeAiReferenceImagesWithinBudget = (current: AiDesignImageInput[], incoming: AiDesignImageInput[], imageLimit: number = REFERENCE_IMAGE_MAX_COUNT) => {
   const images = appendUniqueImages(current, incoming);
   const totalChars = images.reduce((sum, image) => sum + image.url.length, 0);
+  const limit = Math.min(imageLimit, REFERENCE_IMAGE_MAX_COUNT);
 
-  if (images.length > REFERENCE_IMAGE_MAX_COUNT) {
+  if (images.length > limit) {
     return {
       images: current,
-      message: `AI reference images are limited to ${REFERENCE_IMAGE_MAX_COUNT}. Remove older screenshots before adding more.`
+      message: `AI reference images are limited to ${limit}. Remove older screenshots before adding more.`
     };
   }
 

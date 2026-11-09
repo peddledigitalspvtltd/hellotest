@@ -38,7 +38,8 @@ export function readAutomationInstructions(code: string, { unwrapEntry = false }
     for (const comment of comments) {
       if (comment.start < bodyStart) continue;
       if (comment.start >= (nodes[0]?.start ?? bodyEnd)) break;
-      if (comment.type === "Line" && /^\s*@hellotest-options\b/.test(comment.value)) {
+      if (comment.type === "Line" && (/^\s*@hellotest-options\b/.test(comment.value)
+        || /^\s*@hellotest-parameter-bindings expressions-v1\s*$/.test(comment.value))) {
         prefixEnd = comment.end;
         if (code[prefixEnd] === "\r") prefixEnd++;
         if (code[prefixEnd] === "\n") prefixEnd++;

@@ -3,21 +3,23 @@ import { mkdir, chmod, rm } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "acorn";
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page, type FrameLocator } from "playwright";
 import { createInspectionProxy } from "./inspectionProxy.js";
 import { assertRemoteInspectionUrl } from "./inspectionSecurity.js";
-import { createPlaywrightCodeBindings } from "./playwrightBindings.js";
+import { createPlaywrightCodeBindings, usesExpressionParameterBindings } from "./playwrightBindings.js";
 import { captureAutomationBrowserSnapshot } from "./automationMcp.js";
 import { resolveRepositoryLocator } from "./repositoryLocator.js";
-import { compileRecordedProgram, parameterKey, parameterTemplateParts, hasInvalidParameterTemplate } from "./automationVerificationProgram.js";
+import { compileRecordedProgram, parameterKey, parameterTemplateParts, hasInvalidParameterTemplate, recordedSelectionNameParameter, recordedScopedSelectionLocator } from "./automationVerificationProgram.js";
 import { normalizeScopedParameterKey } from "./stepParameterReferences.js";
+import { normalizeAutomationAssertionTimeoutMs, validAutomationAssertionTimeoutMs } from "./automationAssertionPolicy.js";
+import { validAutomationNavigationTimeoutMs } from "./automationNavigationPolicy.js";
 
-type Operation = { name: string; arguments: Record<string, string>; navigation_intent?: "reload" };
+type Operation = { name: string; arguments: Record<string, any>; navigation_intent?: "reload" };
 type Section = { step_id: string; automation_code: string; operations: Operation[] };
 type Policy = { mode: "read_only" | "authorized_run" | "fixture"; fixture_id?: string; reset_receipt?: string; reset_verified?: boolean; allow_mutations?: boolean };
 export type AutomationVerificationRequest = {
   schema_version: 1; verification_id: string; lease_token: string; start_url: string;
-  sections: Section[]; parameters: Record<string, string>; timeout_ms?: number; replay_policy: Policy;
+  sections: Section[]; parameters: Record<string, string>; timeout_ms?: number; assertion_timeout_ms?: number; navigation_timeout_ms?: number; replay_policy: Policy;
   execution_driver?: "native" | "playwright_test_cli";
 };
 type Failure = { step_id: string; operation_index: number; operation_kind: string; code: string; action_outcome: "unknown" | "not_attempted" | "completed"; summary: string };
@@ -50,7 +52,7 @@ const parsed = (source: string) => JSON.stringify(syntax(parse(source, { ecmaVer
  * AST equality accepts formatting only; the runner never executes an arbitrary
  * expression, import, shell command or model-authored evaluate callback. */
 export function validateAutomationVerificationRequest(input: unknown): AutomationVerificationRequest {
-  if (!record(input) || !exactKeys(input, ["schema_version", "verification_id", "lease_token", "start_url", "sections", "parameters", "timeout_ms", "replay_policy", "execution_driver"],
+  if (!record(input) || !exactKeys(input, ["schema_version", "verification_id", "lease_token", "start_url", "sections", "parameters", "timeout_ms", "assertion_timeout_ms", "navigation_timeout_ms", "replay_policy", "execution_driver"],
     ["schema_version", "verification_id", "lease_token", "start_url", "sections", "parameters", "replay_policy"])
     || input.schema_version !== 1 || !UUID.test(input.verification_id) || !string(input.lease_token, 256) || input.lease_token.length < 16
     || !string(input.start_url) || !Array.isArray(input.sections) || input.sections.length < 1 || input.sections.length > 50
@@ -58,6 +60,8 @@ export function validateAutomationVerificationRequest(input: unknown): Automatio
     || !record(input.replay_policy) || !exactKeys(input.replay_policy, ["mode", "fixture_id", "reset_receipt", "reset_verified", "allow_mutations"], ["mode"])
     || !["read_only", "authorized_run", "fixture"].includes(input.replay_policy.mode)
     || input.execution_driver !== undefined && !["native", "playwright_test_cli"].includes(input.execution_driver)
+    || input.assertion_timeout_ms !== undefined && !validAutomationAssertionTimeoutMs(input.assertion_timeout_ms)
+    || input.navigation_timeout_ms !== undefined && !validAutomationNavigationTimeoutMs(input.navigation_timeout_ms)
     || input.timeout_ms !== undefined && (!Number.isSafeInteger(input.timeout_ms) || input.timeout_ms < 100 || input.timeout_ms > 60_000)) throw invalid();
   const policy = input.replay_policy;
   if (["fixture_id", "reset_receipt"].some(key => policy[key] !== undefined && (!string(policy[key], 256) || !policy[key].trim()))
@@ -94,6 +98,11 @@ export function validateAutomationVerificationRequest(input: unknown): Automatio
       // A missing frozen binding is a preparation error, never a generator or
       // literal reference to type into the application. Empty values are valid.
       for (const operation of section.operations) {
+        const optionParameter = recordedSelectionNameParameter(operation.arguments.locator);
+        if (typeof operation.arguments.locator === 'string' && /(?<![A-Za-z0-9_])@[tsr]\./i.test(operation.arguments.locator)) {
+          if (!optionParameter || !Object.hasOwn(input.parameters, optionParameter.key)
+            || !input.parameters[optionParameter.key].trim() || input.parameters[optionParameter.key].length > 2_000) throw invalid();
+        }
         for (const field of ["value", "key", "url"]) {
           const key = parameterKey(operation.arguments[field]);
           if (key && !Object.hasOwn(input.parameters, key)) throw invalid();
@@ -154,9 +163,10 @@ export async function runAutomationVerification(input: AutomationVerificationReq
     });
     await context.tracing.start({ screenshots: false, snapshots: true, sources: false }); traceStarted = true;
     page = await context.newPage();
+    if (request.navigation_timeout_ms !== undefined) page.setDefaultNavigationTimeout(Math.min(request.navigation_timeout_ms, remaining()));
     context.on("page", candidate => { if (candidate !== page) void candidate.close(); });
     const parameters = Object.freeze(Object.assign(Object.create(null), request.parameters)) as Record<string, string>;
-    const bindings = createPlaywrightCodeBindings(page, { assertionTimeout: Math.min(8_000, remaining()), resolveLocator: value => value, resolveUrl: value => value,
+    const bindingsForSection = (section: Section) => createPlaywrightCodeBindings(page!, { parameterExpressions: usesExpressionParameterBindings(section.automation_code), assertionTimeout: Math.min(normalizeAutomationAssertionTimeoutMs(request.assertion_timeout_ms), remaining()), resolveLocator: value => value, resolveUrl: value => value,
       interpolate: value => {
         const key = parameterKey(value);
         if (key) return parameters[key];
@@ -172,18 +182,25 @@ export async function runAutomationVerification(input: AutomationVerificationReq
           return parameters[part.key];
         }).join("") : value;
       } });
-    await page.goto(request.start_url, { waitUntil: "domcontentloaded", timeout: remaining() });
+    await page.goto(request.start_url, { waitUntil: "domcontentloaded", timeout: Math.min(request.navigation_timeout_ms ?? remaining(), remaining()) });
     for (const section of request.sections) {
+      const bindings = bindingsForSection(section);
       for (let index = 0; index < section.operations.length; index++) {
         if (cancelled || timedOut || remaining() <= 1) throw invalid();
         const operation = section.operations[index]; active = { section, operation, index }; actionStarted = false;
-        page.setDefaultTimeout(Math.min(8_000, remaining())); page.setDefaultNavigationTimeout(Math.min(15_000, remaining()));
+        page.setDefaultTimeout(Math.min(8_000, remaining()));
+        page.setDefaultNavigationTimeout(Math.min(operation.name === 'browser_navigate' ? request.navigation_timeout_ms ?? 15_000 : 15_000, remaining()));
         const compiled = compileRecordedProgram([operation]);
         // Each statement is rendered by the same atomically checked grammar.
         // Tracking its boundary distinguishes a failed read from an unknown
         // interaction acknowledgement; interactions are never replayed here.
         if (operation.arguments.locator && !(operation.name === "browser_assert" && ["hidden", "count"].includes(operation.arguments.assertion))) {
-          const locator = resolveRepositoryLocator(page, operation.arguments.locator);
+          const root = (operation.arguments.frame || []).reduce((parent: Page | FrameLocator, selector: string) => parent.frameLocator(selector), page as Page | FrameLocator);
+          const optionParameter = recordedSelectionNameParameter(operation.arguments.locator);
+          const scopedSelection = recordedScopedSelectionLocator(operation.arguments.locator);
+          const locator = scopedSelection ? root.locator(scopedSelection.scope).getByText(optionParameter ? parameters[optionParameter.key] : scopedSelection.name, { exact: true }) : resolveRepositoryLocator(root, optionParameter
+            ? `getByRole("option", ${JSON.stringify({ name: parameters[optionParameter.key], exact: true })})`
+            : operation.arguments.locator);
           try { await locator.waitFor({ state: "attached", timeout: Math.min(3_000, remaining()) }); } catch { /* count below is authoritative */ }
           if (await locator.count() !== 1) throw Object.assign(new Error(), { code: "AUTOMATION_VERIFICATION_LOCATOR_UNRESOLVED" });
         }

@@ -1,3 +1,8 @@
+/** Submission state belongs to the case and application that started it. */
+export function automationBuildSubmissionPending(pending: boolean, requestedScope: string | undefined, currentScope: string): boolean {
+  return pending && requestedScope === currentScope;
+}
+
 /** Replace untouched drafts with generated output while retaining concurrent edits. */
 export function mergeRefreshedAutomationDrafts<T>(
   current: Record<string, T>,

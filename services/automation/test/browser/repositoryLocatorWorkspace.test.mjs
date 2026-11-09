@@ -17,6 +17,9 @@ test('repository has a quiet toolbar, stable field selection and an editable DOM
   fixture=fixture.replace('const client=new QueryClient',`const entries=[${JSON.stringify(row)},${JSON.stringify({...row,id:'password',locator_intent:'Password',locator:'#password',metadata:{...row.metadata,source_owners:[],object_name:'Password'}})},${JSON.stringify({...row,id:'address',page_key:'Checkout',locator_intent:'Address',locator:'#address',metadata:{...row.metadata,source_owners:[],screen_name:'Checkout',object_name:'Address'}})}];
 api.testCases.learningCache=async()=>structuredClone(entries);
 window.applies=[];
+window.repositoryWrites=[];
+api.testCases.createLearningCacheEntry=async input=>{window.repositoryWrites.push(structuredClone(input));const row={id:'saved-'+window.repositoryWrites.length,...input};entries.push(row);return row;};
+api.testCases.updateLearningCacheEntry=async(id,input)=>{window.repositoryWrites.push(structuredClone(input));const row=entries.find(item=>item.id===id);Object.assign(row,input);return {...row};};
 api.testCases.improveLearningCacheEntry=async id=>({entry:structuredClone(entries.find(item=>item.id===id)),suggestion:{locator:'#reviewed-'+id,strategy:'css',confidence:.85},fallback_used:true,generation_mode:'deterministic',request_id:'preview-'+id});
 api.testCases.applyLearningCacheImprovement=async(id,input)=>{window.applies.push({id,input});const entry=entries.find(item=>item.id===id);entry.locator=input.locator;entry.updated_at=new Date().toISOString();return {entry:structuredClone(entry),applied:true}};
 api.repositoryInspection.capabilities=async()=>({remote:{available:false},local:{available:true}});\nconst client=new QueryClient`);
@@ -25,7 +28,7 @@ api.repositoryInspection.capabilities=async()=>({remote:{available:false},local:
   let browser,page;
   try{
     await writeFile(tsx,fixture);await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
-    browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});page=await browser.newPage({viewport:{width:1600,height:1050}});const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('**/api/**',route=>{errors.push(`Unexpected API ${route.request().url()}`);return route.abort();});
+    browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});page=await browser.newPage({viewport:{width:1600,height:1050}});page.setDefaultTimeout(7000);page.setDefaultNavigationTimeout(30000);const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('**/api/**',route=>{errors.push(`Unexpected API ${route.request().url()}`);return route.abort();});
     await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html`);
     await page.locator('.repository-agent-status').waitFor();
     await page.getByLabel('Object configuration',{exact:true}).getByText('Element Configuration: Email',{exact:true}).waitFor();
@@ -60,6 +63,8 @@ api.repositoryInspection.capabilities=async()=>({remote:{available:false},local:
     await page.getByRole('tab',{name:/^Selected/}).click();
     const builder=page.locator('.repository-locator-builder');await builder.waitFor();
     await builder.getByLabel('Parent CSS selector (optional)').fill('form[data-testid="login"]');
+    await builder.getByLabel('Match index (optional, starts at 0)').fill('-1');
+    assert.equal(await builder.getByRole('button',{name:'Use this combination'}).isDisabled(),true,'invalid indexing cannot silently broaden the selector');
     await builder.getByLabel('Match index (optional, starts at 0)').fill('0');
     await builder.getByRole('button',{name:'Use this combination'}).click();assert.match(await builder.getByLabel('Locator',{exact:true}).inputValue(),/nth=0$/);
     await builder.getByRole('button',{name:'Apply locator'}).click();await page.getByText('Not validated',{exact:true}).first().waitFor();
@@ -67,6 +72,13 @@ api.repositoryInspection.capabilities=async()=>({remote:{available:false},local:
     assert.equal(await page.locator('.object-repository-inspector-candidate').count(),2,'Editing a locator must not duplicate the captured field');
     assert.equal(await page.getByRole('checkbox',{name:'Select email',exact:true}).isChecked(),true);
     await page.getByRole('tab',{name:/^Selected/}).click();
+    await page.getByRole('button',{name:'Save screen & fields',exact:true}).click();
+    await page.waitForFunction(()=>window.repositoryWrites.some(row=>row.metadata?.record_kind==='field'));
+    const savedFields=await page.evaluate(()=>window.repositoryWrites.filter(row=>row.metadata?.record_kind==='field'));
+    assert.equal(savedFields.length,1,'only the selected field is persisted; the detected Sign in button remains unselected');
+    assert.match(savedFields[0].locator,/form\[data-testid="login"\].*nth=0$/);
+    assert.ok(savedFields[0].metadata.fallback_locators.every(row=>row.locator!==savedFields[0].locator));
+    assert.equal(savedFields[0].metadata.locator_candidates.filter(row=>row.isPrimary).length,1);
     assert.deepEqual(errors,[]);
     await mkdir('/tmp/hellotest-automation-screenshots',{recursive:true});await page.screenshot({path:'/tmp/hellotest-automation-screenshots/repository-locator.png',fullPage:true});
   }catch(error){throw new Error(`${error.message}\n${await page?.locator('body').innerText().catch(()=> '')}`,{cause:error});}

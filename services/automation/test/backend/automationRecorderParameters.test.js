@@ -14,9 +14,10 @@ function recorder(){
     if(id==='crypto')return require('node:crypto');
     if(id.endsWith('/testStepAutomation'))return require('../../../platform/backend/src/utils/testStepAutomation');
     if(id.endsWith('/automationBrowserParameters'))return require('../../backend/lib/automationBrowserParameters');
+    if(id.endsWith('/automationRecorderActions'))return require('../../backend/lib/automationRecorderActions');
     return {};
   }};
-  vm.runInNewContext(fs.readFileSync(file,'utf8')+'\nmodule.exports={buildRecorderStepCandidate,normalizeCapturedActions,inferRecorderFillValue,recorderParameterHint};',sandbox,{filename:file});
+  vm.runInNewContext(fs.readFileSync(file,'utf8')+'\nmodule.exports={buildRecorderStepCandidate,buildRecorderStepCandidates,normalizeCapturedActions,inferRecorderFillValue,recorderParameterHint};',sandbox,{filename:file});
   return sandbox.module.exports;
 }
 const host=recorder();
@@ -26,6 +27,16 @@ const prepare=(actions,step,resolver)=>{
   const candidates=actions.map((action,index)=>host.buildRecorderStepCandidate(action,index+1,null));
   return bind({actions,candidates,mappings:step?[{step,candidates}]:[],resolver,rebuildCandidate:(action,order)=>host.buildRecorderStepCandidate(action,order,null)});
 };
+
+test('actual recorder candidates use the shared strict compiler without losing exact options or selecting the first match', async () => {
+  const { playwrightRepositoryLocatorExpression } = await import('../../shared/automationProgramCompatibility.mjs');
+  const model = { byActionIndex: new Map(), locatorExpression: playwrightRepositoryLocatorExpression };
+  const candidate = host.buildRecorderStepCandidate(action(1, 'fill', '@r.email', 'getByRole("textbox", {name:"Email",exact:false}).nth(1)'), 1, model);
+  assert.match(candidate.automation_code, /page\.getByRole\("textbox", \{ name: "Email", exact: false \}\)\.nth\(1\)/);
+  assert.doesNotMatch(candidate.automation_code, /\.first\(\)/);
+  assert.doesNotThrow(() => require('../../backend/lib/automationGeneratedProgram').normalizeGeneratedProgram(candidate.automation_code));
+  assert.throws(() => host.buildRecorderStepCandidate(action(1, 'click', '', 'getByRole("button", {name:"Save",checked:true})'), 1, model), /Unsupported semantic locator/);
+});
 
 test('host-recorded fills and selections rebuild from unique original scoped references and remain dynamic after edits',()=>{
   const actions=[action(1,'fill','public@example.test','#email'),action(2,'select','West','#region')];
@@ -79,34 +90,83 @@ test('recorder model prompts redact configured and unbound private input values 
   assert.equal(actions[0].value,'Unbound-private-fixture');
 });
 
+test('explicit saved scoped inputs bind fresh recordings without a copied manual reference',()=>{
+  const resolver=createBrowserParameterResolver({caseValues:{'t.name':'Current name','r.password':'Configured-private-fixture'},suiteValues:{region:'East'}});
+  const actions=[action(1,'fill','Recorded name','#name'),action(2,'fill','Recorded-private-fixture','#password'),action(3,'select','West','#region')];
+  const result=bind({actions,candidates:host.buildRecorderStepCandidates(actions),resolver,
+    parameterBindings:[{source_action_index:1,parameter_reference:'@t.name'},{source_action_index:2,parameter_reference:'@r.password'},{source_action_index:3,parameter_reference:'@s.region'}],
+    rebuildCandidate:(action,order)=>host.buildRecorderStepCandidate(action,order,null)});
+  assert.match(result.candidates[0].automation_code,/@t.name/);assert.match(result.candidates[0].action,/@t.name/);
+  assert.match(result.candidates[1].automation_code,/@r.password/);assert.match(result.candidates[2].automation_code,/@s.region/);
+  assert.doesNotMatch(JSON.stringify(result),/Recorded-private-fixture|Configured-private-fixture|Recorded name/);
+});
+
+test('explicit bindings reject invalid source actions and unknown parameters before code or plan writes',()=>{
+  const actions=[action(1,'fill','private','#password')],resolver=createBrowserParameterResolver({caseValues:{password:'configured'}});
+  const input={actions,candidates:host.buildRecorderStepCandidates(actions),resolver,rebuildCandidate:(action,order)=>host.buildRecorderStepCandidate(action,order,null)};
+  for(const parameterBindings of [[{source_action_index:99,parameter_reference:'@t.password'}],[{source_action_index:1,parameter_reference:'@t.missing'}],[{source_action_index:1,parameter_reference:'password'}],[{source_action_index:1,parameter_reference:'@t.password'},{source_action_index:1,parameter_reference:'@t.password'}]]){
+    assert.throws(()=>bind({...input,parameterBindings}),{code:'AUTOMATION_RECORDER_PARAMETER_BINDING_INVALID'});
+  }
+});
+
+test('a navigation URL containing a private query value requires an explicit scoped binding before saving source',()=>{
+  const actions=[{index:1,type:'navigation',url:'https://fixture.test/login?access_token=recorded-private-token'}];
+  const resolver=createBrowserParameterResolver({caseValues:{'r.entry':'https://fixture.test/login?access_token=configured-private-token'}});
+  const input={actions,candidates:host.buildRecorderStepCandidates(actions),resolver,rebuildCandidate:(action,order)=>host.buildRecorderStepCandidate(action,order,null)};
+  assert.throws(()=>bind(input),{code:'AUTOMATION_RECORDER_PRIVATE_INPUT_REQUIRED'});
+  const result=bind({...input,parameterBindings:[{source_action_index:1,parameter_reference:'@r.entry'}]});
+  assert.match(result.candidates[0].automation_code,/@r.entry/);assert.doesNotMatch(result.candidates[0].automation_code,/recorded-private-token|configured-private-token/);
+});
+
+test('input bursts keep earlier submit values and tab boundaries, and explicit early choices follow their final fill',()=>{
+  const actions=[action(1,'fill','a','#search'),action(2,'change','apple','#search'),{index:3,type:'click',locator:'#submit'},action(4,'fill','pear','#search'),{...action(5,'fill','orange','#search'),page_id:'other-tab'}];
+  const candidates=host.buildRecorderStepCandidates(actions);
+  assert.deepEqual(Array.from(candidates,row=>row.source_action_index),[2,3,4,5]);
+  const result=bind({actions,candidates,resolver:createBrowserParameterResolver({caseValues:{query:'dynamic search'}}),parameterBindings:[{source_action_index:1,parameter_reference:'@t.query'}],rebuildCandidate:(action,order)=>host.buildRecorderStepCandidate(action,order,null)});
+  assert.match(result.candidates[0].automation_code,/@t.query/);
+  assert.match(result.candidates[2].automation_code,/pear/);assert.match(result.candidates[3].automation_code,/orange/);
+});
+
 test('real recorder finalization resolves selected inputs before mapping and publishes symbolic source without changing case data',async()=>{
   const file=path.resolve(__dirname,'../../backend/services/aiAutomationBuilder.service.js'),sourceText=fs.readFileSync(file,'utf8');
   const body=sourceText.slice(sourceText.indexOf('const finalizeRecorderBuild ='),sourceText.indexOf('exports.buildAutomationForCase ='));
   const testCase={id:'automation',project_id:'project',app_type_id:'web-app',title:'Recorded account',automated:'yes',parameter_values:{'t.email':'public@example.test','r.login_secret':'Private-current-fixture'},test_data_options:{private_parameter_names:['r.login_secret']}};
   const original=structuredClone(testCase),step=source('sign-in','Fill @t.email and @r.login_secret');
   const actions=[action(1,'fill','public@example.test','#email'),action(2,'fill','Private-current-fixture','#password')];
-  let artifact,selection,applied;
+  let artifact,selection,applied,automationStatus='ready',persistedRows=[step];
   const resolver=createBrowserParameterResolver({caseValues:testCase.parameter_values,privateParameterNames:['r.login_secret']});
   const dependencies={
-    selectStepsForCase:{all:async()=>[step]},selectCaseWithScope:{get:async()=>({...testCase,automation_status:'ready'})},
+    selectStepsForCase:{all:async()=>persistedRows},selectCaseWithScope:{get:async()=>({...testCase,automation_status:automationStatus})},
+    normalizeGeneratedProgram:require('../../backend/lib/automationGeneratedProgram').normalizeGeneratedProgram,
+    inferAutomationStepType:require('../../../platform/backend/src/utils/testStepAutomation').inferAutomationStepType,
     loadAutomationParameterContext:async()=>({runtime_parameter_values:testCase.parameter_values,private_parameter_names:['r.login_secret']}),
-    require:id=>id.endsWith('automationBrowserParameters')?{loadBrowserParameterResolver:async input=>{selection=input;return resolver;}}:require('../../backend/lib/automationRecorderParameters'),
-    buildRecorderRepositoryModel:async input=>{assert.doesNotMatch(input.projectPrompt(JSON.stringify({actions:input.capturedActions})),/Private-current-fixture/);return {};},
+    require:id=>id.endsWith('automationBrowserParameters')?{loadBrowserParameterResolver:async input=>{selection=input;return resolver;}}:id.endsWith('automationRecorderReadiness')?require('../../backend/lib/automationRecorderReadiness'):require('../../backend/lib/automationRecorderParameters'),
+    buildRecorderRepositoryModel:async input=>{assert.equal(input.allowAiNaming,false);assert.doesNotMatch(input.projectPrompt(JSON.stringify({actions:input.capturedActions})),/Private-current-fixture/);return {};},
     buildRecorderStepCandidates:items=>items.map((action,index)=>host.buildRecorderStepCandidate(action,index+1,null)),
     buildRecorderStepCandidate:host.buildRecorderStepCandidate,
     appendEvent:async()=>{},MAX_CAPTURED_ACTIONS:180,
-    buildAiRecorderMappings:async input=>{assert.doesNotMatch(input.projectPrompt(JSON.stringify(input.stepCandidates)),/Private-current-fixture/);return {mappings:[{step,candidates:input.stepCandidates}]};},
-    mergeRecorderMappingGroups:value=>value,buildFallbackRecorderMappings:()=>[],
-    applyRecorderSteps:async input=>{applied=input;return input.recorderMappings.map(mapping=>({step_id:mapping.step.id,step_order:1,action:mapping.step.action,expected_result:mapping.step.expected_result,step_type:'web',operation:'updated',automation_code:mapping.candidates.map(candidate=>candidate.automation_code).join('\n')}));},
-    persistLearning:async()=>0,markTestCaseAutomationReady:{run:async()=>{}},normalizeText:value=>value,
+    buildAiRecorderMappings:async()=>{throw new Error('Recorder saves must not wait for a model alignment request');},
+    mergeRecorderMappingGroups:value=>value,buildFallbackRecorderMappings:(steps,candidates)=>[{step:steps[0],candidates}],
+    applyRecorderSteps:async input=>{applied=input;const result=input.recorderMappings.map(mapping=>({step_id:mapping.step.id,step_order:1,action:mapping.step.action,expected_result:mapping.step.expected_result,step_type:'web',operation:'updated',automation_code:mapping.candidates.map(candidate=>candidate.automation_code).join('\n')}));persistedRows=result.map(row=>({...row,id:row.step_id}));return result;},
+    persistLearning:async()=>0,markTestCaseAutomationReady:{run:async()=>{automationStatus='ready';}},normalizeText:value=>value,
+    markTestCaseAutomationIncomplete:{run:async()=>{automationStatus='incomplete';}},
     workspaceTransactionService:{createTransactionArtifact:async(_id,input)=>{artifact=input.content;return {id:'artifact'};}},
     createArtifactContent:require('../../backend/lib/automationPortableArtifact').createPortableAutomationArtifact,
     listLearningCacheRows:async()=>[],MAX_CACHE_ROWS:40,updateTransaction:async()=>{}
   };
   const finalize=new Function(...Object.keys(dependencies),body+'\nreturn finalizeRecorderBuild;')(...Object.values(dependencies));
-  const result=await finalize({testCase,session:{id:'recorder'},createdBy:'author',transactionId:'transaction',capturedActions:actions,capturedNetwork:[],parameterSelection:{test_suite_id:'selected-suite'}});
+  const result=await finalize({testCase,session:{id:'recorder'},createdBy:'author',transactionId:'transaction',capturedActions:actions,capturedNetwork:[],targetStepId:'sign-in',parameterSelection:{test_suite_id:'selected-suite'}});
   assert.equal(selection.test_suite_id,'selected-suite');assert.equal(selection.materialize,false);
   assert.match(applied.recorderMappings[0].candidates[0].automation_code,/@t.email/);assert.match(applied.recorderMappings[0].candidates[1].automation_code,/@r.login_secret/);
   assert.doesNotMatch(artifact,/Private-current-fixture/);assert.match(artifact,/public@example.test/);assert.match(artifact,/@r.login_secret/);
   assert.equal(result.generated_step_count,1);assert.deepEqual(testCase,original,'finishing a recording cannot reset own parameters or their privacy settings');
+  assert.equal(result.automation_status,'ready','linked recorded actions can run without an assertion in every section');
+  assert.deepEqual(Array.from(result.warnings),[]);
+  assert.equal(persistedRows[0].expected_result,step.expected_result,'recording keeps the authored expectation as specification');
+  assert.doesNotMatch(persistedRows[0].automation_code,/\bexpect\(/,'recording never manufactures a business assertion');
+  dependencies.workspaceTransactionService.createTransactionArtifact=async()=>{throw new Error('Optional artifact store unavailable');};
+  const savedWithoutArtifact=await finalize({testCase,session:{id:'recorder'},createdBy:'author',transactionId:'transaction',capturedActions:actions,capturedNetwork:[],targetStepId:'sign-in'});
+  assert.equal(savedWithoutArtifact.generated_step_count,1);assert.equal(savedWithoutArtifact.artifact_id,null);
+  assert.equal(savedWithoutArtifact.automation_status,'ready');
+  assert.equal(savedWithoutArtifact.warnings.length,1);assert.ok(savedWithoutArtifact.warnings.some(warning=>/downloadable source artifact/.test(warning)));
 });

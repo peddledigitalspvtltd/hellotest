@@ -13,6 +13,38 @@ const attachInlineArtifacts = createInlineArtifactAttacher((id, ref) => workspac
 const apiRequestExecutionService = require("./apiRequestExecution.service");
 const executionStepRuntimeService = require("@hellotest/platform/backend/src/domain/executionStepEvidence");
 const opsTelemetryService = require("@hellotest/trace/backend/services/opsTelemetry.service");
+const { AsyncLocalStorage } = require('node:async_hooks');
+// Optional hierarchy delivery must never own a job-row lock or delay a worker
+// acknowledgement. Coalesce bursts to one active send plus the latest event
+// per Run; durable step/case receipts remain in their existing transaction.
+const queuedTelemetryScope = new AsyncLocalStorage();
+const queuedTelemetryRuns = new Map();
+const deliverQueuedTelemetry = payload => {
+  const existing = queuedTelemetryRuns.get(payload.execution_id);
+  if (existing) { existing.pending = payload; return; }
+  const state = { pending: payload };
+  queuedTelemetryRuns.set(payload.execution_id, state);
+  const deliver = async () => {
+    try {
+      while (state.pending) {
+        const next = state.pending; state.pending = null;
+        try { await opsTelemetryService.emitExecutionHierarchyEvents(next); }
+        catch { /* Best-effort delivery never changes the committed receipt. */ }
+      }
+    } finally { queuedTelemetryRuns.delete(payload.execution_id); }
+  };
+  // Detached work must not inherit either database's transaction connection.
+  void Promise.resolve().then(() => db.outsideTransaction(() => obsDb.outsideTransaction(deliver))).catch(() => {});
+};
+const withCommittedQueuedTelemetry = operation => async (...args) => {
+  if (queuedTelemetryScope.getStore()) return operation(...args);
+  const pending = [];
+  const receipt = await queuedTelemetryScope.run(pending, () => operation(...args));
+  // The outer queue transaction has committed and released its connection.
+  for (const payload of pending) deliverQueuedTelemetry(payload);
+  return receipt;
+};
+const queueCommittedTelemetry = payload => { queuedTelemetryScope.getStore()?.push(payload); };
 const {
   normalizeApiRequest,
   normalizeRichText,
@@ -28,6 +60,7 @@ const { resilientHttpRequest } = require("@hellotest/platform/backend/src/utils/
 const { SERVICE_ERROR_CODES, serviceError } = require("@hellotest/platform/backend/src/utils/serviceErrors");
 const { createExecutionDiagnosticRedactor } = require('../lib/automationExecutionDiagnostics');
 const { resolveAutomationCaseSteps, resolveAutomationCaseType } = require('@hellotest/platform/backend/src/utils/automationCaseType');
+const parameterMode = import('../../shared/automationParameterMode.mjs');
 
 const SUPPORTED_ENGINE_STEP_TYPES = new Set(["api", "web", "android", "ios"]);
 const TESTENGINE_ENGINE_CLASSES = new Set(["api", "web", "android"]);
@@ -117,6 +150,15 @@ const selectLatestLogsForExecution = db.prepare(`
   FROM execution_results
   WHERE execution_id = ?
   ORDER BY test_case_id ASC, COALESCE(data_set_iteration_index, -1) ASC, created_at DESC, id DESC
+`);
+
+const selectCompletedJobCapturesForExecution = obsDb.prepare(`
+  SELECT test_case_id, payload #>> '{data_set,id}' AS test_data_set_id,
+    payload #> '{data_set,iteration,index}' AS data_set_iteration_index,
+    runtime_state->'captured_values' AS captured_values
+  FROM test_engine_jobs
+  WHERE execution_id = ? AND completed_at IS NOT NULL
+  ORDER BY created_at DESC, id DESC
 `);
 
 
@@ -1051,7 +1093,17 @@ const buildEngineEnvelope = async ({
   );
   const executionPolicy = await resolveExecutionPolicy(execution, caseSnapshot);
   const caseDataSet = resolveCaseDataSetContext(execution, caseSnapshot);
-  const hooks = resolveExecutionHooks({execution,integrationHooks:integrationConfig.execution_hooks,caseSnapshot,stepsByCaseId,appTypeKind:appType?.type||'web'});
+  let hooks = resolveExecutionHooks({execution,integrationHooks:integrationConfig.execution_hooks,caseSnapshot,stepsByCaseId,appTypeKind:appType?.type||'web'});
+  if (hooks.some(hook => hook.steps.some(step => step.step_type === 'web' && typeof step.automation_code === 'string'))) {
+    const { canonicalizeSavedLocatorWrappers } = await import('../../shared/automationProgramCompatibility.mjs');
+    // Apply the same saved-source adapter to frozen hooks without adding an
+    // assertion requirement to setup/teardown or editing their snapshots.
+    hooks = hooks.map(hook => ({ ...hook, steps: hook.steps.map(step => {
+      if (step.step_type !== 'web' || typeof step.automation_code !== 'string') return step;
+      const normalized = canonicalizeSavedLocatorWrappers(step.automation_code);
+      return normalized.changed ? { ...step, automation_code: normalized.source } : step;
+    }) }));
+  }
   const mobileEngine = require('../lib/automationMobileConfiguration').buildMobileEngineConfiguration({automationCaseType:appTypeKind,steps,hooks,configurationSnapshot,integrationConfig});
 
   return preserveFrozenEngineEnvelope({
@@ -1242,7 +1294,8 @@ const parseRuntimeState = (value) => {
     healing_succeeded: parsed.healing_succeeded === true,
     final_summary: normalizeText(parsed.final_summary),
     artifact_bundle: normalizeArtifactBundle(parsed.artifact_bundle),
-    patch_proposals: normalizePatchProposals(parsed.patch_proposals)
+    patch_proposals: normalizePatchProposals(parsed.patch_proposals),
+    ...(parsed.interrupted_attempt?.code === 'TESTENGINE_JOB_ATTEMPT_EXPIRED' ? {interrupted_attempt:parsed.interrupted_attempt} : {})
   };
 };
 
@@ -1348,7 +1401,11 @@ async function planExecutionDispatch(execution, options = {}) {
 
   for (const caseSnapshot of execution.case_snapshots || []) {
     const dataSetIterations = resolveExecutionDataSetIterations(execution, caseSnapshot);
-    const caseRecord = await selectTestCaseDispatchMetadata.get(caseSnapshot.test_case_id);
+    // New runs freeze automation identity. Besides avoiding one authoring read
+    // per case, this keeps execution independent of later edits or deletion.
+    const caseRecord = caseSnapshot.automated == null
+      ? await selectTestCaseDispatchMetadata.get(caseSnapshot.test_case_id)
+      : null;
     const savedSteps = stepsByCaseId.get(caseSnapshot.test_case_id) || [];
     const isAutomated = (caseSnapshot.automated ?? caseRecord?.automated) === 'yes';
     if (!isAutomated && (!allowApiCasesWithoutAutomation || !savedSteps.length
@@ -1432,13 +1489,17 @@ async function planExecutionDispatch(execution, options = {}) {
       continue;
     }
 
-    const executableIssues = require("./automationReadiness.service").inspectExecutablePlan(normalizedSteps);
+    // Run admission checks whether the saved code can execute. Assertion
+    // quality is enforced during generation; a case may keep its assertions
+    // in a later section of the same ordered plan.
+    const executablePlan = await require("./automationReadiness.service").prepareExecutablePlan(normalizedSteps, { requireExpectedAssertions: false });
+    const executableIssues = executablePlan.issues;
     if (executableIssues.length) {
       unsupportedAutomatedCaseCount += 1;
       warnings.push(...executableIssues.map(issue => `${caseSnapshot.test_case_title}: ${issue}`));
       continue;
     }
-    const runnableSteps = normalizedSteps.map(step => step.step_type === 'api'
+    const runnableSteps = executablePlan.steps.map(step => step.step_type === 'api'
       ? { ...step, api_request: normalizeApiRequest(step.api_request) } : step);
 
     for (const dataSetIteration of dataSetIterations) {
@@ -1535,15 +1596,17 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
     };
   }
 
-  const concurrencyLimit = Number(process.env.TESTENGINE_DISPATCH_CONCURRENCY) || 5;
+  const concurrencyLimit = Math.max(1, Math.min(32, normalizeInteger(process.env.TESTENGINE_DISPATCH_CONCURRENCY, 5) || 5));
+  const repositories = new Map();
+  const prepared = [];
   for (let i = 0; i < plan.eligibleCases.length; i += concurrencyLimit) {
     const chunk = plan.eligibleCases.slice(i, i + concurrencyLimit);
-    await Promise.all(chunk.map(async (item) => {
-      const objectRepository = await listObjectRepositoryForEnvelope({
-        projectId: plan.execution.project_id,
-        appTypeId: plan.execution.app_type_id,
-        testCaseId: item.case_snapshot.test_case_id
-      });
+    prepared.push(...await Promise.all(chunk.map(async (item) => {
+      const caseId = item.case_snapshot.test_case_id;
+      if (!repositories.has(caseId)) repositories.set(caseId, listObjectRepositoryForEnvelope({
+        projectId: plan.execution.project_id, appTypeId: plan.execution.app_type_id, testCaseId: caseId
+      }));
+      const objectRepository = await repositories.get(caseId);
       const envelope = await buildEngineEnvelope({
         engineRunId: item.engine_run_id,
         execution: plan.execution,
@@ -1567,7 +1630,16 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
       envelope.engine_worker_caps = engineWorkerCaps;
       envelope.step_engine_classes = stepEngineClasses;
       envelope.orchestration_class = orchestrationClass;
+      return { item, envelope, orchestrationClass, stepEngineClasses, engineMaxWorkers };
+    })));
+  }
 
+  // Publish the entire suite together. Otherwise a worker may lease case two
+  // while case one's asynchronous envelope/receipt is still being prepared,
+  // observe no prior job, and run serial cases in the wrong order. Transactions
+  // also prevent a failing handoff from leaving runnable partial suites behind.
+  await obsDb.transaction(async () => {
+    for (const { item, envelope, orchestrationClass, stepEngineClasses, engineMaxWorkers } of prepared) {
       const transaction = await workspaceTransactionService.createTransaction({
         project_id: plan.execution.project_id,
         app_type_id: plan.execution.app_type_id || null,
@@ -1636,8 +1708,8 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
         null,
         initiatedBy || plan.execution.created_by || null
       );
-    }));
-  }
+    }
+  })();
 
   return {
     automated_case_count: plan.automated_case_count,
@@ -1763,6 +1835,14 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       warnings: plan?.warnings || []
     };
   }
+  const selectedCaseCount = Array.isArray(plan.execution?.case_snapshots)
+    ? plan.execution.case_snapshots.length
+    : new Set(plan.eligibleCases.map(item => item.case_snapshot.test_case_id)).size;
+  if (plan.eligibleCases.length > 1 || selectedCaseCount > 1) {
+    throw Object.assign(new Error('Multiple cases or data rows require the paired local agent to preserve suite ordering, concurrency limits and captured outputs. Connect the local agent in this browser and run the suite again.'), {
+      code:'PAIRED_LOCAL_EXECUTION_REQUIRED',statusCode:409
+    });
+  }
 
   const engineHost = normalizeEngineHostUrl(engineBaseUrl || integration?.base_url);
   if (!engineHost) {
@@ -1796,6 +1876,16 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       ...baseEnvelope,
       callback
     };
+    const {usesExpressionParameterBindings}=await parameterMode;
+    if([...envelope.steps,...(envelope.hooks||[]).flatMap(hook=>hook.steps||[])].some(step=>usesExpressionParameterBindings(step.automation_code))) {
+      const health=await resilientHttpRequest(`${engineHost}/health`,{method:'GET',redirect:'error'}, {
+        dependency:'test-engine',operation:'run.parameter-expressions-preflight',deadlineMs:2500,maxAttempts:1,maxResponseBytes:65536
+      });
+      const status=await readBoundedResponseJson(health,{maxBytes:65536,label:'Local Playwright capabilities'});
+      if(!health.ok||status?.capabilities?.parameter_expressions_v1!==true)throw Object.assign(new Error('Update the local Playwright runner before running this saved native parameter program. It requires parameter_expressions_v1; no browser actions were dispatched.'),{
+        code:'LOCAL_AGENT_UPGRADE_REQUIRED',statusCode:409
+      });
+    }
     const orchestrationClass = resolveOrchestrationClass([...item.steps, ...(envelope.hooks || []).flatMap(hook => hook.steps)], plan.appType?.type || "web");
     const isApiOnlyRun = orchestrationClass === "api";
     const liveViewUrl = buildProviderLiveViewUrl(directIntegration, activeWebEngine);
@@ -1948,7 +2038,7 @@ async function queueSingleStepDispatch({
     throw new Error("Only web execution steps can be handed off to Test Engine from the execution console");
   }
 
-  const step = {
+  const savedStep = {
     id: stepSnapshot.snapshot_step_id,
     order: stepSnapshot.step_order,
     step_type: stepType,
@@ -1962,6 +2052,11 @@ async function queueSingleStepDispatch({
       ? stepSnapshot.group_kind
       : null
   };
+  const executablePlan = await require('./automationReadiness.service').prepareExecutablePlan([savedStep], { requireExpectedAssertions: false });
+  if (executablePlan.issues.length) throw Object.assign(new Error(`Automation is not executable. ${executablePlan.issues.join(' ')}`), {
+    code: 'AUTOMATION_SAVED_PLAN_INVALID', statusCode: 422, validation_feedback: executablePlan.issues
+  });
+  const step = executablePlan.steps[0];
   const engineRunId = uuid();
   const objectRepository = await listObjectRepositoryForEnvelope({
     projectId: execution.project_id,
@@ -2089,7 +2184,7 @@ async function getQueuedJob(id) {
 const isFinalResultStatus = (status) => ["passed", "failed", "blocked", "aborted", "skipped"].includes(normalizeText(status));
 const isFinalJobStatus = (status) => ["completed", "failed", "aborted"].includes(normalizeText(status));
 
-const collectPriorExecutionCaptures = async (executionId, testCaseId, suiteId, suiteScoped, iteration = {}, defaultScope = "r") => {
+const collectPriorExecutionCaptures = async (executionId, testCaseId, iteration = {}, defaultScope = "r") => {
   const orderRows = toRowArray(await selectExecutionCaseOrder.all(executionId));
   const current = orderRows.find((row) => row.test_case_id === testCaseId);
 
@@ -2101,7 +2196,6 @@ const collectPriorExecutionCaptures = async (executionId, testCaseId, suiteId, s
     orderRows
       .filter((row) =>
         Number(row.sort_order || 0) < Number(current.sort_order || 0)
-        && (!suiteScoped || (row.suite_id || null) === (suiteId || null))
       )
       .map((row) => row.test_case_id)
   );
@@ -2111,13 +2205,24 @@ const collectPriorExecutionCaptures = async (executionId, testCaseId, suiteId, s
   }
 
   const capturesByCaseId = {};
+  // Executable outputs live in the private job runtime. Public result logs are
+  // redacted diagnostics: transferring their token/password placeholders would
+  // corrupt the next case's inputs. Suite scheduling limits do not change the
+  // run parameter namespace; the common collector below enforces s./t. scope.
+  for (const row of toRowArray(await selectCompletedJobCapturesForExecution.all(executionId))) {
+    if (!priorIds.has(row.test_case_id) || Object.hasOwn(capturesByCaseId, row.test_case_id)
+      || !matchesParameterIteration(row, iteration)) continue;
+    capturesByCaseId[row.test_case_id] = normalizeFrozenCapturedValues(normalizeJsonValue(row.captured_values, {}), defaultScope);
+  }
+  // Legacy/manual results have no engine runtime receipt. Keep their usable
+  // outputs without ever turning a diagnostic masking marker into test data.
   for (const row of toRowArray(await selectLatestLogsForExecution.all(executionId))) {
     if (!matchesParameterIteration(row, iteration) || !priorIds.has(row.test_case_id) || Object.hasOwn(capturesByCaseId, row.test_case_id)) {
       continue;
     }
 
-    capturesByCaseId[row.test_case_id] = normalizeFrozenCapturedValues(
-      executionStepRuntimeService.extractCapturedValuesFromLogs(row.logs), defaultScope);
+    capturesByCaseId[row.test_case_id] = Object.fromEntries(Object.entries(normalizeFrozenCapturedValues(
+      executionStepRuntimeService.extractCapturedValuesFromLogs(row.logs), defaultScope)).filter(([,value]) => value !== '[REDACTED]'));
   }
 
   return collectPriorParameterCaptures(orderRows, testCaseId, capturesByCaseId);
@@ -2203,6 +2308,9 @@ const queuedJobParentState = async candidate => {
     await obsDb.prepare(`UPDATE test_engine_jobs SET status = 'aborted', completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
       lease_expires_at = NULL, leased_by = NULL, updated_at = CURRENT_TIMESTAMP,
       last_error = 'The parent Run is finished or unavailable; queued work was cancelled.' WHERE id = ?`).run(candidate.id);
+    await updateQueueTransaction(candidate.transaction_id, {status:'failed',completed_at:nowIso(),
+      description:'The parent Run is finished or unavailable; queued work was cancelled.',
+      metadata:{current_phase:'cancelled',cancellation_reason:'PARENT_RUN_NOT_RUNNING'}});
     return 'finished';
   }
   return parent.status === 'queued' ? 'waiting' : 'active';
@@ -2215,6 +2323,16 @@ const isQueuedJobLeaseEligible = async (candidate) => {
     .get(`testengine-lease:${candidate.execution_id}`);
   if (!lock?.acquired) return false;
   if (await queuedJobParentState(candidate) !== 'active') return false;
+  if (candidate.status === 'running' && candidate.lease_expires_at && Date.parse(candidate.lease_expires_at) <= Date.now()) {
+    // A replacement process cannot recover the old browser's memory or know
+    // whether its last click/request completed before the report was lost.
+    // Preserve the receipt and require an explicit reviewed rerun instead of
+    // replaying an unknown purchase, submission, or setup/teardown action.
+    const message = 'The previous worker attempt expired with an uncertain outcome. Inspect its completed steps and application effects before explicitly retrying this case; no browser or API action was replayed.';
+    await exports.completeQueuedJob({job_id:candidate.id,status:'blocked',error:message,summary:message,
+      interrupted_attempt:{code:'TESTENGINE_JOB_ATTEMPT_EXPIRED',action_outcome:'unknown',previous_worker_id:candidate.leased_by || null,recorded_at:nowIso()}});
+    return false;
+  }
   const payload = normalizeJsonValue(candidate.payload, {});
   const policy = payload?.execution_policy || {};
   const parallelEnabled = normalizeBoolean(policy.parallel_enabled, false);
@@ -2237,9 +2355,7 @@ const isQueuedJobLeaseEligible = async (candidate) => {
 };
 
 const attachPriorCapturesForLease = async (job) => {
-  const policy = job.payload?.execution_policy || {};
-  const suiteScoped = Boolean(policy.suite_parallel_override && policy.suite_id);
-  const priorCaptures = await collectPriorExecutionCaptures(job.execution_id, job.test_case_id, policy.suite_id || null, suiteScoped,
+  const priorCaptures = await collectPriorExecutionCaptures(job.execution_id, job.test_case_id,
     { test_data_set_id: job.payload?.data_set?.id, data_set_iteration_index: job.payload?.data_set?.iteration?.index }, job.payload?.parameter_scope_default);
 
   if (!Object.keys(priorCaptures).length) {
@@ -2369,7 +2485,7 @@ exports.leaseNextQueuedJob = async (params = {}) => {
   const maxRetries = Number(process.env.TESTENGINE_POLL_RETRIES) || 3;
   while (attempts < maxRetries) {
     try {
-      return await leaseNextQueuedJobTransaction(params);
+      return await withCommittedQueuedTelemetry(leaseNextQueuedJobTransaction)(params);
     } catch (err) {
       if (err.code === 'SQLITE_BUSY' || err.code === '40001' || (err.message && (err.message.includes('deadlock') || err.message.includes('locked')))) {
         attempts++;
@@ -2459,13 +2575,13 @@ exports.getQueueStats = async () => {
 
 // Queue callbacks can be retried or arrive after completion. Serialize all
 // mutations on the persisted job row, across API processes and worker leases.
-const withQueuedJobLock = (operation) => obsDb.transaction(async (params = {}) => {
+const withQueuedJobLock = (operation) => withCommittedQueuedTelemetry(obsDb.transaction(async (params = {}) => {
   const jobId = normalizeText(params.job_id);
   if (!jobId) throw new Error("Queued job ID is required");
   const locked = await obsDb.prepare("SELECT id FROM test_engine_jobs WHERE id = ? FOR UPDATE").get(jobId);
   if (!locked) throw new Error("Queued job not found");
   return operation(params);
-});
+}));
 
 const terminalJobReceipt = async (job) => {
   if (!job.completed_at && !isFinalJobStatus(job.status)) return null;
@@ -2491,7 +2607,11 @@ exports.startQueuedJob = withQueuedJobLock(async ({ job_id, worker_id } = {}) =>
   // Commit the cancellation receipt. Throwing here would roll it back, leaving
   // the same stale job to be leased and rejected on every poll indefinitely.
   if (parentState !== 'active') return {job_id:job.id,status:parentState === 'finished'?'aborted':'queued',reason:'PARENT_RUN_NOT_RUNNING'};
-  const normalizedWorkerId = normalizeText(worker_id) || job.leased_by || "testengine-worker";
+  const normalizedWorkerId = normalizeText(worker_id);
+  const leaseIssue = queuedJobLeaseIssue(job, normalizedWorkerId);
+  if (leaseIssue) throw Object.assign(new Error("This worker no longer owns an active lease for this job."), {
+    code: leaseIssue, statusCode: 409
+  });
   const leaseExpiresAt = new Date(Date.now() + DEFAULT_LEASE_SECONDS * 1000).toISOString();
   const runtimeState = parseRuntimeState(job.runtime_state);
   const logs = parseStructuredLogs(runtimeState.logs);
@@ -2529,17 +2649,13 @@ exports.startQueuedJob = withQueuedJobLock(async ({ job_id, worker_id } = {}) =>
     });
   }
 
-  try {
-    await opsTelemetryService.emitExecutionHierarchyEvents({
+  queueCommittedTelemetry({
       execution_id: job.execution_id,
       test_case_id: job.test_case_id,
       source: "testengine.queue.start",
       summary: `${job.test_case_title} started in the Test Engine.`,
       execution_result_id: result.id
-    });
-  } catch {
-    // OPS telemetry is best-effort and must not block queue processing.
-  }
+  });
 
   return {
     job_id: job.id,
@@ -2548,13 +2664,41 @@ exports.startQueuedJob = withQueuedJobLock(async ({ job_id, worker_id } = {}) =>
   };
 });
 
-exports.executeQueuedApiStep = withQueuedJobLock(async ({ job_id, step_id } = {}) => {
+// A control receipt is deliberately smaller than a job or execution result.
+// Workers poll it while browser actions are in flight and before the next
+// action; a stale worker must never revive its own expired or reassigned lease.
+const queuedJobLeaseIssue = (job, workerId) => {
+  if (!['leased', 'running'].includes(job.status) || !workerId || job.leased_by !== workerId) return 'TESTENGINE_JOB_LEASE_LOST';
+  const leaseEnd = Date.parse(job.lease_expires_at);
+  if (!Number.isFinite(leaseEnd) || leaseEnd <= Date.now()) return 'TESTENGINE_JOB_LEASE_EXPIRED';
+  return null;
+};
+
+exports.heartbeatQueuedJob = withQueuedJobLock(async ({ job_id, worker_id } = {}) => {
+  const job = await getQueuedJob(job_id);
+  if (job.completed_at || isFinalJobStatus(job.status)) return {job_id:job.id,status:job.status,authorized:false,code:'TESTENGINE_JOB_FINISHED'};
+  const leaseIssue = queuedJobLeaseIssue(job, normalizeText(worker_id));
+  if (leaseIssue) return {job_id:job.id,status:job.status,authorized:false,code:leaseIssue};
+  const parentState = await queuedJobParentState(job);
+  if (parentState !== 'active') return {job_id:job.id,status:parentState === 'finished'?'aborted':'queued',authorized:false,code:'PARENT_RUN_NOT_RUNNING'};
+  if (job.status !== 'running') return {job_id:job.id,status:job.status,authorized:false,code:'TESTENGINE_JOB_NOT_STARTED'};
+  const leaseExpiresAt = new Date(Date.now() + DEFAULT_LEASE_SECONDS * 1000).toISOString();
+  await obsDb.prepare('UPDATE test_engine_jobs SET lease_expires_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(leaseExpiresAt, job.id);
+  return {job_id:job.id,status:'running',authorized:true,lease_expires_at:leaseExpiresAt};
+});
+
+exports.executeQueuedApiStep = withQueuedJobLock(async ({ job_id, step_id, worker_id } = {}) => {
   const job = await getQueuedJob(job_id);
   if (job.completed_at || isFinalJobStatus(job.status)) {
     throw Object.assign(new Error("Finished jobs cannot execute additional API requests."), {
       code: "TESTENGINE_JOB_FINISHED", statusCode: 409
     });
   }
+  if (job.status !== 'running') throw Object.assign(new Error('The queued API job must be started before dispatching a request.'), {code:'TESTENGINE_JOB_NOT_STARTED',statusCode:409});
+  const leaseIssue = queuedJobLeaseIssue(job, worker_id === undefined ? job.leased_by : normalizeText(worker_id));
+  if (leaseIssue) throw Object.assign(new Error('This worker no longer owns an active lease for this API request.'), {code:leaseIssue,statusCode:409});
+  const parentState = await queuedJobParentState(job);
+  if (parentState !== 'active') return {job_id:job.id,step_id,status:'blocked',case_status:parentState === 'finished'?'aborted':'queued',captures:{},code:'PARENT_RUN_NOT_RUNNING'};
 
   if (!job.payload?.steps?.length) {
     throw new Error("Queued job payload is missing step data");
@@ -2571,6 +2715,9 @@ exports.executeQueuedApiStep = withQueuedJobLock(async ({ job_id, step_id } = {}
 
   const runtimeState = parseRuntimeState(job.runtime_state);
   const existingLogs = parseStructuredLogs(runtimeState.logs);
+  if (['passed','failed','blocked','skipped'].includes(existingLogs.stepStatuses[step.id])) {
+    throw Object.assign(new Error('This API step already has a saved result. Review the original receipt before explicitly retrying the case.'), {code:'TESTENGINE_STEP_ALREADY_REPORTED',statusCode:409});
+  }
   const parameterValues = buildRuntimeParameterValues(job.payload, runtimeState.captured_values, step);
   const stepResult = await apiRequestExecutionService.executeApiRequestStep({
     api_request: step.api_request,
@@ -2669,8 +2816,7 @@ exports.executeQueuedApiStep = withQueuedJobLock(async ({ job_id, step_id } = {}
     });
   }
 
-  try {
-    await opsTelemetryService.emitExecutionHierarchyEvents({
+  queueCommittedTelemetry({
       execution_id: job.execution_id,
       test_case_id: job.test_case_id,
       step_id: step.id,
@@ -2682,10 +2828,7 @@ exports.executeQueuedApiStep = withQueuedJobLock(async ({ job_id, step_id } = {}
       step_detail: redactDiagnostic(stepResult.detail),
       step_evidence: stepResult.evidence,
       captures: publicCaptures
-    });
-  } catch {
-    // OPS telemetry is best-effort and must not block queue processing.
-  }
+  });
 
   return {
     job_id: job.id,
@@ -2701,6 +2844,7 @@ exports.executeQueuedApiStep = withQueuedJobLock(async ({ job_id, step_id } = {}
 
 exports.reportQueuedStep = withQueuedJobLock(async ({
   job_id,
+  worker_id,
   step_id,
   status,
   note,
@@ -2743,6 +2887,12 @@ exports.reportQueuedStep = withQueuedJobLock(async ({
       case_status: receipt.status,
       captures: savedLogs.stepCaptures[step.id] || {}
     };
+  }
+  if (worker_id !== undefined) {
+    const leaseIssue = queuedJobLeaseIssue(job, normalizeText(worker_id));
+    if (leaseIssue) throw Object.assign(new Error("This worker no longer owns the job result stream."), {code:leaseIssue,statusCode:409});
+    const parentState = await queuedJobParentState(job);
+    if (parentState !== 'active') return {job_id:job.id,step_id:step.id,status:'blocked',case_status:parentState === 'finished'?'aborted':'queued',captures:{},code:'PARENT_RUN_NOT_RUNNING'};
   }
 
   const runtimeState = parseRuntimeState(job.runtime_state);
@@ -2877,8 +3027,7 @@ exports.reportQueuedStep = withQueuedJobLock(async ({
     });
   }
 
-  try {
-    await opsTelemetryService.emitExecutionHierarchyEvents({
+  queueCommittedTelemetry({
       execution_id: job.execution_id,
       test_case_id: job.test_case_id,
       step_id: step.id,
@@ -2891,10 +3040,7 @@ exports.reportQueuedStep = withQueuedJobLock(async ({
       web_detail: redactDiagnostic(normalizedWebDetail),
       step_evidence: normalizedEvidence,
       captures: publicCaptures
-    });
-  } catch {
-    // OPS telemetry is best-effort and must not block queue processing.
-  }
+  });
 
   return {
     job_id: job.id,
@@ -2908,6 +3054,7 @@ exports.reportQueuedStep = withQueuedJobLock(async ({
 
 exports.completeQueuedJob = withQueuedJobLock(async ({
   job_id,
+  worker_id,
   status,
   error,
   summary,
@@ -2915,11 +3062,18 @@ exports.completeQueuedJob = withQueuedJobLock(async ({
   healing_attempted,
   healing_succeeded,
   artifact_bundle,
-  patch_proposals
+  patch_proposals,
+  interrupted_attempt
 } = {}) => {
   const job = await getQueuedJob(job_id);
   const receipt = await terminalJobReceipt(job);
   if (receipt) return receipt;
+  if (worker_id !== undefined) {
+    const leaseIssue = queuedJobLeaseIssue(job, normalizeText(worker_id));
+    if (leaseIssue) throw Object.assign(new Error("This worker no longer owns the job result stream."), {code:leaseIssue,statusCode:409});
+    const parentState = await queuedJobParentState(job);
+    if (parentState !== 'active') return {job_id:job.id,status:parentState === 'finished'?'aborted':'queued',code:'PARENT_RUN_NOT_RUNNING'};
+  }
   const runtimeState = parseRuntimeState(job.runtime_state);
   const redactDiagnostic = createExecutionDiagnosticRedactor(job.payload, runtimeState.captured_values);
   const logs = redactDiagnostic(parseStructuredLogs(runtimeState.logs));
@@ -2959,6 +3113,7 @@ exports.completeQueuedJob = withQueuedJobLock(async ({
   const nextRuntimeState = {
     ...runtimeState,
     logs,
+    ...(interrupted_attempt ? {interrupted_attempt} : {}),
     deterministic_attempted:
       deterministic_attempted === undefined
         ? runtimeState.deterministic_attempted || resolvedStatuses.length > 0
@@ -3045,17 +3200,13 @@ exports.completeQueuedJob = withQueuedJobLock(async ({
 
   await settleExecutionIfComplete(job.execution_id);
 
-  try {
-    await opsTelemetryService.emitExecutionHierarchyEvents({
+  queueCommittedTelemetry({
       execution_id: job.execution_id,
       test_case_id: job.test_case_id,
       source: "testengine.queue.complete",
       summary: normalizedSummary,
       execution_result_id: result.id
-    });
-  } catch {
-    // OPS telemetry is best-effort and must not block queue processing.
-  }
+  });
 
   return {
     job_id: job.id,

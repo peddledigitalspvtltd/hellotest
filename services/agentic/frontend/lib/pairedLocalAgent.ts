@@ -1,5 +1,5 @@
 /** Browser-to-machine pairing. Never forward this token to the HelloTest API. */
-export type PairedLocalAgent = { publicBaseUrl: string; token: string; localExecution?: boolean; agentId?: string };
+export type PairedLocalAgent = { publicBaseUrl: string; token: string; localExecution?: boolean; parameterExpressions?: boolean; agentId?: string };
 export const PAIRED_AGENT_BASE_URL = "http://127.0.0.1:4311";
 export const PAIRED_AGENT_TOKEN_KEY = "hellotest.repository-inspection.agent-token.v1";
 let memoryToken = "";
@@ -31,7 +31,7 @@ export async function probePairedLocalAgent(signal?: AbortSignal): Promise<Paire
       ? "The agent is not paired with this workspace. Restart it using Local agent setup."
       : "The paired browser is not ready. Restart the agent using Local agent setup.");
   }
-  return { publicBaseUrl: PAIRED_AGENT_BASE_URL, token, agentId: status.agent_id, localExecution: status.capabilities?.local_execution === true && status.execution_protocol_version === 1 };
+  return { publicBaseUrl: PAIRED_AGENT_BASE_URL, token, agentId: status.agent_id, localExecution: status.capabilities?.local_execution === true && status.execution_protocol_version === 1, parameterExpressions: status.capabilities?.parameter_expressions_v1 === true };
 }
 
 export type PairedLocalDispatch = { protocol_version: 1; execution_id: string; claim_url: string; grant_token: string; expires_at: string };

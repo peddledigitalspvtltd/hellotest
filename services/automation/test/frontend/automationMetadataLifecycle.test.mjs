@@ -71,6 +71,7 @@ test("module or suite failure after metadata save returns success and refreshes 
   const context = {
     mapCaseHooksToExecutionHooks, executionHookDraft:[], caseParameterSaveOptions, visiblePrivateNames: new Set(),
     caseParameterOverrideDraftRef: {current: {scope: "project:case", names: new Set()}}, caseParameterPrivacyScope: "project:case",
+    privateCaseParameterDraft: {scope:"project:case",names:[]},
     canViewTestData: true, overrideSharedSteps: true, session: {user:{id:"author"}}, hasPermission:()=>true,
     canUseAutomationBuilder: true, canUpdateAutomationCase: true, isAutomationCaseDetailReady: true,
     activeCase: { id: "case", revision: 4, module_ids: [] },
@@ -149,6 +150,7 @@ function recorderFixture(flush) {
     reviewedAutomationStartUrl: value=>value,
     flushAutomationBuildParameters: async ids=>{calls.push(["flush",ids]);await flush();},
     rememberAutomationBuildDrafts:()=>calls.push(["remember"]),
+    recorderPrivateValuesRef:{current:[]},mergedParameterValues:{},visiblePrivateNames:new Set(),
     recorderOriginRef:{current:null}, projectId:"project", appTypeId:"app", recordingTargetStepId:"step",
     selectedParameterSuiteId:"selected-suite", selectedExecutionEnvironmentId:"env", selectedExecutionConfigurationId:"config", selectedExecutionDataSetId:"data",
     api:{testCases:{startRecorderSession: async (id,input)=>{calls.push(["start",id,input]);return {id:"recorder"};}}}

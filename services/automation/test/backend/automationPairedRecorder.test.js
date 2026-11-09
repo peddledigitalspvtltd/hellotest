@@ -18,11 +18,19 @@ test('concurrent case edits, oversized capture and unsafe targets remain explici
   const huge=fixture();huge.capture.actions[0].value='x'.repeat(4*1024*1024);assert.throws(()=>validatePairedRecording(huge),{code:'AUTOMATION_RECORDER_SCOPE_MISMATCH'});
   for(const url of ['file:///tmp/file','javascript:alert(1)','https://name:password@app.test']) {const input=fixture();input.capture.start_url=url;assert.throws(()=>validatePairedRecording(input),{code:'AUTOMATION_RECORDER_INPUT_INVALID'});}
 });
+test('parameter defaults can change during a paired recording while plan edits still prevent replacement', () => {
+  const input=fixture();input.steps=[{id:'step',step_order:1,step_type:'web',action:'Fill @t.name'}];
+  input.metadata.recorder_plan_key=require('../../backend/lib/automationRecorderPlan').recorderPlanFingerprint(input.steps);
+  input.testCase.revision=4;input.testCase.parameter_values={'t.name':'Configured during capture'};
+  assert.equal(validatePairedRecording(input).status,'stopped');
+  input.steps[0].action='Concurrent plan edit';assert.throws(()=>validatePairedRecording(input),{code:'AUTOMATION_RECORDER_CASE_CHANGED'});
+});
 test('actual paired recorder preparation authorizes and freezes context without resolving or contacting a server-local runner', async () => {
   const fs=require('node:fs');const source=fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'),'utf8');
   const body=source.slice(source.indexOf('exports.startRecorderSession ='),source.indexOf('exports.finishRecorderSession ='));
   let transactionInput;
   const deps={exports:{},normalizeText:value=>String(value||'').trim(),selectCaseWithScope:{get:async()=>({id:'case',project_id:'project',app_type_id:'app',app_type_kind:'web',revision:4,title:'Private flow'})},selectStepsForCase:{all:async()=>[]},resolveAutomationCaseSteps:()=>({automation_case_type:'web',allowed_step_types:['web'],steps:[]}),resolveBuildContext:async()=>({}),resolveTestEngineIntegration:()=>assert.fail('A paired recorder cannot depend on remote integration'),isMobileRecorderTarget:()=>false,isMobileAppType:()=>false,normalizeLocalEngineBaseUrl:()=>assert.fail('No API localhost address'),resolveMobileEngineBaseUrl:()=>'',resolveRecorderPublicBaseUrl:()=>'',uuid:()=> 'prepare',summarizeStep:step=>step,workspaceTransactionService:{createTransaction:async input=>{transactionInput=input;return{id:'transaction'};}},appendEvent:async()=>{},buildEngineUrl:()=>assert.fail('Browser attaches the paired local URL'),readEngineJson:()=>assert.fail('API must never call localhost')};
+  deps.require=()=>require('../../backend/lib/automationRecorderPlan');
   new Function(...Object.keys(deps),body)(...Object.values(deps));
   const result=await deps.exports.startRecorderSession({test_case_id:'case',start_url:'https://private.test/login',recorder_mode:'local',recorder_target:'web',local_transport:'paired-agent',created_by:'user'});
   assert.equal(result.transaction_id,'transaction');assert.equal(result.paired_recording_id,'prepare');assert.equal(result.paired_session_payload.start_url,'https://private.test/login');assert.equal(transactionInput.metadata.recorder_case_revision,4);assert.equal(transactionInput.metadata.local_transport,'paired-agent');

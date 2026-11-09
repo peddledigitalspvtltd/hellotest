@@ -11,14 +11,23 @@ test('removing an own override restores inherited precedence while explicit blan
  assert.deepEqual(optionsFor({parameter_overrides:['t.name']},{name:'Legacy own binding'}).parameter_overrides,['t.name']);
  assert.equal(optionsFor(input,{}).parameter_overrides,undefined);
 });
-test('private own-name markers survive ordinary value edits and are removed only when their own binding is removed',()=>{
+test('private reference markers survive value edits and override removal without becoming precedence overrides',()=>{
  const input={private_parameter_names:['@R.Mode','r.empty','r.removed'],parameter_overrides:['r.mode']};
  const result=optionsFor(input,{'r.mode':'changed-private-own-value','r.empty':''});
- assert.deepEqual(result.private_parameter_names,['r.empty','r.mode']);assert.deepEqual(result.parameter_overrides,['r.mode']);
+ assert.deepEqual(result.private_parameter_names,['r.empty','r.mode','r.removed']);assert.deepEqual(result.parameter_overrides,['r.mode']);
  assert.doesNotMatch(JSON.stringify(result),/changed-private-own-value/);
- assert.equal(optionsFor(result,{'r.empty':''}).private_parameter_names.includes('r.mode'),false);
- assert.equal(optionsFor(result,{}).private_parameter_names,undefined);
- assert.deepEqual(optionsFor({override_shared_steps:true},{'r.mode':'another-private-edit'},result).private_parameter_names,['r.mode'],'unrelated options edits cannot silently remove a bound private classification');
+ assert.equal(optionsFor(result,{'r.empty':''}).private_parameter_names.includes('r.mode'),true);
+ assert.deepEqual(optionsFor(result,{}).private_parameter_names,result.private_parameter_names);
+ assert.deepEqual(optionsFor({override_shared_steps:true},{'r.mode':'another-private-edit'},result).private_parameter_names,result.private_parameter_names,'unrelated options edits cannot silently remove a private classification');
+});
+test('an inherited reference can be marked private without copying its value or overriding its source',()=>{
+ const {resolveLinkedManualParameters,parameterProjection}=require('../../../platform/backend/src/utils/linkedManualParameters');
+ const ownValues={},options=optionsFor({private_parameter_names:['r.login'],parameter_overrides:['r.login']},ownValues);
+ assert.deepEqual(options.private_parameter_names,['r.login']);assert.equal(options.parameter_overrides,undefined);assert.deepEqual(ownValues,{});
+ const resolved=resolveLinkedManualParameters({id:'automation',parameter_values:ownValues,test_data_options:options},[{id:'manual',is_primary:true,parameter_values:{'r.login':'Inherited account'}}]);
+ assert.equal(resolved.effective_parameter_values['r.login'],'Inherited account');
+ assert.deepEqual(parameterProjection(resolved).effective_private_parameter_names,['r.login']);
+ assert.equal(resolved.parameter_sources['r.login'].kind,'linked_manual');assert.deepEqual(resolved.effective_parameter_overrides,[]);
 });
 test('private marker metadata rejects raw objects, oversized lists and control characters while canonicalizing only names',()=>{
  assert.deepEqual(normalizeDataOptions({private_parameter_names:['@R.Mode','@r.[Other input]','r.mode']}).private_parameter_names,['r.mode','r.other input']);

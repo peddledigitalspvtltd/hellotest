@@ -1,5 +1,5 @@
 const { createHash } = require('node:crypto');
-const { compileRecordedProgram } = require('./automationRecordedProgram');
+const { compileRecordedProgram, validRecordedFramePath } = require('./automationRecordedProgram');
 
 // This seal binds a host compiler candidate, not an approval or fresh replay.
 // Callers must obtain requests from the protected browser recording and pass
@@ -62,8 +62,8 @@ function operationPlan(requests) {
       && (request.navigation_intent === undefined || request.name === 'browser_navigate' && request.navigation_intent === 'reload'), 'operation_shape_invalid');
     const args = Object.fromEntries(Object.keys(request.arguments).sort().map(key => {
       const value = request.arguments[key];
-      requireThat(typeof value === 'string' && value.length <= 2000, 'operation_argument_invalid');
-      return [key, value];
+      requireThat(key === 'frame' ? validRecordedFramePath(value) : typeof value === 'string' && value.length <= 2000, 'operation_argument_invalid');
+      return [key, key === 'frame' ? [...value] : value];
     }));
     return { name: request.name, arguments: args, ...(request.navigation_intent ? { navigation_intent: request.navigation_intent } : {}) };
   });

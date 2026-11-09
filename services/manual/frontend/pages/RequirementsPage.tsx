@@ -111,7 +111,7 @@ import { useFeatureFlags } from "@hellotest/platform/frontend/src/platform/hooks
 import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAiPromptRegistry";
 import { api } from "@hellotest/platform/frontend/src/lib/api";
 import { isJiraCoreFieldRequired } from "@hellotest/integration/frontend/lib/jiraCreateMetadata";
-import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles, replaceTemplateContextPack } from "@hellotest/ai/frontend/lib/aiDesignStudio";
+import { AI_DESIGN_DEFAULT_DRAFT_COUNT, AI_REFERENCE_IMAGE_LIMITS, mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles, replaceTemplateContextPack } from "@hellotest/ai/frontend/lib/aiDesignStudio";
 import { prepareAiPromptFiles } from "@hellotest/testing/frontend/lib/aiPromptFiles";
 import { draftReadinessIssues } from "@hellotest/ai/frontend/lib/draftReadiness";
 import { buildStoryAssuranceAnalysis, mergeAssuranceReview } from "@hellotest/ai/frontend/lib/artifactAssurance";
@@ -854,7 +854,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setStoryAssurancePromptGuidance(undefined); setStoryGroomingPromptGuidance(undefined);
     setStoryAssuranceContext(""); setStoryGroomingContext("");
   }, [projectId, selectedRequirementId]);
-  const [maxCases, setMaxCases] = useState(6);
+  const [maxCases, setMaxCases] = useState(AI_DESIGN_DEFAULT_DRAFT_COUNT);
   const [aiAdditionalContext, setAiAdditionalContext] = useState("");
   const [aiExternalLinksText, setAiExternalLinksText] = useState("");
   const [aiReferenceImages, setAiReferenceImages] = useState<AiDesignImageInput[]>([]);
@@ -1777,7 +1777,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 
 
   useEffect(() => {
-    if (requirementsQuery.isLoading || requirementsQuery.isFetching) {
+    if (isCapabilityAccessLoading || !projectId) {
+      return;
+    }
+    if (!canViewRequirements) {
+      if (selectedRequirementId) setSelectedRequirementId("");
       return;
     }
 
@@ -1786,26 +1790,23 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       return;
     }
     if (!requestedRequirementId) dismissedRequirementRouteRef.current = "";
-    const requestedRequirement = findByRoutableId(requirements, requestedRequirementId);
-
-    if (requestedRequirement) {
-      if (selectedRequirementId !== requestedRequirement.id) {
-        setSelectedRequirementId(requestedRequirement.id);
+    if (requestedRequirementId) {
+      // Sprint children and filtered catalog pages are partial. Their absence
+      // cannot invalidate a deep link while its scoped detail request loads.
+      if (requestedRequirementQuery.isPending || requestedRequirementQuery.isFetching) return;
+      const requestedRequirement = requestedRequirementQuery.isSuccess
+        ? findByRoutableId([requestedRequirementQuery.data], requestedRequirementId)
+        : null;
+      if (requestedRequirement?.project_id === projectId) {
+        if (selectedRequirementId !== requestedRequirement.id) setSelectedRequirementId(requestedRequirement.id);
+      } else if (selectedRequirementId) {
+        setSelectedRequirementId("");
       }
+      // Keep failed links addressable for a scoped retry or explicit Back.
       return;
     }
 
-    if (requestedRequirementId) {
-      if (selectedRequirementId === requestedRequirementId) {
-        return;
-      }
-
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("requirement");
-        return next;
-      }, { replace: true });
-    }
+    if (requirementsQuery.isLoading || requirementsQuery.isFetching) return;
 
     if (!requirements.length) {
       if (selectedRequirementId) {
@@ -1817,13 +1818,26 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     if (selectedRequirementId && !requirements.some((item) => item.id === selectedRequirementId)) {
       setSelectedRequirementId("");
     }
-  }, [requirements, requirementsQuery.isFetching, requirementsQuery.isLoading, searchParams, selectedRequirementId, setSearchParams]);
+  }, [canViewRequirements, isCapabilityAccessLoading, projectId, requestedRequirementQuery.data, requestedRequirementQuery.isFetching, requestedRequirementQuery.isPending, requestedRequirementQuery.isSuccess, requirements, requirementsQuery.isFetching, requirementsQuery.isLoading, searchParams, selectedRequirementId]);
+
+  const requirementRouteError = requestedRequirementQuery.error as { status?: number; statusCode?: number } | null;
+  const requirementRouteStatus = requirementRouteError?.status ?? requirementRouteError?.statusCode;
+  const requirementRouteFailure = requestedRequirementRouteId && !isCapabilityAccessLoading && projectId
+    && (!canViewRequirements || requestedRequirementQuery.isError)
+    ? !canViewRequirements || requirementRouteStatus === 401 || requirementRouteStatus === 403
+      ? "You do not have access to this Story in the current project."
+      : requirementRouteStatus === 404
+        ? "This Story could not be found in the current project."
+        : "Unable to load this Story. Try again."
+    : "";
 
   const selectedRequirementSummary = useMemo(
     () => requirements.find((item) => item.id === selectedRequirementId) || null,
     [requirements, selectedRequirementId]
   );
-  const selectedRequirement = requirementDetailQuery.data || selectedRequirementSummary;
+  const selectedRequirement = canViewRequirements && !requirementRouteFailure
+    ? requirementDetailQuery.data || selectedRequirementSummary
+    : null;
   const activeRequirementLinkScopeRef = useRef("");
   activeRequirementLinkScopeRef.current = `${projectId}:${selectedRequirement?.id || ""}`;
   const selectedRequirementHasSprint = isStoryAssignedToSprint(selectedRequirement);
@@ -4359,13 +4373,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     const generation = aiImageReadGenerationRef.current;
     try {
       const originals = Array.from(files || []);
-      const images = await readImageFiles(files);
+      const images = await readImageFiles(files, AI_REFERENCE_IMAGE_LIMITS.testCaseGeneration);
       if (generation !== aiImageReadGenerationRef.current) return;
       setPreviewCases([]);
       setPreviewMessage("");
       let budgetMessage = "";
       setAiReferenceImages((current) => {
-        const result = mergeAiReferenceImagesWithinBudget(current, images);
+        const result = mergeAiReferenceImagesWithinBudget(current, images, AI_REFERENCE_IMAGE_LIMITS.testCaseGeneration);
         for (const [index, image] of images.entries()) {
           const original = originals[index];
           if (!original || !result.images.some(retained => retained.url === image.url)) continue;
@@ -4426,16 +4440,17 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 
   const handleAddOptimizeReferenceImages = async (files: FileList | null) => {
     const originals=Array.from(files||[]);
+    const imageLimit = requirementAiMode === "create" ? AI_REFERENCE_IMAGE_LIMITS.storyCreation : AI_REFERENCE_IMAGE_LIMITS.default;
     let request = storyAiRequestRef.current;
     setIsRequirementAiReferenceBusy(true);
     try {
-      const images = await readImageFiles(files);
+      const images = await readImageFiles(files, imageLimit);
       if (!isCurrentStoryAiRequest(request)) return;
       invalidateRequirementAiDraft();
       request = storyAiRequestRef.current;
       let budgetMessage = "";
       setOptimizeReferenceImages((current) => {
-        const result = mergeAiReferenceImagesWithinBudget(current, images);
+        const result = mergeAiReferenceImagesWithinBudget(current, images, imageLimit);
         if(!result.message)images.forEach((image,index)=>{
           const file=originals[index];if(!file)return;
           const previous=storyOriginalImagesRef.current.get(image.url)||[];
@@ -5821,6 +5836,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       {!isRequirementWorkspaceOpen && requirementMetricsQuery.isError ? <div role="status" className="hierarchy-filter-scope-note">Story metrics could not be refreshed. <button className="ghost-button compact" onClick={() => void requirementMetricsQuery.refetch()} type="button">Retry metrics</button></div> : null}
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
+      {requirementRouteFailure ? <div className="empty-state compact" role="alert">
+        <p>{requirementRouteFailure}</p>
+        {canViewRequirements ? <button className="ghost-button" disabled={requestedRequirementQuery.isFetching} onClick={() => void requestedRequirementQuery.refetch()} type="button">Retry Story</button> : null}
+        <button className="ghost-button" onClick={closeRequirementDetail} type="button">Back to Story tiles</button>
+      </div> : null}
 
       <WorkspaceMasterDetail
         browseView={(
@@ -7925,6 +7945,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     title="Generation Context"
                   >
                     <AiPromptContextPanel
+                      imageLimit={requirementAiMode === "create" ? AI_REFERENCE_IMAGE_LIMITS.storyCreation : AI_REFERENCE_IMAGE_LIMITS.default}
                       includeArtifactContextInPack={requirementAiMode !== "improve"}
                       artifactIds={requirementAiMode === "improve" && aiCompleteRequirementId ? [aiCompleteRequirementId] : []}
                       additionalContext={optimizeContext}
@@ -8173,6 +8194,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     </div>
                   </div>
                   <AiPromptContextPanel
+                    imageLimit={requirementAiMode === "create" ? AI_REFERENCE_IMAGE_LIMITS.storyCreation : AI_REFERENCE_IMAGE_LIMITS.default}
                       includeArtifactContextInPack={requirementAiMode !== "improve"}
                       artifactIds={requirementAiMode === "improve" && aiCompleteRequirementId ? [aiCompleteRequirementId] : []}
                     additionalContext={optimizeContext}
@@ -8619,6 +8641,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 
       {isAiStudioOpen && canUseRequirementAi ? (
         <AiDesignStudioModal
+          imageLimit={AI_REFERENCE_IMAGE_LIMITS.testCaseGeneration}
           acceptLabel="Accept And Move To Test Cases"
           additionalContext={aiAdditionalContext}
           allowMultipleRequirements={false}

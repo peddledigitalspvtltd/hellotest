@@ -74,7 +74,8 @@ import { RecorderSessionInsights } from "@hellotest/automation/frontend/componen
 import { RecorderStartControls, type RecorderStartOptions } from "@hellotest/automation/frontend/components/RecorderStartControls";
 import { RichTextAiRephraseIcon, RichTextContent, RichTextEditor, richTextToPlainText } from "@hellotest/platform/frontend/src/platform/components/RichTextEditor";
 import { StepParameterDialog } from "../components/StepParameterDialog";
-import { casePrivateParameterNames, collectPrivateParameterNames, caseParameterSaveOptions, caseParameterDraftValues, restoreCaseParameterDraftValues } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
+import { migrateCaseParameterScope } from "../lib/caseParameterScope";
+import { casePrivateParameterNames, collectPrivateParameterNames, caseParameterSaveOptions, caseParameterDraftValues, restoreCaseParameterDraftValues, isPrivateParameterName } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
 import { StepParameterizedText } from "../components/StepParameterizedText";
 import {
   AutomationCodeIcon,
@@ -164,7 +165,7 @@ import {
   canViewAutomationCode as resolveCanViewAutomationCode
 } from "@hellotest/automation/frontend/lib/automationAccess";
 import { asArray, getVerifiedNextPageCursor, normalizePagedResult } from "@hellotest/platform/frontend/src/shared/lib/collectionGuards";
-import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles, toggleRequirementOnPreviewCase } from "@hellotest/ai/frontend/lib/aiDesignStudio";
+import { AI_DESIGN_DEFAULT_DRAFT_COUNT, AI_REFERENCE_IMAGE_LIMITS, mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles, toggleRequirementOnPreviewCase } from "@hellotest/ai/frontend/lib/aiDesignStudio";
 import { assessTestCaseReviewReadiness } from "@hellotest/ai/frontend/lib/aiAssurance";
 import { buildTestCaseAssuranceAnalysis, mergeAssuranceReview } from "@hellotest/ai/frontend/lib/artifactAssurance";
 import { formatReferenceList, parseReferenceList } from "@hellotest/platform/frontend/src/shared/lib/externalReferences";
@@ -2298,6 +2299,7 @@ export function TestCasesPage() {
   const [draftSteps, setDraftSteps] = useState<DraftTestStep[]>([]);
   const [selectedStepIds, setSelectedStepIds] = useState<string[]>([]);
   const [isCaseParameterDialogOpen, setIsCaseParameterDialogOpen] = useState(false);
+  const [hasParameterScopeDraft, setHasParameterScopeDraft] = useState(false);
   const [linkedDataSetDraftIds, setLinkedDataSetDraftIds] = useState<string[]>([]);
   const [overrideSharedGroupData, setOverrideSharedGroupData] = useState(false);
   const [dataSetSearch, setDataSetSearch] = useState("");
@@ -2374,7 +2376,7 @@ export function TestCasesPage() {
   useEffect(() => {
     setTestCaseAssuranceIntegrationId(""); setTestCaseAssurancePromptGuidance(undefined); setTestCaseAssuranceContext("");
   }, [projectId, selectedTestCaseId]);
-  const [maxCases, setMaxCases] = useState(3);
+  const [maxCases, setMaxCases] = useState(AI_DESIGN_DEFAULT_DRAFT_COUNT);
   const parallelRequirementLimit = 1;
   const [aiAdditionalContext, setAiAdditionalContext] = useState("");
   const [aiExternalLinksText, setAiExternalLinksText] = useState("");
@@ -4274,6 +4276,54 @@ export function TestCasesPage() {
       [parsed.name]: value
     }));
   };
+  const resolveParameterScopeState = (parameter: StepParameterDefinition, scope: StepParameterScope) => {
+    if (persistCaseParameterValues.isPending || updateTestCase.isPending || updateSuite.isPending) return { disabled: true, hint: "Wait for the current save to finish." };
+    if (!canEditAutomationCode && displaySteps.some(step => ("automation_source_hidden" in step && step.automation_source_hidden) || stepHasAutomation(step) || stepHasAutomation({ ...step, ...stepDrafts[step.id] }))) return { disabled: true, hint: "Automation build access is required to save scope changes for a case with automation." };
+    if (linkedDataSetParameterDefinitions.some(item => item.name === parameter.name)) return { disabled: true, hint: "Change linked parameter scopes in the Data Set." };
+    if (displaySteps.some(step => step.reusable_group_id && parameter.stepIds.includes(step.id))) return { disabled: true, hint: "Change shared parameter scopes in the Shared Step Group." };
+    if (scope === "s" && parameter.sensitive && !isPrivateParameterName(`s.${parameter.rawName}`)) return { disabled: true, hint: "Keep private defaults on the test case, or configure them in the Suite's test data." };
+    if (!Object.prototype.hasOwnProperty.call(normalizeTestCaseParameterValues(testCaseParameterValues), parameter.name)
+      && !(parameter.scope === "s" && Object.prototype.hasOwnProperty.call(suiteParameterValues, parameter.name))) return { disabled: true, hint: "Set a parameter value before changing its scope." };
+    return resolveScopedParameterInputState(scope);
+  };
+  const handleParameterScopeChange = (name: string, scope: StepParameterScope) => {
+    const parameter = detectedStepParameters.find(item => item.name === name);
+    if (!parameter || parameter.scope === scope || resolveParameterScopeState(parameter, scope).disabled) return;
+    try {
+      const target = `${scope}.${parameter.rawName}`;
+      if (Object.prototype.hasOwnProperty.call(mergedScopedParameterValues, target)) throw new Error(`@${target} already exists. Rename one parameter before changing its scope.`);
+      const ownValues = normalizeTestCaseParameterValues(testCaseParameterValues);
+      if (!Object.prototype.hasOwnProperty.call(ownValues, name)) ownValues[name] = suiteParameterValues[name];
+      const next = migrateCaseParameterScope({ name, scope, values: ownValues, title: caseDraft.title, description: caseDraft.description,
+        gherkin_document: caseDraft.gherkin_document, steps: displaySteps.map(step => ({ ...step, ...stepDrafts[step.id] })) });
+      // References and their defaults belong to the same case save. Do not let
+      // the value-only autosave commit a half-migrated parameter.
+      if (caseParameterAutosaveTimeoutRef.current !== null) window.clearTimeout(caseParameterAutosaveTimeoutRef.current);
+      caseParameterAutosaveTimeoutRef.current = null;
+      setHasParameterScopeDraft(true);
+      if (scope === "s") {
+        const value = next.parameter_values[target];
+        setSuiteParameterValues(current => ({ ...current, [target]: value }));
+        delete next.parameter_values[target];
+      }
+      setTestCaseParameterValues(next.parameter_values);
+      setRunPreviewParameterValues(current => { const nextValues = { ...current }; delete nextValues[name]; delete nextValues[target]; return nextValues; });
+      setCaseDraft(current => ({ ...current, title: next.title, description: next.description, gherkin_document: next.gherkin_document }));
+      if (isCreating) setDraftSteps(current => current.map(step => {
+        const migrated = next.steps.find(item => item.id === step.id);
+        return migrated ? { ...step, action: migrated.action, expected_result: migrated.expected_result,
+          automation_code: migrated.automation_code, api_request: migrated.api_request } : step;
+      }));
+      else setStepDrafts(current => ({ ...current, ...Object.fromEntries(next.steps.map(step => [step.id, {
+        action: step.action || "", expected_result: step.expected_result || "", step_type: normalizeStepType(step.step_type),
+        automation_code: step.automation_code || "", api_request: normalizeApiRequest(step.api_request)
+      }])) }));
+      if (caseParameterOverrideDraftRef.current.scope !== caseParameterPrivacyScope) caseParameterOverrideDraftRef.current = { scope: caseParameterPrivacyScope, names: new Set() };
+      caseParameterOverrideDraftRef.current.names.delete(name);
+      if (scope !== "s") caseParameterOverrideDraftRef.current.names.add(target);
+      setPrivateCaseParameterDraft(current => ({ scope: caseParameterPrivacyScope, names: [...new Set((current.scope === caseParameterPrivacyScope ? current.names : []).map(key => key === name ? target : key))] }));
+    } catch (error) { showError(error, "Unable to change parameter scope"); }
+  };
   const syncCachedTestCaseParameterValues = (testCaseId: string, parameterValues: Record<string, string>, revision?: number, options?: TestCase["test_data_options"], dataSetIds?: string[]) => {
     const normalizedValues = normalizeTestCaseParameterValues(parameterValues);
 
@@ -4586,19 +4636,21 @@ export function TestCasesPage() {
       return;
     }
 
-    writeStoredTestCaseParameterDraft(scopeKey, caseParameterDraftValues(testCaseParameterValues, linkedDataSetSensitiveParameterNames));
+    if (!hasParameterScopeDraft) writeStoredTestCaseParameterDraft(scopeKey, caseParameterDraftValues(testCaseParameterValues, linkedDataSetSensitiveParameterNames));
   }, [
     activeTestCaseParameterSeedKey,
     createCaseParameterDraftScopeKey,
     isCreating,
     selectedCaseParameterDraftScopeKey,
     linkedDataSetSensitiveParameterNames,
+    hasParameterScopeDraft,
     testCaseParameterValues
   ]);
 
   useEffect(() => {
     if (
       isCreating
+      || hasParameterScopeDraft
       || !selectedTestCase
       || lastTestCaseParameterSeedRef.current !== activeTestCaseParameterSeedKey
       || persistCaseParameterValues.isPending
@@ -4648,6 +4700,7 @@ export function TestCasesPage() {
     };
   }, [
     activeTestCaseParameterSeedKey,
+    hasParameterScopeDraft,
     isCreating,
     isOpeningLinkedAutomation,
     linkedDataSetId,
@@ -4663,6 +4716,7 @@ export function TestCasesPage() {
 
   const handleCreateLinkedAutomation = async () => {
     if (!selectedTestCase || openingLinkedAutomationRef.current) return;
+    if (hasParameterScopeDraft && !await handleSaveCaseAndSteps()) return;
     openingLinkedAutomationRef.current = true;
     setIsOpeningLinkedAutomation(true);
     if (caseParameterAutosaveTimeoutRef.current !== null) {
@@ -4711,7 +4765,7 @@ export function TestCasesPage() {
   };
 
   useEffect(() => {
-    if (!selectedParameterSuiteId) {
+    if (!selectedParameterSuiteId || hasParameterScopeDraft) {
       return;
     }
 
@@ -4721,7 +4775,7 @@ export function TestCasesPage() {
       : normalizeSuiteParameterValues(selectedParameterSuite?.parameter_values);
 
     setSuiteParameterValues(nextValues);
-  }, [selectedParameterSuite?.parameter_values, selectedParameterSuiteId, selectedSuiteParameterDraftScopeKey]);
+  }, [selectedParameterSuite?.parameter_values, selectedParameterSuiteId, selectedSuiteParameterDraftScopeKey, hasParameterScopeDraft]);
 
   useEffect(() => {
     setRunPreviewParameterValues(readStoredRunParameterDraft(runPreviewParameterDraftScopeKey));
@@ -4732,15 +4786,15 @@ export function TestCasesPage() {
       return;
     }
 
-    writeStoredSuiteParameterDraft(selectedSuiteParameterDraftScopeKey, suiteParameterValues);
-  }, [selectedParameterSuiteId, selectedSuiteParameterDraftScopeKey, suiteParameterValues]);
+    if (!hasParameterScopeDraft) writeStoredSuiteParameterDraft(selectedSuiteParameterDraftScopeKey, suiteParameterValues);
+  }, [selectedParameterSuiteId, selectedSuiteParameterDraftScopeKey, suiteParameterValues, hasParameterScopeDraft]);
 
   useEffect(() => {
     writeStoredRunParameterDraft(runPreviewParameterDraftScopeKey, runPreviewParameterValues);
   }, [runPreviewParameterDraftScopeKey, runPreviewParameterValues]);
 
   useEffect(() => {
-    if (!selectedParameterSuite || updateSuite.isPending) {
+    if (!selectedParameterSuite || updateSuite.isPending || hasParameterScopeDraft) {
       return;
     }
 
@@ -4778,6 +4832,7 @@ export function TestCasesPage() {
     return () => window.clearTimeout(timeoutId);
   }, [
     selectedParameterSuite,
+    hasParameterScopeDraft,
     selectedSuiteParameterDraftScopeKey,
     suiteParameterValues,
     updateSuite,
@@ -4785,6 +4840,7 @@ export function TestCasesPage() {
   ]);
 
   useEffect(() => {
+    setHasParameterScopeDraft(false);
     setNewStepDraft(EMPTY_STEP_DRAFT);
     setStepInsertIndex(null);
     setStepInsertGroupContext(null);
@@ -5542,6 +5598,7 @@ export function TestCasesPage() {
         }
       }
 
+      setHasParameterScopeDraft(false);
       await refreshCases();
       return true;
     } catch (error) {
@@ -7776,13 +7833,13 @@ export function TestCasesPage() {
 	  const handleAddAiReferenceImages = async (files: FileList | null) => {
 	    try {
 	      const originals = Array.from(files || []);
-	      const images = await readImageFiles(files);
+	      const images = await readImageFiles(files, AI_REFERENCE_IMAGE_LIMITS.testCaseGeneration);
       images.forEach((image,index) => { const original=originals[index]; if(original)aiOriginalImagesRef.current.set(image.url,original); });
       setAiPreviewCases([]);
       setAiPreviewMessage("");
       let budgetMessage = "";
       setAiReferenceImages((current) => {
-        const result = mergeAiReferenceImagesWithinBudget(current, images);
+        const result = mergeAiReferenceImagesWithinBudget(current, images, AI_REFERENCE_IMAGE_LIMITS.testCaseGeneration);
         budgetMessage = result.message;
         return result.images;
       });
@@ -12423,8 +12480,11 @@ export function TestCasesPage() {
           allowSensitiveValueOverrides
           defaultValues={linkedDataSetDefaultParameterValues}
           inheritedParameterNames={linkedDataSetParameterDefinitions.map(parameter => parameter.name)}
+          headerContent={selectedCaseSuiteIds.length > 1 ? <label>Suite for shared parameters<select aria-label="Suite for shared parameters" disabled={hasParameterScopeDraft || updateSuite.isPending} value={selectedParameterSuiteId} onChange={event => setSelectedParameterSuiteId(event.target.value)}>{suites.filter(suite => selectedCaseSuiteIds.includes(suite.id)).map(suite => <option key={suite.id} value={suite.id}>{suite.name}</option>)}</select></label> : undefined}
           getInputState={(parameter) => resolveScopedParameterInputState(parameter.scope)}
+          getScopeState={resolveParameterScopeState}
           onChange={handleScopedParameterValueChange}
+          onScopeChange={handleParameterScopeChange}
           onClose={() => setIsCaseParameterDialogOpen(false)}
           onRefreshPreviews={refreshParameterPreviews}
           onReset={resetTestCaseParameterOverride}
@@ -12432,6 +12492,7 @@ export function TestCasesPage() {
           parameters={detectedStepParameters}
           previewValues={resolvedScopedParameterValues}
           subtitle="Review inherited Data Set columns and edit only this Test Case's parameter overrides."
+          footerContent={hasParameterScopeDraft ? <><p role="status">Save the test case to keep the updated scopes, values, and step references.</p><button className="primary-button" disabled={updateTestCase.isPending || updateSuite.isPending} onClick={() => void handleSaveCaseAndSteps()} type="button">Save test case</button></> : undefined}
           title="Test Params"
           values={mergedScopedParameterValues}
         />
@@ -13061,6 +13122,7 @@ export function TestCasesPage() {
 
       {isAiStudioOpen && canUseTestCaseAi ? (
         <AiDesignStudioModal
+          imageLimit={AI_REFERENCE_IMAGE_LIMITS.testCaseGeneration}
           contextFiles={aiContextFiles}
           onContextFilesChange={files=>{setAiContextFiles(files);setAiPreviewCases([]);}}
           acceptLabel="Accept Into Test Case Library"

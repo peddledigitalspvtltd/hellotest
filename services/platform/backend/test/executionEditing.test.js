@@ -203,8 +203,8 @@ test("failed-only reruns preserve only the explicit pins included in the rerun s
   await execution.rerunExecution(run.id, { failed_only: true, created_by: "user-1" });
   const insert = writes.find((entry) => /INSERT INTO executions\s*\(/.test(entry.sql));
   const columns = insert.sql.match(/INSERT INTO executions\s*\(([^)]+)\)/)[1].split(",").map((column) => column.trim());
-  assert.equal(columns.length - 2, insert.values.length, "Trigger and status are the two literal values.");
-  assert.deepEqual(JSON.parse(insert.values[columns.indexOf("direct_test_case_ids") - 2]), ["case-1"]);
+  assert.equal(columns.length - 1, insert.values.length, "Only queued status is a literal value.");
+  assert.deepEqual(JSON.parse(insert.values[columns.indexOf("direct_test_case_ids") - 1]), ["case-1"]);
   assert.deepEqual(writes.find(entry => /UPDATE executions SET parallel_enabled/.test(entry.sql)).values.slice(0,2),[true,4]);
 });
 
@@ -249,7 +249,7 @@ test("failed-only reruns use the latest attempt per data row and retain a case w
   await execution.rerunExecution(run.id, { failed_only: true, created_by: "user-1" });
   const insert = writes.find(entry => /INSERT INTO executions\s*\(/.test(entry.sql));
   const columns = insert.sql.match(/INSERT INTO executions\s*\(([^)]+)\)/)[1].split(",").map(column => column.trim());
-  assert.deepEqual(JSON.parse(insert.values[columns.indexOf("direct_test_case_ids") - 2]), ["partial"]);
+  assert.deepEqual(JSON.parse(insert.values[columns.indexOf("direct_test_case_ids") - 1]), ["partial"]);
 });
 
 test("run metrics deduplicate actual defects and all story links while reducing latest case iterations", () => {

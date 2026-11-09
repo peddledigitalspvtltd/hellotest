@@ -117,6 +117,21 @@ test('saved actions must already match in scope, values, targets and order befor
   assert.deepEqual(pendingFinalAssertions({ contract, operations: [visible, navigation, fill] }).map(entry => entry.operation), [value], 'additional read-only checks do not change the original action sequence');
 });
 
+test('retained frame paths are deeply immutable and a sibling check cannot satisfy an original oracle', () => {
+  const frame=['#outer','#inner'],framed=operation=>({...operation,arguments:{...operation.arguments,frame:[...frame]}});
+  const entered=framed(fill),expected=framed(value),contract=create([entered,expected]);
+  const frozen=contract.final_assertions[0].operation.arguments.frame;
+  assert.equal(Object.isFrozen(frozen),true);assert.throws(()=>frozen.push('#changed'),TypeError);
+  entered.arguments.frame[0]='#other';expected.arguments.frame[0]='#other';
+  assert.deepEqual(frozen,frame);
+  assert.throws(()=>pendingFinalAssertions({contract,operations:[entered]}),{code:'AUTOMATION_RETAINED_ASSERTION_ACTION_ORDER_GAP'});
+  const originalFill=framed(fill),siblingCheck={...framed(value),arguments:{...value.arguments,frame:['#sibling']}};
+  assert.deepEqual(pendingFinalAssertions({contract,operations:[originalFill,siblingCheck]}).map(entry=>entry.operation),[framed(value)]);
+  const hints=retainedFinalAssertionHints(contract,{projectText:text=>text});assert.deepEqual(hints.checks[0].frame,frame);
+  const hidden=retainedFinalAssertionHints(contract,{projectText:text=>text==='#outer'?'[private frame]':text});
+  assert.equal(hidden.checks[0].subject_omitted,true);assert.equal(hidden.checks[0].frame,undefined);assert.equal(hidden.checks[0].locator,undefined);
+});
+
 test('only adjacent identical checks coalesce and a current check before a later action cannot satisfy its final checkpoint', () => {
   const contract = create([visible, visible, fill, visible, visible]);
   assert.equal(contract.assertions.length, 2);assert.equal(contract.earlier_assertions.length, 1);assert.equal(contract.final_assertions.length, 1);

@@ -9,7 +9,7 @@ const { buildFeature } = require('../../../automation/backend/services/aiAutomat
 const { normalizeAgentContext } = require('../../../automation/backend/lib/automationAgentContext');
 const { captureStartUrlReview, createQueuedStartUrlReviewGuard } = require('../../../automation/backend/services/automationQueuedStartUrl.service');
 const {buildParameterValues}=require('../../../automation/backend/lib/automationBuildParameterPlan');
-const {normalizeBuildPipelineOptions}=require('../../../automation/backend/lib/automationBuildPipelineOptions');
+const {normalizeBuildPipelineOptions,UPSTREAM_BROWSER_DRIVER}=require('../../../automation/backend/lib/automationBuildPipelineOptions');
 
 const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 function fixture({ cases = [], steps = [], targets = {} } = {}) {
@@ -79,6 +79,7 @@ function fixture({ cases = [], steps = [], targets = {} } = {}) {
         if (/automationQueuedStartUrl.service$/.test(name)) return { captureStartUrlReview, assertQueuedStartUrlReview: createQueuedStartUrlReviewGuard(database) };
         if (/workspaceTransaction.service$/.test(name)) return workspace;
         if (/batchJobLease$/.test(name)) return { createBatchJobLease: () => ({ signal: new AbortController().signal, ensureOwnership: async () => {}, stop() {} }) };
+        if (/databaseOperationGuard$/.test(name)) return require('../../../platform/backend/src/db/databaseOperationGuard');
         if (name === 'crypto') return require('node:crypto');
         return {};
       }
@@ -104,7 +105,7 @@ test('CLI verification selection survives both durable queues and their worker-t
  await batch._runAutomationBuild({payload:state.queued[0].payload,transaction_id:'activity'});
  await generator.runLeasedJob({job_id:job.id,worker_id:'worker'});
  assert.equal(state.providerCalls.length,2);
- assert.ok(state.providerCalls.every(row=>row.verification_driver==='playwright_test_cli'&&row.verification_mode==='verify_repair'&&row.browser_driver==='mcp'));
+ assert.ok(state.providerCalls.every(row=>row.verification_driver==='playwright_test_cli'&&row.verification_mode==='verify_repair'&&row.browser_driver===UPSTREAM_BROWSER_DRIVER));
  const count=state.transactions.length;
  await assert.rejects(generator.queueGeneratorJob({test_case_id:'case',...options,verification_driver:'shell'}),{code:'AUTOMATION_BUILD_OPTIONS_INVALID'});
  await assert.rejects(batch.queueAutomationBuild({app_type_id:'app',test_case_ids:['case'],...options,allow_browser_actions:false}),{code:'AUTOMATION_VERIFICATION_REQUIRES_BROWSER_ACTIONS'});

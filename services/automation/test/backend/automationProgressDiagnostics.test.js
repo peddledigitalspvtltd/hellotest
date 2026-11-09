@@ -29,6 +29,26 @@ test('non-action progress preserves existing domain facts and does not overwrite
   assert.equal(event.details.duration_ms, 42);
 });
 
+test('unknown action progress retains bounded transport cause classifications without private errors',()=>{
+  const event=progressEvent({phase:'automation.agent.action.unknown',details:{action_id:'one',tool:'browser_click',
+    error_code:'AUTOMATION_BROWSER_OUTCOME_UNKNOWN',browser_code:'BROWSER_TRANSPORT_TIMEOUT',tool_phase:'transport',
+    cause:new Error('PRIVATE'),error_message:'PRIVATE',url:'https://PRIVATE'}},{activityId:'activity'});
+  assert.equal(event.details.error_code,'AUTOMATION_BROWSER_OUTCOME_UNKNOWN');
+  assert.equal(event.details.browser_code,'BROWSER_TRANSPORT_TIMEOUT');assert.equal(event.details.tool_phase,'transport');
+  assert.doesNotMatch(JSON.stringify(event),/PRIVATE|https?:|cause|error_message/);
+  const invalid=progressEvent({phase:'automation.agent.action.unknown',details:{browser_code:'PRIVATE code',tool_phase:'http://PRIVATE'}});
+  assert.equal(invalid.details.browser_code,undefined);assert.equal(invalid.details.tool_phase,undefined);
+});
+
+test('readiness diagnostic progress retains only coarse booleans/counts and drops text, values and signatures',()=>{
+  const event=progressEvent({phase:'automation.agent.action.failed',details:{tool:'browser_click',readiness_diagnostics:{
+    loaded:true,usable:true,actionable:false,busy:true,document_busy:true,document_root_busy:false,busy_regions:2,indeterminate_progress:1,
+    signature_changes:3,quiet_ms:0,pending_requests:4,probe_count:10,load_state:'interactive',signature:'PRIVATE',text:'PRIVATE',value:'PRIVATE',hash:'PRIVATE'
+  }}});
+  assert.equal(event.details.readiness_diagnostics.document_busy,true);assert.equal(event.details.readiness_diagnostics.pending_requests,4);assert.equal(event.details.readiness_diagnostics.probe_count,10);
+  assert.doesNotMatch(JSON.stringify(event),/PRIVATE|"signature"|"text"|"value"|"hash"/);
+});
+
 test('bounded diagnostic outages are observable without raw errors, credentials or log flooding', () => {
   const messages = [], report = createDiagnosticReporter({ warn: message => messages.push(message) });
   const error = Object.assign(new Error('PRIVATE password=secret'), { statusCode: 503, code: 'ECONNRESET', config: { token: 'PRIVATE' } });

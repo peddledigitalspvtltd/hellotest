@@ -14,6 +14,36 @@ const draft = () => ({ title: 'Approve a submitted invoice', description: 'Use a
   steps: [{ step_order: 1, step_type: 'web', action: 'Open the supplied invoice @t.invoice_id as reviewer @t.reviewer_email', expected_result: 'The submitted invoice is displayed.' },
     { step_order: 2, step_type: 'web', action: 'Approve the displayed invoice', expected_result: 'The invoice status is approved and the approving reviewer is recorded.' }] });
 
+test('AI improvement context preserves reviewed scope identities instead of collapsing same-named run/suite defaults into test data', async () => {
+  const current=fixture(draft()),service=load('aiCaseAuthoring.service',current.overrides);
+  const parameter_values={'t.account':'Case account','s.account':'Suite account','r.account':'Run account'};
+  await service.previewCaseAuthoring({appType,requirement:story,test_case:{...draft(),parameter_values}});
+  const prompt=JSON.parse(current.calls[0].messages[1].content);
+  assert.deepEqual(prompt.current_case.parameter_values,parameter_values);
+});
+
+test('new generated Run Params survive preview and Library acceptance without reverting to Test Params', async () => {
+  const output={...draft(),parameter_values:{email:'customer@example.test','t.tenant':'West',unused:'Case default'},
+    steps:[{step_order:1,step_type:'web',action:'Enter @r.email for @t.tenant',expected_result:'The supplied account is displayed.'}]};
+  const current=fixture({testCases:[output]}),service=load('requirementDesign.service',current.overrides);
+  const preview=await service.previewRequirementsTestCases({appType,requirements:[story],max_cases:1});
+  assert.deepEqual(preview.cases[0].parameter_values,{'r.email':'customer@example.test','t.tenant':'West','r.unused':'Case default'});
+  await service.acceptGeneratedTestCases({appType,requirements:[story],cases:preview.cases,created_by:'author'});
+  assert.equal(current.writes.length,1);
+  assert.deepEqual(current.writes[0].parameter_values,preview.cases[0].parameter_values);
+  assert.equal(current.writes[0].steps[0].action,output.steps[0].action);
+});
+
+test('AI improvement preserves explicitly scoped declarations and validates cycles across Run defaults', async () => {
+  const output={...draft(),parameter_values:{'r.email':'customer@example.test','t.email':'fixture@example.test'},
+    steps:[{action:'Enter @r.email and preserve @t.email',expected_result:'The supplied account is displayed.'}]};
+  const current=fixture(output),service=load('aiCaseAuthoring.service',current.overrides);
+  const result=await service.previewCaseAuthoring({appType,requirement:story,test_case:output});
+  assert.deepEqual(result.case.parameter_values,output.parameter_values);
+  const {validateCaseParameterBindings}=require('../src/utils/aiGenerationContracts');
+  assert.throws(()=>validateCaseParameterBindings({...output,parameter_values:{'r.email':'@r.second','r.second':'@r.email'}}),error=>error.code==='AI_NATIVE_CONTRACT_INVALID'&&error.validation_errors.some(row=>row.issue==='cyclic_parameter_reference'));
+});
+
 function load(name, overrides = {}, expose = '') {
   const filename = sourceFile(`${name}.js`, 'services');
   const localRequire = createRequire(filename), module = { exports: {} };
@@ -85,7 +115,7 @@ for (const operation of ['generate', 'improve']) {
     assert.deepEqual(selected.acceptance_criteria, story.additional_fields.acceptance_criteria);
     assert.match(prompt.generation_request.user_request, /supplied data references/);
     const proposed = operation === 'generate' ? result.cases[0] : result.case;
-    assert.deepEqual(proposed.parameter_values, output.parameter_values);
+    assert.deepEqual(proposed.parameter_values, { 't.reviewer_email': output.parameter_values.reviewer_email, 't.invoice_id': output.parameter_values.invoice_id });
     assert.deepEqual(proposed.steps.map(step => step.expected_result), output.steps.map(step => step.expected_result));
     if (operation === 'generate') assert.deepEqual(proposed.requirement_ids, [story.id]);
   });

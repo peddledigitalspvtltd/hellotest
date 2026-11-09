@@ -1,6 +1,11 @@
 const { AsyncLocalStorage } = require("async_hooks");
 const { createHash } = require("crypto");
 const { Pool } = require("pg");
+const {
+  assertDatabaseOperationActive,
+  getDatabaseOperationGuard,
+  onDatabaseOperationCancelled
+} = require("./databaseOperationGuard");
 
 const MAX_PLACEHOLDER_CACHE_SIZE = 2_000;
 
@@ -205,13 +210,65 @@ function createPostgresAdapter({
   };
   const getExecutor = () => getActiveTransaction()?.client || pool;
 
+  const watchTransactionGuard = (store, guard) => guard
+    ? onDatabaseOperationCancelled(guard, error => {
+      store.connectionError ||= error;
+      store.cancellationError ||= error;
+      store.active = false;
+      // Closing this connection rolls back its open transaction on PostgreSQL,
+      // including when an application callback is still awaiting other work.
+      store.releaseClient(true);
+      store.rejectCancellation(error);
+    })
+    : () => {};
+
+  const executeGuardedPoolQuery = async (guard, queryArgs) => {
+    const client = await pool.connect();
+    let released = false;
+    const release = destroy => {
+      if (!released) {
+        released = true;
+        client.release(destroy);
+      }
+    };
+    const onError = error => reportConnectionError(error, client);
+    client.on?.("error", onError);
+    let stopWatching = () => {};
+    try {
+      // Pool acquisition may outlive the optional operation's allowance.
+      assertDatabaseOperationActive(guard);
+      stopWatching = onDatabaseOperationCancelled(guard, () => release(true));
+      assertDatabaseOperationActive(guard);
+      return await client.query(...queryArgs);
+    } finally {
+      stopWatching();
+      try { release(false); }
+      finally { client.removeListener?.("error", onError); }
+    }
+  };
+
   const execute = (text, params = [], name) => {
+    const guard = getDatabaseOperationGuard();
+    // Keep the public query methods promise based when authority has expired.
+    try { assertDatabaseOperationActive(guard); }
+    catch (error) { return Promise.reject(error); }
+    const cancellationError = transactionContext.getStore()?.cancellationError;
+    if (cancellationError) return Promise.reject(cancellationError);
     const connectionError = getActiveTransaction()?.connectionError;
     if (connectionError) return Promise.reject(connectionError);
     const values = params.map(serializeParam);
-    return name
-      ? getExecutor().query({ name, text, values })
-      : getExecutor().query(text, values);
+    const queryArgs = name ? [{ name, text, values }] : [text, values];
+    if (guard && !getActiveTransaction()) return executeGuardedPoolQuery(guard, queryArgs);
+    if (guard) {
+      const store = getActiveTransaction();
+      const stopWatching = watchTransactionGuard(store, guard);
+      return Promise.resolve().then(() => {
+        assertDatabaseOperationActive(guard);
+        if (store.connectionError) throw store.connectionError;
+        return store.client.query(...queryArgs);
+      }).finally(stopWatching);
+    }
+    return getExecutor().query(...queryArgs);
   };
 
   const query = (sql, params = []) => execute(compileSql(sql), params);
@@ -237,37 +294,62 @@ function createPostgresAdapter({
     };
   };
 
-  const runNestedTransaction = async (store, callback, args) => {
+  const runNestedTransaction = async (store, callback, args, guard) => {
+    assertDatabaseOperationActive(guard);
+    const stopWatching = watchTransactionGuard(store, guard);
     store.savepointCounter += 1;
     const savepoint = `hellotest_sp_${store.savepointCounter}`;
-    await store.client.query(`SAVEPOINT ${savepoint}`);
+    let savepointStarted = false;
 
     try {
-      const result = await callback(...args);
+      assertDatabaseOperationActive(guard);
+      await store.client.query(`SAVEPOINT ${savepoint}`);
+      savepointStarted = true;
+      assertDatabaseOperationActive(guard);
+      const result = await Promise.race([Promise.resolve().then(() => callback(...args)), store.cancelled]);
+      if (store.connectionError) throw store.connectionError;
+      assertDatabaseOperationActive(guard);
       await store.client.query(`RELEASE SAVEPOINT ${savepoint}`);
       return result;
     } catch (error) {
-      try {
-        await store.client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
-        await store.client.query(`RELEASE SAVEPOINT ${savepoint}`);
-      } catch (savepointError) {
-        attachCleanupError(error, "savepointRollbackError", savepointError);
+      if (savepointStarted) {
+        try {
+          await store.client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+          await store.client.query(`RELEASE SAVEPOINT ${savepoint}`);
+        } catch (savepointError) {
+          attachCleanupError(error, "savepointRollbackError", savepointError);
+        }
       }
       throw error;
+    } finally {
+      stopWatching();
     }
   };
 
   const transaction = (callback) => async (...args) => {
+    const guard = getDatabaseOperationGuard();
+    assertDatabaseOperationActive(guard);
+    const cancellationError = transactionContext.getStore()?.cancellationError;
+    if (cancellationError) throw cancellationError;
     const activeTransaction = getActiveTransaction();
     if (activeTransaction?.client) {
-      return runNestedTransaction(activeTransaction, callback, args);
+      return runNestedTransaction(activeTransaction, callback, args, guard);
     }
 
     const client = await pool.connect();
     let transactionStarted = false;
     let commitAttempted = false;
     let destroyClient = false;
+    let released = false;
     const store = { client, savepointCounter: 0, connectionError: null, active: true };
+    store.releaseClient = destroy => {
+      if (!released) {
+        released = true;
+        client.release(destroy);
+      }
+    };
+    store.cancelled = new Promise((_, reject) => { store.rejectCancellation = reject; });
+    store.cancelled.catch(() => {});
     // pg forwards idle connection errors to the pool, but a checked-out client
     // emits its own error while application code awaits work between queries.
     const onClientError = error => {
@@ -276,15 +358,21 @@ function createPostgresAdapter({
       reportConnectionError(error, client);
     };
     client.on?.("error", onClientError);
+    let stopWatching = () => {};
     try {
+      assertDatabaseOperationActive(guard);
+      stopWatching = watchTransactionGuard(store, guard);
+      assertDatabaseOperationActive(guard);
       await client.query("BEGIN");
       transactionStarted = true;
-      const result = await transactionContext.run(
-        store,
-        () => callback(...args)
-      );
+      assertDatabaseOperationActive(guard);
+      const result = await Promise.race([
+        transactionContext.run(store, () => callback(...args)),
+        store.cancelled
+      ]);
       store.active = false;
       if (store.connectionError) throw store.connectionError;
+      assertDatabaseOperationActive(guard);
       commitAttempted = true;
       await client.query("COMMIT");
       return result;
@@ -306,7 +394,8 @@ function createPostgresAdapter({
       throw error;
     } finally {
       store.active = false;
-      try { client.release(destroyClient); }
+      stopWatching();
+      try { store.releaseClient(destroyClient); }
       finally { client.removeListener?.("error", onClientError); }
     }
   };
@@ -353,7 +442,9 @@ function createPostgresAdapter({
     return closePromise;
   };
 
-  return { pool, query, prepare, transaction, serializedTransaction, getPoolStats, close };
+  const outsideTransaction = callback => transactionContext.exit(callback);
+
+  return { pool, query, prepare, transaction, serializedTransaction, outsideTransaction, getPoolStats, close };
 }
 
 module.exports = {

@@ -210,7 +210,7 @@ test('configured model profiles publish the explicit goal review and grounded is
   for (const id of ['ai.agentic.automation-engineer', 'ai.automation.keyword_generation', 'ai.agentic.automation-repair']) {
     const instruction = catalog.find(item => item.id === id).defaults.instruction_blocks['automationBrowserAgent.goalReview'];
     assert.match(instruction, /section_issue/);
-    assert.match(instruction, /Expected-result prose describes an outcome/);
+    assert.match(instruction, /Expected-result prose describes an outcome|outcome prose (?:is not (?:literal )?|need not be )UI copy/i);
     assert.match(instruction, /validation_feedback/);
   }
 });

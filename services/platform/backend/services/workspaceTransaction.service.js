@@ -81,6 +81,7 @@ const updateTransaction = obsDb.prepare(`
       completed_at = ?,
       updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
+    AND NOT (category='automation_build' AND COALESCE(metadata,'{}'::jsonb) @> '{"cancelled":true}'::jsonb)
 `);
 
 const insertTransactionEvent = obsDb.prepare(`
@@ -313,6 +314,9 @@ exports.findTransactionByRelated = async ({ related_kind, related_id }) => {
 
 exports.updateTransaction = async (id, updates = {}) => {
   const existing = await exports.getTransaction(id);
+  // A stale generator callback cannot resurrect a stopped build or replace its
+  // explicit cancellation outcome. Existing evidence remains readable.
+  if(existing.category==="automation_build"&&existing.metadata?.cancelled===true)return existing;
   const metadata =
     updates.metadata === undefined
       ? existing.metadata
@@ -416,6 +420,66 @@ exports.getTransactionArtifact = async (artifactId) => {
   }
 
   return artifact;
+};
+
+exports.assertTransactionArtifactReadable = (transaction, artifact) => {
+  if (!artifact || artifact.transaction_id !== transaction?.id) {
+    throw Object.assign(new Error("Artifact does not belong to this transaction."), { statusCode: 404 });
+  }
+  if (transaction.metadata?.artifact_quarantine?.[artifact.id]?.quarantined === true) {
+    throw Object.assign(new Error("This artifact is quarantined for privacy review. Its original evidence has been retained."), {
+      statusCode: 403, code: "ARTIFACT_PRIVACY_QUARANTINED"
+    });
+  }
+};
+
+// Exact IDs, reversible flags and an audit event preserve the original evidence.
+// Callers supply the signed-in actor ID; current membership and permissions are
+// checked here as well as by any HTTP entry point.
+exports.setArtifactQuarantine = async (transactionId, { artifact_ids, user_id, quarantined = true } = {}) => {
+  if (!Array.isArray(artifact_ids) || artifact_ids.length < 1 || artifact_ids.length > 20
+    || artifact_ids.some(id => typeof id !== "string" || !/^[A-Za-z0-9_-]{1,200}$/.test(id))
+    || new Set(artifact_ids).size !== artifact_ids.length || typeof quarantined !== "boolean" || !user_id) {
+    throw Object.assign(new Error("Choose exact, distinct artifact IDs and an authenticated actor."), { statusCode: 400 });
+  }
+  return obsDb.transaction(async () => {
+    await obsDb.prepare("SELECT id FROM workspace_transactions WHERE id = ? FOR UPDATE").get(transactionId);
+    const transaction = await exports.getTransaction(transactionId);
+    if (transaction.category !== "automation_build" || !transaction.project_id || transaction.metadata?.agent_activity !== true) {
+      throw Object.assign(new Error("Automation activity not found."), { statusCode: 404 });
+    }
+    const user = await db.prepare("SELECT id, is_workspace_admin, status FROM users WHERE id = ?").get(user_id);
+    if (!user || user.status !== "active" || transaction.created_by !== user.id && !user.is_workspace_admin) {
+      throw Object.assign(new Error("You cannot change this activity's artifact privacy status."), { statusCode: 403 });
+    }
+    await require("./project.service").getProject(transaction.project_id, user.id);
+    const codes = ["transaction.manage", "automation.build", "automation.view", "automation.code.view", "automation.ai"];
+    const access = await require("./optionalEvidenceAccess.service").getOptionalEvidenceAccess(user, transaction.project_id, codes);
+    if (codes.some(code => !access[code])) throw Object.assign(new Error("Artifact privacy management permission is unavailable."), { statusCode: 403 });
+    for (const id of artifact_ids) {
+      const artifact = await selectTransactionArtifact.get(id);
+      if (!artifact || artifact.transaction_id !== transaction.id || !["image/jpeg", "image/png"].includes(artifact.mime_type)) {
+        throw Object.assign(new Error("A selected browser image does not belong to this activity."), { statusCode: 404 });
+      }
+    }
+    const current = transaction.metadata.artifact_quarantine;
+    const flags = Object.assign(Object.create(null), current && typeof current === "object" && !Array.isArray(current) ? current : {});
+    const changed = artifact_ids.filter(id => (flags[id]?.quarantined === true) !== quarantined);
+    if (changed.length) {
+      const at = new Date().toISOString();
+      for (const id of changed) flags[id] = quarantined
+        ? { quarantined: true, reason_code: "suspected_private_browser_input", quarantined_at: at, quarantined_by: user.id }
+        : { ...flags[id], quarantined: false, released_at: at, released_by: user.id };
+      await obsDb.prepare("UPDATE workspace_transactions SET metadata = metadata || ?::jsonb, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+        .run(JSON.stringify({ artifact_quarantine: flags }), transaction.id);
+      await exports.appendTransactionEvent(transaction.id, {
+        phase: quarantined ? "artifact.privacy.quarantined" : "artifact.privacy.released", level: "info",
+        message: quarantined ? "Selected browser images were quarantined for privacy review; original evidence was retained." : "Selected browser images were released from privacy quarantine.",
+        details: { artifact_ids: changed, user_id: user.id, quarantined }
+      });
+    }
+    return { transaction_id: transaction.id, artifact_ids: [...artifact_ids], quarantined, changed_count: changed.length };
+  })();
 };
 
 exports.deleteTransaction = async (id) => {

@@ -427,19 +427,17 @@ test('metadata-only retries remain bounded and incomplete outcomes report every 
  assert.ok(requests.slice(1).every(request=>request.completionOnly&&request.activeStepId===undefined));
 });
 
-test('every linked manual obligation for a shared section reaches the pinned review contract without truncating active references',async()=>{
- const {buildAutomationGoalObligations}=require('../../backend/lib/automationGoalObligations');
+test('every linked manual source for a shared section reaches completion feedback without truncating active references',async()=>{
  const manualCases=['manual-a','manual-b','manual-c'].map((id,index)=>({id,steps:[{...steps[0],id:`m-${index}`}]}));
  const events=[];
  const result=await completeAutomationBuild({steps:[steps[0]],manualSteps:manualCases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),sequential:true,validate,
   onProgress:async event=>events.push(event),generate:async request=>{
    assert.deepEqual(request.activeManualStepIds,['m-0','m-1','m-2']);
    assert.deepEqual(request.feedback.active_manual_step_ids,request.activeManualStepIds);
-   const obligations=buildAutomationGoalObligations({section:steps[0],manualCases,activeManualStepIds:request.activeManualStepIds,requiredManualSteps:request.feedback.required_manual_steps});
-   assert.deepEqual(obligations.map(goal=>goal.id),['one','manual:manual-a:m-0','manual:manual-b:m-1','manual:manual-c:m-2']);
+   assert.deepEqual(request.feedback.required_manual_steps,[],'exact matching manual specifications are already mapped without a coverage-only retry');
    return {steps:[candidate('one')]};
   }
  });
- assert.equal(result.manual_coverage.length,3);
+ assert.deepEqual(result.manual_coverage.map(row=>[row.manual_test_case_id,row.manual_step_id,row.section_step_id]),[['manual-a','m-0','one'],['manual-b','m-1','one'],['manual-c','m-2','one']]);
  assert.deepEqual(events.find(event=>event.phase==='automation.agent.section.started').details.active_manual_step_ids,['m-0','m-1','m-2']);
 });

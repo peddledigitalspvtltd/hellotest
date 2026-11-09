@@ -63,6 +63,45 @@ test('unsupported named tools stay out of discovery and cannot activate an unwra
   assert.equal(f.plans.length,0);
 });
 
+test('Automation Engineer prepares the shared durable domain operation without browser transport or execution',async()=>{
+  const f=fixture(),name='hellotest_automation_engineer_prepare',tool=f.tools[name];
+  assert.equal(tool.available(),false);
+  await assert.rejects(call(f,name,{test_case_id:'case-1'}),{code:'MCP_OPERATION_UNAVAILABLE'});
+  f.operations.push({id:'build-case',method:'POST',path:'/test-cases/:id/automation/generator-jobs',prepare:true});
+  assert.equal(tool.available(),true);
+  const result=await call(f,name,{test_case_id:'case-1',integration_id:'model',start_url:'https://application.test/login',test_environment_id:'environment',test_configuration_id:'configuration',test_suite_id:'suite',test_data_set_id:'data',parameter_plan_key:'reviewed-plan'});
+  assert.deepEqual(f.plans,[ [actor,{operation_id:'build-case',arguments:{path:{id:'case-1'},body:{integration_id:'model',start_url:'https://application.test/login',test_environment_id:'environment',test_configuration_id:'configuration',test_suite_id:'suite',test_data_set_id:'data',parameter_plan_key:'reviewed-plan',ai_feature:'ai.agentic.automation-engineer',verification_mode:'generate_only'}}}] ]);
+  assert.equal(result.state,'requires_authorization');
+  assert.equal(f.reads.length,0);assert.equal(f.queries.length,0);
+  assert.equal(tool.schema.safeParse({test_case_id:'case-1',project_id:'foreign'}).success,false);
+  for(const extra of [{browser_driver:'custom'},{allow_browser_actions:true},{parameter_values:{password:'private'}},{approved:true},{paired_browser_bridge_id:'machine-grant'}])assert.equal(tool.schema.safeParse({test_case_id:'case-1',...extra}).success,false);
+  for(const start_url of ['file:///etc/passwd','javascript:alert(1)','https://user:private@application.test/'])assert.equal(tool.schema.safeParse({test_case_id:'case-1',start_url}).success,false);
+  const controller=new AbortController();controller.abort();
+  await assert.rejects(tool.run(actor,tool.schema.parse({test_case_id:'case-1'}),controller.signal),{name:'AbortError'});
+  assert.equal(f.plans.length,1,'Cancellation must not prepare another plan.');
+  f.operations.at(-1).prepare=false;
+  await assert.rejects(call(f,name,{test_case_id:'case-1'}),{code:'MCP_OPERATION_UNAVAILABLE'});
+  assert.equal(f.plans.length,1);
+});
+
+test('Automation Engineer status follows its original durable transaction through native project checks',async()=>{
+  const f=fixture(),name='hellotest_automation_engineer_status',tool=f.tools[name];
+  assert.equal(tool.available(),false);
+  f.operations.push({id:'build-status',method:'GET',path:'/test-cases/automation/jobs/:transactionId',read:true});
+  assert.equal(tool.available(),true);
+  const delivery={truncated:false,redacted:true,omitted_items:0,truncated_strings:0};
+  f.backplane.read=async(...args)=>{f.reads.push(args);return {data:{transaction_id:'original',status:'running'},observed_at:'2026-11-06T00:00:00Z',bounded:true,delivery};};
+  const signal=new AbortController().signal;
+  const result=await tool.run(actor,tool.schema.parse({transaction_id:'original'}),signal);
+  assert.deepEqual(f.reads[0],[actor,{operation_id:'build-status',arguments:{path:{transactionId:'original'}}},signal]);
+  assert.equal(result.record.status,'running');assert.deepEqual(result.delivery,delivery);
+  assert.equal(tool.output.safeParse(result).success,true);
+  assert.equal(tool.schema.safeParse({transaction_id:'original',project_id:'foreign'}).success,false);
+  assert.equal(f.plans.length,0);
+  f.backplane.read=async()=>{throw fail('Current build access was revoked.',403,'MCP_ACCESS_DENIED');};
+  await assert.rejects(call(f,name,{transaction_id:'original'}),{code:'MCP_ACCESS_DENIED'});
+});
+
 test('agent and workflow evidence tools use audited routes and projection fields with exact native identifiers',async()=>{
   const f=fixture();
   const domains=[

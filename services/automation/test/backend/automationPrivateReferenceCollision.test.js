@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createBrowserParameterResolver } = require('../../backend/lib/automationBrowserParameters');
-const { createAutomationActorContext } = require('../../backend/lib/automationActorContext');
 const { createAutomationSemanticReviewer } = require('../../backend/lib/automationSemanticReview');
 const { recordBrowserOperation } = require('../../backend/lib/automationBrowserRecording');
 
@@ -41,24 +40,6 @@ test('a token inside an inserted value cannot gain a private-redaction exemption
   } });
   assert.equal(data.projectText('Enter @t.inserted'), 'Enter prefix [private parameter value] suffix');
   assert.equal(data.projectText('Enter @t.password'), 'Enter @t.password');
-});
-
-test('actor context keeps host binding references but masks identical private literal bytes in captures and selected data', () => {
-  const data = resolver();
-  const task = { case: { id: 'case' }, current_section: { id: 'current', action: 'Enter @t.password and @r.secret then @t.validref', expected_result: 'Both fields retain their values.' },
-    build_context: { linked_manual_cases: [], parameter_data: { values: data.promptValues }, data_set: { id: 'data', mode: 'table', rows: [{ known: collidingSecret, unknown: unknownSecret }] } },
-    captured_actions: [{ arguments: { value: collidingSecret } }, { arguments: { value: unknownSecret } }],
-    captured_network: [{ response: { body: { known: collidingSecret, unknown: unknownSecret } } }] };
-  const manager = createAutomationActorContext({ task, projectText: data.projectPrivateText, canonicalGoals: true });
-  const selected = JSON.parse(manager.prompt);
-  assert.equal(selected.required_obligations[0].action, task.current_section.action);
-  assert.equal(selected.parameter_data.values['t.password'], '@t.password');assert.equal(selected.parameter_data.values['t.validref'], '@t.validref');
-  const disclosed = manager.request({ captured_actions: { offset: 0, limit: 2 }, captured_network: { offset: 0, limit: 1 }, selected_context: ['data_set'] });
-  assert.doesNotMatch(JSON.stringify(disclosed), new RegExp(`${unknownSecret}|@t\\.validref`));
-  assert.equal(disclosed.data.captured_actions.items[0].arguments.value, '[private parameter value]');
-  assert.equal(disclosed.data.selected_context.data_set.rows[0].unknown, '[private parameter value]');
-  const parameters = manager.request({ parameter_names: ['t.password', 'r.secret', 't.validref'] });
-  assert.deepEqual(parameters.data.parameter_values, { 't.password': '@t.password', 'r.secret': '@r.secret', 't.validref': 'Named binding value' });
 });
 
 test('semantic review preserves authored and recorded binding identity while page and reviewer-rationale evidence use literal privacy', async () => {

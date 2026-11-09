@@ -15,6 +15,8 @@ test('source inventory reconciles callable contracts, aliases, dynamic native de
  assert.equal(operation('POST /agentic-workflows/:id/executions').callable,true);
  for(const item of report.operations.filter(item=>item.alias_of))assert.ok(operation(item.alias_of),item.route);
  assert.ok(report.dedicated_tools.some(item=>item.tool==='hellotest_graph_trace'));
+ for(const tool of ['hellotest_automation_engineer_prepare','hellotest_automation_engineer_status'])assert.ok(report.dedicated_tools.some(item=>item.tool===tool));
+ for(const route of ['POST /test-cases/:id/automation/generator-jobs','POST /test-cases/automation/build-batch','GET /test-cases/automation/jobs/:transactionId'])assert.equal(operation(route)?.callable,true,route);
  assert.ok(report.feature_catalog.find(item=>item.key==='hellotest.ai.chatbot').canonical_callable>0);
  assert.ok(report.feature_catalog.find(item=>item.key==='hellotest.ai.bug_triage').canonical_callable>0);
  const connections=report.projections.find(item=>item.entity==='integrations');

@@ -91,7 +91,9 @@ test("Product Management, Test Authoring, Test Environment, and Defects expose m
   ]);
 
   assert.match(product, /eyebrow="Product Management"/);
-  assert.match(suites, /eyebrow="Test Plan"/);
+  assert.match(suites, /eyebrow=\{selectedSuite \? "Test Suite" : "Test Plan"\}/);
+  assert.match(suites, /title=\{selectedSuite\?\.name \|\| "Test Suites"\}/);
+  assert.match(suites, /textAside=\{selectedSuite \? <EntityIdBadge[\s\S]{0,160}selectedSuite\.display_id \|\| selectedSuite\.id/);
   assert.match(cases, /eyebrow="Test Authoring"/);
   assert.match(sharedSteps, /eyebrow=\{isAutomationLibrary \? "Automation assets" : "Test Authoring"\}/);
   assert.match(environments, /const currentViewEyebrow = "Test Environment"/);

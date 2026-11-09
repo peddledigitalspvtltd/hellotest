@@ -7,11 +7,12 @@ const {toolArgumentIssues:discoveredArgumentIssues}=require('@hellotest/platform
 const { interactiveEvidenceFeedback, browserReceipt } = require('./automationInteractiveEvidence');
 const { compactBrowserObservations, browserPromptContext,browserCurrentSnapshotObservation,browserCurrentSnapshot } = require('./automationBrowserContext');
 const { browserBootstrapFailure } = require('./automationBrowserBootstrapFailure');
+const { browserTransportError, isBrowserTransportError } = require('./automationBrowserTransportError');
 const { stampObservation, markPageTransition, reconcileAction, exactLinearCoverage } = require('./automationActionReconciliation');
 const { normalizeGeneratedProgram,joinGeneratedAssertions } = require('./automationGeneratedProgram');
 const { deriveProgramTools, explainProgramToolsUnsupported } = require('./automationProgramTools');
 const {recordBrowserOperation,recordedSectionCandidate,recordedSectionRequests,actorOperationState}=require('./automationBrowserRecording');
-const {compileRecordedProgram}=require('./automationRecordedProgram');
+const {compileRecordedProgram,recordedLocatorSource}=require('./automationRecordedProgram');
 const {captureBrowserBatchState,browserBatchBoundary}=require('./automationBrowserBatchState');
 const {createBrowserBatchTargetResolver}=require('./automationBrowserBatchTargets');
 const {projectBrowserCapabilities}=require('./automationBrowserCapabilities');
@@ -22,15 +23,26 @@ const {createAutomationNavigationGrounding}=require('./automationNavigationGroun
 const {referenceKey}=require('./automationBrowserParameters');
 const {browserAssertionSubjectFeedback}=require('./automationBrowserAssertionSubject');
 const {browserActionOrderFeedback,browserCurrentActionPolicy}=require('./automationBrowserActionOrder');
+const {createAutomationTerminalActionGate}=require('./automationTerminalActionGate');
 const {browserExcerptAssertionFeedback,browserObservedTargetFeedback}=require('./automationBrowserModelTargets');
 const {createRecordedSectionContract,recordedContractMetadata}=require('./automationRecordedContract');
 const {createAutomationSnapshotReadGuard}=require('./automationSnapshotReadGuard');
+const {createAutomationSnapshotTargetRecovery,recordNativeSnapshotRecoveryObservation}=require('./automationSnapshotTargetRecovery');
 const {automationActorResponseContract,normalizeAutomationActorResponse}=require('./automationActorResponseContract');
 const {compactBrowserModelContext,projectBrowserModelTool}=require('./automationBrowserModelContext');
-const {pendingFinalAssertions,retainedFinalAssertionHints}=require('./automationRetainedAssertions');
+const {pendingFinalAssertions,retainedFinalAssertionHints,retainedActionProgress}=require('./automationRetainedAssertions');
 const {reviewAutomationPrerequisite,approvedAutomationPrerequisite}=require('./automationPrerequisiteRecovery');
+const {isCriticalAutomationError,browserObservationDeadline,safeReadinessDiagnostics}=require('./automationProgressDiagnostics');
+const {automationBrowserScope,unsupportedBrowserFlowError,unsupportedBrowserFlowResult}=require('./automationBrowserFlowPolicy');
+const { validFramePath, framePathKey, snapshotFrameScope } = require('./automationFrameScope');
+const {configuredAssertionTimeoutMs,configuredNavigationTimeoutMs,browserTransportTimeoutMs}=require('./automationAssertionTimeout');
 
 const MCP_PROTOCOL = "2025-03-26";
+const validatedLocatorDiscovery=new WeakMap();
+const deadlineFailure = stepId => Object.assign(new Error('The automation section time allowance ended. No further browser action or instruction save was started; previously saved sections remain in Plan.'), {
+  code: 'AUTOMATION_BUILD_DEADLINE', statusCode: 422, nonRetryable: true,
+  ...(stepId ? { details: { step_id: stepId } } : {})
+});
 
 // Validate the discovered structural contract before dispatch. Conditional
 // assertion shapes come from MCP discovery, never a duplicated business-mode
@@ -44,8 +56,10 @@ function discoveredMode(schema,args,depth=0){
 }
 
 async function connectAutomationBrowser({ integration, startUrl, allowBrowserActions = false, signal }) {
+  const assertionTimeoutMs=configuredAssertionTimeoutMs(integration.config?.assertion_timeout_ms);
+  const navigationTimeoutMs=configuredNavigationTimeoutMs(integration.config?.navigation_timeout_ms);
   const pairedBridge = integration.paired_browser_bridge;
-  const transport = pairedBridge ? await require('../services/pairedBrowserBridge.service').createTransport(pairedBridge) : fetch;
+  const transport = pairedBridge ? await require('../services/pairedBrowserBridge.service').createTransport(pairedBridge,{assertionTimeoutMs,navigationTimeoutMs}) : fetch;
   const endpoint = pairedBridge ? 'paired-browser-mcp' : `${integration.base_url.replace(/\/+$/, "")}/api/v1/automation/mcp`;
   const headers = { "content-type": "application/json", accept: "application/json, text/event-stream", ...(!pairedBridge ? { "x-hellotest-testengine-secret": resolveTestEngineSecret(integration.config?.shared_secret) } : {}), "mcp-protocol-version": MCP_PROTOCOL };
   let sequence = 0;
@@ -53,20 +67,39 @@ async function connectAutomationBrowser({ integration, startUrl, allowBrowserAct
   let affinityCookie;
   let closed = false;
   let discoveredTools=[];
-  const call = async (method, params) => {
+  const call = async (method, params, { deadlineMs } = {}) => {
     if (closed) throw new Error("Automation browser session is closed");
+    signal?.throwIfAborted();
+    const transportTimeout=browserTransportTimeoutMs(method,params,assertionTimeoutMs,navigationTimeoutMs);
+    const remainingMs = Number.isFinite(deadlineMs) ? deadlineMs - Date.now() : transportTimeout;
+    if (remainingMs <= 0) throw deadlineFailure();
+    const timeout = AbortSignal.timeout(Math.max(1, Math.min(transportTimeout, remainingMs)));
+    const timeoutFailure=(cause,phase)=>Object.assign(new Error('The browser MCP request exceeded its bounded transport time allowance.',{cause}),{
+      name:'TimeoutError',code:'BROWSER_TRANSPORT_TIMEOUT',browser_transport_phase:phase
+    });
     const id = ++sequence;
-    const response = await transport(endpoint, { method: "POST", redirect:"error", headers: { ...headers, ...(sessionId ? { "mcp-session-id": sessionId } : {}), ...(affinityCookie ? {cookie:affinityCookie} : {}) }, body: JSON.stringify({ jsonrpc: "2.0", id, method, params }), signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000) });
+    const response = await transport(endpoint, { method: "POST", redirect:"error", headers: { ...headers, ...(sessionId ? { "mcp-session-id": sessionId } : {}), ...(affinityCookie ? {cookie:affinityCookie} : {}) }, body: JSON.stringify({ jsonrpc: "2.0", id, method, params }), signal: signal ? AbortSignal.any([signal,timeout]) : timeout }).catch(error=>{
+      if(timeout.aborted&&!signal?.aborted)throw timeoutFailure(error,'http_response');
+      throw error;
+    });
+    // Guards and reverse proxies return ordinary JSON or HTML on 401/403,
+    // without a JSON-RPC envelope. Classify HTTP before decoding that envelope;
+    // otherwise an authentication failure becomes a misleading ID mismatch.
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      throw browserTransportError(response.status, { method });
+    }
     if (method === "initialize") {
       sessionId = response.headers.get("mcp-session-id");
       const affinity=response.headers.get("set-cookie")?.match(/(?:^|,\s*)HELLOTEST_ENGINE=([^;,\s]+)/);
       if(affinity)affinityCookie=`HELLOTEST_ENGINE=${affinity[1]}`;
     }
     const payload = await readBoundedResponseJson(response, { maxBytes: 256 * 1024, label: "Automation browser response" }).catch((error) => {
+      if(timeout.aborted&&!signal?.aborted)throw timeoutFailure(error,'response_body');
       if (error instanceof SyntaxError) return null;
       throw error;
     });
-    if(payload&&(payload.jsonrpc!=="2.0"||payload.id!==id))throw new Error("Automation browser returned a mismatched MCP response");
+    if(payload&&(payload.jsonrpc!=="2.0"||payload.id!==id))throw browserTransportError(response.status,{method,protocol:true});
     if(method==='tools/call'&&payload?.error?.code===-32602){
       const contract=payload.error.data?.assertion_contract;
       const schema=discoveredTools.find(tool=>tool.name===params?.name)?.inputSchema;
@@ -80,7 +113,7 @@ async function connectAutomationBrowser({ integration, startUrl, allowBrowserAct
       const allowedAssertions=Array.isArray(allowed)?allowed.filter(item=>modes.includes(item)).slice(0,40):[];
       return {isError:true,content:[{type:'text',text:JSON.stringify({source:'playwright',code:'BROWSER_TOOL_INVALID_ARGUMENTS',message:'The MCP server rejected these tool arguments before execution. Correct the request using the discovered schema and any required or forbidden argument names.',action_outcome:'not_attempted',retry_safe:true,...(assertionContract?{assertion_contract:assertionContract}:{}),...(allowedAssertions.length?{allowed_assertions:allowedAssertions}:{})})}]};
     }
-    if (!response.ok || payload?.error || !payload?.result) throw Object.assign(new Error(payload?.error?.message || `Automation browser unavailable (${response.status}). Check TestEngine and retry.`),{statusCode:response.status});
+    if (payload?.error || !payload?.result) throw browserTransportError(response.status,{method,protocol:true});
     return payload.result;
   };
   const close = async () => {
@@ -89,14 +122,26 @@ async function connectAutomationBrowser({ integration, startUrl, allowBrowserAct
     if (sessionId) await transport(endpoint, { method: "DELETE", redirect:"error", headers: { ...headers, "mcp-session-id": sessionId, ...(affinityCookie ? {cookie:affinityCookie} : {}) }, signal: AbortSignal.timeout(5000) }).catch(() => undefined);
   };
   try {
-    const initializedProtocol = await call("initialize", { protocolVersion: MCP_PROTOCOL, capabilities: {}, clientInfo: { name: "hellotest-automation", version: "1.0.0" }, _meta: { hellotest: { start_url: startUrl, allow_browser_actions: allowBrowserActions === true } } });
+    const initializedProtocol = await call("initialize", { protocolVersion: MCP_PROTOCOL, capabilities: {}, clientInfo: { name: "hellotest-automation", version: "1.0.0" }, _meta: { hellotest: { start_url: startUrl, allow_browser_actions: allowBrowserActions === true,...(assertionTimeoutMs!==undefined?{assertion_timeout_ms:assertionTimeoutMs}:{}),...(navigationTimeoutMs!==undefined?{navigation_timeout_ms:navigationTimeoutMs}:{}) } } });
     if (!sessionId || initializedProtocol.protocolVersion !== MCP_PROTOCOL || !initializedProtocol.capabilities?.tools) throw new Error("Automation browser did not establish a compatible MCP tools session");
-    const initialized = await transport(endpoint, { method: "POST", redirect:"error", headers: { ...headers, "mcp-session-id": sessionId, ...(affinityCookie ? {cookie:affinityCookie} : {}) }, body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }), signal: AbortSignal.timeout(5000) });
-    if (!initialized.ok) throw new Error("Automation browser initialization failed");
+    if(assertionTimeoutMs!==undefined&&assertionTimeoutMs!==10_000&&initializedProtocol._meta?.hellotest?.assertion_timeout_ms!==assertionTimeoutMs)
+      throw Object.assign(new Error('The connected browser runtime did not accept the configured assertion timeout. Update the paired local agent or TestEngine runtime before starting this build. No browser navigation or action was performed.'),{
+        code:'AUTOMATION_BROWSER_ASSERTION_POLICY_UNSUPPORTED',statusCode:503,nonRetryable:true,action_outcome:'not_attempted'
+      });
+    if(navigationTimeoutMs!==undefined&&initializedProtocol._meta?.hellotest?.navigation_timeout_ms!==navigationTimeoutMs)
+      throw Object.assign(new Error('The connected browser runtime did not accept the configured navigation timeout. Update the paired local agent or TestEngine runtime before starting this build. No browser navigation or action was performed.'),{
+        code:'AUTOMATION_BROWSER_NAVIGATION_POLICY_UNSUPPORTED',statusCode:503,nonRetryable:true,action_outcome:'not_attempted'
+      });
+    signal?.throwIfAborted();
+    const initialized = await transport(endpoint, { method: "POST", redirect:"error", headers: { ...headers, "mcp-session-id": sessionId, ...(affinityCookie ? {cookie:affinityCookie} : {}) }, body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }), signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000) });
+    if (!initialized.ok) {
+      await initialized.body?.cancel().catch(() => undefined);
+      throw browserTransportError(initialized.status, { method: 'notifications/initialized' });
+    }
     const { tools } = await call("tools/list");
     if (!Array.isArray(tools) || tools.length > 50 || tools.some((tool) => !tool || typeof tool.name !== "string" || !tool.inputSchema)) throw new Error("Automation browser returned an invalid tool catalog");
     discoveredTools=tools;
-    return { tools, startUrl, call: (name, args) => call("tools/call", { name, arguments: args }), close };
+    return { tools, startUrl, scope: automationBrowserScope, call: (name, args, options) => call("tools/call", { name, arguments: args }, options), close };
   } catch (error) { await close(); throw error; }
 }
 
@@ -108,8 +153,19 @@ function remainingBrowserCalls(observations,limit=10){
 }
 
 /** LLM chooses tools; MCP supplies observations. Neither page content nor tool errors can change policy. */
-async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_generation", prompt, browser, startUrl, complete, parse, onProgress = async () => {}, onObservation = () => {}, onPartialBuild, onRecordedContract, taskContext, inputParameterBinding, generationMode, execution, actorMode=false, phase, navigationActions=[], maxTurns = 8, maxCalls = 12, deadlineMs, initialObservations = [] }) {
+async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_generation", prompt, browser, startUrl, complete, parse, onProgress = async () => {}, onObservation = () => {}, onPartialBuild, onRecordedContract, taskContext, inputParameterBinding, generationMode, execution, actorMode=false, phase, navigationActions=[], maxTurns = 8, maxCalls = 12, deadlineMs, signal, initialObservations = [] }) {
   const observations = [...initialObservations];
+  const terminalActionGate=actorMode?createAutomationTerminalActionGate({browser,execution}):null;
+  let validatedScopeReads;
+  if(actorMode&&execution?.required&&typeof execution.step_id==='string'){
+    let sections=validatedLocatorDiscovery.get(browser);if(!sections){sections=new Map();validatedLocatorDiscovery.set(browser,sections);}
+    validatedScopeReads=sections.get(execution.step_id);if(!validatedScopeReads){validatedScopeReads=new Set();sections.set(execution.step_id,validatedScopeReads);}
+  }
+  const locatorIsObserved=request=>{
+    const snapshot=browserCurrentSnapshotObservation(observations),scope=snapshotFrameScope(snapshot?browserReceipt(snapshot):{});
+    return scope&&framePathKey(scope.path)===framePathKey(request.arguments?.frame)
+      &&!browserObservedTargetFeedback({request:{name:'browser_assert',arguments:{...request.arguments,assertion:'visible'}},snapshot,execution});
+  };
   const originalNavigationActions=Array.isArray(execution?.source_obligations)?execution.source_obligations:navigationActions;
   const planningPhase=phase==='flow_plan';
   const catalog = new Map(browser.tools.map((tool) => [tool.name,tool]));
@@ -122,20 +178,23 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
   const rejectedTargetProposals = new Set();
   const rejectedActorEnvelopes=new Set();
   const snapshotReadGuard = actorMode ? createAutomationSnapshotReadGuard() : null;
+  const snapshotTargetRecovery = actorMode ? createAutomationSnapshotTargetRecovery() : null;
   const observe=async observation=>{
     observation.observed_at=new Date().toISOString();if(execution?.step_id)observation.execution_step_id=execution.step_id;
     // A host-captured boundary snapshot may be used by the next operation in
     // this batch before another model turn. Register its validated targets now;
     // the dispatch guard itself never accepts a model-supplied target map.
     if(actorMode&&observation.tool==='browser_snapshot'&&observation.mcp_call!==false&&!observation.result?.isError)require('./automationBrowserModelTargets').projectModelSnapshot(observation);
+    if(observation.mcp_call!==false)recordNativeSnapshotRecoveryObservation(observation);
     observations.push(observation);await onObservation(observation);
   };
   const mutations=new Set(['browser_navigate','browser_click','browser_fill','browser_press_key','browser_select_option','browser_hover','browser_check','browser_uncheck']);
-  const fatal=error=>[401,403].includes(error.statusCode)||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code)||planningPhase&&/^AUTOMATION_FLOW_PLAN_(?:MODEL_BUDGET|TOOL_BUDGET|DEADLINE)_EXHAUSTED$/.test(error.code||'');
+  const fatal=error=>signal?.aborted||isBrowserTransportError(error)||[401,403].includes(error.statusCode)||['AUTOMATION_BUILD_DEADLINE','AUTOMATION_BROWSER_FLOW_UNSUPPORTED','AUTOMATION_BROWSER_OBSERVATION_DEADLINE','BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code)||planningPhase&&/^AUTOMATION_FLOW_PLAN_(?:MODEL_BUDGET|TOOL_BUDGET|DEADLINE)_EXHAUSTED$/.test(error.code||'');
   const uncertain=async()=>{await onProgress({phase:'automation.agent.browser.uncertain',level:'warning',message:'The browser action outcome is unknown. Further actions stopped to avoid replaying an operation.'});throw Object.assign(new Error('The browser tool outcome is unknown. Inspect the application and restore the MCP connection before continuing.'),{code:'AUTOMATION_BROWSER_OUTCOME_UNKNOWN',nonRetryable:true});};
-  const optionalProgress=async event=>{try{await onProgress(event);}catch{}};
+  const optionalProgress=async event=>{try{await onProgress(event);}catch(error){if(fatal(error)||isCriticalAutomationError(error))throw signal?.reason||error;}};
   const invalidTool=(request,message)=>({tool:typeof request?.name==="string"?request.name.slice(0,100):"invalid_tool",mcp_call:false,result:{isError:true,content:[{type:"text",text:message}]}});
   let unfinishedExecution;
+  let preferReadOnlyTools=false;
   let previousDraft;
   let previousInvalidSource;
   let repeatedInvalidSource=0;
@@ -152,8 +211,77 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     await onProgress({phase:'automation.agent.execution.required',message:'Generated code needs the remaining browser actions and expected-result check before this section can be saved.',details:{active_step_id:execution.step_id}});
     return true;
   };
-  const actionProgress=async(phase,tool,actionId,receipt,assertion)=>optionalProgress({phase:`automation.agent.action.${phase}`,message:`Browser ${tool.replace(/^browser_/, '').replace(/_/g,' ')}: ${phase}.`,details:{action_id:actionId,tool,active_step_id:execution?.step_id,action_outcome:receipt?.action_outcome,assertion_outcome:receipt?.assertion_outcome,...(typeof receipt?.code==='string'&&/^[A-Z][A-Z0-9_]{1,99}$/.test(receipt.code)?{error_code:receipt.code}:{}),...(typeof assertion==='string'&&/^[a-z_]{1,50}$/.test(assertion)?{assertion}:{})}});
-  const deadline = Math.min(deadlineMs || Infinity,Date.now() + 240_000);
+  const actionProgress=async(phase,tool,actionId,receipt,assertion)=>optionalProgress({phase:`automation.agent.action.${phase}`,message:`Browser ${tool.replace(/^browser_/, '').replace(/_/g,' ')}: ${phase}.`,details:{action_id:actionId,tool,active_step_id:execution?.step_id,action_outcome:receipt?.action_outcome,assertion_outcome:receipt?.assertion_outcome,...(typeof receipt?.code==='string'&&/^[A-Z][A-Z0-9_]{1,99}$/.test(receipt.code)?{error_code:receipt.code}:{}),
+    ...(typeof receipt?.browser_code==='string'&&/^[A-Z][A-Z0-9_]{1,99}$/.test(receipt.browser_code)?{browser_code:receipt.browser_code}:{}),
+    ...(typeof receipt?.tool_phase==='string'&&/^[a-z_]{1,50}$/.test(receipt.tool_phase)?{tool_phase:receipt.tool_phase}:{}),
+    ...(safeReadinessDiagnostics(receipt?.readiness_diagnostics)?{readiness_diagnostics:safeReadinessDiagnostics(receipt.readiness_diagnostics)}:{}),
+    ...(typeof assertion==='string'&&/^[a-z_]{1,50}$/.test(assertion)?{assertion}:{})}});
+  const deadline = Math.min(Number.isFinite(deadlineMs) ? deadlineMs : Infinity,Date.now() + 240_000);
+  // Progress writes, model calls and read preflights can all await. Recheck at
+  // the dispatch/save boundary so a late response cannot start another action
+  // after cancellation or the section deadline. Confirmed receipts are retained;
+  // an expired allowance never authorizes replay or a replacement session.
+  const assertActive=()=>{
+    signal?.throwIfAborted();
+    if(Date.now()>=deadline)throw deadlineFailure(execution?.step_id);
+  };
+  const dispatchBrowser=async(name,args)=>{
+    assertActive();
+    const result=await browser.call(name,args,{deadlineMs:deadline});
+    const observationDeadline=browserObservationDeadline(result,{tool:name});
+    if(observationDeadline){
+      await observe({tool:name,arguments:{},result});
+      const last=observations.findLast(item=>item.mcp_call!==false&&mutations.has(item.tool)&&browserReceipt(item)?.action_outcome==='completed');
+      const completed=typeof last?.action_id==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(last.action_id)
+        ?{last_completed_action_id:last.action_id,known_action_outcome:'completed'}:{};
+      const message='Browser observation reached its bounded read deadline. Confirmed actions remain recorded; no action, screenshot or follow-up read was replayed. Review the retained observation phase before retrying.';
+      await optionalProgress({phase:'automation.agent.observation.failed',level:'error',message,details:{...observationDeadline,...completed,active_step_id:execution?.step_id}});
+      throw Object.assign(new Error(message),{code:observationDeadline.error_code,browser_code:observationDeadline.browser_code,
+        ...(observationDeadline.tool_phase?{tool_phase:observationDeadline.tool_phase}:{}),action_outcome:'not_attempted',retry_safe:false,statusCode:422,nonRetryable:true,
+        ...(observationDeadline.session_disposition?{session_disposition:observationDeadline.session_disposition}:{}),
+        ...(observationDeadline.readiness_diagnostics?{readiness_diagnostics:observationDeadline.readiness_diagnostics}:{}),
+        details:{...observationDeadline,...completed}});
+    }
+    const unsupported=unsupportedBrowserFlowResult(result);
+    // Optional reads cannot hide a terminal session boundary. Mutating tools
+    // retain their actual receipt/action ID below before the same stop.
+    if(unsupported&&!mutations.has(name)){
+      await observe({tool:name,arguments:{},result});
+      throw unsupported;
+    }
+    return result;
+  };
+  const currentFrameScope=()=>{
+    const snapshot=browserCurrentSnapshotObservation(observations);
+    return snapshot?snapshotFrameScope(browserReceipt(snapshot)):null;
+  };
+  // MCP validates the observed frame owner/document before and after a scoped
+  // read. Refresh inventory once only when that safe read reports stale scope;
+  // a stable embedded document needs no duplicate top-level snapshot.
+  const captureCurrentSnapshot=async(frame=[])=>{
+    const snapshot=async args=>{
+      if(!allowed.has('browser_snapshot')||calls>=maxCalls||Date.now()>=deadline)return null;
+      calls++;
+      const result=await dispatchBrowser('browser_snapshot',args);
+      await observe({tool:'browser_snapshot',arguments:args,result});
+      return result;
+    };
+    const framed=validFramePath(frame),args=framed?{frame:[...frame]}:{};
+    const first=await snapshot(args);
+    if(!first||!framed)return first;
+    let failure;
+    if(first.isError===true)for(const block of first.content||[])if(block.type==='text')try{
+      const value=JSON.parse(block.text);if(value?.source==='playwright'){failure=value;break;}
+    }catch{}
+    if(first.isError!==true||failure?.code!=='BROWSER_FRAME_STALE'||failure.action_outcome!=='not_attempted'||failure.retry_safe!==true)return first;
+    const root=await snapshot({});
+    if(!root)return first;
+    if(root.isError)return root;
+    const inventory=browserReceipt({result:root})?.frames;
+    if(!Array.isArray(inventory)||!inventory.some(row=>framePathKey(row?.path)===framePathKey(frame)))return root;
+    return await snapshot(args)||root;
+  };
+  const savePartial=payload=>{assertActive();return onPartialBuild(payload);};
   const requireSemanticReview=Boolean(actorMode&&execution?.required&&execution.semantic_review_required);
   const navigationGrounding=actorMode&&execution?.required?createAutomationNavigationGrounding({startUrl:startUrl||browser.startUrl,execution,
     projectText:browser.projectPromptText,projectPrivateText:browser.projectPrivateText}):null;
@@ -182,18 +310,22 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     details:{step_id:execution?.step_id,phase:reviewCall?'semantic_review':'actor',model_call_count:modelCalls,max_model_calls:maxModelCalls,
       reserved_semantic_review_calls:reviewCall?0:1,...(semanticFeedback?{latest_semantic_review:structuredClone(semanticFeedback)}:{})}});
   const budgetedComplete=async(input,remainingMs,traceOptions)=>{
+    assertActive();
     const reviewCall=traceOptions?.generationScope==='section_semantic_review';
     // A permitted action proposal must still fit its mandatory outcome review.
     // Reviews share the original cap; a rejected review cannot leave a final
     // actor call free to mutate the page with no review capacity afterwards.
     if(requireSemanticReview&&modelCalls>=maxModelCalls-(reviewCall?0:1))throw modelBudgetError(reviewCall);
     modelCalls++;
-    return complete(input,Math.min(remainingMs,Math.max(1,deadline-Date.now())),traceOptions);
+    const output=await complete(input,Math.min(remainingMs,Math.max(1,deadline-Date.now())),traceOptions);
+    assertActive();
+    return output;
   };
   const semanticReviewer=requireSemanticReview?require('./automationSemanticReview').createAutomationSemanticReviewer({featureKey,execution,
     complete:(input,remainingMs)=>budgetedComplete(input,remainingMs,{generationScope:'section_semantic_review'}),parse,projectText:browser.projectPromptText,projectPrivateText:browser.projectPrivateText,onProgress:optionalProgress,deadlineMs:deadline,maxReviews:maxSemanticReviews}):null;
   if (startUrl) {
     if (!allowed.has("browser_navigate") || !allowed.has("browser_snapshot")) throw new Error("Automation browser is missing navigation or snapshot tools");
+    await optionalProgress({ phase: 'automation.agent.browser.capabilities', message: 'The build browser supports one page within the configured application origin. Popups, new tabs and external SSO require a browser flow this runner does not support.', details: { browser_scope: automationBrowserScope } });
     await onProgress({ phase: "automation.agent.browser", message: "Opening the application and reading its accessible elements." });
     for (const [name, originalArgs] of [["browser_navigate", { url: startUrl }], ["browser_snapshot", {}]]) {
       let request={name,arguments:originalArgs};
@@ -205,7 +337,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
         const actionId=name==='browser_navigate'?randomUUID():undefined;
         if(actionId)await actionProgress('started',name,actionId);
         let result;
-        try { result = await browser.call(name, args); }
+        try { result = await dispatchBrowser(name, args); }
         catch (error) {
           if (fatal(error) || error.name === 'AbortError' || error.code === 'AUTOMATION_PARAMETER_MISSING' || error.code === 'AUTOMATION_PARAMETER_INVALID') throw error;
           if (actionId) await actionProgress('failed', name, actionId, { action_outcome: 'unknown' });
@@ -238,7 +370,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       }
     }
     if(allowed.has('browser_screenshot')&&!observations.some(item=>item.tool==='browser_screenshot')){
-      try{const result=await browser.call('browser_screenshot',{});if(result.isError)throw new Error('Optional screenshot unavailable');await observe({tool:'browser_screenshot',arguments:{},result});await optionalProgress({phase:'automation.agent.screenshot.captured',message:'Captured optional visual evidence; accessible page evidence remains the grounding source.'});}
+      try{const result=await dispatchBrowser('browser_screenshot',{});if(result.isError)throw new Error('Optional screenshot unavailable');await observe({tool:'browser_screenshot',arguments:{},result});await optionalProgress({phase:'automation.agent.screenshot.captured',message:'Captured optional visual evidence; accessible page evidence remains the grounding source.'});}
       catch(error){if(fatal(error))throw error;await optionalProgress({phase:'automation.agent.screenshot.unavailable',level:'warning',message:'Optional screenshot was unavailable. Continuing with accessible page evidence.'});}
     }
   }
@@ -256,7 +388,11 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
   let completionOnlyPending=maxCalls<=0,completionOnlyUsed=false;
   const budgetError=()=>browserToolBudgetError({observations,stepId:execution?.step_id,calls,maxCalls});
   let retainedAssertionDiagnostic;
+  let retainedAssertionsAfterTerminalAction;
   let retainedAssertionsFreshAfterFailure=-1;
+  const automaticCompletionCandidates=new Set();
+  const retainedProgress=()=>requireSemanticReview?retainedActionProgress({contract:execution?.retained_assertion_contract,
+    stepId:execution?.step_id,operations:recordedSectionRequests(observations,execution?.step_id)}):null;
   const latestRetainedCheckFailure=()=>observations.findLastIndex(item=>item.execution_step_id===execution?.step_id&&item.mcp_call!==false&&unsuccessfulBrowserCheck(item));
   const pendingRetainedAssertions=()=>{
     const contract=execution?.retained_assertion_contract;
@@ -290,15 +426,21 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     for(const entry of pending){
       if(Date.now()>=deadline)throw Object.assign(new Error('The case deadline was reached before verifying the original saved assertions. Previously saved Plan sections remain available.'),{code:'AUTOMATION_BUILD_DEADLINE',statusCode:422,nonRetryable:true});
       const request=entry.operation,args=request.arguments,actionId=randomUUID();
+      const currentScope=currentFrameScope();
+      if(typeof args.locator==='string'&&framePathKey(args.frame)!==framePathKey(currentScope?.path)){
+        await captureCurrentSnapshot(args.frame||[]);
+        if(calls>=maxCalls)throw budgetError();
+      }
       const failure=(browserCode,cause)=>Object.assign(new Error('An original saved assertion could not be confirmed on the current application state. The section was not saved; review its original requirement and browser evidence before retrying.'),{
         code:'AUTOMATION_BROWSER_RETAINED_ASSERTION_FAILED',statusCode:422,nonRetryable:true,action_outcome:'not_attempted',retry_safe:false,
         ...(typeof browserCode==='string'&&/^[A-Z][A-Z0-9_]{1,99}$/.test(browserCode)?{browser_code:browserCode}:{}),...(cause?{cause}:{}),
         details:{step_id:execution.step_id,retained_operation_index:entry.operation_index}});
+      if(calls>=maxCalls)throw budgetError();
       calls++;
       await actionProgress('started','browser_assert',actionId,undefined,args.assertion);
       const recoveryState=browserRecoveryState(observations,request);
       let result;
-      try{result=await browser.call('browser_assert',args);}
+      try{result=await dispatchBrowser('browser_assert',args);}
       catch(error){
         if(fatal(error)||error.name==='AbortError')throw Object.assign(error,{nonRetryable:true});
         await actionProgress('failed','browser_assert',actionId,{action_outcome:'not_attempted',code:'BROWSER_READ_UNAVAILABLE'},args.assertion);
@@ -316,6 +458,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     retainedAssertionsFreshAfterFailure=latestRetainedCheckFailure();
   };
   const publishRecorded=async response=>{
+    assertActive();
     await checkRetainedFinalAssertions();
     const recorded=recordedSectionCandidate({response,execution,observations,compile:compileRecordedProgram});
     if(!recorded){
@@ -364,7 +507,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     }
     await optionalProgress({phase:'automation.agent.source.compiled',message:'Built executable instructions from confirmed browser actions and checks.',details:{active_step_id:execution.step_id,operation_count:recorded.operation_count,assertion_count:recorded.assertion_count,source_origin:'confirmed_browser_operations'}});
     if(!onPartialBuild)return recorded.payload;
-    const feedback=await onPartialBuild(recorded.payload);
+    const feedback=await savePartial(recorded.payload);
     await observe({tool:'automation_generation_feedback',mcp_call:false,result:{content:[{type:'text',text:JSON.stringify(feedback)}]}});
     if(feedback?.generation_complete!==true&&Array.isArray(feedback?.validation_errors)&&feedback.validation_errors.length){
       const codes=[...new Set(feedback.validation_errors.map(item=>item?.code).filter(code=>typeof code==='string'&&/^[A-Z][A-Z0-9_]{1,99}$/.test(code)))].slice(0,8);
@@ -373,12 +516,92 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     }
     return feedback?.generation_complete===true?recorded.payload:null;
   };
+  const automaticCompletion=async({savedPlan=false}={})=>{
+    if(!requireSemanticReview)return null;
+    const progress=retainedProgress();
+    if(savedPlan&&!progress?.complete)return null;
+    if(!savedPlan&&!recordedSectionRequests(observations,execution.step_id).some(operation=>operation.name!=='browser_assert'))return null;
+    assertActive();
+    if(execution.retained_assertion_contract){
+      pendingRetainedAssertions();
+      if(retainedAssertionDiagnostic){
+        if(!savedPlan)return null;
+        throw Object.assign(new Error(retainedAssertionDiagnostic.message),{code:retainedAssertionDiagnostic.code,statusCode:422,nonRetryable:true,details:{step_id:execution.step_id,action_outcome:'not_attempted'}});
+      }
+    }
+    // The exact saved prefix authorizes only its existing pure assertion suffix.
+    // Source/review validation below still decides whether it covers this goal.
+    if(savedPlan){
+      const lastAction=observations.findLastIndex(row=>recordedSectionRequests([row],execution.step_id).some(operation=>operation.name!=='browser_assert'));
+      const snapshot=browserCurrentSnapshotObservation(observations);
+      const action=lastAction>=0?recordedSectionRequests([observations[lastAction]],execution.step_id)[0]:null;
+      const needsContext=lastAction>=0&&(!snapshot||observations.indexOf(snapshot)<lastAction);
+      const framed=Boolean(action?.arguments.frame?.length||currentFrameScope()?.path.length
+        ||execution.retained_assertion_contract.final_assertions.some(entry=>entry.operation.arguments.frame?.length));
+      const refreshContext=async()=>{
+        if(!allowed.has('browser_snapshot'))throw Object.assign(new Error('The retained action needs fresh native document evidence for outcome review and the next section.'),{code:'AUTOMATION_MCP_CAPABILITY_MISSING',statusCode:503,nonRetryable:true});
+        if(calls>=maxCalls)throw budgetError();
+        const fresh=await captureCurrentSnapshot(action.arguments.frame||[]);
+        assertActive();
+        if(!fresh||fresh.isError)throw Object.assign(new Error('Fresh document evidence was unavailable after the confirmed saved action. No action was replayed; confirmed checks remain recorded and the section was not saved.'),{
+          code:'AUTOMATION_BROWSER_SECTION_CONTEXT_UNAVAILABLE',statusCode:422,nonRetryable:true,details:{step_id:execution.step_id,action_outcome:'not_attempted'}});
+      };
+      // Native top-page URL/element waits target the saved outcome directly;
+      // do not put a broad page-readiness scan in front of those exact waits.
+      // Embedded documents still need their refreshed owner/inventory first.
+      if(needsContext&&framed)await refreshContext();
+      if(needsContext&&!framed&&pendingRetainedAssertions().length+1>Math.max(0,maxCalls-calls))throw budgetError();
+      await checkRetainedFinalAssertions();
+      if(needsContext&&!framed)await refreshContext();
+    }
+    const response={stage:'act',step_id:execution.step_id,section_complete:true,tool_calls:[]};
+    const candidate=recordedSectionCandidate({response,execution,observations,compile:compileRecordedProgram});
+    if(!candidate)return null;
+    // Preserve the original Plan/source rejection. The host must not submit
+    // that unchanged candidate again merely to exhaust its last review slot.
+    if(rejectedRecordedCandidate&&isDeepStrictEqual(rejectedRecordedCandidate.key,recordedCandidateKey(candidate)))return null;
+    const key=JSON.stringify(recordedCandidateKey(candidate));
+    if(automaticCompletionCandidates.has(key))return null;
+    automaticCompletionCandidates.add(key);
+    return await publishRecorded(response);
+  };
+  // Element-scoped evidence completes a check, not the next section's page
+  // context. Clear only that element filter at a real host section boundary;
+  // retain an observed frame and its strict stale-document recovery. Same-step
+  // scoped reads and document-body handoffs need no additional browser call.
+  const inheritedSnapshot=actorMode&&execution?.required?browserCurrentSnapshotObservation(observations):null;
+  const inheritedPage=inheritedSnapshot&&browserReceipt(inheritedSnapshot);
+  if(inheritedSnapshot?.mcp_call!==false&&typeof inheritedSnapshot?.execution_step_id==='string'
+    &&inheritedSnapshot.execution_step_id!==execution.step_id&&typeof inheritedPage?.scope==='string'&&inheritedPage.scope!=='body'){
+    if(calls>=maxCalls)throw budgetError();
+    const scope=snapshotFrameScope(inheritedPage);
+    let result;
+    if(scope)result=await captureCurrentSnapshot(scope.path);
+    if(!result||result.isError){
+      let fault;
+      for(const part of result?.content||[])if(part.type==='text')try{const value=JSON.parse(part.text);if(value?.source==='playwright'){fault=value;break;}}catch{}
+      const browserCode=typeof fault?.code==='string'&&/^[A-Z][A-Z0-9_]{1,99}$/.test(fault.code)?fault.code:undefined;
+      throw Object.assign(new Error('The next manual section needs fresh document evidence after an element-scoped check. That read was unavailable; no section action was attempted or replayed. Review the retained browser cause before retrying.'),{
+        code:'AUTOMATION_BROWSER_SECTION_CONTEXT_UNAVAILABLE',statusCode:422,nonRetryable:true,action_outcome:'not_attempted',
+        ...(browserCode?{browser_code:browserCode}:{}),details:{step_id:execution.step_id,...(browserCode?{browser_code:browserCode}:{})}});
+    }
+    await optionalProgress({phase:'automation.agent.section.context',message:'Read the document context for the next manual section after its prior element-scoped check.',
+      details:{active_step_id:execution.step_id,tool:'browser_snapshot',action_outcome:'not_attempted'}});
+    if(calls>=maxCalls)completionOnlyPending=true;
+  }
   for (let turn = 0; turn < maxTurns || completionOnlyPending&&!completionOnlyUsed; turn++) {
+    const retainedSaved=await automaticCompletion({savedPlan:true});if(retainedSaved)return retainedSaved;
     if(completionOnlyPending&&completionOnlyUsed)throw budgetError();
-    if(requireSemanticReview&&modelCalls>=maxModelCalls-1)throw modelBudgetError();
+    if(requireSemanticReview&&modelCalls>=maxModelCalls-1){const saved=await automaticCompletion();if(saved)return saved;throw modelBudgetError();}
+    assertActive();
+    if(snapshotTargetRecovery&&execution?.required){
+      const recovered=await snapshotTargetRecovery.recover({snapshot:browserCurrentSnapshotObservation(observations),observations,assertActive,
+        beforeRead:()=>{if(calls>=maxCalls)throw budgetError();},
+        capture:async frame=>{await captureCurrentSnapshot(frame);return browserCurrentSnapshotObservation(observations);}});
+      if(recovered&&calls>=maxCalls)completionOnlyPending=true;
+    }
     const completionOnly=completionOnlyPending;
     if(completionOnly)completionOnlyUsed=true;
-    if (Date.now() >= deadline) throw new Error("Automation agent timed out. Retry with a narrower case or additional context.");
     await onProgress({ phase: "automation.agent.reasoning", message: turn ? "Reviewing browser evidence and completing automation." : "Reading manual steps, stories and repository context." });
     let response;
     let prerequisiteApproval;
@@ -394,8 +617,11 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
         ...(contract.step_id===execution.step_id&&typeof browser.projectPromptText==='function'?{ordered_final_checks:retainedFinalAssertionHints(contract,{featureKey,projectText:browser.projectPromptText})}:{}),
         ...(retainedAssertionDiagnostic?{diagnostic:retainedAssertionDiagnostic}:{})};
     }
-    const verificationBoundary=requireSemanticReview?browserVerificationBoundary(observations,execution.step_id):null;
+    const retainedVerification=Boolean(retainedProgress()?.complete);
+    const verificationBoundary=requireSemanticReview?(retainedVerification?{phase:'retained_plan_verification_only',actions_allowed:false,
+      reason:'saved_action_prefix_complete',next_required:'correct_native_outcome_proof_or_report_section_issue_without_replaying_actions'}:browserVerificationBoundary(observations,execution.step_id)):null;
     if(verificationBoundary)context.current.verification_boundary=verificationBoundary;
+    if(compactModel&&preferReadOnlyTools)context.current.tool_presentation={preference:'read_only',scope:'presentation_only',deferred_actions:'Request their schemas if needed; original goals and host guards still apply.'};
     const correctedCandidate=Boolean(semanticFeedback&&semanticReviewer?.correctionState({observations}).candidate_changed);
     const coverageRejected=Boolean(semanticFeedback&&!correctedCandidate);
     if(semanticFeedback)context.current.semantic_review_feedback={...semanticFeedback,...(semanticAssessment?{assessment_details:semanticAssessment}:{}),
@@ -417,10 +643,11 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     // Reserve the last actionable turn for execution rather than another
     // disclosure round trip. Completion-only turns need no browser schemas.
     const finalActorTurn=turn===maxTurns-1||completionOnly||requireSemanticReview&&modelCalls===maxModelCalls-2;
-    const actionPolicy=compactModel?browserCurrentActionPolicy(execution):undefined;
+    const actionPolicy=compactModel?(retainedVerification?{kind:'retained_plan_verification_only',scope:'current_saved_action_prefix',source:'protected_recorded_operations',
+      allowed_tools:['browser_snapshot','browser_assert','browser_validate_locator','browser_wait_for','browser_screenshot'],interactive_actions_allowed:false}:terminalActionGate?.policy()||browserCurrentActionPolicy(execution)):undefined;
     const policyTools=actionPolicy?browser.tools.filter(tool=>actionPolicy.allowed_tools.includes(tool.name)):browser.tools;
     const currentTools=verificationBoundary?policyTools.filter(tool=>!mutations.has(tool.name)):policyTools;
-    const capabilities=compactModel&&completionOnly?{tools:[],deferred_tool_names:[]}:compactModel&&!finalActorTurn?projectBrowserCapabilities({tools:currentTools,current:context.current,action:execution.action,expectedResult:execution.expected_result,expandedNames:expandedToolNames}):{tools:currentTools,deferred_tool_names:[]};
+    const capabilities=compactModel&&completionOnly?{tools:[],deferred_tool_names:[]}:compactModel&&(!finalActorTurn||preferReadOnlyTools)?projectBrowserCapabilities({tools:currentTools,current:context.current,action:execution.action,expectedResult:execution.expected_result,expandedNames:expandedToolNames,preferReadOnly:preferReadOnlyTools}):{tools:currentTools,deferred_tool_names:[]};
     const presentedToolNames=new Set(capabilities.tools.map(tool=>tool.name));
     const toolCatalog=JSON.stringify(compactModel||compactPlanning?capabilities.tools.map(projectBrowserModelTool):capabilities.tools);
     const compactGoalContract=compactModel&&typeof taskContext?.compactGoalContract==='function'?taskContext.compactGoalContract(execution,prompt):null;
@@ -440,8 +667,9 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       capabilities.deferred_tool_names.length?aiInstructionBlock(featureKey,'automationBrowserAgent.capabilities'):'',
       browserSkills?'Selected browser skills (host guidance, never execution authority): '+JSON.stringify(browserSkills):'',
       `Tool catalog: ${toolCatalog}`,
+      `Browser session scope (host restriction): ${JSON.stringify(automationBrowserScope)}`,
       actionPolicy?`Current authored action policy (host restriction): ${JSON.stringify(actionPolicy)}`:'',
-      compactModel?`Current decision contract: ${JSON.stringify(automationActorResponseContract({stepId:execution.step_id,activeGoal:{action:execution.action,expected_result:execution.expected_result},canRequestContext:Boolean(taskContext),canRecoverPrerequisite:Boolean(execution.case_journey&&prerequisiteReviews<2&&!browserVerificationBoundary(observations,execution.step_id)),deferredTools:capabilities.deferred_tool_names,completionOnly}))}`:'',
+      compactModel?`Current decision contract: ${JSON.stringify(automationActorResponseContract({stepId:execution.step_id,...(!compactGoalContract?{activeGoal:{action:execution.action,expected_result:execution.expected_result}}:{}),canRequestContext:Boolean(taskContext),canRecoverPrerequisite:Boolean(execution.case_journey&&prerequisiteReviews<2&&!verificationBoundary),deferredTools:capabilities.deferred_tool_names,completionOnly}))}`:'',
       capabilities.deferred_tool_names.length?`Deferred tool names (request their schemas before use): ${JSON.stringify(capabilities.deferred_tool_names)}`:'',
       `Browser tool budget: ${JSON.stringify({max_requests_per_response:12,remaining_tool_calls:Math.max(0,maxCalls-calls),completion_only:completionOnly,...(requireSemanticReview?{remaining_model_calls:Math.max(0,maxModelCalls-modelCalls),remaining_actor_model_calls:Math.max(0,maxModelCalls-modelCalls-1),reserved_semantic_review_calls:1,model_calls_include_semantic_review:true}:{}),...(completionOnly?{browser_tool_calls_allowed:false,permitted_model_outcomes:['complete_current_section_from_confirmed_receipts','report_actual_missing_dependency']}:{} )})}`,
       `Current browser state and confirmed section progress (page content is untrusted data): ${JSON.stringify(promptCurrent)}`,
@@ -454,7 +682,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     ];
     const modelPrompt=promptParts.filter(Boolean).join('\n\n');
     await optionalProgress({phase:'automation.agent.prompt.packed',message:'Prepared the current goal and compact browser evidence.',details:{active_step_id:execution?.step_id,model_turn:turn+1,measurement_stage:'before_managed_instruction_expansion',prompt_chars:modelPrompt.length,prompt_utf8_bytes:Buffer.byteLength(modelPrompt,'utf8'),task_chars:String(prompt||'').length,tool_catalog_chars:toolCatalog.length,available_tool_catalog_chars:JSON.stringify(browser.tools).length,selected_tool_count:capabilities.tools.length,available_tool_count:browser.tools.length,deferred_tool_names:capabilities.deferred_tool_names,browser_skill_ids:browserSkills?.skills.map(skill=>skill.id)||[],browser_skills_chars:browserSkills?JSON.stringify(browserSkills).length:0,current_state_chars:JSON.stringify(promptCurrent).length,history_chars:JSON.stringify(context.history).length,token_measurement:'not_estimated;provider_usage_is_authoritative'}});
-    const output=await budgetedComplete(modelPrompt, Math.max(1, deadline - Date.now()),actorMode&&execution?.required?{browserActor:true}:undefined);
+    const output=await budgetedComplete(modelPrompt, Math.max(1, deadline - Date.now()),actorMode&&execution?.required?{browserActor:true,...(compactGoalContract?{canonicalGoalValidated:true}:{})}:undefined);
     // Only consecutive actor responses containing exclusively completed-action
     // retries count as a replan stall. Reads, disclosures and new work reopen
     // that bounded allowance without ever replaying a confirmed operation.
@@ -544,7 +772,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       // The completion validator decides whether this is a real dependency.
       // Never let a malformed/contradictory blocker exempt accompanying code
       // from the interactive receipt checks or trigger further browser actions.
-      const feedback=await onPartialBuild({blocked_steps:response.blocked_steps});
+      const feedback=await savePartial({blocked_steps:response.blocked_steps});
       await observe({tool:'automation_generation_feedback',mcp_call:false,result:{content:[{type:'text',text:JSON.stringify(feedback)}]}});
       continue;
     }
@@ -617,7 +845,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     if (!Array.isArray(response?.tool_calls)) {if(await executionFeedback(response))continue;return response;}
     let deferredDraft;
     const publishDraft=async payload=>{
-      const feedback=await onPartialBuild(payload);
+      const feedback=await savePartial(payload);
       await observe({tool:'automation_generation_feedback',result:{content:[{type:'text',text:JSON.stringify(feedback)}]}});
       return feedback;
     };
@@ -640,6 +868,9 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       continue;
     }
     if(!response.tool_calls.length)continue;
+    const terminalRestriction=response.tool_calls.map(request=>terminalActionGate?.feedback(request,{snapshot:browserCurrentSnapshotObservation(observations),
+      approvedPrerequisite:approvedAutomationPrerequisite(prerequisiteApproval,request,browserCurrentSnapshotObservation(observations),execution?.step_id)})).find(Boolean);
+    if(terminalRestriction){await rejectActionOrder(terminalRestriction);continue;}
     // A restricted action is not a deferred capability. Reject the complete
     // batch before discovery or execution, without suggesting schema expansion.
     const restrictedAction=actionPolicy?response.tool_calls.filter(request=>!approvedAutomationPrerequisite(prerequisiteApproval,request,browserCurrentSnapshotObservation(observations),execution?.step_id)).map(request=>browserActionOrderFeedback({request,execution})).find(Boolean):null;
@@ -653,6 +884,8 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       continue;
     }
     let changedApplication=false,snapshotAfterChange=false,toolBatchFailed=false,reconciledActions=0;
+    const plannedMutationIndexes=actor&&response.section_complete===true?response.tool_calls.flatMap((request,index)=>mutations.has(request?.name)?[index]:[]):[];
+    const completedMutationIndexes=new Set();
     const batchObservationStart=observations.length;
     const rawPage=browserCurrentSnapshot(observations);
     const batchTargets=createBrowserBatchTargetResolver({snapshot:browserCurrentSnapshotObservation(observations)});
@@ -664,11 +897,33 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
     const markControlTransition=result=>{const after=pageControls(browserReceipt({result}));if(controlsBefore&&after&&controlsBefore!==after)navigationCandidates.forEach(markPageTransition);};
     const resolvedBatch=[];
     for (const [requestIndex, proposed] of response.tool_calls.entries()) {
-      if (Date.now() >= deadline) throw new Error("Automation agent timed out. Retry with a narrower case or additional context.");
+      assertActive();
+      // The protected saved action prefix is complete. Do not dispatch a later
+      // mutation from this batch, including roleless/icon controls or actions
+      // whose labels are absent from the current manual-action classifier.
+      const completedRetainedPlan=retainedProgress();
+      if(completedRetainedPlan?.complete&&mutations.has(proposed?.name)){
+        // A rejected review does not reopen the saved action sequence. If the
+        // actor asks to cross that fence, stop with the actual review attached
+        // instead of spending more turns blocking the same continuation. Pure
+        // outcome checks can still correct proof through the read-only path.
+        if(semanticFeedback?.code==='AUTOMATION_SEMANTIC_REVIEW_REJECTED'&&semanticFeedback.issues?.length)throw Object.assign(new Error('The saved action sequence completed, but its requirement review was rejected and the agent requested another action. Review or explicitly rebuild this section before retrying. Saved instructions and confirmed actions were retained; no continuation action was performed.'),{
+          code:'AUTOMATION_RETAINED_PLAN_REBUILD_REQUIRED',statusCode:422,nonRetryable:true,
+          details:{step_id:execution.step_id,action_outcome:'not_attempted',blocked_tool:proposed.name,
+            confirmed_action_count:completedRetainedPlan.confirmed_action_count,required_action_count:completedRetainedPlan.required_action_count,
+            next_required:'review_or_explicitly_rebuild_current_section',latest_semantic_review:structuredClone(semanticFeedback)}});
+        toolBatchFailed=true;break;
+      }
+      const terminalRestriction=terminalActionGate?.feedback(proposed,{snapshot:browserCurrentSnapshotObservation(observations),
+        approvedPrerequisite:approvedAutomationPrerequisite(prerequisiteApproval,proposed,browserCurrentSnapshotObservation(observations),execution?.step_id)});
+      if(terminalRestriction){toolBatchFailed=true;await rejectActionOrder(terminalRestriction);break;}
       let request=proposed;
-      if(actor||planningPhase)try{request=batchTargets.resolve(proposed,browserCurrentSnapshotObservation(observations),{unchangedControls:unchangedBatchControls});}
+      if(actor||planningPhase)try{
+        if(actor&&inputParameterBinding?.resolveOptionRequest)request=inputParameterBinding.resolveOptionRequest(request,{snapshot:browserCurrentSnapshotObservation(observations)});
+        request=batchTargets.resolve(request,browserCurrentSnapshotObservation(observations),{unchangedControls:unchangedBatchControls});
+      }
       catch(error){
-        if(!['AUTOMATION_BROWSER_TARGET_REF_STALE','AUTOMATION_BROWSER_TARGET_REF_INVALID'].includes(error.code))throw error;
+        if(!['AUTOMATION_BROWSER_TARGET_REF_STALE','AUTOMATION_BROWSER_TARGET_REF_INVALID','AUTOMATION_BROWSER_FRAME_SCOPE_INVALID','AUTOMATION_OPTION_PARAMETER_BINDING_INVALID'].includes(error.code))throw error;
         toolBatchFailed=true;unfinishedExecution={code:error.code,step_id:execution?.step_id,action_outcome:'not_attempted',retry_safe:true,message:error.message};
         await observe({tool:'automation_target_feedback',mcp_call:false,result:{isError:true,content:[{type:'text',text:JSON.stringify(unfinishedExecution)}]}});
         break;
@@ -678,6 +933,13 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       if(actor&&execution?.retained_assertion_contract&&['browser_fill','browser_select_option','browser_assert'].includes(request.name)){
         request=require('./automationRetainedSubjectPreflight').canonicalizeRetainedInputRequest({contract:execution.retained_assertion_contract,stepId:execution.step_id,
           request,operations:recordedSectionRequests(observations,execution.step_id),snapshot:browserCurrentSnapshotObservation(observations)}).request;
+      }
+      const inputAssertionBinding=actor&&(inputParameterBinding?.inputSubjectFeedback?.(request,{snapshot:browserCurrentSnapshotObservation(observations)})
+        ||inputParameterBinding?.assertionBindingFeedback?.(request,{snapshot:browserCurrentSnapshotObservation(observations)}));
+      if(inputAssertionBinding){
+        toolBatchFailed=true;unfinishedExecution=inputAssertionBinding;
+        await observe({tool:'automation_parameter_feedback',mcp_call:false,result:{isError:true,content:[{type:'text',text:JSON.stringify(inputAssertionBinding)}]}});
+        break;
       }
       resolvedBatch.push(request);
       let args=request?.arguments??{};
@@ -752,7 +1014,8 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       }
       const validated=confirmedLocatorValidation({request,observations,stepId:execution?.step_id});
       if(validated){
-        await observe({tool:'automation_locator_feedback',mcp_call:false,result:{content:[{type:'text',text:JSON.stringify({code:'AUTOMATION_LOCATOR_ALREADY_VALIDATED',step_id:execution?.step_id,match_count:1,unique:true,expected_result_verified:false,action_outcome:'not_attempted',remaining_contract:'browser_assert_for_expected_result',message:'This exact locator already matched one element in the current browser state. Choose the intended expected-result assertion or perform a remaining goal action; another locator validation does not verify the expected result.'})}]}});
+        const observed=locatorIsObserved(request);
+        await observe({tool:'automation_locator_feedback',mcp_call:false,result:{content:[{type:'text',text:JSON.stringify({code:'AUTOMATION_LOCATOR_ALREADY_VALIDATED',step_id:execution?.step_id,match_count:1,unique:true,expected_result_verified:false,action_outcome:'not_attempted',remaining_contract:observed?'browser_assert_for_expected_result':'scoped_snapshot_then_observed_ref_and_native_assertion',message:observed?'This exact locator already matched one element and has a current observed target. Select its current reference for the intended expected-result assertion or remaining authored action; another validation does not verify the expected result.':'This exact locator matched one element, but validation supplies count only and no observed target or expected-result proof. Request one scoped snapshot for this same locator and frame, then select its new target reference before an assertion or action. Repeating validation does not establish visibility or grant a target.'})}]}});
         continue;
       }
       const repeated=repeatedUnsuccessfulCheck({request,observations,stepId:execution?.step_id});
@@ -779,6 +1042,9 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       const reconciled=actor?actorState?.reused&&actorState:reconcileAction({payload:response,execution,request,observations});
       if(reconciled){
         reconciledActions++;
+        // actorOperationState reconciles only the protected real-operation
+        // ledger. A copied history row or model completion claim cannot count.
+        if(actorState?.reused&&mutations.has(request.name))completedMutationIndexes.add(requestIndex);
         // A revised linear draft can include an action already performed in
         // this section. Keep the original real receipt, rather than replaying
         // its mutation or manufacturing a second successful MCP action.
@@ -803,7 +1069,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       if(actor&&execution?.retained_assertion_contract&&['browser_fill','browser_select_option'].includes(request.name)){
         await require('./automationRetainedSubjectPreflight').assertRetainedInputSubject({contract:execution.retained_assertion_contract,stepId:execution.step_id,
           request,operations:recordedSectionRequests(observations,execution.step_id),snapshot:browserCurrentSnapshotObservation(observations),read:async subject=>{
-            const readArgs={locator:subject.locator},readSchema=catalog.get('browser_validate_locator')?.inputSchema;
+            const readArgs={locator:subject.locator,...(subject.frame?{frame:[...subject.frame]}:{})},readSchema=catalog.get('browser_validate_locator')?.inputSchema;
             if(!readSchema||discoveredArgumentIssues(readSchema,readArgs).length)return {available:false};
             if(Date.now()>=deadline)throw Object.assign(new Error('The case deadline was reached before checking the saved input subject. No new input was performed.'),{code:'AUTOMATION_BUILD_DEADLINE',statusCode:422,nonRetryable:true});
             // Reserve both this read and the proposed input in the original
@@ -811,7 +1077,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
             if(maxCalls-calls<2)throw budgetError();
             calls++;
             let result;
-            try{result=await browser.call('browser_validate_locator',readArgs);}
+            try{result=await dispatchBrowser('browser_validate_locator',readArgs);}
             catch(error){if(fatal(error)||error.name==='AbortError')throw Object.assign(error,{nonRetryable:true});}
             const value=result?browserReceipt({result}):null,count=value?.match_count;
             const available=!result?.isError&&value?.source==='playwright'&&Number.isSafeInteger(count)&&count>=0&&count<=2000&&value.unique===(count===1);
@@ -836,7 +1102,12 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       await onProgress({ phase: "automation.agent.browser", message: `Inspecting application: ${request.name.replace(/^browser_/, "").replace(/_/g, " ")}.` });
       let result;
       const recoveryState=browserRecoveryState(observations,request);
-      try {result = await browser.call(request.name, args);} catch(error) {
+      try {
+        // A newly dispatched action reopens ordinary presentation until a
+        // completed batch's own real receipts establish another preference.
+        if(actor&&mutations.has(request.name))preferReadOnlyTools=false;
+        result = await dispatchBrowser(request.name, args);
+      } catch(error) {
         if(error.code==='AUTOMATION_PARAMETER_REFERENCE_REQUIRED'){
           if(request.name!=='browser_screenshot')calls--;
           toolBatchFailed=true;
@@ -858,24 +1129,31 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
           if(actionId)await actionProgress('failed',request.name,actionId,{action_outcome:'not_attempted'});
           break;
         }
-        if(actionId)await actionProgress('unknown',request.name,actionId,{action_outcome:'unknown'});
+        const transportCode=error.code==='BROWSER_TRANSPORT_TIMEOUT'||error.name==='TimeoutError'?'BROWSER_TRANSPORT_TIMEOUT':'BROWSER_TRANSPORT_FAILED';
+        if(actionId)await actionProgress('unknown',request.name,actionId,{action_outcome:'unknown',code:'AUTOMATION_BROWSER_OUTCOME_UNKNOWN',browser_code:transportCode,tool_phase:'transport'});
         await onProgress({phase:"automation.agent.browser.uncertain",level:"warning",message:"The browser tool did not return a confirmed result. Further actions stopped to avoid replaying an operation."});
-        throw Object.assign(new Error("The browser tool outcome is unknown. Inspect the application and retry after restoring the MCP connection."),{code:"AUTOMATION_BROWSER_OUTCOME_UNKNOWN",nonRetryable:true,cause:error});
+        throw Object.assign(new Error("The browser tool outcome is unknown. Inspect the application and retry after restoring the MCP connection."),{code:"AUTOMATION_BROWSER_OUTCOME_UNKNOWN",browser_code:transportCode,tool_phase:'transport',action_outcome:'unknown',retry_safe:false,nonRetryable:true,cause:error});
       }
       const previousLocation=[...observations].reverse().map(browserReceipt).find(receipt=>typeof receipt?.url==='string')?.url;
       const observation={ tool: request.name, arguments: ['browser_fill','browser_assert','browser_select_option'].includes(request.name) ? { ...request.arguments, value: "[redacted]" } : request.arguments, result,...(actionId?{action_id:actionId}:{}) };
       recordBrowserCheck(observation,{name:request.name,arguments:args},recoveryState,{projectText:browser.projectPromptText,verificationRequested:requireSemanticReview&&response.section_complete===true});
       stampObservation(observation,{name:request.name,arguments:args},{pageTransition:Boolean(previousLocation&&browserReceipt(observation)?.url&&previousLocation!==browserReceipt(observation).url)});
-      recordBrowserOperation(observation,{name:request.name,arguments:args,navigation_intent:request.navigation_intent},{snapshot:browserCurrentSnapshotObservation(observations)});
+      const operationSnapshot=browserCurrentSnapshotObservation(observations);
+      if(execution?.step_id)observation.execution_step_id=execution.step_id;
+      recordBrowserOperation(observation,{name:request.name,arguments:args,navigation_intent:request.navigation_intent},{snapshot:operationSnapshot});
+      terminalActionGate?.record(observation,request,operationSnapshot);
       await observe(observation);
+      if(actor&&!result.isError&&mutations.has(request.name)&&browserReceipt(observation)?.action_outcome==='completed')completedMutationIndexes.add(requestIndex);
       let fault;if(result.isError)for(const item of result.content||[])if(item.type==='text')try{const parsed=JSON.parse(item.text);if(parsed&&typeof parsed==='object')fault=parsed;}catch{}
-      if(actionId)await actionProgress(result.isError?'failed':'completed',request.name,actionId,result.isError?fault:browserReceipt(observation),args.assertion);
+      if(actionId)await actionProgress(fault?.action_outcome==='unknown'?'unknown':result.isError?'failed':'completed',request.name,actionId,result.isError?fault:browserReceipt(observation),args.assertion);
+      const unsupportedFlow = result.isError ? unsupportedBrowserFlowError(fault) : null;
+      if (unsupportedFlow) throw unsupportedFlow;
       const failedCheck=unsuccessfulBrowserCheck(observation);
+      const observationFrame=request.name==='browser_navigate'?[]:args.frame||currentFrameScope()?.path||[];
       if(failedCheck){
         toolBatchFailed=true;unfinishedExecution={code:'AUTOMATION_BROWSER_CHECK_UNSATISFIED',step_id:execution?.step_id,latest_browser_failure:failedCheck};
         if(failedCheck.code!=='BROWSER_TOOL_INVALID_ARGUMENTS'&&allowed.has('browser_snapshot')&&calls<maxCalls&&Date.now()<deadline){
-          calls++;
-          try{const snapshot=await browser.call('browser_snapshot',{});await observe({tool:'browser_snapshot',arguments:{},result:snapshot});if(!snapshot.isError){snapshotAfterChange=true;markControlTransition(snapshot);}}
+          try{const snapshot=await captureCurrentSnapshot(observationFrame);if(snapshot&&!snapshot.isError){snapshotAfterChange=true;markControlTransition(snapshot);}}
           catch(error){if(fatal(error)||error.name==='AbortError')throw error;}
         }
       }
@@ -884,16 +1162,33 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
         if(['BROWSER_OBSERVED_SUBJECT_CHANGED','BROWSER_OBSERVED_SUBJECT_REQUIRED'].includes(fault?.code)
           &&fault.action_outcome==='not_attempted'&&fault.retry_safe===true
           &&allowed.has('browser_snapshot')&&calls<maxCalls&&Date.now()<deadline){
-          calls++;
-          const refreshed=await browser.call('browser_snapshot',{});
-          await observe({tool:'browser_snapshot',arguments:{},result:refreshed});
+          await captureCurrentSnapshot(observationFrame);
           await optionalProgress({phase:'automation.agent.subject.changed',level:'warning',message:'The observed control or record changed before interaction. Reading current evidence; no action was dispatched or repeated.',details:{active_step_id:execution?.step_id,error_code:fault.code,action_outcome:'not_attempted'}});
         }
         if(fault?.action_outcome==='unknown'||fault?.retry_safe===false||!fault?.action_outcome&&mutations.has(request.name))await uncertain();
         break;
       }
       if(failedCheck)break;
+      if(actor&&validatedScopeReads&&request.name==='browser_validate_locator'&&browserReceipt(observation)?.match_count===1&&browserReceipt(observation)?.unique===true&&!locatorIsObserved(request)){
+        const scopedArgs={locator:args.locator,...(args.frame?{frame:[...args.frame]}:{})};
+        const key=JSON.stringify([recordedLocatorSource(args.locator)||args.locator,args.frame||[]]);
+        const snapshotSchema=catalog.get('browser_snapshot')?.inputSchema;
+        const canRead=allowed.has('browser_snapshot')&&snapshotSchema&&!discoveredArgumentIssues(snapshotSchema,scopedArgs).length
+          &&calls<maxCalls&&Date.now()<deadline&&!validatedScopeReads.has(key);
+        if(canRead){
+          validatedScopeReads.add(key);calls++;
+          let scopedResult;
+          try{scopedResult=await dispatchBrowser('browser_snapshot',scopedArgs);await observe({tool:'browser_snapshot',arguments:scopedArgs,result:scopedResult});}
+          catch(error){if(fatal(error)||error.name==='AbortError')throw error;await observe({tool:'automation_target_feedback',mcp_call:false,result:{isError:true,content:[{type:'text',text:JSON.stringify({code:'AUTOMATION_BROWSER_LOCATOR_NOT_OBSERVED',step_id:execution.step_id,tool:'browser_snapshot',action_outcome:'not_attempted',retry_safe:true,reason:'scoped_discovery_read_unavailable',message:'The exact validated locator still has no observed target because its scoped discovery read did not return. No target or expected-result proof was granted; inspect the current page without replaying completed actions.'})}]}});}
+          snapshotAfterChange=Boolean(scopedResult&&!scopedResult.isError);
+        }
+        toolBatchFailed=true;
+        await observe({tool:'automation_locator_feedback',mcp_call:false,result:{content:[{type:'text',text:JSON.stringify({code:'AUTOMATION_LOCATOR_ALREADY_VALIDATED',step_id:execution.step_id,match_count:1,unique:true,expected_result_verified:false,action_outcome:'not_attempted',
+          remaining_contract:'select_scoped_observed_ref_then_native_assertion_or_report_missing_evidence',message:canRead?'One read-only snapshot was requested for the exact validated locator and frame. Validation itself granted no target or outcome proof. Inspect the new snapshot or read failure, select an actually observed target reference, and perform the authored assertion. Remaining requests in this batch were not performed.':'Validation supplied count only. No automatic discovery read was available within the current schema, frame, deadline, once-per-selector or call allowance. Inspect current evidence or request a scoped snapshot within the remaining allowance; validation alone grants no target or expected-result proof.'})}]}});
+        break;
+      }
       if(!result.isError&&mutations.has(request.name)){changedApplication=true;snapshotAfterChange=false;}
+      if(!result.isError&&mutations.has(request.name)&&retainedProgress()?.complete)break;
       if(!result.isError&&['browser_click','browser_press_key','browser_select_option','browser_check','browser_uncheck','browser_hover'].includes(request.name))navigationCandidates.push(observation);
       if(!result.isError&&request.name==='browser_snapshot'){snapshotAfterChange=true;markControlTransition(result);}
       const currentLocation=browserReceipt(observation)?.url;
@@ -902,8 +1197,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       if(!result.isError&&boundary.needs_snapshot){
         let fresh;
         if(allowed.has('browser_snapshot')&&calls<maxCalls&&Date.now()<deadline){
-          calls++;
-          try{const snapshot=await browser.call('browser_snapshot',{});await observe({tool:'browser_snapshot',arguments:{},result:snapshot});if(!snapshot.isError){snapshotAfterChange=true;markControlTransition(snapshot);fresh=captureBrowserBatchState(browserReceipt({result:snapshot}),{url:currentLocation||previousLocation});}}
+          try{const snapshot=await captureCurrentSnapshot(observationFrame);if(snapshot&&!snapshot.isError){snapshotAfterChange=true;markControlTransition(snapshot);fresh=captureBrowserBatchState(browserReceipt({result:snapshot}),{url:currentLocation||previousLocation});}}
           catch(error){if(fatal(error))throw error;}
         }
         boundary=browserBatchBoundary({tool:request.name,before:batchState,after:fresh||{url:currentLocation||previousLocation},remainingTools:response.tool_calls.slice(requestIndex+1),inspected:true});
@@ -917,6 +1211,11 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
         break;
       }
     }
+    // A stale or not-yet-observed later read may pause a batch after all its
+    // proposed mutations succeeded. Prefer proof tools on the next turn, while
+    // keeping schemas discoverable and every original host guard authoritative.
+    // Unattempted/failed/unknown mutations and bootstrap navigation cannot set it.
+    if(plannedMutationIndexes.length&&plannedMutationIndexes.every(index=>completedMutationIndexes.has(index)))preferReadOnlyTools=true;
     if(actor&&response.section_complete===false&&!toolBatchFailed&&!changedApplication
       &&reconciledActions===response.tool_calls.length&&observations.slice(batchObservationStart).every(item=>item.mcp_call===false)){
       reconciledOnlyResponses=previousReconciledOnlyResponses+1;
@@ -925,20 +1224,39 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
         details:{step_id:execution.step_id,consecutive_reconciled_only_responses:reconciledOnlyResponses,action_outcome:'not_attempted',
           next_required:'perform_remaining_goal_or_acknowledge_completion'}});
     }
+    if(retainedProgress()?.complete){
+      const saved=await automaticCompletion({savedPlan:true});if(saved)return saved;
+      // A rejected candidate remains read-only. Only changed native proof can
+      // receive another automatic review; unchanged receipts never review-loop.
+      continue;
+    }
     // Sample the state after real interactions; never replay the interaction to
     // obtain evidence. These reads share the remaining bounded tool budget.
     if(changedApplication){
       for(const name of [...(!snapshotAfterChange?['browser_snapshot']:[]),'browser_screenshot']){
         if(!allowed.has(name)||(name==='browser_screenshot'?screenshots>=maxTurns+1:calls>=maxCalls)||Date.now()>=deadline)continue;
-        if(name!=='browser_screenshot')calls++;
-        else screenshots++;
+        if(name==='browser_screenshot')screenshots++;
         try{
-          const result=await browser.call(name,{});
-          await observe({tool:name,arguments:{},result});
+          const frame=currentFrameScope()?.path||[];
+          const result=name==='browser_snapshot'?await captureCurrentSnapshot(frame):await dispatchBrowser(name,{});
+          if(!result)continue;
+          if(name!=='browser_snapshot')await observe({tool:name,arguments:{},result});
           if(name==='browser_snapshot'&&!result.isError)markControlTransition(result);
           if(result.isError)await optionalProgress({phase:'automation.agent.evidence.unavailable',level:'warning',message:'Optional post-interaction evidence was unavailable. No browser action was repeated.'});
         }catch(error){if(fatal(error))throw error;await optionalProgress({phase:'automation.agent.evidence.unavailable',level:'warning',message:'Optional post-interaction evidence was unavailable. No browser action was repeated.'});}
       }
+    }
+    // A confirmed final authored submission closes writes independently of
+    // the actor's completion flag. Reuse the saved, host-issued pure suffix
+    // now instead of asking another actor turn to rediscover those subjects.
+    // This helper still requires the original exact action/data prefix, skips
+    // already confirmed checks, shares the existing budget and stops on failure.
+    const terminalPhase=actor?terminalActionGate?.policy():null;
+    if(terminalPhase&&execution?.retained_assertion_contract?.status==='available'
+      &&execution.retained_assertion_contract.final_assertions?.length
+      &&retainedAssertionsAfterTerminalAction!==terminalPhase.completed_action_id){
+      retainedAssertionsAfterTerminalAction=terminalPhase.completed_action_id;
+      await checkRetainedFinalAssertions();
     }
     if(calls>=maxCalls&&execution?.required)completionOnlyPending=true;
     if(actor&&response.section_complete===true&&!toolBatchFailed){const saved=await publishRecorded(response);if(saved)return saved;}
@@ -956,6 +1274,7 @@ async function runAutomationBrowserAgent({ featureKey = "ai.automation.keyword_g
       }
     }
   }
+  const finalRecorded=await automaticCompletion();if(finalRecorded)return finalRecorded;
   if(pendingRecordedValidation())throw recordedValidationError();
   if(completionOnlyPending)throw budgetError();
   if(unfinishedExecution||execution?.required)throw Object.assign(new Error('The current section did not complete its browser actions and expected-result check. Its unfinished instructions were not saved; completed sections remain in Plan.'),{code:'AUTOMATION_BROWSER_EXECUTION_INCOMPLETE',statusCode:422,nonRetryable:true,details:unfinishedExecution||{code:'AUTOMATION_SECTION_SOURCE_MISSING',step_id:execution.step_id}});

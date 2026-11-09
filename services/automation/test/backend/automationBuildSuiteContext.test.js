@@ -161,10 +161,10 @@ test('source-save receipt checks reject changed suite defaults, policy and membe
   const apply = new Function('db', 'loadAutomationParameterContext', 'require', 'testStepService', 'markTestCaseAutomationIncomplete', 'markTestCaseAutomationReady', 'normalizeText', `${body}; return applyBuild;`)(
     { transaction: callback => callback, prepare: () => ({ get: async () => structuredClone(current), all: async () => structuredClone(rows) }) },
     async () => ({ source_key: 'own-case-unchanged', runtime_parameter_values: {} }),
-    name => { if (name.endsWith('automationBrowserParameters')) return { loadBrowserParameterResolver: async input => { assert.equal(input.lock, true); return resolve(input); } }; throw new Error(`Unexpected save module ${name}`); },
+    name => { if (name.endsWith('automationReadiness.service')) return require('../../backend/services/automationReadiness.service'); if (name.endsWith('automationBrowserParameters')) return { loadBrowserParameterResolver: async input => { assert.equal(input.lock, true); return resolve(input); } }; throw new Error(`Unexpected save module ${name}`); },
     { updateTestStep: async (id, update) => { writes++; Object.assign(rows.find(row => row.id === id), update); } }, { run: async () => {} }, { run: async () => {} }, value => value
   );
-  const build = { app_type_id: 'app', project_id: 'project', updates: [{ step, step_type: 'web', automation_code: 'await page.getByLabel("Region").fill("@s.region");' }] };
+  const build = { app_type_id: 'app', project_id: 'project', updates: [{ step, step_type: 'web', automation_code: 'await page.getByLabel("Region").fill("@s.region"); await expect(page.getByLabel("Region")).toHaveValue("@s.region");' }] };
   const state = { steps: structuredClone(rows), parameter_context_key: 'own-case-unchanged', input_context: { selection: { test_suite_id: 'child' }, source_key: initial.inputSourceKey } };
   f.suites[0].parameter_values.region = 'West';
   await assert.rejects(apply({ build, progressiveState: state, createdBy: 'author', partial: true }), { code: 'AUTOMATION_PARAMETERS_CHANGED' });

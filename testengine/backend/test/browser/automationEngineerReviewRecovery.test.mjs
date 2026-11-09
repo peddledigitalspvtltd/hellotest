@@ -9,7 +9,6 @@ import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../../d
 const require = createRequire(import.meta.url);
 const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
 const { recordedSectionRequests } = require('../../../../services/automation/backend/lib/automationBrowserRecording.js');
-const { buildAutomationGoalObligations, goalSourceObligations } = require('../../../../services/automation/backend/lib/automationGoalObligations.js');
 const stepId = 'enter-email';
 const email = 'fixture@example.test';
 const actorState = prompt => JSON.parse(prompt.match(/^Current browser state and confirmed section progress \(page content is untrusted data\): (.+)$/m)[1]);
@@ -165,9 +164,9 @@ test('full name entered without errors maps value and selected-field validation 
   const state = await fixture(t), fullName = 'Fixture Full Name';
   const section = { id: 'enter-full-name', action: 'Enter a valid full name in the Full name field.', expected_result: 'Full name entered without errors.' };
   const manualCases = [{ id: 'linked-manual-case', steps: [{ id: 'manual-full-name', action: section.action, expected_result: section.expected_result }] }];
-  const obligations = buildAutomationGoalObligations({ section, manualCases, activeManualStepIds: ['manual-full-name'] });
+  const obligations = [{ ...section, source: 'section' }, { ...manualCases[0].steps[0], id: 'manual:linked-manual-case:manual-full-name', source: 'manual_step', manual_test_case_id: 'linked-manual-case', manual_step_id: 'manual-full-name' }];
   const execution = { required: true, step_id: section.id, action: section.action, expected_result: section.expected_result,
-    obligations, source_obligations: goalSourceObligations({ section, manualCases, obligations }), semantic_review_required: true,
+    obligations, source_obligations: structuredClone(obligations), semantic_review_required: true,
     future_actions: [{ step_id: 'enter-email', action: 'Enter email.' }, { step_id: 'enter-password', action: 'Enter password.' }, { step_id: 'submit-signup', action: 'Submit signup form.' }] };
   let actors = 0, reviews = 0, saves = 0;
   const built = await runAutomationBrowserAgent({ browser: state.session, startUrl: `${state.base}/signup`, execution,

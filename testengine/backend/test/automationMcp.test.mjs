@@ -68,11 +68,12 @@ test('discovered assertion contracts and pre-browser argument errors distinguish
   const text=tool.inputSchema.oneOf.find(row=>row.properties.assertion.enum.includes('text'));
   const page=tool.inputSchema.oneOf.find(row=>row.properties.assertion.enum.includes('title'));
   assert.deepEqual(state.required,['locator']); assert.deepEqual(state.not.required,['value']);
-  assert.deepEqual(text.required,['locator','value']); assert.deepEqual(page.required,['value']); assert.deepEqual(page.not.required,['locator']);
+  assert.deepEqual(text.required,['locator','value']); assert.deepEqual(page.required,['value']); assert.deepEqual(page.not.anyOf,[{required:['locator']},{required:['frame']}]);
   for(const [args,required,forbidden] of [
     [{assertion:'visible',locator:'#result',value:'private-must-not-echo'},['assertion','locator'],['value']],
     [{assertion:'text',locator:'#result'},['assertion','locator','value'],[]],
-    [{assertion:'title',locator:'#result',value:'private-must-not-echo'},['assertion','value'],['locator']]
+    [{assertion:'title',locator:'#result',value:'private-must-not-echo'},['assertion','value'],['locator','frame']],
+    [{assertion:'title',frame:['#observed-frame'],value:'private-must-not-echo'},['assertion','value'],['locator','frame']]
   ]) {
     const response=(await invoke('tools/call',{name:'browser_assert',arguments:args})).json();
     assert.equal(response.error.code,-32602);

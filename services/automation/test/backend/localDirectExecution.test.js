@@ -39,20 +39,39 @@ test('local dispatch immediately posts a fresh Playwright run with retained arti
 });
 
 test('case Before / After hooks stay scoped to their owner and compose inside the run setup and teardown',async t=>{
- configureSecret(t);const requests=[];
+ configureSecret(t);
  t.mock.method(require('@hellotest/platform/backend/services/aiConfiguration.service'),'resolve',async()=>({config:{instruction_blocks:{'engineRepair.goal':'Retain behavior','engineRepair.screen_selection':'Observed screen','engineRepair.correction_policy':'Retain assertions'}}}));
  t.mock.method(obs.pool,'query',async()=>({rows:[],rowCount:0}));
  t.mock.method(workspace,'createTransaction',async()=>({...tx}));t.mock.method(workspace,'appendTransactionEvent',async()=>{});
- t.mock.method(globalThis,'fetch',async(url,init)=>{requests.push(JSON.parse(init.body));return Response.json({id:'engine-run',state:'accepted'});});
+ t.mock.method(globalThis,'fetch',async()=>{throw Error('Preparing paired suite envelopes must not launch a browser.');});
  const frozen=(id,phase,stepType='api')=>({id,name:id,scope:'test',phase,steps:[{id:`${id}-step`,order:1,step_type:stepType,automation_code:stepType==='web'?'await page.locator("#setup").click();':null,api_request:stepType==='api'?{method:'GET',url:'https://fixture.test/'}:null,
    source_case_context:{case_parameters:{'t.email':'source@example.test'},suite_parameters:{'s.region':'source'},data_policy:{version:2,case:{}},data_set:null}}]});
  const owner={test_case_id:'owner',test_case_title:'Owner',execution_hooks:[frozen('owner-before','pre','web'),frozen('owner-after','post')]},other={test_case_id:'other',test_case_title:'Other'};
  const active={...run,case_snapshots:[owner,other],execution_hooks:[frozen('run-before','pre'),frozen('run-after','post')]};
- await dispatch.runExecutionDirectLocal({engineBaseUrl:'http://127.0.0.1:4311',integration:{config:{}},plan:{execution:active,project:{id:'p',name:'Project'},appType:{id:'a',name:'App',type:'web'},automated_case_count:2,manual_case_count:0,unsupported_automated_case_count:0,warnings:[],eligibleCases:[owner,other].map(case_snapshot=>({engine_run_id:`engine-${case_snapshot.test_case_id}`,case_snapshot,steps:[{id:`main-${case_snapshot.test_case_id}`,step_type:'api',action:'Main',api_request:{method:'GET',url:'https://fixture.test/main'}}]}))}});
+ const prepared=await dispatch.preparePairedLocalDispatch({pairedDispatchId:'paired-suite',callbackFor:()=>({url:'https://api.test/api/testengine/callbacks/runs',signing_secret:'per-run-fixture-secret'}),integration:{config:{}},plan:{execution:active,project:{id:'p',name:'Project'},appType:{id:'a',name:'App',type:'web'},automated_case_count:2,manual_case_count:0,unsupported_automated_case_count:0,warnings:[],eligibleCases:[owner,other].map(case_snapshot=>({engine_run_id:`engine-${case_snapshot.test_case_id}`,case_snapshot,steps:[{id:`main-${case_snapshot.test_case_id}`,step_type:'api',action:'Main',api_request:{method:'GET',url:'https://fixture.test/main'}}]}))}});
+ const requests=prepared.envelopes;
  assert.equal(requests.length,2);assert.deepEqual(requests[0].hooks.map(hook=>hook.id),['run-before','owner-before','owner-after','run-after']);
  assert.deepEqual(requests[1].hooks.map(hook=>hook.id),['run-before','run-after']);
  assert.equal(requests[0].hooks[1].steps[0].source_case_context.case_parameters['t.email'],'source@example.test');
  assert.equal(requests[0].hooks[1].steps[0].source_case_context.suite_parameters['s.region'],'source');
+});
+
+test('legacy direct-local dispatch rejects suites or multiple data rows before reads, receipts or launches',async t=>{
+ let effects=0;
+ const unexpected=async()=>{effects++;throw Error('No launch or persistence is allowed for an unsupported legacy suite.');};
+ t.mock.method(globalThis,'fetch',unexpected);t.mock.method(obs.pool,'query',unexpected);
+ t.mock.method(workspace,'createTransaction',unexpected);
+ const single={engine_run_id:'first',case_snapshot:run.case_snapshots[0],steps:[]};
+ for(const plan of [
+  {execution:run,eligibleCases:[single,{...single,engine_run_id:'second',data_set_iteration:{index:1}}]},
+  {execution:{...run,case_snapshots:[run.case_snapshots[0],{test_case_id:'other'}]},eligibleCases:[single]},
+  {execution:run,eligibleCases:[single,{...single,engine_run_id:'other',case_snapshot:{test_case_id:'other'}}]}
+ ])await assert.rejects(dispatch.runExecutionDirectLocal({plan}),error=>{
+  const publicError=classifyError(error);
+  assert.equal(publicError.statusCode,409);assert.equal(publicError.code,'PAIRED_LOCAL_EXECUTION_REQUIRED');
+  assert.match(publicError.message,/paired local agent.*suite ordering/);return true;
+ });
+ assert.equal(effects,0);
 });
 test('signed local callbacks do not require a remote integration and preserve provenance across progress updates',async t=>{
  configureSecret(t);t.mock.method(telemetry,'emitExecutionHierarchyEvents',async()=>{});const record=structuredClone(tx),updates=[];

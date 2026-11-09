@@ -1,5 +1,21 @@
 type MonitoredActivity = { status: string; metadata: Record<string, unknown> } | null | undefined;
 
+/** A pending request has no new activity receipt yet. Keep the previous build
+ * in history, rather than presenting its terminal outcome as this submission. */
+export function automationActivityForSubmission<T>(activity: T, submitting: boolean, viewingHistory: boolean): T | undefined {
+  return submitting && !viewingHistory ? undefined : activity;
+}
+
+/** Detail receipts precede independently cached history summaries. Keep the
+ * first authoritative version without moving the latest activity in the list. */
+export function mergeAutomationActivityHistory<T extends { id: string }>(...sources: ReadonlyArray<ReadonlyArray<T | null | undefined>>): T[] {
+  const entries = new Map<string, T>();
+  for (const source of sources) for (const item of source) {
+    if (item && !entries.has(item.id)) entries.set(item.id, item);
+  }
+  return [...entries.values()];
+}
+
 /** Watching is bounded; a user refresh or returning to the page starts a new observation window. */
 export function automationActivityPollingDelay(activity: MonitoredActivity, explicit: boolean, startedAt: number, now = Date.now()): number | false {
   const elapsed = now - startedAt;
@@ -59,6 +75,10 @@ const terminalWrapperPhase = (phase: string) => ["automation.failed", "automatio
 const genericFailureMessage = (value: string) => /^(?:This section could not finish building\.|This section needs additional context or configured test data\.|Browser inspection could not continue\.|Automation generation could not continue\.|The browser tool budget was reached before this section completed\. Review the last unsuccessful browser check; completed Plan sections remain saved\.|Automation build failed(?:\.|$| for case(?:\s|$)))/.test(value);
 const genericFailureCode = (value?: string) => !value || value === "AUTOMATION_BUILD_INCOMPLETE";
 const typedFailureCode = (value: string | undefined) => /^[A-Z][A-Z0-9_]{1,99}$/.test(value || "") && !genericFailureCode(value);
+const unknownOutcomeCode = "AUTOMATION_BROWSER_OUTCOME_UNKNOWN";
+const positiveAttempt = (value: unknown) => typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+const framedOperation = (value: ErrorRecord) => Array.isArray(value.frame_path) && value.frame_path.length > 0
+  || Array.isArray(value.frame) && value.frame.length > 0 || Boolean(text(value.frame_document_id));
 
 function outcomeStepId(row: ErrorRecord, metadata: ErrorRecord): string {
   const explicit = text(row.active_step_id) || text(row.failed_step_id) || text(row.step_id);
@@ -111,6 +131,14 @@ export function automationActivityStepErrors(metadata: ErrorRecord, events: unkn
   const origins = new Map<AutomationStepBuildError, string>();
   const sections = records(metadata.step_progress);
   const manual = records(metadata.manual_step_progress);
+  // A terminal transport summary has no operation identity. Associate it only
+  // when the retained case/section inventory identifies one unambiguous,
+  // unframed unknown operation in its compatible attempt context.
+  const unknownOperations = sections.flatMap(section => [
+    ...records(section.browser_actions).filter(action => action.status === "unknown"),
+    ...records(section.build_errors).filter(error => error.phase === "automation.agent.action.unknown" && error.code === unknownOutcomeCode)
+  ].map(operation => ({ scope: section, operation }))).concat(events.map(record).filter(event => event.phase === "automation.agent.action.unknown")
+    .map(event => ({ scope: record(event.details), operation: record(event.details) })));
   const add = (scope: ErrorRecord, value: ErrorRecord, fallbackMessage = "", origin = "event") => {
     const caseId = text(scope.test_case_id), stepId = text(scope.step_id) || text(scope.active_step_id);
     const manualIds = strings(scope.active_manual_step_ids).filter(id => manual.some(step => step.test_case_id === caseId && step.manual_step_id === id));
@@ -138,11 +166,22 @@ export function automationActivityStepErrors(metadata: ErrorRecord, events: unkn
     const sameScope = (error: AutomationStepBuildError) => error.test_case_id === caseId && error.step_id === (stepId || undefined)
       && (Boolean(stepId) || error.manual_step_ids.join(",") === manualIds.join(","));
     const sameAttempt = (error: AutomationStepBuildError) => !attempt || !error.attempt || attempt === error.attempt;
+    const contextAttempt = attempt ?? positiveAttempt(scope.attempt) ?? positiveAttempt(section?.attempt);
+    const unknownInventory = code === unknownOutcomeCode && terminal && !action && !framedOperation(scope) && !framedOperation(value)
+      ? unknownOperations.filter(row => text(row.scope.test_case_id) === caseId
+        && (text(row.scope.step_id) || text(row.scope.active_step_id)) === stepId
+        && (!contextAttempt || !positiveAttempt(row.operation.attempt) || row.operation.attempt === contextAttempt)) : [];
+    const unknownIds = new Set(unknownInventory.map(row => failureActionId(row.operation)));
+    const onlyUnknownId = unknownIds.size === 1 && !unknownIds.has("")
+      && unknownInventory.every(row => !framedOperation(row.scope) && !framedOperation(row.operation)) ? [...unknownIds][0] : "";
+    const unknownCause = onlyUnknownId && candidates.find(error => sameScope(error) && error.action_id === onlyUnknownId
+      && error.phase === "automation.agent.action.unknown" && error.code === unknownOutcomeCode && !error.resolved_at
+      && (!contextAttempt || !error.attempt || error.attempt === contextAttempt));
     // Prefer an exact existing cause over the latest typed fallback when two
     // independent failures happen to share a code in the same attempt.
     const exactTerminalCause = (origin === "outcome" || terminalWrapperPhase(phase)) && candidates.find(error => sameScope(error) && sameAttempt(error)
       && (terminalPhase(error.phase || "") || origins.get(error) === "outcome") && error.message === message && (!code || !error.code || code === error.code));
-    const previous = exactTerminalCause || candidates.find(error => {
+    const previous = unknownCause || exactTerminalCause || candidates.find(error => {
       if (!sameScope(error)) return false;
       if (action && error.action_id) return action === error.action_id;
       if (!sameAttempt(error)) return false;
@@ -155,7 +194,9 @@ export function automationActivityStepErrors(metadata: ErrorRecord, events: unkn
       // A case outcome can repeat the last failed browser operation without
       // its action id. Its exact typed code identifies that terminal cause;
       // retain earlier distinct actions and attach the summary to the latest.
-      if (origin === "outcome" && code && code === error.code && /^automation\.agent\.action\.(?:failed|unknown)$/.test(error.phase || "")) return true;
+      if (origin === "outcome" && code && code === error.code && /^automation\.agent\.action\.(?:failed|unknown)$/.test(error.phase || "")) {
+        return code !== unknownOutcomeCode || Boolean(unknownCause && error === unknownCause);
+      }
       if (action || error.action_id) {
         // Historical rows may lack their original action id. Join only the
         // same typed occurrence; a second known action must remain separate.

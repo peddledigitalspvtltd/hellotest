@@ -316,8 +316,16 @@ module.exports = async function (fastify) {
 
   fastify.get("/requirements/:id", async (req) => {
     await fastify.authenticate(req);
-    const requirement = await service.getRequirement(req.params.id);
-    await ensureRequirementPermission(fastify, req, requirement, "requirement.view");
+    fastify.validate({ project_id: { required:false, type:"string", minLength:1, maxLength:255 } }, req.query);
+    const projectId = normalizeScopeId(req.query.project_id);
+    if (req.query.project_id !== undefined && !projectId) throw Object.assign(new Error('Supply a valid Story project.'), { statusCode:400 });
+    if (projectId) {
+      await projectService.getProject(projectId, req.user.id);
+      await fastify.requirePermission("requirement.view", { projectId })(req);
+    }
+    const requirement = await service.getRequirement(req.params.id, projectId ? {projectId} : undefined);
+    if (projectId && requirement.project_id !== projectId) throw Object.assign(new Error('Requirement not found'), { statusCode:404 });
+    if (!projectId) await ensureRequirementPermission(fastify, req, requirement, "requirement.view");
     if (req.query.include_execution === "true") {
       await fastify.requirePermission("run.view", { projectId: requirement.project_id })(req);
       await fastify.requirePermission("result.view", { projectId: requirement.project_id })(req);

@@ -64,3 +64,28 @@ test('malformed verdicts and model-issued permissions never become an accepted r
     await assert.rejects(validateAuthoringIntent({ ...f.input, additionalContext: 'Generate login Test Cases.' }), { code: 'AI_AUTHORING_VALIDATION_FAILED', statusCode: 502 });
   }
 });
+
+test('the relevance verdict has bounded reasoning headroom and a trusted closed output contract',async()=>{
+  const f=fixture();await validateAuthoringIntent({...f.input,additionalContext:'Generate login Test Cases from the attached image.',images:[{name:'login.png'}]});
+  const call=f.calls[0];
+  assert.equal(call.options.maxOutputTokens,4096);
+  assert.equal(catalog.find(item=>item.id===FEATURE).defaults.max_output_tokens,4096);
+  assert.equal(call.options.outputSchema.additionalProperties,false);
+  assert.equal(call.options.providerOutputSchema.properties.decision.type,'string');
+  assert.deepEqual(call.options.outputSchema.required,['decision','explanation','suggestions']);
+  assert.deepEqual(JSON.parse(call.body.messages[0].content).reference_images,[{name:'login.png'}]);
+  assert.equal(JSON.stringify(call.body).includes('image_url'),false,'Relevance checking does not transmit the image a second time.');
+});
+
+test('a truncated relevance verdict reports its own stage and never becomes approval or a paid retry',async()=>{
+  let calls=0;
+  await assert.rejects(validateAuthoringIntent({featureKey:'ai.test_case.design',integration,additionalContext:'Generate one login case.',fetchCompletion:async()=>{calls++;throw Object.assign(new Error('generic output limit'),{code:'AI_OUTPUT_TRUNCATED'});}}),error=>{
+    assert.equal(error.code,'AI_AUTHORING_VALIDATION_TRUNCATED');assert.equal(error.statusCode,502);
+    assert.match(error.message,/checking the authoring request/);assert.doesNotMatch(error.message,/fewer items|smaller scope/);return true;
+  });
+  assert.equal(calls,1);
+  for(const code of ['AI_PROVIDER_REFUSAL','AI_INPUT_BUDGET_EXCEEDED','DEADLINE_EXCEEDED']){
+    const failure=Object.assign(new Error('Original failure'),{code});
+    await assert.rejects(validateAuthoringIntent({featureKey:'ai.test_case.design',integration,additionalContext:'Generate one case.',fetchCompletion:async()=>{throw failure;}}),error=>error===failure);
+  }
+});

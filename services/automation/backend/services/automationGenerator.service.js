@@ -1,5 +1,6 @@
 const { buildFeature } = require('./aiAutomationFeaturePolicy');
-const {createBatchJobLease}=require('@hellotest/testing/backend/services/batchJobLease');
+const {createBatchJobLease,RENEWAL_TIMEOUT_MS}=require('@hellotest/testing/backend/services/batchJobLease');
+const {runWithoutDatabaseOperationGuard,runWithDatabaseOperationGuard}=require('@hellotest/platform/backend/src/db/databaseOperationGuard');
 const db = require("@hellotest/platform/backend/src/db");
 const { normalizeScheduledAt } = require("@hellotest/platform/backend/src/utils/automationSchedule");
 const { normalizeAutomationStartUrl, requiresAutomationStartUrl } = require("@hellotest/platform/backend/src/utils/automationStartUrl");
@@ -11,6 +12,17 @@ const workspaceTransactionService = require("@hellotest/platform/backend/service
 const aiAutomationBuilderService = require("./aiAutomationBuilder.service");
 
 const DEFAULT_LEASE_SECONDS = Math.max(30, Number(process.env.AUTOMATION_GENERATOR_LEASE_SECONDS || 180));
+const activeGeneratorGuards = new Map();
+
+const selectJobForCancellation = obsDb.prepare(`SELECT * FROM automation_generator_jobs
+  WHERE transaction_id = ? AND project_id = ? FOR UPDATE`);
+const cancelJob = obsDb.prepare(`UPDATE automation_generator_jobs SET status='cancelled',
+  runtime_state=COALESCE(runtime_state,'{}'::jsonb)||?::jsonb,result=COALESCE(result,'{}'::jsonb)||?::jsonb,
+  leased_by=NULL,lease_expires_at=NULL,completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+  WHERE id=? AND project_id=? AND status IN ('queued','leased','running')`);
+const stopActivity = obsDb.prepare(`UPDATE workspace_transactions SET status='completed',description=?,
+  metadata=COALESCE(metadata,'{}'::jsonb)||?::jsonb,completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+  WHERE id=? AND project_id=? AND category='automation_build'`);
 
 const selectCaseWithScope = db.prepare(`
   SELECT test_cases.*, app_types.project_id, app_types.type AS app_type_kind
@@ -104,8 +116,11 @@ const markFailed = obsDb.prepare(`
       updated_at = CURRENT_TIMESTAMP
   WHERE id = ? AND status='running' AND leased_by=?
 `);
-const renewLease=obsDb.prepare(`UPDATE automation_generator_jobs SET lease_expires_at=?,updated_at=CURRENT_TIMESTAMP
- WHERE id=? AND status='running' AND leased_by=? AND lease_expires_at>CURRENT_TIMESTAMP`);
+const renewLease={run:async(expiresAt,jobId,workerId)=>{
+ const result=await runWithoutDatabaseOperationGuard(()=>obsDb.pool.query({text:`UPDATE automation_generator_jobs SET lease_expires_at=$1,updated_at=CURRENT_TIMESTAMP
+  WHERE id=$2 AND status='running' AND leased_by=$3 AND lease_expires_at>CURRENT_TIMESTAMP`,values:[expiresAt,jobId,workerId],query_timeout:RENEWAL_TIMEOUT_MS}));
+ return {changes:result.rowCount};
+}};
 
 const normalizeText = (value) => {
   const normalized = String(value || "").trim();
@@ -292,6 +307,32 @@ exports.getJob = async (id) => {
   return job;
 };
 
+// Authorization belongs to the project-scoped domain route. This transaction
+// atomically revokes durable worker authority and retains every saved artifact.
+exports.cancelGeneratorJob = async ({transactionId,projectId,userId} = {}) => {
+  if(!transactionId||!projectId||!userId)throw Object.assign(new Error('A scoped automation build and actor are required.'),{statusCode:400});
+  const outcome=await obsDb.transaction(async()=>{
+    const job=normalizeJob(await selectJobForCancellation.get(transactionId,projectId));
+    if(!job)return null;
+    if(!['queued','leased','running'].includes(job.status))return {jobId:job.id,changed:false,status:job.status};
+    const at=new Date().toISOString();
+    const details={cancelled:true,cancelled_at:at,cancelled_by:userId,saved_instructions_retained:true,automatic_retry:false};
+    const changed=await cancelJob.run({...details,current_phase:'generator.cancelled'},details,job.id,projectId);
+    if(changed.changes!==1)throw Object.assign(new Error('The automation build changed before it could be stopped.'),{statusCode:409});
+    const message='Build stopped. Saved sections and evidence retained.';
+    const activity=await stopActivity.run(message,{...details,outcome_status:'cancelled',current_phase:'generator.cancelled',phase_message:message},transactionId,projectId);
+    if(activity.changes!==1)throw Object.assign(new Error('Automation build activity not found.'),{statusCode:404});
+    await workspaceTransactionService.appendTransactionEvent(transactionId,{phase:'generator.cancelled',message,
+      details:{job_id:job.id,...details,in_flight_action_outcome:job.status==='running'?'unknown_until_reconciled':'not_started'}});
+    return {jobId:job.id,changed:true,status:'cancelled'};
+  })();
+  if(!outcome)return require('@hellotest/testing/backend/services/batchProcess.service').cancelAutomationBuild({transactionId,projectId,userId});
+  // Same-process work stops immediately. Other workers observe revoked status
+  // on their next ownership boundary/heartbeat; dispatched actions are not undone.
+  if(outcome.status==='cancelled')activeGeneratorGuards.get(outcome.jobId)?.stop();
+  return {transaction_id:transactionId,status:outcome.status,cancelled:outcome.status==='cancelled'};
+};
+
 exports.leaseNextJob = async ({ worker_id, lease_seconds } = {}) => {
   const workerId = normalizeText(worker_id) || "local-llm-agent";
   const leaseSeconds = Math.max(30, Math.min(900, Number(lease_seconds) || DEFAULT_LEASE_SECONDS));
@@ -344,7 +385,10 @@ exports.runLeasedJob = async ({ job_id, worker_id, agent_plan, llm_model } = {})
     throw Object.assign(new Error("Automation generator lease expired, belongs to another worker, or was already started"), { statusCode: 409 });
   }
   const executionGuard=createBatchJobLease({renew:()=>renewLease.run(new Date(Date.now()+DEFAULT_LEASE_SECONDS*1000).toISOString(),job.id,runtimeState.worker_id)});
+  activeGeneratorGuards.set(job.id,executionGuard);
   try {
+  await executionGuard.ensureOwnership();
+  return await runWithDatabaseOperationGuard({signal:executionGuard.signal},async()=>{
   await workspaceTransactionService.updateTransaction(job.transaction_id, {
     status: "running",
     description: "Local LLM agent is building automation with TestEngine assistance.",
@@ -380,6 +424,7 @@ exports.runLeasedJob = async ({ job_id, worker_id, agent_plan, llm_model } = {})
     });
     await assertQueuedStartUrlReview({ sourceCaseId: currentCase.id, appTypeId: currentCase.app_type_id, review: payload.start_url_review, desiredStartUrl: jobStartUrl,
       required: requiresAutomationStartUrl({ appTypeKind: platform.automation_case_type, steps: platform.steps }) });
+    await executionGuard.ensureOwnership();
     const result = await aiAutomationBuilderService.buildAutomationForCase({
       test_case_id: payload.test_case_id || job.test_case_id,
       integration_id: payload.integration_id,
@@ -467,5 +512,6 @@ exports.runLeasedJob = async ({ job_id, worker_id, agent_plan, llm_model } = {})
     });
     throw error;
   }
-  } finally {executionGuard.stop();}
+  });
+  } finally {if(activeGeneratorGuards.get(job.id)===executionGuard)activeGeneratorGuards.delete(job.id);executionGuard.stop();}
 };

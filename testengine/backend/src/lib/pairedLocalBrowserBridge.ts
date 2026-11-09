@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { constantTimeSecretMatches } from "./testEngineSecurity.js";
 import { EngineHttpError, requestEngineService } from "./engineHttpClient.js";
-import { registerAutomationMcp } from "./automationMcp.js";
+import { registerAutomationPlaywrightMcp, PLAYWRIGHT_MCP_ENDPOINT } from "./automationPlaywrightMcp.js";
 import { createInspectionProxy } from "./inspectionProxy.js";
 import { runAutomationVerification, type AutomationVerificationRequest } from "./automationVerification.js";
 
@@ -14,8 +14,8 @@ const delay = (ms: number, signal: AbortSignal) => new Promise<void>(resolve => 
   const timer = setTimeout(done, ms); signal.addEventListener("abort", done, { once: true });
 });
 
-/** A job-scoped outbound relay to the native typed browser MCP. It exposes no
- * listening MCP endpoint, global credential, arbitrary HTTP proxy or code tool. */
+/** Job-scoped outbound relay to the official Playwright MCP runtime. Retained
+ * receipts repair delivery without replaying browser actions. */
 export async function registerPairedLocalBrowserBridgeRoutes(app: FastifyInstance, configuration: { origin: string; apiOrigin: string; token: string; agentId: string }) {
   const bridges = new Map<string, { descriptor: Descriptor; controller: AbortController; status: string; browser: FastifyInstance; finished: Promise<void> }>();
   const endpoint = (value: string, id: string, operation: "poll" | "result") => {
@@ -59,8 +59,8 @@ export async function registerPairedLocalBrowserBridgeRoutes(app: FastifyInstanc
             } catch { response = { status: 400, body: { code: "LOCAL_VERIFICATION_INVALID", message: "Local verification requires the native recorded program and the reviewed build Start URL." } }; }
           } else {
           const rpcHeaders = { ...(sessionId ? { "mcp-session-id": sessionId } : {}) };
-          const result = await browser.inject({ method: command.method === "session/delete" ? "DELETE" : "POST", url: "/api/v1/automation/mcp", headers: rpcHeaders,
-            ...(command.method === "session/delete" ? {} : { payload: { jsonrpc: "2.0", id: command.id, method: command.method, ...(command.params ? { params: command.params } : {}) } }) });
+          const result = await browser.inject({ method: command.method === "session/delete" ? "DELETE" : "POST", url: PLAYWRIGHT_MCP_ENDPOINT, headers: rpcHeaders,
+            ...(command.method === "session/delete" ? {} : { payload: { jsonrpc: "2.0", ...(command.method.startsWith("notifications/") ? {} : { id: command.id }), method: command.method, ...(command.params ? { params: command.params } : {}) } }) });
           const newSession = result.headers["mcp-session-id"];
           if (typeof newSession === "string") sessionId = newSession;
           let body: unknown = null;
@@ -95,11 +95,7 @@ export async function registerPairedLocalBrowserBridgeRoutes(app: FastifyInstanc
       }
       if ([...bridges.values()].filter(value => value.status === "open").length >= 2) return reply.code(429).send({ code: "LOCAL_BROWSER_BUSY", message: "Two local browser builds are already active." });
       const browser = Fastify({ logger: false });
-      await registerAutomationMcp(browser, async () => {}, {
-        validateTarget: async value => { const url = new URL(value); if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Use a valid HTTP(S) Start URL without embedded credentials."); },
-        createProxy: async origin => createInspectionProxy({ pairedPrivateOrigin: origin }),
-        launchBrowser: async options => { const { chromium } = await import("playwright"); return chromium.launch({ ...options, headless: false }); }
-      });
+      await registerAutomationPlaywrightMcp(browser, async () => {}, { pairedLocal: true, headless: false });
       const controller = new AbortController();
       const entry = { descriptor: input, controller, status: "open", browser, finished: Promise.resolve() };
       bridges.set(input.id, entry);

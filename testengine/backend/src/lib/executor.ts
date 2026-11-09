@@ -634,7 +634,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
     if (step.step_type === "api") result = await executeApiStep({ envelope, run: running, step, context: buildInitialContext(envelope, context.capturedValues, step), signal: executionOptions.signal });
     else if (step.step_type === "web" && webRunSession) result = await executeWebStep({ step, webRunSession });
     else if (step.step_type === "android" || step.step_type === "ios") {
-      const mobile = (await mobileRunSession.run([step], context.capturedValues)).results.find((item) => item.step_id === step.id);
+      const mobile = (await mobileRunSession.run([step], context.capturedValues, executionOptions.signal)).results.find((item) => item.step_id === step.id);
       if (!mobile) throw new Error(`Mobile Engine returned no result for step ${step.order}`);
       result = {
         outcome: { step_id: step.id, status: mobile.status, duration_ms: mobile.duration_ms, note: mobile.note,
@@ -644,12 +644,14 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
       };
     } else throw new Error(`Unable to execute step ${step.order}.`);
     } catch (error) {
+      executionOptions.signal?.throwIfAborted();
       if (!options.optional) throw error;
       const note = stringifyError(error, "Automation section failed.");
       result = { outcome: { step_id: step.id, status: "failed", note, ended_at: nowIso() }, captures: {},
         automation_detail: buildStepAutomationDetail({ step, status: "failed", errorMessage: note }),
         recovery_attempted: false, recovery_succeeded: false };
     }
+    executionOptions.signal?.throwIfAborted();
     if (options.optional && result.outcome.status === "failed") {
       result = { ...result, outcome: { ...result.outcome, status: "skipped", note: optionalStepFailureNote(result.outcome.note) }, captures: {} };
     }
@@ -688,6 +690,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
       let result: ExecutedEngineStepResult;
       try { result = await executeEngineStep(entry.step); }
       catch (error) {
+        executionOptions.signal?.throwIfAborted();
         const note = stringifyError(error, "Execution hook failed.");
         result = {
           outcome: { step_id: entry.step.id, status: "failed", note, ended_at: nowIso() },
@@ -712,6 +715,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
     return true;
   };
   const runPostHooks = async () => {
+    executionOptions.signal?.throwIfAborted();
     if (postHooksRun) return;
     postHooksRun = true;
     await runHookSteps("post", postHookSteps);
@@ -832,6 +836,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
     const hasPassedSection = orderedSteps.some((step) => stepOutcomes.some((outcome) => outcome.step_id === step.id && outcome.status === "passed"));
     const finalStatus: "passed" | "blocked" = !hasPassedSection || stepOutcomes.some((outcome) => outcome.status === "blocked") ? "blocked" : "passed";
     const artifactBundle = mergeArtifactBundle(running.artifact_bundle, await stopWebRunSession(finalStatus));
+    executionOptions.signal?.throwIfAborted();
     const completedRun = markRunState(
       run.id,
       finalStatus === "passed" ? "completed" : "incident",
@@ -856,6 +861,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
       captured_values: context.values
     });
 
+    executionOptions.signal?.throwIfAborted();
     await emitCallback(
       envelope,
       buildFinalCallback({

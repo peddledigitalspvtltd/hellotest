@@ -15,6 +15,10 @@ function modelScopeLabel(scope: LlmTrace['capture']['generation_scope']) {
   if (scope === 'section_semantic_review') return 'Outcome review';
   if (scope === 'case_metadata') return 'Completion metadata';
   if (scope === 'flow_plan') return 'Flow planning';
+  if (scope === 'upstream_browser_actor') return 'Native browser actions';
+  if (scope === 'upstream_source') return 'Native section source';
+  if (scope === 'upstream_instruction_mapping') return 'Readable instructions';
+  if (scope === 'upstream_api_source') return 'API section source';
   return 'Model call';
 }
 
@@ -23,6 +27,10 @@ function modelScopeDescription(scope: LlmTrace['capture']['generation_scope']) {
   if (scope === 'section_semantic_review') return 'This request checks the selected section against its pinned manual requirements.';
   if (scope === 'case_metadata') return 'This request completes coverage or response metadata for retained instructions.';
   if (scope === 'flow_plan') return 'This request prepares the case flow before section development.';
+  if (scope === 'upstream_browser_actor') return 'This request selects native browser actions for the selected section.';
+  if (scope === 'upstream_source') return 'This request develops executable source from retained native actions and evidence.';
+  if (scope === 'upstream_instruction_mapping') return 'This request labels existing source for display without changing executable code.';
+  if (scope === 'upstream_api_source') return 'This request develops the selected API section source.';
   return 'A request may develop several sections.';
 }
 

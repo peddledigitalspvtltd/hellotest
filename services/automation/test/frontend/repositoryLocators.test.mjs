@@ -1,10 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAttributeLocator, isRepositoryMemberUsed, collectRouteScopedLocatorKeys } from '../../frontend/lib/repositoryLocators.ts';
+import { buildAttributeLocator, changeRepositoryFieldLocator, isRepositoryMemberUsed, collectRouteScopedLocatorKeys } from '../../frontend/lib/repositoryLocators.ts';
 test('combines captured attributes, scope and explicit zero-based index without losing escaping', () => {
   assert.equal(buildAttributeLocator('INPUT', [['name', 'email'], ['data-label', 'say "hello"']], 'form#login', 1), 'form#login input[name="email"][data-label="say \\"hello\\""] >> nth=1');
   assert.equal(buildAttributeLocator('button', [], '', 0), 'button >> nth=0');
-  assert.equal(buildAttributeLocator('button', [], '', -1), 'button');
+  for(const invalid of [-1,0.5,NaN,Infinity]) assert.throws(()=>buildAttributeLocator('button', [], '', invalid),/whole number/);
+});
+test('changing a field locator keeps one primary, distinct fallbacks and requires fresh validation',()=>{
+  const old={locator:'#email',locatorKind:'css',locatorCandidates:[{locator:'#email',strategy:'css',confidenceScore:.9,isPrimary:true,matchCount:1},{locator:'input[name="email"]',strategy:'name',confidenceScore:.8,isFallback:true,matchCount:1}],fallbackLocators:[{locator:'input[name="email"]',strategy:'name',confidenceScore:.8}]};
+  const next=changeRepositoryFieldLocator(old,'input[name="email"]');
+  assert.equal(next.locatorKind,'name');assert.deepEqual(next.fallbackLocators.map(row=>row.locator),['#email']);
+  assert.equal(next.locatorCandidates.filter(row=>row.isPrimary).length,1);assert.ok(next.locatorCandidates.every(row=>row.matchCount===undefined));
+  const custom=changeRepositoryFieldLocator(old,'form input','css');
+  assert.deepEqual(custom.locatorCandidates.map(row=>row.locator),['form input','#email','input[name="email"]']);assert.equal(custom.validationStatus,'unverified');
 });
 test('case repository bindings exclude unrelated objects and similarly named fields', () => {
   const member = { ref: 'Login.Email', entry: { id: 'field', locator: '[name="email"]' } };

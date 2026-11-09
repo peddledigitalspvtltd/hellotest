@@ -1,4 +1,13 @@
 import type { Issue, TestCaseDefectLink } from "@hellotest/platform/frontend/src/types";
+export type AutomationSourceProposal = {
+  schema_version: 1; kind: "automation_source_proposal"; test_case_id: string; step_id: string; step_order: number;
+  automation_code: string; proposed_source_sha256: string; automation_instructions?: import("../../automation/shared/automationInstructionMapping.mjs").AutomationInstructionMapping;
+  generation_manifest: { source_sha256: string; [key: string]: unknown }; baseline_sha256: string; baseline_source_sha256: string;
+  source_call_id: string; evidence_transaction_id: string; target_transaction_id: string;
+  validation_status: "validated"; save_status: "not_saved"; verification_status: "unverified";
+  side_effects: { browser_actions: 0; cases_saved: 0 }; warnings: string[];
+};
+export type AutomationSourceProposalInput = { test_case_id: string; step_id: string; source_call_id: string; evidence_transaction_id?: string; integration_id?: string };
 import type { JiraIssueCreateMetadata, JiraBugCreateMetadata, JiraWorkflowStatusCatalog } from "@hellotest/integration/frontend/lib/jiraIssueContracts";
 type IssuePayload = {
   user_id: string;
@@ -552,10 +561,14 @@ testCases: {
       }),
     automationBuildStatus: (transactionId: string,query?:{events_offset?:number;events_limit?:number}) =>
       request<WorkspaceTransaction & {events?: import("@hellotest/platform/frontend/src/types").WorkspaceTransactionEvent[];events_has_more?:boolean;events_next_offset?:number;events_total?:number}>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}${toQueryString(query)}`),
+    cancelAutomationBuild: (transactionId: string) =>
+      request<{transaction_id:string;status:string;cancelled:boolean}>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}/cancel`, { method: "POST", body: JSON.stringify({}) }),
+    proposeAutomationSectionSource: (transactionId: string, input: AutomationSourceProposalInput, signal?: AbortSignal) =>
+      request<AutomationSourceProposal>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}/source-proposal`, { method: "POST", body: JSON.stringify(input), signal }, 180000),
     automationAgentActivity: (query:{app_type_id:string;test_case_id?:string}) =>
       request<(WorkspaceTransaction & {events?: import("@hellotest/platform/frontend/src/types").WorkspaceTransactionEvent[];events_has_more?:boolean;events_next_offset?:number;events_total?:number}) | null>(`/test-cases/automation/agent-activity${toQueryString(query)}`),
     automationAgentActivities: (query:{app_type_id:string;test_case_id?:string;limit?:number;cursor?:string}) =>
-      request<{items:Array<Pick<WorkspaceTransaction,"id"|"project_id"|"app_type_id"|"status"|"description"|"created_at">>;next_cursor:string|null}>(`/test-cases/automation/agent-activities${toQueryString(query)}`),
+      request<{items:Array<Pick<WorkspaceTransaction,"id"|"project_id"|"app_type_id"|"status"|"description"|"created_at"> & {cancelled?:boolean}>;next_cursor:string|null}>(`/test-cases/automation/agent-activities${toQueryString(query)}`),
     automationAgentScreenshot: (transactionId:string,artifactId:string) =>
       request<{id:string;mime_type:string;data_url:string}>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}/screenshots/${encodeURIComponent(artifactId)}`),
     automationAgentPreview: (transactionId:string,artifactId:string,signal?:AbortSignal) =>
@@ -578,7 +591,7 @@ testCases: {
       input?.recorder_mode === "local" && input?.recorder_target !== "mobile"
         ? startPairedRecording(() => request(`/test-cases/${id}/automation/recorder-session`, { method: "POST", body: JSON.stringify({ ...input, local_transport: "paired-agent" }) }))
         : request<RecorderSessionResponse>(`/test-cases/${id}/automation/recorder-session`, { method: "POST", body: JSON.stringify(input || {}) }),
-    finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; target_step_id?: string }) =>
+    finishRecorderSession: (id: string, sessionId: string, input?: { transaction_id?: string; integration_id?: string; additional_context?: string; recorder_mode?: "local" | "remote"; recorder_target?: "web" | "mobile"; engine_base_url?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; target_step_id?: string; parameter_bindings?: Array<{ source_action_index: number; parameter_reference: string }> }) =>
       isPairedRecording(sessionId)
         ? finishPairedRecording(sessionId, capture => request<AutomationBuildResponse & { recorder_session?: { id: string; action_count: number; network_count: number } }>(`/test-cases/${id}/automation/recorder-session/${sessionId}/finish`, { method: "POST", body: JSON.stringify({ ...input, ...capture }) }))
         : request<AutomationBuildResponse & { recorder_session?: { id: string; action_count: number; network_count: number } }>(`/test-cases/${id}/automation/recorder-session/${sessionId}/finish`, { method: "POST", body: JSON.stringify(input || {}) }),

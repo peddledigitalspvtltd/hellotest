@@ -61,6 +61,25 @@ test('an HTTP error stops before any model request, snapshot or automatic naviga
   assert.equal(tools, 1); assert.equal(models, 0);
 });
 
+test('a goto timeout after navigation began keeps the failure private and never replays navigation', async () => {
+  let tools = 0, models = 0, failure;
+  const timeout = result({ code: 'BROWSER_TOOL_FAILED', action_outcome: 'unknown', retry_safe: false,
+    message: 'page.goto: Timeout 25000ms exceeded.\nCall log:\n- navigating to "https://private.example/account/private-route?customer=privatecustomer&token=privatequerytoken", waiting until "load"',
+    url: 'https://private.example/account/private-route?customer=privatecustomer' });
+  await assert.rejects(runAutomationBrowserAgent({ prompt: 'Build the case', startUrl: 'https://app.example.test/',
+    browser: { tools: ['browser_navigate', 'browser_snapshot'].map(name => ({ name })), call: async name => {
+      tools++; assert.equal(name, 'browser_navigate'); return timeout;
+    } }, complete: async () => { models++; }, parse: JSON.parse
+  }), error => { failure = error; return error.code === 'AUTOMATION_BROWSER_BOOTSTRAP_OUTCOME_UNKNOWN' && error.nonRetryable && !error.retry_safe; });
+  assert.equal(tools, 1); assert.equal(models, 0);
+  assert.equal(failure.action_outcome, 'unknown');
+  assert.equal(failure.browser_diagnostic.failure_phase, 'navigation');
+  assert.equal(failure.browser_diagnostic.action_outcome, 'unknown');
+  assert.match(failure.browser_diagnostic.message, /page.goto: Timeout 25000ms exceeded/);
+  assert.doesNotMatch(JSON.stringify(failure.browser_diagnostic), /private.example|private-route|privatecustomer|privatequerytoken|https?:/);
+  assert.doesNotMatch(JSON.stringify(failure) + failure.message, /Timeout 25000ms|browser_diagnostic|private.example/);
+});
+
 test('bootstrap never grants replay permission for unknown, completed, unproven, policy or locator failures', () => {
   for (const entry of [
     launchError({ action_outcome: 'unknown', retry_safe: false }),

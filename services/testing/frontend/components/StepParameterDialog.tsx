@@ -8,7 +8,7 @@ import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/us
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { FormField } from "@hellotest/platform/frontend/src/shared/components/FormField";
 import { TestDataIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
-import type { StepParameterDefinition } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
+import type { StepParameterDefinition, StepParameterScope } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
 import { isPrivateParameterName } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
 import { evaluateTestDataTemplate, hasTestDataGeneratorTemplate, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
 import "./StepParameterDialog.css";
@@ -56,7 +56,11 @@ export function StepParameterDialog({
   overrideLabel = "Test Case override",
   resetLabel,
   allowSensitiveValueOverrides = false,
-  inheritedParameterNames = []
+  inheritedParameterNames = [],
+  onScopeChange,
+  getScopeState,
+  onSecretChange,
+  getSecretState
 }: {
   title: string;
   subtitle: string;
@@ -78,6 +82,10 @@ export function StepParameterDialog({
   resetLabel?: string;
   allowSensitiveValueOverrides?: boolean;
   inheritedParameterNames?: readonly string[];
+  onScopeChange?: (name: string, scope: StepParameterScope) => void;
+  getScopeState?: (parameter: StepParameterDefinition, scope: StepParameterScope) => StepParameterDialogInputState;
+  onSecretChange?: (name: string, secret: boolean) => void;
+  getSecretState?: (parameter: StepParameterDefinition) => StepParameterDialogInputState;
 }) {
   const { session } = useAuth();
   const [projectId] = useCurrentProject();
@@ -348,10 +356,32 @@ export function StepParameterDialog({
                             >
                               <div className="step-parameter-row-meta">
                                 <code>{parameter.token}</code>
+                                {onSecretChange ? <label className="step-parameter-secret-toggle" title={getSecretState?.(parameter).hint}>
+                                  <input aria-label={`Secret for ${parameter.token}`} type="checkbox" checked={Boolean(isSensitive)} disabled={getSecretState?.(parameter).disabled ?? inputState.disabled}
+                                    onChange={event => { setSensitiveEdits(current => { const next = { ...current }; delete next[parameter.name]; return next; }); onSecretChange(parameter.name, event.target.checked); }} />
+                                  <span>Secret</span>
+                                </label> : null}
                                 <span className={isDynamicValue ? "step-parameter-mode-badge is-dynamic" : "step-parameter-mode-badge is-static"}>
                                   {isDynamicValue ? "Dynamic" : "Static"}
                                 </span>
                                 <span className="step-parameter-source-badge">{sourceLabel}</span>
+                                {onScopeChange ? <label className="step-parameter-scope-select">
+                                  <span className="sr-only">Scope for {parameter.token}</span>
+                                  <select
+                                    aria-label={`Scope for ${parameter.token}`}
+                                    disabled={getScopeState?.(parameter, parameter.scope).disabled}
+                                    title={getScopeState?.(parameter, parameter.scope).hint}
+                                    value={parameter.scope}
+                                    onChange={event => {
+                                      const scope = event.target.value as StepParameterScope;
+                                      setSensitiveEdits(current => { const next = { ...current }; delete next[parameter.name]; return next; });
+                                      setCollapsedGroups(current => ({ ...current, [scope]: false }));
+                                      onScopeChange(parameter.name, scope);
+                                    }}
+                                  >
+                                    {([['t', 'Test case'], ['s', 'Suite'], ['r', 'Run']] as const).map(([scope, label]) => <option key={scope} value={scope} disabled={getScopeState?.(parameter, scope).disabled}>{label}</option>)}
+                                  </select>
+                                </label> : null}
                               </div>
                               <div className="step-parameter-input-row">
                                 {isPrivateInput ? <input

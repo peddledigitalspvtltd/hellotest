@@ -115,3 +115,60 @@ test('feedback contains no URL, private fields, snapshot contents or semantic fi
   assert.match(decision.feedback.message, /asynchronous state/);
   assert.equal(inspect(guard, observations).stop, true);
 });
+
+const scopedRequest=(locator='#email',frame)=>({name:'browser_snapshot',arguments:{locator,...(frame?{frame}:{})}});
+const scopedSnapshot=(changes={},extra={})=>snapshot({scope:'#email',truncated:false,...changes},{arguments:{locator:'#email'},...extra});
+
+test('the exact currently grounded element scope gets one unchanged refresh and then stops repeated reads',()=>{
+ const guard=createAutomationSnapshotReadGuard(),observations=[scopedSnapshot(),scopedSnapshot()];
+ const first=inspect(guard,observations,scopedRequest());assert.equal(first.stop,false);assert.equal(first.feedback.code,'AUTOMATION_BROWSER_SNAPSHOT_UNCHANGED');assert.equal(first.feedback.expected_result_verified,false);
+ assert.equal(inspect(guard,observations,scopedRequest()).stop,true);
+ assert.equal(inspect(guard,observations,scopedRequest('#other')),null,'A genuinely different scope still needs its own native grounding');
+});
+
+test('stable bounded Location-like scoped captures cannot bypass the guard through unchanged truncation flags',()=>{
+ const locator='.custom-dropdown-main-container:has(#location)';
+ for(const flags of [{partial:false,accessibility_truncated:false,elements_truncated:false,fields_truncated:true},
+  {partial:true,truncated:true,fields_truncated:true,warnings:['Optional bounded evidence is incomplete.']}]){
+  const observed=()=>scopedSnapshot({...flags,scope:locator},{arguments:{locator}}),guard=createAutomationSnapshotReadGuard(),rows=[observed(),observed()];
+  const feedback=inspect(guard,rows,scopedRequest(locator));assert.equal(feedback.stop,false);assert.equal(feedback.feedback.expected_result_verified,false);assert.match(feedback.feedback.message,/missing or truncated/);
+  assert.equal(inspect(guard,rows,scopedRequest(locator)).stop,true);
+  assert.equal(inspect(createAutomationSnapshotReadGuard(),[observed(),scopedSnapshot({...flags,scope:locator,fields_truncated:false},{arguments:{locator}})],scopedRequest(locator)),null,'Changed completeness metadata permits a fresh read');
+ }
+});
+
+test('scoped evidence preserves native frame/document identity and fresh grounding after any other snapshot',()=>{
+ const frame=['#form'],state={frame_path:frame,frame_url:'https://app.test/form',frame_document_id:'document-one'};
+ const child=(changes={})=>scopedSnapshot({...state,...changes},{arguments:{locator:'#email',frame}});
+ const request=scopedRequest('#email',frame),guard=createAutomationSnapshotReadGuard();
+ assert.equal(inspect(guard,[child(),child()],request).stop,false);
+ assert.equal(inspect(createAutomationSnapshotReadGuard(),[child(),child({frame_document_id:'document-two'})],request),null);
+ assert.equal(inspect(createAutomationSnapshotReadGuard(),[child(),child({frame_url:'https://foreign.test/form'})],request),null);
+ for(const newer of [snapshot({frames:[{path:frame,url:'https://app.test/form',frame_document_id:'document-two'}]}),
+  scopedSnapshot({scope:'#other'},{arguments:{locator:'#other'}}),scopedSnapshot({...state,frame_path:['#sibling']},{arguments:{locator:'#email',frame:['#sibling']}})]){
+  assert.equal(inspect(createAutomationSnapshotReadGuard(),[child(),child(),newer],request),null,'Another snapshot replaces the current native target ledger; its old refs cannot be reused');
+ }
+});
+
+test('changed or incomplete scoped state and real native work reopen the scoped read without outcome proof',()=>{
+ for(const changes of [{url:'https://app.test/new'},{accessibility:'New result'},{elements:[{...page().elements[0],readonly:true}]},
+  {partial:true},{truncated:true},{fields_truncated:true},{elements_truncated:true},{accessibility_truncated:true},{elements:[{...page().elements[0],locators_validated:false}]}]){
+  assert.equal(inspect(createAutomationSnapshotReadGuard(),[scopedSnapshot(),scopedSnapshot(changes)],scopedRequest()),null);
+ }
+ for(const tool of ['browser_fill','browser_click','browser_assert','browser_wait_for','browser_validate_locator']){
+  const barrier={tool,result:receipt({action_outcome:'completed'})};
+  assert.equal(inspect(createAutomationSnapshotReadGuard(),[scopedSnapshot(),scopedSnapshot(),barrier],scopedRequest()),null,tool);
+ }
+ const failed={tool:'browser_snapshot',arguments:{locator:'#email'},result:receipt({code:'BROWSER_READ_UNAVAILABLE'},true)};
+ assert.equal(inspect(createAutomationSnapshotReadGuard(),[scopedSnapshot(),scopedSnapshot(),failed],scopedRequest()),null);
+});
+
+test('synthetic scoped receipts and optional screenshots cannot manufacture a new evidence epoch or leak its data',()=>{
+ const privateText='PRIVATE_SCOPE_VALUE',locator='[data-private="'+privateText+'"]',read=scopedRequest(locator);
+ const first=scopedSnapshot({scope:locator,accessibility:privateText},{arguments:{locator}}),second=scopedSnapshot({scope:locator,accessibility:privateText},{arguments:{locator}});
+ const screenshot={tool:'browser_screenshot',result:receipt({mime_type:'image/jpeg'})},guard=createAutomationSnapshotReadGuard();
+ const decision=inspect(guard,[first,second,screenshot,{tool:'automation_snapshot_feedback',mcp_call:false,result:receipt({})}],read);
+ assert.equal(decision.stop,false);assert.doesNotMatch(JSON.stringify(decision),/PRIVATE_SCOPE_VALUE|data-private|https?:|[a-f0-9]{64}/);
+ assert.equal(inspect(createAutomationSnapshotReadGuard(),[{...first,mcp_call:false},{...second,mcp_call:false}],read),null);
+ for(const args of [{locator:''},{locator:'#email',frame:[]},{locator:'#email',extra:true}])assert.equal(inspect(createAutomationSnapshotReadGuard(),[first,second],{name:'browser_snapshot',arguments:args}),null);
+});

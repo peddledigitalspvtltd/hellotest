@@ -33,3 +33,32 @@ test('actor cannot spend more MCP or model calls repeating the blocked full-page
  }}),{code:'AUTOMATION_BROWSER_SNAPSHOT_READ_STALLED',nonRetryable:true});
  assert.equal(actors,3);assert.equal(f.calls.length,1);assert.equal(f.observations.filter(o=>o.tool==='automation_snapshot_feedback').length,1);
 });
+
+function scopedFixture(){
+ const f=fixture(),original=f.browser.call;
+ f.browser.call=async(name,args)=>{
+  if(name!=='browser_snapshot')return original(name,args);
+  f.calls.push({name,args});return receipt({url:'https://app.test/login',observation_id:'scope-'+f.calls.length,scope:args.locator||'body',accessibility:'- status "Ready"',partial:false,truncated:false,
+   elements:[{tag:'p',accessible_role:'status',text:'Ready',displayed:true,locators_validated:true,locator_candidates:['#status']}]});
+ };
+ return f;
+}
+
+test('a scoped-read actor receives actionable feedback and saves only its unchanged native expected-result check',async()=>{
+ const f=scopedFixture();let actors=0,saves=0;
+ await runAutomationBrowserAgent({...options,...f,initialObservations:f.observations,onPartialBuild:async()=>{saves++;return {generation_complete:true};},complete:async prompt=>{
+  actors++;const current=state(prompt);
+  if(actors<4)return JSON.stringify({stage:'act',step_id:'step',section_complete:false,tool_calls:[{name:'browser_snapshot',arguments:{locator:'#status'}}]});
+  assert.equal(current.latest_failure.kind,'snapshot_redundant');assert.equal(current.pending_contract.next_required,'use_current_targets_for_remaining_action_or_native_check');
+  return JSON.stringify({stage:'act',step_id:'step',section_complete:true,tool_calls:[{name:'browser_assert',arguments:{assertion:'visible',locator:current.current_snapshot.targets[0].ref}}]});
+ }});
+ assert.equal(actors,4);assert.equal(saves,1);assert.deepEqual(f.calls.map(row=>row.name),['browser_snapshot','browser_snapshot','browser_assert']);
+});
+
+test('repeated identical scoped reads stop before another browser/model call and cannot manufacture source',async()=>{
+ const f=scopedFixture();let actors=0,saves=0;
+ await assert.rejects(runAutomationBrowserAgent({...options,...f,initialObservations:f.observations,onPartialBuild:async()=>{saves++;},complete:async()=>{
+  actors++;return JSON.stringify({stage:'act',step_id:'step',section_complete:false,tool_calls:[{name:'browser_snapshot',arguments:{locator:'#status'}}]});
+ }}),{code:'AUTOMATION_BROWSER_SNAPSHOT_READ_STALLED',nonRetryable:true});
+ assert.equal(actors,4);assert.equal(saves,0);assert.equal(f.calls.length,2);assert.ok(f.calls.every(row=>row.name==='browser_snapshot'));
+});

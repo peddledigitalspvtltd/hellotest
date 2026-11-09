@@ -76,6 +76,10 @@ List output:
 
 Get output is `{resource, record, observed_at, bounded:true, delivery?}` and uses the native detail API. `hellotest_project_get` takes no arguments and reads the connected project. `hellotest_knowledge_source_get` requires `source_id`; use `hellotest_knowledge_fetch` for cited fragment content.
 
+`hellotest_test_case_steps_get` reads ordered steps for one exact `test_case_id`. The native API includes generated code only when the user has `automation.code.view`; otherwise it redacts code and API request fields. The Automation Engineer status tool includes saved output steps when the job records completed output cases and the user also has `testcase.view`.
+
+`hellotest_automation_parameter_plan_prepare` prepares a reviewed call to the native parameter planner. Execute the approved plan to receive its resolved parameter preview and `parameter_plan_key`; pass that key with matching `parameter_values` and selected inputs to the Automation Engineer build tool. The native builder rejects the key if the Test Case or its parameter sources changed.
+
 Environment/configuration reads expose metadata; variable bags and secret material remain omitted. Where present, `delivery` has this exact shape:
 
 ```json
@@ -89,18 +93,18 @@ Treat a truncated/redacted result as a delivered excerpt. Counts disclose delive
 | Create tool | Required create fields | Update tool and required identity |
 | --- | --- | --- |
 | `hellotest_story_create_prepare` | `title` | `hellotest_story_update_prepare`: `story_id` |
-| `hellotest_test_case_create_prepare` | `app_type_id`, `title` | `hellotest_test_case_update_prepare`: `test_case_id` |
+| `hellotest_test_case_create_prepare` | `app_type_id`, `title`, `draft_key` | `hellotest_test_case_update_prepare`: `test_case_id` |
 | `hellotest_test_suite_create_prepare` | `app_type_id`, `name` | `hellotest_test_suite_update_prepare`: `test_suite_id` |
 | `hellotest_test_run_create_prepare` | `app_type_id`, `test_case_ids` (1–50) | Use a discovered native operation for supported run changes. |
 | `hellotest_defect_create_prepare` | `title`, `message` | `hellotest_defect_update_prepare`: `defect_id` |
 
 Each update also needs at least one changed field. Omitted fields retain their native values. Application moves are not exposed in named updates. Inspect each published schema for optional fields; the general operation catalog supplies advanced native fields.
 
-Test Case preparation supports structured steps (`action`, `expected_result`, optional `step_order`/`step_type`) or `authoring_mode:"gherkin"` with `gherkin_document`. A title-only update does not reset its authoring mode. Native Gherkin authoring names the Feature after the primary linked Story; the preview shows this normalized document and pins the Story dependency. Saved steps are verified through their own scoped read. Defects require an observed-problem `message`; native links use `linked_test_case_ids`, `linked_requirement_ids`, `linked_test_suite_ids`, `linked_module_ids` and `linked_test_run_id`. A run defaults to `execution_mode:"manual"`; native validation checks selected cases and execution readiness.
+Test Case creation is the draft-capable exception: it immediately saves a native Test Case with `status:"draft"` and `review_status:"pending"`, and returns the saved identity plus the full authorized record when the credential also has `testcase.view`. Supply a unique `draft_key` and reuse it only for an exact retry; use a new key for a distinct draft. The draft appears in the regular Test Cases list and remains unapproved and unexecuted. Test Case updates, Stories, suites, runs and defects have no equivalent safe pending-draft storage contract, so their prepare tools continue to create explicit review plans instead of changing existing records or pretending those records support draft status. Test Case preparation supports structured steps (`action`, `expected_result`, optional `step_order`/`step_type`) or `authoring_mode:"gherkin"` with `gherkin_document`. A title-only update does not reset its authoring mode. Native Gherkin authoring names the Feature after the primary linked Story; the plan preview shows this normalized document and pins the Story dependency. Saved steps are verified through their own scoped read. Defects require an observed-problem `message`; native links use `linked_test_case_ids`, `linked_requirement_ids`, `linked_test_suite_ids`, `linked_module_ids` and `linked_test_run_id`. A run defaults to `execution_mode:"manual"`; native validation checks selected cases and execution readiness.
 
 For other callable changes, use `hellotest_operation_prepare` with `operation_id` and `arguments` containing the described `path`/`query`/`body`. The server captures identity, idempotency and current source revisions. Omit credentials, approval flags and server-owned revision/idempotency fields.
 
-Every prepare tool returns an immutable, expiring preview:
+Plan-based prepare tools return an immutable, expiring preview:
 
 ```json
 {
@@ -113,7 +117,7 @@ Every prepare tool returns an immutable, expiring preview:
 }
 ```
 
-No business action runs during preparation. The original user reviews the exact operation and arguments under **Agent Studio → MCP Servers → Action plans**, then selects **Authorize this exact plan**. MCP tools and host credentials cannot approve themselves. Catalog, permission, source-revision and plan checks run again before execution.
+No business action runs during plan preparation. The original user reviews the exact operation and arguments under **Agent Studio → MCP Servers → Action plans**, then selects **Authorize this exact plan**. MCP tools and host credentials cannot approve themselves. Catalog, permission, source-revision and plan checks run again before execution. A valid `Authorization: Bearer` host credential authenticates its issuing user and project; it does not grant that user domain permissions. If a call is denied, the error includes the missing permission and safe next step. The same checks apply to external and built-in MCP calls.
 
 Call `hellotest_operation_execute` with the original `plan_id`. Use `hellotest_operation_status` with that same ID to inspect or reconcile its durable receipt. Do not create a replacement merely because a client timed out. Repeating execute for the same plan reads its existing outcome or reconciles it; it does not intentionally issue a second action.
 
@@ -194,9 +198,11 @@ For visual comparison, discover the callable baseline metadata read and select a
 
 ## Task recipes
 
+**Generate automation for a saved Test Case.** When the case uses parameters or selected data inputs, first call `hellotest_automation_parameter_plan_prepare`, authorize and execute that preview, then pass its `parameter_plan_key` and matching `parameter_values` into `hellotest_automation_engineer_prepare`. The native builder rejects a stale key before generation. The build tool requires `automation.build`, `automation.ai`, `automation.view` and `automation.code.view` because its durable result is verified through the protected Automation Engineer status route. Mobile cases also require `mobile.manage`. Selected suites also require `suite.view` and `data.view`; data sets require `data.view`; environments/configurations require their matching view permission and `data.view`. Review and authorize the exact build plan, then execute it once. Poll `hellotest_automation_engineer_status` with the returned transaction ID for progress and completed output. When the job records generated Test Cases and the user has `testcase.view`, status includes their saved steps and automation code. Otherwise use `hellotest_test_case_steps_get` for a case the user can read; generated code remains subject to native `automation.code.view` redaction. Run the saved case separately to verify behavior.
+
 **Find and improve a saved Test Case.** Call `hellotest_test_cases_list` with a literal title fragment and optional application. Read the selected ID with `hellotest_test_cases_get`. Retrieve exact Story/Test Case context if needed, and inspect provenance/gaps. Prepare the requested fields with `hellotest_test_case_update_prepare`. Have the user authorize the exact plan in Action plans, execute its original ID, and read its status and saved record. If a concurrent edit makes the plan stale, inspect the current record before reviewing a corrected plan.
 
-**Generate a Test Case proposal.** Discover `test_case_generation`, describe a callable authoring-preview operation, and prepare its exact bounded input. After native UI authorization, execute once. A `succeeded_proposal` receipt contains generated material, not saved Test Cases. Review the proposal and prepare a separate Test Case creation plan for artifacts the user chooses to save. Reuse the original plan receipt after timeouts rather than rerunning the generation and charging again.
+**Generate a Test Case proposal.** Discover `test_case_generation`, describe a callable authoring-preview operation, and prepare its exact bounded input. After native UI authorization, execute once. A `succeeded_proposal` receipt contains generated material, not saved Test Cases. Review the proposal and call `hellotest_test_case_create_prepare` with a fresh `draft_key` to save a native pending-review draft. Reuse the same `draft_key` only for an exact retry. Reuse the original proposal plan receipt after timeouts rather than rerunning generation and charging again.
 
 **Create a suite and start a run.** Find the application and exact Test Case IDs, then prepare a suite with those `test_case_ids`. Authorize, execute and inspect the verified membership. Prepare a run with the explicit `app_type_id`, selected cases and intended execution mode/environment/configuration. Review and execute it separately. Follow durable native run IDs/status; submission does not imply completion or success.
 

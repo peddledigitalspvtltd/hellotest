@@ -38,6 +38,7 @@ function sourceReferences(source){
 /** Only grounded, actually referenced repository objects are included. Never broaden by a field name alone. */
 function sectionPreview({testCaseId,step,update,attempt,manualCoverage=[],manualSpecification=[],generationProvenance,recordedContract,repositoryRows=[],confirmedRepositoryIds=[],evidence,modelCallIds=[],modelCallScope='case_attempt',createdAt=new Date().toISOString()}){
  const source=update.automation_code||'',request=update.api_request||null,{literals,calls,parameters}=sourceReferences(source);
+ const instructionMapping=require('./automationInstructionMapping').validSavedInstructionMapping(update.automation_instructions,{source,stepId:step.id});
  const references=[],folded=new Set([...literals].map(value=>value.toLowerCase())),confirmedIds=new Set(confirmedRepositoryIds),routeScopedKeys=new Set();
  const names=row=>{const screen=text(row.metadata?.screen_name||row.page_key),raw=text(row.metadata?.object_name||row.locator_intent),field=raw.toLowerCase().startsWith(screen.toLowerCase()+'.')?raw.slice(screen.length+1):raw;return screen&&field?`${screen}.${field}`:'';};
  const canonicalOwners=new Map(repositoryRows.filter(row=>!row.metadata?.merged_into_entry_id&&row.locator_intent!=='__screen__'&&row.metadata?.record_kind!=='screen').map(row=>[names(row).toLowerCase(),row.id]));
@@ -56,16 +57,51 @@ function sectionPreview({testCaseId,step,update,attempt,manualCoverage=[],manual
  for(const value of collectCaseParameterNames({},[{automation_code:source,api_request:request}]))parameters.add(value);
  const callIds=[...new Set((Array.isArray(modelCallIds)?modelCallIds:[]).filter(value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,200}$/.test(value)))].slice(0,20);
  const generationManifest=createGenerationManifest({testCaseId,step,update,manualCoverage,manualSpecification,generationProvenance,recordedContract});
- return {schema_version:1,kind:'section_preview',test_case_id:testCaseId,step_id:step.id,step_order:step.step_order,step_type:update.step_type||step.step_type||'web',action:step.action||'',expected_result:step.expected_result||'',automation_code:source||null,api_request:request,generation_manifest:generationManifest,object_references:grounded.slice(0,200),parameter_references:[...parameters].filter(Boolean).map(tokenFor).slice(0,200),manual_coverage:manualCoverage.filter(row=>row.section_step_id===step.id).map(row=>({...row})),...(evidence?{evidence:{...evidence,association:'generation_phase'}}:{}),...(callIds.length?{model_call_ids:callIds,model_call_scope:modelCallScope==='section_attempt'?'section_attempt':'case_attempt'}:{}),created_at:createdAt,attempt,validation_status:'validated',save_status:'draft',verification_status:'unverified'};
+ return {schema_version:1,kind:'section_preview',test_case_id:testCaseId,step_id:step.id,step_order:step.step_order,step_type:update.step_type||step.step_type||'web',action:step.action||'',expected_result:step.expected_result||'',automation_code:source||null,api_request:request,...(instructionMapping?{automation_instructions:instructionMapping}:{}),generation_manifest:generationManifest,object_references:grounded.slice(0,200),parameter_references:[...parameters].filter(Boolean).map(tokenFor).slice(0,200),manual_coverage:manualCoverage.filter(row=>row.section_step_id===step.id).map(row=>({...row})),...(evidence?{evidence:{...evidence,association:'generation_phase'}}:{}),...(callIds.length?{model_call_ids:callIds,model_call_scope:modelCallScope==='section_attempt'?'section_attempt':'case_attempt'}:{}),created_at:createdAt,attempt,validation_status:'validated',save_status:'draft',verification_status:'unverified'};
 }
-function browserEvidence({observation,testCaseId,attempt,active_step_id,active_manual_step_ids=[],interactionMode,observedAt=new Date().toISOString()}){
+// The pinned upstream Response formatter uses ### Page, ### Snapshot and
+// ### Result sections. Read its text only; never synthesize DOM records or
+// follow native snapshot filenames on the application's filesystem.
+function nativeMarkdownSections(markdown){
+ const sections=new Map();let name,content=[],fenced=false;
+ for(const line of markdown.split(/(?<=\n)/)){
+  const heading=!fenced?line.match(/^### ([^\r\n]+)\r?\n?$/):null;
+  if(heading){if(name)sections.set(name,content.join(''));name=heading[1];content=[];continue;}
+  if(/^```/.test(line))fenced=!fenced;
+  if(name)content.push(line);
+ }
+ if(name)sections.set(name,content.join(''));
+ return sections;
+}
+function upstreamBrowserSnapshot(blocks,tool){
+ let current;
+ for(const block of blocks){
+  const sections=nativeMarkdownSections(block.text),page=sections.get('Page')||'';
+  const snapshot=sections.get('Snapshot');
+  let accessibility,format,partial=false;
+  if(typeof snapshot==='string'&&snapshot.trim()){
+   const inline=snapshot.match(/^```(?:yaml|yml)\r?\n([\s\S]*?)\r?\n```[ \t]*(?:\r?\n)?$/);
+   if(inline){accessibility=inline[1];format='upstream_yaml';}
+   else if(/^- \[Snapshot\]\([^\r\n]+\)[ \t]*(?:\r?\n)?$/.test(snapshot)){accessibility=snapshot;format='upstream_snapshot_reference';partial=true;}
+  }else if(tool==='browser_find'&&sections.has('Result')){
+   accessibility=sections.get('Result');format='upstream_find';partial=true;
+  }
+  if(typeof accessibility!=='string'||!accessibility.trim())continue;
+  const url=page.match(/^- Page URL: ([^\r\n]*)/m)?.[1],title=page.match(/^- Page Title: ([^\r\n]*)/m)?.[1];
+  current={accessibility,snapshot_format:format,partial,url,title};
+ }
+ return current;
+}
+function browserEvidence({observation,testCaseId,attempt,active_step_id,active_manual_step_ids=[],interactionMode,transport,observedAt=new Date().toISOString()}){
  if(observation.result?.isError)return null;
  const blocks=(observation.result?.content||[]).filter(item=>item.type==='text'&&typeof item.text==='string');
- let payload={};for(const block of blocks)try{const value=JSON.parse(block.text);if(value&&typeof value==='object'&&!Array.isArray(value))payload={...payload,...value};}catch{if(observation.tool==='browser_snapshot')payload.accessibility=text(block.text,96000);}
+ const upstream=transport==='upstream_playwright_mcp';
+ let payload=upstream?upstreamBrowserSnapshot(blocks,observation.tool)||{}:{};
+ if(!upstream)for(const block of blocks)try{const value=JSON.parse(block.text);if(value&&typeof value==='object'&&!Array.isArray(value))payload={...payload,...value};}catch{if(observation.tool==='browser_snapshot')payload.accessibility=text(block.text,96000);}
  const image=(observation.result?.content||[]).find(item=>item.type==='image'&&['image/jpeg','image/png'].includes(item.mimeType)&&typeof item.data==='string'&&item.data.length<=196608);
- const hasSnapshot=observation.tool==='browser_snapshot'&&(typeof payload.accessibility==='string'||Array.isArray(payload.elements));
+ const hasSnapshot=(upstream||observation.tool==='browser_snapshot')&&(typeof payload.accessibility==='string'||Array.isArray(payload.elements));
  if(!hasSnapshot&&!image)return null;
- const evidence={schema_version:1,kind:'browser_evidence',test_case_id:testCaseId,attempt,tool:observation.tool,source:'playwright',observation_id:text(payload.observation_id,200)||undefined,observed_at:typeof payload.captured_at==='string'&&Number.isFinite(Date.parse(payload.captured_at))?payload.captured_at:observation.observed_at||observedAt,url:publicUrl(payload.url),title:text(payload.title,500)||undefined,interaction_mode:interactionMode,verification_status:'unverified',...(hasSnapshot?{scope:bounded(payload.scope),accessibility:text(payload.accessibility,96000),elements:Array.isArray(payload.elements)?payload.elements.slice(0,120).map(safeElement):[],partial:payload.partial===true,truncated:payload.truncated===true||String(payload.accessibility||'').length>96000||(payload.elements?.length||0)>120,accessibility_truncated:payload.accessibility_truncated===true||String(payload.accessibility||'').length>96000,elements_truncated:payload.elements_truncated===true||(payload.elements?.length||0)>120,fields_truncated:payload.fields_truncated===true,warnings:Array.isArray(payload.warnings)?payload.warnings.slice(0,20).map(value=>text(value,500)):[],limits:payload.limits&&typeof payload.limits==='object'?bounded(payload.limits):undefined}:{})};
+ const evidence={schema_version:1,kind:'browser_evidence',test_case_id:testCaseId,attempt,tool:observation.tool,source:'playwright',...(upstream?{transport:'upstream_playwright_mcp',snapshot_format:payload.snapshot_format}:{}),observation_id:text(payload.observation_id,200)||undefined,observed_at:typeof payload.captured_at==='string'&&Number.isFinite(Date.parse(payload.captured_at))?payload.captured_at:observation.observed_at||observedAt,url:publicUrl(payload.url)||(upstream?publicUrl(observation.url):undefined),title:text(payload.title,500)||undefined,interaction_mode:interactionMode,verification_status:'unverified',...(hasSnapshot?{scope:bounded(payload.scope),accessibility:text(payload.accessibility,96000),elements:Array.isArray(payload.elements)?payload.elements.slice(0,120).map(safeElement):[],partial:payload.partial===true,truncated:payload.truncated===true||String(payload.accessibility||'').length>96000||(payload.elements?.length||0)>120,accessibility_truncated:payload.accessibility_truncated===true||String(payload.accessibility||'').length>96000,elements_truncated:payload.elements_truncated===true||(payload.elements?.length||0)>120,fields_truncated:payload.fields_truncated===true,warnings:Array.isArray(payload.warnings)?payload.warnings.slice(0,20).map(value=>text(value,500)):[],limits:payload.limits&&typeof payload.limits==='object'?bounded(payload.limits):undefined}:{})};
  if(typeof active_step_id==='string'&&active_step_id.length<=200)evidence.active_step_id=active_step_id;
  const activeManualIds=[...new Set((Array.isArray(active_manual_step_ids)?active_manual_step_ids:[]).filter(id=>typeof id==='string'&&id.length>0&&id.length<=200))].slice(0,500);
  if(activeManualIds.length)evidence.active_manual_step_ids=activeManualIds;

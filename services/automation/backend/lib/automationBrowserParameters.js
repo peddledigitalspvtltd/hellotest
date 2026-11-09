@@ -160,7 +160,7 @@ function createBrowserParameterResolver({caseValues={},suiteValues={},suiteDataS
  };
  const resolvedValues=new Map([...privateValues].map(value=>[String(value),true]));
  const redactString=input=>{
-  const patterns=new Set();for(const [raw,sensitive]of resolvedValues){let encoded=raw;try{encoded=encodeURIComponent(raw);}catch{}for(const value of new Set([raw,encoded,JSON.stringify(raw).slice(1,-1)])){if(sensitive||value.length>=3)patterns.add(value);else if(input===value)return '[private parameter value]';}}
+  const patterns=new Set();for(const [raw,sensitive]of resolvedValues){if(!sensitive)continue;let encoded=raw;try{encoded=encodeURIComponent(raw);}catch{}for(const value of new Set([raw,encoded,JSON.stringify(raw).slice(1,-1)]))patterns.add(value);}
   if(!patterns.size)return input;const escape=value=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
   return input.replace(new RegExp([...patterns].sort((a,b)=>b.length-a.length).map(escape).join('|'),'g'),'[private parameter value]');
  };
@@ -184,7 +184,8 @@ function createBrowserParameterResolver({caseValues={},suiteValues={},suiteDataS
    const referenced=parameterNames([...sourceSteps,...manualCases.flatMap(item=>item.steps||[])]);
    return {schema_version:1,kind:'automation_build_data',test_case_id:testCaseId,created_at:now.toISOString(),verification_status:'unverified',steps:projectSteps(sourceSteps).map(step=>({step_id:step.id,action:step.action||'',expected_result:step.expected_result||''})),manual_steps:projectManualCases(manualCases).flatMap(item=>(item.steps||[]).map(step=>({manual_test_case_id:item.id,manual_step_id:step.id,action:step.action||'',expected_result:step.expected_result||''}))),parameter_values:{...publicValues},parameter_references:[...new Set([...Object.keys(values),...referenced])].sort(),bound_parameter_references:Object.keys(values).sort(),unscoped_parameter_bindings:Object.fromEntries(unscopedBindings),missing_parameter_references:referenced.filter(key=>!Object.hasOwn(values,key)),defaulted_parameter_references:Object.keys(defaultedCaseValues).sort(),deferred_parameter_references:[...deferredNames].sort(),private_parameter_references:[...sensitiveNames].sort()};
   },
-  // Public generated defaults can be saved atomically with a successful build.
+  // Public generated samples belong to the protected build snapshot. Reusable
+  // authoring templates keep their original owner when source is accepted.
   // Private values remain scoped to this resolver and never enter raw case data.
   generatedCaseValues,
   // Availability is derived after the same authorized precedence/generator
@@ -194,6 +195,20 @@ function createBrowserParameterResolver({caseValues={},suiteValues={},suiteDataS
   // An empty secret is safe to embed and must replay as the reviewed blank,
   // rather than become a missing external parameter in a standalone script.
   get exportParameterValues(){return {...publicValues,...Object.fromEntries(Object.entries(values).filter(([,value])=>value===''))};},
+  redactUpstream:input=>input===null||input===undefined?input:redactString(String(input)),
+  // The upstream MCP owns secret substitution and redacted code generation.
+  // Values are sent only to its authenticated session initializer, never LLM context.
+  upstreamBindings(){
+   const secrets={},secretBindings={},references={};
+   for(const key of Object.keys(values).filter(key=>sensitiveNames.has(key))){
+    const name=`HELLOTEST_${key.replace(/[^A-Za-z0-9]/g,'_').toUpperCase()}_${require('node:crypto').createHash('sha256').update(key).digest('hex').slice(0,8)}`;
+    secrets[name]=String(values[key]??'');secretBindings[name]=key;references[parameterReference(key)]=name;
+   }
+   // Native lookupSecret treats an empty value as an unknown token. The
+   // reviewed blank is safe to bind directly and must remain blank at Run.
+   const emptyPrivate=Object.fromEntries(Object.keys(values).filter(key=>sensitiveNames.has(key)&&values[key]==='').map(key=>[key,'']));
+   return {secrets,secretBindings,references,parameterValues:{...publicValues,...emptyPrivate}};
+  },
   requiresDataAccess(name,args){return ['browser_fill','browser_select_option','browser_press_key','browser_assert','browser_navigate'].includes(name)&&Boolean(bindingKey(args?.[name==='browser_navigate'?'url':name==='browser_press_key'?'key':'value'])||(compositeAssertion(name,args)&&parameterTemplateParts(args?.value)));},
   resolve(name,args){
    if(!['browser_fill','browser_select_option','browser_press_key','browser_assert','browser_navigate'].includes(name))return args;

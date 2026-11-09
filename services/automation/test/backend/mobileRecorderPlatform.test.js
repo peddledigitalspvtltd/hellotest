@@ -20,6 +20,8 @@ function recorderFixture({ steps = [], kind = "unified", configuration = null, r
     if (name.endsWith("/db")) return database;
     if (name.endsWith("/obsDb")) return {transaction:callback=>callback, prepare: () => ({get:async()=>undefined, all: async () => [], run: async () => ({ changes: 1 }) }) };
     if(name.endsWith('/repositoryScreenIdentity'))return require('../../backend/lib/repositoryScreenIdentity');
+    if(name.endsWith('/automationRecorderPlan'))return require('../../backend/lib/automationRecorderPlan');
+    if(name.endsWith('/recordingImport.service'))return {load:async()=>null};
     if (name === "crypto") return require("node:crypto");
     if (name.endsWith("/testStepAutomation")) return require("../../../platform/backend/src/utils/testStepAutomation");
     if (name.endsWith("/automationCaseType")) return require("../../../platform/backend/src/utils/automationCaseType");

@@ -145,6 +145,27 @@ test('unsupported direct-run steps fail without invoking a runner', async (t) =>
   assert.match(callback.case_result.error, /unsupported step type/);
 });
 
+for (const optional of [false,true]) test(`direct cancellation during the last ${optional?'optional':'required'} action cannot pass or run cleanup`, async t=>{
+  const controller=new AbortController(),visited=[];let callback;
+  t.mock.method(globalThis,'fetch',async(url,{body})=>{
+    if(url==='http://callback.test/result'){callback=JSON.parse(body);return Response.json({});}
+    visited.push(new URL(url).pathname);
+    if(String(url).endsWith('/last'))controller.abort(new Error('Run cancelled during last action'));
+    return Response.json({},{status:optional&&String(url).endsWith('/last')?500:200});
+  });
+  const step=(id,order)=>({id,order,step_type:'api',api_request:{url:'http://app.test/'+id},
+    ...(optional&&id==='last'?{automation_code:'// @hellotest-options optional\n'}:{})});
+  const envelope={engine_run_id:'direct-last-cancel-'+optional,hellotest_run_id:'run-cancel',hellotest_test_case_id:'case-cancel',
+    steps:[step('first',1),step('last',2)],artifact_policy:{video_mode:'off'},
+    hooks:[{id:'cleanup',name:'Cleanup',scope:'test',phase:'post',steps:[step('cleanup',1)]}],
+    callback:{url:'http://callback.test/result',signing_secret:'fixture-secret'}};
+  await queueRunExecution(envelope,saveAcceptedRun(envelope,buildAcceptedRun(envelope)),{info(){},error(){}},{signal:controller.signal});
+  assert.deepEqual(visited,['/first','/last']);
+  assert.equal(callback.case_result.status,'failed');
+  assert.match(callback.case_result.error,/Run cancelled during last action/);
+  assert.equal(callback.case_result.logs.stepStatuses.last,'failed');
+});
+
 for (const failure of ['case', 'setup', 'blocked-setup', 'continue-setup']) test(`direct execution runs teardown once after ${failure} failure`, async (t) => {
   const visited = [];
   let callback;

@@ -8,6 +8,7 @@ const apps = require('@hellotest/platform/backend/public/applicationAccess');
 const { storyAiSnapshot } = require('@hellotest/platform/backend/src/utils/aiArtifactContext');
 const { normalizeParameterLayer } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const { referenceKey, parameterReference, createBrowserParameterResolver } = require('@hellotest/automation/backend/lib/automationBrowserParameters');
+const { UPSTREAM_BUILD_ENGINE } = require('@hellotest/automation/backend/lib/automationBuildPipelineOptions');
 const { fail } = require('./connections');
 const { safeMessage, failureInfo, withArtifact } = require('./runtimeEvents');
 const automationInputs = require('./automationNodeInputs');
@@ -266,7 +267,7 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
   if (app.project_id !== run.project_id) throw fail('The application must belong to the workflow project.', 403);
   const core = await metrics();
   const results = [];
-  const checkpointKey = task === 'automation-engineer' ? fingerprint({ node: node.data,
+  const checkpointKey = task === 'automation-engineer' ? fingerprint({ node: node.data, builder_contract:UPSTREAM_BUILD_ENGINE,
     input:packets.map(packet=>({story_id:packet?.story_id,story_revision:packet?.story_revision,cases:list(packet?.cases).map(fingerprint),case_assurance:packet?.case_assurance})) }) : null;
   const savedCheckpoint = run.node_results?.find(item=>item.node_id===node.id)?.progress?.automation_checkpoint;
   const resumable = savedCheckpoint?.schema_version === 1 && savedCheckpoint.input_fingerprint === checkpointKey ? savedCheckpoint.stories : [];
@@ -287,9 +288,44 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
     }
     const progress = {percent:Math.round((storyIndex + (caseIndex + 1) / Math.max(1,totalCases)) * 100 / Math.max(1,packets.length)),
       current_item:storyIndex+1,total_items:packets.length,current_case:caseIndex+1,total_cases:totalCases,
-      completed_items:processed.map(item=>taskResult(task,item)),automation_checkpoint:{schema_version:1,input_fingerprint:checkpointKey,
+      completed_items:processed.map(item=>taskResult(task,item)),automation_checkpoint:{schema_version:1,builder_contract:UPSTREAM_BUILD_ENGINE,input_fingerprint:checkpointKey,
         stories:[...checkpointStories.values()]}};
     if (Buffer.byteLength(JSON.stringify(progress)) > 4 * 1024 * 1024) throw fail('Automation progress exceeded its checkpoint budget. Reduce cases per Story or split the Sprint; completed checkpoints are retained.',422);
+    await onProgress(progress);
+  };
+  const builderProgress = async ({ packet, storyIndex, caseIndex, totalCases, steps, event }) => {
+    const details = event?.details && typeof event.details === 'object' ? event.details : {};
+    const stepId = details.active_step_id || details.step_id;
+    const activeStepIndex = steps.findIndex(step => step.id === stepId);
+    const activeStepOrder = Number.isInteger(details.step_order) ? details.step_order
+      : activeStepIndex >= 0 ? Number(steps[activeStepIndex].step_order) : null;
+    const completedSections = Number.isInteger(details.completed_sections) ? details.completed_sections : null;
+    const totalSections = Number.isInteger(details.total_sections) ? details.total_sections : steps.length;
+    const activeMessage = typeof event?.message === 'string' ? event.message.slice(0, 600) : 'Generating automation.';
+    const stepFraction = completedSections != null ? completedSections / Math.max(1, totalSections)
+      : activeStepIndex >= 0 ? (activeStepIndex + 0.5) / Math.max(1, steps.length) : 0;
+    const processed = [...results, packet];
+    packet.automation_progress = {
+      completed: packet.automation.filter(Boolean).length,
+      failed: list(packet.automation_failures).length,
+      needs_input: list(packet.automation_input_required).length,
+      processed: caseIndex,
+      total: totalCases,
+      active_case_index: caseIndex,
+      active_phase: typeof event?.phase === 'string' ? event.phase.slice(0, 120) : 'automation.agent.started',
+      active_message: activeMessage,
+      ...(activeStepOrder != null ? { active_step_order: activeStepOrder } : {}),
+      ...(completedSections != null ? { completed_sections: completedSections } : {}),
+      ...(totalSections > 0 ? { total_sections: totalSections } : {})
+    };
+    const progress = {
+      percent: Math.min(99, Math.round((storyIndex + (caseIndex + Math.min(0.95, stepFraction)) / Math.max(1, totalCases)) * 100 / Math.max(1, packets.length))),
+      current_item: storyIndex + 1, total_items: packets.length, current_case: caseIndex + 1, total_cases: totalCases,
+      completed_items: processed.map(item => taskResult(task, item)),
+      automation_checkpoint: { schema_version: 1, builder_contract: UPSTREAM_BUILD_ENGINE, input_fingerprint: checkpointKey,
+        stories: [...checkpointStories.values()] }
+    };
+    if (Buffer.byteLength(JSON.stringify(progress)) > 4 * 1024 * 1024) throw fail('Automation progress exceeded its checkpoint budget. Reduce cases per Story or split the Sprint; completed checkpoints are retained.', 422);
     await onProgress(progress);
   };
   const seenStories = new Set();
@@ -399,7 +435,29 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
           case_assurance: packet.case_assurance[caseIndex].assurance_review, case_assurance_limitations: packet.case_assurance[caseIndex].analysis?.limitations || [] })].filter(Boolean).join('\n\n');
         let automation;
         try {
-          automation = await require('@hellotest/automation/backend/services/aiAutomationBuilder.service').previewAutomationDraft({ draft: automationDraft, runtime_parameter_values:supplied.runtimeValues, app_type_kind: app.kind || app.type || 'web', additional_context: automationContext, integration_id: integrationId, project_id: run.project_id, app_type_id: app.id, user_id: user.id, inspect_browser: node.data.inspectBrowser !== false, signal });
+          // Browser visibility and action authority are separate. Existing
+          // workflows retain read-only behavior until their saved mode changes.
+          const interactive = inputs.browserMode === 'perform_steps' && automationDraft.steps.some(step => step.step_type === 'web');
+          const generate = async (reportProgress = async () => {}) => {
+            try { return supplied.project(await require('@hellotest/automation/backend/services/aiAutomationBuilder.service').previewAutomationDraft({ draft: automationDraft, runtime_parameter_values:supplied.runtimeValues, app_type_kind: app.kind || app.type || 'web', additional_context: automationContext, integration_id: integrationId, project_id: run.project_id, app_type_id: app.id, user_id: user.id,
+              inspect_browser: inputs.browserMode !== 'offline', allow_browser_actions: interactive, signal, onProgress: reportProgress })); }
+            catch (error) {
+              // A model's pre-dispatch failure cannot establish that earlier
+              // browser submissions in the whole case did not happen.
+              if (interactive) error.effect_dispatched = true;
+              throw error;
+            }
+          };
+          // The existing durable effect journal prevents a worker retry from
+          // repeating submissions after a lost whole-case result/checkpoint.
+          const reportProgress = event => builderProgress({ packet: output, storyIndex: index, caseIndex, totalCases: packet.cases.length,
+            steps: automationDraft.steps, event });
+          await reportProgress({ phase: 'automation.agent.case.started', message: `Starting automation for case ${caseIndex + 1} of ${packet.cases.length}.`,
+            details: { step_order: automationDraft.steps[0]?.step_order } });
+          automation = interactive
+            ? await require('./operationJournal').invoke({run:{...run,iteration_path:[...(run.iteration_path || []),'automation',story.id,caseIndex]},node,user,
+              input:{story_id:story.id,story_revision:revision(story),case_fingerprint:fingerprint(draft),browser_mode:inputs.browserMode},maxResponseBytes:2*1024*1024},() => generate(reportProgress))
+            : await generate(reportProgress);
           assertActive(signal);
           if (automation?.validation?.status !== 'passed' || !Array.isArray(automation.steps) || automation.steps.length !== automationDraft.steps.length) {
             throw Object.assign(fail('The native automation generator did not return a complete validated draft for every authored step.',422),{code:'AUTOMATION_BUILD_INCOMPLETE'});

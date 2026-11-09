@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "contract_version": "hellotest_browser_assert_v3",
+  "sha256": "d6920423ec2a9bcf10d254ac01427584daaa5c7a4f29a305c2b64453b5ccd556",
+  "tool": {
+    "name": "browser_assert",
+    "description": "Read-only, bounded retrying check of an expected browser condition. visible/hidden/checked/unchecked/enabled/disabled/editable/valid/invalid/field_valid require locator and forbid value. Text/value/input_type/count checks require both locator and value. URL/title checks always inspect the top page, require value and forbid locator and frame. Element checks may use an observed frame path. Use observed unique locators; hidden permits an absent element, count permits multiple matches. text/text_contains compare whitespace-normalized visible innerText, including descendant text such as a Dismiss button; ARIA labels alone are not innerText. Exact text checks the whole selected container. For an authored required message fragment, use text_contains or a uniquely observed message child when this preserves the requirement; retain explicit whole-container equality. Snapshot text is a textContent excerpt and can differ from innerText through hidden descendants or truncation. Do not copy volatile support references or IDs into expectations unless the authored requirement demands them. text_content modes preserve native Playwright textContent string assertions, including hidden child text. valid/invalid read only the selected native input/textarea/select control's validity.valid when willValidate is true; barred controls and noncontrols are unsupported. They do not dispatch validation events, submit a form, establish server/business success or prove that all application errors are absent. editable uses native Playwright editability, so enabled alone cannot establish it; read-only or disabled controls fail. It does not require visibility or prove a fill succeeded. input_type compares the effective native HTMLInputElement.type property to the exact supplied value; missing or invalid type defaults to text, browser-normalized attribute casing is respected, and non-input subjects are unsupported. Expected value casing is not normalized. field_valid checks one visible native value-entry input/textarea/select: native constraints valid, aria-invalid absent/false and no visible nonempty associated aria-errormessage or aria-describedby role=alert. Missing aria-describedby hints are ignored; every explicit aria-errormessage ID must resolve, and all resolved associations must be unique within the same DOM root (at most 32 IDs, each at most 256 characters). Duplicate IDs and malformed associations are unsupported. It proves only the selected field has no declared validation error, never form/business success or all application errors. title_normalized preserves native title whitespace matching; value, URL and title compare exact strings. url_contains checks a literal substring of the current same-origin URL, never regex. A satisfied condition is browser evidence, never a passed test run. No actual or expected values are echoed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "description": "Exact observed same-origin iframe selector path from snapshot.frames; never guess a path. Scope applies only to this operation."
+        },
+        "assertion": {
+          "type": "string",
+          "enum": [
+            "visible",
+            "hidden",
+            "text",
+            "text_contains",
+            "text_content",
+            "text_content_contains",
+            "value",
+            "valid",
+            "invalid",
+            "field_valid",
+            "checked",
+            "unchecked",
+            "enabled",
+            "disabled",
+            "editable",
+            "input_type",
+            "count",
+            "url",
+            "url_contains",
+            "title",
+            "title_normalized"
+          ]
+        },
+        "locator": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "assertion"
+      ],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "assertion": {
+              "enum": [
+                "visible",
+                "hidden",
+                "valid",
+                "invalid",
+                "field_valid",
+                "checked",
+                "unchecked",
+                "enabled",
+                "disabled",
+                "editable"
+              ]
+            }
+          },
+          "required": [
+            "locator"
+          ],
+          "not": {
+            "required": [
+              "value"
+            ]
+          }
+        },
+        {
+          "properties": {
+            "assertion": {
+              "enum": [
+                "text",
+                "text_contains",
+                "text_content",
+                "text_content_contains",
+                "value",
+                "input_type",
+                "count"
+              ]
+            }
+          },
+          "required": [
+            "locator",
+            "value"
+          ]
+        },
+        {
+          "properties": {
+            "assertion": {
+              "enum": [
+                "url",
+                "url_contains",
+                "title",
+                "title_normalized"
+              ]
+            }
+          },
+          "required": [
+            "value"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "locator"
+                ]
+              },
+              {
+                "required": [
+                  "frame"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true
+    }
+  }
+}

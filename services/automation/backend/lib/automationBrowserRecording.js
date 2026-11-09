@@ -1,18 +1,30 @@
 const {browserReceipt,interactiveEvidenceFeedback}=require('./automationInteractiveEvidence');
 const {createHash}=require('node:crypto');
+const { validFramePath, framePathKey, snapshotFrameScope } = require('./automationFrameScope');
+const { canonicalIssuedOptionRequest } = require('./automationOptionParameterBinding');
 
 // Model output, persisted observations and UI history cannot manufacture these
 // records. Only the host's actual browser.call result enters this WeakMap.
 const operations=new WeakMap();
 const objectTargets=new WeakMap();
 const actionTools=new Set(['browser_navigate','browser_click','browser_fill','browser_press_key','browser_select_option','browser_hover','browser_check','browser_uncheck']);
+const validArguments = (name, args) => args && typeof args === 'object' && !Array.isArray(args)
+  && Object.entries(args).every(([key, value]) => key === 'frame'
+    ? validFramePath(value) && name !== 'browser_navigate' && !(name === 'browser_assert' && ['url','url_contains','title','title_normalized'].includes(args.assertion))
+    : typeof value === 'string' && value.length <= 2000);
 function recordBrowserOperation(observation,request,{snapshot}={}){
   if(!observation||observation.mcp_call===false||operations.has(observation)||observation.tool!==request?.name)return;
   const receipt=browserReceipt(observation);
   if(!receipt||!(actionTools.has(request.name)&&receipt.action_outcome==='completed'||request.name==='browser_assert'&&receipt.assertion_outcome==='satisfied'))return;
   const args=request.arguments;
-  if(!args||typeof args!=='object'||Array.isArray(args)||Object.values(args).some(value=>typeof value!=='string'||value.length>2000))return;
-  operations.set(observation,Object.freeze({name:request.name,arguments:Object.freeze({...args}),...(request.name==='browser_navigate'&&request.navigation_intent==='reload'?{navigation_intent:'reload'}:{})}));
+  if(!validArguments(request.name,args))return;
+  if(args.frame){
+    const scope=snapshot?snapshotFrameScope(browserReceipt(snapshot)):null;
+    if(!scope?.path.length || framePathKey(scope.path)!==framePathKey(args.frame)
+      || framePathKey(receipt.frame_path)!==framePathKey(args.frame) || receipt.frame_document_id!==scope.document_id)return;
+  } else if(receipt.frame_path!==undefined)return;
+  const recordedArgs=canonicalIssuedOptionRequest(request,{snapshot,stepId:observation.execution_step_id}).arguments;
+  operations.set(observation,Object.freeze({name:request.name,arguments:Object.freeze({...recordedArgs,...(recordedArgs.frame?{frame:Object.freeze([...recordedArgs.frame])}:{})}),...(request.name==='browser_navigate'&&request.navigation_intent==='reload'?{navigation_intent:'reload'}:{})}));
   if(typeof args.locator==='string'){
     const target=require('./automationBrowserModelTargets').repositoryTargetEvidence(args.locator,snapshot);
     let samePage=true;
@@ -22,7 +34,7 @@ function recordBrowserOperation(observation,request,{snapshot}={}){
     if(target&&request.name==='browser_assert'&&typeof receipt.url==='string'){
       try{const url=new URL(receipt.url),route=url.search||url.hash?createHash('sha256').update(url.href).digest('hex'):null;samePage=url.origin+url.pathname===target.page_url&&route===(target.observed_route_sha256||null);}catch{samePage=false;}
     }
-    if(target&&samePage)objectTargets.set(observation,Object.freeze({...target,locator:args.locator}));
+    if(target&&samePage)objectTargets.set(observation,Object.freeze({...target,locator:recordedArgs.locator}));
   }
 }
 
@@ -84,8 +96,9 @@ function recordedSectionCandidate({response,execution,observations,compile}){
 }
 
 function operationKey(request){
+  request=canonicalIssuedOptionRequest(request);
   const args=request?.arguments;
-  if(!args||typeof args!=='object'||Array.isArray(args)||Object.values(args).some(value=>typeof value!=='string'||value.length>2000))return null;
+  if(!validArguments(request?.name,args))return null;
   return JSON.stringify([request.name,Object.entries(args).sort(([left],[right])=>left.localeCompare(right)),request.name==='browser_navigate'&&request.navigation_intent==='reload'?'reload':null]);
 }
 

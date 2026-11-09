@@ -56,3 +56,32 @@ test('generic artifact downloads cannot bypass automation content permissions or
   artifact={...artifact,transaction_id:'activity',mime_type:'text/plain',content:'ordinary log'};
   denied='automation.ai';assert.equal((await app.inject({method:'GET',url})).statusCode,200);
 });
+
+test('quarantined browser images are forbidden through both readers while other exact images remain accessible', async t => {
+  const app=Fastify();t.after(()=>app.close());
+  const transaction={id:'activity',project_id:'project',category:'automation_build',metadata:{agent_activity:true,artifact_quarantine:{blocked:{quarantined:true}}}};
+  let artifact={id:'blocked',transaction_id:'activity',mime_type:'image/jpeg',content:Buffer.from([255,216,255,1,2,3]).toString('base64')};
+  t.mock.method(projects,'getProject',async()=>({id:'project'}));
+  t.mock.method(transactions,'getTransaction',async()=>transaction);
+  t.mock.method(transactions,'getTransactionArtifact',async()=>artifact);
+  app.decorate('authenticate',async req=>{req.user={id:'author',role:'member'};});
+  app.decorate('requirePermission',()=>async()=>{});
+  app.decorate('validate',()=>{});
+  await app.register(require('../routes/workspaceTransactions.routes'));
+  await app.register(require('../../../testing/backend/routes/testCases.routes'));
+  const activity=require('@hellotest/automation/backend/services/automationAgentActivity.service');
+  for(const id of ['blocked','unaffected']){
+    artifact={...artifact,id};
+    const response=await app.inject({method:'GET',url:`/workspace-transactions/activity/artifacts/${id}/download`});
+    assert.equal(response.statusCode,id==='blocked'?403:200);
+    const imageResponse=await app.inject({method:'GET',url:`/test-cases/automation/jobs/activity/screenshots/${id}`});
+    assert.equal(imageResponse.statusCode,id==='blocked'?403:200,'The protected browser-image HTTP route uses the same quarantine authority');
+    if(id==='blocked'){
+      assert.equal(response.json().code,'ARTIFACT_PRIVACY_QUARANTINED');assert.doesNotMatch(response.body,/\/9j/);
+      await assert.rejects(activity.screenshot(transaction,id),error=>error.statusCode===403&&error.code==='ARTIFACT_PRIVACY_QUARANTINED');
+    }else assert.match((await activity.screenshot(transaction,id)).data_url,/^data:image\/jpeg;base64,/);
+  }
+  artifact={...artifact,id:'blocked',transaction_id:'foreign'};
+  assert.equal((await app.inject({method:'GET',url:'/workspace-transactions/activity/artifacts/blocked/download'})).statusCode,404);
+  await assert.rejects(activity.screenshot(transaction,'blocked'),error=>error.statusCode===404);
+});

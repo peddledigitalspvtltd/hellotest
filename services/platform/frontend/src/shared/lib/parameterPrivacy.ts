@@ -40,7 +40,8 @@ export function caseParameterSaveOptions(
   ownValues: Record<string, string>,
   savedValues: Record<string, string> = {},
   privateNames: Iterable<string> = [],
-  explicitOverrideNames: Iterable<string> = []
+  explicitOverrideNames: Iterable<string> = [],
+  explicitPrivateNames: Iterable<string> = []
 ): TestDataOptions {
   const own = normalizeStepParameterValues(ownValues, "t");
   const saved = normalizeStepParameterValues(savedValues, "t");
@@ -50,7 +51,10 @@ export function caseParameterSaveOptions(
   return {
     ...options,
     parameter_overrides: [...overrides].filter(name => Object.prototype.hasOwnProperty.call(own, name)).sort(),
-    private_parameter_names: [...hidden].filter(name => Object.prototype.hasOwnProperty.call(own, name)).sort()
+    private_parameter_names: [...new Set([
+      ...[...hidden].filter(name => Object.prototype.hasOwnProperty.call(own, name)),
+      ...Array.from(explicitPrivateNames, name => normalizeStepParameterName(name, "t")).filter(Boolean)
+    ])].sort()
   };
 }
 

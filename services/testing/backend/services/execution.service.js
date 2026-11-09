@@ -1206,6 +1206,13 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
       sortOrder += 1;
       const parameterTemplateValues = normalizeParameterValues(linkedParameters.get(directCase.test_case_id)?.effective_parameter_values||directCase.parameter_values);
       const suiteParameterTemplateValues = normalizeParameterValues(suiteContexts.get(directCase.suite_id)?.parameters || directCase.suite_parameter_values);
+      // Selecting individual cases still selects one frozen suite context.
+      // Generate suite values once, including when a preceding selected suite
+      // already materialized the same context, so cases share tenant/session IDs.
+      const suiteParameterValues = directCase.suite_id
+        ? materializedSuiteParameters.get(directCase.suite_id) || materializeParameterValues(suiteParameterTemplateValues)
+        : materializeParameterValues(suiteParameterTemplateValues);
+      if (directCase.suite_id) materializedSuiteParameters.set(directCase.suite_id, suiteParameterValues);
 
       caseSnapshots.push({
         execution_id: executionId,
@@ -1224,7 +1231,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         parameter_template_values: parameterTemplateValues,
         execution_hooks: await require("./caseExecutionHooks.service").snapshotCaseExecutionHooks(directCase.test_case_id, directCase.execution_hooks, {projectId:options.projectId,appTypeId:options.appTypeId,userId:options.userId}),
         test_data_options: freezeCaseDataOptions(directCase, directCase.suite_id),
-        suite_parameter_values: materializeParameterValues(suiteParameterTemplateValues),
+        suite_parameter_values: suiteParameterValues,
         suite_parameter_template_values: suiteParameterTemplateValues,
         sort_order: sortOrder,
         assigned_to: resolvedAssignedTo,
@@ -1908,6 +1915,11 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
     normalizeText(name) ||
     `${sourceExecution.name || "Execution Run"}${failed_only ? " Failed Rerun" : " Rerun"}`;
   const rerunAssignedTo = resolveExecutionAssignee(created_by, sourceExecution.assigned_to);
+  // Match hydrated run_mode precedence. Manual runs use the remote storage
+  // enum with a manual trigger; local/remote reruns retain their dispatch mode.
+  const rerunMode = sourceExecution.trigger === "manual" ? "manual"
+    : sourceExecution.trigger === "local" || sourceExecution.execution_mode === "local" ? "local" : "remote";
+  const rerunTrigger = rerunMode === "remote" ? "ci" : rerunMode;
   const rerunDataSetSnapshot = materializeDataSetSnapshot(sourceExecution.test_data_set?.snapshot || null);
   const rerunLinkedDataSetSnapshots = new Map();
   const rerunSuiteParameters = new Map();
@@ -1923,6 +1935,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
         app_type_id,
         name,
         trigger,
+        execution_mode,
         status,
         test_environment_id,
         test_environment_name,
@@ -1944,12 +1957,14 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
         direct_test_case_ids,
         created_by
       )
-      VALUES (?, ?, ?, ?, 'manual', 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       nextExecutionId,
       sourceExecution.project_id,
       sourceExecution.app_type_id || null,
       rerunName,
+      rerunTrigger,
+      rerunMode === "local" ? "local" : "remote",
       sourceExecution.test_environment?.id || null,
       sourceExecution.test_environment?.name || null,
       materializeVariableSnapshot(sourceExecution.test_environment?.snapshot || null),

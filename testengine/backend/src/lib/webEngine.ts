@@ -1,7 +1,8 @@
 import { automationStepOptions } from "./automationStepOptions.js";
 import { instrumentAutomationLines, createAutomationLineTracer, type AutomationLineResult } from "./automationLineTrace.js";
 import { resolveRepositoryLocator } from "./repositoryLocator.js";
-import { createPlaywrightCodeBindings } from "./playwrightBindings.js";
+import { createPlaywrightCodeBindings, usesExpressionParameterBindings } from "./playwrightBindings.js";
+import { normalizeAutomationAssertionTimeoutMs } from "./automationAssertionPolicy.js";
 import { parse } from "acorn";
 import { createHash } from "node:crypto";
 import { expect as playwrightExpect } from "playwright/test";
@@ -241,6 +242,7 @@ type WebSession = {
   press: (target: string | null, key: string, options?: WebElementOptions) => Promise<void>;
   scroll: (deltaX?: number, deltaY?: number, options?: WebScrollOptions) => Promise<void>;
   waitForTimeout: (ms: number) => Promise<void>;
+  waitForSelector: (target: string, state?: "attached" | "detached" | "visible" | "hidden", timeoutMs?: number) => Promise<void>;
   waitForUrl: (expected: string, options?: { timeoutMs?: number; match?: "contains" | "equals" }) => Promise<void>;
   expectVisible: (target: string, options?: WebElementOptions) => Promise<void>;
   expectHidden: (target: string, options?: WebElementOptions) => Promise<void>;
@@ -312,7 +314,7 @@ const normalizePositiveInteger = (value: unknown, fallback: number, min: number,
 const resolveTimeoutPolicy = (envelope: EngineRunEnvelope) => ({
   navigation: normalizePositiveInteger(envelope.timeouts?.navigation_timeout_ms, 30_000, 1_000, 600_000),
   action: normalizePositiveInteger(envelope.timeouts?.action_timeout_ms, 5_000, 250, 120_000),
-  assertion: normalizePositiveInteger(envelope.timeouts?.assertion_timeout_ms, 10_000, 250, 120_000),
+  assertion: normalizeAutomationAssertionTimeoutMs(envelope.timeouts?.assertion_timeout_ms),
   recoveryWait: normalizePositiveInteger(envelope.timeouts?.recovery_wait_ms, 750, 100, 30_000)
 });
 
@@ -1060,7 +1062,7 @@ const downloadRemoteUploadFile = async (url: string) => {
   };
 };
 
-const createPlaywrightLocatorFacade = (resolver: (target: string, resolutionState?: LocatorResolutionState) => Promise<Locator>, target: string): PageLocatorFacade => {
+const createPlaywrightLocatorFacade = (resolver: (target: string, resolutionState?: LocatorResolutionState) => Promise<Locator>, target: string, defaultWaitTimeout = 10_000): PageLocatorFacade => {
   const prepare = async (options?: WebElementOptions | null, fallbackTimeout = 10_000) => {
     const normalized = normalizeElementOptions(options, fallbackTimeout);
     const locator = await resolver(target, normalized.waitFor === "visible" ? "visible" : "attached");
@@ -1178,11 +1180,11 @@ const createPlaywrightLocatorFacade = (resolver: (target: string, resolutionStat
     const locator = await resolver(target);
     await locator.waitFor({
       state: options?.state || "visible",
-      timeout: options?.timeout
+      timeout: clampTimeout(options?.timeout, defaultWaitTimeout)
     });
   },
-  first: () => createPlaywrightLocatorFacade(async (value) => (await resolver(value)).first(), target),
-  nth: (index: number) => createPlaywrightLocatorFacade(async (value) => (await resolver(value)).nth(index), target),
+  first: () => createPlaywrightLocatorFacade(async (value) => (await resolver(value)).first(), target, defaultWaitTimeout),
+  nth: (index: number) => createPlaywrightLocatorFacade(async (value) => (await resolver(value)).nth(index), target, defaultWaitTimeout),
   count: async () => {
     const locator = await resolver(target);
     return locator.count();
@@ -1779,6 +1781,12 @@ class PlaywrightWebSession implements WebSession {
     await this.pageOrThrow.waitForTimeout(Math.max(0, ms));
   }
 
+  async waitForSelector(target: string, state: "attached" | "detached" | "visible" | "hidden" = "visible", timeoutMs?: number) {
+    if (!['attached', 'detached', 'visible', 'hidden'].includes(state)) throw new Error('Wait state must be "attached", "detached", "visible" or "hidden".');
+    const locator = await this.resolveLocator(target, state === "visible" ? "visible" : "attached", true);
+    await locator.waitFor({ state, timeout: clampTimeout(timeoutMs, this.timeouts.assertion) });
+  }
+
   async waitForUrl(expected: string, options?: { timeoutMs?: number }) {
     const resolved = stripWrappingQuotes(expected);
     await this.pageOrThrow.waitForURL((url) => url.toString().includes(resolved), {
@@ -1883,22 +1891,23 @@ class PlaywrightWebSession implements WebSession {
         wheel: (deltaX: number, deltaY: number) => this.scroll(deltaX, deltaY)
       },
       waitForSelector: async (target: string, options) => {
-        const locator = createPlaywrightLocatorFacade((value) => this.resolveLocator(value, "visible", true), target);
+        const locator = createPlaywrightLocatorFacade((value) => this.resolveLocator(value, "visible", true), target, this.timeouts.assertion);
         await locator.waitFor(options);
         return locator;
       },
       url: async () => this.pageOrThrow.url(),
       textContent: (target: string) => this.text(target),
-      locator: (target: string) => createPlaywrightLocatorFacade((value) => this.resolveLocator(value, "visible", true), target),
-      getByText: (target: string, options) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByText(value, options)), target),
-      getByLabel: (target: string, options) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByLabel(value, options)), target),
-      getByPlaceholder: (target: string, options) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByPlaceholder(value, options)), target),
-      getByTestId: (target: string) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByTestId(value)), target),
+      locator: (target: string) => createPlaywrightLocatorFacade((value) => this.resolveLocator(value, "visible", true), target, this.timeouts.assertion),
+      getByText: (target: string, options) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByText(value, options)), target, this.timeouts.assertion),
+      getByLabel: (target: string, options) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByLabel(value, options)), target, this.timeouts.assertion),
+      getByPlaceholder: (target: string, options) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByPlaceholder(value, options)), target, this.timeouts.assertion),
+      getByTestId: (target: string) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByTestId(value)), target, this.timeouts.assertion),
       getByRole: (role: string, options?: { name?: string | RegExp; exact?: boolean }) => {
         const target = options?.name === undefined ? role : String(options.name);
         return createPlaywrightLocatorFacade(
           () => Promise.resolve(this.pageOrThrow.getByRole(role as never, options as never)),
-          target
+          target,
+          this.timeouts.assertion
         );
       },
       keyboard: {
@@ -1913,85 +1922,40 @@ class PlaywrightWebSession implements WebSession {
   }
 }
 
-const createSeleniumLocatorFacade = (resolveElement: (target: string) => Promise<WebElement>, target: string): PageLocatorFacade => ({
-  click: async (_options?: WebElementOptions) => {
-    const element = await resolveElement(target);
-    await element.click();
-  },
-  fill: async (value: string, _options?: WebFillOptions) => {
-    const element = await resolveElement(target);
-    await element.clear();
-    await element.sendKeys(value);
-  },
-  press: async (key: string, _options?: WebElementOptions) => {
-    const element = await resolveElement(target);
-    await element.sendKeys(key);
-  },
-  hover: async (_options?: WebElementOptions) => {
-    const element = await resolveElement(target);
-    await element.getRect();
-  },
-  dblclick: async (_options?: WebElementOptions) => {
-    const element = await resolveElement(target);
-    await element.click();
-    await element.click();
-  },
-  selectOption: async (value: string | string[], _options?: WebElementOptions) => {
-    const element = await resolveElement(target);
-    await element.sendKeys(Array.isArray(value) ? value[0] || "" : value);
-  },
-  setInputFiles: async (files: string | string[], _options?: WebElementOptions) => {
-    const element = await resolveElement(target);
-    const descendants = await element.findElements(By.css("input[type='file']")).catch(() => []);
-    const targetElement = descendants[0] || element;
-    await targetElement.sendKeys(normalizeUploadFiles(files).join("\n"));
-  },
-  check: async (_options?: WebElementOptions) => {
-    const element = await resolveElement(target);
-    if (!await element.isSelected().catch(() => false)) {
-      await element.click();
-    }
-  },
-  uncheck: async (_options?: WebElementOptions) => {
-    const element = await resolveElement(target);
-    if (await element.isSelected().catch(() => false)) {
-      await element.click();
-    }
-  },
-  textContent: async () => {
-    const element = await resolveElement(target);
-    return (await element.getText()) || "";
-  },
-  innerText: async () => {
-    const element = await resolveElement(target);
-    return (await element.getText()) || "";
-  },
-  inputValue: async () => {
-    const element = await resolveElement(target);
-    return (await element.getAttribute("value")) || "";
-  },
-  isVisible: async () => {
-    const element = await resolveElement(target);
-    return element.isDisplayed();
-  },
-  getAttribute: async (name: string) => {
-    const element = await resolveElement(target);
-    return element.getAttribute(name);
-  },
-  waitFor: async () => {
-    await resolveElement(target);
-  },
-  first: () => createSeleniumLocatorFacade(resolveElement, target),
-  nth: () => createSeleniumLocatorFacade(resolveElement, target),
-  count: async () => {
-    try {
-      await resolveElement(target);
-      return 1;
-    } catch {
-      return 0;
-    }
-  }
-});
+const createSeleniumLocatorFacade = (
+  resolveElement: (target: string) => Promise<WebElement>,
+  target: string,
+  waitForTarget: (target: string, options?: { state?: "attached" | "detached" | "visible" | "hidden"; timeoutMs?: number }) => Promise<void> = async value => { await resolveElement(value); }
+): PageLocatorFacade => {
+  const prepare = async (options?: WebElementOptions) => {
+    await waitForTarget(target, { state: options?.waitFor || "visible", timeoutMs: options?.timeoutMs });
+    return resolveElement(target);
+  };
+  return {
+    click: async (options?: WebElementOptions) => { await (await prepare(options)).click(); },
+    fill: async (value: string, options?: WebFillOptions) => { const element = await prepare(options); await element.clear(); await element.sendKeys(value); },
+    press: async (key: string, options?: WebElementOptions) => { await (await prepare(options)).sendKeys(key); },
+    hover: async (options?: WebElementOptions) => { await (await prepare(options)).getRect(); },
+    dblclick: async (options?: WebElementOptions) => { const element = await prepare(options); await element.click(); await element.click(); },
+    selectOption: async (value: string | string[], options?: WebElementOptions) => { await (await prepare(options)).sendKeys(Array.isArray(value) ? value[0] || "" : value); },
+    setInputFiles: async (files: string | string[], options?: WebElementOptions) => {
+      const element = await prepare({ ...options, waitFor: options?.waitFor || "attached" });
+      const descendants = await element.findElements(By.css("input[type='file']")).catch(() => []);
+      await (descendants[0] || element).sendKeys(normalizeUploadFiles(files).join("\n"));
+    },
+    check: async (options?: WebElementOptions) => { const element = await prepare(options); if (!await element.isSelected().catch(() => false)) await element.click(); },
+    uncheck: async (options?: WebElementOptions) => { const element = await prepare(options); if (await element.isSelected().catch(() => false)) await element.click(); },
+    textContent: async () => (await resolveElement(target).then(element => element.getText())) || "",
+    innerText: async () => (await resolveElement(target).then(element => element.getText())) || "",
+    inputValue: async () => (await resolveElement(target).then(element => element.getAttribute("value"))) || "",
+    isVisible: async () => (await resolveElement(target)).isDisplayed(),
+    getAttribute: async (name: string) => (await resolveElement(target)).getAttribute(name),
+    waitFor: async (options) => waitForTarget(target, { state: options?.state || "visible", timeoutMs: options?.timeout }),
+    first: () => createSeleniumLocatorFacade(resolveElement, target, waitForTarget),
+    nth: () => createSeleniumLocatorFacade(resolveElement, target, waitForTarget),
+    count: async () => { try { await resolveElement(target); return 1; } catch { return 0; } }
+  };
+};
 
 class SeleniumWebSession implements WebSession {
   readonly provider: EngineWebEngineProvider = "selenium";
@@ -2441,6 +2405,33 @@ class SeleniumWebSession implements WebSession {
     await this.driverOrThrow.sleep(Math.max(0, ms));
   }
 
+  async waitForSelector(target: string, state: "attached" | "detached" | "visible" | "hidden" = "visible", timeoutMs?: number) {
+    if (!['attached', 'detached', 'visible', 'hidden'].includes(state)) throw new Error('Wait state must be "attached", "detached", "visible" or "hidden".');
+    const driver = this.driverOrThrow;
+    const targets = resolveObjectRepositoryLocatorCandidates(this.envelope, target);
+    const findMatches = async () => {
+      for (const candidate of targets) {
+        for (const strategy of this.byStrategies(candidate)) {
+          const matches = await driver.findElements(strategy).catch(() => []);
+          if (matches.length) return matches;
+        }
+      }
+      return [];
+    };
+    await driver.manage().setTimeouts({ implicit: 0 });
+    try {
+      await driver.wait(async () => {
+        const matches = await findMatches();
+        if (state === "attached") return matches.length > 0;
+        if (state === "detached") return matches.length === 0;
+        const visible = await Promise.all(matches.map(element => element.isDisplayed().catch(() => false)));
+        return state === "visible" ? visible.some(Boolean) : visible.every(value => !value);
+      }, clampTimeout(timeoutMs, this.timeouts.assertion));
+    } finally {
+      await driver.manage().setTimeouts({ implicit: this.timeouts.action }).catch(() => undefined);
+    }
+  }
+
   async waitForUrl(expected: string, options?: { timeoutMs?: number }) {
     await this.driverOrThrow.wait(until.urlContains(stripWrappingQuotes(expected)), clampTimeout(options?.timeoutMs, this.timeouts.assertion));
   }
@@ -2554,6 +2545,8 @@ class SeleniumWebSession implements WebSession {
   }
 
   bindings() {
+    const waitForTarget = (target: string, options?: { state?: "attached" | "detached" | "visible" | "hidden"; timeoutMs?: number }) =>
+      this.waitForSelector(target, options?.state || "visible", options?.timeoutMs);
     const pageFacade: PageFacade = {
       goto: (url: string) => this.goto(url),
       reload: () => this.reload(),
@@ -2568,21 +2561,21 @@ class SeleniumWebSession implements WebSession {
       mouse: {
         wheel: (deltaX: number, deltaY: number) => this.scroll(deltaX, deltaY)
       },
-      waitForSelector: async (target: string) => {
-        const locator = createSeleniumLocatorFacade((value) => this.resolveElement(value), target);
-        await locator.waitFor();
+      waitForSelector: async (target: string, options) => {
+        const locator = createSeleniumLocatorFacade((value) => this.resolveElement(value), target, waitForTarget);
+        await locator.waitFor({ state: options?.state, timeout: options?.timeout });
         return locator;
       },
       url: () => this.driverOrThrow.getCurrentUrl(),
       textContent: (target: string) => this.text(target),
-      locator: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(value), target),
-      getByText: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(`text=${value}`), target),
-      getByLabel: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(value), target),
-      getByPlaceholder: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(value), target),
-      getByTestId: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(`testid=${value}`), target),
+      locator: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(value), target, waitForTarget),
+      getByText: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(`text=${value}`), target, waitForTarget),
+      getByLabel: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(value), target, waitForTarget),
+      getByPlaceholder: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(value), target, waitForTarget),
+      getByTestId: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(`testid=${value}`), target, waitForTarget),
       getByRole: (_role: string, options?: { name?: string | RegExp; exact?: boolean }) => {
         const target = options?.name instanceof RegExp ? options.name.source : options?.name ? String(options.name) : _role;
-        return createSeleniumLocatorFacade((value) => this.resolveElement(value), target);
+        return createSeleniumLocatorFacade((value) => this.resolveElement(value), target, waitForTarget);
       },
       keyboard: {
         press: (key: string) => this.press(null, key)
@@ -2676,7 +2669,8 @@ const buildBindings = (
   session: WebSession,
   context: RuntimeExecutionContext,
   captures: Record<string, string>,
-  envelope: EngineRunEnvelope
+  envelope: EngineRunEnvelope,
+  parameterExpressions = false
 ): WebExecutionBindings => {
   const capture = (parameter: string, value: unknown) => {
     const normalizedKey = normalizeKey(parameter);
@@ -2799,6 +2793,7 @@ const buildBindings = (
     scroll: async (deltaX?: number, deltaY?: number, options?: WebScrollOptions) => session.scroll(deltaX, deltaY, options),
     wait: async (ms: number) => session.waitForTimeout(ms),
     waitForTimeout: async (ms: number) => session.waitForTimeout(ms),
+    waitForSelector: async (target: string, state?: "attached" | "detached" | "visible" | "hidden") => session.waitForSelector(resolveTarget(target), state),
     expectText: async (first: string, second?: string | null, options?: WebElementOptions & { match?: "contains" | "equals" }) => {
       if (second === undefined || second === null) {
         await session.expectText(null, interpolateText(first, context), options);
@@ -2832,6 +2827,7 @@ const buildBindings = (
   };
 
   const nativeBindings = providerBindings.playwrightPage ? createPlaywrightCodeBindings(providerBindings.playwrightPage, {
+    parameterExpressions,
     interpolate: (value) => interpolateText(value, context),
     resolveLocator: (value) => resolveObjectRepositoryLocator(envelope, value),
     resolveUrl: (value) => resolveNavigationTarget(value, envelope),
@@ -3035,8 +3031,8 @@ const executeStepAttempt = async (
   options: StepExecutionOptions,
   captures: Record<string, string>
 ) => {
-  const bindings = buildBindings(session, options.context, captures, options.envelope);
   const source = normalizeText(options.step.automation_code || null);
+  const bindings = buildBindings(session, options.context, captures, options.envelope, usesExpressionParameterBindings(options.step.automation_code));
 
   if (source && looksLikeExecutableAutomationSource(source)) {
     await executeAutomationCode(source, bindings, options.lineResults, options.attempt);

@@ -45,7 +45,8 @@ test("interactive and Story draft acceptance persists creator-owned pending revi
     assert.equal(saved.ai_generation_source, "interactive");
     assert.equal(saved.ai_generation_review_status, "pending");
     assert.equal(saved.gherkin_document, candidate.gherkin_document);
-    assert.equal(saved.parameter_values.email, "buyer@example.test");
+    assert.equal(saved.parameter_values['r.email'], "buyer@example.test");
+    assert.equal(saved.parameter_values.email, undefined, "new unqualified AI inputs have one explicit Run scope");
   }
 });
 

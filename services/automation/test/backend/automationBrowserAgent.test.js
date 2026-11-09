@@ -112,6 +112,17 @@ test('a browser tool error is evidence for correction but an uncertain transport
  assert.equal(turns,1);assert.equal(calls,2);
 });
 
+test('a genuine transport timeout retains its safe cause while the native action outcome remains unknown and is never replayed',async()=>{
+  const events=[];let calls=0;
+  const browser={tools:[{name:'browser_click'}],call:async()=>{calls++;throw Object.assign(new Error('PRIVATE transport detail'),{name:'TimeoutError',code:'BROWSER_TRANSPORT_TIMEOUT'});}};
+  await assert.rejects(runAutomationBrowserAgent({browser,prompt:'Click once',parse:JSON.parse,onProgress:async event=>events.push(event),complete:async()=>JSON.stringify({tool_calls:[{name:'browser_click',arguments:{locator:'#submit'}}]})}),
+    error=>error.code==='AUTOMATION_BROWSER_OUTCOME_UNKNOWN'&&error.browser_code==='BROWSER_TRANSPORT_TIMEOUT'&&error.action_outcome==='unknown'&&error.retry_safe===false);
+  assert.equal(calls,1);
+  const event=events.find(event=>event.phase==='automation.agent.action.unknown');assert.ok(event);
+  assert.equal(event.details.error_code,'AUTOMATION_BROWSER_OUTCOME_UNKNOWN');assert.equal(event.details.browser_code,'BROWSER_TRANSPORT_TIMEOUT');assert.equal(event.details.tool_phase,'transport');
+  assert.doesNotMatch(JSON.stringify(events),/PRIVATE/);
+});
+
 test('optional screenshot timeout or tool error never blocks text-grounded generation or replays interactions',async()=>{
  for(const failure of ['timeout','tool']){
   const calls=[],events=[];

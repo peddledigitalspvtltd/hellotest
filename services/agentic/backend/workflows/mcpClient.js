@@ -187,6 +187,25 @@ function compileSchema(schema, label) {
   try { return new (/draft-0[467]/.test(String(schema?.$schema || "")) ? Ajv : Ajv2020)({ strict: false, allErrors: false, validateFormats: false }).compile(schema); }
   catch { throw connections.fail(`The MCP tool ${label} schema is unsupported or invalid.`, 422); }
 }
+function toolFailure(result) {
+  let detail;
+  for(const item of result.content||[])if(item?.type==='text'){
+    try{detail=JSON.parse(item.text);break;}catch{}
+  }
+  if(!detail||typeof detail!=='object'||Array.isArray(detail))detail={};
+  const code=typeof detail.code==='string'&&/^[A-Z0-9_]{1,96}$/.test(detail.code)?detail.code:'MCP_TOOL_FAILED';
+  const statusCode=Number.isInteger(detail.status_code)&&detail.status_code>=400&&detail.status_code<=599?detail.status_code:502;
+  const sanitizer=require('@hellotest/platform/backend/src/security/aiTextPolicy').sanitizeAiText;
+  const message=sanitizer(typeof detail.message==='string'&&detail.message?detail.message:'The MCP tool reported an error.').text.slice(0,2000);
+  const nextAction=typeof detail.next_action==='string'?sanitizer(detail.next_action).text.slice(0,1000):'';
+  const knownNoEffect=new Set(['MCP_UNAUTHORIZED','MCP_ACCESS_DENIED','FEATURE_DISABLED','MCP_INVALID_SCOPE','MCP_PROJECT_SCOPE_DENIED','MCP_INVALID_ARGUMENT','MCP_UNSUPPORTED_FIELD','MCP_UNSUPPORTED_EFFECT','MCP_WRAPPER_REQUIRED','MCP_OPERATION_UNAVAILABLE','MCP_OPERATION_NOT_FOUND','MCP_CATALOG_CHANGED','MCP_STALE_PLAN','MCP_TOOL_NOT_FOUND']);
+  const error=Object.assign(connections.fail(nextAction?`${message} ${nextAction}`:message,statusCode),{
+    code,upstreamStatusCode:statusCode,retryable:detail.retryable===true,
+    outcome_unknown:!knownNoEffect.has(code)&&detail.retryable!==true,nonRetryable:detail.retryable!==true
+  });
+  if(typeof detail.required_permission==='string'&&/^[a-z][a-z0-9_.-]{1,127}$/.test(detail.required_permission))error.required_permission=error.permission=detail.required_permission;
+  return error;
+}
 const call = (input, name, args) => {
   let effectDispatched=false;
   const invoke=()=>{
@@ -226,8 +245,7 @@ const call = (input, name, args) => {
     try { effectDispatched=true;result = await rpc("tools/call", { name, arguments: args }); }
     catch (error) { error.outcome_unknown = true; error.retryable = false; throw error; }
     if (!result.isError && validateOutput && !validateOutput(result.structuredContent)) throw Object.assign(connections.fail("The MCP tool returned data that violates its approved output schema. Review the server outcome before trying again.", 502), { code: "MCP_OUTPUT_INVALID", outcome_unknown: true, retryable: false });
-    if (result.isError)
-      throw Object.assign(connections.fail("The MCP tool reported an error. Inspect the server outcome before trying again.", 502), { code: "MCP_TOOL_FAILED", outcome_unknown: true, retryable: false });
+    if (result.isError) throw toolFailure(result);
     return {
       tool: name, schema_hash: toolHash, protocol_version: protocolVersion, output_schema_verified: Boolean(validateOutput), postcondition_verified: false,
       data: result.structuredContent ?? (result.content || []).filter(item => item.type === "text").map(item => { try { return JSON.parse(item.text); } catch { return String(item.text || ""); } }),
@@ -247,4 +265,4 @@ const call = (input, name, args) => {
     throw error;
   });
 };
-module.exports = { discover, inspect, call, _internals: { parseResponse, schemaHash, compileSchema } };
+module.exports = { discover, inspect, call, _internals: { parseResponse, schemaHash, compileSchema, toolFailure } };

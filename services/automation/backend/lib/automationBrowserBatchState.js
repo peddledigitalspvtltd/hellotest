@@ -1,4 +1,5 @@
 const { createHash } = require('node:crypto');
+const { snapshotFrameScope } = require('./automationFrameScope');
 
 const mutationTools = new Set(['browser_navigate', 'browser_click', 'browser_fill', 'browser_press_key', 'browser_select_option', 'browser_hover', 'browser_check', 'browser_uncheck']);
 const transitionTools = new Set(['browser_click', 'browser_press_key', 'browser_select_option', 'browser_hover', 'browser_check', 'browser_uncheck']);
@@ -39,6 +40,7 @@ function completeControl(element) {
  * batch-state data. This is a host decision aid, never model execution proof. */
 function captureBrowserBatchState(snapshot, fallback = {}) {
   const value = snapshot && typeof snapshot === 'object' ? snapshot : {};
+  const frame = snapshotFrameScope(value);
   const elements = Array.isArray(value.elements) ? value.elements : null;
   const observedControls = (elements || []).slice(0, 120).filter(element => element && typeof element === 'object').filter(element => {
     const attributes = element.attributes || {};
@@ -55,6 +57,7 @@ function captureBrowserBatchState(snapshot, fallback = {}) {
   return {
     url: text(value.url || fallback.url),
     target_id: text(value.target_id || value.page_id || fallback.target_id || fallback.page_id, 200),
+    frame_identity: frame?.identity || 'invalid_frame',
     controls_fingerprint: elements ? createHash('sha256').update(JSON.stringify(controls)).digest('hex') : null,
     controls_complete: Boolean(elements && elements.length <= 120 && observedControls.every(completeControl)
       && !value.partial && !value.truncated && !value.elements_truncated && !value.fields_truncated && (!value.scope || value.scope === 'body'))
@@ -74,6 +77,7 @@ function browserBatchBoundary({ tool, before = {}, after = {}, remainingTools = 
   if (!mutationTools.has(tool) || !remainingTargetWork) return { pause: false, needs_snapshot: false };
   if (before.url && after.url && before.url !== after.url) return { pause: true, needs_snapshot: false, reason: 'page_changed' };
   if (before.target_id && after.target_id && before.target_id !== after.target_id) return { pause: true, needs_snapshot: false, reason: 'target_changed' };
+  if (before.frame_identity && after.frame_identity && before.frame_identity !== after.frame_identity) return { pause: true, needs_snapshot: false, reason: 'frame_document_changed' };
   if (tool === 'browser_navigate' && (!before.url || !after.url)) return { pause: true, needs_snapshot: false, reason: 'navigation_action' };
   if (tool !== 'browser_navigate' && !transitionTools.has(tool)) return { pause: false, needs_snapshot: false };
   if (!inspected) return { pause: false, needs_snapshot: true, reason: tool === 'browser_navigate' ? 'inspect_after_navigation' : 'inspect_after_interaction' };

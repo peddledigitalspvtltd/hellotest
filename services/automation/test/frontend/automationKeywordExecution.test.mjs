@@ -3,14 +3,15 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import { isAutomationStepMapped } from "../../frontend/lib/automationStepPersistence.ts";
-import { automationNumericArgument, automationParameterArgument, getAutomationKeywordInputSpec, parseAutomationKeywordCall } from "../../frontend/lib/automationKeywordInputs.ts";
+import { automationNumericArgument, automationParameterArgument, automationStringArgument, getAutomationKeywordInputSpec, parseAutomationKeywordCall } from "../../frontend/lib/automationKeywordInputs.ts";
+import { markExpressionParameterBindings, usesExpressionParameterBindings } from "../../shared/automationParameterMode.mjs";
 
 const pageSource = readFileSync(new URL("../../frontend/pages/AutomationPage.tsx", import.meta.url), "utf8");
 const sourceFile = ts.createSourceFile("AutomationPage.tsx", pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const declarations = ["buildAutomationCodeFromDraft", "parseAutomationStepDraft", "inferAutomationStepType", "AUTOMATION_KEYWORDS_BY_TYPE"];
 const selected = sourceFile.statements.filter((node) => declarations.includes(node.name?.text) || (ts.isVariableStatement(node) && node.declarationList.declarations.some((declaration) => declarations.includes(declaration.name.getText(sourceFile)))));
 const script = ts.transpileModule(selected.map((node) => node.getText(sourceFile)).join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
-const { buildAutomationCodeFromDraft: build, parseAutomationStepDraft: parse } = new Function("automationNumericArgument", "automationParameterArgument", "getAutomationKeywordInputSpec", "parseAutomationKeywordCall", `${script}\nreturn { buildAutomationCodeFromDraft, parseAutomationStepDraft };`)(automationNumericArgument, automationParameterArgument, getAutomationKeywordInputSpec, parseAutomationKeywordCall);
+const { buildAutomationCodeFromDraft: build, parseAutomationStepDraft: parse } = new Function("automationNumericArgument", "automationParameterArgument", "automationStringArgument", "markExpressionParameterBindings", "usesExpressionParameterBindings", "getAutomationKeywordInputSpec", "parseAutomationKeywordCall", `${script}\nreturn { buildAutomationCodeFromDraft, parseAutomationStepDraft };`)(automationNumericArgument, automationParameterArgument, automationStringArgument, markExpressionParameterBindings, usesExpressionParameterBindings, getAutomationKeywordInputSpec, parseAutomationKeywordCall);
 const planExports = {};
 new Function("require", "exports", ts.transpileModule(readFileSync(new URL("../../frontend/lib/automationPlan.ts", import.meta.url), "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText)(() => ({ getAutomationKeywordInputSpec }), planExports);
 const draft = (keyword, objectRef = "", value = "") => ({ keyword, objectRef, value, step_type: keyword.startsWith("api") ? "api" : "web", apiMethod: "GET" });
@@ -91,6 +92,23 @@ test("reopening native scoped parameter arguments keeps bindings instead of savi
   assert.equal(parseAutomationKeywordCall('await web.wait(Number(params[\'r.Delay\']));').args[0], '@r.delay');
 });
 
+test('marked keyword edits retain native argument provenance and emit newly selected data bindings as expressions',async()=>{
+ const step=automation_code=>({automation_code,step_type:'web',action:'Enter configured value',expected_result:''});
+ const source=markExpressionParameterBindings('await web.fill("#name", params["r.name"]);');
+ const reopened=parse(step(source));
+ assert.equal(reopened.parameterExpressions,true);assert.equal(reopened.value,'@r.name');
+ assert.equal(build(reopened),source);
+ const edited=build({...reopened,value:'Hello @r.name'});
+ assert.equal(usesExpressionParameterBindings(edited),true);assert.match(edited,/String\(params\["r.name"\]\)/);
+ const calls=[];await new AsyncFunction('web','params',edited)({fill:async(...args)=>calls.push(args)},{'r.name':'@r.other'});
+ assert.deepEqual(calls,[['#name','Hello @r.other']],'inserted data is a literal after one lookup');
+ const literal=markExpressionParameterBindings('await web.fill("#name", "@r.other");');
+ const original=parse(step(literal));
+ const changedTarget=build({...original,objectRef:'#renamed'});
+ assert.match(changedTarget,/fill\("#renamed", "@r.other"\)/);
+ assert.doesNotMatch(changedTarget,/params\["r.other"\]/,'unchanged literal input must not become a binding when its target is edited');
+});
+
 test("saving executable code clears a competing legacy request while prose/options saves retain it", async () => {
   const start = pageSource.indexOf("  const updateAutomationStepCode = useMutation({");
   const fnStart = pageSource.indexOf("mutationFn:", start) + "mutationFn:".length;
@@ -99,7 +117,7 @@ test("saving executable code clears a competing legacy request while prose/optio
   async function save(code) {
     let payload;
     const step = { id: "api", test_case_id: "case", step_type: "web", automation_code: 'await api.request("GET /old");', api_request: { method: "GET", url: "/old" } };
-    const context = { isAutomationStepMapped, canEditAutomationCode: true, stepCodeDrafts: { api: code }, stepOptionDrafts: {}, stepDrafts: { api: { name: "Updated action", expected_result: "Updated result" } }, applyAutomationStepOptions: (value) => value, parseAutomationStepOptions: () => ({}), parseAutomationStepDraft: parse, buildAutomationStepAction: (value) => value.name, api: { testSteps: { update: async (_id, input) => { payload = input; } } }, refreshAutomationStepAfterSave: async () => step };
+    const context = { isAutomationStepMapped, canEditAutomationCode: true, flushAutomationBuildParameters: async () => {}, stepCodeDrafts: { api: code }, stepOptionDrafts: {}, stepDrafts: { api: { name: "Updated action", expected_result: "Updated result" } }, applyAutomationStepOptions: (value) => value, parseAutomationStepOptions: () => ({}), parseAutomationStepDraft: parse, buildAutomationStepAction: (value) => value.name, api: { testSteps: { update: async (_id, input) => { payload = input; } } }, refreshAutomationStepAfterSave: async () => step };
     await new Function(...Object.keys(context), `${mutationScript}\nreturn mutation;`)(...Object.values(context))(step);
     return payload;
   }

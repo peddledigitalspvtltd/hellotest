@@ -2,10 +2,41 @@ const MAX_COMPLETION_ATTEMPTS = 3;
 const {normalizeParameterKey}=require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const {sanitizeAiText}=require('@hellotest/platform/backend/src/security/aiTextPolicy');
 const specification=value=>String(value||'').replace(/\s+/g,' ').trim();
+// Editor formatting is not a new requirement. Keep the full case-sensitive
+// text and parameter tokens; unknown tags/literals remain part of the match.
+const editorSpecification=value=>specification(String(value||'')
+  .replace(/<\/?(?:p|div|span|br|strong|b|em|i|u|s|strike|ul|ol|li|blockquote|h[1-6])\s*\/?\s*>/gi,' ')
+  .replace(/&(?:nbsp|lt|gt|quot|apos|amp);|&#(?:39|34|x27|x22);/gi,entity=>({
+    '&nbsp;':' ','&lt;':'<','&gt;':'>','&quot;':'"','&apos;':"'",'&amp;':'&',
+    '&#39;':"'",'&#34;':'"','&#x27;':"'",'&#x22;':'"'
+  })[entity.toLowerCase()]));
+const sameSpecification=(left,right,normalize)=>normalize(left.action)===normalize(right.action)
+  &&normalize(left.expected_result)===normalize(right.expected_result)&&(left.step_type||'web')===(right.step_type||'web');
 function matchManualCoverage(steps,manualSteps) {
   const coverage=new Map(),used=new Map();
-  for(const manual of manualSteps){const key=manual.test_case_id||'';if(!used.has(key))used.set(key,new Set());const section=steps.find(step=>!used.get(key).has(step.id)&&specification(step.action)===specification(manual.action)&&specification(step.expected_result)===specification(manual.expected_result)&&(step.step_type||'web')===(manual.step_type||'web'));if(section){coverage.set(manual.id,section.id);used.get(key).add(section.id);}}
+  for(const manual of manualSteps){
+    const key=manual.test_case_id||'';if(!used.has(key))used.set(key,new Set());
+    const available=steps.filter(step=>!used.get(key).has(step.id));
+    let section=available.find(step=>sameSpecification(step,manual,specification));
+    if(!section){
+      const matches=available.filter(step=>sameSpecification(step,manual,editorSpecification));
+      const occurrences=manualSteps.filter(other=>(other.test_case_id||'')===key&&sameSpecification(other,manual,editorSpecification));
+      if(matches.length===1&&occurrences.length===1)section=matches[0];
+    }
+    if(section){coverage.set(manual.id,section.id);used.get(key).add(section.id);}
+  }
   return coverage;
+}
+function groundedManualCoverage(steps,manualCases=[]){
+ const manualSteps=manualCases.flatMap(item=>(item.steps||[]).map(step=>({...step,test_case_id:item.id,manual_test_case_id:item.id,manual_step_id:step.id})));
+ const matched=matchManualCoverage(steps,manualSteps),positions=new Map([...steps].sort((a,b)=>Number(a.step_order)-Number(b.step_order)).map((step,index)=>[step.id,index]));
+ const previous=new Map();
+ for(const manual of manualSteps){const section=matched.get(manual.id);if(!section)continue;const position=positions.get(section),prior=previous.get(manual.test_case_id);
+  if(prior&&position<prior.position)throw Object.assign(new Error('The linked manual steps and saved Plan specify conflicting action orders. Restore their section mapping before building.'),{code:'AUTOMATION_MANUAL_ORDER_CONFLICT',statusCode:409,nonRetryable:true,manual_step_ids:[prior.id,manual.id],section_step_ids:[prior.section,section]});
+  previous.set(manual.test_case_id,{position,id:manual.id,section});
+ }
+ const manualCoverage=manualSteps.filter(step=>matched.has(step.id)).map(step=>({manual_step_id:step.id,manual_test_case_id:step.test_case_id,section_step_id:matched.get(step.id)}));
+ return {manualSteps,manualSpecification:manualSteps,manualCoverage,steps:steps.map(step=>({...step,active_manual_step_ids:manualCoverage.filter(row=>row.section_step_id===step.id).map(row=>row.manual_step_id)})),unmappedManualStepIds:manualSteps.filter(step=>!matched.has(step.id)).map(step=>step.id)};
 }
 /** Validate and finalize each mapping before an optional save commits it to Plan. */
 async function completeAutomationBuild({steps,manualSteps=[],displaySteps=steps,displayManualSteps=manualSteps,sequential=false,progressionPolicy='generated_saved',availableParameters=[],generate,parse=value=>value,validate,validateOutcome,feedbackInstruction,onProgress=async()=>{},onBeforeSaveSection=async()=>{},onSaveSection,onValidatedSection=async()=>({}),maxAttempts=MAX_COMPLETION_ATTEMPTS}) {
@@ -153,7 +184,13 @@ async function completeAutomationBuild({steps,manualSteps=[],displaySteps=steps,
     if(payload&&typeof payload==='object')for(const [key,value]of Object.entries(payload))if(!['steps','tool_calls','manual_coverage','blocked_steps','learned_locators'].includes(key))outcomeFields[key]=value;
     if(Array.isArray(payload?.manual_coverage))outcomeHasCoverage=true;
     if(Array.isArray(payload?.learned_locators)){outcomeHasLearning=true;learned.push(...payload.learned_locators.slice(0,100));}
-    return {completed_step_ids:[...accepted.keys()],pending_step_ids:steps.filter(step=>!accepted.has(step.id)).map(step=>step.id),validation_errors:failures,...(sequential?{generation_mode:'sequential',active_step_id:activeWork.stepId,active_manual_step_ids:activeWork.manualIds,generation_complete:Boolean(workComplete()&&!failures.length)}:{})};
+    const sectionAccepted=sequential&&activeWork.stepId&&accepted.has(activeWork.stepId);
+    const missingActiveManual=sequential?activeWork.manualIds.filter(id=>!completedManual(id)):[];
+    // A browser request has finished once its immutable section is accepted.
+    // Missing coverage metadata still blocks workComplete()/the final build;
+    // its next bounded request has required_sections:[] and cannot reopen the
+    // saved browser section or replay its actions merely to emit a mapping.
+    return {completed_step_ids:[...accepted.keys()],pending_step_ids:steps.filter(step=>!accepted.has(step.id)).map(step=>step.id),validation_errors:failures,...(sequential?{generation_mode:'sequential',active_step_id:activeWork.stepId,active_manual_step_ids:activeWork.manualIds,generation_complete:Boolean((workComplete()||sectionAccepted)&&!failures.length),...(sectionAccepted&&missingActiveManual.length?{completion_phase:'manual_coverage_metadata',missing_manual_step_ids:missingActiveManual}:{} )}:{})};
   };
   let failures=[];
   let attemptsMade=0;
@@ -217,4 +254,4 @@ async function completeAutomationBuild({steps,manualSteps=[],displaySteps=steps,
   const publicMessage=`Automation generation is incomplete: ${accepted.size} of ${steps.length} sections validated.${validationFeedback.length?' '+validationFeedback.map(item=>item.message).join(' '):' Check the unfinished section mappings and linked manual coverage.'}`.slice(0,2000);
   throw Object.assign(new Error(`Automation generation is incomplete: ${accepted.size} of ${steps.length} sections validated and ${coverage.size} of ${manualSteps.length} linked manual steps mapped after ${attemptsMade} requests. Existing instructions were retained.`),{code:'AUTOMATION_BUILD_INCOMPLETE',statusCode:422,publicMessage,validation_feedback:validationFeedback,completed_sections:accepted.size,saved_sections:saved.size,saved_step_ids:[...saved],total_sections:steps.length,pending_step_ids:steps.filter(step=>!accepted.has(step.id)).map(step=>step.id),missing_manual_step_ids:manualSteps.filter(step=>!coverage.has(step.id)).map(step=>step.id)});
 }
-module.exports={completeAutomationBuild,MAX_COMPLETION_ATTEMPTS,matchManualCoverage};
+module.exports={completeAutomationBuild,MAX_COMPLETION_ATTEMPTS,matchManualCoverage,groundedManualCoverage};

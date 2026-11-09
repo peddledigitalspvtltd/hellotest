@@ -126,6 +126,23 @@ test('the real single-case outcome retains code compatibility and exposes startu
   assert.equal(outcome.changes_saved, false);
 });
 
+test('the real single-case outcome persists the upstream engine and driver from its actual build result',async()=>{
+  const source=fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'),'utf8');
+  const single=source.slice(source.indexOf('exports.buildAutomationForCase ='),source.indexOf('exports.buildAutomationBatch ='));
+  const exported={},updates=[];
+  const result={test_case_id:'automation',title:'Mixed journey',generated_step_count:2,build_engine:'upstream-playwright-v1',browser_evidence:{transport:'upstream_playwright_mcp'},verification_status:'unverified'};
+  const workspace={createTransaction:async()=>({id:'activity'}),updateTransaction:async(id,data)=>{updates.push(data);return {id};}};
+  new Function('require','exports','buildFeature','normalizeText','selectCaseWithScope','workspaceTransactionService','buildCaseCore','appendEvent',single)(
+    name=>{assert.equal(name,'../lib/automationBuildPipelineOptions');return require('../../backend/lib/automationBuildPipelineOptions');},exported,value=>value,value=>value||null,
+    {get:async()=>({id:'automation',title:'Mixed journey',project_id:'project',app_type_id:'app'})},workspace,async()=>result,async()=>{}
+  );
+  const built=await exported.buildAutomationForCase({test_case_id:'automation',created_by:'actor'});
+  assert.equal(built.transaction_id,'activity');
+  const metadata=updates.at(-1).metadata;
+  assert.equal(metadata.build_engine,'upstream-playwright-v1');assert.equal(metadata.browser_driver,'playwright_mcp_upstream');
+  assert.equal(metadata.case_outcomes[0].build_engine,metadata.build_engine);assert.equal(metadata.case_outcomes[0].browser_driver,metadata.browser_driver);
+});
+
 test('real single and batch outcomes retain HTTP 502 without copying the browser payload or admitting a worker retry', async () => {
   const source = fs.readFileSync(require.resolve('../../backend/services/aiAutomationBuilder.service'), 'utf8');
   const single = source.slice(source.indexOf('exports.buildAutomationForCase ='), source.indexOf('exports.buildAutomationBatch ='));

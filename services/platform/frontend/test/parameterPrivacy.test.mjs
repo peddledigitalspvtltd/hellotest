@@ -77,3 +77,8 @@ test('local drafts omit private replacements and restore untouched saved secrets
   assert.equal(Object.hasOwn(restored,'t.deleted'),false,'public deletion remains an authored draft change');
   assert.deepEqual(caseParameterDraftValues({'r.opaque':'new draft secret'},['r.opaque']),{});
 });
+test('explicit automation secret selections persist inherited names without copying their values or overriding data precedence',()=>{
+  const result=caseParameterSaveOptions({}, {}, {}, ['r.shared'], [], ['r.shared']);
+  assert.deepEqual(result.private_parameter_names,['r.shared']);
+  assert.deepEqual(result.parameter_overrides,[]);
+});

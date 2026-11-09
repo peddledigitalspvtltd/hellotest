@@ -13,6 +13,7 @@ test('atomic first-source choices refresh their own optimistic receipt; later se
  const steps={updateTestStep:async(id,update)=>{writes++;Object.assign(rows.find(row=>row.id===id),update);}};
  const apply=new Function('db','loadAutomationManualContext','loadAutomationParameterContext','manualContextKey','require','testStepService','markTestCaseAutomationIncomplete','markTestCaseAutomationReady','normalizeText',body+'return applyBuild;')(
   database,async()=>[],parameters,JSON.stringify,id=>{
+   if(id.endsWith('automationReadiness.service'))return require('../../backend/services/automationReadiness.service');
    if(id.endsWith('automationBrowserParameters'))return{loadBrowserParameterResolver:async input=>{assert.equal(input.lock,true);assert.equal(input.materialize,false);return inputResolver(input.caseValues);}};
    if(id.endsWith('automationBuildDataSnapshot'))return{persistBuildDataSnapshot:async({snapshot})=>{snapshotWrites++;Object.assign(testCase.parameter_values,snapshot.values);testCase.test_data_options={parameter_overrides:snapshot.reviewed_parameter_names};}};
    throw new Error(`Unexpected module ${id}`);
@@ -21,7 +22,7 @@ test('atomic first-source choices refresh their own optimistic receipt; later se
  const identity={project_id:'project',app_type_id:'app',manual_context:[],manual_link_ids:[]};
  const state={steps:structuredClone(rows),parameter_context_key:(await parameters()).source_key,input_context:{selection:{test_environment_id:'env'},source_key:inputResolver(testCase.parameter_values).inputSourceKey},data_snapshot:{values:{'r.name':''},reviewed_parameter_names:['r.name']}};
  const initialKey=state.input_context.source_key;
- const build={...identity,updates:[{step,step_type:'web',automation_code:'await page.getByLabel("Name").fill("@r.name");'}]};
+ const build={...identity,updates:[{step,step_type:'web',automation_code:'await page.getByLabel("Name").fill("@r.name"); await expect(page.getByLabel("Name")).toHaveValue("@r.name");'}]};
  await apply({build,progressiveState:state,createdBy:'author',partial:true});
  assert.equal(writes,1);assert.equal(snapshotWrites,1);assert.equal(state.data_snapshot,null);assert.notEqual(state.input_context.source_key,initialKey);
  await apply({build,progressiveState:state,createdBy:'author'});assert.equal(writes,1,'final completion does not rewrite identical accepted source');assert.equal(snapshotWrites,1);

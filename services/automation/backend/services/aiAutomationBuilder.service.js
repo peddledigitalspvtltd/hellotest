@@ -4,7 +4,6 @@ exports.buildFeature = buildFeature;
 const { resilientHttpRequest } = require('@hellotest/platform/backend/src/utils/resilientHttpClient');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { getOptionalEvidenceAccess } = require("@hellotest/platform/backend/services/optionalEvidenceAccess.service");
-const { connectAutomationBrowser, runAutomationBrowserAgent, remainingBrowserCalls } = require("../lib/automationBrowserAgent");
 const { completeAutomationBuild } = require("../lib/automationBuildCompletion");
 const {canonicalizeRepositoryRows,canonicalPageUrl,repositoryInputMetadata}=require("../lib/repositoryScreenIdentity");
 const {sameRecordedLocator}=require("../lib/automationLocatorIdentity");
@@ -29,7 +28,6 @@ const workspaceTransactionService = require("@hellotest/platform/backend/service
 const testEnvironmentService = require("@hellotest/testing/backend/services/testEnvironment.service");
 const testConfigurationService = require("@hellotest/testing/backend/services/testConfiguration.service");
 const testDataSetService = require("@hellotest/testing/backend/services/testDataSet.service");
-const aiKnowledgeService = require("@hellotest/knowledge/backend/services/aiKnowledge.service");
 const mobileFeatureService = require("@hellotest/platform/backend/services/mobileFeature.service");
 const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llmHttpClient");
 const { getCompletionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
@@ -43,6 +41,8 @@ const {
 } = require("@hellotest/platform/backend/src/utils/testStepAutomation");
 const { createLlmProviderError } = require("@hellotest/platform/backend/src/utils/upstreamLlmError");
 const { retryLlmCapacity } = require("@hellotest/platform/backend/src/utils/llmCapacityRetry");
+const { retryActorJsonOutput } = require("../lib/automationJsonOutputRetry");
+const { browserActorRequestPolicy } = require("../lib/automationActorModelPolicy");
 const { isMobileAppType, isMobileRecorderTarget } = require("@hellotest/platform/backend/src/utils/mobileFeature");
 const { resolveMobileEngineSecret } = require("@hellotest/platform/backend/src/security/runtimeSecrets");
 
@@ -524,8 +524,8 @@ const extractJsonPayload = (content) => {
   }
 };
 
-const fetchWithTimeout = async (url, init = {}, timeoutMs = LLM_TIMEOUT_MS, integration, featureKey, maxAttempts) => {
-  return fetchLlmWithRetry(url, init, { integration, featureKey, timeoutMs, maxAttempts, operation: "automation.generate" });
+const fetchWithTimeout = async (url, init = {}, timeoutMs = LLM_TIMEOUT_MS, integration, featureKey, maxAttempts, {beforeDispatch, idempotent = false} = {}) => {
+  return fetchLlmWithRetry(url, init, { integration, featureKey, timeoutMs, maxAttempts, beforeDispatch, idempotent, operation: "automation.generate" });
 };
 
 const resolveLlmIntegration = async (integrationId, { allowFallback = true, userId, usageKey, projectId } = {}) => {
@@ -557,12 +557,18 @@ const resolveLlmIntegration = async (integrationId, { allowFallback = true, user
   return integration;
 };
 
-const requestChatCompletion = async ({ integration, prompt, content, featureKey, signal, timeoutMs = LLM_TIMEOUT_MS, maxAttempts, onCapacityWait, activeGoal, beforeDispatch }) => retryLlmCapacity(async ({timeoutMs: remainingMs}) => {
+const requestChatCompletion = async ({ integration, prompt, content, featureKey, signal, timeoutMs = LLM_TIMEOUT_MS, maxAttempts, onCapacityWait, onJsonRetry, activeGoal, browserActor = false, browserReview = false, nativeTools, beforeDispatch, upstreamPhase }) => {
+  // Only these host-selected phases return buffered proposals/source. They do
+  // not execute MCP or accept a browser action until one response is validated.
+  const bufferedUpstream = maxAttempts !== 1 && ['upstream_browser_actor','upstream_source','upstream_instruction_mapping','upstream_api_source'].includes(upstreamPhase);
+  return retryActorJsonOutput(({timeoutMs: requestTimeoutMs}) => retryLlmCapacity(async ({timeoutMs: remainingMs}) => {
   const accessCheckStarted=Date.now();
   await beforeDispatch?.();
   signal?.throwIfAborted();
   remainingMs-=Date.now()-accessCheckStarted;
   if(remainingMs<=0)throw Object.assign(new Error('The model request deadline elapsed before dispatch.'),{code:'DEADLINE_EXCEEDED',statusCode:504});
+  const tools=browserActor===true&&nativeTools!==undefined?nativeTools:null;
+  if(tools!==null&&(!Array.isArray(tools)||tools.length<1||tools.length>100||tools.some(tool=>!tool||typeof tool.name!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(tool.name)||!tool.inputSchema||typeof tool.inputSchema!=='object'||Array.isArray(tool.inputSchema))))throw Object.assign(new Error('Supply the discovered native Playwright tool catalog.'),{code:'AUTOMATION_UPSTREAM_TOOL_INVALID',statusCode:422,nonRetryable:true});
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
   const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -574,8 +580,14 @@ const requestChatCompletion = async ({ integration, prompt, content, featureKey,
     body: JSON.stringify({
       model: integration.model,
 
-      response_format: { type: "json_object" },
+      ...(tools?{tools:tools.map(tool=>({type:'function',function:{name:tool.name,description:tool.description,parameters:tool.inputSchema}})),tool_choice:'auto'}:{response_format:{type:'json_object'}}),
+      // Reserve one bounded typed decision. Reasoning-capable official GPT-5
+      // needs headroom for both reasoning and visible JSON; managed limits can
+      // still impose a lower cap. Only the separately trusted browser-review
+      // phase shares that reasoning policy; other generation stays unchanged.
+      ...browserActorRequestPolicy(integration,browserActor,browserReview),
       messages: [
+        ...(tools?[{role:'system',content:'HelloTest host contract for configured private inputs: keys present in the current section private_parameter_tokens dictionary are available configured bindings. Their plaintext values are intentionally omitted from public parameters and model context. Use the exact scoped reference (for example @r.password) or its supplied opaque native key in browser_type.text, browser_fill_form field.value, or browser_verify_value.value. The host securely resolves the binding at native MCP dispatch; a reviewed blank binding remains an intentional empty value. Do not ask for plaintext, classify a supplied private token as unavailable because its value is hidden, or use JavaScript evaluation, extraction, hidden APIs or credential discovery to obtain it. Use only private bindings explicitly available for the current authored section.'}]:[]),
         ...(activeGoal && typeof activeGoal.action === 'string' && typeof activeGoal.expected_result === 'string'
           && activeGoal.action.length + activeGoal.expected_result.length <= 2000 ? [
             {role:'system',content:aiInstructionBlock(featureKey || 'ai.automation.keyword_generation', 'automationBrowserAgent.activeGoal')},
@@ -587,7 +599,7 @@ const requestChatCompletion = async ({ integration, prompt, content, featureKey,
         }
       ]
     })
-  }, remainingMs, integration, featureKey, maxAttempts);
+  }, remainingMs, integration, featureKey, bufferedUpstream ? Math.min(2, maxAttempts || 2) : maxAttempts, {beforeDispatch, idempotent: bufferedUpstream});
 
   if (!response.ok) {
     const raw = await response.text();
@@ -595,6 +607,16 @@ const requestChatCompletion = async ({ integration, prompt, content, featureKey,
   }
 
   const payload = await response.json();
+  const toolCalls=payload?.choices?.[0]?.message?.tool_calls;
+  if(tools&&Array.isArray(toolCalls)&&toolCalls.length){
+    const names=new Set(tools.map(tool=>tool.name));
+    return {tool_calls:toolCalls.map(call=>{
+      if(call?.type!=='function'||!names.has(call.function?.name))throw Object.assign(new Error('The model returned a tool outside the discovered native catalog.'),{code:'AI_UNEXPECTED_TOOL_CALL',statusCode:422,nonRetryable:true});
+      let args;try{args=JSON.parse(call.function.arguments);if(!args||typeof args!=='object'||Array.isArray(args))throw new Error('object required');}
+      catch{throw Object.assign(new Error('The model returned invalid native tool arguments.'),{code:'AI_INVALID_TOOL_ARGUMENTS',statusCode:422,nonRetryable:true});}
+      return {name:call.function.name,arguments:args};
+    })};
+  }
   const messageContent = getCompletionContent(payload);
 
   if (!messageContent) {
@@ -602,7 +624,8 @@ const requestChatCompletion = async ({ integration, prompt, content, featureKey,
   }
 
   return messageContent;
-}, { timeoutMs, signal, maxAttempts: maxAttempts === 1 ? 1 : 3, onWait: onCapacityWait });
+}, { timeoutMs: requestTimeoutMs, signal, maxAttempts: bufferedUpstream || maxAttempts === 1 ? 1 : 3, onWait: onCapacityWait }), { browserActor: browserActor === true && maxAttempts !== 1 && nativeTools === undefined && !bufferedUpstream, timeoutMs, signal, onRetry: onJsonRetry });
+};
 
 const normalizeUrlKey = (value) => {
   const normalized = normalizeText(value);
@@ -1053,6 +1076,7 @@ const buildExistingRepositoryNameIndex = (rows = []) => {
       fieldNames.add(normalizeRepositoryNameKey(objectName));
       if (row.locator) {
         fieldByLocator.set(`${screenName}|${row.locator}`, {
+          persisted: true,
           screen_name: screenName,
           field_name: objectName,
           reference: `${screenName}.${objectName}`,
@@ -1080,19 +1104,22 @@ const buildRecorderRepositoryModel = async ({
   userId,
   transactionId,
   platform = "web",
-  projectPrompt
+  projectPrompt,
+  allowAiNaming = true
 } = {}) => {
   const actions = normalizeCapturedActions(capturedActions).filter((action) => isRecorderRepositoryLocator(action.locator));
-  const existingRows = await loadRepositoryRowsForNaming(testCase);
+  let existingRows = [], repositoryWarning = null;
+  try { existingRows = await loadRepositoryRowsForNaming(testCase); }
+  catch { repositoryWarning = 'The object repository was unavailable. Recorded instructions use their observed locators; repository learning can be retried later.'; }
   const index = buildExistingRepositoryNameIndex(existingRows);
-  const aiSuggestions = await buildAiRecorderRepositoryNameSuggestions({
+  const aiSuggestions = allowAiNaming ? await buildAiRecorderRepositoryNameSuggestions({
     testCase,
     actions,
     integrationId,
     userId,
     transactionId,
     projectPrompt
-  });
+  }) : { screens: new Map(), fields: new Map(), ai_used: false, fallback_reason: null };
   const screenByPageKey = new Map();
   const screens = new Map();
   const fields = new Map();
@@ -1223,7 +1250,8 @@ const buildRecorderRepositoryModel = async ({
     fields,
     byActionIndex,
     ai_used: aiSuggestions.ai_used,
-    ai_fallback_reason: aiSuggestions.fallback_reason
+    ai_fallback_reason: aiSuggestions.fallback_reason,
+    repository_warning: repositoryWarning
   };
 };
 
@@ -1364,7 +1392,10 @@ const getRecorderRepositoryMember = (action, repositoryModel) =>
 
 const resolveRecorderTarget = (action, repositoryModel) => {
   const repositoryMember = getRecorderRepositoryMember(action, repositoryModel);
-  if (repositoryMember?.reference) {
+  // A newly named object is not durable until optional learning succeeds.
+  // Save its observed locator directly so a successful recording can replay
+  // even when repository storage is temporarily unavailable.
+  if (repositoryMember?.reference && repositoryMember.persisted) {
     return repositoryMember.reference;
   }
 
@@ -1378,82 +1409,18 @@ const resolveRecorderTarget = (action, repositoryModel) => {
 };
 
 const quoteCodeString = (value) => JSON.stringify(String(value || ""));
-const unescapeLocatorLiteral = (value) => String(value || "").replace(/\\(["'`\\])/g, "$1");
-const extractLocatorCallArgument = (value) => {
-  const match = String(value || "").match(/\(\s*(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/);
-  return match ? unescapeLocatorLiteral(match[2]) : "";
-};
-const extractLocatorOptionName = (value) => {
-  const match = String(value || "").match(/\bname\s*:\s*(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/i);
-  return match ? unescapeLocatorLiteral(match[2]) : "";
-};
-const playwrightLocatorCode = (target) => {
+const playwrightLocatorCode = (target, formatter) => {
+  if (formatter) return formatter(target);
   const normalized = String(target || "").trim();
-  const methodMatch = normalized.match(/^(?:page\.)?(getByRole|getByLabel|getByPlaceholder|getByText|getByTestId|locator)\s*\(/i);
-  const legacyRoleMatch = normalized.match(/^role=([A-Za-z0-9_-]+)(?:\[name=(["']?)(.+?)\2\])?$/i);
-
-  if (methodMatch) {
-    const method = methodMatch[1];
-    const arg = extractLocatorCallArgument(normalized);
-    const optionName = extractLocatorOptionName(normalized);
-
-    if (method.toLowerCase() === "locator") {
-      return `page.locator(${quoteCodeString(arg || normalized)}).first()`;
-    }
-    if (method.toLowerCase() === "getbyrole") {
-      return `page.getByRole(${quoteCodeString(arg)}, ${optionName ? `{ name: ${quoteCodeString(optionName)} }` : "{}"}).first()`;
-    }
-    return `page.${method}(${quoteCodeString(arg)}).first()`;
-  }
-
-  if (legacyRoleMatch) {
-    return `page.getByRole(${quoteCodeString(legacyRoleMatch[1])}, ${legacyRoleMatch[3] ? `{ name: ${quoteCodeString(unescapeLocatorLiteral(legacyRoleMatch[3]))} }` : "{}"}).first()`;
-  }
-  if (/^(?:testid|data-testid)=/i.test(normalized)) {
-    return `page.getByTestId(${quoteCodeString(normalized.replace(/^(?:testid|data-testid)=/i, ""))}).first()`;
-  }
-  if (/^label=/i.test(normalized)) {
-    return `page.getByLabel(${quoteCodeString(normalized.slice(6))}).first()`;
-  }
-  if (/^placeholder=/i.test(normalized)) {
-    return `page.getByPlaceholder(${quoteCodeString(normalized.slice(12))}).first()`;
-  }
-  if (/^text=/i.test(normalized)) {
-    return `page.getByText(${quoteCodeString(normalized.slice(5))}).first()`;
-  }
-
-  return `page.locator(${quoteCodeString(normalized)}).first()`;
+  if (/^(?:page\.)?(?:getBy\w+|locator)\s*\(/i.test(normalized)) throw new Error('The recorded semantic locator requires the shared locator compiler.');
+  return `page.locator(${quoteCodeString(normalized)})`;
 };
-const playwrightLocatorBlock = (target, lines = []) => [
+const playwrightLocatorBlock = (target, lines = [], formatter) => [
   "{",
-  `  const target = ${playwrightLocatorCode(target)};`,
+  `  const target = ${playwrightLocatorCode(target, formatter)};`,
   ...lines.map((line) => `  ${line}`),
   "}"
 ].join("\n");
-const keywordOptionsCode = (options = {}) => {
-  const entries = Object.entries(options).filter(([, value]) => value !== undefined && value !== null && value !== "");
-  if (!entries.length) {
-    return "{}";
-  }
-
-  return `{\n${entries.map(([key, value]) => `  ${key}: ${typeof value === "string" ? quoteCodeString(value) : String(value)}`).join(",\n")}\n}`;
-};
-
-const WEB_ELEMENT_OPTIONS_CODE = keywordOptionsCode({
-  timeoutMs: 10000,
-  scroll: "nearest",
-  waitFor: "visible",
-  force: false
-});
-const WEB_TYPE_OPTIONS_CODE = keywordOptionsCode({
-  timeoutMs: 10000,
-  scroll: "nearest",
-  waitFor: "visible",
-  clear: true,
-  type: "char-by-char",
-  delayMs: 35
-});
-
 const inferRecorderFillValue = (action) => {
   // A recorder captures actual data, including a deliberately empty input.
   // Parameter names come from the mapped source step, never field-name guesses.
@@ -1476,6 +1443,7 @@ const keywordComment = (keyword, args = []) =>
   `// Keyword: ${keyword}(${args.map((arg) => quoteCodeString(arg)).join(", ")})`;
 
 const buildRecorderStepCandidate = (action, order, repositoryModel) => {
+  const locatorBlock = (target, lines) => playwrightLocatorBlock(target, lines, repositoryModel?.locatorExpression);
   const type = String(action.type || "").toLowerCase();
   const target = resolveRecorderTarget(action, repositoryModel);
   const targetLabel = describeRecorderTarget(action, "recorded target", repositoryModel);
@@ -1498,8 +1466,7 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
       keyword_arguments: [url],
       automation_code: [
         keywordComment(keyword, [url]),
-        `await page.goto(${quoteCodeString(url)});`,
-        `await page.waitForLoadState("domcontentloaded");`
+        `await page.goto(${quoteCodeString(url)});`
       ].join("\n")
     };
   }
@@ -1516,10 +1483,7 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
         keyword_arguments: [target],
         automation_code: [
           keywordComment(keyword, [target]),
-          playwrightLocatorBlock(target, [
-            `await target.waitFor({ state: "visible", timeout: 10000 });`,
-            `await target.click();`
-          ])
+          locatorBlock(target, [`await target.click();`])
         ].join("\n")
       };
     }
@@ -1539,7 +1503,7 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
       automation_code: [
         keywordComment(keyword, ["body"]),
         `// TODO: Replace this fallback with a stable locator for the recorded click${position}.`,
-        playwrightLocatorBlock("body", [
+        locatorBlock("body", [
           `await target.click();`
         ])
       ].join("\n")
@@ -1563,10 +1527,7 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
       keyword_arguments: [target],
       automation_code: [
         keywordComment(keyword, [target]),
-        playwrightLocatorBlock(target, [
-          `await target.waitFor({ state: "visible", timeout: 10000 });`,
-          type === "dblclick" ? `await target.dblclick();` : `await target.click({ button: "right" });`
-        ])
+        locatorBlock(target, [type === "dblclick" ? `await target.dblclick();` : `await target.click({ button: "right" });`])
       ].join("\n")
     };
   }
@@ -1585,10 +1546,7 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
         keyword_arguments: [target, value],
         automation_code: [
           keywordComment(keyword, [target, value]),
-          playwrightLocatorBlock(target, [
-            `await target.waitFor({ state: "visible", timeout: 10000 });`,
-            `await target.fill(${quoteCodeString(value)});`
-          ])
+          locatorBlock(target, [`await target.fill(${quoteCodeString(value)});`])
         ].join("\n")
       };
     }
@@ -1604,7 +1562,7 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
       automation_code: [
         keywordComment(keyword, ["body", value]),
         "// TODO: Replace this fallback with a stable locator for the recorded field.",
-        playwrightLocatorBlock("body", [
+        locatorBlock("body", [
           `await target.fill(${quoteCodeString(value)});`
         ])
       ].join("\n")
@@ -1625,7 +1583,7 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
         keyword_arguments: [target, value],
         automation_code: [
           keywordComment(keyword, [target, value]),
-          `await web.uploadFile(${quoteCodeString(target)}, ${quoteCodeString(value)}, { waitFor: "attached" });`
+          locatorBlock(target, [`await target.setInputFiles(${quoteCodeString(value)});`])
         ].join("\n")
       };
     }
@@ -1659,10 +1617,7 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
         keyword_arguments: [target, value],
         automation_code: [
           keywordComment(keyword, [target, value]),
-          playwrightLocatorBlock(target, [
-            `await target.waitFor({ state: "visible", timeout: 10000 });`,
-            `await target.selectOption(${quoteCodeString(value)});`
-          ])
+          locatorBlock(target, [`await target.selectOption(${quoteCodeString(value)});`])
         ].join("\n")
       };
     }
@@ -1678,7 +1633,7 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
       automation_code: [
         keywordComment(keyword, ["select", value]),
         "// TODO: Replace this fallback with a stable locator for the recorded dropdown.",
-        playwrightLocatorBlock("select", [
+        locatorBlock("select", [
           `await target.selectOption(${quoteCodeString(value)});`
         ])
       ].join("\n")
@@ -1700,10 +1655,7 @@ const buildRecorderStepCandidate = (action, order, repositoryModel) => {
       keyword_arguments: [target],
       automation_code: [
         keywordComment(keyword, [target]),
-        playwrightLocatorBlock(target, [
-          `await target.waitFor({ state: "visible", timeout: 10000 });`,
-          `await target.${type}();`
-        ])
+        locatorBlock(target, [`await target.${type}();`])
       ].join("\n")
     };
   }
@@ -1785,20 +1737,7 @@ const isRecorderActionSuperseded = (action, actions, index) => {
   }
 
   if ((type === "change" || type === "fill" || type === "upload" || type === "select" || type === "check" || type === "uncheck") && action.locator) {
-    const previousSameLocator = actions.slice(0, index).some((candidate) =>
-      ["fill", "change", "upload", "select", "check", "uncheck"].includes(String(candidate.type || "").toLowerCase())
-      && candidate.locator === action.locator
-      && Math.abs(parseActionTimestamp(candidate.timestamp) - parseActionTimestamp(action.timestamp)) < 12_000
-    );
-    const laterSameLocator = actions.slice(index + 1).some((candidate) =>
-      ["fill", "change", "upload", "select", "check", "uncheck"].includes(String(candidate.type || "").toLowerCase())
-      && candidate.locator === action.locator
-      && Math.abs(parseActionTimestamp(candidate.timestamp) - parseActionTimestamp(action.timestamp)) < 12_000
-    );
-
-    return previousSameLocator && laterSameLocator
-      ? true
-      : laterSameLocator;
+    return Boolean(require('../lib/automationRecorderActions').supersedingInputAction(action, actions, index));
   }
 
   if (type === "navigation") {
@@ -2315,54 +2254,6 @@ const buildDeterministicRepositorySuggestion = (entry, guidance) => {
   };
 };
 
-const inferQuotedText = (value) => {
-  const text = normalizeRichText(value);
-
-  if (!text) {
-    return null;
-  }
-
-  const quoteMatch = text.match(/["“']([^"”']{2,})["”']/);
-  if (quoteMatch) {
-    return quoteMatch[1].trim();
-  }
-
-  return null;
-};
-
-const inferLocatorText = (step) => {
-  const action = normalizeRichText(step.action) || "";
-  const quoted = inferQuotedText(action);
-
-  if (quoted) {
-    return quoted;
-  }
-
-  const matches = [
-    action.match(/\b(?:click|tap|select|choose|open)\s+(?:on\s+)?(?:the\s+)?(.+)$/i),
-    action.match(/\b(?:enter|type|fill|input)\s+.+?\s+(?:in|into|on)\s+(?:the\s+)?(.+)$/i),
-    action.match(/\b(?:field|button|link|tab|menu)\s+(.+)$/i)
-  ];
-
-  for (const match of matches) {
-    const candidate = normalizeRichText(match?.[1]);
-    if (candidate) {
-      return candidate.replace(/[.。]$/, "");
-    }
-  }
-
-  return action.slice(0, 80) || `step ${step.step_order || 1}`;
-};
-
-const findCachedLocator = (step, cacheRows = []) => {
-  const intent = `${step.action || ""} ${step.expected_result || ""}`.toLowerCase();
-
-  return cacheRows.find((row) => {
-    const haystack = `${row.locator_intent || ""} ${row.page_key || ""}`.toLowerCase();
-    return haystack && intent && haystack.split(/\s+/).some((token) => token.length > 3 && intent.includes(token));
-  })?.locator || null;
-};
-
 const normalizeStepCandidate = (candidate, stepsById, stepsByOrder, appTypeKind) => {
   if (!isPlainObject(candidate)) {
     return null;
@@ -2461,8 +2352,9 @@ const normalizeLlmBuild = (payload, steps, cacheRows, startUrl, grounding) => {
 /** Develop an unsaved complete case using the same native completion, browser
  * inspection and portable source contracts as the Automation Engineer. No
  * partial section is published; the caller receives one validated whole case. */
-exports.previewAutomationDraft = async ({ draft, runtime_parameter_values = {}, project_id, app_type_id, app_type_kind = 'web', user_id, integration_id, additional_context, inspect_browser = false, signal } = {}) => {
+exports.previewAutomationDraft = async ({ draft, runtime_parameter_values = {}, project_id, app_type_id, app_type_kind = 'web', user_id, integration_id, additional_context, inspect_browser = false, allow_browser_actions = false, browser_driver, signal, onProgress = async () => {} } = {}) => {
   if (!project_id || !app_type_id || !user_id || !draft || typeof draft !== 'object') throw Object.assign(new Error('Supply the project, application, actor and Test Case draft for automation preview.'), {statusCode:400});
+  if (typeof inspect_browser !== 'boolean' || typeof allow_browser_actions !== 'boolean' || allow_browser_actions && !inspect_browser) throw Object.assign(new Error('Performing the authored browser steps requires an explicit browser build mode.'), {statusCode:400,code:'AUTOMATION_BUILD_OPTIONS_INVALID',effect_dispatched:false});
   const access = await getOptionalEvidenceAccess({id:user_id}, project_id, ['automation.ai','automation.build']);
   if (!access['automation.ai'] || !access['automation.build']) throw Object.assign(new Error('Automation preview requires AI and build access.'), {statusCode:403});
   const application = await db.prepare('SELECT id,type FROM app_types WHERE id=? AND project_id=?').get(app_type_id,project_id);
@@ -2481,34 +2373,36 @@ exports.previewAutomationDraft = async ({ draft, runtime_parameter_values = {}, 
   const featureProfile=await require('@hellotest/platform/backend/services/aiConfiguration.service').resolve(featureKey);
   const integration = await resolveLlmIntegration(integration_id,{userId:user_id,projectId:project_id,usageKey:featureKey});
   if (!integration) throw Object.assign(new Error('Configure an active LLM integration before generating automation.'),{statusCode:422});
-  const resolver=require('../lib/automationBrowserParameters').createBrowserParameterResolver({testCase:draft,caseValues:{...(draft.parameter_values||{}),...runtime_parameter_values},privateParameterNames:[...(draft.test_data_options?.private_parameter_names||[]),...Object.keys(runtime_parameter_values)],steps,materialize:false});
+  const resolver=require('../lib/automationBrowserParameters').createBrowserParameterResolver({testCase:draft,caseValues:{...(draft.parameter_values||{}),...runtime_parameter_values},privateParameterNames:[...(draft.test_data_options?.private_parameter_names||[]),...Object.keys(runtime_parameter_values)],steps,materialize:allow_browser_actions});
+  if(inspect_browser&&steps.some(step=>step.step_type==='web')){
+    require('../lib/automationBuildPipelineOptions').normalizeBuildPipelineOptions({browser_driver});
+    const assertAccess=async()=>{signal?.throwIfAborted();const current=await getOptionalEvidenceAccess({id:user_id},project_id,['automation.ai','automation.build']);if(!current['automation.ai']||!current['automation.build'])throw Object.assign(new Error('Automation preview access changed.'),{statusCode:403});};
+    const engine=await resolveTestEngineIntegration({project_id,app_type_id});
+    const bindings=resolver.upstreamBindings();
+    const browser=await require('../lib/automationUpstreamMcpClient').connectUpstreamPlaywright({integration:engine,startUrl,secrets:bindings.secrets,signal});
+    const previewPromptSteps=resolver.projectSteps(steps).map((step,index)=>({...step,...(step.step_type==='api'?{parameter_bindings:apiParameterBindingContext(steps[index],resolver.promptValues)}:{})}));
+    const build=await require('../lib/automationUpstreamEngineer').buildWithUpstreamPlaywright({steps:previewPromptSteps,startUrl,brief:resolver.projectText(normalizeRichText(additional_context)),context:{case:resolver.projectCase(draft)},parameterBindings:bindings,redact:resolver.redactUpstream,interactive:allow_browser_actions,browser,signal,assertAccess,onProgress,validate:require('./automationReadiness.service').inspectExecutablePlan,
+      apiPrompt:step=>buildPrompt({featureKey,testCase:resolver.projectCase({...draft,automation_case_type:automationCaseType,project_id,app_type_id,app_type_kind}),steps:[step],cacheRows:[],knowledgeRows:[],capturedActions:[],capturedNetwork:[],startUrl,buildContext:{generation_mode:'complete_case_draft',verification_status:'unverified'},additionalContext:resolver.projectText(normalizeRichText(additional_context))}),
+      normalizeApiBuild:(payload,required)=>normalizeLlmBuild(payload,required,[],startUrl,{appTypeKind:app_type_kind,automationCaseType,parameters:resolver.promptValues,resolveText:resolver.projectText,apiOrigins:navigationOrigins(startUrl,additional_context,steps)}),
+      complete:({prompt,phase,nativeTools})=>requestChatCompletion({integration,featureKey,prompt,signal,upstreamPhase:phase,browserActor:phase==='upstream_browser_actor',browserReview:phase!=='upstream_browser_actor',nativeTools:phase==='upstream_browser_actor'?nativeTools:undefined,beforeDispatch:assertAccess})});
+    await assertAccess();
+    const nativeSteps=build.updates.map(update=>({...update.step,step_type:update.step_type,automation_code:update.automation_code,automation_instructions:update.automation_instructions,api_request:update.api_request}));
+    const nativeDraft={...draft,automation_case_type:automationCaseType,automated:'yes',status:'draft',automation_status:'incomplete',parameter_values:resolver.publicParameterValues,steps:nativeSteps};
+    const executable=await createArtifactContent({testCase:nativeDraft,updates:build.updates,values:resolver.exportParameterValues,baseURL:startUrl});
+    return {draft:nativeDraft,steps:nativeSteps,parameter_values:resolver.publicParameterValues,automation_start_url:startUrl,summary:build.summary,instructions:nativeSteps.map(step=>({step_order:step.step_order,action:step.action,expected_result:step.expected_result,runtime:step.step_type})),executable:{filename:'automation.spec.ts',language:'typescript',framework:'playwright',code:executable},verification_status:'unverified',validation:{status:'passed',checks:['upstream_playwright_source','source_parameter_binding','expected_result_assertions','source_preserving_instruction_mapping',...(nativeSteps.some(step=>step.step_type==='api')?['native_api_contract']:[])]},generation_mode:'llm',build_engine:'upstream-playwright-v1',warnings:build.warnings||[],browser_evidence:build.browser_evidence,side_effects:{cases_saved:0,target_requests:1,browser_actions:build.side_effects?.browser_actions||0},completion_attempts:1,integration:{id:integration.id,name:integration.name,model:integration.model},parameter_bindings:{private_parameter_references:resolver.privateParameterNames,required_external_parameters:resolver.privateParameterNames}};
+  }
   const promptSteps=resolver.projectSteps(steps).map((step,index)=>({
     ...JSON.parse(resolver.projectPrivateText(JSON.stringify(step),{preserveReferences:true})),
     ...automationExpectedResultTemplate(steps[index],resolver),
     ...(step.step_type==='api'?{parameter_bindings:apiParameterBindingContext(steps[index],resolver.promptValues)}:{})
   }));
-  const observations = [];
-  let browser;
   const assertAccess = async () => {
     if (signal?.aborted) throw signal.reason || Object.assign(new Error('Automation generation cancelled.'), {name:'AbortError'});
     const current=await getOptionalEvidenceAccess({id:user_id},project_id,['automation.ai','automation.build']);
     if(!current['automation.ai']||!current['automation.build'])throw Object.assign(new Error('Automation preview access changed.'),{statusCode:403});
   };
   try {
-    if (inspect_browser && startUrl && steps.some(step => step.step_type === 'web')) {
-      const engine = await resolveTestEngineIntegration({project_id,app_type_id});
-      browser = await connectAutomationBrowser({integration:engine,startUrl,allowBrowserActions:false,signal});
-      const call = browser.call;
-      browser.projectPromptText = value => require('../lib/automationBrowserParameters').referenceKey(value) ? resolver.projectText(value) : resolver.projectPrivateText(value);
-      browser.projectPrivateText = resolver.projectPrivateText;
-      browser.canonicalizeParameterArguments = resolver.canonicalArguments;
-      browser.call = async (name, args) => {
-        await assertAccess();
-        try { return resolver.redactResult(await call(name, resolver.resolve(name,args))); }
-        catch (error) { throw resolver.redactError(error); }
-      };
-    }
-    const prompt = buildPrompt({featureKey,testCase:resolver.projectCase({...draft,automation_case_type:automationCaseType,project_id,app_type_id,app_type_kind}),steps:promptSteps,cacheRows:[],knowledgeRows:[],capturedActions:[],capturedNetwork:[],startUrl,buildContext:{generation_mode:'complete_case_draft',verification_status:'unverified',browser_policy:{transport:browser?'playwright_mcp':'not_requested',interaction_mode:browser?'read_only':'not_configured'}},additionalContext:resolver.projectText(normalizeRichText(additional_context))});
+    const prompt = buildPrompt({featureKey,testCase:resolver.projectCase({...draft,automation_case_type:automationCaseType,project_id,app_type_id,app_type_kind}),steps:promptSteps,cacheRows:[],knowledgeRows:[],capturedActions:[],capturedNetwork:[],startUrl,buildContext:{generation_mode:'complete_case_draft',verification_status:'unverified',browser_policy:{transport:'not_requested',interaction_mode:'not_configured'}},additionalContext:resolver.projectText(normalizeRichText(additional_context))});
     const complete = async (input, remainingMs = LLM_TIMEOUT_MS) => {
       await assertAccess();
       return requestChatCompletion({integration,featureKey,prompt:input,signal,timeoutMs:Math.min(LLM_TIMEOUT_MS,remainingMs)});
@@ -2525,15 +2419,22 @@ exports.previewAutomationDraft = async ({ draft, runtime_parameter_values = {}, 
       if (typeof payload?.summary !== 'string' || !payload.summary.trim()) throw Object.assign(new Error('The complete automation response needs its own nonempty summary.'),{code:'AI_MANAGED_SCHEMA_INVALID'});
       await require('@hellotest/platform/backend/src/utils/aiFeatureRuntime').validateValue(payload,featureProfile);
     };
-    const build = await completeAutomationBuild({steps,displaySteps:promptSteps,sequential:false,availableParameters:resolver.availableParameterNames,feedbackInstruction:aiInstructionBlock(featureKey,'automationBuild.completionFeedback'),validateOutcome,validate,generate:async({attempt,feedback,feedbackInstruction})=>{
+    const build = await completeAutomationBuild({steps,displaySteps:promptSteps,sequential:false,availableParameters:resolver.availableParameterNames,feedbackInstruction:aiInstructionBlock(featureKey,'automationBuild.completionFeedback'),validateOutcome,validate,onProgress,generate:async({attempt,feedback,feedbackInstruction})=>{
       const input = [prompt,feedbackInstruction,JSON.stringify(feedback)].join('\n\n');
-      if (!browser) return complete(input);
-      return runAutomationBrowserAgent({featureKey,prompt:input,browser,startUrl:attempt===1?startUrl:undefined,complete,parse:extractJsonPayload,generationMode:'case',initialObservations:observations,onObservation:observation=>{observations.push(observation);}});
+      return complete(input);
     },parse:value=>typeof value==='string'?extractJsonPayload(value):value});
     await assertAccess();
     const nativeSteps=build.updates.map(update=>({...update.step,step_type:update.step_type,automation_code:update.automation_code,api_request:update.api_request}));
     if (resolver.projectPrivateText(JSON.stringify(nativeSteps),{preserveReferences:true}) !== JSON.stringify(nativeSteps)) throw Object.assign(new Error('Generated automation contains a private input literal. Regenerate it using its exact scoped parameter reference.'),{
       code:'AUTOMATION_PRIVATE_VALUE_IN_SOURCE',statusCode:422,publicMessage:'Generated automation contains a private input literal. Regenerate it using its exact scoped parameter reference.'});
+    for(const [index,step] of nativeSteps.entries()){
+      if(step.step_type==='web')Object.assign(step,await require('../lib/automationUpstreamSectionSource').mapGeneratedSectionInstructions({
+        step,source:step.automation_code,guard:assertAccess,signal,
+        complete:({prompt,phase})=>requestChatCompletion({integration,featureKey,prompt,signal,upstreamPhase:phase,browserReview:true,beforeDispatch:assertAccess}),
+        onProgress,identity:stepId=>({step_id:stepId,active_step_id:stepId})
+      }));
+      await onProgress({phase:'automation.agent.section.completed',message:`Completed section ${step.step_order}.`,details:{step_id:step.id,active_step_id:step.id,step_order:step.step_order,completed_sections:index+1,total_sections:nativeSteps.length,runtime:step.step_type}});
+    }
     const nativeDraft=JSON.parse(resolver.projectPrivateText(JSON.stringify({...draft,automation_case_type:automationCaseType,test_data_options:{...parseJsonValue(draft.test_data_options,{}),automation_case_type:automationCaseType},parameter_values:resolver.publicParameterValues,automated:'yes',status:'draft',automation_status:'incomplete',steps:nativeSteps}),{preserveReferences:true}));
     const hasMobile=nativeSteps.some(step=>['android','ios'].includes(step.step_type));
     const executable = hasMobile ? null : await createArtifactContent({testCase:nativeDraft,updates:build.updates,values:resolver.publicParameterValues,baseURL:startUrl||''});
@@ -2542,15 +2443,15 @@ exports.previewAutomationDraft = async ({ draft, runtime_parameter_values = {}, 
       automation_start_url:startUrl || null,summary:resolver.projectPrivateText(build.summary),
       instructions:nativeSteps.map(step=>({step_order:step.step_order,action:step.action,expected_result:step.expected_result,runtime:step.step_type})),
       executable:executable?{filename:'automation.spec.ts',language:'typescript',framework:'playwright',code:executable}:null,
-      verification_status:'unverified',validation:{status:'passed',checks:['native_request_contract','step_runtime_and_order','expected_result_assertions','existing_assertions_preserved','whole_case_completion']},generation_mode:'llm',integration:{id:integration.id,name:integration.name,model:integration.model},completion_attempts:build.completion_attempts,
-      browser_evidence:{transport:browser?'playwright_mcp':'not_requested',interaction_mode:browser?'read_only':'not_configured',observation_count:observations.filter(item=>item.mcp_call!==false).length},
-      side_effects:{cases_saved:0,target_requests:observations.filter(item=>item.tool==='browser_navigate'&&item.mcp_call!==false).length,browser_actions:0}};
+      verification_status:'unverified',validation:{status:'passed',checks:['native_request_contract','step_runtime_and_order','expected_result_assertions','existing_assertions_preserved','whole_case_completion',...(nativeSteps.some(step=>step.step_type==='web')?['source_preserving_instruction_mapping']:[])]},generation_mode:'llm',integration:{id:integration.id,name:integration.name,model:integration.model},completion_attempts:build.completion_attempts,
+      browser_evidence:{transport:'not_requested',interaction_mode:'not_configured',observation_count:0},
+      side_effects:{cases_saved:0,target_requests:0,browser_actions:0}};
   } catch(error) {
     resolver.redactError(error);
     for (const key of ['publicMessage','blocked_steps','validation_feedback']) if (error[key] != null) error[key] = typeof error[key] === 'string'
       ? resolver.projectPrivateText(error[key]) : JSON.parse(resolver.projectPrivateText(JSON.stringify(error[key])));
     throw error;
-  } finally { await browser?.close(); }
+  }
 };
 
 
@@ -2744,6 +2645,16 @@ const applyBuild = async ({ build, executionGuard, createdBy, progressiveState, 
       if (dataSnapshot) await require('../lib/automationBuildDataSnapshot').persistBuildDataSnapshot({ testCase: currentCase, projectId: build.project_id, userId: createdBy, snapshot: dataSnapshot });
     }
 
+    const replacementById = new Map(build.updates.map(update => [update.step.id, update]));
+    const validationSteps = (partial ? build.updates.map(update => update.step) : current.length ? current : baseline).map(step => {
+      const update = replacementById.get(step.id);
+      return update ? { ...step, step_type: update.step_type, automation_code: update.automation_code, api_request: update.api_request } : step;
+    });
+    const executableIssues = require('./automationReadiness.service').inspectExecutablePlan(validationSteps);
+    if (executableIssues.length) throw Object.assign(new Error(`Generated instructions are not executable. ${executableIssues.join(' ')} Existing instructions were retained.`), {
+      code: 'AUTOMATION_SAVED_PLAN_INVALID', statusCode: 422, validation_feedback: executableIssues
+    });
+
     for (const update of build.updates) {
       const latest = current.find(row => row.id === update.step.id);
       if (!latest || ['step_type', 'automation_code', 'api_request'].some(key => JSON.stringify(latest[key] ?? null) !== JSON.stringify(update[key] ?? null))) {
@@ -2787,7 +2698,7 @@ const buildCaseCore = async ({
   start_url_review,
   allow_browser_actions = false,
   verification_mode = "generate_only",
-  browser_driver = "mcp",
+  browser_driver,
   verification_driver = "native",
   test_environment_id,
   test_configuration_id,
@@ -2810,7 +2721,7 @@ const buildCaseCore = async ({
     throw new Error("Test case not found");
   }
 
-  const access = await getOptionalEvidenceAccess({ id: created_by }, testCase.project_id, ["automation.ai", "automation.build"]);
+  const access = await getOptionalEvidenceAccess({ id: created_by }, testCase.project_id, ["automation.ai", "automation.build", "automation.view"]);
   if (!access["automation.ai"] || !access["automation.build"]) throw Object.assign(new Error("Automation AI is disabled or your build permission is no longer available."), { statusCode: 403 });
   const pairedBrowserScope = paired_browser_bridge_id ? {bridgeId:paired_browser_bridge_id,projectId:testCase.project_id,appTypeId:testCase.app_type_id,
     userId:created_by,caseId:test_case_id,jobId:transaction_id} : null;
@@ -2861,12 +2772,10 @@ const buildCaseCore = async ({
   const progressionPolicy=allow_browser_actions===true&&browserBuild?'performed_generated_saved':'generated_saved';
   await progress({phase:'automation.agent.plan',message:needsFlowPlanning?'Preparing a manual flow from the agent brief.':`Queued ${steps.length} saved sections for generation.`,details:{progression_policy:progressionPolicy,flow_source:needsFlowPlanning?'agent_brief':'saved_sections',steps:steps.map(step=>({step_id:step.id,step_order:step.step_order,step_type:step.step_type,action:step.action,expected_result:step.expected_result})),manual_steps:[]}});
 
-  const cacheRows = scopeRepositoryToTarget(await listLearningCacheRows({
-    projectId: testCase.project_id || null,
-    appTypeId: testCase.app_type_id || null,
-    limit: MAX_CACHE_ROWS
-  }),browserBuild?selectedStartUrl:null);
   const contextSelection = normalizeAgentContext(agent_context);
+  const cacheRows = access['automation.view'] && contextSelection.context_scopes.includes('automation')
+    ? scopeRepositoryToTarget(await listLearningCacheRows({projectId:testCase.project_id||null,appTypeId:testCase.app_type_id||null,limit:MAX_CACHE_ROWS}),browserBuild?selectedStartUrl:null)
+    : [];
   const featureProfile=await require("@hellotest/platform/backend/services/aiConfiguration.service").resolve(buildFeature(ai_feature));
   const featureConfiguration=featureProfile.config;
   const contextPolicy=featureConfiguration.context;
@@ -2891,7 +2800,6 @@ const buildCaseCore = async ({
   let startUrl = navigation.url;
   buildContext.browser_policy={transport:'playwright_mcp',interaction_mode:startUrl?(allow_browser_actions===true?'interactive':'read_only'):'not_configured',entry_url:startUrl,entry_origin:startUrl?new URL(startUrl).origin:null,target_source:navigation.source,entry_url_is_authoritative:browserBuild,verification_status:'unverified'};
   let integration = null;
-  let fallbackReason = null;
   let build = null;
 
   await appendEvent(transaction_id, {
@@ -2937,7 +2845,7 @@ const buildCaseCore = async ({
       if(!linkedSource||goals(linkedSource.steps)!==goals(reviewedParameterState.sourceSteps))throw Object.assign(new Error('The reviewed manual steps changed before their automation target was prepared. Review the current inputs before rebuilding.'),{statusCode:409,code:'AUTOMATION_PARAMETER_PLAN_CHANGED',nonRetryable:true,failure_stage:'context',generation_provider_requests:0,browser_actions:0});
     }
   }
-  let dataSnapshot=await require('../lib/automationBuildDataSnapshot').prepareBuildDataSnapshot({testCase,projectId:testCase.project_id,userId:created_by,generatedValues:browserParameters.generatedCaseValues,authoredValues:browserParameters.reviewedCaseValues,defaultedValues:browserParameters.defaultedCaseValues,parameterOverrides:parameterContext.parameter_overrides,privateNames:browserParameters.privateParameterNames});
+  let dataSnapshot=await require('../lib/automationBuildDataSnapshot').prepareBuildDataSnapshot({testCase,projectId:testCase.project_id,userId:created_by,generatedValues:browserParameters.generatedCaseValues,authoredValues:browserParameters.reviewedCaseValues,authoredTemplates:buildParameterValues,defaultedValues:browserParameters.defaultedCaseValues,parameterOverrides:parameterContext.parameter_overrides,privateNames:browserParameters.privateParameterNames});
   const inputContext={selection:{test_environment_id,test_configuration_id,test_data_set_id,test_suite_id},source_key:browserParameters.inputSourceKey};
   const progressiveState={steps:structuredClone(steps),parameter_context_key:parameterContext.source_key,input_context:inputContext,data_snapshot:dataSnapshot};
   const buildIdentity={manual_context:buildContext.linked_manual_cases,manual_link_ids:manualLinkIds,parameter_context_key:parameterContext.source_key,input_context:inputContext,data_snapshot:dataSnapshot,project_id:testCase.project_id,app_type_id:testCase.app_type_id,case_start_url:reviewedNavigation.savedStartUrl,case_platform_key:storedAutomationCaseType(testCase)};
@@ -2962,271 +2870,212 @@ const buildCaseCore = async ({
     if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;
     await appendEvent(transaction_id,{phase:'automation.agent.data.unavailable',level:'warning',message:'The optional resolved-data display could not be stored. Generation continues with the same configured data.'}).catch(()=>{});
   }
-  let prompt = buildPrompt({ featureKey:buildFeature(ai_feature), testCase:promptCase, steps:promptSteps, cacheRows, knowledgeRows, capturedActions, capturedNetwork, buildContext:promptBuildContext, startUrl, additionalContext: browserParameters.projectText(normalizeRichText(additional_context)) });
-  let browser;
-  const browserObservations=[];
+  if(browserBuild){
+    const assertAccess=async()=>{await execution_guard?.ensureOwnership();const permissions=[...new Set(['automation.ai','automation.build',...resourcePermissions,...(cacheRows.length?['automation.view']:[]),...(buildContext.linked_manual_cases.length?['testcase.view']:[]),...(buildContext.story_context.stories.length?['requirement.view']:[]),...browserParameters.required_permissions,...(browserParameters.availableParameterNames.length?['data.view']:[])])];const access=await getOptionalEvidenceAccess({id:created_by},testCase.project_id,permissions);if(permissions.some(key=>!access[key]))throw Object.assign(new Error('Automation build or data access changed. Existing edits were retained.'),{statusCode:403});};
+    if(steps.length)require('../lib/automationBuildInputPreflight').assertBuildInputs(steps,browserParameters);
+    await assertAccess();
+    const engine=await resolveBuildBrowserIntegration(testCase,pairedBrowserScope);
+    let pendingBrowserPreview;
+    const browser=await require('../lib/automationUpstreamMcpClient').connectUpstreamPlaywright({integration:engine,startUrl,buildId:transaction_id,secrets:browserParameters.upstreamBindings().secrets,signal:execution_guard?.signal,
+      capturePreview:Boolean(transaction_id),onPreview:transaction_id?async preview=>{pendingBrowserPreview=preview;}:undefined});
+    try{
+    if(!steps.length){
+      const planning=require('../lib/automationFlowPlanning');
+      const applicationEvidence=await planning.observeUpstreamEntry({browser,startUrl,redact:browserParameters.redactUpstream,assertAccess,signal:execution_guard?.signal});
+      const proposed=await planning.planAutomationFlow({featureKey:buildFeature(ai_feature),allowedTypes:['web'],context:{user_request:browserParameters.projectPrivateText(flowBrief,{preserveReferences:true}),case:promptCase,build_context:promptBuildContext,application_evidence:applicationEvidence},complete:async input=>{await assertAccess();return requestChatCompletion({integration,featureKey:buildFeature(ai_feature),prompt:input,signal:execution_guard?.signal,browserReview:true,beforeDispatch:assertAccess});},parse:extractJsonPayload,onProgress:progress,signal:execution_guard?.signal,requiredParameterNames:browserParameters.referencedParameterNames([{action:flowBrief,expected_result:''}]),referencedParameterNames:browserParameters.referencedParameterNames});
+      steps=await require('./automationFlowPlan.service').saveFlowPlan({testCase,steps:proposed,userId:created_by,executionGuard:execution_guard,assertSources:async()=>{const currentManual=await loadAutomationManualContext({caseId:test_case_id,projectId:testCase.project_id,userId:created_by,lock:true});const currentParameters=await loadAutomationParameterContext({testCase,projectId:testCase.project_id,userId:created_by,lock:true});if(manualContextKey(currentManual)!==manualContextKey(buildContext.linked_manual_cases)||currentParameters.source_key!==parameterContext.source_key)throw Object.assign(new Error('The manual context changed during flow planning.'),{statusCode:409,code:'AUTOMATION_FLOW_BASELINE_CHANGED'});}});
+      browserParameters.registerStepReferences(steps);
+      dataSnapshot=await require('../lib/automationBuildDataSnapshot').prepareBuildDataSnapshot({testCase,projectId:testCase.project_id,userId:created_by,generatedValues:browserParameters.generatedCaseValues,authoredValues:browserParameters.reviewedCaseValues,authoredTemplates:buildParameterValues,defaultedValues:browserParameters.defaultedCaseValues,parameterOverrides:parameterContext.parameter_overrides,privateNames:browserParameters.privateParameterNames});
+      Object.assign(progressiveState,{steps:structuredClone(steps),data_snapshot:dataSnapshot});buildIdentity.data_snapshot=dataSnapshot;
+      await progress({phase:'automation.agent.flow.planned',message:`Prepared ${steps.length} authored sections for upstream Playwright MCP.`,details:{steps:steps.map(step=>({step_id:step.id,step_order:step.step_order,action:step.action,expected_result:step.expected_result,step_type:step.step_type})),verification_status:'unverified'}});
+    }
+    const manualLineage=require('../lib/automationBuildCompletion').groundedManualCoverage(steps,buildContext.linked_manual_cases);
+    await progress({phase:'automation.agent.plan',message:`Queued ${steps.length} sections with grounded linked manual-step coverage.`,details:{generation_mode:'sequential',progression_policy:progressionPolicy,steps:steps.map(step=>({step_id:step.id,step_order:step.step_order,step_type:step.step_type,action:step.action,expected_result:step.expected_result})),manual_steps:manualLineage.manualSteps.map(step=>({manual_step_id:step.id,manual_test_case_id:step.test_case_id,step_order:step.step_order,action:step.action,expected_result:step.expected_result})),manual_coverage:manualLineage.manualCoverage,unmapped_manual_step_ids:manualLineage.unmappedManualStepIds,verification_status:'unverified'}});
+    require('../lib/automationBuildInputPreflight').assertBuildInputs(steps,browserParameters);
+    const bindings=browserParameters.upstreamBindings();
+    const complete=async({prompt:input,phase,step,nativeTools,timeoutMs,beforeDispatch})=>{
+      await assertAccess();
+      input=browserParameters.redactUpstream(input);
+      return require('@hellotest/platform/backend/src/utils/llmTraceContext').run({project_id:testCase.project_id,actor_id:created_by,session_id:transaction_id,test_case_id,generation_scope:phase,generation_section_ids:[step.id],automation_case_generation:true,automation_case_type:automationCaseType,automation_browser_loop:true,mcp_context_depth:1,mcp_context:knowledgeRows.knowledge.length?"retrieved":knowledgeRows.context_transport==="not_required"?"not_required":"unavailable",on_llm_trace:transaction_id?record=>appendEvent(transaction_id,require('@hellotest/platform/backend/src/utils/agentModelTrace').modelTraceEvent(record,{name:'Automation engineer',caseId:test_case_id})):undefined},()=>requestChatCompletion({integration,featureKey:buildFeature(ai_feature),prompt:input,signal:execution_guard?.signal,upstreamPhase:phase,browserActor:phase==='upstream_browser_actor',browserReview:phase!=='upstream_browser_actor',nativeTools:phase==='upstream_browser_actor'?nativeTools:undefined,...(phase==='verification_repair'?{timeoutMs:Math.min(30_000,timeoutMs||30_000),maxAttempts:1}:{}),beforeDispatch:beforeDispatch||assertAccess}));
+    };
+    let result;
+    try{
+      result=await require('../lib/automationUpstreamEngineer').buildWithUpstreamPlaywright({steps:manualLineage.steps.map(step=>({...step,parameter_references:browserParameters.referencedParameterNames([{action:step.action,expected_result:step.expected_result}]),step_type:automationStepType(step,automationCaseType),action:browserParameters.projectPrivateText(step.action,{preserveReferences:true}),expected_result:browserParameters.projectPrivateText(step.expected_result,{preserveReferences:true}),...(automationStepType(step,automationCaseType)==='api'?{parameter_bindings:apiParameterBindingContext(step,browserParameters.promptValues)}:{})})),startUrl,brief:browserParameters.projectPrivateText(normalizeRichText(additional_context),{preserveReferences:true}),context:{case:promptCase,build_context:promptBuildContext,repository:summarizeCache(cacheRows),knowledge:summarizeKnowledge(knowledgeRows.knowledge),case_title:browserParameters.projectPrivateText(testCase.title),assertion_timeout_ms:engine.config?.assertion_timeout_ms,navigation_timeout_ms:engine.config?.navigation_timeout_ms},parameterBindings:bindings,redact:browserParameters.redactUpstream,interactive:allow_browser_actions===true,browser,complete,assertAccess,onProgress:progress,signal:execution_guard?.signal,validate:require('./automationReadiness.service').inspectExecutablePlan,
+        apiPrompt:step=>buildPrompt({featureKey:buildFeature(ai_feature),testCase:promptCase,steps:[step],cacheRows:[],knowledgeRows,capturedActions:[],capturedNetwork,buildContext:promptBuildContext,startUrl,additionalContext:browserParameters.projectText(normalizeRichText(additional_context))}),
+        normalizeApiBuild:(payload,required)=>normalizeLlmBuild(payload,required,[],startUrl,{appTypeKind:testCase.app_type_kind,automationCaseType,apiOrigins:navigationOrigins(startUrl,additional_context,steps,capturedNetwork,knowledgeRows.knowledge,promptBuildContext),parameters:browserParameters.promptValues,resolveText:browserParameters.projectText}),
+        onObservation:async observation=>{
+          await assertAccess();
+          if(!transaction_id)return null;
+          const preview=pendingBrowserPreview;pendingBrowserPreview=undefined;
+          if(preview?.tool===observation.tool)observation={...observation,url:preview.url,observed_at:preview.observed_at,result:{...observation.result,content:[...(observation.result?.content||[]),...preview.content]}};
+          try{
+            const evidence=await require('./automationAgentActivity.service').createBrowserEvidence(transaction_id,{observation,testCaseId:test_case_id,attempt:1,active_step_id:observation.active_step_id,active_manual_step_ids:observation.active_manual_step_ids||[],interactionMode:allow_browser_actions===true?'interactive':'read_only',transport:'upstream_playwright_mcp'});
+            if(evidence)await progress({phase:'automation.agent.observation',message:'Captured application evidence from upstream Playwright MCP. Execution remains unverified.',details:evidence});
+            return evidence;
+          }catch(error){
+            const diagnostics=require('../lib/automationProgressDiagnostics');
+            if(diagnostics.isCriticalAutomationError(error))throw error;
+            diagnostics.reportDiagnosticFailure({activityId:transaction_id,operation:'upstream_browser_evidence',error});
+            await appendEvent(transaction_id,{phase:'automation.agent.observation.unavailable',level:'warning',message:'The latest optional application observation could not be retained. Native browser work continues without replay.'}).catch(()=>{});
+            return null;
+          }
+        },
+        onSection:async(update,evidence)=>{
+        const original=steps.find(step=>step.id===update.step.id);update.step=original;
+        const activeManualStepIds=manualLineage.manualCoverage.filter(row=>row.section_step_id===original.id).map(row=>row.manual_step_id);
+        const preview=await require('./automationAgentActivity.service').createSectionPreview(transaction_id,{testCaseId:test_case_id,step:original,update,attempt:1,evidence,modelCallScope:'section_attempt',manualCoverage:manualLineage.manualCoverage,manualSpecification:manualLineage.manualSpecification});
+        await applyBuild({build:{updates:[update],...buildIdentity},executionGuard:execution_guard,createdBy:created_by,progressiveState,partial:true});
+        await progress({phase:'automation.agent.section.saved',message:update.step_type==='api'?`Saved API section ${original.step_order} from its configured contract.`:`Saved section ${original.step_order} from upstream Playwright MCP.`,details:{...preview,step_id:original.id,step_ids:[original.id],active_step_id:original.id,active_manual_step_ids:activeManualStepIds,instruction_status:'saved',development_status:'completed',saved_at:new Date().toISOString(),verification_status:'unverified',browser_driver:'playwright_mcp_upstream',runtime:update.step_type}});
+      }});
+      let stepUpdates=await applyBuild({build:{...result,...buildIdentity},executionGuard:execution_guard,createdBy:created_by,progressiveState});
+      const verificationHooks=require('../lib/automationSavedBuildVerificationHooks').createSavedBuildVerificationHooks({
+        assertBuildAccess:assertAccess,getVerificationAccess:permissions=>getOptionalEvidenceAccess({id:created_by},testCase.project_id,permissions),
+        parameterResolver:browserParameters,featureKey:buildFeature(ai_feature),signal:execution_guard?.signal,parseResponse:extractJsonPayload,
+        completeRepair:({prompt,timeoutMs,generationScope,sectionId,beforeDispatch})=>complete({prompt,phase:generationScope,step:{id:sectionId},timeoutMs,beforeDispatch}),
+        getBuild:()=>result,commitBuild:async repaired=>{stepUpdates=await applyBuild({build:{...repaired,...buildIdentity},executionGuard:execution_guard,createdBy:created_by,progressiveState});result=repaired;return progressiveState;}
+      });
+      const verification=await require('./automationSavedBuildVerification.service').verifySavedBuild({options:pipelineOptions,testCase,startUrl,state:progressiveState,activityId:transaction_id,parameterResolver:browserParameters,manualLinkIds,manualContext:buildIdentity.manual_context,signal:execution_guard?.signal},{...verificationHooks,readCase:id=>selectCaseWithScope.get(id),readSteps:id=>selectStepsForCase.all(id),readManualLinkIds:async id=>(await db.prepare('SELECT manual_test_case_id FROM automation_case_links WHERE automation_test_case_id=? ORDER BY manual_test_case_id').all(id)).map(row=>row.manual_test_case_id),readManualContext:id=>loadAutomationManualContext({caseId:id,projectId:testCase.project_id,userId:created_by}),manualContextKey,readParameters:currentCase=>loadAutomationParameterContext({testCase:currentCase,projectId:testCase.project_id,userId:created_by}),readInputs:(currentCase,params,selection)=>require('../lib/automationBrowserParameters').loadBrowserParameterResolver({testCase:currentCase,projectId:testCase.project_id,userId:created_by,caseValues:params.runtime_parameter_values,privateParameterNames:params.private_parameter_names,parameterOverrides:params.parameter_overrides,...selection,materialize:false}),prepareRun:async()=>request=>require('../lib/automationVerificationClient').verifyRecordedAutomation({integration:engine,request,signal:execution_guard?.signal}),onProgress:summary=>progress({phase:'automation.agent.verification',message:summary.message,details:{verification:summary}})});
+      let artifact;const warnings=[...(result.warnings||[])];
+      if(transaction_id)try{artifact=await workspaceTransactionService.createTransactionArtifact(transaction_id,{file_name:`${testCase.display_id||testCase.id}-automation.spec.ts`,mime_type:'text/typescript; charset=utf-8',content:await createArtifactContent({testCase,updates:result.updates,values:browserParameters.exportParameterValues,sensitiveNames:browserParameters.privateParameterNames,baseURL:startUrl})});}catch(error){if(execution_guard?.signal?.aborted||[401,403].includes(error.statusCode))throw error;warnings.push('Instructions were saved. The optional downloadable source artifact could not be stored.');}
+      return {test_case_id,source_test_case_id:preparedTarget.source_test_case_id,title:testCase.title,automated:'yes',automation_status:'ready',generated_step_count:stepUpdates.length,completion_attempts:1,verification_status:verification.status==='passed'?'verified':'unverified',verification,warnings,learned_locator_count:0,cache_hits:0,fallback_used:false,integration:{id:integration.id,name:integration.name,model:integration.model},summary:result.summary,artifact_id:artifact?.id||null,step_updates:stepUpdates,build_engine:'upstream-playwright-v1',browser_evidence:result.browser_evidence};
+    }catch(error){browserParameters.redactError(error);error.automation_test_case_id=test_case_id;error.source_test_case_id=preparedTarget.source_test_case_id;error.active_manual_step_ids=manualLineage.manualCoverage.filter(row=>row.section_step_id===error.active_step_id).map(row=>row.manual_step_id);throw error;}
+    }finally{pendingBrowserPreview=undefined;await browser.close();}
+  }
+  // Web sections have already returned through the upstream MCP generator.
+  // The remaining path generates API/native contracts without a browser host.
+  let prompt = buildPrompt({ featureKey:buildFeature(ai_feature), testCase:promptCase, steps:promptSteps, cacheRows, knowledgeRows, capturedActions, capturedNetwork, buildContext:promptBuildContext, startUrl, additionalContext:browserParameters.projectText(normalizeRichText(additional_context)) });
   const savedSectionIds=new Set();
-  const annotateBuildFailure=error=>{
-    error.automation_test_case_id=test_case_id;
-    error.source_test_case_id=preparedTarget.source_test_case_id;
-    error.saved_step_ids=[...savedSectionIds];
-    error.saved_sections=savedSectionIds.size;
-    if(completionActiveStepId){error.active_step_id=completionActiveStepId;error.active_manual_step_ids=completionActiveManualStepIds;}
-    // Requeueing the whole case after a provider/storage failure could repeat
-    // an already performed submission. A new user-reviewed build is separate.
-    if(browserObservations.some(item=>['browser_click','browser_fill','browser_press_key','browser_select_option','browser_check','browser_uncheck','browser_hover'].includes(item.tool)&&!item.result?.isError))error.nonRetryable=true;
-    return error;
-  };
-  const generationEvidence=new Map();
+  let generationRequested=false,completionAttempt=1,completionActiveStepId=null,completionActiveManualStepIds=[],completionSectionAttempt=null,completionSectionIds=[];
   const generationModelCalls=new Map();
-  let generationRequested=false;
-  let completionAttempt=1;
-  let completionActiveStepId=null;
-  let completionActiveManualStepIds=[];
-  let completionSectionAttempt=null;
-  let completionSectionIds=[];
-  const generationProvenance=new Map();
-  const generationContracts=new Map();
-  const usedObjectManifests=new Map();
-  const usedObjectRowsByAttempt=new Map();
-  let confirmedObjectsSaved=0;
   let planningFlow=needsFlowPlanning;
   const caseBudgetMs=Math.max(240_000,Math.min(1_800_000,Number(process.env.AUTOMATION_BUILDER_CASE_TIMEOUT_MS)||Math.max(240_000,steps.length*120_000)));
-  const callsPerSection=Math.max(6,Math.min(30,Number(process.env.AUTOMATION_BUILDER_BROWSER_CALLS_PER_SECTION)||12));
-  let browserCallBudget=Math.min(400,Math.max(callsPerSection,steps.filter(step=>normalizeTestStepType(step.step_type,'web')==='web').length*callsPerSection));
   const buildStartedAt=Date.now();
   let completionDeadline=buildStartedAt+caseBudgetMs;
+  const annotateBuildFailure=error=>{
+    Object.assign(error,{automation_test_case_id:test_case_id,source_test_case_id:preparedTarget.source_test_case_id,saved_step_ids:[...savedSectionIds],saved_sections:savedSectionIds.size});
+    if(completionActiveStepId){error.active_step_id=completionActiveStepId;error.active_manual_step_ids=completionActiveManualStepIds;}
+    return error;
+  };
   const assertBuildContextAccess=async()=>{
     await execution_guard?.ensureOwnership();
-    const permissions=[...new Set(['automation.ai','automation.build',...browserParameters.required_permissions,...(browserParameters.availableParameterNames.length?['data.view']:[])])];
+    const permissions=[...new Set(['automation.ai','automation.build',...resourcePermissions,...(cacheRows.length?['automation.view']:[]),...(buildContext.linked_manual_cases.length?['testcase.view']:[]),...(buildContext.story_context.stories.length?['requirement.view']:[]),...browserParameters.required_permissions,...(browserParameters.availableParameterNames.length?['data.view']:[])])];
     const access=await getOptionalEvidenceAccess({id:created_by},testCase.project_id,permissions);
     if(permissions.some(permission=>!access[permission]))throw Object.assign(new Error('Automation build or test context access changed. Existing instructions were retained.'),{statusCode:403});
   };
-  const completeBuild=async(input,remainingMs=LLM_TIMEOUT_MS,traceOptions={})=>{await assertBuildContextAccess();const specialist=runtimeSpecialist(promptSteps.find(step=>step.id===completionActiveStepId)?.step_type);const specialistInstructions=runtimeSpecialistInstructions(specialist?[specialist.id]:planningFlow?selectedPlatform.allowed_step_types:promptSteps.map(step=>step.step_type));const attempt=completionAttempt;if(!planningFlow&&!generationModelCalls.has(attempt))generationModelCalls.set(attempt,[]);return require("@hellotest/platform/backend/src/utils/llmTraceContext").run({project_id:testCase.project_id,actor_id:created_by,session_id:transaction_id,completion_attempt:attempt,test_case_id,generation_scope:traceOptions.generationScope||(planningFlow?'flow_plan':completionActiveStepId?'section_attempt':'case_attempt'),generation_section_ids:completionSectionIds,section_attempt:completionSectionAttempt,
-    on_llm_trace:transaction_id?record=>{
-      // Bind previews to the actual response being consumed, before the optional
-      // event sink. One case-level response can develop several sections.
-      if(!planningFlow&&record.status==="succeeded"&&record.dispatched&&typeof record.call_id==="string")generationModelCalls.set(attempt,[...new Set([...(generationModelCalls.get(attempt)||[]),record.call_id])]);
-      return appendEvent(transaction_id,require("@hellotest/platform/backend/src/utils/agentModelTrace").modelTraceEvent(record,{name:specialist?.name||"Automation engineer",caseId:test_case_id}));
-    }:undefined,
-    automation_case_generation:true,automation_specialist:specialist?.id||null,automation_case_type:automationCaseType,automation_actor_phase:traceOptions.browserActor===true,automation_browser_loop:Boolean(browser)||planningFlow,mcp_context_depth:1,mcp_context:knowledgeRows.knowledge.length?"retrieved":knowledgeRows.context_transport === "not_required"?"not_required":"unavailable"},()=>{generationRequested=true;return requestChatCompletion({integration,featureKey:buildFeature(ai_feature),prompt:[specialistInstructions,input].filter(Boolean).join("\n\n"),signal:execution_guard?.signal,timeoutMs:Math.min(LLM_TIMEOUT_MS,remainingMs),maxAttempts:traceOptions.generationScope==='verification_repair'?1:undefined,beforeDispatch:assertBuildContextAccess,activeGoal:traceOptions.browserActor===true?promptSteps.find(step=>step.id===completionActiveStepId):undefined,onCapacityWait:details=>progress({phase:'automation.agent.model.capacity.wait',message:'The model provider requested a short wait. Retaining the current browser and completed actions before retrying the rejected request.',details:{...details,active_step_id:completionActiveStepId}})});} );};
+  const completeBuild=async(input,remainingMs=LLM_TIMEOUT_MS,traceOptions={})=>{
+    await assertBuildContextAccess();
+    const specialist=runtimeSpecialist(promptSteps.find(step=>step.id===completionActiveStepId)?.step_type);
+    const instructions=runtimeSpecialistInstructions(specialist?[specialist.id]:planningFlow?selectedPlatform.allowed_step_types:promptSteps.map(step=>step.step_type));
+    const attempt=completionAttempt;
+    if(!planningFlow&&!generationModelCalls.has(attempt))generationModelCalls.set(attempt,[]);
+    return require('@hellotest/platform/backend/src/utils/llmTraceContext').run({
+      project_id:testCase.project_id,actor_id:created_by,session_id:transaction_id,completion_attempt:attempt,test_case_id,
+      generation_scope:traceOptions.generationScope||(planningFlow?'flow_plan':completionActiveStepId?'section_attempt':'case_attempt'),
+      generation_section_ids:completionSectionIds,section_attempt:completionSectionAttempt,
+      on_llm_trace:transaction_id?record=>{
+        if(!planningFlow&&record.status==='succeeded'&&record.dispatched&&typeof record.call_id==='string')generationModelCalls.set(attempt,[...new Set([...(generationModelCalls.get(attempt)||[]),record.call_id])]);
+        return appendEvent(transaction_id,require('@hellotest/platform/backend/src/utils/agentModelTrace').modelTraceEvent(record,{name:specialist?.name||'Automation engineer',caseId:test_case_id}));
+      }:undefined,
+      automation_case_generation:true,automation_specialist:specialist?.id||null,automation_case_type:automationCaseType,automation_actor_phase:false,automation_browser_loop:false,
+      mcp_context_depth:1,mcp_context:knowledgeRows.knowledge.length?'retrieved':knowledgeRows.context_transport==='not_required'?'not_required':'unavailable'
+    },()=>{
+      generationRequested=true;
+      return requestChatCompletion({integration,featureKey:buildFeature(ai_feature),prompt:[instructions,input].filter(Boolean).join('\n\n'),signal:execution_guard?.signal,timeoutMs:Math.min(LLM_TIMEOUT_MS,remainingMs),maxAttempts:traceOptions.generationScope==='verification_repair'?1:undefined,beforeDispatch:traceOptions.beforeDispatch||assertBuildContextAccess,
+        onJsonRetry:details=>progress({phase:'automation.agent.model.json.retry',message:'The model provider rejected its JSON output. Retaining completed sections while correcting that response.',details:{...details,active_step_id:completionActiveStepId}}),
+        onCapacityWait:details=>progress({phase:'automation.agent.model.capacity.wait',message:'The model provider requested a short wait. Retaining completed sections before retrying that model request.',details:{...details,active_step_id:completionActiveStepId}})});
+    });
+  };
   try {
-    if(allow_browser_actions===true&&browserBuild&&!needsFlowPlanning){
-      try {
-        const resumed=await require('./automationUsedObjects.service').resume({testCase,userId:created_by,assertAccess:assertBuildContextAccess,executionGuard:execution_guard});
-        confirmedObjectsSaved+=resumed.synced||0;
-      } catch(error) {
-        if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;
-        await progress({phase:'automation.agent.objects.pending',level:'warning',message:'Previously confirmed object bindings remain pending. Browser work will not be replayed to synchronize objects.',details:{error_code:error.code||'AUTOMATION_OBJECT_SYNC_UNAVAILABLE'}});
-      }
-      try{require('../lib/automationBuildInputPreflight').assertBuildInputs(steps,browserParameters);}
-      catch(error){completionActiveStepId=error.active_step_id;await progress({phase:'automation.agent.dependencies',level:'warning',message:error.message,details:{blocked_steps:error.blocked_steps,active_step_id:error.active_step_id,generation_provider_requests:0,browser_actions:0}});throw error;}
-    }
-    if (startUrl && (needsFlowPlanning&&browserBuild||steps.some((step) => automationStepType(step,automationCaseType) === "web"))) {
-      const engine = pairedBrowserScope ? {paired_browser_bridge:pairedBrowserScope} : await resolveTestEngineIntegration(testCase);
-      browser = await connectAutomationBrowser({ integration: engine, startUrl, allowBrowserActions: allow_browser_actions === true, signal:execution_guard?.signal });
-      const callBrowser=browser.call;
-      // Tool values resolve only when the complete argument is a parameter
-      // reference. Already-rendered prose and token-looking literals retain
-      // their exact meaning while private material remains projected.
-      browser.projectPromptText=value=>require('../lib/automationBrowserParameters').referenceKey(value)?browserParameters.projectText(value):browserParameters.projectPrivateText(value);
-      browser.projectPrivateText=browserParameters.projectPrivateText;
-      browser.canonicalizeParameterArguments=browserParameters.canonicalArguments;
-      browser.call=async(name,args)=>{
-        // Materialized public inputs can also be literal model tool arguments.
-        // Recheck their source access even when no parameter token remains.
-        await assertBuildContextAccess();
-        try{return browserParameters.redactResult(await callBrowser(name,browserParameters.resolve(name,args)));}catch(error){throw browserParameters.redactError(error);}
-      };
-    } else {
-      await appendEvent(transaction_id, { phase: "automation.agent.context", message: "Generating from the supplied case and repository context. No live web inspection was requested." });
-    }
+    await appendEvent(transaction_id,{phase:'automation.agent.context',message:'Generating API or native automation from the supplied case and repository context.'});
     if(needsFlowPlanning){
-      const allowedTypes=selectedPlatform.allowed_step_types;
-      const flowPlanning=require('../lib/automationFlowPlanning');
-      const planningCase={...promptCase};
+      const flowPlanning=require('../lib/automationFlowPlanning'),planningCase={...promptCase};
       for(const field of ['title','description','gherkin_document','preconditions'])if(typeof testCase[field]==='string')planningCase[field]=flowPlanning.projectFlowPlanningBrief(testCase[field],browserParameters);
-      const draftFlow=await flowPlanning.planAutomationFlow({featureKey:buildFeature(ai_feature),allowedTypes,browser,startUrl,complete:completeBuild,parse:extractJsonPayload,observations:browserObservations,deadlineMs:completionDeadline,onProgress:progress,
+      const draftFlow=await flowPlanning.planAutomationFlow({featureKey:buildFeature(ai_feature),allowedTypes:selectedPlatform.allowed_step_types,complete:completeBuild,parse:extractJsonPayload,deadlineMs:completionDeadline,signal:execution_guard?.signal,onProgress:progress,
         requiredParameterNames:browserParameters.referencedParameterNames([{action:flowBrief,expected_result:''}]),referencedParameterNames:browserParameters.referencedParameterNames,
-        context:require('../lib/automationActorPrompt').projectAutomationActorTask({user_request:flowPlanning.projectFlowPlanningBrief(flowBrief,browserParameters),case:planningCase,build_context:promptBuildContext,repository:summarizeCache(cacheRows),knowledge:summarizeKnowledge(knowledgeRows.knowledge)}),
-        onObservation:async observation=>{
-          await assertBuildContextAccess();browserObservations.push(observation);
-          try{const evidence=await require('./automationAgentActivity.service').createBrowserEvidence(transaction_id,{observation,testCaseId:test_case_id,attempt:1,interactionMode:'read_only'});if(evidence)await progress({phase:'automation.agent.observation',message:'Read application evidence for the proposed manual flow.',details:evidence});}
-          catch(error){if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;}
-        }});
+        context:{user_request:flowPlanning.projectFlowPlanningBrief(flowBrief,browserParameters),case:planningCase,build_context:promptBuildContext,repository:summarizeCache(cacheRows),knowledge:summarizeKnowledge(knowledgeRows.knowledge)}});
       try{steps=await require('./automationFlowPlan.service').saveFlowPlan({testCase,steps:draftFlow,userId:created_by,executionGuard:execution_guard,assertSources:async()=>{
         const currentManual=await loadAutomationManualContext({caseId:test_case_id,projectId:testCase.project_id,userId:created_by,lock:true});
         const currentParameters=await loadAutomationParameterContext({testCase,projectId:testCase.project_id,userId:created_by,lock:true});
         if(manualContextKey(currentManual)!==manualContextKey(buildContext.linked_manual_cases)||currentParameters.source_key!==parameterContext.source_key)throw Object.assign(new Error('Linked case context or test parameters changed while the manual flow was being planned.'),{code:'AUTOMATION_FLOW_BASELINE_CHANGED',statusCode:409,nonRetryable:true});
       }});}catch(error){error.automation_stage='save';throw error;}
-      const firstWebSection=steps.find(step=>normalizeTestStepType(step.step_type,'web')==='web');
-      const adoptedNavigation=firstWebSection?require('../lib/automationBrowserRecording').adoptPlanningNavigation(browserObservations,firstWebSection.id):0;
-      if(adoptedNavigation)await progress({phase:'automation.agent.flow.navigation.reused',message:'Retained confirmed planning navigation as the first browser section’s setup. No browser action was replayed.',details:{active_step_id:firstWebSection.id,confirmed_navigation_count:adoptedNavigation,evidence_source:'protected_planning_operations'}});
-      browserParameters.registerStepReferences?.(steps);
+      browserParameters.registerStepReferences(steps);
       promptSteps=projectBuildSteps(steps);
-      dataSnapshot=await require('../lib/automationBuildDataSnapshot').prepareBuildDataSnapshot({testCase,projectId:testCase.project_id,userId:created_by,generatedValues:browserParameters.generatedCaseValues,authoredValues:browserParameters.reviewedCaseValues,defaultedValues:browserParameters.defaultedCaseValues,parameterOverrides:parameterContext.parameter_overrides,privateNames:browserParameters.privateParameterNames});
+      dataSnapshot=await require('../lib/automationBuildDataSnapshot').prepareBuildDataSnapshot({testCase,projectId:testCase.project_id,userId:created_by,generatedValues:browserParameters.generatedCaseValues,authoredValues:browserParameters.reviewedCaseValues,authoredTemplates:buildParameterValues,defaultedValues:browserParameters.defaultedCaseValues,parameterOverrides:parameterContext.parameter_overrides,privateNames:browserParameters.privateParameterNames});
       Object.assign(progressiveState,{steps:structuredClone(steps),data_snapshot:dataSnapshot});buildIdentity.data_snapshot=dataSnapshot;
       prompt=buildPrompt({featureKey:buildFeature(ai_feature),testCase:promptCase,steps:promptSteps,cacheRows,knowledgeRows,capturedActions,capturedNetwork,buildContext:promptBuildContext,startUrl,additionalContext:browserParameters.projectText(normalizeRichText(additional_context))});
-      browserCallBudget=Math.min(400,Math.max(callsPerSection,steps.filter(step=>step.step_type==='web').length*callsPerSection));
       if(!process.env.AUTOMATION_BUILDER_CASE_TIMEOUT_MS)completionDeadline=buildStartedAt+Math.min(1_800_000,Math.max(caseBudgetMs,steps.length*120_000));
       planningFlow=false;
-      if(transaction_id)try{const artifact=await require('./automationAgentActivity.service').createBuildData(transaction_id,browserParameters.buildData({testCaseId:test_case_id,steps,manualCases:buildContext.linked_manual_cases}));await progress({phase:'automation.agent.data',message:'Prepared the same fixed test data for the newly planned sections.',details:artifact});}
+      if(transaction_id)try{const artifact=await require('./automationAgentActivity.service').createBuildData(transaction_id,browserParameters.buildData({testCaseId:test_case_id,steps,manualCases:buildContext.linked_manual_cases}));await progress({phase:'automation.agent.data',message:'Prepared the fixed test data for the planned sections.',details:artifact});}
       catch(error){if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;await appendEvent(transaction_id,{phase:'automation.agent.data.unavailable',level:'warning',message:'The optional planned-data display could not be stored. Generation continues with the same fixed values.'}).catch(()=>{});}
-      await progress({phase:'automation.agent.flow.planned',message:`Prepared ${steps.length} draft manual actions. Each will be performed, generated and saved in order.`,details:{flow_source:'agent_brief',total_sections:steps.length,verification_status:'unverified'}});
+      await progress({phase:'automation.agent.flow.planned',message:`Prepared ${steps.length} draft native actions.`,details:{flow_source:'agent_brief',total_sections:steps.length,verification_status:'unverified'}});
     }
-    build = await completeAutomationBuild({steps,manualSteps:buildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),displaySteps:promptSteps,displayManualSteps:promptBuildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),sequential:browserBuild||steps.some(step=>automationStepType(step,automationCaseType)==='api')||buildContext.linked_manual_cases.length>0,progressionPolicy,availableParameters:browserParameters.availableParameterNames,feedbackInstruction:aiInstructionBlock(buildFeature(ai_feature),"automationBuild.completionFeedback"),
-      validate:(payload,requiredSteps)=>normalizeLlmBuild(payload,requiredSteps,cacheRows,startUrl,{appTypeKind:testCase.app_type_kind,automationCaseType,apiOrigins:navigationOrigins(startUrl,additional_context,steps,capturedNetwork,knowledgeRows.knowledge,promptBuildContext),origins:buildNavigationOrigins({startUrl,additionalContext:additional_context,observations:browserObservations}),parameters:browserParameters.promptValues,resolveText:browserParameters.projectText,
+    build=await completeAutomationBuild({steps,manualSteps:buildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),displaySteps:promptSteps,displayManualSteps:promptBuildContext.linked_manual_cases.flatMap(item=>item.steps.map(step=>({...step,test_case_id:item.id}))),sequential:steps.some(step=>automationStepType(step,automationCaseType)==='api')||buildContext.linked_manual_cases.length>0,progressionPolicy,availableParameters:browserParameters.availableParameterNames,feedbackInstruction:aiInstructionBlock(buildFeature(ai_feature),'automationBuild.completionFeedback'),
+      validate:(payload,requiredSteps)=>normalizeLlmBuild(payload,requiredSteps,cacheRows,startUrl,{appTypeKind:testCase.app_type_kind,automationCaseType,apiOrigins:navigationOrigins(startUrl,additional_context,steps,capturedNetwork,knowledgeRows.knowledge,promptBuildContext),origins:buildNavigationOrigins({startUrl,additionalContext:additional_context}),parameters:browserParameters.promptValues,resolveText:browserParameters.projectText,
         resolveAssertionParameter:key=>browserParameters.resolve('browser_assert',{value:require('../lib/automationBrowserParameters').parameterReference(key)}).value}),
       validateOutcome:payload=>require('@hellotest/platform/backend/src/utils/aiFeatureRuntime').validateValue(payload,featureProfile),
       onProgress:async event=>{await execution_guard?.ensureOwnership();return progress(event);},
-      onBeforeSaveSection:async({step,normalized,attempt})=>{
-        await execution_guard?.ensureOwnership();
-        const recordedContract=generationContracts.get(attempt);
-        if(!recordedContract)return;
-        const update=normalized.updates.find(item=>item.step.id===step.id);
-        const manualSpecification=buildContext.linked_manual_cases.flatMap(item=>item.steps.map(source=>({...source,manual_test_case_id:item.id,manual_step_id:source.id})));
-        require('../lib/automationRecordedContract').recordedContractMetadata(recordedContract,{stepId:step.id,source:update.automation_code,section:step,manualSpecification});
-        const manifest=await require('./automationUsedObjects.service').stage({testCase,step,source:update.automation_code,sourceContext:{caseStartUrl:buildIdentity.case_start_url,steps:progressiveState.steps},seal:recordedContract,manualSpecification,browserObservations,transactionId:transaction_id,userId:created_by,assertAccess:assertBuildContextAccess,executionGuard:execution_guard});
-        if(manifest)usedObjectManifests.set(attempt,manifest);
-      },
       onSaveSection:async({step,normalized,attempt})=>{
-        try {
+        try{
           await assertBuildContextAccess();
           await applyBuild({build:{...normalized,...buildIdentity},executionGuard:execution_guard,createdBy:created_by,progressiveState,partial:true});
           savedSectionIds.add(step.id);
           const receipt={instruction_status:'saved',development_status:'completed',saved_at:new Date().toISOString()};
-          const manifest=usedObjectManifests.get(attempt);
-          if(manifest){
-            try {
-              const objects=await require('./automationUsedObjects.service').sync({artifactId:manifest.artifact_id,testCase,userId:created_by,assertAccess:assertBuildContextAccess,executionGuard:execution_guard});
-              receipt.object_status=objects.status;receipt.objects_saved=objects.status==='synced'?objects.object_count:0;
-              confirmedObjectsSaved+=receipt.objects_saved;
-              if(objects.status==='synced'&&Array.isArray(objects.repository_rows))usedObjectRowsByAttempt.set(attempt,objects.repository_rows);
-              await progress({phase:'automation.agent.objects.saved',level:objects.status==='synced'?'info':'warning',message:objects.status==='synced'?'Saved the repository objects actually used by this section.':'Instructions are saved; confirmed object bindings remain pending synchronization.',details:{active_step_id:step.id,object_status:objects.status,objects_saved:receipt.objects_saved,error_code:objects.error_code}});
-            } catch(error) {
-              if(error.code==='AUTOMATION_OBJECT_SYNC_PERMISSION_REQUIRED')await assertBuildContextAccess();
-              else if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;
-              receipt.object_status='pending';receipt.objects_saved=0;
-              await progress({phase:'automation.agent.objects.pending',level:'warning',message:'Instructions are saved. Their confirmed objects remain queued for synchronization; no browser action needs to run again.',details:{active_step_id:step.id,error_code:error.code||'AUTOMATION_OBJECT_SYNC_UNAVAILABLE'}}).catch(()=>{});
-            }
-          }
-          try{await progress({phase:'automation.agent.section.saved',message:`Saved section ${step.step_order} instructions to Plan. The case remains incomplete until every section is finished.`,details:{...receipt,attempt,step_id:step.id,step_ids:[step.id],verification_status:'unverified'}});}
+          try{await progress({phase:'automation.agent.section.saved',message:`Saved section ${step.step_order} instructions to Plan.`,details:{...receipt,attempt,step_id:step.id,step_ids:[step.id],verification_status:'unverified'}});}
           catch(error){if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;}
           return receipt;
-        } catch(error) { error.automation_stage='save'; throw error; }
+        }catch(error){error.automation_stage='save';throw error;}
       },
       onValidatedSection:async({step,normalized,attempt,manualCoverage})=>{
         await execution_guard?.ensureOwnership();
-        const update=normalized.updates.find(item=>item.step.id===step.id);
-        const recordedContract=generationContracts.get(attempt);
-        const manualSpecification=buildContext.linked_manual_cases.flatMap(item=>item.steps.map(source=>({...source,manual_test_case_id:item.id,manual_step_id:source.id})));
-        const previewRows=[...new Map([...cacheRows,...(usedObjectRowsByAttempt.get(attempt)||[])].map(row=>[row.id,row])).values()];
-        return require('./automationAgentActivity.service').createSectionPreview(transaction_id,{testCaseId:test_case_id,step,update,attempt,manualCoverage,repositoryRows:previewRows,confirmedRepositoryIds:(usedObjectRowsByAttempt.get(attempt)||[]).map(row=>row.id),evidence:generationEvidence.get(attempt),modelCallIds:generationModelCalls.get(attempt)||[],modelCallScope:completionActiveStepId?'section_attempt':'case_attempt',generationProvenance:generationProvenance.get(attempt),recordedContract,manualSpecification});
+        return require('./automationAgentActivity.service').createSectionPreview(transaction_id,{testCaseId:test_case_id,step,update:normalized.updates.find(item=>item.step.id===step.id),attempt,manualCoverage,repositoryRows:cacheRows,modelCallIds:generationModelCalls.get(attempt)||[],modelCallScope:completionActiveStepId?'section_attempt':'case_attempt',generationProvenance:{source_origin:'model_generated',compiler:'normalized_runtime_v1',review_status:'not_performed'},manualSpecification:buildContext.linked_manual_cases.flatMap(item=>item.steps.map(source=>({...source,manual_test_case_id:item.id,manual_step_id:source.id})))});
       },
-      generate:async({attempt,sectionAttempt,activeStepId,activeManualStepIds=[],completionOnly=false,feedback,feedbackInstruction,onPartial})=>{
-        completionAttempt=attempt;
-        completionActiveStepId=activeStepId||null;
-        completionActiveManualStepIds=activeManualStepIds;
-        completionSectionAttempt=sectionAttempt||null;
-        completionSectionIds=(feedback.required_sections||[]).map(step=>step.step_id);
-        if(Date.now()>=completionDeadline)throw Object.assign(new Error("Automation agent reached its completion deadline. Existing instructions were retained."),{code:"AUTOMATION_BUILD_DEADLINE",statusCode:422});
+      generate:async({attempt,sectionAttempt,activeStepId,activeManualStepIds=[],completionOnly=false,feedback,feedbackInstruction})=>{
+        completionAttempt=attempt;completionActiveStepId=activeStepId||null;completionActiveManualStepIds=activeManualStepIds;completionSectionAttempt=sectionAttempt||null;completionSectionIds=(feedback.required_sections||[]).map(step=>step.step_id);
+        if(Date.now()>=completionDeadline)throw Object.assign(new Error('Automation agent reached its completion deadline. Existing instructions were retained.'),{code:'AUTOMATION_BUILD_DEADLINE',statusCode:422});
         if(completionOnly||!(feedback.required_sections||[]).length){
-          // Coverage and final metadata repair cannot reopen an already saved
-          // browser section or replay its actions. The completion helper owns
-          // the immutable accepted instructions and validates every mapping.
-          const metadataPrompt=[aiInstructionBlock(buildFeature(ai_feature),'automationBuild.metadataCompletion'),feedbackInstruction,
-            JSON.stringify({phase:'metadata_completion',case:{id:promptCase.id,title:promptCase.title},feedback})].filter(Boolean).join('\n\n');
+          const metadataPrompt=[aiInstructionBlock(buildFeature(ai_feature),'automationBuild.metadataCompletion'),feedbackInstruction,JSON.stringify({phase:'metadata_completion',case:{id:promptCase.id,title:promptCase.title},feedback})].filter(Boolean).join('\n\n');
           return completeBuild(metadataPrompt,completionDeadline-Date.now(),{generationScope:'case_metadata'});
         }
         const requestedSectionIds=new Set((feedback.required_sections||[]).map(step=>step.step_id));
-        const currentSection=promptSteps.find(step=>step.id===activeStepId);
-        const interactiveActor=Boolean(browser&&allow_browser_actions===true&&normalizeTestStepType(currentSection?.step_type,'web')==='web');
-        const obligations=interactiveActor?require('../lib/automationGoalObligations').buildAutomationGoalObligations({section:currentSection,manualCases:promptBuildContext.linked_manual_cases,activeManualStepIds,requiredManualSteps:feedback.required_manual_steps}):undefined;
-        const sourceObligations=interactiveActor?require('../lib/automationGoalObligations').goalSourceObligations({section:steps.find(step=>step.id===activeStepId),manualCases:buildContext.linked_manual_cases,obligations}):undefined;
-        const navigationParameterReferences=interactiveActor?browserParameters.referencedParameterNames(sourceObligations):undefined;
-        if(interactiveActor)require('../lib/automationBuildInputPreflight').assertCurrentBuildInputs({stepId:activeStepId,parameterReferences:navigationParameterReferences},browserParameters);
-        generationProvenance.set(attempt,{source_origin:interactiveActor?'unknown':'model_generated',compiler:interactiveActor?'unknown':'normalized_runtime_v1',review_status:'not_performed'});
-        const obligationParameterBindings=interactiveActor?require('../lib/automationParameterBindings').buildAutomationParameterBindings({obligations:sourceObligations,referencedParameterNames:browserParameters.referencedParameterNames}):undefined;
-        const inputParameterBinding=interactiveActor?require('../lib/automationInputParameterBinding').createAutomationInputParameterBinding({stepId:activeStepId,obligations:sourceObligations,bindings:obligationParameterBindings,
-          parameterValues:browserParameters.promptValues,privateParameterNames:browserParameters.privateParameterNames}):null;
-        const retainedAssertionContract=interactiveActor?require('../lib/automationRetainedAssertions').createRetainedAssertionContract({step:steps.find(step=>step.id===activeStepId)}):undefined;
-        const caseJourney=interactiveActor?require('../lib/automationCaseJourney').createAutomationCaseJourney({testCase,steps,activeStepId,completedStepIds:[...savedSectionIds].filter(id=>steps.findIndex(step=>step.id===id)<steps.findIndex(step=>step.id===activeStepId)),projectText:browserParameters.projectPrivateText}):undefined;
-        const taskContext=interactiveActor
-          ?require('../lib/automationActorContext').createAutomationActorContext({canonicalGoals:true,projectText:browserParameters.projectPrivateText,obligations,
-            parameterBindings:obligationParameterBindings,caseJourney,task:{start_url:startUrl,case:promptCase,current_section:currentSection,
-            user_request:browserParameters.projectText(normalizeRichText(additional_context)),build_context:{...promptBuildContext,generation_scope:{mode:'sequential',active_step_id:activeStepId,active_manual_step_ids:activeManualStepIds}},
-            repository:summarizeCache(cacheRows),knowledge:summarizeKnowledge(knowledgeRows.knowledge),captured_actions:capturedActions,captured_network:capturedNetwork}})
-          :null;
-        if(taskContext)await progress({phase:'automation.agent.context.packed',message:'Selected the current manual requirements and retained additional authorized context for bounded lookup.',details:{active_step_id:activeStepId,...taskContext.measurements}});
-        const requestPrompt=taskContext?taskContext.prompt:feedback.generation_mode==='sequential'
-          ?buildPrompt({featureKey:buildFeature(ai_feature),testCase:promptCase,steps:promptSteps.filter(step=>requestedSectionIds.has(step.id)),cacheRows,knowledgeRows,capturedActions,capturedNetwork,
-            buildContext:{...promptBuildContext,generation_scope:{mode:'sequential',active_step_id:activeStepId,active_manual_step_ids:activeManualStepIds}},startUrl,additionalContext:browserParameters.projectText(normalizeRichText(additional_context))})
-          :prompt;
-        const attemptPrompt=[requestPrompt,interactiveActor?'':feedbackInstruction,JSON.stringify(interactiveActor?require('../lib/automationActorPrompt').projectAutomationActorFeedback(feedback):feedback)].filter(Boolean).join("\n\n");
-        if(!browser || currentSection?.step_type === "api")return completeBuild(attemptPrompt,completionDeadline-Date.now());
-        return runAutomationBrowserAgent({featureKey:buildFeature(ai_feature),prompt:attemptPrompt,browser,startUrl:attempt===1&&!needsFlowPlanning?startUrl:undefined,complete:completeBuild,parse:extractJsonPayload,generationMode:feedback.generation_mode,
-          execution:{required:allow_browser_actions===true&&normalizeTestStepType(currentSection?.step_type,'web')==='web',step_id:activeStepId,action:currentSection?.action||'',expected_result:currentSection?.expected_result||'',
-            retained_assertion_contract:retainedAssertionContract,
-            case_journey:caseJourney,
-            semantic_review_required:interactiveActor,obligations,source_obligations:sourceObligations,navigation_parameter_references:navigationParameterReferences,
-            future_actions:interactiveActor?steps.slice(steps.findIndex(step=>step.id===activeStepId)+1).filter(step=>normalizeTestStepType(step.step_type,'web')==='web').slice(0,200).map(step=>({step_id:step.id,action:step.action||''})):undefined},actorMode:interactiveActor,
-          onPartialBuild:onPartial,onRecordedContract:seal=>{generationContracts.set(attempt,seal);},taskContext,inputParameterBinding,
-          deadlineMs:completionDeadline,initialObservations:browserObservations,maxCalls:Math.min(callsPerSection,remainingBrowserCalls(browserObservations,browserCallBudget)),onObservation:async observation=>{
-            await execution_guard?.ensureOwnership();
-            browserObservations.push(observation);
-            if(!transaction_id)return;
-            try{
-              const evidence=await require('./automationAgentActivity.service').createBrowserEvidence(transaction_id,{observation,testCaseId:test_case_id,attempt,active_step_id:activeStepId,active_manual_step_ids:activeManualStepIds,interactionMode:buildContext.browser_policy.interaction_mode});
-              if(!evidence)return;
-              generationEvidence.set(attempt,{...generationEvidence.get(attempt),...evidence});
-              await progress({phase:'automation.agent.observation',message:'Captured application evidence from Playwright MCP. Generated instructions and case execution remain unverified.',details:{...evidence,active_step_id:activeStepId,active_manual_step_ids:activeManualStepIds}});
-              if(evidence.screenshot_unavailable)await appendEvent(transaction_id,{phase:'automation.agent.screenshot.unavailable',level:'warning',message:'The optional screenshot was unavailable. Actual accessibility evidence was retained.',details:{test_case_id,attempt}}).catch(()=>{});
-              if(evidence.screenshot_artifact_id)await appendEvent(transaction_id,{phase:'automation.agent.screenshot',message:'Optional browser screenshot captured as supporting evidence. Execution remains unverified.',details:{test_case_id,artifact_id:evidence.screenshot_artifact_id,observed_at:evidence.observed_at,attempt}});
-            }catch(error){
-              if([401,403].includes(error.statusCode)||error.name==='AbortError'||['BATCH_LEASE_LOST','BATCH_JOB_LEASE_LOST'].includes(error.code))throw error;
-              await appendEvent(transaction_id,{phase:'automation.agent.evidence.unavailable',level:'warning',message:'Optional application evidence could not be retained. Generation continues with available browser observations.',details:{test_case_id,attempt}}).catch(()=>{});
-            }
-          },
-          onProgress:event=>{
-            if(event.phase==='automation.agent.semantic.accepted')generationProvenance.set(attempt,{...generationProvenance.get(attempt),review_status:'accepted'});
-            if(event.phase==='automation.agent.source.compiled')generationProvenance.set(attempt,{...generationProvenance.get(attempt),source_origin:'confirmed_browser_operations',compiler:'recorded_playwright_v1'});
-            return progress({...event,details:{...event.details,attempt,active_step_id:activeStepId,active_manual_step_ids:activeManualStepIds}});
-          }});
-      },parse:value=>typeof value==="string"?extractJsonPayload(value):value});
+        const requestPrompt=feedback.generation_mode==='sequential'?buildPrompt({featureKey:buildFeature(ai_feature),testCase:promptCase,steps:promptSteps.filter(step=>requestedSectionIds.has(step.id)),cacheRows,knowledgeRows,capturedActions,capturedNetwork,buildContext:{...promptBuildContext,generation_scope:{mode:'sequential',active_step_id:activeStepId,active_manual_step_ids:activeManualStepIds}},startUrl,additionalContext:browserParameters.projectText(normalizeRichText(additional_context))}):prompt;
+        return completeBuild([requestPrompt,feedbackInstruction,JSON.stringify(feedback)].filter(Boolean).join('\n\n'),completionDeadline-Date.now());
+      },parse:value=>typeof value==='string'?extractJsonPayload(value):value});
     Object.assign(build,buildIdentity);
-    await appendEvent(transaction_id, { phase: "automation.llm.completed", message: `Generated ${build.updates.length} complete step mappings. Run the case to verify behavior.`, details: { generated_steps: build.updates.length } });
-  } catch (error) {
+    await appendEvent(transaction_id,{phase:'automation.llm.completed',message:`Generated ${build.updates.length} complete step mappings. Run the case to verify behavior.`,details:{generated_steps:build.updates.length}});
+  }catch(error){
     if(execution_guard?.signal.aborted)throw execution_guard.signal.reason;
     if(error.code==='AUTOMATION_PARAMETER_MISSING'&&completionActiveStepId){
-      error.code='AUTOMATION_DEPENDENCY_MISSING';
-      error.blocked_steps=[{step_id:completionActiveStepId,dependency_type:'parameter',reason:'A required browser input has no configured value.',required_context:[],required_parameters:error.parameter_reference?[error.parameter_reference]:[]}];
+      error.code='AUTOMATION_DEPENDENCY_MISSING';error.blocked_steps=[{step_id:completionActiveStepId,dependency_type:'parameter',reason:'A required automation input has no configured value.',required_context:[],required_parameters:error.parameter_reference?[error.parameter_reference]:[]}];
       await progress({level:'warning',phase:'automation.agent.dependencies',message:error.message,details:{blocked_steps:error.blocked_steps,saved_sections:savedSectionIds.size,saved_step_ids:[...savedSectionIds]}});
     }
     annotateBuildFailure(error);
-    await require('../lib/automationBrowserDiagnosticArtifact').retainBrowserDiagnostic({error,transactionId:transaction_id,
-      assertAccess:assertBuildContextAccess,createArtifact:workspaceTransactionService.createTransactionArtifact,appendEvent});
     const failureProgress=require('../lib/automationBuildFailureProgress').buildFailureProgress(error,{modelStarted:generationRequested||generationModelCalls.size>0});
-    error.failure_stage=failureProgress.details.failure_stage;
-    await progress(failureProgress);
-    throw error;
-  } finally { await browser?.close(); }
+    error.failure_stage=failureProgress.details.failure_stage;await progress(failureProgress);throw error;
+  }
 
   let stepUpdates;
   try{await assertBuildContextAccess();stepUpdates=await applyBuild({build,executionGuard:execution_guard,createdBy:created_by,progressiveState});}
   catch(error){if(execution_guard?.signal.aborted)throw execution_guard.signal.reason;error.automation_stage='save';error.failure_stage='save';annotateBuildFailure(error);await progress({phase:'automation.agent.save.failed',level:'error',message:'Final completion could not be saved. Previously saved sections remain in Plan; current edits were preserved.',details:{error_code:error.code||null,failure_stage:'save'}}).catch(()=>{});throw error;}
   const warnings=[];
+  const verificationHooks = require('../lib/automationSavedBuildVerificationHooks').createSavedBuildVerificationHooks({
+    assertBuildAccess: assertBuildContextAccess,
+    getVerificationAccess: permissions => getOptionalEvidenceAccess({id: created_by}, testCase.project_id, permissions),
+    parameterResolver: browserParameters, featureKey: buildFeature(ai_feature), signal: execution_guard?.signal,
+    parseResponse: extractJsonPayload,
+    completeRepair: ({prompt, timeoutMs, generationScope, beforeDispatch}) => completeBuild(prompt, timeoutMs, {generationScope, beforeDispatch}),
+    getBuild: () => build,
+    commitBuild: async repaired => {
+      stepUpdates = await applyBuild({build: repaired, executionGuard: execution_guard, createdBy: created_by, progressiveState});
+      build = repaired;
+      return progressiveState;
+    }
+  });
   const verification = await require('./automationSavedBuildVerification.service').verifySavedBuild({
     options: pipelineOptions, testCase, startUrl, state: progressiveState, activityId: transaction_id,
     parameterResolver: browserParameters, manualLinkIds, manualContext: buildIdentity.manual_context,
     signal: execution_guard?.signal
   }, {
-    assertAccess: async () => {
-      await assertBuildContextAccess();
-      const permissions = await getOptionalEvidenceAccess({id: created_by}, testCase.project_id, ['automation.run.local', 'run.create']);
-      if (!permissions['automation.run.local'] || !permissions['run.create']) {
-        throw Object.assign(new Error('Verification access changed.'), {statusCode: 403});
-      }
-    },
+    ...verificationHooks,
     readCase: id => selectCaseWithScope.get(id),
     readSteps: id => selectStepsForCase.all(id),
     readManualLinkIds: async id => (await db.prepare('SELECT manual_test_case_id FROM automation_case_links WHERE automation_test_case_id = ? ORDER BY manual_test_case_id').all(id)).map(row => row.manual_test_case_id),
@@ -3239,41 +3088,15 @@ const buildCaseCore = async ({
       parameterOverrides: params.parameter_overrides, ...selection, materialize: false
     }),
     prepareRun: async () => {
-      const integration = pairedBrowserScope ? {paired_browser_bridge:pairedBrowserScope} : await resolveTestEngineIntegration(testCase);
+      const integration = await resolveBuildBrowserIntegration(testCase,pairedBrowserScope);
       return request => require('../lib/automationVerificationClient').verifyRecordedAutomation({
         integration, request, signal: execution_guard?.signal
       });
     },
-    onProgress: summary => progress({phase: 'automation.agent.verification', message: summary.message, details: {verification: summary}}),
-    diagnose: async ({sections, failure, snapshot}) => {
-      const section = sections.find(row => row.step_id === failure.step_id);
-      const packet = {requirement: {step_id: section.step_id, action: section.action, expected_result: section.expected_result}, failed_operation: section.operations[failure.operation_index - 1], failure, snapshot};
-      const projected = JSON.parse(browserParameters.redactResult({content: [{type: 'text', text: JSON.stringify(packet)}]}).content[0].text);
-      const repairContext = require('../lib/automationVerificationRepairContext').createVerificationRepairContext({featureKey: buildFeature(ai_feature), requirement: projected.requirement, failedOperation: projected.failed_operation, failure: projected.failure, snapshot: projected.snapshot});
-      if (!repairContext.packet.current_snapshot.targets.length) return {};
-      const prompt = [aiInstructionBlock(buildFeature(ai_feature), 'automationBrowserAgent.verificationRepair'), JSON.stringify(repairContext.packet)].join('\n\n');
-      const response = await completeBuild(prompt, 30_000, {generationScope: 'verification_repair'});
-      return repairContext.resolveProposal(extractJsonPayload(response));
-    },
-    commitRepair: async ({before, after}) => {
-      const sources = new Map(after.map(row => [row.step_id, row.automation_code]));
-      const repaired = {...build, updates: build.updates.map(update => ({...update, automation_code: sources.get(update.step.id) || update.automation_code}))};
-      stepUpdates = await applyBuild({build: repaired, executionGuard: execution_guard, createdBy: created_by, progressiveState});
-      const replaced = new Set();
-      for (let section = 0; section < before.length; section++) {
-        for (let index = 0; index < before[section].operations.length; index++) {
-          if (before[section].operations[index].arguments.locator !== after[section].operations[index].arguments.locator) {
-            replaced.add(before[section].operations[index].arguments.locator);
-          }
-        }
-      }
-      repaired.learned_locators = (repaired.learned_locators || []).filter(row => !replaced.has(row.locator));
-      build = repaired;
-      return progressiveState;
-    }
+    onProgress: summary => progress({phase: 'automation.agent.verification', message: summary.message, details: {verification: summary}})
   });
-  let learnedCount=confirmedObjectsSaved;
-  try {learnedCount+=await persistLearning({testCase,learnedLocators:allow_browser_actions===true&&browserBuild?[]:build.learned_locators,capturedActions:allow_browser_actions===true&&browserBuild?[]:capturedActions,capturedNetwork,transactionId:transaction_id,integrationId:integration_id});}
+  let learnedCount=0;
+  try {learnedCount+=await persistLearning({testCase,learnedLocators:build.learned_locators,capturedActions,capturedNetwork,transactionId:transaction_id,integrationId:integration_id});}
   catch {warnings.push("Instructions were saved, but locator learning could not be saved.");}
   let artifact = null;
 
@@ -3315,8 +3138,8 @@ const buildCaseCore = async ({
     warnings,
     learned_locator_count: learnedCount,
     cache_hits: cacheRows.length,
-    fallback_used: Boolean(fallbackReason),
-    fallback_reason: fallbackReason,
+    fallback_used: false,
+    fallback_reason: null,
     integration: integration
       ? {
           id: integration.id,
@@ -3330,84 +3153,32 @@ const buildCaseCore = async ({
   };
 };
 
-const applyRecorderSteps = async ({ testCase, stepCandidates, recorderMappings = [], createdBy, targetStepId }) => {
+const applyRecorderSteps = async ({ testCase, stepCandidates, recorderMappings = [], createdBy, targetStepId, expectedSteps }) => {
   const caseSteps = await selectStepsForCase.all(testCase.id);
-  const existingSteps = targetStepId ? caseSteps.filter((step) => step.id === targetStepId) : caseSteps;
-  const applied = [];
-  let createdCount = 0;
-
-  if (existingSteps.length) {
-    const mappings = mergeRecorderMappingGroups(recorderMappings.length
-      ? recorderMappings
-      : buildFallbackRecorderMappings(existingSteps, stepCandidates));
-
-    for (const mapping of mappings) {
-      const automationCode = createRecorderAutomationCode(mapping.candidates);
-
-      if (!automationCode) {
-        continue;
-      }
-
-      await testStepService.updateTestStep(mapping.step.id, {
-        step_type: "web",
-        automation_code: automationCode,
-        api_request: null
-      });
-      applied.push({
-        step_id: mapping.step.id,
-        step_order: mapping.step.step_order,
-        step_type: "web",
-        action: mapping.step.action || "",
-        expected_result: mapping.step.expected_result || "",
-        automation_code: automationCode,
-        operation: "updated",
-        mapping_source: mapping.mapping_source || "fallback",
-        mapping_confidence: Number(mapping.confidence || 0) || null,
-        source_action_index: mapping.candidates[0]?.source_action_index ?? null,
-        source_action_indexes: mapping.candidates.map((candidate) => candidate.source_action_index)
-          .filter((index) => index !== null && index !== undefined && index !== "" && Number.isFinite(Number(index))),
-        keywords: [...new Set(mapping.candidates.map((candidate) => candidate.keyword).filter(Boolean))],
-        has_code: true,
-        has_api_request: false
-      });
+  if (!targetStepId) return require('./webRecorderPersistence.service').persistWebRecorderPlan({
+    caseId: testCase.id, candidates: orderRecorderCandidates(stepCandidates), expectedSteps: expectedSteps || caseSteps
+  }, {
+    transaction: callback => db.transaction(callback)(),
+    lockCase: id => db.prepare('SELECT id FROM test_cases WHERE id = ? FOR UPDATE').get(id),
+    readSteps: id => db.prepare('SELECT * FROM test_steps WHERE test_case_id = ? ORDER BY step_order ASC, id ASC FOR UPDATE').all(id),
+    updateStep: testStepService.updateTestStep,
+    createStep: testStepService.createTestStep,
+    deleteStep: id => db.prepare('DELETE FROM test_steps WHERE id = ?').run(id),
+    reorderStep: (id, order) => db.prepare('UPDATE test_steps SET step_order = ? WHERE id = ?').run(order, id),
+    updateCaseReadiness: async id => {
+      const issues = await require('../lib/automationRecorderReadiness').recordedPlanIssues(await selectStepsForCase.all(id));
+      return issues.length ? markTestCaseAutomationIncomplete.run(id) : markTestCaseAutomationReady.run(normalizeText(createdBy), id);
     }
-
-    return applied;
-  }
-
-  for (let candidateIndex = 0; candidateIndex < stepCandidates.length; candidateIndex += 1) {
-    const candidate = stepCandidates[candidateIndex];
-    const stepOrder = createdCount + 1;
-    const created = await testStepService.createTestStep({
-      test_case_id: testCase.id,
-      step_order: stepOrder,
-      action: candidate.action,
-      expected_result: candidate.expected_result,
-      step_type: "web",
-      automation_code: candidate.automation_code,
-      api_request: null
-    });
-
-    applied.push({
-      step_id: created.id,
-      step_order: stepOrder,
-      step_type: "web",
-      action: candidate.action,
-      expected_result: candidate.expected_result,
-      automation_code: candidate.automation_code,
-      operation: "created",
-      source_action_index: candidate.source_action_index,
-      source_action_indexes: [candidate.source_action_index]
-        .filter((index) => index !== null && index !== undefined && index !== "" && Number.isFinite(Number(index))),
-      keywords: [candidate.keyword].filter(Boolean),
-      mapping_source: "created",
-      has_code: true,
-      has_api_request: false
-    });
-    createdCount += 1;
-  }
-
-  return applied;
+  });
+  return require('./webRecorderPersistence.service').persistWebRecorderSection({
+    caseId: testCase.id, targetStepId, candidates: orderRecorderCandidates(stepCandidates),
+    automationCode: createRecorderAutomationCode(stepCandidates), expectedSteps: expectedSteps || caseSteps
+  }, {
+    transaction: callback => db.transaction(callback)(),
+    lockCase: id => db.prepare('SELECT id FROM test_cases WHERE id = ? FOR UPDATE').get(id),
+    readSteps: id => db.prepare('SELECT * FROM test_steps WHERE test_case_id = ? ORDER BY step_order ASC, id ASC FOR UPDATE').all(id),
+    updateStep: testStepService.updateTestStep
+  });
 };
 
 const finalizeRecorderBuild = async ({
@@ -3420,9 +3191,17 @@ const finalizeRecorderBuild = async ({
   integrationId,
   additionalContext,
   targetStepId,
-  parameterSelection = {}
+  parameterSelection = {},
+  parameterBindings = [],
+  recordingImport,
+  expectedPlanKey
 }) => {
   const caseSteps = await selectStepsForCase.all(testCase.id);
+  if (expectedPlanKey && expectedPlanKey !== require('../lib/automationRecorderPlan').recorderPlanFingerprint(caseSteps)) {
+    const saved = recordingImport && await require('./recordingImport.service').load(recordingImport);
+    if (saved) return saved;
+    throw Object.assign(new Error('The case changed while preparing this recording. Existing instructions were retained.'), { code: 'AUTOMATION_RECORDER_CASE_CHANGED', statusCode: 409 });
+  }
   const existingSteps = targetStepId ? caseSteps.filter((step) => step.id === targetStepId) : caseSteps;
   const parameterContext=await loadAutomationParameterContext({testCase,projectId:testCase.project_id,userId:createdBy});
   const recorderParameters=await require('../lib/automationBrowserParameters').loadBrowserParameterResolver({testCase,projectId:testCase.project_id,userId:createdBy,
@@ -3437,8 +3216,10 @@ const finalizeRecorderBuild = async ({
     userId: createdBy,
     transactionId,
     platform: "web",
+    allowAiNaming: false,
     projectPrompt
   });
+  repositoryModel.locatorExpression = (await import('../../shared/automationProgramCompatibility.mjs')).playwrightRepositoryLocatorExpression;
   let stepCandidates = buildRecorderStepCandidates(capturedActions, repositoryModel);
   let recorderMappings = [];
   let mappingSource = existingSteps.length ? "fallback" : "created";
@@ -3446,9 +3227,9 @@ const finalizeRecorderBuild = async ({
 
   await appendEvent(transactionId, {
     phase: "recorder.steps.mapping",
-    message: existingSteps.length
-      ? `Preparing to map ${stepCandidates.length} recorder interaction${stepCandidates.length === 1 ? "" : "s"} onto ${existingSteps.length} existing manual step${existingSteps.length === 1 ? "" : "s"}.`
-      : `Preparing to create manual step rows from ${stepCandidates.length} recorder interaction${stepCandidates.length === 1 ? "" : "s"}.`,
+    message: targetStepId
+      ? `Preparing ${stepCandidates.length} recorded interaction${stepCandidates.length === 1 ? "" : "s"} for the selected section.`
+      : `Preparing to replace the Web plan with ${stepCandidates.length} recorded interaction${stepCandidates.length === 1 ? "" : "s"}.`,
     details: {
       recorder_session_id: session.id,
       manual_step_count: existingSteps.length,
@@ -3457,72 +3238,48 @@ const finalizeRecorderBuild = async ({
       generated_step_candidates: stepCandidates.length,
       target_step_id: targetStepId || null
     }
-  });
+  }).catch(() => null);
 
-  if (existingSteps.length && stepCandidates.length) {
-    const aiMappings = await buildAiRecorderMappings({
-      testCase,
-      manualSteps: existingSteps,
-      stepCandidates,
-      capturedActions,
-      integrationId,
-      userId: createdBy,
-      additionalContext,
-      transactionId,
-      projectPrompt
-    });
+  // The destination is explicit: either the complete Web plan or one section.
+  // Deterministic alignment retains unique existing symbolic bindings without
+  // putting a model request in the recorder's critical save path.
+  recorderMappings = buildFallbackRecorderMappings(existingSteps.filter(step => inferAutomationStepType(step) === 'web'), stepCandidates);
+  mappingSource = targetStepId ? 'selected_section' : 'recorded';
 
-    if (aiMappings.mappings.length) {
-      const mappedActionIndexes = new Set(
-        aiMappings.mappings.flatMap((group) => group.candidates.map((candidate) => candidate.source_action_index))
-      );
-      const unmappedCandidates = stepCandidates.filter((candidate) => !mappedActionIndexes.has(candidate.source_action_index));
-      const fallbackMappings = unmappedCandidates.length
-        ? buildFallbackRecorderMappings(existingSteps, unmappedCandidates)
-        : [];
-
-      recorderMappings = mergeRecorderMappingGroups([...aiMappings.mappings, ...fallbackMappings]);
-      mappingSource = fallbackMappings.length ? "mixed" : "ai";
-
-      if (fallbackMappings.length) {
-        await appendEvent(transactionId, {
-          level: "warning",
-          phase: "recorder.ai.mapping.partial",
-          message: "AI mapped part of the recorder flow; HelloTest mapped the remaining recorded interactions with deterministic flow matching.",
-          details: {
-            ai_mapped_steps: aiMappings.mappings.length,
-            fallback_mapped_steps: fallbackMappings.length,
-            fallback_interactions: unmappedCandidates.length
-          }
-        });
-      }
-    } else {
-      aiMappingFallbackReason = aiMappings.fallback_reason;
-      recorderMappings = mergeRecorderMappingGroups(buildFallbackRecorderMappings(existingSteps, stepCandidates));
-      await appendEvent(transactionId, {
-        level: "warning",
-        phase: "recorder.ai.mapping.fallback",
-        message: "AI recorder mapping was unavailable, so HelloTest mapped recorded automation to the existing manual steps using deterministic flow matching.",
-        details: {
-          fallback_reason: aiMappingFallbackReason,
-          mapped_steps: recorderMappings.length,
-          mapped_interactions: recorderMappings.reduce((total, group) => total + group.candidates.length, 0)
-        }
-      });
-    }
-  }
-
-  const bound=bindRecorderParameterCandidates({candidates:stepCandidates,mappings:recorderMappings,actions:capturedActions,resolver:recorderParameters,
+  const bound=bindRecorderParameterCandidates({candidates:stepCandidates,mappings:recorderMappings,actions:capturedActions,resolver:recorderParameters,parameterBindings,
     rebuildCandidate:(action,order)=>buildRecorderStepCandidate(action,order,repositoryModel)});
   stepCandidates=bound.candidates;recorderMappings=bound.mappings;
-  const appliedSteps = await applyRecorderSteps({
-    testCase,
-    stepCandidates,
-    recorderMappings,
-    createdBy,
-    targetStepId
-  });
-  const learnedCount = await persistLearning({
+  // Recorder targets use the same strict native source contract as generated
+  // programs before any saved step is replaced.
+  for (const candidate of stepCandidates) candidate.automation_code = normalizeGeneratedProgram(candidate.automation_code);
+  const warnings=repositoryModel.repository_warning ? [repositoryModel.repository_warning] : [];
+  let appliedSteps;
+  const savePlan = async () => {
+    appliedSteps = await applyRecorderSteps({ testCase, stepCandidates, recorderMappings, createdBy, targetStepId, expectedSteps: caseSteps });
+    if (appliedSteps.length) {
+      const readinessIssues = await require('../lib/automationRecorderReadiness').recordedPlanIssues(await selectStepsForCase.all(testCase.id));
+      if (targetStepId) {
+        if (readinessIssues.length) await markTestCaseAutomationIncomplete.run(testCase.id);
+        else await markTestCaseAutomationReady.run(normalizeText(createdBy), testCase.id);
+      }
+      if (readinessIssues.length) warnings.push(`The recording was saved. Complete these instructions before running: ${readinessIssues.join(' ')}`);
+    }
+    return { test_case_id: testCase.id, source_test_case_id: recordingImport?.sourceTestCaseId || null,
+      title: testCase.title, automated: appliedSteps.length ? 'yes' : testCase.automated || 'no',
+      automation_status: appliedSteps.length ? (await selectCaseWithScope.get(testCase.id))?.automation_status || 'incomplete' : testCase.automation_status || 'not_automated',
+      generated_step_count: appliedSteps.length, created_step_count: appliedSteps.filter(step => step.operation === 'created').length,
+      updated_step_count: appliedSteps.filter(step => step.operation === 'updated').length, learned_locator_count: 0, warnings: [...warnings],
+      cache_hits: 0, fallback_used: false, fallback_reason: null, integration: null, api_test_case: null,
+      recorder_session: { id: session.id, action_count: capturedActions.length, network_count: capturedNetwork.length },
+      summary: appliedSteps.length ? targetStepId ? 'Recorded instructions replaced the selected section instructions.' : 'Recorded steps replaced the automation web plan.' : 'Recorder stopped cleanly, but no supported interactions were captured.',
+      step_updates: appliedSteps.map(({ automation_code, ...step }) => step) };
+  };
+  const committed = recordingImport
+    ? await require('./recordingImport.service').commit(recordingImport, testCase.id, savePlan)
+    : await savePlan();
+  if (committed.idempotent_replay) return committed;
+  let learnedCount=0;
+  try { learnedCount = await persistLearning({
     testCase,
     learnedLocators: [],
     capturedActions,
@@ -3530,15 +3287,12 @@ const finalizeRecorderBuild = async ({
     transactionId,
     repositoryModel,
     integrationId
-  });
-  if (appliedSteps.length) {
-    await markTestCaseAutomationReady.run(normalizeText(createdBy), testCase.id);
-  }
+  }); } catch { warnings.push('The recording was saved, but repository learning could not be updated.'); }
   const apiCase = null;
   let artifact = null;
 
   if (transactionId && appliedSteps.length) {
-    artifact = await workspaceTransactionService.createTransactionArtifact(transactionId, {
+    try { artifact = await workspaceTransactionService.createTransactionArtifact(transactionId, {
       file_name: `${String(testCase.display_id || testCase.id).replace(/[^A-Za-z0-9_-]+/g, "-")}-recorder-keywords.spec.ts`,
       mime_type: "text/typescript; charset=utf-8",
       content: await createArtifactContent({
@@ -3556,16 +3310,16 @@ const finalizeRecorderBuild = async ({
           api_request: null
         }))
       })
-    });
+    }); } catch { warnings.push('The recording was saved, but the downloadable source artifact could not be created. The saved plan remains available.'); }
   }
 
   await appendEvent(transactionId, {
     level: appliedSteps.length ? "success" : "warning",
     phase: "recorder.completed",
     message: appliedSteps.length
-      ? existingSteps.length
-        ? `Recorder associated automation with ${appliedSteps.length} existing manual step${appliedSteps.length === 1 ? "" : "s"} for "${testCase.title}".`
-        : `Recorder created ${appliedSteps.length} web keyword step${appliedSteps.length === 1 ? "" : "s"} for "${testCase.title}".`
+      ? targetStepId
+        ? `Recorder updated the selected section for "${testCase.title}".`
+        : `Recorder saved ${appliedSteps.length} recorded web step${appliedSteps.length === 1 ? "" : "s"} for "${testCase.title}".`
       : `Recorder stopped for "${testCase.title}", but no supported interactions were available to create web keyword steps.`,
     details: {
       recorder_session_id: session.id,
@@ -3580,14 +3334,14 @@ const finalizeRecorderBuild = async ({
       captured_api_evidence_count: capturedNetwork.length,
       artifact_id: artifact?.id || null
     }
-  });
+  }).catch(()=>{warnings.push('The recording was saved, but its activity event could not be updated.');});
 
   await updateTransaction(transactionId, {
     status: "completed",
     description: appliedSteps.length
-      ? existingSteps.length
-        ? `Recorder mapped web keyword automation onto ${appliedSteps.length} existing manual step${appliedSteps.length === 1 ? "" : "s"}.`
-        : `Recorder generated web keyword automation for ${appliedSteps.length} step${appliedSteps.length === 1 ? "" : "s"}.`
+      ? targetStepId
+        ? 'Recorder replaced the selected section instructions.'
+        : `Recorder replaced the web plan with ${appliedSteps.length} recorded step${appliedSteps.length === 1 ? "" : "s"}.`
       : "Recorder stopped without supported interactions to convert.",
     metadata: {
       current_phase: "recorder.completed",
@@ -3601,10 +3355,11 @@ const finalizeRecorderBuild = async ({
       api_test_case_id: null,
       api_step_count: 0,
       captured_api_evidence_count: capturedNetwork.length,
-      artifact_id: artifact?.id || null
+      artifact_id: artifact?.id || null,
+      warnings
     },
     completed_at: new Date().toISOString()
-  });
+  }).catch(()=>{warnings.push('The recording was saved, but its activity status could not be updated.');});
 
   return {
     test_case_id: testCase.id,
@@ -3615,15 +3370,16 @@ const finalizeRecorderBuild = async ({
     created_step_count: appliedSteps.filter((step) => step.operation === "created").length,
     updated_step_count: appliedSteps.filter((step) => step.operation === "updated").length,
     learned_locator_count: learnedCount,
+    warnings,
     api_test_case: apiCase,
     cache_hits: 0,
     fallback_used: Boolean(aiMappingFallbackReason),
     fallback_reason: aiMappingFallbackReason,
     integration: null,
     summary: appliedSteps.length
-      ? existingSteps.length
-        ? "Recorder interactions were mapped onto the existing manual test steps without replacing the manual text."
-        : "Recorder interactions were converted into HelloTest web keyword automation steps."
+      ? targetStepId
+        ? 'Recorded instructions replaced the selected section instructions.'
+        : 'Recorded steps replaced the automation web plan.'
       : "Recorder stopped cleanly, but no supported interactions were captured.",
     artifact_id: artifact?.id || null,
     step_updates: appliedSteps.map(({ automation_code, operation, source_action_index, ...step }) => ({
@@ -3644,7 +3400,7 @@ exports.buildAutomationForCase = async ({
   start_url_review,
   allow_browser_actions = false,
   verification_mode = "generate_only",
-  browser_driver = "mcp",
+  browser_driver,
   verification_driver = "native",
   test_environment_id,
   test_configuration_id,
@@ -3753,6 +3509,8 @@ exports.buildAutomationForCase = async ({
     });
 
     if (!result.generated_step_count) throw new Error("Automation builder did not produce any executable step updates.");
+    const engineMetadata=result.build_engine?{build_engine:result.build_engine,
+      ...(result.browser_evidence?.transport==='upstream_playwright_mcp'?{browser_driver:require('../lib/automationBuildPipelineOptions').UPSTREAM_BROWSER_DRIVER}:{})}:{};
 
     await workspaceTransactionService.updateTransaction(transaction.id, {
       status: result.generated_step_count ? "completed" : "failed",
@@ -3762,6 +3520,7 @@ exports.buildAutomationForCase = async ({
         ? `Generated instructions for ${result.generated_step_count} sections. ${result.verification_status==='verified'?'The saved source passed isolated verification.':'Isolated verification has not passed.'}`
         : "Automation builder did not produce any step updates.",
       metadata: {
+        ...engineMetadata,
         current_phase: "completed",
         outcome_status: "generated",
         verification_status:result.verification_status,
@@ -3770,7 +3529,7 @@ exports.buildAutomationForCase = async ({
         failed: 0,
         output_test_case_ids: [result.test_case_id],
         retry_test_case_ids: [],
-        case_outcomes: [{test_case_id:result.test_case_id,title:result.title,status:"generated",generated_step_count:result.generated_step_count,completion_attempts:result.completion_attempts,verification_status:result.verification_status,verification:result.verification}],
+        case_outcomes: [{test_case_id:result.test_case_id,title:result.title,status:"generated",generated_step_count:result.generated_step_count,completion_attempts:result.completion_attempts,verification_status:result.verification_status,verification:result.verification,...engineMetadata}],
         progress_percent: 100,
         total_items: 1,
         processed_items: 1,
@@ -3779,6 +3538,7 @@ exports.buildAutomationForCase = async ({
         generated_steps: result.generated_step_count,
         learned_locator_count: result.learned_locator_count,
         fallback_used: result.fallback_used,
+        warnings: result.warnings || [],
         artifact_id: result.artifact_id
       },
       completed_at: new Date().toISOString()
@@ -4824,6 +4584,16 @@ const resolveTestEngineIntegration = async (testCase) => {
   return integration;
 };
 
+const resolveBuildBrowserIntegration=async(testCase,pairedScope)=>{
+  if(!pairedScope)return resolveTestEngineIntegration(testCase);
+  // A local bridge remains usable without a remote worker. If a project/global
+  // TestEngine policy exists, freeze only its public browser wait settings here.
+  const configured=await integrationService.getActiveIntegrationByTypeForProject('testengine',testCase.project_id);
+  const assertionTimeoutMs=require('../lib/automationAssertionTimeout').configuredAssertionTimeoutMs(configured?.config?.assertion_timeout_ms);
+  const navigationTimeoutMs=require('../lib/automationAssertionTimeout').configuredNavigationTimeoutMs(configured?.config?.navigation_timeout_ms);
+  return {paired_browser_bridge:pairedScope,config:{...(assertionTimeoutMs!==undefined?{assertion_timeout_ms:assertionTimeoutMs}:{}),...(navigationTimeoutMs!==undefined?{navigation_timeout_ms:navigationTimeoutMs}:{})}};
+};
+
 const resolveMobileEngineBaseUrl = (integration, recorderMode) => {
   const config = integration?.config && typeof integration.config === "object" && !Array.isArray(integration.config)
     ? integration.config
@@ -5162,7 +4932,8 @@ exports.startRecorderSession = async ({
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sessionPayload)
     });
 
-  const transaction = await workspaceTransactionService.createTransaction({
+  let transaction;
+  try { transaction = await workspaceTransactionService.createTransaction({
     project_id: testCase.project_id || null,
     app_type_id: testCase.app_type_id || null,
     category: "automation_build",
@@ -5182,6 +4953,7 @@ exports.startRecorderSession = async ({
       test_data_set_id: buildContext.data_set?.id || null,
       test_suite_id: recorderSuiteId,
       recorder_session_id: session.id,
+      recorder_plan_key: require('../lib/automationRecorderPlan').recorderPlanFingerprint(steps),
       ...(paired ? { local_transport: "paired-agent", recorder_case_revision: Number(testCase.revision) || 0 } : {}),
       recorder_started_at: session.started_at || new Date().toISOString(),
       recorder_last_activity_at: session.last_activity_at || session.started_at || null,
@@ -5198,6 +4970,13 @@ exports.startRecorderSession = async ({
     created_by,
     started_at: new Date().toISOString()
   });
+
+  } catch (error) {
+    // A browser without its ownership receipt cannot be recovered by the UI.
+    // Release it immediately when establishing the start receipt fails.
+    if (!paired) await (recorderTarget === 'mobile' ? readMobileEngineJson : readEngineJson)(`${sessionEndpoint}/${encodeURIComponent(session.id)}/stop`, { method: 'POST' }).catch(() => null);
+    throw error;
+  }
 
   await appendEvent(transaction.id, {
     phase: "recorder.started",
@@ -5220,7 +4999,7 @@ exports.startRecorderSession = async ({
       test_configuration_id: buildContext.configuration?.id || null,
       test_data_set_id: buildContext.data_set?.id || null
     }
-  });
+  }).catch(() => null);
 
   return {
     ...session,
@@ -5254,6 +5033,7 @@ exports.finishRecorderSession = async ({
   engine_base_url,
   target_step_id,
   included_action_indices,
+  parameter_bindings,
   created_by
 } = {}) => {
   const testCaseId = normalizeText(test_case_id);
@@ -5270,18 +5050,32 @@ exports.finishRecorderSession = async ({
   }
 
   const pairedInput = captured_session != null;
-  const engineIntegration = pairedInput ? { base_url: null, config: {} } : await resolveTestEngineIntegration(testCase);
   const transactionId = normalizeText(transaction_id);
   const transaction = transactionId
     ? await workspaceTransactionService.getTransaction(transactionId).catch(() => null)
     : null;
   const metadata = parseTransactionMetadata(transaction);
   const paired = metadata.local_transport === "paired-agent";
-  if (paired && !pairedInput) throw Object.assign(new Error("Read the stopped recording from the paired agent before saving."), { statusCode: 400 });
-  const pairedCapture = pairedInput ? require("../lib/automationPairedRecorder").validatePairedRecording({ transaction, metadata, testCase, sessionId, recordingId: paired_recording_id, capture: captured_session, userId: created_by }) : null;
+  if (transaction && (transaction.created_by !== created_by || transaction.project_id !== testCase.project_id || transaction.action !== 'test_case_recorder')) throw Object.assign(new Error('This recording belongs to another user or project.'), { statusCode: 403, code: 'AUTOMATION_RECORDER_SCOPE_MISMATCH' });
   if (transaction && (metadata.test_case_id !== testCaseId || metadata.recorder_session_id !== (paired ? paired_recording_id : sessionId))) throw new Error("The recorder transaction does not belong to this case and session.");
   let targetStepId = normalizeText(target_step_id) || normalizeText(metadata.target_step_id);
+  if (transaction && targetStepId !== normalizeText(metadata.target_step_id)) throw Object.assign(new Error('The selected recorder target differs from the section where recording started.'), { statusCode: 409, code: 'AUTOMATION_RECORDER_TARGET_CHANGED' });
+  const recordingImport = { projectId: testCase.project_id, sourceCaseId: testCaseId, userId: created_by, sessionId,
+    transactionId, recordingId: paired_recording_id, targetStepId, parameterBindings: parameter_bindings || [],
+    includedActionIndices: included_action_indices, additionalContext: additional_context, capture: captured_session };
+  const savedImport = await require('./recordingImport.service').load(recordingImport);
+  if (savedImport) return savedImport;
+  if (!transaction) throw Object.assign(new Error('The recording receipt is unavailable. Retry saving from the tab where this recording started.'), { statusCode: transactionId ? 503 : 400, code: 'AUTOMATION_RECORDER_TRANSACTION_REQUIRED' });
+  const engineIntegration = pairedInput ? { base_url: null, config: {} } : await resolveTestEngineIntegration(testCase);
   const targetSteps = await selectStepsForCase.all(testCaseId);
+  if (paired && !pairedInput) throw Object.assign(new Error("Read the stopped recording from the paired agent before saving."), { statusCode: 400 });
+  if (metadata.recorder_plan_key && metadata.recorder_plan_key !== require('../lib/automationRecorderPlan').recorderPlanFingerprint(targetSteps)) {
+    // A concurrent identical save may have committed after the first lookup.
+    const committed = await require('./recordingImport.service').load(recordingImport);
+    if (committed) return committed;
+    throw Object.assign(new Error('The case plan changed while recording. Refresh the plan before saving. Existing instructions were retained.'), { code: 'AUTOMATION_RECORDER_CASE_CHANGED', statusCode: 409 });
+  }
+  const pairedCapture = pairedInput ? require("../lib/automationPairedRecorder").validatePairedRecording({ transaction, metadata, testCase, steps:targetSteps, sessionId, recordingId: paired_recording_id, capture: captured_session, userId: created_by }) : null;
   const platform = resolveAutomationCaseSteps(testCase, targetSteps, { appTypeKind: testCase.app_type_kind });
   if (platform.automation_case_type === 'api' || metadata.automation_case_type && metadata.automation_case_type !== platform.automation_case_type) throw Object.assign(new Error('The automation case type no longer matches this recording. Existing steps were retained; review the platform before saving recorded actions.'), { statusCode: 409, code: 'AUTOMATION_CASE_TYPE_CHANGED' });
 
@@ -5303,7 +5097,10 @@ exports.finishRecorderSession = async ({
   const sessionBaseUrl = target === "mobile" ? mobileBaseUrl : baseUrl;
   const sessionPath = target === "mobile" ? "/api/v1/mobile/recorder/sessions" : "/api/v1/recorder/sessions";
   const readRecorderEngineJson = target === "mobile" ? readMobileEngineJson : readEngineJson;
-  const session = paired ? pairedCapture : await readRecorderEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}`);
+  let session = paired ? pairedCapture : await readRecorderEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}`);
+  // Stop flushes pending input events; compile the returned frozen capture,
+  // including the final field value, rather than an earlier polling response.
+  if (!paired && session.status === 'running') session = await readRecorderEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}/stop`, { method: 'POST' });
   const mobilePlatform = target === "mobile" ? resolveMobileRecorderPlatform({ applicationPlatform: testCase.app_type_kind, steps: targetSteps, targetStepId, recordedPlatform: session.platform || session.platform_name || metadata.platform_name }) : null;
   const allCapturedActions = normalizeCapturedActions(session.actions || []);
   if ((session.action_count || session.actions?.length || 0) > allCapturedActions.length) throw new Error(`This recording exceeds the ${MAX_CAPTURED_ACTIONS}-action build limit. Record a smaller flow or split it into reusable groups; incomplete recordings will not replace the plan.`);
@@ -5325,11 +5122,8 @@ exports.finishRecorderSession = async ({
     testCase = await selectCaseWithScope.get(preparedTarget.test_case_id);
     targetStepId = preparedTarget.target_step_id;
   }
+  recordingImport.sourceTestCaseId = preparedTarget.source_test_case_id;
 
-
-  if (!paired) await readRecorderEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}/stop`, {
-    method: "POST"
-  }).catch(() => null);
 
   if (target === "mobile") {
     const repositoryModel = await buildRecorderRepositoryModel({
@@ -5422,7 +5216,10 @@ exports.finishRecorderSession = async ({
     integrationId: integration_id,
     additionalContext: additional_context,
     targetStepId,
-    parameterSelection:{test_environment_id:metadata.test_environment_id||undefined,test_configuration_id:metadata.test_configuration_id||undefined,test_data_set_id:metadata.test_data_set_id||undefined,test_suite_id:metadata.test_suite_id||undefined}
+    parameterSelection:{test_environment_id:metadata.test_environment_id||undefined,test_configuration_id:metadata.test_configuration_id||undefined,test_data_set_id:metadata.test_data_set_id||undefined,test_suite_id:metadata.test_suite_id||undefined},
+    parameterBindings: parameter_bindings || [],
+    recordingImport,
+    expectedPlanKey: preparedTarget.test_case_id === testCaseId ? metadata.recorder_plan_key : undefined
   });
 
   return {
@@ -5437,7 +5234,7 @@ exports.finishRecorderSession = async ({
   };
 };
 
-exports.connectCaseBrowser = async ({projectId,appTypeId,user,caseId,environmentId,startUrl,allowBrowserActions=false,signal}) => {
+exports.connectCaseBrowser = async ({projectId,appTypeId,user,caseId,environmentId,startUrl,allowBrowserActions=false,browser_driver='playwright_mcp_upstream',signal}) => {
   const testCase=await selectCaseWithScope.get(caseId);
   if(!testCase || testCase.project_id!==projectId || appTypeId && testCase.app_type_id!==appTypeId)throw Object.assign(new Error("The automation case is unavailable in this application."),{statusCode:404});
   const permissions=["automation.view","automation.code.view","automation.ai","testcase.view",...(allowBrowserActions?["automation.build"]:[]),...(environmentId?["environment.view"]:[])];
@@ -5451,9 +5248,31 @@ exports.connectCaseBrowser = async ({projectId,appTypeId,user,caseId,environment
   const engine=await resolveTestEngineIntegration(testCase);
   const parameterContext=await loadAutomationParameterContext({testCase,projectId,userId:user.id});
   const browserParameters=await require('../lib/automationBrowserParameters').loadBrowserParameterResolver({testCase,projectId,userId:user.id,caseValues:parameterContext.runtime_parameter_values,privateParameterNames:parameterContext.private_parameter_names,parameterOverrides:parameterContext.parameter_overrides,test_environment_id:environmentId});
+  if(browser_driver!=='legacy_repair_mcp'){
+    require('../lib/automationBuildPipelineOptions').normalizeBuildPipelineOptions({browser_driver});
+    const {toolsForPolicy,validateRequest,resolveSecretReferences}=require('../lib/automationUpstreamEngineer');
+    const bindings=browserParameters.upstreamBindings();
+    const activePermissions=[...new Set([...permissions,...browserParameters.required_permissions||[]])];
+    const guard=async args=>{signal?.throwIfAborted();const current=await getOptionalEvidenceAccess(user,projectId,[...activePermissions,'data.view']);if(activePermissions.some(key=>!current[key])||(Object.keys(bindings.secrets).length>0||/@[tsr]\./.test(JSON.stringify(args||{})))&&!current['data.view'])throw Object.assign(new Error('Automation browser access changed.'),{statusCode:403});};
+    await guard();
+    const browser=await require('../lib/automationUpstreamMcpClient').connectUpstreamPlaywright({integration:engine,startUrl:url,secrets:bindings.secrets,signal});
+    const nativeCall=browser.call;
+    browser.tools=toolsForPolicy(browser.tools,allowBrowserActions===true);browser.driver='playwright_mcp_upstream';
+    browser.projectPrivateText=browserParameters.projectPrivateText;
+    const catalog=new Map(browser.tools.map(tool=>[tool.name,tool]));
+    browser.call=async(name,args,options)=>{
+      await guard(args);const resolved=resolveSecretReferences(name,args,bindings.references,bindings.secrets,bindings.parameterValues);
+      validateRequest({name,arguments:resolved},catalog,{interactive:allowBrowserActions===true,startUrl:url});
+      try{return browserParameters.redactResult(await nativeCall(name,resolved,options));}catch(error){throw browserParameters.redactError(error);}
+    };
+    let navigated=false;
+    browser.navigateToStart=async()=>{if(navigated)throw Object.assign(new Error('The initial browser navigation already ran.'),{code:'AUTOMATION_UPSTREAM_TOOL_INVALID'});navigated=true;await guard();try{return browserParameters.redactResult(await nativeCall('browser_navigate',{url}));}catch(error){throw browserParameters.redactError(error);}};
+    return {browser,startUrl:url,browser_driver:'playwright_mcp_upstream'};
+  }
+  const {connectAutomationBrowser}=require('../lib/automationBrowserAgent');
   const browser=await connectAutomationBrowser({integration:engine,startUrl:url,allowBrowserActions,signal});
   const call=browser.call;
-  browser.call=async(name,args)=>{const current=await getOptionalEvidenceAccess(user,projectId,[...permissions,'data.view']);if(permissions.some(key=>!current[key])||browserParameters.requiresDataAccess(name,args)&&!current['data.view'])throw Object.assign(new Error("Automation browser access changed."),{statusCode:403});try{return browserParameters.redactResult(await call(name,browserParameters.resolve(name,args)));}catch(error){throw browserParameters.redactError(error);}};
+  browser.call=async(name,args,options)=>{const current=await getOptionalEvidenceAccess(user,projectId,[...permissions,'data.view']);if(permissions.some(key=>!current[key])||browserParameters.requiresDataAccess(name,args)&&!current['data.view'])throw Object.assign(new Error("Automation browser access changed."),{statusCode:403});try{return browserParameters.redactResult(await call(name,browserParameters.resolve(name,args),options));}catch(error){throw browserParameters.redactError(error);}};
   return {browser,startUrl:url};
 };
 
@@ -5473,4 +5292,15 @@ exports.loadAutomationAgentCaseContext = async ({projectId,appTypeId,user,caseId
   return {evidence_permissions:[...permissions,...(access['data.view']?['data.view']:[]),...(stories.stories?.length?['requirement.view']:[])],linked_manual_cases:resolver.projectManualCases(manual),case:{...resolver.projectCase({id:testCase.id,title:testCase.title,description:testCase.description,gherkin_document:testCase.gherkin_document,priority:testCase.priority,labels:safeJson(testCase.labels,[])}),revision:testCase.revision,automated:testCase.automated,parameter_values:resolver.publicParameterValues},
     sections:resolver.projectSteps(sections),deferred_parameter_references:resolver.deferredParameterNames,private_parameter_references:resolver.privateParameterNames,suite_selection_required:resolver.suite_selection_required===true,
     stories};
+};
+
+/** Configured source/model adapter for a protected, evidence-backed preview.
+ * This does not enter case generation, connect Playwright or persist a step. */
+exports.completeRetainedSourceProposal = async ({projectId,userId,integrationId,prompt,phase,caseId,sectionId,signal,timeoutMs,beforeDispatch,sessionId}) => {
+  if (!['upstream_source','upstream_instruction_mapping'].includes(phase) || typeof beforeDispatch !== 'function') throw Object.assign(new Error('Only the guarded native source and display-mapping phases are supported.'),{statusCode:400});
+  await beforeDispatch();
+  const featureKey='ai.agentic.automation-engineer';
+  const integration=await resolveLlmIntegration(integrationId,{userId,projectId,usageKey:featureKey});
+  if(!integration)throw Object.assign(new Error('Configure an active LLM integration before requesting a source proposal.'),{statusCode:422});
+  return require('@hellotest/platform/backend/src/utils/llmTraceContext').run({project_id:projectId,actor_id:userId,session_id:sessionId,test_case_id:caseId,generation_scope:phase,generation_section_ids:[sectionId],section_attempt:1,completion_attempt:1,automation_source_proposal:true,mcp_context_depth:1,mcp_context:'retained_native_evidence'},()=>requestChatCompletion({integration,featureKey,prompt,signal,timeoutMs,upstreamPhase:phase,browserReview:true,beforeDispatch}));
 };

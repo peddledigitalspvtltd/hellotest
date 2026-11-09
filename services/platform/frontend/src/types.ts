@@ -2285,6 +2285,8 @@ export type TestStep = {
   automation_code?: string | null;
   automation_source_sha256?: string | null;
   automation_context_sha256?: string | null;
+  /** Display-only model mapping, valid only for this step's exact source SHA. */
+  automation_instructions?: import("../../../automation/shared/automationInstructionMapping.mjs").AutomationInstructionMapping | null;
   api_request?: StepApiRequest | null;
   group_id?: string | null;
   group_name?: string | null;
@@ -2363,6 +2365,7 @@ export type ObjectRepositoryContext = {
 };
 
 export type AutomationBuildResponse = {
+  idempotent_replay?: boolean;
   test_case_id: string;
   title: string;
   automated: "yes" | "no";
@@ -2377,6 +2380,7 @@ export type AutomationBuildResponse = {
   summary: string;
   transaction_id?: string;
   artifact_id?: string | null;
+  warnings?: string[];
   api_test_case?: {
     id: string;
     title: string;

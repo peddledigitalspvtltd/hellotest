@@ -53,9 +53,13 @@ test("queued API and mobile blocks execute in plan order and exchange captured p
       return json({ status: "passed", results: [{ step_id: "mobile-3", status: "passed", captures: {} }] });
     }
     assert.equal(url.hostname, "control-plane.test");
+    if (url.pathname.endsWith("/heartbeat")) {
+      assert.equal(typeof body.worker_id, "string");
+      return json({job_id:"job-order",status:"running",authorized:true});
+    }
     if (url.pathname.endsWith("/report")) reports.push({ path: url.pathname, ...body });
-    if (url.pathname.endsWith("/complete")) completed = body;
-    return json({ status: "running", captures: body.captures || {} });
+    if (url.pathname.endsWith("/complete")) { completed = body; return json({job_id:"job-order",status:body.status}); }
+    return json({ status: "running", case_status: "running", captures: body.captures || {} });
   };
   const steps = [
     { id: "api-1", order: 1, step_type: "api", api_request: { url: "http://app.test/login", captures: [{ path: "$.token", parameter: "session_token" }] } },

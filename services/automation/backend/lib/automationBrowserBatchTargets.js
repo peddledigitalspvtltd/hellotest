@@ -32,6 +32,7 @@ function createBrowserBatchTargetResolver({ snapshot } = {}) {
         if (error?.code !== 'AUTOMATION_BROWSER_TARGET_REF_STALE' || unchangedControls !== true || !initial || !current) throw error;
         const original = browserBatchTargetEvidence(snapshot);
         if (!original || original.fingerprint !== initial.fingerprint) throw error;
+        if (original.frame_identity !== current.frame_identity) throw error;
         const initialPage = browserReceipt(snapshot), currentPage = browserReceipt(currentSnapshot);
         if (!completePageIdentity(initialPage) || !completePageIdentity(currentPage)) throw error;
         const after = captureBrowserBatchState(currentPage);

@@ -42,7 +42,8 @@ ENV QUALITY_AGENT_DATA_DIR=/quality-data
 RUN mkdir -p /quality-data && chmod 700 /quality-data
 
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,id=hellotest-npm,target=/root/.npm,sharing=locked npm ci --omit=dev
+RUN --mount=type=cache,id=hellotest-npm,target=/root/.npm,sharing=locked npm ci --omit=dev \
+    && node -e "const assert = require('node:assert/strict'); const { createRequire } = require('node:module'); const upstream = createRequire(require.resolve('@playwright/mcp/package.json')); assert.equal(require('playwright/package.json').version, '1.59.1'); assert.equal(upstream('@playwright/mcp/package.json').version, '0.0.84'); assert.ok(require('node:fs').existsSync(require('playwright').chromium.executablePath())); console.log('Verified independent Playwright MCP package and installed Run Chromium');"
 
 COPY --from=build /app/dist ./dist
 

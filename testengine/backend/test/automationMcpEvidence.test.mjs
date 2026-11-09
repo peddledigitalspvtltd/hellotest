@@ -86,7 +86,12 @@ test('redacted select option values remain excerpts and cannot become invented e
 test('MCP error receipts distinguish unknown side effects, optional captures and lost contexts',async t=>{
   const old=process.env.RECORDER_ALLOWED_PRIVATE_HOSTS;process.env.RECORDER_ALLOWED_PRIVATE_HOSTS='127.0.0.1';
   const app=Fastify();let closed=false,launches=0,clicks=0,fills=0,checks=0,readinessFailed=false,proxyCloses=0;
-  const scope={...fakeScope(),click:async()=>{clicks++;throw new Error('Click timed out after dispatch');},fill:async value=>{fills++;throw new Error(`fill("${value}") timed out`);},check:async()=>{checks++;readinessFailed=true;}};
+  const editableScope=fakeScope();
+  const scope={...editableScope,
+    // This fixture represents a native editable input. Snapshot evaluation
+    // retains its bounded payload; the scalar readonly property is false.
+    evaluate:async(fn,limits)=>limits?editableScope.evaluate(fn,limits):false,
+    click:async()=>{clicks++;throw new Error('Click timed out after dispatch');},fill:async value=>{fills++;throw new Error(`fill("${value}") timed out`);},check:async()=>{checks++;readinessFailed=true;}};
   const page={...fakePage(scope),url:()=> 'http://127.0.0.1:1234/',isClosed:()=>closed,on:()=>{},evaluate:async()=>{if(readinessFailed)throw Object.assign(new Error('Application did not settle after the action'),{code:'BROWSER_PAGE_NOT_READY'});return {loaded:true,usable:true,actionable:true,busy:false,signature:1};},setDefaultTimeout:()=>{},goto:async()=>{},screenshot:async()=>{throw new Error('Optional capture failed');}};
   const context={route:async()=>{},newPage:async()=>page,on:()=>{}};
   const browser={newContext:async()=>context,isConnected:()=>!closed,close:async()=>{closed=true;}};
@@ -105,7 +110,8 @@ test('MCP error receipts distinguish unknown side effects, optional captures and
   scope.count=async()=>2;const ambiguous=await receipt('browser_click',{locator:'button'});assert.equal(ambiguous.action_outcome,'not_attempted');assert.equal(ambiguous.retry_safe,true);assert.equal(clicks,1);scope.count=async()=>1;
   scope.count=async()=>0;scope.waitFor=async options=>{assert.equal(options.state,'attached');assert.ok(options.timeout>0&&options.timeout<=10000);throw new Error('Attached locator wait timed out before dispatch');};
   const absent=await receipt('browser_click',{locator:'#not-rendered'});assert.equal(absent.action_outcome,'not_attempted');assert.equal(absent.retry_safe,true);assert.equal(clicks,1,'a timed-out render wait must not dispatch or replay a click');scope.count=async()=>1;
-  const unsettled=await receipt('browser_check',{locator:'input'});assert.equal(unsettled.code,'BROWSER_ACTION_OUTCOME_UNKNOWN');assert.equal(unsettled.action_outcome,'unknown');assert.equal(unsettled.retry_safe,false);assert.equal(checks,1,'readiness failure after dispatch must never replay the action');readinessFailed=false;
+  const checked=await receipt('browser_check',{locator:'input'});assert.equal(checked.action_outcome,'completed');assert.equal(checked.code,undefined);
+  const unsettled=await receipt('browser_snapshot');assert.equal(unsettled.code,'BROWSER_PAGE_NOT_READY');assert.equal(unsettled.action_outcome,'not_attempted');assert.equal(checks,1,'readiness is a separate read and must never replay or erase the completed action');readinessFailed=false;
   closed=true;
   for(let attempt=0;attempt<2;attempt++){const lost=await receipt('browser_snapshot');assert.equal(lost.code,'BROWSER_CONTEXT_LOST');assert.equal(lost.action_outcome,'not_attempted');}
   assert.equal(launches,1,'lost-context evidence cannot silently open a blank replacement browser');
@@ -150,6 +156,19 @@ test('readiness refuses unfinished loading, cancelled sessions and failed naviga
   await assert.rejects(waitForAutomationPageReadiness(page,{deadline:Date.now()+1000,origin:'https://app.test',cancelled:()=>true}),/session was closed/);
   await assert.rejects(waitForAutomationPageReadiness(page,{deadline:Date.now()+1000,origin:'https://app.test',state:{pendingRequests:new Set(),navigationFailure:'net::ERR_FAILED'}}),/navigation failed/);
   await assert.rejects(waitForAutomationPageReadiness(page,{deadline:Date.now()+1000,origin:'https://app.test',state:{pendingRequests:new Set(),navigationStatus:503}}),error=>error.code==='BROWSER_PAGE_NOT_READY'&&error.http_status===503&&/HTTP 503/.test(error.message));
+  page.evaluate=async()=>({loaded:true,usable:false,actionable:false,busy:false,authenticationForm:false,signature:1});
+  await assert.rejects(waitForAutomationPageReadiness(page,{deadline:Date.now()+25,origin:'https://app.test',state:{pendingRequests:new Set(),navigationStatus:401}}),error=>error.code==='BROWSER_PAGE_NOT_READY'&&error.http_status===401&&/HTTP 401/.test(error.message));
+});
+
+test('interactive functional readiness still refuses busy or parsing documents and reports its observed load state',async()=>{
+  let loaded=true,busy=true;
+  const page={isClosed:()=>false,url:()=>'https://app.test/login',evaluate:async()=>({loaded,loadState:loaded?'interactive':'loading',usable:true,actionable:true,busy,signature:1})};
+  await assert.rejects(waitForAutomationPageReadiness(page,{deadline:Date.now()+30,origin:'https://app.test'}),{code:'BROWSER_PAGE_NOT_READY'});
+  loaded=false;busy=false;
+  await assert.rejects(waitForAutomationPageReadiness(page,{deadline:Date.now()+30,origin:'https://app.test'}),{code:'BROWSER_PAGE_NOT_READY'});
+  loaded=true;
+  const ready=await waitForAutomationPageReadiness(page,{deadline:Date.now()+1500,origin:'https://app.test'});
+  assert.equal(ready.state,'ready');assert.equal(ready.load_state,'interactive');
 });
 
 test('typed browser assertions retry observed conditions without exposing values or widening ambiguous locators',async()=>{

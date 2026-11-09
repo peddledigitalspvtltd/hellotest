@@ -439,7 +439,8 @@ module.exports = async function (fastify) {
     return service.preparePairedLocalExecution(execution.id,{initiated_by:req.user.id,paired_origin:input.paired_origin,local_agent_id:input.local_agent_id,expected_revision:input.expected_revision});
   });
   const localGrant=req=>({executionId:req.params.id,grantToken:String(req.headers.authorization||'').replace(/^Bearer\s+/i,''),
-    agentId:req.body?.agent_id||req.headers['x-hellotest-local-agent-id']||req.headers['x-hellotest-agent-id']});
+    agentId:req.body?.agent_id||req.headers['x-hellotest-local-agent-id']||req.headers['x-hellotest-agent-id'],
+    agentCapabilities:String(req.headers['x-hellotest-local-agent-capabilities']||'').slice(0,1024).split(',').map(value=>value.trim())});
   fastify.post('/executions/:id/local-dispatch/claim',async(req,reply)=>{
     reply.header('Cache-Control','no-store');
     return require('@hellotest/automation/backend/services/pairedLocalExecution.service').claim(localGrant(req));

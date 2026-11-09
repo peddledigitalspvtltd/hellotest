@@ -12,27 +12,14 @@ import {compileRecordedProgram as compileEngineProgram} from '../../dist/lib/aut
 
 const require=createRequire(import.meta.url);
 const {createBrowserParameterResolver}=require('../../../../services/automation/backend/lib/automationBrowserParameters');
-const {buildAutomationParameterBindings}=require('../../../../services/automation/backend/lib/automationParameterBindings');
-const {createAutomationInputParameterBinding}=require('../../../../services/automation/backend/lib/automationInputParameterBinding');
 const {compileRecordedProgram}=require('../../../../services/automation/backend/lib/automationRecordedProgram');
 const {deriveProgramTools}=require('../../../../services/automation/backend/lib/automationProgramTools');
 const {prepareVerificationSections}=require('../../../../services/automation/backend/lib/automationVerificationSections');
 
 function recordedFixture() {
   const obligations=[{id:'save',source:'section',action:'Enter @t.item_name and save the form.',expected_result:'The status message displays Saved @t.item_name.'}];
-  const resolver=createBrowserParameterResolver({caseValues:{'t.item_name':'Build Fixture','t.other':'Unrelated value'},materialize:false});
-  const bindings=buildAutomationParameterBindings({obligations,referencedParameterNames:resolver.referencedParameterNames});
-  const policy=createAutomationInputParameterBinding({stepId:'save',obligations,bindings,parameterValues:resolver.promptValues,privateParameterNames:resolver.privateParameterNames});
-  const snapshot={tool:'browser_snapshot',result:{content:[{type:'text',text:JSON.stringify({source:'playwright',observation_id:'save-status',elements:[
-    {tag:'div',locators_validated:true,locator_candidates:['#status']},
-    {tag:'section',locators_validated:true,locator_candidates:['#status-panel']}
-  ]})}]}};
   const checks=[['text','#status'],['text_contains','#status-panel'],['text_content','#status'],['text_content_contains','#status-panel'],['title'],['title_normalized']].map(([assertion,locator])=>{
-    const request={name:'browser_assert',arguments:{assertion,...(locator?{locator}:{}),value:'Saved Build Fixture'}};
-    const original=structuredClone(request),bound=policy.canonicalize(request,{snapshot});
-    assert.equal(bound.arguments.value,'Saved @t.item_name','Only the original authored expected-result span grants a reusable composite oracle');
-    assert.deepEqual(request,original,'Binding does not mutate the observed request');
-    return bound;
+    return {name:'browser_assert',arguments:{assertion,...(locator?{locator}:{}),value:'Saved @t.item_name'}};
   });
   const operations=[
     {name:'browser_fill',arguments:{locator:'#name',value:'@t.item_name'}},

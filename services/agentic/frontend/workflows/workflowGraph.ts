@@ -766,6 +766,7 @@ export const buildN8nPayload = (
           reviewCriteria: node.data.reviewCriteria || "",
           artifactTask: node.data.artifactTask || "",
           inspectBrowser: node.data.inspectBrowser ?? true,
+          automationBrowserMode: node.data.automationBrowserMode ?? (node.data.inspectBrowser === false ? "offline" : "read_only"),
           readinessPolicy: node.data.readinessPolicy || "verify-inputs",
           model: node.data.model || "",
           llmIntegrationId: node.data.llmIntegrationId || "",

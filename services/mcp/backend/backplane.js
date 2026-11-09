@@ -59,6 +59,12 @@ function bounded(value,delivery) {
  if(Buffer.byteLength(JSON.stringify(result))>180000)throw fail('Result exceeds the context budget. Narrow the query or paginate.',413,'MCP_RESULT_TOO_LARGE');
  return result;
 }
+function containsSensitiveActionValue(value,op) {
+ if(typeof value==='string')return /\bmcp1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(value)||require('@hellotest/platform/backend/src/security/aiTextPolicy').redactSensitiveData(value).redaction_count>0;
+ if(!value||typeof value!=='object')return false;
+ if((value.is_secret===true||value.sensitive===true||value.is_sensitive===true||/password|secret|credential|token|api.?key/i.test(String(value.name||value.key||'')))&&['value','default_value'].some(field=>Object.hasOwn(value,field)))return true;
+ return Object.entries(value).some(([key,item])=>(sensitive.test(key)&&!(op.path==='/agentic-quality/runs'&&key==='credential_ref'&&typeof item==='string'&&/^[A-Za-z0-9_.:-]{1,128}$/.test(item)))||containsSensitiveActionValue(item,op));
+}
 function projectOperationResult(value,op) {
  const metadataOnly=item=>Array.isArray(item)?item.map(metadataOnly):item&&typeof item==='object'?Object.fromEntries(Object.entries(item).filter(([key])=>!['variables','headers','cookies'].includes(key)).map(([key,child])=>[key,metadataOnly(child)])):item;
  const omit=item=>Array.isArray(item)?item.map(omit):item&&typeof item==='object'?Object.fromEntries(Object.entries(item).filter(([key])=>!op.policy.omit_fields.includes(key)).map(([key,child])=>[key,omit(child)])):item;
@@ -73,6 +79,19 @@ function publicOperationResult(value,op,delivery){const projected=projectOperati
 const canonical=value=>JSON.stringify(value,(_,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.entries(item).sort(([a],[b])=>a.localeCompare(b))):item);
 const digest=value=>createHash('sha256').update(canonical(value)).digest('hex');
 const verification=require('./operationVerification').createVerification({registry,invoke:(actor,op,args,signal)=>invokeOperation(actor,op,args,signal,{verification:true}),fail,digest,bound:publicOperationResult,readMembership:(...args)=>featureOperations.readMembership(...args),permit,membershipPermissions:storage=>featureOperations.memberships[storage]?.permissions||[]});
+async function permitOperation(actor,op,args={}) {
+ await permit(actor,op.permission);
+ const permissions=featureOperations.additionalPermissions(op,args);
+ if(op.path==='/test-cases'||op.path==='/test-cases/:id/automation/generator-jobs'){
+  const testCaseId=op.path==='/test-cases'?null:args.path?.id;
+  const appTypeId=op.path==='/test-cases'?args.body?.app_type_id:null;
+  const selected=testCaseId
+   ?await db.prepare('SELECT app.type FROM test_cases tc JOIN app_types app ON app.id=tc.app_type_id WHERE tc.id=? AND app.project_id=?').get(testCaseId,actor.projectId)
+   :appTypeId?await db.prepare('SELECT type FROM app_types WHERE id=? AND project_id=?').get(appTypeId,actor.projectId):null;
+  if(require('@hellotest/platform/backend/src/utils/mobileFeature').isMobileAppType(selected?.type))permissions.push('mobile.manage');
+ }
+ for(const permission of new Set(permissions))await permit(actor,permission);
+}
 function argumentsFor(op,actor,args={}) {
  const path=args.path||{},query={...(args.query||{}),project_id:actor.projectId},body={...(args.body||{})};
  for(const target of [path,args.query||{},body]) if(target.project_id&&target.project_id!==actor.projectId)throw fail('Project does not match the MCP credential.');
@@ -91,6 +110,7 @@ function argumentsFor(op,actor,args={}) {
 }
 async function verifyPlanTargets(actor,row){
  const op=registry.get(row.operation_id);
+ await permitOperation(actor,op,row.arguments);
  await targetScope(op,actor,row.arguments);
  await verification.preflight(actor,op,row.arguments);
  await executionStartScope(actor,op,row.arguments);
@@ -131,7 +151,7 @@ async function targetScope(op,actor,args) {
  }
 }
 async function invokeOperation(actor,op,args,signal,{verification:rawVerification=false,delivery}={}) {
- await permit(actor,op.permission);await targetScope(op,actor,args);
+ await permitOperation(actor,op,args);await targetScope(op,actor,args);
  const {url,body}=argumentsFor(op,actor,args);
  signal?.throwIfAborted();
  const response=await app.inject({method:op.method,url,headers:{authorization:'Bearer '+createToken(actor.user),'idempotency-key':args.idempotency_key||randomUUID()},...(op.method==='GET'?{}:{payload:body})});
@@ -177,14 +197,15 @@ async function catalog(actor,{query='',family,callable_only=true,offset=0,limit=
  // it between calls: role and membership revocation must take effect immediately.
  for(const op of registry.all()){
   if(!op.permission||family&&op.family!==family||callable_only&&(op.read===false&&op.prepare===false||op.policy?.alias_of)||!matchesCapability(op,query))continue;
-  if(!access.has(op.permission)){
-   try{await permit(actor,op.permission);access.set(op.permission,true);}
-   catch(error){if(error.statusCode!==403)throw error;access.set(op.permission,false);}
+  const required=[op.permission,...featureOperations.additionalPermissions(op)];let allowed=true;
+  for(const permission of required){
+   if(!access.has(permission))try{await permit(actor,permission);access.set(permission,true);}catch(error){if(error.statusCode!==403)throw error;access.set(permission,false);}
+   if(!access.get(permission)){allowed=false;break;}
   }
-  if(access.get(op.permission))matches.push(op);
+  if(allowed)matches.push(op);
  }
- const summaries=matches.slice(offset,offset+limit).map(op=>({id:op.id,method:op.method,path:op.path,permission:op.permission,read:op.read,prepare:op.prepare,callable:op.callable,family:op.family,label:op.label,summary:op.summary,effect:op.policy?.effect,exposure:op.exposure,reason:op.reason,path_parameters:op.path_parameters,native_contract_available:Boolean(op.input_schema),...(op.alias_of?{alias_of:op.alias_of}:{})}));
- return {catalog_revision:registry.revision(),total:matches.length,operations:summaries,next_offset:offset+limit<matches.length?offset+limit:null,families:[...new Set(matches.map(op=>op.family).filter(Boolean))].sort(),coverage:{registered:registry.all().length,discoverable:matches.length,exposure:Object.fromEntries(['read','planned_action','requires_domain_wrapper','nondelegable'].map(kind=>[kind,matches.filter(op=>op.exposure===kind).length]))},contract_note:'Only callable authorized operation summaries are returned by default. Inspect one operation with hellotest_operation_describe for its exact supported schema. Set callable_only=false for the audit inventory. Native APIs enforce business validation; mutations require exact reviewed plans.'};
+ const summaries=matches.slice(offset,offset+limit).map(op=>({id:op.id,method:op.method,path:op.path,permission:op.permission,...(featureOperations.additionalPermissions(op).length?{required_permissions:featureOperations.additionalPermissions(op)}:{}),read:op.read,prepare:op.prepare,callable:op.callable,family:op.family,label:op.label,summary:op.summary,effect:op.policy?.effect,exposure:op.exposure,reason:op.reason,path_parameters:op.path_parameters,native_contract_available:Boolean(op.input_schema),...(op.alias_of?{alias_of:op.alias_of}:{})}));
+ return {catalog_revision:registry.revision(),total:matches.length,operations:summaries,next_offset:offset+limit<matches.length?offset+limit:null,families:[...new Set(matches.map(op=>op.family).filter(Boolean))].sort(),coverage:{registered:registry.all().length,discoverable:matches.length,exposure:Object.fromEntries(['read','planned_action','requires_domain_wrapper','nondelegable'].map(kind=>[kind,matches.filter(op=>op.exposure===kind).length]))},contract_note:'Only callable authorized operation summaries are returned by default. Inspect one operation with hellotest_operation_describe for its exact supported schema. Set callable_only=false for the audit inventory. Native APIs enforce business validation; mutations require exact reviewed plans except named tools that explicitly save pending-review drafts.'};
 }
 async function describe(actor,{operation_id}) {const op=registry.get(operation_id);if(!op.permission)throw fail('This operation is not delegable.');await permit(actor,op.permission);return {catalog_revision:registry.revision(),...op};}
 async function read(actor,{operation_id,arguments:args={},catalog_revision},signal) {
@@ -226,17 +247,39 @@ async function graph(actor,{entity_id,limit=30}) {
  return {relations:bounded(relations.slice(0,limit)),truncated:relations.length>limit,max_hops:1,observed_at:new Date().toISOString(),gap:relations.length?null:'No authorized indexed relationship witnesses are available for this entity.'};
 }
 function planDigest(row) {return digest({project_id:row.project_id,user_id:row.user_id,client_id:row.client_id,operation_id:row.operation_id,catalog_revision:row.catalog_revision,arguments:row.arguments,expires_at:new Date(row.expires_at).toISOString()});}
+async function saveTestCaseDraft(actor,{operation_id,arguments:args,draft_key},signal) {
+ const op=registry.get(operation_id);
+ if(op.method!=='POST'||op.path!=='/test-cases'||!op.prepare)throw fail('Only a native Test Case create operation can save a draft.',422,'MCP_WRAPPER_REQUIRED');
+ if(typeof draft_key!=='string'||!/^[A-Za-z0-9._:-]{8,128}$/.test(draft_key))throw fail('Supply a stable draft_key so a retry cannot create a duplicate Test Case.',400,'MCP_INVALID_ARGUMENT');
+ const body={...(args?.body||{}),project_id:actor.projectId,status:'draft',review_status:'pending',reviewer_id:actor.user.id};
+ const request={body};
+ if(canonical(request).length>40000||containsSensitiveActionValue(request,op))throw fail('Use bounded draft fields without credentials or sensitive values.',400,'MCP_INVALID_ARGUMENT');
+ const schemaKey=registry.revision()+':'+op.id;
+ let validate=actionSchemas.get(schemaKey);
+ if(!validate){validate=actionValidator.compile(op.input_schema.body);actionSchemas.clear();actionSchemas.set(schemaKey,validate);}
+ const normalized=argumentsFor(op,actor,request).body;
+ if(!validate(normalized))throw fail('Draft fields do not match the native Test Case contract. Inspect the published tool schema.',400,'MCP_INVALID_ARGUMENT');
+ const idempotency_key='mcp-draft-'+createHash('sha256').update(canonical({project_id:actor.projectId,user_id:actor.user.id,draft_key,body:normalized})).digest('hex');
+ signal?.throwIfAborted();
+ const delivery={truncated:false,redacted:false,omitted_items:0,truncated_strings:0};
+ const created=await invokeOperation(actor,op,{body,idempotency_key},signal,{delivery});
+ if(typeof created?.id!=='string'||!created.id)throw fail('The Test Case API did not return a saved draft identity.',502,'MCP_UNVERIFIED_COMPLETION');
+ let record={id:created.id,...(created.display_id?{display_id:created.display_id}:{}),title:body.title,app_type_id:body.app_type_id,status:'draft',review_status:'pending'};
+ const read=registry.all().find(item=>item.method==='GET'&&item.path==='/test-cases/:id'&&item.read);
+ if(read)try{
+  record=await invokeOperation(actor,read,{path:{id:created.id}},signal,{delivery});
+  if(record.status!=='draft'||record.review_status!=='pending')throw fail('The saved Test Case did not remain in draft review state.',502,'MCP_DRAFT_STATE_INVALID');
+ }catch(error){if(error.code!=='MCP_ACCESS_DENIED'||error.permission!==read.permission)throw error;}
+ return {resource:'test_case_draft',record:bounded(record,delivery),observed_at:new Date().toISOString(),bounded:true,draft:true,review_status:'pending',request_key:draft_key,delivery};
+}
 async function prepare(actor,{operation_id,arguments:args}) {
  const op=registry.get(operation_id);if(!op.prepare)throw fail('This action needs an audited domain wrapper.',422,'MCP_WRAPPER_REQUIRED');
- await permit(actor,op.permission);await targetScope(op,actor,args);argumentsFor(op,actor,args);
+ await permitOperation(actor,op,args);await targetScope(op,actor,args);argumentsFor(op,actor,args);
  if(!op.input_schema?.body)throw fail('Action validation is unavailable for this operation.',422,'MCP_WRAPPER_REQUIRED');
  const schemaKey=registry.revision()+':'+op.id;
  let validate=actionSchemas.get(schemaKey);
  if(!validate){validate=actionValidator.compile(op.input_schema.body);actionSchemas.clear();actionSchemas.set(schemaKey,validate);}
- const unsafe=value=>typeof value==='string'?(/\bmcp1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(value)||require('@hellotest/platform/backend/src/security/aiTextPolicy').redactSensitiveData(value).redaction_count>0):value&&typeof value==='object'&&(
-  ((value.is_secret===true||value.sensitive===true||value.is_sensitive===true||/password|secret|credential|token|api.?key/i.test(String(value.name||value.key||'')))&&['value','default_value'].some(field=>Object.hasOwn(value,field)))
-  ||Object.entries(value).some(([key,item])=>(sensitive.test(key)&&!(op.path==='/agentic-quality/runs'&&key==='credential_ref'&&typeof item==='string'&&/^[A-Za-z0-9_.:-]{1,128}$/.test(item)))||unsafe(item)));
- if(canonical(args).length>40000||unsafe(args))throw fail('Use bounded action arguments without credentials or sensitive fields.',400,'MCP_INVALID_ARGUMENT');
+ if(canonical(args).length>40000||containsSensitiveActionValue(args,op))throw fail('Use bounded action arguments without credentials or sensitive fields.',400,'MCP_INVALID_ARGUMENT');
  if(op.path==='/test-cases'&&(!args.body?.app_type_id||!args.body?.title))throw fail('A test case requires its application and title.',400);
  if(op.path==='/executions'&&(!Array.isArray(args.body?.test_case_ids)||!args.body.test_case_ids.length||args.body.test_case_ids.length>50))throw fail('Select 1–50 explicit cases.',400);
  if(op.path.startsWith('/executions')&&Object.hasOwn(args.body||{},'engine_base_url'))throw fail('Runner hosts are configured in HelloTest. Omit engine_base_url from MCP actions.',400,'MCP_UNSUPPORTED_EFFECT');
@@ -248,7 +291,7 @@ async function prepare(actor,{operation_id,arguments:args}) {
  verification.validateArguments(op,plannedArgs);
  await verification.preflight(actor,op,plannedArgs);
  await executionStartScope(actor,op,plannedArgs);
- const target=await verification.capture(actor,op,plannedArgs);
+ const target=op.policy?.verification?.capture_target===false?null:await verification.capture(actor,op,plannedArgs);
  if(target){
   plannedArgs.preconditions={target};
   if(target.version.field==='revision'&&op.input_schema.body.properties?.expected_revision){
@@ -321,7 +364,7 @@ async function execute(actor,{plan_id},signal) {
   if(!row)throw fail('Plan unavailable.',404);
   if(row.state!=='authorized')return {row,execute:false};
   if(new Date(row.expires_at)<=new Date()||row.digest!==planDigest(row)||row.catalog_revision!==registry.revision())throw fail('Plan expired or changed. Prepare a new plan.',409,'MCP_STALE_PLAN');
-  const op=registry.get(row.operation_id);await permit(actor,op.permission);await verifyPlanTargets(actor,row);
+  const op=registry.get(row.operation_id);await verifyPlanTargets(actor,row);
   await db.prepare('INSERT INTO mcp_audit_events(project_id,user_id,client_id,tool,outcome,plan_id) VALUES (?,?,?,?,?,?)').run(actor.projectId,actor.user.id,actor.clientId,'execute_plan','accepted',plan_id);
   await db.prepare("UPDATE mcp_action_plans SET state='executing',started_at=NOW(),updated_at=NOW() WHERE id=?").run(plan_id);
   return {row,execute:true};
@@ -356,7 +399,7 @@ async function execute(actor,{plan_id},signal) {
  return {plan_id,...receipt};
 }
 async function status(actor,{plan_id},signal) {
- const row=await loadPlan(actor,plan_id),op=registry.get(row.operation_id);await permit(actor,op.permission);
+ const row=await loadPlan(actor,plan_id),op=registry.get(row.operation_id);await permitOperation(actor,op,row.arguments);
  const stale=row.state==='executing'&&Date.now()-new Date(row.started_at).getTime()>120000;
  if((row.state==='unknown'||stale)&&['/test-cases','/executions'].includes(op.path)){
   if(row.digest!==planDigest(row))throw fail('The original plan changed; its outcome cannot be reconciled safely.',409,'MCP_STALE_PLAN');
@@ -395,4 +438,4 @@ async function status(actor,{plan_id},signal) {
  return {plan_id,state:stale?'unknown':row.state,receipt:bounded(visibleReceipt),expires_at:row.expires_at,reconciliation:stale||row.state==='unknown'?'No original effect has been verified. Check the original domain operation and audit before any retry.':undefined};
 }
 function auditFailure(tool){app?.log?.error({code:'MCP_AUDIT_UNAVAILABLE',tool},'MCP audit write failed');}
-module.exports={auditFailure,configure,catalog,describe,read,context,graph,prepare,execute,status,sanitize,bounded,planDigest,canonical,verifyPlanTargets};
+module.exports={auditFailure,configure,catalog,describe,read,context,graph,prepare,saveTestCaseDraft,execute,status,sanitize,bounded,planDigest,canonical,verifyPlanTargets};

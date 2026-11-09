@@ -99,6 +99,15 @@ test('published controls apply at shared model boundary while preserving task da
  assert.equal(body.temperature,0.45);assert.equal(body.top_p,0.8);assert.equal(body.max_tokens,1000);assert.equal(result.options.traceContext.feature,id);assert.equal(result.options.traceContext.configuration_version,3);
  const negotiated=JSON.parse((await rt.apply(input,{operation:'requirement.generate',sampling:false})).init.body);assert.equal(negotiated.temperature,undefined);assert.equal(negotiated.top_p,undefined);
 });
+test('authoring relevance gains default reasoning headroom while published spending caps remain authoritative',async()=>{
+ const id='ai.authoring.request_validation',init=request([{role:'user',content:'Generate one case from the supplied login screenshot.'}],{model:'gpt-5'});
+ const {prepareChatRequest}=require('../src/utils/llmRequestPolicy');
+ for(const [config,expected]of[[{},4096],[{max_output_tokens:700},700]]){
+  const managed=await runtime({[id]:config}).apply(init,{featureKey:id,operation:'authoring.validate-request',maxOutputTokens:4096});
+  const payload=prepareChatRequest(managed.init,{...managed.options,operation:'authoring.validate-request',providerUrl:'https://api.openai.com/v1/chat/completions'}).payload;
+  assert.equal(payload.max_completion_tokens,expected);assert.equal(payload.reasoning_effort,'minimal');assert.equal(payload.model,'gpt-5');
+ }
+});
 test('retrieval queries use artifact data before managed instructions consume the query budget',async()=>{
  const id='ai.requirement.optimization',base=configuration.catalog.find(item=>item.id===id).defaults,key=Object.keys(base.instruction_blocks)[0];
  const rt=runtime({[id]:{instruction_blocks:{...base.instruction_blocks,[key]:'Scaffold '.repeat(1500)}}});
@@ -205,6 +214,42 @@ test('only the host actor flag selects typed browser instructions and preserves 
  assert.ok(ordinaryMessages[1].content.includes(blocks['automationBrowserAgent.goalReview']));
  const review=await ctx.run({...scope,automation_actor_phase:true,generation_scope:'section_semantic_review'},()=>rt.apply(input,{featureKey:id}));
  assert.match(JSON.parse(review.init.body).messages[0].content,/Role: browser automation outcome reviewer/);
+});
+test('typed actors omit only redundant stock source-specialist guidance while preserving custom scope and source generation',async()=>{
+ const ctx=require('../src/utils/llmTraceContext'),id='ai.agentic.automation-engineer',key='automationBuild.specialist.web';
+ const stock=configuration.catalog.find(item=>item.id===id).defaults.instruction_blocks[key];
+ const input=request([{role:'user',content:aiInstructionBlock('ai.automation.keyword_generation',key)+'\nSelected complete current goals.'}]);
+ const scope={automation_case_generation:true,automation_browser_loop:true,generation_scope:'section_attempt',automation_actor_phase:true};
+ const normal=runtime();
+ const actor=await ctx.run(scope,()=>normal.apply(input,{featureKey:id}));
+ const body=JSON.parse(actor.init.body);
+ assert.match(body.messages[0].content,/Role: browser automation actor/);
+ assert.ok(!body.messages.some(message=>message.content.includes(stock)),'the actor does not repeat source-phase instructions');
+ assert.match(body.messages.at(-1).content,/Selected complete current goals/);
+ const custom=stock+' Project rule: use only the explicitly selected tenant.';
+ const customRuntime=runtime({[id]:{instruction_blocks:{...configuration.catalog.find(item=>item.id===id).defaults.instruction_blocks,[key]:custom}}});
+ const configured=await ctx.run(scope,()=>customRuntime.apply(input,{featureKey:id}));
+ assert.ok(JSON.parse(configured.init.body).messages.some(message=>message.content.includes(custom)),'a customized specialist remains byte-complete');
+ const source=await ctx.run({...scope,automation_actor_phase:false},()=>normal.apply(input,{featureKey:id}));
+ assert.ok(JSON.parse(source.init.body).messages.some(message=>message.content.includes(stock)),'source generation retains its specialist contract');
+});
+test('typed recovery keeps current evidence and custom repair policy without repeating generic source-repair stock text',async()=>{
+ const ctx=require('../src/utils/llmTraceContext'),id='ai.agentic.automation-engineer',key='automationBrowserAgent.recovery';
+ const defaults=configuration.catalog.find(item=>item.id===id).defaults;
+ const evidence=JSON.stringify({current_ref:'ref:page:1',action_outcome:'not_attempted',remaining_contract:'assert_original_error_messages_without_replaying_submission'});
+ const input=request([{role:'user',content:aiInstructionBlock(id,key)+'\n'+evidence}]);
+ const scope={automation_case_generation:true,automation_browser_loop:true,generation_scope:'section_attempt',automation_actor_phase:true};
+ const rt=runtime(),actor=await ctx.run(scope,()=>rt.apply(input,{featureKey:id}));
+ const body=JSON.parse(actor.init.body);
+ assert.ok(!body.messages.some(message=>message.content.includes(defaults.instruction_blocks[key])));
+ assert.ok(body.messages.at(-1).content.includes(evidence),'native pending work, exact refs and no-replay feedback stay complete');
+ for(const instruction of ['automationBrowserAgent.actor','automationBrowserAgent.goalReview','automationBrowserAgent.reviewContract'])assert.ok(body.messages[0].content.includes(defaults.instruction_blocks[instruction]));
+ const custom=defaults.instruction_blocks[key]+' Project recovery requires the selected tenant to stay unchanged.';
+ const configured=runtime({[id]:{instruction_blocks:{...defaults.instruction_blocks,[key]:custom}}});
+ const customized=await ctx.run(scope,()=>configured.apply(input,{featureKey:id}));
+ assert.ok(JSON.parse(customized.init.body).messages.some(message=>message.content.includes(custom)));
+ const ordinary=await ctx.run({...scope,automation_actor_phase:false},()=>rt.apply(input,{featureKey:id}));
+ assert.ok(JSON.parse(ordinary.init.body).messages.some(message=>message.content.includes(defaults.instruction_blocks[key])));
 });
 test('specialist profiles and embedding/planning stages resolve independently',()=>{
  assert.equal(configuration.featureId('automation.generate','ai.automation.locator_repair'),'ai.automation.locator_repair');

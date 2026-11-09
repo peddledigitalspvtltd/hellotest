@@ -2,7 +2,9 @@ const { createHash } = require('node:crypto');
 const { parse, parseExpressionAt } = require('acorn');
 const { browserReceipt } = require('./automationInteractiveEvidence');
 const { deriveProgramTools } = require('./automationProgramTools');
+const {validFramePath,framePathKey,snapshotFrameScope}=require('./automationFrameScope');
 const { normalizeParameterKey } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
+const { canonicalIssuedOptionRequest, scopedSelectionLocator } = require('./automationOptionParameterBinding');
 
 // Host-only proof survives in-memory history, never JSON, spread, model output
 // or a later activity. Hash the original request, before public value redaction.
@@ -20,7 +22,7 @@ const readMethods = new Set(['inputValue', 'textContent', 'innerText', 'getAttri
 const expectationMethods = new Set(['soft', 'objectContaining', 'stringContaining', 'stringMatching', 'arrayContaining', 'any', 'anything', 'closeTo',
   'toBe', 'toEqual', 'toStrictEqual', 'toBeTruthy', 'toBeFalsy', 'toBeNull', 'toBeUndefined', 'toBeDefined', 'toBeNaN', 'toBeInstanceOf',
   'toBeGreaterThan', 'toBeGreaterThanOrEqual', 'toBeLessThan', 'toBeLessThanOrEqual', 'toBeCloseTo', 'toContain', 'toContainEqual', 'toMatch', 'toMatchObject',
-  'toHaveLength', 'toHaveProperty', 'toThrow', 'toThrowError', 'toBeVisible', 'toBeHidden', 'toBeEnabled', 'toBeDisabled', 'toBeChecked', 'toBeAttached',
+  'toHaveLength', 'toHaveProperty', 'toThrow', 'toThrowError', 'toBeVisible', 'toBeHidden', 'toBeEnabled', 'toBeDisabled', 'toBeEditable', 'toBeChecked', 'toBeAttached',
   'toHaveText', 'toContainText', 'toHaveURL', 'toHaveTitle', 'toHaveAttribute', 'toHaveCount', 'toHaveValue', 'toHaveValues', 'toHaveClass', 'toHaveCSS', 'toHaveJSProperty']);
 const member = node => node?.type === 'MemberExpression' && !node.computed ? node.property.name : null;
 const string = node => node?.type === 'Literal' && typeof node.value === 'string' ? node.value
@@ -39,22 +41,36 @@ function actionValueIdentity(value){
 }
 
 function requestSignature(request) {
+  request=canonicalIssuedOptionRequest(request);
   const keys = own(tools, request?.name), args = request?.arguments;
-  if (!keys || !args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length !== keys.length
+  const hasFrame=args&&Object.hasOwn(args,'frame');
+  if (!keys || !args || typeof args !== 'object' || Array.isArray(args) || hasFrame&&(request.name==='browser_navigate'||!validFramePath(args.frame))
+    || Object.keys(args).length !== keys.length+(hasFrame?1:0)
+    || Object.keys(args).some(key=>!keys.includes(key)&&key!=='frame')
     || keys.some(key => !Object.hasOwn(args, key) || typeof args[key] !== 'string' || args[key].length > 2000)) return null;
   const canonical = keys.map(key => [key, key === 'url' ? navigationUrlIdentity(args[key])
     : key === 'locator' ? requestedLocator(args[key]) : actionValueIdentity(args[key])]);
   if (canonical.some(([, value]) => value === null)) return null;
+  if(hasFrame)canonical.push(['frame',[...args.frame]]);
   return hash(JSON.stringify([request.name, canonical]));
 }
 
 function stampObservation(observation, request, {pageTransition=false,bootstrap=false}={}) {
   const signature = requestSignature(request);
   if (!signature || !observation || observation.tool !== request.name || observation.mcp_call === false || observation[requestStamp]) return observation;
+  let receipt=browserReceipt(observation);
+  if(!receipt&&observation.result?.isError)for(const part of observation.result.content||[]){
+    if(part?.type!=='text'||typeof part.text!=='string'||part.text.length>64*1024)continue;
+    try{const fault=JSON.parse(part.text);if(fault?.source==='playwright'){receipt=fault;break;}}catch{}
+  }
+  const scope=snapshotFrameScope(receipt);
+  const unattempted=observation.result?.isError&&receipt?.action_outcome==='not_attempted'&&receipt.retry_safe===true&&receipt.frame_path===undefined;
+  if(request.arguments.frame&&!unattempted&&(!scope||framePathKey(scope.path)!==framePathKey(request.arguments.frame))
+    ||!request.arguments.frame&&receipt?.frame_path!==undefined)return observation;
   // This function is called only on the actual browser.call observation, never
   // model feedback. Receipt text cannot assert an original-request signature.
   const action = requestActionKey(request);
-  const original = hash(JSON.stringify([request.name, tools[request.name].map(key => [key, request.arguments[key]])]));
+  const original = hash(JSON.stringify([request.name, tools[request.name].map(key => [key, request.arguments[key]]),request.arguments.frame||null]));
   Object.defineProperty(observation, requestStamp, { value: Object.freeze({ signature, original, action: action ? hash(action) : null,
     page_transition:pageTransition===true,bootstrap:bootstrap===true }), enumerable: false });
   return observation;
@@ -91,6 +107,8 @@ function locatorCall(node, aliases, requestDefaults = false) {
 
 function requestedLocator(value) {
   const source = value.trim();
+  const scopedSelection = scopedSelectionLocator(source);
+  if (scopedSelection) return ['native_select_proxy', scopedSelection.scope, scopedSelection.name, true];
   const indexed = source.match(/\.(first\(\s*\)|last\(\s*\)|nth\(\s*(\d+)\s*\))$/);
   if (indexed) {
     const base = source.slice(0, indexed.index);
@@ -120,9 +138,11 @@ function callRoot(node) {
   return node?.name;
 }
 function requestActionKey(request) {
+  request=canonicalIssuedOptionRequest(request);
+  if(!requestSignature(request))return null;
   if (request.name === 'browser_navigate') { const url = navigationUrlIdentity(request.arguments.url); return url ? actionKey(request.name, ['url', url]) : null; }
   const target = requestedLocator(request.arguments.locator);
-  return target ? actionKey(request.name, target, request.arguments.value ?? request.arguments.key) : null;
+  return target ? actionKey(request.name, request.arguments.frame?['frame',[...request.arguments.frame],target]:target, request.arguments.value ?? request.arguments.key) : null;
 }
 
 function literalUrl(value) {
@@ -138,6 +158,9 @@ function navigationUrlIdentity(value){
 
 function candidateActions(source) {
   if (typeof source !== 'string' || !source.trim() || source.length > 64000) return null;
+  // Framed programs require the complete closed lowerer above. The legacy
+  // fallback must never strip a frame chain into a top-level action alias.
+  if(/\b(?:frameLocator|contentFrame|frame)\s*\(/.test(source))return null;
   let tree;
   try { tree = parse(source, { ecmaVersion: 'latest', sourceType: 'module', allowAwaitOutsideFunction: true }); }
   catch { return null; }

@@ -205,14 +205,17 @@ test('real MCP location receipts retain title and URL loss markers before model 
   assert.equal(navigation.isError, undefined);
   const snapshot = await session.call('browser_snapshot', {});
   assert.equal(snapshot.isError, undefined);
+  const navigationReceipt = JSON.parse(navigation.content.find(part => part.type === 'text').text);
+  assert.equal(navigationReceipt.action_outcome, 'completed');
   for (const result of [navigation, snapshot]) {
     const receipt = JSON.parse(result.content.find(part => part.type === 'text').text);
     assert.equal(receipt.source, 'playwright');
-    assert.equal(receipt.title.length, 200);
-    assert.equal(receipt.title_truncated, true);
     assert.equal(receipt.url.length, 2_000);
     assert.equal(receipt.url_truncated, true);
   }
+  const snapshotReceipt = JSON.parse(snapshot.content.find(part => part.type === 'text').text);
+  assert.equal(snapshotReceipt.title.length, 200);
+  assert.equal(snapshotReceipt.title_truncated, true);
 });
 
 test('a copied title excerpt is blocked before MCP and the authored heading check replays unchanged in fresh Chrome', { timeout: 60_000 }, async t => {

@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { automationSavedPlanReceipt, mergeRefreshedAutomationDrafts } from "../../frontend/lib/automationBuildTracking.ts";
+import { readFileSync } from "node:fs";
+import { automationBuildSubmissionPending, automationSavedPlanReceipt, mergeRefreshedAutomationDrafts } from "../../frontend/lib/automationBuildTracking.ts";
+
+test("a pending build submission is bound to its originating case and application", () => {
+  const scope="project:app:case";
+  assert.equal(automationBuildSubmissionPending(true,scope,scope),true);
+  for(const current of ["other:app:case","project:other:case","project:app:other"])
+    assert.equal(automationBuildSubmissionPending(true,scope,current),false);
+  assert.equal(automationBuildSubmissionPending(false,scope,scope),false,"a failed or settled POST restores its actual activity and error presentation");
+  assert.equal(automationBuildSubmissionPending(true,undefined,scope),false);
+  const source=readFileSync(new URL("../../frontend/pages/AutomationPage.tsx",import.meta.url),"utf8");
+  assert.match(source,/submitting=\{automationBuildSubmissionPending\(buildSingleAutomation\.isPending, buildSingleAutomation\.context\?\.briefScope, agentBriefScope\)\}/);
+});
 
 test("completed builds refresh untouched steps and retain edits made while an agent runs", () => {
   const baseline = { a: { action: "Sign in", code: "old" }, b: { action: "Check balance", code: "old" } };

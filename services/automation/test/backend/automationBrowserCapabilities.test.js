@@ -120,3 +120,28 @@ test('read-only or restricted discovery cannot acquire interaction tools from go
   assert.deepEqual(projection.deferred_tool_names, []);
   assert.deepEqual(projectBrowserCapabilities(), { tools: [], deferred_tool_names: [] });
 });
+
+test('proof presentation keeps every read schema and defers DOM/prose-suggested mutations until explicit expansion',()=>{
+  const tools=catalog(),before=JSON.stringify(tools);
+  const projection=projectBrowserCapabilities({tools,current:current([{role:'textbox'},{role:'checkbox'},{tag:'select'}]),
+    action:'Fill credentials, choose options, check and hover',preferReadOnly:true});
+  const reads=['browser_snapshot','browser_screenshot','browser_wait_for','browser_validate_locator','browser_assert'];
+  assert.deepEqual(selected(projection),names.filter(name=>reads.includes(name)));
+  assert.deepEqual(projection.deferred_tool_names,names.filter(name=>!reads.includes(name)));
+  for(const tool of projection.tools)assert.equal(tool,tools.find(item=>item.name===tool.name));
+  assert.equal(JSON.stringify(tools),before);
+  const expanded=projectBrowserCapabilities({tools,current:current([]),preferReadOnly:true,expandedNames:['browser_click','browser_future_capability','not_discovered']});
+  assert.equal(expanded.tools.find(tool=>tool.name==='browser_click'),tools.find(tool=>tool.name==='browser_click'));
+  assert.ok(selected(expanded).includes('browser_future_capability'));
+  assert.ok(!selected(expanded).includes('not_discovered'));
+  assert.ok(expanded.deferred_tool_names.includes('browser_fill'));
+});
+
+test('post-action proof presentation survives unavailable snapshots while ordinary bootstrap remains complete',()=>{
+  const tools=catalog();
+  assert.deepEqual(projectBrowserCapabilities({tools}).tools,tools);
+  const projection=projectBrowserCapabilities({tools,preferReadOnly:true});
+  assert.ok(selected(projection).includes('browser_snapshot'));
+  assert.ok(!selected(projection).includes('browser_click'));
+  assert.ok(projection.deferred_tool_names.includes('browser_navigate'));
+});

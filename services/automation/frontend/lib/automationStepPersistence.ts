@@ -1,4 +1,11 @@
 import type { TestStep } from "@hellotest/platform/frontend/src/types";
+import { usesExpressionParameterBindings } from "../../shared/automationParameterMode.mjs";
+
+/** Field changes and blur normalization may share one React batch. Merge
+ * each patch against the latest draft rather than the originating render. */
+export function patchAutomationStepDraft<T extends object>(current: Record<string, T>, stepId: string, fallback: T, change: Partial<T>): Record<string, T> {
+  return { ...current, [stepId]: { ...(current[stepId] ?? fallback), ...change } };
+}
 
 export function isAutomationStepMapped(step: Pick<TestStep, "automation_code" | "api_request" | "step_type">) {
   if (step.step_type === "api") return Boolean(step.api_request?.url?.trim());
@@ -42,6 +49,9 @@ export function resolveAutomationMappingSave(input: {
   mappingUnchanged: boolean;
 }) {
   if (input.mappingUnchanged) return { code: input.currentCode, requiresProgramEditor: false };
+  if (usesExpressionParameterBindings(input.currentCode) && input.nextMappingCode.trim() && !usesExpressionParameterBindings(input.nextMappingCode)) {
+    return {code: input.currentCode, requiresProgramEditor: true};
+  }
 
   // Only the leading options comment belongs to the outer section editor.
   // Preserve all other comments, expressions, helpers and recorded instructions.

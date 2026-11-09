@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import type { AiAuthoredTestCasePreview, AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requirement, TestStep } from "@hellotest/platform/frontend/src/types";
+import type { AiAuthoredTestCasePreview, AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requirement, TestDataOptions, TestStep } from "@hellotest/platform/frontend/src/types";
+import { casePrivateParameterNames } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
 import { AiDesignStudioModal, type AiDesignSourceCase } from "./AiDesignStudioModal";
 import { parseSharedStepGherkin } from "@hellotest/testing/frontend/lib/gherkin";
 
@@ -14,6 +15,8 @@ type SourceDraft = {
   authoring_mode?: AuthoringMode;
   gherkin_document?: string;
   parameter_values: Record<string, string>;
+  test_data_options?: TestDataOptions;
+  effective_private_parameter_names?: string[];
   steps: Array<{ step_order: number; step_type?: TestStep["step_type"]; action: string | null; expected_result: string | null }>;
 };
 
@@ -112,6 +115,7 @@ export function AiCaseAuthoringModal(props: AiCaseAuthoringModalProps) {
     authoringMode: sourceDraft.authoring_mode || "structured",
     gherkinDocument: sourceDraft.gherkin_document,
     parameterValues: sourceDraft.parameter_values,
+    privateParameterNames: casePrivateParameterNames(sourceDraft),
     steps: sourceDraft.steps
   }), [sourceDraft]);
   const warning = hasAutomationWarning && !isCreating

@@ -65,7 +65,9 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
         try{await options.beforeDispatch({url:args[0],init:args[1],payload});}catch(error){dispatchError=error;error.nonRetryable=true;error.statusCode||=422;throw error;}
       }
       traces.dispatch(lastTrace,attempts);
+      args[1].signal?.throwIfAborted();
       const upstream = await globalThis.fetch(...args);
+      if (upstream.ok) receivedGeneration = true;
       if (streaming && upstream.ok) {
         receivedGeneration = true;
         try { return await require('./llmStreamingResponse').consumeChatStream(upstream, { onTextDelta: options.onTextDelta, signal: args[1].signal, maxBytes: options.maxResponseBytes }); }
@@ -80,6 +82,9 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     maxAttempts,
     maxResponseBytes: options.maxResponseBytes,
     bufferResponse: options.bufferResponse !== false,
+    // Even a failed/truncated body after accepted generation is not a fresh
+    // transport failure. Never regenerate that accepted model response.
+    retryAfterAcceptedResponse: false,
     maxConcurrent: options.maxConcurrent || 16,
     failureThreshold: options.failureThreshold || 5,
     resetTimeoutMs: options.resetTimeoutMs || 30_000,

@@ -1096,17 +1096,18 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       context.automation_case=[{id:"K-automation-case",title:"Complete pinned automation case and sections",source_kind:"authoritative_live_automation",content:JSON.stringify(pinned),citation:{id:"K-automation-case",label:"Complete pinned automation case and sections",source_kind:"authoritative_live_automation"}}];
       try {
         const session=await builder.connectCaseBrowser({projectId,appTypeId,user,caseId:runtimeInputs.test_case_id,environmentId:repairContext?.base?.environment_id || runtimeInputs.environment_id,
-          startUrl:runtimeInputs.start_url,allowBrowserActions:runtimeInputs.allow_browser_actions === true,signal:execution.current()?.signal});
+          startUrl:runtimeInputs.start_url,allowBrowserActions:runtimeInputs.allow_browser_actions === true,
+          browser_driver:normalizedAgentId==='automation-engineer'?'playwright_mcp_upstream':'legacy_repair_mcp',signal:execution.current()?.signal});
         automationBrowser=session.browser;
         const observations=[];
         for(const [name,args] of [["browser_navigate",{url:session.startUrl}],["browser_snapshot",{}]]) {
-          execution.assertActive();const observed=await automationBrowser.call(name,args);
+          execution.assertActive();const observed=name==='browser_navigate'&&automationBrowser.navigateToStart?await automationBrowser.navigateToStart():await automationBrowser.call(name,args);
           if(observed.isError)throw new Error("Playwright MCP could not inspect the selected application.");
           observations.push({tool:name,arguments:args,result:observed});
         }
         automationBrowser.initialObservations=observations;
         context.playwright_browser=[{id:"K-playwright-browser",title:"Live Playwright MCP observations",content:JSON.stringify(observations),citation:{id:"K-playwright-browser",label:"Live Playwright MCP observations",source_kind:"observed_browser_evidence"}}];
-        await appendEvent(transactionId,{phase:"automation.mcp.ready",message:"Connected Playwright MCP and observed the selected application. Browser evidence is not a runner verification.",details:{server:"hellotest-playwright",tool_count:automationBrowser.tools.length}});
+        await appendEvent(transactionId,{phase:"automation.mcp.ready",message:"Connected Playwright MCP and observed the selected application. Browser evidence is not a runner verification.",details:{server:automationBrowser.driver==='playwright_mcp_upstream'?'@playwright/mcp':'hellotest-playwright',browser_driver:automationBrowser.driver||'legacy_repair_mcp',tool_count:automationBrowser.tools.length}});
       } catch(error) {
         await automationBrowser?.close();automationBrowser=null;
         contextLimitations.push(`Playwright MCP inspection is unavailable (${error.code || error.statusCode || "connection failed"}). No live browser verification is claimed.`);
@@ -1214,9 +1215,12 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         const complete = toolPrompt => requestLlmResult({ user, projectId, integration, agent, mode: normalizedMode, prompt: normalizedPrompt, context,
           citations: suppliedCitations, history: Object.keys(evidenceScope).length ? [] : Array.isArray(history) ? history : [], contextRoute, knowledgeRetrieval,
           promptPayload: toolPrompt || JSON.stringify(boundedPayload), assertEvidenceAccess: assertOutcomeEvidenceAccess, deadline, repair, budget });
-        candidate = automationBrowser ? await require("@hellotest/automation/backend/lib/automationBrowserAgent").runAutomationBrowserAgent({
+        candidate = automationBrowser?.driver==='playwright_mcp_upstream' ? await require('@hellotest/automation/backend/lib/automationUpstreamEngineer').runUpstreamBrowserReview({
+          prompt:JSON.stringify(boundedPayload),browser:automationBrowser,complete,maxTurns:Math.max(1,budget.max-budget.used),deadlineMs:deadline,
+          initialObservations:automationBrowser.initialObservations,maxCalls:Math.max(0,10-automationBrowser.initialObservations.length),signal:execution.current()?.signal,onObservation:observation=>automationBrowser.initialObservations.push(observation),onProgress:event=>appendEvent(transactionId,event)
+        }) : automationBrowser ? await require("@hellotest/automation/backend/lib/automationBrowserAgent").runAutomationBrowserAgent({
           featureKey:agent.configurationKey,prompt:JSON.stringify(boundedPayload),browser:automationBrowser,parse:value=>value,complete,maxTurns:Math.max(1,budget.max-budget.used),deadlineMs:deadline,
-          initialObservations:automationBrowser.initialObservations,maxCalls:Math.max(0,10-Math.max(0,automationBrowser.initialObservations.length-2)),onObservation:observation=>automationBrowser.initialObservations.push(observation),onProgress:event=>appendEvent(transactionId,event)
+          initialObservations:automationBrowser.initialObservations,maxCalls:Math.max(0,10-Math.max(0,automationBrowser.initialObservations.length-2)),signal:execution.current()?.signal,onObservation:observation=>automationBrowser.initialObservations.push(observation),onProgress:event=>appendEvent(transactionId,event)
         }) : await complete();
         const validatedRepair = repairContext?.status === "eligible" ? require("@hellotest/ai/backend/services/automationRepair.service").validatePatch(repairContext.base,candidate.automation_repair) : null;
         const explicitAbstention = !candidate.findings?.length && !candidate.deliverables?.length && candidate.evidence_gaps?.length > 0;

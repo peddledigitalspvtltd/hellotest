@@ -7,6 +7,7 @@ import test from "node:test";
 import ts from "typescript";
 import * as instructions from "../../frontend/lib/automationInstructions.ts";
 import {readableAutomation} from "../helpers/readableAutomationLoader.mjs";
+import * as instructionMapping from "../../shared/automationInstructionMapping.mjs";
 
 const require = createRequire(new URL('../../../platform/frontend/package.json', import.meta.url));
 const { createElement } = require("react");
@@ -16,7 +17,7 @@ const source = readFileSync(new URL("../../frontend/components/AutomationInstruc
 const compiled = ts.transpileModule(source, { compilerOptions: {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX
 } }).outputText;
-new Function("require", "exports", compiled)(specifier => specifier === "../lib/automationInstructions" ? instructions : specifier === "../lib/automationReadableInstructions" ? readableAutomation : require(specifier), exports);
+new Function("require", "exports", compiled)(specifier => specifier === "../lib/automationInstructions" ? instructions : specifier === "../lib/automationReadableInstructions" ? readableAutomation : specifier === "../../shared/automationInstructionMapping.mjs" ? instructionMapping : require(specifier), exports);
 const render = (props) => renderToStaticMarkup(createElement(exports.AutomationInstructionPreview, {
   sectionName: "Sign in", code: "", ...props
 }));
@@ -77,4 +78,22 @@ test("multiple commands on one physical line render as separate readable instruc
   assert.ok(html.indexOf("Open URL")<html.indexOf("Type"));
   const source=render({code:'await web.goto("/login"); await web.fill("#email", "user");',view:"source"});
   assert.equal((source.match(/class="automation-instruction-line"/g)||[]).length,2);
+});
+
+test("mapped instructions render in Instructions while Source retains the authoritative Playwright code", () => {
+  const code='await page.getByRole("button", {name:"Place order",exact:true}).click({timeout:1234});';
+  const source_sha256=instructionMapping.automationSourceSha256(code);
+  const mapping={schema:'hellotest.playwrightInstructions.v1',step_id:'order',source_sha256,
+    operations:[{operation_id:'op-1',source_sha256,start:0,end:code.length,kind:'action',depth:0}],
+    instructions:[{operation_id:'op-1',label:'Click checkout button',args:['Place order','timeout 1234 ms'],kind:'action',depth:0}]};
+  const mapped=render({code,stepId:'order',instructionMapping:mapping,view:'instructions'});
+  assert.match(mapped,/Click checkout button/);assert.match(mapped,/timeout 1234 ms/);
+  assert.doesNotMatch(mapped,/getByRole/);
+  const source=render({code,stepId:'order',instructionMapping:mapping,view:'source'});
+  assert.match(source,/getByRole/);assert.match(source,/timeout:1234/);assert.doesNotMatch(source,/Click checkout button/);
+  for(const props of [{code:code.replace('1234','4321')},{stepId:'other'},{instructionMapping:{...mapping,operations:[{...mapping.operations[0],source_sha256:'0'.repeat(64)}]}}]){
+    const stale=render({code,stepId:'order',instructionMapping:mapping,view:'instructions',...props});
+    assert.doesNotMatch(stale,/Click checkout button/,'source edits, foreign steps and stale operation hashes must use the source parser');
+    assert.match(stale,/Click/);
+  }
 });

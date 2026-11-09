@@ -3,8 +3,18 @@ const { createHash } = require('node:crypto');
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const fail = (message,code,statusCode=409) => Object.assign(new Error(message),{publicMessage:message,code,statusCode,retryable:false});
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])) : value;
+const DEFAULT_RESPONSE_BYTES = 128 * 1024;
+const AUTOMATION_RESPONSE_BYTES = 2 * 1024 * 1024;
 
-async function invoke({run,node,input,user},dispatch) {
+async function invoke({run,node,input,user,maxResponseBytes},dispatch) {
+  // Automation artifacts contain the complete portable case, not an ordinary
+  // tool summary. Keep the existing limit for every other operation and only
+  // accept the bounded larger receipt allowance from this domain caller.
+  if(maxResponseBytes!==undefined&&(
+    node.data.kind!=='artifactTask'||node.data.artifactTask!=='automation-engineer'
+    ||!Number.isSafeInteger(maxResponseBytes)||maxResponseBytes<1||maxResponseBytes>AUTOMATION_RESPONSE_BYTES
+  )) throw Object.assign(fail('Choose a bounded Automation Engineer receipt limit.','AGENT_OPERATION_RECEIPT_LIMIT_INVALID',422),{effect_dispatched:false});
+  const responseLimit=maxResponseBytes??DEFAULT_RESPONSE_BYTES;
   const id=`op-${hash([run.project_id,run.id,node.id,...(run.iteration_path || []),'tool-dispatch']).slice(0,48)}`;
   const requestHash=hash(canonical({connection_id:node.data.connectionId,kind:node.data.kind,node:node.data,input}));
   const inserted=await db.prepare(`INSERT INTO workflow_operation_receipts
@@ -19,7 +29,7 @@ async function invoke({run,node,input,user},dispatch) {
   try {
     const output=await dispatch();
     const encoded=JSON.stringify(output);
-    if(Buffer.byteLength(encoded)>128*1024) throw fail('Tool response exceeds the durable receipt limit.','AGENT_OPERATION_RECEIPT_LIMIT',422);
+    if(Buffer.byteLength(encoded)>responseLimit) throw fail('Tool response exceeds the durable receipt limit.','AGENT_OPERATION_RECEIPT_LIMIT',422);
     const response=JSON.parse(encoded);
     const saved=await db.prepare(`UPDATE workflow_operation_receipts SET state='response_received',response=?,completed_at=CURRENT_TIMESTAMP WHERE id=? AND state='in_flight' RETURNING id`).get(response,id);
     if(!saved) throw fail('The tool returned a response, but its durable receipt could not be recorded.','AGENT_OPERATION_RECEIPT_FAILED',503);

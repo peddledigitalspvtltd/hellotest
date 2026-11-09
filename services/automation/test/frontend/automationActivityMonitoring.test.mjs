@@ -1,10 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { automationActivityBrowserMetadata, automationActivityFailureReasons, automationActivityPollingDelay, automationActivityStepErrors, automationSemanticIssueMessage } from '../../frontend/lib/automationActivityMonitoring.ts';
+import { automationActivityBrowserMetadata, automationActivityFailureReasons, automationActivityForSubmission, automationActivityPollingDelay, automationActivityStepErrors, automationSemanticIssueMessage, mergeAutomationActivityHistory } from '../../frontend/lib/automationActivityMonitoring.ts';
 const require = createRequire(import.meta.url);
 const { reduceActivityProgress } = require('../../backend/lib/automationActivityProgress');
 const { buildFailureProgress } = require('../../backend/lib/automationBuildFailureProgress');
+
+test('submitting a new build keeps the prior failure in history without presenting it as the new outcome',()=>{
+ const failed={id:'previous-failed',status:'failed',metadata:{outcome_status:'incomplete',retry_test_case_ids:['case']}};
+ const before=structuredClone(failed);
+ assert.equal(automationActivityForSubmission(failed,true,false),undefined);
+ assert.equal(automationActivityForSubmission(failed,true,true),failed,'an explicitly selected history entry remains available');
+ assert.equal(automationActivityForSubmission(failed,false,false),failed,'a rejected POST restores the retained prior activity');
+ const queued={id:'new-receipt',status:'queued',metadata:{}};
+ assert.equal(automationActivityForSubmission(queued,false,false),queued,'the actual queued receipt resumes normal progress');
+ assert.deepEqual(failed,before,'previous failure, retry metadata and audit history remain unchanged');
+});
+
+test('failed scope reads remain actionable in Build Errors after event pagination without changing application evidence',()=>{
+ const event={id:'read-failure',phase:'automation.agent.read.failed',level:'warning',created_at:'2026-11-06T04:00:00.000Z',details:{test_case_id:'at',active_step_id:'three',active_manual_step_ids:['manual-three'],error_code:'BROWSER_SNAPSHOT_SCOPE_NOT_FOUND',tool:'browser_snapshot',tool_phase:'snapshot',match_count:0,diagnostic_artifact_id:'diagnostic',action_outcome:'not_attempted'}};
+ let metadata={workspace_application:{test_case_id:'at',snapshot_artifact_id:'last-good'},step_progress:[{test_case_id:'at',step_id:'three',status:'in_progress'}]};
+ metadata={...metadata,...reduceActivityProgress(metadata,event)};
+ const errors=automationActivityStepErrors(metadata,[]);
+ assert.equal(errors.length,1);assert.equal(errors[0].code,'BROWSER_SNAPSHOT_SCOPE_NOT_FOUND');assert.match(errors[0].message,/scope matched no elements/);assert.equal(errors[0].tool,'browser_snapshot');
+ assert.equal(metadata.workspace_application.snapshot_artifact_id,'last-good');assert.equal(metadata.step_progress[0].status,'in_progress');
+ assert.doesNotMatch(JSON.stringify(errors),/automation_code|accessibility|selector|http|credential/);
+});
+
+test('a completed detail receipt supersedes stale running history without hiding older builds',()=>{
+ const current={id:'current',status:'failed'},summary={id:'current',status:'running'},previous={id:'previous',status:'completed'},old={id:'old',status:'failed'};
+ const history=[summary,previous],page=[{id:'previous',status:'running'},old];
+ assert.deepEqual(mergeAutomationActivityHistory([current],history,page),[current,previous,old]);
+ assert.deepEqual(history,[summary,previous]);
+ assert.equal(summary.status,'running','display merging does not rewrite a cached API response');
+});
 
 test('semantic review diagnostics identify authorized unmet requirements without provider rationale and merge the unchanged stop',()=>{
  const issue={code:'expected_result_not_covered',obligation_id:'manual:source:email'};
@@ -114,6 +143,56 @@ const secondAction='7927d780-c104-4bdf-af71-d6f65114b698';
 const assertionMessage='The expected-result check did not pass. Review the current browser evidence and model response.';
 const genericTerminal='This section could not finish building. Review its browser evidence and model request and response.';
 const errorEvent=(phase,message,details)=>({id:`event-${phase}-${details.action_id||details.error_code||'terminal'}`,level:'error',phase,message,created_at:'2026-10-17T12:00:00Z',details:{test_case_id:'at',active_step_id:'one',...details}});
+
+function unknownOutcomeActivity({extraActions=[],operationAttempt=4,terminalAttempt,frame=false,anonymousUnknown=false,assertion=false}={}){
+ const code='AUTOMATION_BROWSER_OUTCOME_UNKNOWN',cause='The browser tool outcome is unknown. Inspect the application and retry after restoring the MCP connection.';
+ const operation={id:`automation.agent.action.unknown:${firstAction}:2026-11-05T20:04:59.874Z`,phase:'automation.agent.action.unknown',message:'The browser action outcome is unknown. Inspect the application before retrying to avoid repeating an operation.',code,action_id:firstAction,attempt:operationAttempt,tool:'browser_click',created_at:'2026-11-05T20:04:59.874Z',...(frame?{frame_path:['iframe#private-target'],frame_document_id:'private-frame-document'}:{})};
+ const terminal={id:'automation.agent.browser.failed:AUTOMATION_BROWSER_OUTCOME_UNKNOWN:2026-11-05T20:05:16.540Z',phase:'automation.agent.browser.failed',message:genericTerminal,code,created_at:'2026-11-05T20:05:16.540Z',...(terminalAttempt?{attempt:terminalAttempt}:{})};
+ const check={id:'check',phase:'automation.agent.action.failed',action_id:secondAction,attempt:4,tool:'browser_assert',assertion:'visible',code:'BROWSER_ASSERTION_NOT_SATISFIED',message:assertionMessage};
+ const unknowns=[operation,...extraActions.map(action=>({...operation,...action,id:`unknown:${action.action_id}`}))];
+ const metadata={step_progress:[{test_case_id:'at',step_id:'one',attempt:operationAttempt,instruction_status:'requested',build_errors:[...(assertion?[check]:[]),...unknowns,terminal],browser_actions:[...unknowns.map(action=>({action_id:action.action_id,tool:action.tool,status:'unknown',action_outcome:'unknown',...(action.frame_path?{frame_path:action.frame_path}:{})})),...(anonymousUnknown?[{status:'unknown',tool:'browser_click',action_outcome:'unknown'}]:[])]}],case_outcomes:[{test_case_id:'at',active_step_id:'one',failed_step_id:'one',code,error_code:code,message:cause,...(terminalAttempt?{attempt:terminalAttempt}:{})}]};
+ const events=[errorEvent('automation.agent.action.unknown','Browser click: unknown.',{action_id:firstAction,attempt:operationAttempt,tool:'browser_click',action_outcome:'unknown'}),
+  errorEvent('automation.agent.browser.failed','Browser inspection could not continue. Previously saved Plan sections were retained; review the browser failure before retrying.',{error_code:code,...(terminalAttempt?{attempt:terminalAttempt}:{})}),
+  errorEvent('automation.case.failed','Automation build failed for case at.',{code,error_code:code,...(terminalAttempt?{attempt:terminalAttempt}:{})})];
+ return {metadata,events,cause};
+}
+
+test('one unknown click and its later terminal transport stop project as one Build Error from the actual retained shape',()=>{
+ const activity=unknownOutcomeActivity(),before=structuredClone(activity);
+ const errors=automationActivityStepErrors(activity.metadata,activity.events);
+ assert.equal(errors.length,1);assert.equal(errors[0].action_id,firstAction);assert.equal(errors[0].tool,'browser_click');
+ assert.equal(errors[0].attempt,4);assert.equal(errors[0].created_at,'2026-11-05T20:04:59.874Z');
+ assert.equal(errors[0].message,activity.cause);assert.equal(errors[0].code,'AUTOMATION_BROWSER_OUTCOME_UNKNOWN');
+ assert.deepEqual(activity,before,'Presentation never rewrites the retained unknown operation or terminal records');
+});
+
+test('unknown-operation terminal association preserves ambiguity, attempt boundaries and framed subtargets',()=>{
+ for(const options of [{extraActions:[{action_id:secondAction}]},{terminalAttempt:3},{frame:true},{anonymousUnknown:true},
+  {extraActions:[{action_id:secondAction,frame_path:['iframe#other'],frame_document_id:'other-document'}]}]){
+  const activity=unknownOutcomeActivity(options),errors=automationActivityStepErrors(activity.metadata,activity.events);
+  assert.equal(errors.length,options.extraActions?3:2,JSON.stringify(options));
+  assert.ok(errors.some(error=>error.action_id===firstAction));
+  assert.ok(errors.some(error=>!error.action_id&&error.code==='AUTOMATION_BROWSER_OUTCOME_UNKNOWN'),'An ambiguous terminal remains a separate diagnosis');
+ }
+ const activity=unknownOutcomeActivity({assertion:true}),errors=automationActivityStepErrors(activity.metadata,activity.events);
+ assert.equal(errors.length,2);assert.ok(errors.some(error=>error.action_id===secondAction&&error.assertion==='visible'));
+ assert.ok(errors.some(error=>error.action_id===firstAction&&error.message===activity.cause));
+ const metadataOnly=unknownOutcomeActivity();
+ metadataOnly.metadata.step_progress[0].browser_actions.push({action_id:secondAction,status:'unknown',tool:'browser_click',action_outcome:'unknown'});
+ const ambiguous=automationActivityStepErrors(metadataOnly.metadata,metadataOnly.events);
+ assert.equal(ambiguous.length,3,'A second unknown operation in metadata alone prevents terminal association');
+ assert.ok(ambiguous.some(error=>error.action_id===secondAction));
+});
+
+test('unknown operation association never crosses cases or steps',()=>{
+ const activity=unknownOutcomeActivity();
+ const original=activity.metadata.step_progress[0];
+ activity.metadata.step_progress.push({...original,test_case_id:'other'}, {...original,step_id:'two'});
+ activity.metadata.case_outcomes.push({...activity.metadata.case_outcomes[0],test_case_id:'other'}, {...activity.metadata.case_outcomes[0],active_step_id:'two',failed_step_id:'two'});
+ const errors=automationActivityStepErrors(activity.metadata,activity.events);
+ assert.equal(errors.length,3);
+ assert.deepEqual(errors.map(error=>[error.test_case_id,error.step_id]),[['at','one'],['other','one'],['at','two']]);
+});
 
 test('one browser failure appears once across a durable record and a differently worded event, including historical encoded action ids',()=>{
  const metadata={step_progress:[{test_case_id:'at',step_id:'one',build_errors:[{id:`automation.agent.action.failed:${firstAction}:2026-10-17T12:00:00Z`,code:'BROWSER_ASSERTION_NOT_SATISFIED',message:assertionMessage,phase:'automation.agent.action.failed',tool:'browser_assert',assertion:'value'}]}]};

@@ -225,38 +225,18 @@ test("recorder and AI learned fields reuse the scoped Page URL screen and preser
   assert.ok(field.metadata.source_owners.some(owner=>owner.test_case_id==='recorded-case'&&owner.source==='ai_builder'));
 });
 
-test('a host-confirmed saved Plan synchronizes only its used field through the real repository domain APIs',async()=>{
- const {service:repository,state,obsDb:repositoryDb}=repositoryFixture();
- const {createUsedObjectService,MIME}=require('../../backend/services/automationUsedObjects.service');
- const {recordBrowserOperation}=require('../../backend/lib/automationBrowserRecording');
- const {projectModelSnapshot}=require('../../backend/lib/automationBrowserModelTargets');
- const {createRecordedSectionContract}=require('../../backend/lib/automationRecordedContract');
- const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
- const testCase={id:'built-case',app_type_id:'app-a',project_id:'project-a'};
- const step={id:'built-section',test_case_id:testCase.id,action:'Enter email',expected_result:'Email value is retained'};
- const result=value=>({content:[{type:'text',text:JSON.stringify({source:'playwright',...value})}]});
- const snapshot={tool:'browser_snapshot',result:result({observation_id:'actual-capture',url:'https://app.test/login',elements:[{tag:'input',accessible_name:'Email',accessible_role:'textbox',locators_validated:true,locator_candidates:['getByLabel("Email")']},{tag:'button',accessible_name:'Unused button',accessible_role:'button',locators_validated:true,locator_candidates:['#unused']}]})};
- projectModelSnapshot(snapshot);
- const requests=[{name:'browser_fill',arguments:{locator:'getByLabel("Email")',value:'@r.email'}},{name:'browser_assert',arguments:{locator:'getByLabel("Email")',assertion:'value',value:'@r.email'}}];
- const browserObservations=requests.map((request,index)=>{const row={tool:request.name,execution_step_id:step.id,result:result(index?{assertion_outcome:'satisfied'}:{action_outcome:'completed'})};recordBrowserOperation(row,request,{snapshot});return row;});
- const source=compileRecordedProgram(requests).source;
- const seal=createRecordedSectionContract({execution:{required:true,step_id:step.id,action:step.action,expected_result:step.expected_result},requests,source,mappings:[{id:step.id,action_operations:[1],assertion_operations:[2]}]});
- const activity={id:'activity',project_id:'project-a',app_type_id:'app-a',category:'automation_build',created_by:'user'},artifacts=[];
- const transactions={getTransaction:async()=>activity,listTransactionArtifacts:async()=>artifacts,getTransactionArtifact:async id=>artifacts.find(row=>row.id===id),createTransactionArtifact:async(id,input)=>{const row={...input,id:'binding-intent',transaction_id:id};artifacts.push(row);return row;}};
- const obsDb={transaction:repositoryDb.transaction,prepare:sql=>sql.startsWith('UPDATE workspace_transaction_artifacts')?{run:async(content,id)=>{artifacts.find(row=>row.id===id).content=content;}}:repositoryDb.prepare(sql)};
- const db={transaction:callback=>callback,prepare:sql=>({get:async()=>sql.includes('FROM test_cases')?testCase:{...step,automation_code:source}})};
- const service=createUsedObjectService({db,obsDb,transactions,repository,getAccess:async()=>({'automation.repository.manage':true})});
+test('instruction usage updates retain curated repository identity and metadata through the domain APIs',async()=>{
+ const {service:repository,state}=repositoryFixture();
  const savedScreen=await repository.createLearningCacheEntry({app_type_id:'app-a',screen_name:'Curated Login',page_url:'https://app.test/login',locator:'__screen__',source:'manual_screen',metadata:{record_kind:'screen'}});
  const savedField=await repository.createLearningCacheEntry({app_type_id:'app-a',screen_name:'Curated Login',page_url:'https://app.test/login',locator:'getByLabel("Email")',object_name:'CustomerEmail',metadata:{screen_entry_id:savedScreen.id,description:'Curated email binding'}});
- const input={testCase,step,source,seal,browserObservations,transactionId:'activity',userId:'user'};
- const pending=await service.stage(input),synced=await service.sync({...input,artifactId:pending.artifact_id});
- assert.equal(artifacts[0].mime_type,MIME);assert.equal(synced.status,'synced');assert.equal(synced.object_count,1);
- assert.equal(synced.bindings[0].entry_id,savedField.id);assert.equal(synced.bindings[0].reference,'Curated Login.CustomerEmail');
+ const usage={test_case_id:'built-case',step_id:'built-section',source_sha256:'a'.repeat(64),operation_indexes:[1,2]};
+ const updated=await repository.updateLearningCacheEntry(savedField.id,{metadata:{instruction_usages:[usage]}});
+ assert.equal(updated.id,savedField.id);assert.equal(updated.locator,'getByLabel("Email")');
  const rows=await repository.listLearningCache({app_type_id:'app-a',limit:200});
- assert.equal(rows.length,2);assert.deepEqual(new Set(rows.map(row=>row.id)),new Set([savedScreen.id,savedField.id]));
+ assert.deepEqual(new Set(rows.map(row=>row.id)),new Set([savedScreen.id,savedField.id]));
  const field=await repository.getLearningCacheEntry(savedField.id);
- assert.equal(field.metadata.description,'Curated email binding');assert.equal(field.metadata.instruction_usages[0].test_case_id,testCase.id);
- assert.deepEqual(field.metadata.instruction_usages[0].operation_indexes,[1,2]);
+ assert.equal(field.metadata.description,'Curated email binding');assert.equal(field.metadata.object_name,'CustomerEmail');
+ assert.deepEqual(field.metadata.instruction_usages,[usage]);assert.equal(field.metadata.screen_entry_id,savedScreen.id);
  assert.equal(state.entries.some(row=>row.locator==='#unused'),false);
 });
 

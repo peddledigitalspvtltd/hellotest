@@ -1,5 +1,7 @@
 const {semanticIssues,providerFailureMessages,prerequisiteFailureMessages,retainedSubjectFailureMessages}=require('./automationStepBuildErrors');
 const {navigationHttpStatus,navigationHttpFailureMessage}=require('./automationBrowserBootstrapFailure');
+const {browserTransportMessages}=require('./automationBrowserTransportError');
+const {unsupportedBrowserFlowMessage}=require('./automationBrowserFlowPolicy');
 
 function buildFailureProgress(error, { modelStarted = false } = {}) {
   const code = typeof error?.code === 'string' ? error.code : null;
@@ -11,12 +13,15 @@ function buildFailureProgress(error, { modelStarted = false } = {}) {
   else if (['AUTOMATION_DEPENDENCY_MISSING','AUTOMATION_FLOW_PLAN_INVALID','AUTOMATION_FLOW_PLAN_CONTEXT_INVALID','AUTOMATION_FLOW_BRIEF_REQUIRED','AUTOMATION_REPAIR_PLAN_REQUIRED','AUTOMATION_MANUAL_ORDER_CONFLICT','AUTOMATION_GOAL_OBLIGATIONS_INVALID'].includes(code)) stage = 'context';
   else if (error?.automation_stage === 'save') stage = 'save';
   else if (code === 'AUTOMATION_BROWSER_STARTUP_FAILED') stage = 'browser_startup';
-  else if (/^(?:AUTOMATION_BROWSER_|AUTOMATION_SEMANTIC_REVIEW_|BROWSER_)/.test(code || '') || code==='AUTOMATION_MCP_CAPABILITY_MISSING' || !modelStarted) stage = 'browser';
+  else if (/^(?:AUTOMATION_BROWSER_|AUTOMATION_SEMANTIC_REVIEW_|BROWSER_)/.test(code || '') || ['AUTOMATION_BUILD_DEADLINE','AUTOMATION_MCP_CAPABILITY_MISSING'].includes(code) || !modelStarted) stage = 'browser';
   else stage = 'model';
   const phase = { context: 'automation.agent.blocked', save: 'automation.agent.save.failed', browser_startup: 'automation.agent.browser.startup.failed',
     browser: 'automation.agent.browser.failed', model: 'automation.llm.failed' }[stage];
   const issues=code?.startsWith('AUTOMATION_SEMANTIC_REVIEW_')?semanticIssues(error.details?.semantic_issues):[];
   const message = Object.hasOwn(providerFailureMessages, code) ? providerFailureMessages[code]
+    : Object.hasOwn(browserTransportMessages, code) ? browserTransportMessages[code]
+    : code === 'AUTOMATION_BROWSER_FLOW_UNSUPPORTED' ? unsupportedBrowserFlowMessage(error.unsupported_capability)
+    : code === 'AUTOMATION_BUILD_DEADLINE' ? 'The automation build time allowance ended. No further browser action or instruction save was started. Previously saved Plan sections remain available; review the unfinished section before retrying.'
     : Object.hasOwn(prerequisiteFailureMessages, code) ? prerequisiteFailureMessages[code]
     : Object.hasOwn(retainedSubjectFailureMessages, code) ? retainedSubjectFailureMessages[code]
     : code === 'AUTOMATION_FLOW_PLAN_CONTEXT_INVALID' ? 'The manual-flow context or parameter references could not be prepared. Review the brief and configured parameters before retrying. Previously saved Plan sections remain available.'

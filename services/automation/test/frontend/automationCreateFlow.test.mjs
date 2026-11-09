@@ -13,6 +13,11 @@ const functionStart = source.indexOf("mutationFn:", creationStart) + "mutationFn
 const functionEnd = source.indexOf("\n    onSuccess:", functionStart);
 const mutationSource = source.slice(functionStart, functionEnd).trim().replace(/,$/, "");
 const mutationScript = ts.transpileModule(`const mutation = ${mutationSource};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const agentSetupSource = ts.createSourceFile('AutomationAgentSetup.tsx', readFileSync(new URL('../../../ai/frontend/components/AutomationAgentSetup.tsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const agentRequest = agentSetupSource.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'automationAgentRequest');
+assert.ok(agentRequest, 'Creation uses the same production agent context projection as the saved-case builder.');
+const agentRequestScript = ts.transpileModule(agentRequest.getText(agentSetupSource).replace(/^export\s+/, ''), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const automationAgentRequest = new Function(`${agentRequestScript}\nreturn automationAgentRequest;`)();
 
 function fixture({ queueFails = false, reviewFails = false, reviewCancels = false, mission = "Build account journey", overrides = {} } = {}) {
   let sequence = 0;
@@ -30,6 +35,8 @@ function fixture({ queueFails = false, reviewFails = false, reviewCancels = fals
     createSourcesQuery: { data: sources },
     automationModules: [{ id: "module", name: "Accounts" }],
     agentMission: mission, agentScheduledAt: "", agentAutonomy: "supervised", agentRetryBudget: 3, agentCapabilities: ["repository"],
+    buildAgentSelection: { integrationId: 'reviewed-llm', scopes: ['automation', 'test-cases', 'stories', 'runs', 'knowledge'], inputs: {}, smart: null },
+    automationAgentRequest,
     buildPipelineOptions: {verification_mode:"generate_only",browser_driver:"mcp"}, buildBrowserLocation: "remote",
     allowBrowserActions: true, automationCreateStartUrl: "https://example.test/reviewed?tenant=one", automationCreateStartUrlRequired: true, builderContext: "Keep assertions", selectedExecutionEnvironmentId: "env", selectedExecutionConfigurationId: "config",
     ...planExports, automationCaseMappingStatus, reviewedAutomationStartUrl, richTextToPlainText: value => String(value || '').replace(/<[^>]*>/g, ''),
@@ -80,7 +87,24 @@ test("automation creation copies every source plan, preserves groups, and saves 
   assert.equal(calls.queued[0].start_url, payload.automation_start_url);
   assert.equal(calls.queued[0].allow_browser_actions, true);
   assert.equal(calls.queued[0].browser_location, "remote");
+  assert.equal(calls.queued[0].integration_id, 'reviewed-llm');
+  assert.deepEqual(calls.queued[0].agent_context, { context_scopes: ['automation', 'test-cases', 'stories', 'runs', 'knowledge'], inputs: {}, smart_context: undefined });
   assert.match(calls.queued[0].additional_context, /Build account journey/);
+});
+
+test('creation forwards the reviewed model and evidence projection without changing case data or inventing a configured provider', async () => {
+  const selection = { integrationId: 'chosen-provider', scopes: ['automation', 'knowledge'], inputs: { requirement_id: 'story' },
+    smart: { query: 'Review login coverage', sourceIds: ['source-1'], sourceKinds: ['requirement'], contextText: 'Reviewed login evidence' } };
+  const selected = fixture({ overrides: { buildAgentSelection: selection } });
+  await selected.mutation();
+  assert.equal(selected.calls.queued[0].integration_id, selection.integrationId);
+  assert.deepEqual(selected.calls.queued[0].agent_context, { context_scopes: selection.scopes, inputs: selection.inputs,
+    smart_context: { query: selection.smart.query, source_ids: selection.smart.sourceIds, source_kinds: selection.smart.sourceKinds, reviewed_context: selection.smart.contextText } });
+  assert.deepEqual(selected.calls.queued[0].parameter_values_by_case, { created: { 'r.blank': '' } });
+  assert.equal(Object.hasOwn(selected.calls.created[0], 'integration_id'), false, 'Provider choice belongs to this build, not case metadata.');
+  const configured = fixture({ overrides: { buildAgentSelection: { ...selection, integrationId: '' } } });
+  await configured.mutation();
+  assert.equal(configured.calls.queued[0].integration_id, undefined, 'An explicit Configured LLM choice preserves backend provider resolution.');
 });
 
 test("creation with multiple suites leaves selection to source resolution instead of choosing the first suite", async () => {

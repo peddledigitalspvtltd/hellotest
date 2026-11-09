@@ -1,14 +1,14 @@
 // The API includes the engine's compiled recorder modules, so local setup does
 // not depend on a configured or reachable remote Test Engine.
 // The packaging check verifies every bundled module against this manifest.
-const runtimeDependencies = Object.freeze({ acorn: "8.18.0", ajv: "8.18.0", fastify: "4.29.1", "jsonpath-plus": "10.4.0", playwright: "1.59.1", "selenium-webdriver": "4.43.0" });
+const runtimeDependencies = Object.freeze({ "@playwright/mcp": "0.0.84", acorn: "8.18.0", ajv: "8.18.0", fastify: "4.29.1", "jsonpath-plus": "10.4.0", playwright: "1.59.1", "selenium-webdriver": "4.43.0" });
 exports.runtimeDependencies = runtimeDependencies;
 exports.buildInstaller = ({ recorder, security, inspection_security, inspection_proxy, repository_locator, runtime_modules, origin, api_origin = origin, agent_token }) => {
   if (![recorder, security, inspection_security, inspection_proxy, repository_locator].every(value => typeof value === "string" && value.length > 100 && value.length < 1024 * 1024)) {
     throw Object.assign(new Error("The local inspection installer is unavailable. Update the HelloTest API and try again."), { statusCode: 503 });
   }
   if (!runtime_modules || typeof runtime_modules !== "object" || Array.isArray(runtime_modules)
-    || !runtime_modules["pairedLocalExecution.js"] || Object.keys(runtime_modules).length > 80
+    || !runtime_modules["pairedLocalExecution.js"] || !runtime_modules["automationPlaywrightMcp.js"] || Object.keys(runtime_modules).length > 80
     || !Object.entries(runtime_modules).every(([name, source]) => /^[a-zA-Z][a-zA-Z0-9]*\.js$/.test(name) && typeof source === "string" && source.length < 1024 * 1024)) {
     throw Object.assign(new Error("The local execution installer is unavailable. Update the HelloTest API and try again."), { statusCode: 503 });
   }
@@ -53,11 +53,17 @@ for (const [name, source] of Object.entries(modules)) await writeFile(join(direc
 const launcher = \`import Fastify from "fastify";
 import { registerRecorderRoutes } from "./recorder.js";
 import { registerPairedLocalExecutionRoutes } from "./pairedLocalExecution.js";
-import { createCorsHook, resolveCorsPolicy } from "./testEngineSecurity.js";
+import { registerAutomationPlaywrightMcp, PLAYWRIGHT_MCP_RUNTIME } from "./automationPlaywrightMcp.js";
+import { createCorsHook, resolveCorsPolicy, constantTimeSecretMatches } from "./testEngineSecurity.js";
 const app = Fastify({ logger: { level: "warn" } });
 app.addHook("onRequest", createCorsHook(resolveCorsPolicy()));
 app.options("/*", async (_req, reply) => reply.code(204).send());
-app.get("/health", async () => ({ ok: true, ready: true, service: "hellotest-inspection-agent", supported_web_engines: ["playwright"], execution_protocol_version: 1, capabilities: { repository_inspection: true, local_execution: true } }));
+app.get("/health", async () => ({ ok: true, ready: true, service: "hellotest-inspection-agent", supported_web_engines: ["playwright"], execution_protocol_version: 1, capabilities: { repository_inspection: true, local_execution: true, parameter_expressions_v1: true, playwright_mcp_runtime: PLAYWRIGHT_MCP_RUNTIME } }));
+await registerAutomationPlaywrightMcp(app, async (request, reply) => {
+  if (request.headers.origin !== process.env.HELLOTEST_PAIRED_ORIGIN || !constantTimeSecretMatches(String(request.headers["x-hellotest-agent-token"] || ""), process.env.HELLOTEST_INSPECTOR_TOKEN || "")) {
+    reply.code(403).send({ code: "LOCAL_AGENT_UNPAIRED", message: "Pair this browser with the HelloTest local agent before starting a local build." });
+  }
+}, { pairedLocal: true, headless: false });
 await registerPairedLocalExecutionRoutes(app);
 await registerRecorderRoutes(app);
 process.once("SIGINT", () => void app.close());

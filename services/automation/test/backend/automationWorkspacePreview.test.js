@@ -67,6 +67,49 @@ test('browser evidence retains bounded field validation declarations while exclu
  assert.equal(value.evidence.elements[1].attributes['aria-errormessage'].length,1000);assert.deepEqual(value.evidence.elements[1].truncated_attributes,['aria-errormessage']);
  assert.doesNotMatch(JSON.stringify(value),/PRIVATE_CONTROL_VALUE|PRIVATE_ATTRIBUTE|data-secret/);
 });
+
+test('native upstream snapshots from real response sections persist verbatim without generated DOM or executable source',async()=>{
+ const {service,artifacts}=activityService();
+ const snapshot='- main [ref=e1]:\n  - heading "Account" [level=1] [ref=e2]\n  - textbox "Email" [ref=e3]: "[private parameter value]"';
+ const markdown='### Ran Playwright code\n```js\nawait page.getByLabel("Email").fill(process.env.HELLOTEST_EMAIL);\n```\n### Page\n- Page URL: https://private:credential@app.test/profile?token=PRIVATE_QUERY#private\n- Page Title: Account\n### Snapshot\n```yaml\n'+snapshot+'\n```\n### Events\n- New console entries: session/console.log';
+ for(const tool of ['browser_navigate','browser_click','browser_find','browser_snapshot']){
+  const input={testCaseId:'case',attempt:1,active_step_id:'email',interactionMode:'interactive',transport:'upstream_playwright_mcp',observation:{tool,observed_at:'2026-11-06T10:01:00.000Z',result:{content:[{type:'text',text:markdown}]}}};
+  const summary=await service.createBrowserEvidence('activity',input);
+  assert.ok(summary.snapshot_artifact_id);assert.equal(summary.active_step_id,'email');assert.equal(summary.url,'https://app.test/profile');assert.equal(summary.title,'Account');
+  assert.doesNotMatch(JSON.stringify(summary),/private|PRIVATE_QUERY|credential|textbox|process\.env|ref=e/);
+  const evidence=await service.evidence({id:'activity',metadata:{input_test_case_ids:['case']}},summary.snapshot_artifact_id);
+  assert.equal(evidence.accessibility,snapshot);assert.equal(evidence.transport,'upstream_playwright_mcp');assert.equal(evidence.source,'playwright');assert.equal(evidence.snapshot_format,'upstream_yaml');
+  assert.deepEqual(evidence.elements,[]);assert.equal(evidence.partial,false);assert.equal(evidence.verification_status,'unverified');
+  assert.doesNotMatch(artifacts.get(summary.snapshot_artifact_id).content,/process\.env|HELLOTEST_EMAIL|PRIVATE_QUERY|session\/console/);
+ }
+});
+
+test('native find snippets and snapshot references remain explicitly partial evidence and are never expanded into fabricated page records',()=>{
+ const observe=(tool,markdown,transport='upstream_playwright_mcp')=>workspace.browserEvidence({testCaseId:'case',attempt:1,transport,observation:{tool,result:{content:[{type:'text',text:markdown}]}}});
+ const snippet='Found 1 match for "Save":\n\n- main [ref=e1]:\n  - button "Save" [ref=e2]\n';
+ const found=observe('browser_find','### Result\n'+snippet);
+ assert.equal(found.evidence.accessibility,snippet);assert.equal(found.evidence.snapshot_format,'upstream_find');assert.equal(found.evidence.partial,true);assert.deepEqual(found.evidence.elements,[]);
+ const reference='- [Snapshot](.playwright-mcp/page-2026-11-06.yml)';
+ const linked=observe('browser_navigate','### Page\n- Page URL: https://app.test/login?token=private\n- Page Title: Login\n### Snapshot\n'+reference);
+ assert.equal(linked.evidence.accessibility,reference);assert.equal(linked.evidence.snapshot_format,'upstream_snapshot_reference');assert.equal(linked.evidence.partial,true);assert.equal(linked.evidence.url,'https://app.test/login');
+ assert.equal(observe('browser_click','### Snapshot\n```yaml\n- button "Save"\n```',null),null,'Markdown never grants its own upstream transport provenance');
+ assert.equal(observe('browser_click','### Ran Playwright code\n```js\nawait page.click("#save");\n```'),null,'executable snippets alone are not page snapshots');
+ const oversized=observe('browser_snapshot','### Snapshot\n```yaml\n'+('x'.repeat(100000))+'\n```');
+ assert.equal(oversized.evidence.accessibility.length,96000);assert.equal(oversized.evidence.accessibility_truncated,true);
+ assert.equal(workspace.browserEvidence({transport:'upstream_playwright_mcp',testCaseId:'case',observation:{tool:'browser_snapshot',result:{isError:true,content:[{type:'text',text:'### Snapshot\n```yaml\n- Failed snapshot\n```'}]}}}),null);
+});
+
+test('image-only native tab previews retain their protected public address without credentials, query or fragment',async()=>{
+ const {service}=activityService();
+ const image={type:'image',mimeType:'image/jpeg',data:Buffer.from([255,216,255,1,2,3]).toString('base64')};
+ const observation={tool:'browser_tabs',url:'https://private:credential@app.test/profile?token=PRIVATE_QUERY#private',observed_at:'2026-11-09T10:01:00.000Z',
+  result:{content:[{type:'text',text:'### Result\n- 0: (current) [Account](https://app.test/profile)'},image]}};
+ const summary=await service.createBrowserEvidence('activity',{testCaseId:'case',attempt:1,transport:'upstream_playwright_mcp',observation});
+ assert.equal(summary.url,'https://app.test/profile');assert.equal(summary.observed_at,observation.observed_at);
+ assert.ok(summary.screenshot_artifact_id);assert.equal(summary.snapshot_artifact_id,undefined);
+ assert.doesNotMatch(JSON.stringify(summary),/PRIVATE_QUERY|credential|private/);
+ assert.equal(workspace.browserEvidence({testCaseId:'case',observation:{...observation,result:{content:[image]}}}).evidence.url,undefined,'legacy observations cannot opt themselves into the trusted native preview channel');
+});
 test('section evidence uses only its generation attempt, and new snapshots clear stale screenshots without leaking artifact payloads',()=>{
  const value=workspace.sectionPreview({testCaseId:'case',step,update:{automation_code:'await page.getByLabel("Email").fill("@t.email");'},attempt:2});assert.equal(value.evidence,undefined);
  let metadata={workspace_application:{test_case_id:'case',screenshot_artifact_id:'old',snapshot_artifact_id:'old-snapshot'},step_progress:[{test_case_id:'case',step_id:'email'}]};

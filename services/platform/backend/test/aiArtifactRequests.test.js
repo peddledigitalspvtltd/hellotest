@@ -447,6 +447,39 @@ function assertScreenshotRequest(call){
  assert.equal(content.find(part=>part.type==='image_url').image_url.detail,'low');
  assert.equal(JSON.stringify(content.filter(part=>part.type==='text')).includes(referenceScreenshot.url),false,'Image bytes are not copied into prompt text');
 }
+test('prompt and screenshot design completes request validation before preserving the original vision generation request',async()=>{
+ const {prepareChatRequest,validateChatResponse}=require('../src/utils/llmRequestPolicy');
+ const selected={...integration,model:'gpt-5',base_url:'https://api.openai.com/v1'},calls=[];
+ const objective='Create one complete functional Test Case for approving the invoice shown in the supplied screenshot.';
+ const verdict={decision:'accept',explanation:'The request creates a Test Case for the selected invoice Story.',suggestions:[]};
+ const service=load('requirementDesign.service',{
+  './aiLlmSelection.service':{resolveLlmIntegrationForUsage:async()=>selected},
+  './aiKnowledge.service':{buildKnowledgeContextPackage:async()=>({knowledge:[]})},
+  '../utils/llmHttpClient':{fetchLlmWithRetry:async(url,init,policy)=>{
+   const prepared=prepareChatRequest(init,{...policy,providerUrl:url});
+   calls.push({body:prepared.payload,policy});
+   // Reasoning tokens share max_completion_tokens with the visible verdict.
+   // The historical 700-token preflight cannot produce even this tiny object.
+   const validation=policy.featureKey==='ai.authoring.request_validation';
+   const exhausted=validation&&prepared.payload.max_completion_tokens<=700;
+   const result=Response.json({choices:[{finish_reason:exhausted?'length':'stop',message:{content:exhausted?'':JSON.stringify(validation?verdict:{test_cases:[validCase]})}}]});
+   await validateChatResponse(result,prepared.payload,policy);
+   return result;
+  }}
+ });
+ const result=await service.previewRequirementsTestCases({requirements:[story],appType,user_id:user.id,max_cases:1,additional_context:objective,images:[referenceScreenshot]});
+ assert.deepEqual(calls.map(call=>call.policy.featureKey),['ai.authoring.request_validation','ai.test_case.design']);
+ assert.ok(calls[0].body.max_completion_tokens>700,'The request check reserves reasoning headroom independently of the generated-case limit.');
+ assert.ok(calls[0].body.max_completion_tokens<=16384,'Request validation remains bounded.');
+ assert.equal(calls[0].body.reasoning_effort,'minimal','Only the small relevance verdict uses the bounded reasoning policy.');
+ assert.equal(calls[1].body.max_completion_tokens,8192,'The actual generation budget is not globally increased.');
+ assert.equal(Object.hasOwn(calls[1].body,'reasoning_effort'),false,'Full case generation keeps its configured reasoning behavior.');
+ assertScreenshotRequest(calls[1]);
+ const prompt=JSON.parse(calls[1].body.messages.find(message=>message.role==='user').content.find(part=>part.type==='text').text);
+ assert.equal(prompt.generation_request.user_request,objective);
+ assert.equal(prompt.application_contract.max_cases,1);
+ assert.equal(result.generated,1);assert.equal(result.cases[0].title,validCase.title);assert.equal(result.context_reduced,false);
+});
 test('Story create and complete pass the selected screenshot as actual bounded vision content',async()=>{
  const creation=providerFixture({requirements:[{title:'Approve invoice',description:'Reviewers approve invoices.',acceptance_criteria:['Approval records the reviewer.'],priority:2,field_evidence:{title:['user-guidance:story-brief'],description:['user-guidance:story-brief'],acceptance_criteria:['user-guidance:story-brief']}}]});
  const create=load('requirement.service',{...creation.overrides,'../db':{prepare:()=>({})},'./aiKnowledge.service':{buildKnowledgeContextPackage:async()=>({knowledge:[]})}});
@@ -459,10 +492,12 @@ test('Test Case generation and improvement retain screenshots, configured type a
  const candidate={...validCase,test_case_type:'regression',parameter_values:{amount:'100'},steps:[{action:'Approve invoice for @t.amount',expected_result:'Approval is recorded'}]};
  const improveFixture=providerFixture(candidate),improve=load('aiCaseAuthoring.service',improveFixture.overrides);
  const improvement=await improve.previewCaseAuthoring({appType,test_case:{title:'Approval',priority:3,test_case_type:'functional'},images:[referenceScreenshot]});
- assertScreenshotRequest(improveFixture.calls[0]);assert.equal(improvement.case.test_case_type,'regression');assert.equal(improvement.case.priority,2);assert.equal(improvement.case.parameter_values.amount,'100');
+ assertScreenshotRequest(improveFixture.calls[0]);assert.equal(improvement.case.test_case_type,'regression');assert.equal(improvement.case.priority,2);assert.equal(improvement.case.parameter_values['t.amount'],'100');
+ assert.equal(improvement.case.parameter_values.amount,undefined);assert.equal(improvement.case.steps[0].action,'Approve invoice for @t.amount');
  const writes=[],designFixture=providerFixture({testCases:[candidate]}),design=load('requirementDesign.service',{...designFixture.overrides,'./aiKnowledge.service':{buildKnowledgeContextPackage:async()=>({knowledge:[]})},'./testCase.service':{createTestCase:async input=>{writes.push(input);return{id:'new-case'};}}});
  const generated=await design.previewRequirementsTestCases({appType,requirements:[story],images:[referenceScreenshot],max_cases:1});assertScreenshotRequest(designFixture.calls[0]);assert.equal(generated.cases[0].test_case_type,'regression');
- await design.acceptGeneratedTestCases({appType,requirements:[story],cases:generated.cases,created_by:user.id});assert.equal(writes[0].test_case_type,'regression');assert.equal(writes[0].priority,2);assert.equal(writes[0].parameter_values.amount,'100');
+ await design.acceptGeneratedTestCases({appType,requirements:[story],cases:generated.cases,created_by:user.id});assert.equal(writes[0].test_case_type,'regression');assert.equal(writes[0].priority,2);assert.equal(writes[0].parameter_values['t.amount'],'100');
+ assert.equal(writes[0].parameter_values.amount,undefined);assert.equal(writes[0].steps[0].action,'Approve invoice for @t.amount');
  assert.deepEqual(designFixture.calls[0].policy.nativeArtifactTestCaseTypes,['functional','regression']);
 });
 test('unsupported screenshot input stops Test Case design without a text-only second model call',async()=>{

@@ -57,6 +57,7 @@ const loadBuilderTestFunctions = (records) => {
     if (id === "crypto") return require("crypto");
     if (dependencyName(id) === "testStepAutomation") return automationUtils;
     if (dependencyName(id) === "automationGeneratedProgram") return require("../../../automation/backend/lib/automationGeneratedProgram");
+    if (dependencyName(id) === "automationReadiness.service") return require("../../../automation/backend/services/automationReadiness.service");
     if (dependencyName(id) === "testStep.service") return { updateTestStep: async (id, update, options) => { assert.equal(options.syncSharedGroup, false); return Object.assign(records.get(id), update); } };
     return {};
   } };
@@ -98,6 +99,23 @@ test("an agent that lost its durable lease cannot apply validated instructions",
  const build=normalizeLlmBuild({steps:[{step_id:original.id,automation_code:'await web.click("#new"); await web.expectText("#status", "Saved");'}]},[original],[],null);
  await assert.rejects(applyBuild({build,executionGuard:{ensureOwnership:async()=>{throw Object.assign(new Error("Lease ownership changed"),{code:"BATCH_JOB_LEASE_LOST"});}}}),{code:"BATCH_JOB_LEASE_LOST"});
  assert.equal(records.get(original.id).automation_code,original.automation_code);
+});
+
+test('the final persistence boundary cannot publish ready source with a missing expected-result check or malformed locator', async () => {
+  for (const source of [
+    'await page.goto("https://fixture.test/login");',
+    `await page.locator('getByRole("textbox", {name:"Email"})').fill('@r.email');`
+  ]) {
+    const step = { id: 'login', step_order: 1, step_type: 'web', action: 'Open login', expected_result: 'Login form is visible', automation_code: '' };
+    const records = new Map([[step.id, { ...step }]]), before = structuredClone(records.get(step.id));
+    const { applyBuild } = loadBuilderTestFunctions(records);
+    await assert.rejects(applyBuild({ build: { updates: [{ step, step_type: 'web', automation_code: source }] } }), error => {
+      assert.equal(error.code, 'AUTOMATION_SAVED_PLAN_INVALID');
+      assert.match(error.message, /Step 1.*(?:executable assertion|locator expression)/);
+      return true;
+    });
+    assert.deepEqual(records.get(step.id), before, 'source remains untouched when final executable validation fails');
+  }
 });
 
 const loadService = (relativeFile, overrides) => {

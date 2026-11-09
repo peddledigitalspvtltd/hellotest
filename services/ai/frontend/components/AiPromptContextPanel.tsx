@@ -6,6 +6,7 @@ import { FormField } from "@hellotest/platform/frontend/src/shared/components/Fo
 import { SmartContextWorkbench, type SmartContextSelection } from "./SmartContextWorkbench";
 import {
   AI_CONTEXT_PACK_LIMIT,
+  AI_REFERENCE_IMAGE_LIMITS,
   buildFileContextSection,
   buildRequirementContextSection,
   manualContextInstructions,
@@ -69,6 +70,7 @@ export function AiPromptContextPanel({
   promptScope = "test_case_generation",
   projectId,
   referenceUploadPresentation = "input",
+  imageLimit = AI_REFERENCE_IMAGE_LIMITS.default,
   referenceImages,
   requirements = [],
   showPromptEditor = true
@@ -91,6 +93,7 @@ export function AiPromptContextPanel({
   promptScope?: AiPromptScope;
   projectId?: string;
   referenceUploadPresentation?: "input" | "dropzone";
+  imageLimit?: number;
   referenceImages: AiDesignImageInput[];
   requirements?: Requirement[];
   showPromptEditor?: boolean;
@@ -370,7 +373,7 @@ export function AiPromptContextPanel({
       >
         <FormField
           className="ai-reference-photos-field"
-          hint="Compressed screenshots are sent to the selected vision-capable model. Unsupported image input stops with an explanation."
+          hint={`Up to ${imageLimit} reference images. Configured feature or model limits may be lower. Compressed screenshots are sent to the selected vision-capable model; unsupported image input stops with an explanation.`}
           hintVisible
           label="Reference images"
         >

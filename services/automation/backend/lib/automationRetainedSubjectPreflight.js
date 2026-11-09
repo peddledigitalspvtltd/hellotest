@@ -1,5 +1,7 @@
 const { retainedInputSubjectForRequest, retainedNextInputAssertionSubjectForRequest } = require('./automationRetainedAssertions');
-const { modelTargetForLocator, repositoryTargetEvidence, resolveModelToolRequest } = require('./automationBrowserModelTargets');
+const { modelTargetForLocator, browserBatchTargetEvidence, resolveModelToolRequest } = require('./automationBrowserModelTargets');
+const { browserReceipt } = require('./automationInteractiveEvidence');
+const { validFramePath, framePathKey, snapshotFrameScope } = require('./automationFrameScope');
 const { retainedSubjectFailureMessages } = require('./automationStepBuildErrors');
 
 const message = retainedSubjectFailureMessages.AUTOMATION_RETAINED_SUBJECT_REVIEW_REQUIRED;
@@ -7,9 +9,16 @@ const reviewRequired = reason => Object.assign(new Error(message), {
   code: 'AUTOMATION_RETAINED_SUBJECT_REVIEW_REQUIRED', statusCode: 422, nonRetryable: true,
   action_outcome: 'not_attempted', retry_safe: false, details: { retained_subject_issue: reason }
 });
-const targetRef = (locator,snapshot) => modelTargetForLocator(resolveModelToolRequest({name:'browser_assert',arguments:{locator}},snapshot).arguments.locator,snapshot);
+const targetRef = (locator,snapshot,frame) => {
+  const scope=snapshotFrameScope(browserReceipt(snapshot));
+  if(!scope || frame!==undefined&&!validFramePath(frame) || framePathKey(frame)!==framePathKey(scope.path))return null;
+  return modelTargetForLocator(resolveModelToolRequest({name:'browser_assert',arguments:{locator,...(frame?{frame}: {})}},snapshot).arguments.locator,snapshot);
+};
 const currentNativeInput = (request,snapshot) => {
-  const current = repositoryTargetEvidence(request?.arguments?.locator,snapshot);
+  const evidence=browserBatchTargetEvidence(snapshot);
+  if(!evidence)return false;
+  const ref=targetRef(request?.arguments?.locator,snapshot,request?.arguments?.frame);
+  const current = ref&&evidence.targets.find(target=>target.ref===ref);
   return Boolean(current && ['input','textarea','select'].includes(current.tag)
     && (request.name !== 'browser_select_option' || current.tag === 'select'));
 };
@@ -23,8 +32,8 @@ function canonicalizeRetainedInputRequest({contract,stepId,request,operations,sn
   if(contract?.step_id!==stepId || !currentNativeInput(request,snapshot))return {request,canonicalized:false};
   const subject=request.name==='browser_assert'?retainedNextInputAssertionSubjectForRequest({contract,request,operations})
     :retainedInputSubjectForRequest({contract,request,operations,allowCompleted:true});
-  if(!subject || request.arguments.locator===subject.locator)return {request,canonicalized:false};
-  const savedRef=targetRef(subject.locator,snapshot),proposedRef=targetRef(request.arguments.locator,snapshot);
+  if(!subject || framePathKey(subject.frame)!==framePathKey(request.arguments.frame) || request.arguments.locator===subject.locator)return {request,canonicalized:false};
+  const savedRef=targetRef(subject.locator,snapshot,subject.frame),proposedRef=targetRef(request.arguments.locator,snapshot,request.arguments.frame);
   if(!savedRef || savedRef!==proposedRef)return {request,canonicalized:false};
   return {request:{...request,arguments:{...request.arguments,locator:subject.locator}},canonicalized:true};
 }
@@ -37,7 +46,8 @@ async function assertRetainedInputSubject({ contract, stepId, request, operation
   if (!currentNativeInput(request,snapshot)) return false;
   const subject = retainedInputSubjectForRequest({contract,request,operations});
   if (!subject) return false;
-  const savedRef = targetRef(subject.locator,snapshot), proposedRef = targetRef(request.arguments.locator,snapshot);
+  if(framePathKey(subject.frame)!==framePathKey(request.arguments.frame))throw reviewRequired('different_observed_frame');
+  const savedRef = targetRef(subject.locator,snapshot,subject.frame), proposedRef = targetRef(request.arguments.locator,snapshot,request.arguments.frame);
   if (savedRef && proposedRef) {
     if (savedRef !== proposedRef) throw reviewRequired('different_observed_field');
     return false;

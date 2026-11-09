@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {compressImageDataUrl,readImageFiles,mergeAiReferenceImagesWithinBudget} from '../../frontend/lib/aiDesignStudio.ts';
+import {AI_REFERENCE_IMAGE_LIMITS,compressImageDataUrl,readImageFiles,mergeAiReferenceImagesWithinBudget} from '../../frontend/lib/aiDesignStudio.ts';
 
 function imageEnvironment(t,{width=2560,height=1440,lengthForQuality=()=>120000,context=true}={}){
  const old=Object.fromEntries(['Image','FileReader','document'].map(key=>[key,globalThis[key]])),operations=[];
@@ -28,4 +28,35 @@ test('image intake rejects unsupported types and oversized batches before readin
 test('image upload sends compressed pixels only and never falls back to unbounded originals without canvas',async t=>{
  const env=imageEnvironment(t);const images=await readImageFiles([{name:'Reference.png',type:'image/png',size:1000}]);assert.equal(images[0].name,'Reference.png');assert.match(images[0].url,/^data:image\/jpeg;base64,/);assert.equal(mergeAiReferenceImagesWithinBudget([],images).images.length,1);
  env.canvas.getContext=()=>null;await assert.rejects(readImageFiles([{name:'Reference.png',type:'image/png',size:1000}]),/compression is unavailable/);
+});
+
+test('image intake enforces the owning four-image limit while legacy case-step input retains six',async t=>{
+ const env=imageEnvironment(t);
+ for(const limit of [AI_REFERENCE_IMAGE_LIMITS.storyCreation,AI_REFERENCE_IMAGE_LIMITS.testCaseGeneration,AI_REFERENCE_IMAGE_LIMITS.default]){
+  const files=Array.from({length:limit},(_,index)=>({name:`Screen-${index}.png`,type:'image/png',size:1000}));
+  const images=await readImageFiles(files,limit);
+  assert.deepEqual(images.map(image=>image.name),files.map(file=>file.name),'Every accepted original is compressed and retained');
+  const reads=env.operations.length;
+  await assert.rejects(readImageFiles([...files,{name:'Extra.png',type:'image/png',size:1000}],limit),new RegExp(`at most ${limit}`));
+  assert.equal(env.operations.length,reads,'Oversized batches fail before decoding any original');
+ }
+ assert.equal((await readImageFiles(Array.from({length:6},(_,index)=>({name:`Legacy-${index}.png`,type:'image/png',size:1000})))).length,6);
+});
+
+test('accumulated image limits reject the full addition without changing retained evidence and removal restores capacity',()=>{
+ for(const limit of [4,6]){
+  const current=Array.from({length:limit},(_,index)=>({name:`Screen-${index}.png`,url:`data:image/png;base64,${index}`}));
+  const incoming=[{name:'Next.png',url:'data:image/png;base64,NEXT'}],before=structuredClone(current);
+  const rejected=mergeAiReferenceImagesWithinBudget(current,incoming,limit);
+  assert.equal(rejected.images,current);
+  assert.match(rejected.message,new RegExp(`limited to ${limit}`));
+  assert.deepEqual(current,before);
+  const afterRemoval=mergeAiReferenceImagesWithinBudget(current.slice(1),incoming,limit);
+  assert.equal(afterRemoval.message,'');assert.equal(afterRemoval.images.length,limit);
+  assert.deepEqual(afterRemoval.images.at(-1),incoming[0]);
+  const replaced=mergeAiReferenceImagesWithinBudget([],current,limit);
+  assert.equal(replaced.message,'');assert.deepEqual(replaced.images,current);
+ }
+ const tooLarge=mergeAiReferenceImagesWithinBudget([],[{name:'Oversized.png',url:'A'.repeat(950001)}],4);
+ assert.deepEqual(tooLarge.images,[]);assert.match(tooLarge.message,/context budget/);
 });

@@ -98,6 +98,7 @@ services:
       HELLOTEST_INSTANCE_SETUP_MODULES: \${HELLOTEST_INSTANCE_SETUP_MODULES:-}
       CORS_ORIGIN: \${CORS_ORIGIN:-http://localhost:${FRONTEND_HOST_PORT},http://127.0.0.1:${FRONTEND_HOST_PORT}}
       TESTENGINE_CALLBACK_SECRET: \${TESTENGINE_CALLBACK_SECRET:-hellotest-testengine-dev-secret}
+      TESTENGINE_SHARED_SECRET: \${TESTENGINE_SHARED_SECRET:-\${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}}
       KNOWLEDGE_MAX_FILE_BYTES: \${KNOWLEDGE_MAX_FILE_BYTES:-52428800}
       KNOWLEDGE_EXTRACTION_MAX_BYTES: \${KNOWLEDGE_EXTRACTION_MAX_BYTES:-20971520}
       KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS: \${KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS:-2000000}
@@ -164,6 +165,7 @@ services:
       PORT: 4301
       HELLOTEST_API_BASE_URL: \${HELLOTEST_API_BASE_URL:-http://api:3000}
       HELLOTEST_TESTENGINE_SECRET: \${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
+      TESTENGINE_SHARED_SECRET: \${TESTENGINE_SHARED_SECRET:-\${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}}
       SELENIUM_GRID_URL: \${SELENIUM_GRID_URL:-http://selenium:4444/wd/hub}
       TESTENGINE_POLL_CONCURRENCY: \${TESTENGINE_POLL_CONCURRENCY:-4}
       TESTENGINE_WORKER_CLASS: \${TESTENGINE_WORKER_CLASS:-hybrid}
@@ -229,7 +231,7 @@ metadata:
 stringData:
   postgres-password: "${POSTGRES_PASSWORD:-hellotest}"
   session-secret: "${SESSION_SECRET:-hellotest-dev-secret}"
-  testengine-secret: "${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}"
+  testengine-secret: "${TESTENGINE_SHARED_SECRET:-${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}}"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -369,6 +371,11 @@ spec:
                   name: hellotest-secrets
                   key: session-secret
             - name: TESTENGINE_CALLBACK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hellotest-secrets
+                  key: testengine-secret
+            - name: TESTENGINE_SHARED_SECRET
               valueFrom:
                 secretKeyRef:
                   name: hellotest-secrets

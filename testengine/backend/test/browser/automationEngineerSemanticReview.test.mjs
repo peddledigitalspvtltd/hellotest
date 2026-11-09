@@ -9,7 +9,6 @@ import { createPlaywrightCodeBindings } from '../../dist/lib/playwrightBindings.
 
 const require = createRequire(import.meta.url);
 const { connectAutomationBrowser, runAutomationBrowserAgent } = require('../../../../services/automation/backend/lib/automationBrowserAgent.js');
-const { buildAutomationGoalObligations } = require('../../../../services/automation/backend/lib/automationGoalObligations.js');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
 // Only model decisions are scripted. The transport, browser, private operation
@@ -36,7 +35,7 @@ test('expense approval rejects an unrelated successful assertion before saving t
   const section = { id: 'approve-report', action: 'Approve report 42 once', expected_result: 'The report status is Approved.' };
   const manual = { id: 'manual-approval', action: section.action,
     expected_result: 'The report status is Approved, the audit entry records Approved report 42, and the balance remains 500.' };
-  const obligations = buildAutomationGoalObligations({ section, manualCases: [{ id: 'expense-case', steps: [manual] }], activeManualStepIds: [manual.id] });
+  const obligations = [{ ...section, source: 'section' }, { ...manual, id: `manual:expense-case:${manual.id}`, source: 'manual_step', manual_test_case_id: 'expense-case', manual_step_id: manual.id }];
   const session = await connectAutomationBrowser({ integration: { base_url: base }, startUrl: `${base}/expenses`, allowBrowserActions: true });
   t.after(() => session.close());
   session.projectPromptText = value => value;

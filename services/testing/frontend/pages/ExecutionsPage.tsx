@@ -139,6 +139,7 @@ import { formatReferenceList, parseReferenceList } from "@hellotest/platform/fro
 import { areFeatureFlagsEnabled } from "@hellotest/platform/frontend/src/platform/lib/featureFlags";
 import { summarizeExecutionStart } from "../lib/executionStartSummary";
 import { selectLatestExecutionResultInstances } from "../lib/executionResultMetrics";
+import { selectExecutionInspectorEvidence } from "../lib/executionInspectorEvidence";
 import { buildBrowserUrl } from "@hellotest/integration/frontend/lib/integrationUrls";
 import { buildBugReportPath } from "../lib/bugReportNavigation";
 import { hasPermission } from "@hellotest/platform/frontend/src/platform/lib/permissions";
@@ -5250,12 +5251,14 @@ export function ExecutionsPage() {
     () => assessRunEvidenceReadiness({
       totalCaseCount: executionProgress.totalCases,
       touchedCaseCount: executionProgress.completedCases,
-      linkedRequirementCount: selectedExecutionImpactSummary.totalRequirements,
+      linkedRequirementCount: selectedExecution
+        ? runStoryCounts(selectedExecution, selectedExecutionImpactSummary).total
+        : selectedExecutionImpactSummary.totalRequirements,
       referenceCount: runReferenceStats.referenceCount + runReferenceStats.defectCount,
       failedCount: executionStatusCounts.failed,
       blockedCount: executionStatusCounts.blocked
     }),
-    [executionProgress.completedCases, executionProgress.totalCases, executionStatusCounts.blocked, executionStatusCounts.failed, runReferenceStats.defectCount, runReferenceStats.referenceCount, selectedExecutionImpactSummary.totalRequirements]
+    [executionProgress.completedCases, executionProgress.totalCases, executionStatusCounts.blocked, executionStatusCounts.failed, runReferenceStats.defectCount, runReferenceStats.referenceCount, selectedExecution, selectedExecutionImpactSummary.totalRequirements]
   );
   const failureClusterFindings = useMemo<AiPreviewFinding[]>(
     () => (previewExecutionFailureClusters.data?.clusters || []).map((cluster) => ({
@@ -6681,13 +6684,14 @@ export function ExecutionsPage() {
       || executionCaseOrder.find((testCase) => ["failed", "blocked"].includes(caseDerivedStatus(testCase)))
       || executionCaseOrder[0]
       || null;
-    const inspectedResult = inspectedCase ? resultByCaseId[inspectedCase.id] || null : null;
-    const inspectedLogs = parseExecutionLogs(inspectedResult?.logs || null);
-    const inspectedEvidenceEntry = Object.entries(inspectedLogs.stepEvidence || {})
-      .find(([, evidence]) => hasExecutionEvidence(evidence));
-    const inspectedEvidence = inspectedEvidenceEntry?.[1] || null;
-    const inspectedEvidenceStep = inspectedCase && inspectedEvidenceEntry
-      ? (stepsByCaseId[inspectedCase.id] || []).find((step) => step.id === inspectedEvidenceEntry[0]) || null
+    const { result: inspectedResult, evidence: inspectedEvidence, step: inspectedEvidenceStep } = selectExecutionInspectorEvidence({
+      executionId: selectedExecution.id,
+      testCaseId: inspectedCase?.id || "",
+      results: latestExecutionResults,
+      steps: inspectedCase ? stepsByCaseId[inspectedCase.id] || [] : []
+    });
+    const inspectedInstance = inspectedResult
+      ? inspectedCase?.data_set_instances.find((instance) => executionResultMatchesCaseInstance(inspectedResult, instance))
       : null;
     const recentActivity = executionCaseOrder
       .map((testCase) => ({ testCase, result: resultByCaseId[testCase.id] || null }))
@@ -7395,7 +7399,7 @@ export function ExecutionsPage() {
                     </div>
                   )}
                   <div className="execution-command-inspector-actions">
-                    <button onClick={() => focusExecutionCase(inspectedCase.id)} type="button">
+                    <button onClick={() => focusExecutionCase(inspectedCase.id, selectedExecution.id, inspectedInstance?.instance_key)} type="button">
                       Open case
                       <IconArrowRight aria-hidden="true" size={16} stroke={1.9} />
                     </button>

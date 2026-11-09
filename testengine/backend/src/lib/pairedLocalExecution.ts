@@ -124,7 +124,7 @@ export async function registerPairedLocalExecutionRoutes(app: FastifyInstance, o
   let agentId: string;
   try { agentId = JSON.parse(await readFile(agentFile, "utf8")).agent_id; if (!idPattern.test(agentId)) throw new Error(); }
   catch { agentId = randomUUID(); await writePrivate(agentFile, { agent_id: agentId }); }
-  app.decorate("pairedLocalExecution", { agent_id: agentId, execution_protocol_version: 1, local_execution: true });
+  app.decorate("pairedLocalExecution", { agent_id: agentId, execution_protocol_version: 1, local_execution: true, parameter_expressions_v1: true });
   await registerPairedLocalBrowserBridgeRoutes(app, { origin, apiOrigin, token, agentId });
   const records = new Map<string, Receipt>();
   const active = new Map<string, AbortController>();
@@ -252,7 +252,7 @@ export async function registerPairedLocalExecutionRoutes(app: FastifyInstance, o
     }
     if (closing || active.size + accepting.size >= 4) throw Object.assign(new Error("Four local executions are already active. Wait for one to finish before starting another."), { statusCode: 429 });
     const response = await requestEngineService<Claim>({ url: input.claim_url, service: "HelloTest local execution claim", timeoutMs: 15000, maxResponseBytes: 16 * 1024 * 1024,
-      init: { method: "POST", headers: { authorization: `Bearer ${input.grant_token}`, "x-hellotest-local-agent-id": agentId, "content-type": "application/json" }, body: JSON.stringify({ agent_id: agentId }) } });
+      init: { method: "POST", headers: { authorization: `Bearer ${input.grant_token}`, "x-hellotest-local-agent-id": agentId, "x-hellotest-local-agent-capabilities": "parameter_expressions_v1", "content-type": "application/json" }, body: JSON.stringify({ agent_id: agentId }) } });
     if (response.execution_id !== input.execution_id || !idPattern.test(response.dispatch_id) || !Number.isFinite(Date.parse(response.expires_at)) || Date.parse(response.expires_at) <= Date.now()
       || !Array.isArray(response.envelopes) || !response.envelopes.length || response.envelopes.length > maxRuns) throw new Error("The HelloTest API returned an invalid or expired local execution claim.");
     const seen = new Set<string>(); let stepCount = 0;
@@ -313,5 +313,5 @@ export async function registerPairedLocalExecutionRoutes(app: FastifyInstance, o
     try { await Promise.race([Promise.allSettled([...operations.values()]), new Promise<void>(resolve => { timeout = setTimeout(resolve, 30000); })]); }
     finally { if (timeout) clearTimeout(timeout); }
   });
-  return { agent_id: agentId, capabilities: { repository_inspection: true, local_execution: true }, execution_protocol_version: 1 };
+  return { agent_id: agentId, capabilities: { repository_inspection: true, local_execution: true, parameter_expressions_v1: true }, execution_protocol_version: 1 };
 }

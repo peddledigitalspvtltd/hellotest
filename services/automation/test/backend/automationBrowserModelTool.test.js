@@ -5,14 +5,16 @@ const { existsSync } = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const path = require('node:path');
 const { projectBrowserModelTool } = require('../../backend/lib/automationBrowserModelContext');
-const fixture = require('../fixtures/automationBrowserAssert.v1.json');
+const fixture = require('../fixtures/automationBrowserAssert.v3.json');
+const priorFieldFixture = require('../fixtures/automationBrowserAssert.v2.json');
+const priorFixture = require('../fixtures/automationBrowserAssert.v1.json');
 const stable = value => Array.isArray(value) ? value.map(stable)
   : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
 const hash = value => createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');
 
 test('the versioned public fixture is the complete pinned native export, including description, schema and annotations', async t => {
   assert.equal(fixture.schema_version, 1);
-  assert.equal(fixture.contract_version, 'hellotest_browser_assert_v1');
+  assert.equal(fixture.contract_version, 'hellotest_browser_assert_v3');
   assert.equal(hash(fixture.tool), fixture.sha256);
   const engineFile = path.resolve(__dirname, '../../../../testengine/backend/dist/lib/automationMcp.js');
   if (!existsSync(engineFile)) { t.skip('Build the pinned TestEngine to compare its native export; fixture/hash behavior is covered independently.'); return; }
@@ -53,6 +55,24 @@ test('changed description, nested schema, annotations, unknown metadata or tool 
   }
 });
 
+test('the reviewed prior native contract stays compact without inventing newer predicate capabilities',()=>{
+  assert.equal(hash(priorFixture.tool),priorFixture.sha256);
+  const original=structuredClone(priorFixture.tool),projected=projectBrowserModelTool(original);
+  assert.notEqual(projected.description,original.description);
+  assert.deepEqual({...projected,description:original.description},original);
+  assert.doesNotMatch(projected.description,/editable:|input_type:/);
+  assert.ok(!projected.inputSchema.properties.assertion.enum.includes('editable'));
+});
+
+test('the prior field-property contract remains compact without inventing frame support',()=>{
+  assert.equal(hash(priorFieldFixture.tool),priorFieldFixture.sha256);
+  const projected=projectBrowserModelTool(priorFieldFixture.tool);
+  assert.notEqual(projected.description,priorFieldFixture.tool.description);
+  assert.deepEqual({...projected,description:priorFieldFixture.tool.description},priorFieldFixture.tool);
+  assert.match(projected.description,/editable:/);
+  assert.equal(projected.inputSchema.properties.frame,undefined);
+});
+
 test('canonical object ordering does not change the bound contract and malformed unknown metadata fails open without rewriting', () => {
   const reordered = Object.fromEntries(Object.entries(fixture.tool).reverse());
   assert.notEqual(projectBrowserModelTool(reordered).description, reordered.description);
@@ -66,5 +86,7 @@ test('concise native description retains assertion subjects, exactness, error-as
   for (const clause of [/read-only/, /inputSchema/, /hidden permits zero/, /count permits many/, /text\/text_contains/, /visible innerText/, /whole target/, /descendant buttons/, /not ARIA labels/,
     /authored equality/, /authored fragment/, /volatile IDs/, /Snapshot text is a textContent excerpt/, /native DOM text incl hidden children/, /value\/url\/title exact/, /literal same-origin substring/,
     /title_normalized native whitespace/, /validity\.valid with willValidate=true/, /field_valid/, /visible native value-entry input\/textarea\/select/, /aria-invalid absent\/false/, /aria-errormessage/, /aria-describedby role=alert/,
-    /unique same-root IDs/, /max32 IDs\/256 chars/, /otherwise unsupported/, /No events or submission/, /Does not prove server\/business\/form-wide success/, /absence of all application errors/, /passed test run/, /Values withheld/]) assert.match(description, clause);
+    /unique same-root IDs/, /max32 IDs\/256 chars/, /otherwise unsupported/, /editable: native Playwright editability/, /disabled\/readonly fail/, /enabled alone is insufficient/,
+    /input_type: one native HTML input effective type property/, /absent\/invalid defaults text/, /browser normalizes actual type casing/, /expected string remains exact/, /Non-input unsupported/,
+    /No events or submission/, /Does not prove server\/business\/form-wide success/, /absence of all application errors/, /passed test run/, /Values withheld/]) assert.match(description, clause);
 });

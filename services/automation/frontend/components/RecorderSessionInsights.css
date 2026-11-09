@@ -1,0 +1,66 @@
+.automation-agent-workspace:has(> .automation-recording-workspace),
+.automation-recording-workspace {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.automation-recording-workspace > * { min-width: 0; }
+.automation-recording-workspace > .automation-plan-behavior-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 560px) {
+  .automation-recording-workspace > .automation-plan-behavior-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
+.recorder-insights-grid.recorder-session-insights {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  align-items: start;
+  min-width: 0;
+}
+
+.recorder-insight-panel {
+  align-content: start;
+  max-width: 100%;
+}
+
+.recorder-insight-panel .recorder-insight-list {
+  grid-auto-rows: max-content;
+  align-content: start;
+}
+
+.recorder-insight-panel .recorder-insight-list .recorder-insight-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.recorder-insight-action .recorder-insight-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.recorder-insight-action .execution-operation-json {
+  margin: 0;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.recorder-insight-action .recorder-insight-binding {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+
+.recorder-insight-binding .form-field { margin: 0; min-width: 0; }
+.recorder-insight-binding > button { justify-self: start; }
+.recorder-binding-create { display: grid; gap: 8px; min-width: 0; }
+
+.recorder-insight-binding select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}

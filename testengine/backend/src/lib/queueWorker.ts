@@ -2,6 +2,7 @@ import { automationStepOptions, optionalStepFailureNote } from "./automationStep
 import { buildAcceptedRun } from "./pipeline.js";
 import {
   completeQueuedJobWithMetadata,
+  heartbeatQueuedJob,
   isHelloTestQueueConfigured,
   leaseNextQueuedJob,
   reportQueuedStep,
@@ -19,6 +20,7 @@ import {
 import type { EngineQueuedJob, EngineRunStep, EngineRunHook } from "../contracts/hellotest.js";
 import { registerContextValue } from "./runtimeContext.js";
 import { createExecutionOutputRedactor } from "./executionOutputRedaction.js";
+import { createQueueExecutionControl } from "./queueExecutionControl.js";
 
 type Logger = {
   info: (message: unknown, ...args: unknown[]) => void;
@@ -277,7 +279,8 @@ export async function executeQueuedJob(
   job: EngineQueuedJob,
   workerId: string,
   logger: Logger,
-  telemetry?: OpsTelemetrySink
+  telemetry?: OpsTelemetrySink,
+  options: { signal?: AbortSignal; controlIntervalMs?: number; timeoutMs?: number } = {}
 ) {
   const envelope = {
     ...job.payload,
@@ -305,11 +308,14 @@ export async function executeQueuedJob(
   };
   const executeApiStep = async (step: EngineRunStep) => {
     try {
-      const result = await executeApiStepInEngine(envelope, step, capturedValues);
+      control.signal.throwIfAborted();
+      const result = await executeApiStepInEngine(envelope, step, capturedValues, control.signal);
+      control.signal.throwIfAborted();
       return automationStepOptions(step).optional && result.status === "failed"
         ? { ...result, status: "skipped" as const, note: optionalStepFailureNote(result.note), captures: {} }
         : result;
     } catch (error) {
+      control.signal.throwIfAborted();
       if (!automationStepOptions(step).optional) throw error;
       return { status: "skipped" as const, note: optionalStepFailureNote(error instanceof Error ? error.message : "API execution failed."), captures: {}, evidence: null, detail: null };
     }
@@ -317,11 +323,14 @@ export async function executeQueuedJob(
   const executeWebStep = async (step: EngineRunStep) => {
     if (!webRunSession) throw new Error("Web session is unavailable.");
     try {
+      control.signal.throwIfAborted();
       const result = await webRunSession.runStep(step);
+      control.signal.throwIfAborted();
       return automationStepOptions(step).optional && result.status === "failed"
         ? { ...result, status: "skipped" as const, note: optionalStepFailureNote(result.note), captures: {} }
         : result;
     } catch (error) {
+      control.signal.throwIfAborted();
       if (!automationStepOptions(step).optional) throw error;
       return { status: "skipped" as const, note: optionalStepFailureNote(error instanceof Error ? error.message : "Web execution failed."), captures: {}, evidence: null, web_detail: undefined, line_results: [], recovery_attempted: false, recovery_succeeded: false };
     }
@@ -341,7 +350,7 @@ export async function executeQueuedJob(
     }
     // Captures are also the authenticated resume protocol. Keep that transport
     // raw; the API persists its redacted public projection separately.
-    const publicPayload = {...redactOutput(payload), captures: payload.captures};
+    const publicPayload = {...redactOutput(payload), captures: payload.captures, worker_id: workerId};
     const reportPromise = reportChain.then(() => reportQueuedStep(job.id, stepId, publicPayload))
       .then((report) => {
         syncCapturedValuesToWebContext(report.captures, webRunSession);
@@ -369,20 +378,32 @@ export async function executeQueuedJob(
     if (reportFailure) throw new Error("Unable to persist all step results to HelloTest. This run cannot be marked passed.");
   };
   let webRunSessionStopped = false;
+  let webStartupFinished = false;
+  let webStopPromise: Promise<Record<string, unknown>> | null = null;
   let currentStep: EngineRunStep | null = null;
   const stopWebRunSession = async (finalStatus?: "passed" | "failed" | "blocked") => {
-    if (!webRunSession || webRunSessionStopped) {
+    if (webStopPromise) return webStopPromise;
+    if (!webRunSession) {
       return {};
     }
 
     webRunSessionStopped = true;
-    try {
-      return await webRunSession.stop(finalStatus);
-    } catch (error) {
+    webStopPromise = webRunSession.stop(finalStatus).catch(error => {
       logger.error({ error, jobId: job.id }, "Unable to finalize web automation artifacts");
       return {};
-    }
+    });
+    return webStopPromise;
   };
+  const control = createQueueExecutionControl({
+    authorize: signal => heartbeatQueuedJob(job.id, workerId, signal),
+    signal: options.signal,
+    timeoutMs: options.timeoutMs ?? Math.max(1000, (envelope.run_timeout_seconds || 300) * 1000),
+    intervalMs: options.controlIntervalMs,
+    onAbort: () => {
+      if (webStartupFinished) void stopWebRunSession("blocked").catch(() => undefined);
+      void mobileRunSession.close().catch(() => undefined);
+    }
+  });
 
   let hookFailure: "failed" | "blocked" | null = null;
   let postHooksRun = false;
@@ -391,6 +412,8 @@ export async function executeQueuedJob(
       if (hook.scope !== "test") throw new Error(`Hook "${hook.name}" uses ${hook.scope} scope, which requires coordinated scheduling. Use Before Test or After Test for this case.`);
       if (!hook.steps?.length) throw new Error(`Hook "${hook.name}" has no executable snapshot. Select a hook case included in this run.`);
       for (const source of [...hook.steps].sort((a, b) => a.order - b.order)) {
+        await flushStepReports();
+        await control.check();
         const step = { ...source, id: `${hook.scope}:${hook.phase}:${hook.id}:${source.id}` };
         let payload: Parameters<typeof reportQueuedStep>[2];
         try {
@@ -403,10 +426,11 @@ export async function executeQueuedJob(
             const result = await executeWebStep(step);
             payload = { status: result.status, note: result.note, evidence: result.evidence, web_detail: result.web_detail, captures: result.captures, automation_detail: { ...buildAutomationDetail(step, result.status === "skipped" ? "failed" : result.status, result.note, webRunSession.provider), line_results: result.line_results } };
           } else if (step.step_type === "android" || step.step_type === "ios") {
-            const result = (await mobileRunSession.run([step], capturedValues)).results[0];
+            const result = (await mobileRunSession.run([step], capturedValues, control.signal)).results[0];
+            control.signal.throwIfAborted();
             payload = result ? { status: result.status, note: result.note, evidence: result.evidence, captures: result.captures } : { status: "blocked", note: "Mobile hook returned no result." };
           } else throw new Error(`Unsupported hook runtime ${step.step_type}`);
-        } catch (error) { payload = { status: "failed", note: error instanceof Error ? error.message : "Hook failed" }; }
+        } catch (error) { control.signal.throwIfAborted(); payload = { status: "failed", note: error instanceof Error ? error.message : "Hook failed" }; }
         if (automationStepOptions(step).optional && payload.status === "failed") {
           payload = { ...payload, status: "skipped", note: optionalStepFailureNote(payload.note), captures: {} };
         }
@@ -437,15 +461,22 @@ ${payload.note || ""}`;
     }
     return stopWebRunSession(status === "failed" ? status : hookFailure || status);
   };
-  const completeJob = (id: string, payload: Parameters<typeof completeQueuedJobWithMetadata>[1]) => completeQueuedJobWithMetadata(id, redactOutput({
+  const completeJob = async (id: string, payload: Parameters<typeof completeQueuedJobWithMetadata>[1]) => {
+    if (control.authorityLost) control.signal.throwIfAborted();
+    if (!control.signal.aborted) await control.check();
+    return completeQueuedJobWithMetadata(id, {...redactOutput({
     ...payload,
     ...(hookFailure && payload.status !== "failed" ? { status: hookFailure, error: "A configured execution hook failed. Inspect hook results.", summary: "A configured execution hook failed. Inspect hook results." } : {})
-  }));
+    }), worker_id: workerId});
+  };
 
   let executionStarted = false;
+  let applicationStarted = false;
   try {
     await startQueuedJob(job.id, workerId);
     executionStarted = true;
+    control.start();
+    await control.check();
     updateRunState(accepted.id, "running", `Leased ${job.test_case_title} from HelloTest queue.`);
     emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
       event_type: "testengine.queue.job.started",
@@ -492,10 +523,13 @@ ${payload.note || ""}`;
       return;
     }
 
+    applicationStarted = true;
     if (webRunSession) {
       try {
-        await webRunSession.start();
+        try { await webRunSession.start(); } finally { webStartupFinished = true; }
+        control.signal.throwIfAborted();
       } catch (error) {
+        if (control.signal.aborted) throw control.signal.reason;
         const message = formatWorkerErrorMessage(error, `${job.test_case_title} could not start the web automation session.`);
         const startupStep = remainingSteps.find((step) => step.step_type === "web");
         const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await finalizeArtifacts("failed"));
@@ -548,6 +582,8 @@ ${payload.note || ""}`;
 
     const mobileResultsByStepId = new Map<string, MobileExecutionResult["results"][number]>();
     for (const [index, step] of remainingSteps.entries()) {
+      await flushStepReports();
+      await control.check();
       currentStep = step;
       updateRunState(
         accepted.id,
@@ -625,7 +661,8 @@ ${payload.note || ""}`;
               mobileResultsByStepId.set(mobileStep.id, { step_id: mobileStep.id, status: "blocked", note: message });
             }
           } else {
-            const mobileResult = await mobileRunSession.run(mobileBlock, capturedValues);
+            const mobileResult = await mobileRunSession.run(mobileBlock, capturedValues, control.signal);
+            control.signal.throwIfAborted();
             for (const mobileStep of mobileBlock) {
               mobileResultsByStepId.set(mobileStep.id, {
                 step_id: mobileStep.id,
@@ -794,7 +831,12 @@ ${payload.note || ""}`;
       logger.error({ error, jobId: job.id }, "Queued job start was not authorized; no sections or hooks executed");
       return;
     }
-    const message = formatWorkerErrorMessage(error, `${job.test_case_title} failed in queue worker.`);
+    if (control.authorityLost) {
+      updateRunState(accepted.id, "incident", "The queued execution stopped because current run and worker authority could not be confirmed. Check the run status and API connection before retrying. No further application actions were dispatched.");
+      logger.info({ jobId: job.id }, "Queued execution stopped after loss of authority");
+      return;
+    }
+    const message = formatWorkerErrorMessage(control.signal.aborted ? control.signal.reason : error, `${job.test_case_title} failed in queue worker.`);
     updateRunState(accepted.id, "failed", message);
     emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
       event_type: "testengine.queue.job.crashed",
@@ -805,6 +847,7 @@ ${payload.note || ""}`;
 
     try {
       const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await finalizeArtifacts("failed"));
+      if (control.authorityLost) return;
       if (currentStep && !reportedStepIds.has(currentStep.id)) {
         enqueueStepReport(currentStep.id, {
           status: "failed",
@@ -839,9 +882,11 @@ ${payload.note || ""}`;
       }));
     }
   } finally {
-    if (executionStarted && webRunSession && !webRunSessionStopped) {
+    control.stop();
+    if (executionStarted && applicationStarted && webRunSession && (!webRunSessionStopped || webStopPromise)) {
       try {
-        await finalizeArtifacts();
+        if (control.signal.aborted) await stopWebRunSession("blocked");
+        else await finalizeArtifacts();
       } catch (stopError) {
         logger.error({ error: stopError, jobId: job.id }, "Unable to stop web automation session cleanly");
         emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {

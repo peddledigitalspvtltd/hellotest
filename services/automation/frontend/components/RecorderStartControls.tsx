@@ -184,7 +184,6 @@ export function RecorderStartControls({
                   <PlugIcon size={16} />
                   <span>{checkState === "checking" ? "Checking..." : checkState === "ready" ? "Local ready" : "Check local"}</span>
                 </button>
-                {moreActions}
                 <button
                   className="ghost-button compact"
                   disabled={disabled || isStarting || hasSession}
@@ -200,6 +199,7 @@ export function RecorderStartControls({
                 </button>
               </>
             ) : null}
+        {moreActions}
         <div className="recorder-more-menu" hidden={platform !== "unified" || !mobileAppiumEnabled}>
           <button
             aria-expanded={isMoreOpen}

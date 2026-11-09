@@ -28,6 +28,7 @@ async function fixture(t, options = {}) {
   api.post("/api/local-browser-bridges/:id/result", async (req, reply) => bridge.result ? bridge.result(req, reply) : { accepted: true });
   api.post(`/api/executions/${executionId}/local-dispatch/claim`, async req => {
     claims++; assert.equal(req.headers.authorization, `Bearer ${grant}`); assert.equal(typeof req.body.agent_id, "string");
+    assert.equal(req.headers["x-hellotest-local-agent-capabilities"], "parameter_expressions_v1");
     return { execution_id: executionId, dispatch_id: dispatchId, expires_at: new Date(Date.now() + 60000).toISOString(), envelopes: options.change ? options.change(envelopes) : envelopes };
   });
   api.get(`/api/executions/${executionId}/local-dispatch/control`, async () => ({ execution_id: executionId, cancelled: false }));
@@ -51,6 +52,7 @@ async function fixture(t, options = {}) {
 
 test("paired dispatch executes immutable native envelopes once and signs its real result", async t => {
   const f = await fixture(t);
+  assert.equal(f.capabilities.capabilities.parameter_expressions_v1, true);
   const requests = await Promise.all(Array.from({ length: 3 }, () => f.local.inject({ method: "POST", url: "/api/v1/local-executions", headers: f.headers, payload: f.payload })));
   for (const response of requests) { assert.equal(response.statusCode, 202, response.body); assert.equal(response.json().execution_id, f.executionId); assert.doesNotMatch(response.body, /grant_token|signing_secret|captured-on-user-machine/); }
   const result = await waitFor(async () => { const result = await f.local.inject({ url: `/api/v1/local-executions/${f.executionId}`, headers: f.headers }); return result.json().status === "completed" ? result.json() : null; });
@@ -88,7 +90,7 @@ test("suite captures retain scope, case identity, order and frozen dataset row",
 test("browser MCP relay retains session affinity and retries receipts without replay", async t => {
   const f = await fixture(t);
   const bridgeId = randomUUID(), results = []; let polls = 0, receipts = 0;
-  const commands = [{ id: "initialize-1", method: "initialize", params: { _meta: { hellotest: { start_url: "http://localhost:4567", allow_browser_actions: true } } } }, { id: "tools-1", method: "tools/list" }];
+  const commands = [{ id: "initialize-1", method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "paired-fixture", version: "1" }, _meta: { hellotest: { start_url: "http://localhost:4567", allow_browser_actions: true } } } }, { id: "tools-1", method: "tools/list" }];
   f.bridge.poll = async req => { assert.equal(req.headers["x-hellotest-local-agent-id"], f.capabilities.agent_id); return polls < commands.length ? { state: "open", command: commands[polls++] } : { state: "closed", command: null }; };
   f.bridge.result = async (req, reply) => { receipts++; if (receipts === 1) return reply.code(503).send(); results.push(req.body); return { accepted: true }; };
   const descriptor = { id: bridgeId, token: grant, poll_url: `${f.base}/api/local-browser-bridges/${bridgeId}/poll`, result_url: `${f.base}/api/local-browser-bridges/${bridgeId}/result`, expires_at: new Date(Date.now() + 60000).toISOString() };
@@ -145,7 +147,7 @@ test("local Build Agent verification runs the exact recorded program in a fresh 
   const operations = [{ name: "browser_assert", arguments: { assertion: "visible", locator: 'getByRole("heading", {name:"Local native fixture"})' } }];
   const program = compileRecordedProgram(operations); assert.ok(program);
   const commands = [
-    { id: "verify-init", method: "initialize", params: { _meta: { hellotest: { start_url: `${f.base}/web-target`, allow_browser_actions: false } } } },
+    { id: "verify-init", method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "paired-fixture", version: "1" }, _meta: { hellotest: { start_url: `${f.base}/web-target`, allow_browser_actions: false } } } },
     { id: "verify-native", method: "verification/run", params: { schema_version: 1, verification_id: randomUUID(), lease_token: "private-verification-lease-".repeat(2), start_url: `${f.base}/web-target`,
       sections: [{ step_id: "verified-section", automation_code: program.source, operations }], parameters: {}, timeout_ms: 10000, replay_policy: { mode: "read_only" } } }
   ]; let index = 0;

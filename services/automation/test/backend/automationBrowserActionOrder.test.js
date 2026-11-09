@@ -63,25 +63,26 @@ test('every nonempty current linked action must be narrowly entry-only before th
   assert.ok(inspect({ execution: current }));
 });
 
-test('only an explicitly later host-authored submit action enables this narrow ordering boundary', () => {
+test('current entry-only actions deny submission independently of later goals or their wording', () => {
   for (const future_actions of [[], [{ step_id: 'current', action: 'Submit the form' }], [{ step_id: 'later', action: 'Enter "submit" in a field' }],
     [{ step_id: 'later', action: 'Check the result', expected_result: 'Submit the form' }], [{ action: 'Submit the form' }],
     [{ step_id: 'later', action: 'Envoyer le formulaire' }]])
-    assert.equal(inspect({ execution: execution(undefined, { future_actions }) }), null);
+    assert.ok(inspect({ execution: execution(undefined, { future_actions }) }));
   assert.ok(inspect({ execution: execution(undefined, { future_actions: [{ step_id: 'later', action: 'Please submit the form' }] }) }));
 });
 
-test('current unique validated native targets are required; labels and default button behavior do not authorize inference', () => {
+test('current entry-only actions cannot gain click authority from native types, labels or incomplete target evidence', () => {
   for (const elements of [[], [target(), target()], [target({ locators_validated: false })], [target({ locator_candidates: ['#other'] })],
     [target({ tag: 'div', accessible_role: 'button' })], [target({ attributes: {} })], [target({ attributes: { type: 'button' } })],
-    [target({ truncated_attributes: ['type'] })]]) assert.equal(inspect({ snapshot: snapshot(elements) }), null);
+    [target({ truncated_attributes: ['type'] })]]) assert.ok(inspect({ snapshot: snapshot(elements) }));
 });
 
-test('read-only, keyboard, unsupported snapshots and nonrequired executions are untouched', () => {
-  for (const name of ['browser_assert', 'browser_snapshot', 'browser_fill', 'browser_press_key', 'browser_navigate'])
+test('entry-only sections retain data entry and reads while keyboard submission/navigation cannot bypass them', () => {
+  for (const name of ['browser_assert', 'browser_snapshot', 'browser_fill'])
     assert.equal(inspect({ request: { ...request, name } }), null, name);
-  assert.equal(inspect({ snapshot: { ...snapshot(), mcp_call: false } }), null);
-  assert.equal(inspect({ snapshot: { ...snapshot(), result: { ...snapshot().result, isError: true } } }), null);
-  assert.equal(inspect({ snapshot: { tool: 'browser_assert', result: snapshot().result } }), null);
+  for(const name of ['browser_press_key','browser_navigate'])assert.ok(inspect({request:{...request,name}}),name);
+  assert.ok(inspect({ snapshot: { ...snapshot(), mcp_call: false } }));
+  assert.ok(inspect({ snapshot: { ...snapshot(), result: { ...snapshot().result, isError: true } } }));
+  assert.ok(inspect({ snapshot: { tool: 'browser_assert', result: snapshot().result } }));
   assert.equal(inspect({ execution: execution(undefined, { required: false }) }), null);
 });

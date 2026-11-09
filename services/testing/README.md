@@ -21,6 +21,12 @@ Run `npm run setup` first. Development uses the shared shell; the API requires c
 
 Read [CONTRIBUTING](../../CONTRIBUTING.md) for setup/debugging and [capability packaging](../../docs/architecture/capability-packaging.md) for selection, flags, permissions and release compatibility.
 
+New AI-generated cases default to Run parameters (`@r.name`). Explicit Test,
+Suite and Run scopes are preserved, including legacy proposals and existing
+library cases. After acceptance, Test Params can change a parameter's scope and
+save its values and references together. Linked Data Set and shared-group
+parameters are edited at their source.
+
 ## Bulk bug import
 
 In Defects, **Bug template** and **Import Bugs** sit beside Export. Upload a CSV with Title and Description, review the normalized rows, and import up to 500 bugs / 4 MB. Optional fields cover reproduction, expected/actual results, status, severity, priority, environment/build, people, labels, Sprint/Release/Fix version, root causes, defect type, regression and an external defect key. This workflow creates bugs; it does not update existing records.

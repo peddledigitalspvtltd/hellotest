@@ -21,7 +21,11 @@ async function permit(actor, permission) {
  const flags=require('@hellotest/platform/backend/services/featureFlag.service');
  const required=flags.getFeatureKeysForPermission(permission);
  if(required.length && !await flags.areEnabled(required,{user:actor.user}))throw fail('This feature is disabled.',403,'FEATURE_DISABLED');
- if (!(await permissionService.hasPermission(actor.user, permission, actor.projectId))) throw fail(`Permission required: ${permission}`);
+ if (!(await permissionService.hasPermission(actor.user, permission, actor.projectId))) {
+  const error=fail(`Permission required: ${permission}`);
+  error.permission=permission;
+  throw error;
+ }
 }
 async function issue(user, projectId, clientId = 'external-host', { contextAttribution } = {}) {
  const actor = await principal(user.id, projectId, clientId);

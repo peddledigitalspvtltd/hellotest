@@ -2,6 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createMobileRunSession,executeMobileSteps} from '../dist/lib/mobileEngine.js';
 
+test('native execution observes cancellation before dispatch and during a pending service action',async t=>{
+  const previous=Object.fromEntries(['MOBILE_ENGINE_URL','MOBILE_ENGINE_SHARED_SECRET','NODE_ENV'].map(key=>[key,process.env[key]]));
+  Object.assign(process.env,{MOBILE_ENGINE_URL:'http://native.fixture',MOBILE_ENGINE_SHARED_SECRET:'hellotest-mobile-engine-dev-secret',NODE_ENV:'development'});
+  t.after(()=>{for(const[key,value]of Object.entries(previous))if(value===undefined)delete process.env[key];else process.env[key]=value;});
+  const controller=new AbortController(),envelope={run_timeout_seconds:10},steps=[{id:'native',step_type:'android'}];
+  let dispatched=0;
+  t.mock.method(globalThis,'fetch',async(_input,init)=>{
+    dispatched++;
+    return new Promise((_resolve,reject)=>{
+      init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true});
+      controller.abort(new Error('Run cancelled'));
+    });
+  });
+  const session=createMobileRunSession(envelope);
+  await assert.rejects(session.run(steps,{},controller.signal),{code:'REQUEST_ABORTED'});
+  assert.equal(dispatched,1);
+  await assert.rejects(session.run(steps,{},controller.signal),/Run cancelled/);
+  assert.equal(dispatched,1,'a cancelled attempt cannot dispatch another native action');
+});
+
 test('Unified iOS and Android blocks select separate frozen devices/apps and keep distinct resumable sessions',{concurrency:false},async t=>{
   const previous={fetch:globalThis.fetch,MOBILE_ENGINE_URL:process.env.MOBILE_ENGINE_URL,MOBILE_ENGINE_SHARED_SECRET:process.env.MOBILE_ENGINE_SHARED_SECRET,NODE_ENV:process.env.NODE_ENV};
   Object.assign(process.env,{MOBILE_ENGINE_URL:'http://native.fixture',MOBILE_ENGINE_SHARED_SECRET:'hellotest-mobile-engine-dev-secret',NODE_ENV:'development'});

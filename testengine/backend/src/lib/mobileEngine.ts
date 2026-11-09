@@ -34,8 +34,10 @@ export async function executeMobileSteps(
   envelope: EngineRunEnvelope,
   steps: EngineRunStep[],
   capturedValues: Record<string, string> = {},
-  executionSessionKey?: string
+  executionSessionKey?: string,
+  signal?: AbortSignal
 ) {
+  signal?.throwIfAborted();
   const configuration = resolveMobileEngineClientSecurity();
   if (!configuration.ready || !configuration.baseUrl) {
     throw new Error(configuration.reason || "Mobile Engine is not configured for native execution.");
@@ -55,6 +57,7 @@ export async function executeMobileSteps(
     timeoutMs: Math.min(900_000, Math.max(1000, (envelope.run_timeout_seconds || 300) * 1000)),
     init: {
       method: "POST",
+      signal,
       headers: {
         "content-type": "application/json",
         ...buildMobileEngineRequestHeaders(configuration)
@@ -92,11 +95,12 @@ export const executeAndroidSteps = executeMobileSteps;
 export function createMobileRunSession(envelope: EngineRunEnvelope, onCleanupError: (error: unknown) => void = () => {}) {
   const keys = new Map<string, string>();
   return {
-    async run(steps: EngineRunStep[], captures: Record<string, string> = {}) {
+    async run(steps: EngineRunStep[], captures: Record<string, string> = {}, signal?: AbortSignal) {
+      signal?.throwIfAborted();
       const platform = steps[0]?.step_type;
       if (!platform) throw new Error("Mobile steps are required");
       if (!keys.has(platform)) keys.set(platform, randomUUID());
-      return executeMobileSteps(envelope, steps, captures, keys.get(platform));
+      return executeMobileSteps(envelope, steps, captures, keys.get(platform), signal);
     },
     async close() {
       const configuration = resolveMobileEngineClientSecurity();

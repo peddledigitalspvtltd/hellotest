@@ -3,6 +3,7 @@ const { parseExpressionAt } = require('acorn');
 const { browserReceipt } = require('./automationInteractiveEvidence');
 const { isNativeTextEntryControl } = require('./automationBrowserAssertionSubject');
 const { recordedLocatorSource } = require('./automationRecordedProgram');
+const { validFramePath, framePathKey, snapshotFrameScope } = require('./automationFrameScope');
 
 // Authority belongs to the actual host observation, never a model-supplied map
 // or a JSON copy of a page. Portable locators stay private until dispatch.
@@ -151,6 +152,8 @@ function registry(observation) {
   if (!observation || typeof observation !== 'object' || observation.tool !== 'browser_snapshot' || observation.result?.isError) return null;
   const page = browserReceipt(observation);
   if (!page || typeof page !== 'object' || typeof page.observation_id !== 'string' || !page.observation_id || !Array.isArray(page.elements)) return null;
+  const frameScope = snapshotFrameScope(page);
+  if (!frameScope) return null;
   // Receipts are normally immutable. A replaced receipt on the same object must
   // still invalidate references rather than silently retarget an old action.
   const fingerprint = createHash('sha256').update(JSON.stringify(page)).digest('hex');
@@ -194,17 +197,31 @@ function registry(observation) {
       ...(typeof element.displayed === 'boolean' ? { visible: element.displayed } : {}),
       ...(typeof element.in_viewport === 'boolean' ? { in_viewport: element.in_viewport } : {}),
       ...(typeof element.disabled === 'boolean' ? { disabled: element.disabled } : {}),
+      ...(['input','textarea'].includes(tag.toLowerCase()) && typeof element.readonly === 'boolean' ? { readonly: element.readonly } : {}),
       ...(typeof element.checked === 'boolean' ? { checked: element.checked } : {}),
       ...(isNativeTextEntryControl(element) ? { assertion_subject: 'input_value', preferred_value_assertion: 'value' } : {}),
       ...selectOptions(element) });
     byElement.set(element, targets[targets.length - 1]);
   }
   projectFieldRelationships(page, byElement);
-  const entry = { fingerprint, bindings, aliases, semanticAliases, recordScopes, model: {
+  const frames = [];
+  let framesTruncated = page.frames_truncated === true;
+  for (const row of Array.isArray(page.frames) ? page.frames : []) {
+    if (!validFramePath(row?.path) || row.path.some(part => privacyMask.test(part))) { framesTruncated = true; continue; }
+    try { if (new URL(row.url).origin !== new URL(page.url).origin || privacyMask.test(row.url)) { framesTruncated = true; continue; } } catch { framesTruncated = true; continue; }
+    const candidate = { path: [...row.path], ...textField('url', row.url, 2000), ...textField('title', row.title, 200),
+      ...(typeof row.frame_document_id === 'string' ? { frame_document_id: text(row.frame_document_id, 200) } : {}) };
+    if (frames.length >= 16 || JSON.stringify([...frames, candidate]).length > 8000) { framesTruncated = true; continue; }
+    frames.push(candidate);
+  }
+  const entry = { fingerprint, bindings, aliases, semanticAliases, recordScopes, frameScope, model: {
     ...textField('observation_id', page.observation_id, 160),
     ...textField('url', typeof page.url === 'string' ? page.url : '', 2_000, page.url_truncated),
     ...textField('title', typeof page.title === 'string' ? page.title : '', 200, page.title_truncated),
     scope: text(page.scope, 200), ...pageText(page.accessibility), targets,
+    ...(frameScope.path.length ? { frame_path: [...frameScope.path], frame_url: frameScope.url, frame_document_id: frameScope.document_id } : {}),
+    ...(Array.isArray(page.frames) ? { frames } : {}),
+    ...(framesTruncated ? { frames_truncated: true } : {}),
     ...(page.partial === true || page.elements_truncated === true ? { partial: true } : {}),
     ...(targets.length ? {} : { targets_unavailable: true })
   } };
@@ -220,12 +237,29 @@ function projectModelSnapshot(observation) {
 }
 
 function resolveModelToolRequest(request, observation) {
+  const entry = currentRegistry(observation);
+  const proposedFrame = request?.arguments?.frame;
+  const frameError = () => Object.assign(new Error('Choose only a frame path advertised by the current snapshot. Element operations must retain the current snapshot frame; inspect another frame before using its controls.'), {
+    code: 'AUTOMATION_BROWSER_FRAME_SCOPE_INVALID', action_outcome: 'not_attempted', retry_safe: true
+  });
+  if (request?.name === 'browser_snapshot' && proposedFrame !== undefined) {
+    if (!validFramePath(proposedFrame) || !entry || ![...entry.model.frames || [], ...(entry.frameScope.path.length ? [{ path: entry.frameScope.path }] : [])]
+      .some(row => framePathKey(row.path) === framePathKey(proposedFrame))) throw frameError();
+  } else if (proposedFrame !== undefined && (!validFramePath(proposedFrame) || !entry || framePathKey(proposedFrame) !== framePathKey(entry.frameScope.path))) throw frameError();
+  const pagePredicate = request?.name === 'browser_assert' && ['url', 'url_contains', 'title', 'title_normalized'].includes(request.arguments?.assertion);
+  if (proposedFrame !== undefined && (pagePredicate || request?.name === 'browser_navigate')) throw frameError();
+  // A target ref attests both the element and its document. Never let an
+  // omitted model argument silently redirect a framed control to the parent.
+  const elementScope = typeof request?.arguments?.locator === 'string';
+  if (elementScope && request.arguments.locator.startsWith('ref:') && proposedFrame !== undefined
+    && framePathKey(proposedFrame) !== framePathKey(entry?.frameScope.path)) throw frameError();
+  if (elementScope && !pagePredicate && entry?.frameScope.path.length
+    && (request.name !== 'browser_snapshot' || proposedFrame === undefined)) request = { ...request, arguments: { ...request.arguments, frame: [...entry.frameScope.path] } };
   const locator = request?.arguments?.locator;
   if (typeof locator !== 'string') return request;
   if(!locator.startsWith('ref:')){
     // A formatting-only proposal cannot register its own copied page. Resolve
     // only against validated aliases of the already projected host snapshot.
-    const entry=currentRegistry(observation);
     if(!entry)return request;
     const alias=entry.aliases.get(locator);
     // Preserve explicit absence/count scope. Positive observed-subject work
@@ -237,12 +271,12 @@ function resolveModelToolRequest(request, observation) {
     return captured?{...request,arguments:{...request.arguments,locator:!preserveScope&&entry.recordScopes.get(captured.ref)||captured.locator}}:request;
   }
   if (!/^ref:[a-f0-9]{12}:[1-9]\d{0,2}$/.test(locator)) throw targetError('AUTOMATION_BROWSER_TARGET_REF_INVALID');
-  const entry = registry(observation);
-  if (!entry || !entry.bindings.has(locator)) {
-    const sameEpoch = entry && [...entry.bindings.keys()].some(ref => ref.split(':')[1] === locator.split(':')[1]);
+  const registered = registry(observation);
+  if (!registered || !registered.bindings.has(locator)) {
+    const sameEpoch = registered && [...registered.bindings.keys()].some(ref => ref.split(':')[1] === locator.split(':')[1]);
     throw targetError(sameEpoch ? 'AUTOMATION_BROWSER_TARGET_REF_INVALID' : 'AUTOMATION_BROWSER_TARGET_REF_STALE');
   }
-  return { ...request, arguments: { ...request.arguments, locator: entry.bindings.get(locator) } };
+  return { ...request, arguments: { ...request.arguments, locator: registered.bindings.get(locator) } };
 }
 
 function modelTargetForLocator(locator, observation) {
@@ -281,7 +315,7 @@ function browserBatchTargetEvidence(observation) {
         && !element.truncated_attributes?.some(key => ['id', 'data-testid', 'type', 'placeholder'].includes(key))
         && Object.values(identityAttributes).every(value => value === null || typeof value === 'string' && value.length <= 256) });
   }
-  return { fingerprint: entry.fingerprint, targets };
+  return { fingerprint: entry.fingerprint, frame_identity: entry.frameScope.identity, targets };
 }
 
 /** Private host capture for repository learning. This never registers a copied
@@ -289,6 +323,9 @@ function browserBatchTargetEvidence(observation) {
 function repositoryTargetEvidence(locator, observation) {
   const entry=currentRegistry(observation);
   if(!entry||typeof locator!=='string'||privacyMask.test(locator))return null;
+  // Repository field contracts do not yet persist an iframe path. Keep the
+  // native framed locator in source rather than learning a scope-less object.
+  if(entry.frameScope.path.length)return null;
   const ref=entry.aliases.get(locator)||entry.semanticAliases.get(semanticLocatorKey(locator))?.ref;
   const target=entry.model.targets.find(row=>row.ref===ref);
   if(!target||entry.model.url_truncated||privacyMask.test(entry.model.url))return null;

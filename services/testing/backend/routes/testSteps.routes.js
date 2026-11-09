@@ -29,12 +29,26 @@ const projectTestStepRead = (step, canViewAutomationCode, sourceContext) => canV
   api_request: null,
   automation_source_sha256: null,
   automation_context_sha256: null,
+  automation_instructions: null,
   automation_source_hidden: true
 };
 
 const canReadStepAutomation = async (req, scope) => {
   const access = await getOptionalEvidenceAccess(req.user, scope.projectId, ["automation.code.view"]);
   return access["automation.code.view"] === true;
+};
+
+const withInstructionMappings = async (req,scope,steps) => {
+  try {
+    return await require('@hellotest/automation/backend/services/automationInstructionMapping.service').attachInstructionMappings({
+      steps,projectId:scope.projectId,appTypeId:scope.appTypeId,testCaseId:steps[0]?.test_case_id
+    });
+  } catch (error) {
+    // Readable mappings are optional retained display data. The authoritative
+    // source still renders through the deterministic parser when unavailable.
+    req.log?.warn({err:error},'Automation instruction mapping preview is unavailable.');
+    return steps;
+  }
 };
 
 const requireMobileStepWrite = async (fastify, req, scope, payload, existing = null) => {
@@ -98,7 +112,8 @@ module.exports = async function (fastify) {
     if (test_case_id) {
       const scope = await requireCasePermission(fastify, req, "testcase.view", test_case_id);
       const canViewAutomationCode = await canReadStepAutomation(req, scope);
-      const steps = await service.getTestSteps({ test_case_id });
+      const sourceSteps = await service.getTestSteps({ test_case_id });
+      const steps = canViewAutomationCode ? await withInstructionMappings(req,scope,sourceSteps) : sourceSteps;
       const sourceContext=canViewAutomationCode?automationObjectSourceContexts({steps,caseStartUrl:await service.getTestCaseAutomationStartUrl(test_case_id)}):null;
       return steps.map(step => projectTestStepRead(step, canViewAutomationCode,sourceContext));
     } else if (req.user.role !== "admin") {
@@ -123,7 +138,8 @@ module.exports = async function (fastify) {
     const { step, scope } = await requireStepPermission(fastify, req, "testcase.view", req.params.id);
     const canViewAutomationCode=await canReadStepAutomation(req,scope);
     const sourceContext=canViewAutomationCode?automationObjectSourceContexts({steps:await service.getTestSteps({test_case_id:step.test_case_id}),caseStartUrl:await service.getTestCaseAutomationStartUrl(step.test_case_id)}):null;
-    return projectTestStepRead(step,canViewAutomationCode,sourceContext);
+    const mapped=canViewAutomationCode?(await withInstructionMappings(req,scope,[step]))[0]:step;
+    return projectTestStepRead(mapped,canViewAutomationCode,sourceContext);
   });
 
   fastify.put("/test-steps/:id", async (req) => {

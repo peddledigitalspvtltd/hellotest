@@ -126,7 +126,8 @@ test('earlier saved checkpoints are never appended after their action by the fin
  const priorClick={tool:'browser_click',arguments:click.arguments,execution_step_id:'current',action_id:'confirmed-prior-click',result:receipt({action_outcome:'completed'})};
  stampObservation(priorClick,click);recordBrowserOperation(priorClick,click);state.options.initialObservations.push(priorClick);
  state.options.onPartialBuild=async()=>({generation_complete:false,validation_errors:[{code:'AUTOMATION_GENERATED_ASSERTION_NOT_PRESERVED'}]});
- await assert.rejects(runAutomationBrowserAgent(state.options),error=>error.code==='AUTOMATION_RECORDED_SECTION_VALIDATION_STALLED');
+ await assert.rejects(runAutomationBrowserAgent(state.options),error=>error.code==='AUTOMATION_RETAINED_ASSERTION_ORDER_GAP');
+ assert.equal(state.actors,0,'an impossible earlier checkpoint stops before another model or native request');
  assert.ok(state.calls.every(call=>call.name==='browser_assert'&&call.args.assertion==='url'));
  assert.equal(state.calls.some(call=>call.args.locator==='#alert'),false);
  assert.equal(state.saves.length,0);assert.equal(state.step.automation_code,source);

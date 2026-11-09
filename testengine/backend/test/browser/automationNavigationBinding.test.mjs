@@ -12,8 +12,6 @@ import {createWebRunSession} from '../../dist/lib/webEngine.js';
 const require=createRequire(import.meta.url);
 const {connectAutomationBrowser,runAutomationBrowserAgent}=require('../../../../services/automation/backend/lib/automationBrowserAgent');
 const {createBrowserParameterResolver}=require('../../../../services/automation/backend/lib/automationBrowserParameters');
-const {buildAutomationParameterBindings}=require('../../../../services/automation/backend/lib/automationParameterBindings');
-const {createAutomationInputParameterBinding}=require('../../../../services/automation/backend/lib/automationInputParameterBinding');
 const {recordedSectionRequests}=require('../../../../services/automation/backend/lib/automationBrowserRecording');
 
 test('real MCP bootstrap saves an original navigation reference and the same source replays against two edited absolute URLs',{timeout:90000},async t=>{
@@ -30,8 +28,6 @@ test('real MCP bootstrap saves an original navigation reference and the same sou
   t.after(async()=>{await first.close();await second.close();await rm(root,{recursive:true,force:true});for(const [key,value]of Object.entries(previous))if(value===undefined)delete process.env[key];else process.env[key]=value;});
   const resolver=createBrowserParameterResolver({caseValues:{'t.base_url':firstUrl,'r.unrelated':firstUrl},materialize:false});
   const original={id:'open',source:'section',action:'Open @t.base_url',expected_result:'The page title is Destination ready.'};
-  const bindings=buildAutomationParameterBindings({obligations:[original],referencedParameterNames:resolver.referencedParameterNames});
-  const inputParameterBinding=createAutomationInputParameterBinding({stepId:'open',obligations:[original],bindings,parameterValues:resolver.promptValues,privateParameterNames:resolver.privateParameterNames});
   const browser=await connectAutomationBrowser({integration:{base_url:new URL(firstUrl).origin},startUrl:firstUrl,allowBrowserActions:true});
   t.after(()=>browser.close());
   const rawCall=browser.call,transport=[],observations=[];
@@ -39,7 +35,7 @@ test('real MCP bootstrap saves an original navigation reference and the same sou
   browser.call=async(name,args)=>{const resolved=resolver.resolve(name,args);if(name==='browser_navigate')transport.push({saved:args.url,actual:resolved.url});return rawCall(name,resolved);};
   const execution={required:true,step_id:'open',action:resolver.projectText(original.action),expected_result:original.expected_result,source_obligations:[original],obligations:resolver.projectSteps([original]),navigation_parameter_references:['t.base_url'],semantic_review_required:true};
   let modelCalls=0,saved;
-  const built=await runAutomationBrowserAgent({browser,startUrl:firstUrl,prompt:'Build the original navigation action and verify its title.',actorMode:true,execution,inputParameterBinding,parse:JSON.parse,maxTurns:3,maxCalls:5,
+  const built=await runAutomationBrowserAgent({browser,startUrl:firstUrl,prompt:'Build the original navigation action and verify its title.',actorMode:true,execution,parse:JSON.parse,maxTurns:3,maxCalls:5,
     onObservation:observation=>observations.push(observation),complete:async(_prompt,_remaining,trace)=>{
       modelCalls++;
       return trace?.generationScope==='section_semantic_review'?JSON.stringify({decision:'accept',obligations:[{id:'open',action_operations:[1],assertion_operations:[2]}],issues:[]}):JSON.stringify({stage:'act',step_id:'open',section_complete:true,tool_calls:[{name:'browser_assert',arguments:{assertion:'title',value:'Destination ready'}}]});

@@ -26,7 +26,7 @@ A running image built before this change does not contain the MCP dependency, ro
 2. HelloTest is a built-in server. **Check connection status** verifies SDK tool discovery with your signed-in project identity; no host credential is needed for this check. Results appear directly beside the button, bypass cached responses, and time out explicitly after eight seconds. Open **Connect & inspect**, copy its endpoint, and create a host credential. Copy buttons show “Copied” for two seconds after clipboard success, then restore their original label. Copy the credential immediately; it is not stored in browser persistence or returned in later listings.
 3. Configure an MCP client that supports Streamable HTTP to use that URL with `Authorization: Bearer <credential>`. Clients must send `Accept: application/json, text/event-stream`.
 4. Initialize normally with a supported legacy protocol or use the current SDK's stateless protocol. Discover `tools/list`, `resources/list` and `prompts/list`. Start with `hellotest_capabilities` and `hellotest_database_schema`.
-5. A credential is tied to its signed-in user, project and a unique server-generated host identity, expires after one hour, and can be revoked immediately. Creating a credential requires project read access. User suspension, project access, permissions and feature flags are rechecked during use.
+5. A credential is tied to its signed-in user, project and a unique server-generated host identity, expires after one hour, and can be revoked immediately. Creating a credential requires project read access. A valid Bearer token authenticates that identity; it does not grant every domain permission. User suspension, project access, permissions and feature flags are rechecked during use, and tool errors preserve the missing permission for remediation.
 
 The direct API endpoint is `/mcp`; the browser reverse-proxy endpoint is `/api/mcp`. Set a public URL when connecting from another machine. `Create MCP server` registers an external provider and discovers its tools; it does not provision a remote server or infrastructure.
 
@@ -57,7 +57,7 @@ The direct API endpoint is `/mcp`; the browser reverse-proxy endpoint is `/api/m
 Named list/get tools cover applications, Stories, Test Cases, suites, runs,
 Defects, environments, configurations, releases, Sprints, datasets and workflows,
 plus test modules, schedules, workflow runs, agent definitions, repository runs,
-Knowledge collections and dashboards, with current-project and Knowledge-source detail tools. Named prepare tools cover
+Knowledge collections and dashboards, with current-project and Knowledge-source detail tools. Dedicated Automation Engineer tools prepare and read builds, preview parameter plans, and read saved Test Case steps/code through native authorization. Named prepare tools cover
 Story, Test Case, suite, run and Defect authoring. They appear only when the
 corresponding audited adapter is callable. Lists use bounded database summaries;
 detail tools call native domain APIs and preserve delivery-omission metadata.

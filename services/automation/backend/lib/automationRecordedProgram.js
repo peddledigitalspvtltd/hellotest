@@ -2,7 +2,9 @@ const { parseExpressionAt } = require('acorn');
 const { normalizeParameterKey } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const { nativeConstraintValiditySource } = require('./automationNativeValidity');
 const { fieldValidationStateSource } = require('./automationFieldValidity');
+const { effectiveInputTypeSource } = require('./automationInputType');
 const {compositeParameterSource,hasInvalidParameterTemplate}=require('./automationParameterTemplates');
+const { recordedScopedSelectionLocatorSource } = require('./automationOptionParameterBinding');
 
 const MAX_SOURCE = 64_000, MAX_OPERATIONS = 250, MAX_STRING = 2_000;
 const methods = new Map([
@@ -16,23 +18,34 @@ const actions = new Map([
 ]);
 const conditions = new Map([
   ['visible', 'toBeVisible'], ['hidden', 'toBeHidden'], ['enabled', 'toBeEnabled'],
-  ['disabled', 'toBeDisabled'], ['checked', 'toBeChecked'], ['unchecked', 'not.toBeChecked']
+  ['disabled', 'toBeDisabled'], ['editable', 'toBeEditable'], ['checked', 'toBeChecked'], ['unchecked', 'not.toBeChecked']
 ]);
 const pageAssertions = new Set(['url', 'url_contains', 'title', 'title_normalized']);
-const valueAssertions = new Set(['text', 'text_contains', 'text_content', 'text_content_contains', 'value', 'count', ...pageAssertions]);
+const valueAssertions = new Set(['text', 'text_contains', 'text_content', 'text_content_contains', 'value', 'input_type', 'count', ...pageAssertions]);
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const bounded = value => typeof value === 'string' && value.length <= MAX_STRING;
 const literal = node => node?.type === 'Literal' && typeof node.value === 'string' && !node.regex ? node.value
   : node?.type === 'TemplateLiteral' && node.expressions.length === 0 ? node.quasis[0].value.cooked : null;
 const quoted = value => JSON.stringify(value);
 const normalizeText = value => value.replace(/\s+/g, ' ').trim();
+const validRecordedFramePath = frame => Array.isArray(frame) && frame.length >= 1 && frame.length <= 3
+  && frame.every(selector => bounded(selector) && selector.trim() && !/^(?:page\.)?(?:frameLocator|locator|getBy\w+)\s*\(/.test(selector.trim()));
 
 /** Render the same closed locator grammar as TestEngine's repository resolver.
  * MCP semantic expressions default to exact:true; native Playwright does not.
  * Spell defaults out instead of silently widening a confirmed locator. */
-function recordedLocatorSource(input) {
+function recordedLocatorSource(input, frame) {
+  if (frame !== undefined && !validRecordedFramePath(frame)) return null;
   if (!bounded(input) || !input.trim()) return null;
-  const source = input.trim(), suffix = source.match(/\.(nth\(\s*(\d+)\s*\)|first\(\s*\)|last\(\s*\))$/);
+  let source = input.trim();
+  const scopedSelection = recordedScopedSelectionLocatorSource(source);
+  if (scopedSelection) return scopedSelection.replace(/^page\b/, 'page' + (frame || []).map(selector => `.frameLocator(${quoted(selector)})`).join(''));
+  if (/^(?:page\.)?(?:getByRole|getByLabel|getByPlaceholder|getByText|getByTestId|getByTitle|getByAltText|locator)\s*\(/i.test(source) && source.endsWith(';')) {
+    let parsed;try { parsed = parseExpressionAt(source, 0, { ecmaVersion: 'latest' }); } catch { return null; }
+    if (source.slice(parsed.end).trim() !== ';') return null;
+    source = source.slice(0, parsed.end).trimEnd();
+  }
+  const suffix = source.match(/\.(nth\(\s*(\d+)\s*\)|first\(\s*\)|last\(\s*\))$/);
   const base = suffix ? source.slice(0, suffix.index) : source;
   if (!base.trim()) return null;
   if (suffix && (/\.(?:first|last|nth)\(/.test(base) || suffix[2] !== undefined && Number(suffix[2]) > 2_000)) return null;
@@ -60,11 +73,11 @@ function recordedLocatorSource(input) {
       }
     }
     if (method === 'locator') {
-      if (/^(?:page\.)?(?:getBy\w+|locator)\s*\(/i.test(value.trim()) || /\.(?:first\(\s*\)|last\(\s*\)|nth\(\s*\d+\s*\))$/.test(value.trim())) return null;
+      if (/^(?:page\.)?(?:frameLocator|getBy\w+|locator)\s*\(/i.test(value.trim()) || /\.(?:first\(\s*\)|last\(\s*\)|nth\(\s*\d+\s*\))$/.test(value.trim())) return null;
       result = `page.locator(${quoted(value)})`;
     } else result = `page.${methods.get(method)}(${quoted(value)}${method === 'getbytestid' ? '' : `, ${JSON.stringify(options)}`})`;
   } else {
-    if (/^(?:page\.)?getBy\w+\s*\(/i.test(base)
+    if (/^(?:page\.)?(?:frameLocator|getBy\w+)\s*\(/i.test(base)
       || /^(?:page|playwrightPage)(?:\?\.|\.)?(?:getBy\w+|locator)\s*(?:\?\.)?\s*\(/i.test(base)
       || /^(?:page|playwrightPage)\s*\[\s*["'](?:getBy\w+|locator)["']/i.test(base)
       || /^(?:getBy\w+|locator)\s*\?\./i.test(base)) return null;
@@ -80,7 +93,8 @@ function recordedLocatorSource(input) {
       } else result = `page.locator(${quoted(base.replace(/^xpath=/i, 'xpath='))})`;
     }
   }
-  return result + (suffix ? suffix[2] === undefined ? `.${suffix[1].startsWith('last') ? 'last' : 'first'}()` : `.nth(${Number(suffix[2])})` : '');
+  const root = 'page' + (frame || []).map(selector => `.frameLocator(${quoted(selector)})`).join('');
+  return result.replace(/^page\b/, root) + (suffix ? suffix[2] === undefined ? `.${suffix[1].startsWith('last') ? 'last' : 'first'}()` : `.nth(${Number(suffix[2])})` : '');
 }
 
 function parameterKey(value) {
@@ -105,14 +119,15 @@ const normalizedValueSource = value => parameterKey(value) ? `String(params[${qu
 function assertionSource(args, { target: reusedTarget, readers = {} } = {}) {
   if(['text','text_contains','text_content','text_content_contains','title','title_normalized'].includes(args.assertion)&&hasInvalidParameterTemplate(args.value))return null;
   const page = pageAssertions.has(args.assertion), needsValue = valueAssertions.has(args.assertion);
-  const keys = ['assertion', ...(page ? [] : ['locator']), ...(needsValue ? ['value'] : [])];
+  const keys = ['assertion', ...(page ? [] : ['locator', ...(Object.hasOwn(args, 'frame') ? ['frame'] : [])]), ...(needsValue ? ['value'] : [])];
   if (Object.keys(args).length !== keys.length || keys.some(key => !Object.hasOwn(args, key))) return null;
-  const target = page ? 'page' : reusedTarget || recordedLocatorSource(args.locator);
+  const target = page ? 'page' : reusedTarget || recordedLocatorSource(args.locator, args.frame);
   if (!target) return null;
   const condition = conditions.get(args.assertion);
   if (condition) return `await expect(${target}).${condition}();`;
   if (['valid', 'invalid'].includes(args.assertion)) return `await expect.poll(() => ${target}.evaluate(${readers.native || nativeConstraintValiditySource}), { timeout: 8000 }).toBe(${args.assertion === 'valid'});`;
   if (args.assertion === 'field_valid') return `await expect.poll(() => ${target}.evaluate(${readers.field || fieldValidationStateSource}), { timeout: 8000 }).toBe(true);`;
+  if (args.assertion === 'input_type') return `await expect.poll(() => ${target}.evaluate(${readers.inputType || effectiveInputTypeSource}), { timeout: 8000 }).toBe(${valueSource(args.value)});`;
   if (args.assertion === 'count') {
     if (parameterKey(args.value)) return `await expect(${target}).toHaveCount(Number(params[${quoted(parameterKey(args.value))}]));`;
     if (!/^(?:0|[1-9]\d{0,3})$/.test(args.value) || Number(args.value) > 2_000) return null;
@@ -145,7 +160,7 @@ function compileRecordedProgram(requests, { layout = 'compact' } = {}) {
   if (!Array.isArray(requests) || !requests.length || requests.length > MAX_OPERATIONS) return null;
   const lines = []; let assertionCount = 0;
   for (const request of requests) {
-    if (!record(request) || typeof request.name !== 'string' || !record(request.arguments) || Object.values(request.arguments).some(value => !bounded(value))) return null;
+    if (!record(request) || typeof request.name !== 'string' || !record(request.arguments) || Object.entries(request.arguments).some(([key, value]) => key === 'frame' ? !validRecordedFramePath(value) : !bounded(value))) return null;
     const args = request.arguments; let source;
     if (request.name === 'browser_navigate') {
       if (Object.keys(args).length !== 1 || !Object.hasOwn(args, 'url')) return null;
@@ -153,8 +168,8 @@ function compileRecordedProgram(requests, { layout = 'compact' } = {}) {
       source = `await page.goto(${valueSource(args.url)});`;
     } else if (actions.has(request.name)) {
       const field = request.name === 'browser_press_key' ? 'key' : ['browser_fill', 'browser_select_option'].includes(request.name) ? 'value' : null;
-      if (Object.keys(args).length !== (field ? 2 : 1) || !Object.hasOwn(args, 'locator') || field && !Object.hasOwn(args, field)) return null;
-      const target = recordedLocatorSource(args.locator);
+      if (Object.keys(args).length !== (field ? 2 : 1) + (Object.hasOwn(args, 'frame') ? 1 : 0) || !Object.hasOwn(args, 'locator') || field && !Object.hasOwn(args, field)) return null;
+      const target = recordedLocatorSource(args.locator, args.frame);
       if (!target) return null;
       source = `await ${target}.${actions.get(request.name)}(${field ? valueSource(args[field]) : ''});`;
     } else if (request.name === 'browser_assert') {
@@ -168,13 +183,14 @@ function compileRecordedProgram(requests, { layout = 'compact' } = {}) {
     // Locators are lazy queries, not ElementHandles: one declaration remains
     // safe across rerenders and navigation. Reuse only identical native
     // expressions, never guessed aliases of different observed controls.
-    const counts = new Map(), readerCounts = { native: 0, field: 0 };
+    const counts = new Map(), readerCounts = { native: 0, field: 0, inputType: 0 };
     for (const request of requests) {
-      const target = request.arguments.locator && recordedLocatorSource(request.arguments.locator);
+      const target = request.arguments.locator && recordedLocatorSource(request.arguments.locator, request.arguments.frame);
       if (target) counts.set(target, (counts.get(target) || 0) + 1);
       if (request.name === 'browser_assert') {
         if (['valid', 'invalid'].includes(request.arguments.assertion)) readerCounts.native++;
         if (request.arguments.assertion === 'field_valid') readerCounts.field++;
+        if (request.arguments.assertion === 'input_type') readerCounts.inputType++;
       }
     }
     const declarations = [], targets = new Map(), readers = {};
@@ -185,12 +201,12 @@ function compileRecordedProgram(requests, { layout = 'compact' } = {}) {
     // Keep the exact bounded reader once when more than one field needs it.
     // The closed parser recognizes the complete function AST, not its name.
     for (const [kind, count] of Object.entries(readerCounts)) if (count > 1) {
-      const name = kind === 'native' ? 'readNativeValidity' : 'readFieldValidity';
+      const name = kind === 'native' ? 'readNativeValidity' : kind === 'field' ? 'readFieldValidity' : 'readInputType';
       readers[kind] = name;
-      declarations.push(`const ${name} = ${kind === 'native' ? nativeConstraintValiditySource : fieldValidationStateSource};`);
+      declarations.push(`const ${name} = ${kind === 'native' ? nativeConstraintValiditySource : kind === 'field' ? fieldValidationStateSource : effectiveInputTypeSource};`);
     }
     for (const [index, request] of requests.entries()) {
-      const target = targets.get(recordedLocatorSource(request.arguments.locator));
+      const target = targets.get(recordedLocatorSource(request.arguments.locator, request.arguments.frame));
       if (request.name === 'browser_assert') lines[index] = assertionSource(request.arguments, { target, readers });
       else if (target && actions.has(request.name)) {
         const field = request.name === 'browser_press_key' ? 'key' : ['browser_fill', 'browser_select_option'].includes(request.name) ? 'value' : null;
@@ -204,4 +220,4 @@ function compileRecordedProgram(requests, { layout = 'compact' } = {}) {
   return { source, operation_count: requests.length, assertion_count: assertionCount };
 }
 
-module.exports = { compileRecordedProgram, recordedLocatorSource };
+module.exports = { compileRecordedProgram, recordedLocatorSource, validRecordedFramePath };

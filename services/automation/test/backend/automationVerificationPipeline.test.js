@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {prepareVerificationSections,applyLocatorRepair,runVerificationPipeline,fingerprint,validateVerificationReceipt}=require('../../backend/lib/automationVerificationPipeline');
 const {compileRecordedProgram}=require('../../backend/lib/automationRecordedProgram');
-const {normalizeBuildPipelineOptions}=require('../../backend/lib/automationBuildPipelineOptions');
+const {normalizeBuildPipelineOptions,UPSTREAM_BROWSER_DRIVER,UPSTREAM_BUILD_ENGINE}=require('../../backend/lib/automationBuildPipelineOptions');
 const op=(name,args)=>({name,arguments:args});
 const section=(operations=[op('browser_fill',{locator:'#old',value:'@r.name'}),op('browser_assert',{assertion:'value',locator:'#old',value:'@r.name'})])=>({step_id:'one',action:'Enter the full name',expected_result:'Name is entered',automation_code:compileRecordedProgram(operations).source,operations});
 const snapshot={elements:[{locators_validated:true,locator_candidates:['#full-name']}]};
@@ -12,10 +12,12 @@ const passed={status:'passed',verification_status:'verified',replay_safe:false,c
 const receipt=(request,result)=>({schema_version:1,verification_id:request.verification_id,...(request.execution_driver?{execution_driver:request.execution_driver}:{}),browser:'chromium',duration_ms:10,...result});
 
 test('legacy requests save only; MCP is required and verification needs explicit interaction authorization',()=>{
- assert.deepEqual(normalizeBuildPipelineOptions(),{verification_mode:'generate_only',browser_driver:'mcp',verification_driver:'native'});
+ assert.equal(UPSTREAM_BROWSER_DRIVER,'playwright_mcp_upstream');assert.equal(UPSTREAM_BUILD_ENGINE,'upstream-playwright-v1');
+ assert.deepEqual(normalizeBuildPipelineOptions(),{verification_mode:'generate_only',browser_driver:UPSTREAM_BROWSER_DRIVER,verification_driver:'native'});
+ for(const browser_driver of ['mcp',UPSTREAM_BROWSER_DRIVER])assert.equal(normalizeBuildPipelineOptions({browser_driver}).browser_driver,UPSTREAM_BROWSER_DRIVER);
  assert.throws(()=>normalizeBuildPipelineOptions({browser_driver:'cli'}),{code:'AUTOMATION_BUILD_OPTIONS_INVALID'});
  assert.throws(()=>normalizeBuildPipelineOptions({verification_mode:'verify'}),{code:'AUTOMATION_VERIFICATION_REQUIRES_BROWSER_ACTIONS'});
- assert.deepEqual(normalizeBuildPipelineOptions({verification_mode:'verify',verification_driver:'playwright_test_cli',allow_browser_actions:true}),{verification_mode:'verify',verification_driver:'playwright_test_cli',browser_driver:'mcp'});
+ assert.deepEqual(normalizeBuildPipelineOptions({verification_mode:'verify',verification_driver:'playwright_test_cli',allow_browser_actions:true}),{verification_mode:'verify',verification_driver:'playwright_test_cli',browser_driver:UPSTREAM_BROWSER_DRIVER});
  assert.throws(()=>normalizeBuildPipelineOptions({verification_mode:'verify',verification_driver:'cli',allow_browser_actions:true}),{code:'AUTOMATION_BUILD_OPTIONS_INVALID'});
  assert.equal(normalizeBuildPipelineOptions({verification_driver:'playwright_test_cli'}).verification_driver,'native','save-only cannot select an executable lane');
 });
@@ -177,4 +179,39 @@ test('diagnosis receives copies and cannot replace the sealed operation ledger o
   diagnose:({sections,snapshot,failure})=>{sections[0].operations[0].arguments.value='changed';snapshot.elements[0].locator_candidates.push('#invented');failure.operation_index=2;return {...proposal,locator:'#invented'};},
   commitRepair:()=>assert.fail('model mutated authoritative data')});
  assert.equal(result.status,'blocked');assert.equal(result.error_code,'AUTOMATION_VERIFICATION_REPAIR_INVALID');assert.equal(runs,1);assert.equal(JSON.stringify(rows),original);
+});
+
+test('uncertain, timed out and cancelled worker outcomes remain explicit without model repair or replay',async()=>{
+ for(const status of ['unknown','timed_out','cancelled']){
+  let runs=0;const result=await runVerificationPipeline({mode:'verify_repair',sections:[section()],parameters:{},
+   run:async request=>{runs++;return receipt(request,{...failed,status,replay_safe:false,
+    failure:{...failure,code:status==='unknown'?'AUTOMATION_VERIFICATION_OUTCOME_UNKNOWN':'AUTOMATION_VERIFICATION_STOPPED',action_outcome:status==='unknown'?'unknown':'not_attempted'}});},
+   diagnose:()=>assert.fail('stopped execution reached a repair model'),commitRepair:()=>assert.fail('stopped execution saved source')});
+  assert.equal(result.status,'blocked');assert.equal(result.execution_status,status);assert.equal(result.replay_safe,false);
+  assert.match(result.message,/reconcile this run/);assert.match(result.message,/no automatic replay/);assert.equal(runs,1);
+ }
+});
+
+test('an unknown bounded-repair rerun retains original source and reports reconciliation instead of assertion failure',async()=>{
+ const original=[section()];let runs=0;
+ const result=await runVerificationPipeline({mode:'verify_repair',sections:original,parameters:{},run:async request=>{
+  runs++;return receipt(request,runs===1?failed:{...failed,status:'unknown',replay_safe:false,
+   failure:{...failure,code:'AUTOMATION_VERIFICATION_OUTCOME_UNKNOWN',action_outcome:'unknown'}});
+ },diagnose:async()=>proposal,commitRepair:()=>assert.fail('unknown candidate saved source')});
+ assert.equal(runs,2);assert.equal(result.status,'blocked');assert.equal(result.execution_status,'unknown');
+ assert.equal(result.source_fingerprint,fingerprint(original));assert.match(result.message,/Original saved instructions were retained/);
+});
+
+test('verification cancellation is enforced before dispatch, diagnosis and source commit even without a custom freshness guard',async()=>{
+ for(const boundary of ['before_dispatch','after_receipt','before_commit']){
+  const controller=new AbortController(),reason=new Error(`Cancelled at ${boundary}`);let runs=0,models=0,writes=0;
+  if(boundary==='before_dispatch')controller.abort(reason);
+  await assert.rejects(runVerificationPipeline({mode:'verify_repair',sections:[section()],parameters:{},signal:controller.signal,
+   run:async request=>{runs++;if(boundary==='after_receipt')controller.abort(reason);return receipt(request,runs===1?failed:passed);},
+   onProgress:async summary=>{if(boundary==='before_commit'&&summary.phase==='rerun')controller.abort(reason);},
+   diagnose:async()=>{models++;return proposal;},commitRepair:async()=>{writes++;}
+  }),reason);
+  assert.equal(writes,0);assert.equal(runs,boundary==='before_dispatch'?0:1);
+  assert.equal(models,boundary==='before_commit'?1:0);
+ }
 });

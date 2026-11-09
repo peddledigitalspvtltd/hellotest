@@ -44,7 +44,7 @@ module.exports = async function (fastify) {
     await fastify.authenticateTestEngine(req);
 
     fastify.validate({
-      worker_id: { required: false, type: "string" }
+      worker_id: { required: true, type: "string" }
     }, req.body || {});
 
     return service.startQueuedJob({
@@ -53,12 +53,20 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.post("/testengine/internal/jobs/:id/heartbeat", async (req) => {
+    await fastify.authenticateTestEngine(req);
+    fastify.validate({ worker_id: { required: true, type: "string" } }, req.body || {});
+    return service.heartbeatQueuedJob({ job_id: req.params.id, worker_id: req.body?.worker_id });
+  });
+
   fastify.post("/testengine/internal/jobs/:id/steps/:stepId/execute", async (req) => {
     await fastify.authenticateTestEngine(req);
+    fastify.validate({ worker_id: { required: false, type: "string" } }, req.body || {});
 
     return service.executeQueuedApiStep({
       job_id: req.params.id,
-      step_id: req.params.stepId
+      step_id: req.params.stepId,
+      worker_id: req.body?.worker_id
     });
   });
 
@@ -68,6 +76,7 @@ module.exports = async function (fastify) {
     await fastify.authenticateTestEngine(req);
 
     fastify.validate({
+      worker_id: { required: false, type: "string" },
       status: { required: true, type: "string" },
       note: { required: false, type: "string" },
       evidence: { required: false, type: "object" },
@@ -81,6 +90,7 @@ module.exports = async function (fastify) {
 
     return service.reportQueuedStep({
       job_id: req.params.id,
+      worker_id: req.body?.worker_id,
       step_id: req.params.stepId,
       status: req.body?.status,
       note: req.body?.note,
@@ -100,6 +110,7 @@ module.exports = async function (fastify) {
     await fastify.authenticateTestEngine(req);
 
     fastify.validate({
+      worker_id: { required: false, type: "string" },
       status: { required: false, type: "string" },
       error: { required: false, type: "string" },
       summary: { required: false, type: "string" },
@@ -112,6 +123,7 @@ module.exports = async function (fastify) {
 
     return service.completeQueuedJob({
       job_id: req.params.id,
+      worker_id: req.body?.worker_id,
       status: req.body?.status,
       error: req.body?.error,
       summary: req.body?.summary,

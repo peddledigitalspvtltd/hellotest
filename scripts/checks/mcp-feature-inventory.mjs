@@ -90,6 +90,11 @@ const families=[...new Set(operations.map(operation=>operation.family))].sort().
 });
 const failures=[];
 const dedicatedTools=[
+ {tool:'hellotest_automation_engineer_prepare',family:'automation',native_operations:['POST /test-cases/:id/automation/generator-jobs'],purpose:'Prepare an immutable reviewed call to the shared Automation Engineer domain service and durable generation queue.'},
+ {tool:'hellotest_automation_parameter_plan_prepare',family:'automation',native_operations:['POST /test-cases/:id/automation/parameter-plan'],purpose:'Review the native Automation Engineer parameter resolution and pin the later build to a parameter_plan_key.'},
+ {tool:'hellotest_automation_engineer_status',family:'automation',native_operations:['GET /test-cases/automation/jobs/:transactionId'],purpose:'Reconcile the original project-scoped Automation Engineer transaction without treating generation as a passing execution.'},
+ {tool:'hellotest_automation_parameter_plan_prepare',family:'automation',native_operations:['POST /test-cases/:id/automation/parameter-plan'],purpose:'Review the native Automation Engineer parameter resolution and pin the later build to a parameter_plan_key.'},
+ {tool:'hellotest_test_case_steps_get',family:'test_steps',native_operations:['GET /test-steps'],purpose:'Read saved Test Case steps and generated automation code through native testcase and automation-code permissions.'},
  {tool:'hellotest_context_build',family:'knowledge',native_operations:['POST /v1/context/retrieve','POST /knowledge/search'],purpose:'Bounded project evidence retrieval with fresh source ACL, source versions, delivery budgets and citations.'},
  {tool:'hellotest_knowledge_fetch',family:'knowledge',native_operations:['GET /knowledge/sources/:id'],purpose:'Fetch an exact immutable indexed fragment and pin its document/version hash.'},
  {tool:'hellotest_graph_schema',family:'knowledge_graph',native_operations:['GET /projects/:project_id/knowledge/graph'],purpose:'Describe supported graph kinds, provenance and traversal limits.'},
@@ -100,8 +105,9 @@ const dedicatedTools=[
  {tool:'hellotest_context_graph_explore',family:'context_graph',native_operations:['POST /projects/:project_id/knowledge/context-graph/explore'],purpose:'Read the recorded task/evidence/decision overlay with fresh source authorization and exact version checks.'}
 ];
 const serverSource=readFileSync(resolve(root,'services/mcp/backend/mcpServer.js'),'utf8');
+const domainToolsSource=readFileSync(resolve(root,'services/mcp/backend/domainTools.js'),'utf8');
 for(const entry of dedicatedTools){
- if(!serverSource.includes(entry.tool+':'))failures.push(`${entry.tool}: dedicated feature wrapper is missing from the MCP server.`);
+ if(!serverSource.includes(entry.tool+':')&&!domainToolsSource.includes('result.'+entry.tool+'='))failures.push(`${entry.tool}: dedicated feature wrapper is missing from the MCP server.`);
  for(const operation of entry.native_operations)if(!sources.has(operation))failures.push(`${entry.tool}: native feature source ${operation} is missing.`);
 }
 const projections=Object.entries(projectionDefinitions).map(([entity,definition])=>({entity,table:definition.table,database_source:definition.database||'application',permission:definition.permission,fields:definition.fields,fixed_project_scope:true,derived_fields:Object.keys(definition.expressions||{})}));

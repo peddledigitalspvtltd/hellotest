@@ -13,22 +13,39 @@ async function runVerificationPipeline({ mode = 'generate_only', driver = 'mcp',
     let summary = { mode, status: 'not_requested', phase: 'complete', attempts, repair_count: repairs, driver, execution_driver: executionDriver, browser: 'chromium', source_fingerprint: fingerprint(current), message: 'Instructions are saved; a separate run has not been requested.' };
     if (mode === 'generate_only')
         return summary;
+    const assertActiveCurrent = async () => {
+        signal?.throwIfAborted();
+        await assertCurrent();
+        signal?.throwIfAborted();
+    };
     const report = async (status, phase, message, extra = {}) => { summary = { ...summary, status, phase, message, attempts, repair_count: repairs, ...extra }; await onProgress(structuredClone(summary)); };
     const execute = async (policy) => {
-        await assertCurrent();
+        await assertActiveCurrent();
         attempts++;
         const verificationId = randomUUID();
         await report('running', attempts === 1 ? 'verify' : 'rerun', attempts === 1 ? 'Running the saved instructions in a fresh browser.' : 'Running the bounded locator repair in a fresh browser.', { verification_id: verificationId });
         // Resolve read-only transport dependencies before the final freshness
         // check. Progress persistence and integration lookup can both await.
         const dispatch = prepareRun ? await prepareRun() : run;
-        await assertCurrent();
+        await assertActiveCurrent();
         const receipt = await dispatch({ schema_version: 1, verification_id: verificationId, lease_token: randomUUID(), start_url: startUrl, execution_driver: executionDriver, parameters: structuredClone(parameters), sections: current.map(({ step_id, automation_code, operations }) => ({ step_id, automation_code, operations })), timeout_ms: 60000, replay_policy: policy });
-        await assertCurrent();
+        await assertActiveCurrent();
         validateVerificationReceipt(receipt, verificationId, current, executionDriver);
         const failure = receipt.failure;
-        summary = { ...summary, completed_operations: Number(receipt.completed_operations) || 0, assertion_count: Number(receipt.assertion_count) || 0, duration_ms: Number(receipt.duration_ms) || 0, ...(failure ? { failure: { step_id: failure.step_id, operation_index: failure.operation_index, code: failure.code, action_outcome: failure.action_outcome } } : { failure: undefined }) };
+        summary = { ...summary, execution_status: receipt.status, replay_safe: receipt.replay_safe, completed_operations: Number(receipt.completed_operations) || 0, assertion_count: Number(receipt.assertion_count) || 0, duration_ms: Number(receipt.duration_ms) || 0, ...(failure ? { failure: { step_id: failure.step_id, operation_index: failure.operation_index, code: failure.code, action_outcome: failure.action_outcome } } : { failure: undefined }) };
         return receipt;
+    };
+    const incompleteResult = receipt => {
+        const uncertain = ['unknown', 'timed_out', 'cancelled'].includes(receipt.status);
+        const original = repairs ? 'Original saved instructions were retained.' : 'Confirmed generation remains saved.';
+        return {
+            status: uncertain || receipt.status === 'skipped' ? 'blocked' : 'failed',
+            message: uncertain
+                ? `The isolated run ${receipt.status === 'cancelled' ? 'was cancelled' : receipt.status === 'timed_out' ? 'timed out' : 'has an unknown outcome'}. Inspect the application and reconcile this run before starting another; no automatic replay was attempted. ${original}`
+                : receipt.status === 'skipped'
+                    ? `The isolated run needs a verified fixture reset before execution. ${original}`
+                    : repairs ? `The repaired candidate did not pass. ${original}` : `The isolated run did not pass. ${original}`
+        };
     };
     try {
         let receipt = await execute({ mode: 'authorized_run', allow_mutations: true });
@@ -37,7 +54,8 @@ async function runVerificationPipeline({ mode = 'generate_only', driver = 'mcp',
             return summary;
         }
         if (mode !== 'verify_repair' || !receipt.failure || ['unknown', 'cancelled', 'timed_out'].includes(receipt.status)) {
-            await report(receipt.status === 'skipped' ? 'blocked' : 'failed', 'complete', 'The isolated run did not pass. Confirmed generation remains saved.');
+            const result = incompleteResult(receipt);
+            await report(result.status, 'complete', result.message);
             return summary;
         }
         const failure = receipt.failure;
@@ -55,7 +73,9 @@ async function runVerificationPipeline({ mode = 'generate_only', driver = 'mcp',
         await report('running', 'diagnose', 'Reviewing the failed operation against its authored requirement and current browser evidence.');
         let proposal;
         try {
+            signal?.throwIfAborted();
             proposal = await diagnose({ sections: structuredClone(current), failure: structuredClone(failure), snapshot: structuredClone(receipt.snapshot) });
+            signal?.throwIfAborted();
         }
         catch (error) {
             if (error instanceof SyntaxError || error?.code === 'AI_INVALID_JSON')
@@ -73,13 +93,15 @@ async function runVerificationPipeline({ mode = 'generate_only', driver = 'mcp',
         await report('running', 'repair', 'Prepared one locator correction while preserving actions, data and assertions.');
         receipt = await execute({ mode: 'authorized_run', allow_mutations: true });
         if (receipt.status === 'passed' && receipt.verification_status === 'verified') {
-            await assertCurrent();
+            await assertActiveCurrent();
             await commitRepair({ before: previous, after: current });
-            await assertCurrent();
+            await assertActiveCurrent();
             await report('passed', 'complete', 'The bounded locator repair passed an isolated run and was saved.', { source_fingerprint: fingerprint(current) });
         }
-        else
-            await report('failed', 'complete', 'The repaired candidate did not pass. Original saved instructions were retained.', { source_fingerprint: fingerprint(previous) });
+        else {
+            const result = incompleteResult(receipt);
+            await report(result.status, 'complete', result.message, { source_fingerprint: fingerprint(previous) });
+        }
         return summary;
     }
     catch (error) {

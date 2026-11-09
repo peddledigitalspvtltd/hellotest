@@ -10,7 +10,7 @@ const { runtimeDependencies } = require("../../../services/agentic/backend/servi
 // the same pipeline. Incomplete packaging fails here instead of on a laptop.
 const names = { recorder: "recorder", security: "testEngineSecurity", inspection_security: "inspectionSecurity", inspection_proxy: "inspectionProxy", repository_locator: "repositoryLocator" };
 const sources = new Map();
-const pending = [...Object.values(names), "pairedLocalExecution"];
+const pending = [...Object.values(names), "pairedLocalExecution", "automationPlaywrightMcp"];
 function imports(source) {
   const found = [];
   const visit = node => {

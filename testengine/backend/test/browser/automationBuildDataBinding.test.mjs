@@ -14,8 +14,6 @@ import {assertTypeScriptExportCompiles} from '../../../../services/automation/te
 const require=createRequire(import.meta.url);
 const {connectAutomationBrowser,runAutomationBrowserAgent}=require('../../../../services/automation/backend/lib/automationBrowserAgent');
 const {createBrowserParameterResolver,referenceKey}=require('../../../../services/automation/backend/lib/automationBrowserParameters');
-const {createAutomationActorContext}=require('../../../../services/automation/backend/lib/automationActorContext');
-const {buildAutomationGoalObligations,goalSourceObligations}=require('../../../../services/automation/backend/lib/automationGoalObligations');
 const {normalizeGeneratedProgram}=require('../../../../services/automation/backend/lib/automationGeneratedProgram');
 const {deriveProgramTools}=require('../../../../services/automation/backend/lib/automationProgramTools');
 const {exactLinearCoverage}=require('../../../../services/automation/backend/lib/automationActionReconciliation');
@@ -87,15 +85,16 @@ test('inherited manual aliases, explicit missing blanks and reviewed overrides s
  const projectedSections=resolver.projectSteps(sections),manualCases=resolver.projectManualCases([source]);
  const observations=[],updates=[];let actorCalls=0,reviewCalls=0,saves=0;
  for(let index=0;index<sections.length;index++){
-  const section=projectedSections[index],activeManualStepIds=[source.steps[index].id];
-  const obligations=buildAutomationGoalObligations({section,manualCases,activeManualStepIds});
-  const sourceObligations=goalSourceObligations({section:sections[index],manualCases:[source],obligations});
+  const section=projectedSections[index];
+  const manualStep=manualCases[0].steps[index],authoredManualStep=source.steps[index];
+  const manualIdentity={id:`manual:manual:${authoredManualStep.id}`,source:'manual_step',manual_test_case_id:'manual',manual_step_id:authoredManualStep.id};
+  const obligations=[{id:section.id,source:'section',action:section.action,expected_result:section.expected_result},{...manualIdentity,action:manualStep.action,expected_result:manualStep.expected_result}];
+  const sourceObligations=[{id:sections[index].id,source:'section',action:sections[index].action,expected_result:sections[index].expected_result},{...manualIdentity,action:authoredManualStep.action,expected_result:authoredManualStep.expected_result}];
   const execution={required:true,step_id:section.id,action:section.action,expected_result:section.expected_result,semantic_review_required:true,obligations,
    source_obligations:sourceObligations,navigation_parameter_references:resolver.referencedParameterNames(sourceObligations)};
-  const taskContext=createAutomationActorContext({canonicalGoals:true,projectText:resolver.projectPrivateText,obligations,task:{start_url:`${origin}/form`,case:resolver.projectCase(testCase),current_section:section,
-   build_context:{parameter_data:{values:resolver.promptValues},linked_manual_cases:manualCases,generation_scope:{mode:'sequential',active_step_id:section.id,active_manual_step_ids:activeManualStepIds}}}});
+  const prompt=JSON.stringify({start_url:`${origin}/form`,current_section:section,required_obligations:obligations,parameter_references:resolver.availableParameterNames});
   const reference=['@name','@r.empty','@t.reviewed'][index],canonical=['@t.name','@r.empty','@t.reviewed'][index];let turn=0,sectionReviews=0;
-  const result=await runAutomationBrowserAgent({browser:session,startUrl:index===0?`${origin}/form`:undefined,initialObservations:observations,execution,taskContext,prompt:taskContext.prompt,
+  const result=await runAutomationBrowserAgent({browser:session,startUrl:index===0?`${origin}/form`:undefined,initialObservations:observations,execution,prompt,
    actorMode:true,generationMode:'sequential',parse:JSON.parse,maxTurns:3,maxCalls:8,onObservation:async observation=>{
     observations.push(observation);
     if(observation.result?.isError){

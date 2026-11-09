@@ -17,6 +17,22 @@ test('engine and host compile the identical closed program, including validation
  for(const rows of cases){const a=compile(rows),b=hostCompile(rows);assert.equal(Boolean(a),Boolean(b));if(a)assert.deepEqual(syntax(parse(a.source,{ecmaVersion:'latest',allowAwaitOutsideFunction:true})),syntax(parse(b.source,{ecmaVersion:'latest',allowAwaitOutsideFunction:true})));}
 });
 
+test('framed source, independent renderer and verification preserve exact path identity and reject tampering atomically',()=>{
+ const frames=[['#outer'],['iframe[name="outer"]','#inner'],['#one','#two','#three']];
+ for(const frame of frames){
+  const rows=[op('browser_fill',{frame,locator:'#name',value:'@r.name'}),op('browser_assert',{frame,assertion:'editable',locator:'#name'}),op('browser_assert',{frame,assertion:'input_type',locator:'#name',value:'text'}),op('browser_assert',{frame,assertion:'value',locator:'#name',value:'@r.name'})];
+  for(const layout of ['compact','inline']){
+   const host=hostCompile(rows,{layout}),engine=compile(rows,{layout});assert.equal(engine.source,host.source);
+   const request=input();request.sections[0]={step_id:'one',automation_code:host.source,operations:structuredClone(rows)};
+   assert.deepEqual(validateAutomationVerificationRequest(request).sections[0].operations,rows);
+   request.sections[0].operations[0].arguments.frame=['#sibling'];
+   assert.throws(()=>validateAutomationVerificationRequest(request),{code:'AUTOMATION_VERIFICATION_CONTRACT_INVALID'});
+  }
+ }
+ for(const frame of [[],['#a','#b','#c','#d'],[''],[null],'#frame'])assert.equal(compile([op('browser_assert',{assertion:'visible',frame,locator:'#name'})]),null);
+ for(const assertion of ['url','url_contains','title','title_normalized'])assert.equal(compile([op('browser_assert',{assertion,frame:['#frame'],value:'https://fixture.test/'})]),null);
+});
+
 test('frozen navigation references validate their current URL and origin before any browser is opened',()=>{
  const request=input();request.parameters['t.base_url']='https://fixture.test/changed';request.sections[0].operations.unshift(op('browser_navigate',{url:'@t.base_url'}));request.sections[0].automation_code=compile(request.sections[0].operations).source;
  assert.equal(validateAutomationVerificationRequest(request).sections[0].operations[0].arguments.url,'@t.base_url');

@@ -1,6 +1,6 @@
 const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const { splitGenerationContext, generationRetrievalQuery } = require('@hellotest/platform/backend/src/utils/aiGenerationContext');
-const { caseOutputSchema, stepOutputSchema, validateNativeArtifactOutput } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
+const { caseOutputSchema, stepOutputSchema, validateNativeArtifactOutput, normalizeGeneratedCaseParameterValues } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { validateAuthoringIntent } = require('@hellotest/platform/backend/src/utils/aiAuthoringIntent');
 const aiLlmSelectionService = require("@hellotest/integration/backend/services/aiLlmSelection.service");
@@ -56,10 +56,10 @@ const normalizeParameterName = (value) => {
     return null;
   }
 
-  const scopedMatch = trimmed.match(/^([tsr])\.(.+)$/i);
-  const rawName = String(scopedMatch?.[2] || trimmed).trim().toLowerCase();
-
-  return rawName || null;
+  // Generated output uses case-owned names, while existing library input may
+  // already contain reviewed Test, Suite and Run defaults with the same name.
+  // Preserve those identities when preparing authoring/rephrase context.
+  return trimmed.toLowerCase() || null;
 };
 
 const normalizeParameterValues = (values = {}) => {
@@ -228,7 +228,7 @@ const normalizePreview = (payload, fallbackStepType, authoringMode = "structured
 
   const description = normalizeRichText(payload?.description);
   if (!description) throw Object.assign(new Error("AI authoring response is missing a description"), { statusCode: 502, code: 'AI_NATIVE_CONTRACT_INVALID' });
-  const parameter_values = normalizeParameterValues(payload.parameter_values);
+  const parameter_values = normalizeGeneratedCaseParameterValues(payload);
 
   if (authoringMode === "gherkin") {
     const gherkin_document = normalizeText(payload?.gherkin_document || payload?.gherkinDocument);

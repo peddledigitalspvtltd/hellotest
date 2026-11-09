@@ -12,6 +12,7 @@ const callbackKey = (row,engineRunId,testCaseId) => derive('execution-callback',
 const receipt = row => ({protocol_version:1,execution_id:row.execution_id,dispatch_id:row.id,
   claim_url:`${publicApiBase(row.application_origin)}/executions/${encodeURIComponent(row.execution_id)}/local-dispatch/claim`,
   grant_token:token(row),expires_at:new Date(row.claim_expires_at).toISOString()});
+const parameterMode = import('../../shared/automationParameterMode.mjs');
 
 function createService(dependencies={}) {
   const store=dependencies.db||db,grants=dependencies.permissions||permissions,access=dependencies.projects||projects,features=dependencies.flags||flags;
@@ -77,6 +78,10 @@ function createService(dependencies={}) {
     const {row,execution}=await resolveGrant(input);
     if(row.state==='cancelled'||execution.status!=='running')throw fail('The local Run is no longer running.',409,'PAIRED_LOCAL_RUN_FINISHED');
     const bundle=open(row.envelope_cipher,aad(row));
+    const {usesExpressionParameterBindings}=await parameterMode;
+    const marked=bundle.envelopes.some(envelope=>[...(envelope.steps||[]),...(envelope.hooks||[]).flatMap(hook=>hook.steps||[])].some(step=>usesExpressionParameterBindings(step.automation_code)));
+    if(marked&&(!Array.isArray(input.agentCapabilities)||!input.agentCapabilities.includes('parameter_expressions_v1')))
+      throw fail('Update the paired local agent from Local agent setup before running this saved native parameter program. Its source requires parameter_expressions_v1; no browser actions were dispatched.',409,'PAIRED_LOCAL_AGENT_UPGRADE_REQUIRED');
     await store.prepare("UPDATE automation_paired_dispatches SET state='claimed',claimed_at=COALESCE(claimed_at,CURRENT_TIMESTAMP) WHERE id=? AND state IN ('pending','claimed')").run(row.id);
     return bundle;
   }

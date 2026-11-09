@@ -5,10 +5,11 @@ const { compileRecordedProgram } = require('./automationRecordedProgram');
 const { referenceKey,parameterReference } = require('./automationBrowserParameters');
 const {parameterTemplateParts}=require('./automationParameterTemplates');
 const { normalizeLegacyFieldValidationSyntax } = require('./automationFieldValidity');
+const { selectionLocatorNameBinding } = require('./automationOptionParameterBinding');
 const { verificationFailure: fail } = require('./automationVerificationContract');
 const syntax = value => Array.isArray(value) ? value.map(syntax) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([key]) => !['start', 'end', 'loc', 'raw'].includes(key)).map(([key, item]) => [key, syntax(item)])) : value;
 const ast = source => syntax(parse(source, { ecmaVersion: 'latest', sourceType: 'module', allowAwaitOutsideFunction: true }));
-function prepareVerificationSections(steps, resolver, { allowLegacyFieldValidationRequirements = false } = {}) {
+function prepareVerificationSections(steps, resolver, { allowLegacyFieldValidationRequirements = false, sourceOnly = false } = {}) {
     if (!Array.isArray(steps) || !steps.length || steps.length > 50)
         throw fail('AUTOMATION_VERIFICATION_UNSUPPORTED', 'Verification supports one to fifty complete linear web sections.');
     const parameters = Object.create(null), sections = [];
@@ -59,7 +60,20 @@ function prepareVerificationSections(steps, resolver, { allowLegacyFieldValidati
         const inline = compileRecordedProgram(operations, { layout: 'inline' });
         if (!isDeepStrictEqual(comparableSource, ast(compiled.source)) && (!inline || !isDeepStrictEqual(comparableSource, ast(inline.source))))
             throw fail('AUTOMATION_VERIFICATION_UNSUPPORTED', 'The saved instructions are outside the closed, faithfully replayable Playwright contract.');
-        for (const operation of operations) {
+        // Retained-contract inspection proves syntax only, without reading or
+        // materializing data. Execution callers always use the strict default.
+        if (!sourceOnly) for (const operation of operations) {
+            const optionBinding = selectionLocatorNameBinding(operation.arguments.locator);
+            if (optionBinding) {
+                // The exact option name is a public selection input, not a
+                // value field or a selector template. Secret/deferred/missing
+                // inputs cannot acquire locator authority through replay.
+                const publicValues = resolver.publicParameterValues;
+                const resolved = publicValues && Object.hasOwn(publicValues, optionBinding.key) ? publicValues[optionBinding.key] : undefined;
+                if (typeof resolved !== 'string' || !resolved.trim() || resolved.length > 2_000)
+                    throw fail('AUTOMATION_VERIFICATION_DATA_MISSING', 'A fixed public option selection input is unavailable.');
+                parameters[optionBinding.key] = resolved;
+            }
             const field = operation.name === 'browser_navigate' ? 'url' : operation.name === 'browser_press_key' ? 'key' : 'value', value = operation.arguments[field], key = referenceKey(value);
             if (key) {
                 const resolved = resolver.resolve(operation.name, operation.arguments)[field];

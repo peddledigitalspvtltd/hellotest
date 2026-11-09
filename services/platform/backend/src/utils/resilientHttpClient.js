@@ -139,6 +139,7 @@ const normalizePolicy = (url, init, options) => {
     attemptTimeoutMs,
     maxResponseBytes: clampInteger(options.maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES, 1_024, 128 * 1024 * 1024),
     bufferResponse: options.bufferResponse !== false,
+    retryAfterAcceptedResponse: options.retryAfterAcceptedResponse !== false,
     throwOnHttpError: options.throwOnHttpError === true,
     maxConcurrent: clampInteger(options.maxConcurrent, DEFAULT_MAX_CONCURRENT, 1, 1_000),
     failureThreshold: clampInteger(options.failureThreshold, DEFAULT_FAILURE_THRESHOLD, 1, 100),
@@ -328,6 +329,7 @@ async function resilientHttpRequest(url, init = {}, options = {}) {
       }, attemptBudgetMs);
       timeout.unref?.();
       state.counters.attempts += 1;
+      let acceptedResponse = false;
 
       try {
         const response = await policy.fetchImpl(policy.url, {
@@ -336,6 +338,7 @@ async function resilientHttpRequest(url, init = {}, options = {}) {
           redirect: init.redirect || "error",
           signal: controller.signal
         });
+        acceptedResponse = response.ok;
         const retryAfterMs = parseRetryAfterMs(response, policy.now());
         const retryableResponse = policy.retryableStatuses.has(response.status);
         const canRetry = retryableResponse && attempt < policy.maxAttempts;
@@ -389,6 +392,12 @@ async function resilientHttpRequest(url, init = {}, options = {}) {
           callerAborted: Boolean(init.signal?.aborted),
           timedOut
         });
+        if (cause?.nonRetryable === true || cause?.generation_received === true || cause?.retryable === false
+          || acceptedResponse && !policy.retryAfterAcceptedResponse) {
+          error.retryable = false;
+          error.nonRetryable = true;
+          if (cause?.generation_received === true || acceptedResponse && !policy.retryAfterAcceptedResponse) error.generation_received = true;
+        }
         lastError = error;
         const canRetry = error.retryable && policy.replaySafe && attempt < policy.maxAttempts && !init.signal?.aborted;
         if (canRetry) {

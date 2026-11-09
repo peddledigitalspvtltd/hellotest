@@ -1,8 +1,10 @@
 const {resolveTestEngineSecret}=require('@hellotest/platform/backend/src/security/runtimeSecrets');
 const {readBoundedResponseJson}=require('@hellotest/platform/backend/src/utils/boundedResponse');
+const {verificationRequestWithAssertionTimeout}=require('./automationAssertionTimeout');
 
 /** One dispatch only: a lost response is an unknown run, never an HTTP retry. */
 async function verifyRecordedAutomation({integration,request,signal}) {
+ request=verificationRequestWithAssertionTimeout(request,integration);
  if(integration.paired_browser_bridge){
   const response=await require('../services/pairedBrowserBridge.service').exchange({scope:integration.paired_browser_bridge,method:'verification/run',params:request,signal,timeoutMs:70_000});
   if(response.status!==200||!response.body)throw Object.assign(new Error('The paired browser could not accept isolated verification.'),{code:'AUTOMATION_VERIFICATION_UNAVAILABLE',statusCode:response.status});

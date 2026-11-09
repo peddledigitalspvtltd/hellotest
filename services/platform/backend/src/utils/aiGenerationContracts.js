@@ -38,6 +38,30 @@ const parameterPattern = /(?<![A-Za-z0-9_])@([tsr])\.(\[(?:\\.|[^\]\\\r\n])+\]|[
 // rather than looking up an undeclared Test Param.
 const generatedParameters = new Set(['t.random', 't.string', 't.randomstring', 't.randomnumber', 't.yopmail', 't.today', 't.timestamp']);
 const references = text => [...String(text || '').matchAll(parameterPattern)].map(match => normalizeParameterKey(match[0])).filter(name => !generatedParameters.has(name));
+const caseParameterTexts = item => [item?.title, item?.description,
+  String(item?.gherkin_document || '').split('\n').filter(line => !/^\s*[@#]/.test(line)).join('\n'),
+  ...(Array.isArray(item?.steps) ? item.steps.flatMap(row => [row?.action, row?.expected_result]) : [])];
+function generatedParameterNameResolver(item) {
+  const scopes = new Map();
+  for (const reference of [...caseParameterTexts(item), ...Object.values(isObject(item?.parameter_values) ? item.parameter_values : {})].flatMap(references)) {
+    const raw = reference.slice(2);
+    if (!scopes.has(raw)) scopes.set(raw, new Set());
+    scopes.get(raw).add(reference[0]);
+  }
+  return key => {
+    if (/^[tsr]\./i.test(key.trim())) return normalizeParameterKey(key, 'r');
+    const raw = normalizeParameterKey(key, 'r').slice(2), explicit = scopes.get(raw);
+    // Old reviewed proposals may declare raw names beside an explicit @t/@s
+    // reference. Preserve that identity; new unqualified inputs default to Run.
+    return normalizeParameterKey(key, explicit?.size === 1 ? [...explicit][0] : 'r');
+  };
+}
+function normalizeGeneratedCaseParameterValues(item) {
+  const values = item?.parameter_values;
+  if (!isObject(values)) return {};
+  const name = generatedParameterNameResolver(item);
+  return Object.fromEntries(Object.entries(values).map(([key, value]) => [name(key), value == null ? '' : String(value)]));
+}
 const contractError = errors => Object.assign(new Error('The model omitted or invalidated required artifact fields. No incomplete proposal was accepted.'), {
   code: 'AI_NATIVE_CONTRACT_INVALID', statusCode: 502, validation_errors: errors.slice(0, 12)
 });
@@ -48,17 +72,17 @@ function parameterIssues(item, path = '') {
   if (!isObject(values)) { invalid('parameter_values'); return errors; }
   if (Object.keys(values).length > 100) { invalid('parameter_values', 'maximum_100_parameters'); return errors; }
   const normalized = new Map();
+  const resolveName = generatedParameterNameResolver(item);
   for (const [key, value] of Object.entries(values)) {
-    if (!key.trim() || /^@|^[tsr]\./i.test(key) || ['__proto__', 'constructor', 'prototype'].includes(key.trim().toLowerCase()) || typeof value !== 'string') {
+    if (!key.trim() || /^@/.test(key) || ['__proto__', 'constructor', 'prototype'].includes(key.trim().replace(/^[tsr]\./i, '').toLowerCase()) || typeof value !== 'string') {
       invalid('parameter_values'); continue;
     }
-    const name = normalizeParameterKey(key, 't');
+    const name = resolveName(key);
     if (normalized.has(name)) invalid('parameter_values', 'duplicate_parameter_name');
     normalized.set(name, value);
   }
-  const gherkin = String(item.gherkin_document || '').split('\n').filter(line => !/^\s*[@#]/.test(line)).join('\n');
-  const texts = [item.title, item.description, gherkin, ...(Array.isArray(item.steps) ? item.steps.flatMap(row => [row?.action, row?.expected_result]) : [])];
-  const dependencies = new Map([...normalized].map(([name, value]) => [name, references(value).filter(ref => ref.startsWith('t.'))]));
+  const texts = caseParameterTexts(item);
+  const dependencies = new Map([...normalized].map(([name, value]) => [name, references(value).filter(ref => ref.startsWith('t.') || normalized.has(ref))]));
   const needed = new Set([...texts.flatMap(references), ...[...dependencies.values()].flat()].filter(ref => ref.startsWith('t.')));
   // @s and @r remain explicit external dependencies. Never fabricate their values.
   for (const name of needed) if (!normalized.has(name)) invalid(`parameter_values.${name.slice(2)}`, 'referenced_parameter_missing');
@@ -142,4 +166,4 @@ function validateNativeArtifactOutput(id, parsed, { testCaseTypes } = {}) {
     throw error;
   }
 }
-module.exports = { caseOutputSchema, stepOutputSchema, nativeArtifactContract, validateNativeArtifactOutput, validateCaseParameterBindings, validGherkinCase };
+module.exports = { caseOutputSchema, stepOutputSchema, nativeArtifactContract, validateNativeArtifactOutput, validateCaseParameterBindings, validGherkinCase, normalizeGeneratedCaseParameterValues };

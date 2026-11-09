@@ -98,7 +98,8 @@ async function exchange({ scope, method, params, sessionId, signal, timeoutMs = 
   if (Buffer.byteLength(JSON.stringify(request)) > 512 * 1024) throw error('The browser command exceeds the request budget.',413);
   await db.prepare('INSERT INTO automation_paired_browser_commands(id,bridge_id,request_ciphertext) VALUES(?,?,?)')
     .run(id,scope.bridgeId,security.seal(request,`browser-request:${scope.bridgeId}:${id}`));
-  const deadline = Date.now() + Math.min(75_000,Math.max(1,timeoutMs));
+  const cap=method==='tools/call'&&params?.name==='browser_navigate'?610_000:method==='tools/call'&&params?.name==='browser_assert'?130_000:75_000;
+  const deadline = Date.now() + Math.min(cap,Math.max(1,timeoutMs));
   try {
     while (Date.now() < deadline) {
       signal?.throwIfAborted();
@@ -116,11 +117,12 @@ async function exchange({ scope, method, params, sessionId, signal, timeoutMs = 
   }
 }
 
-async function createTransport(scope) {
+async function createTransport(scope,{assertionTimeoutMs,navigationTimeoutMs}={}) {
   await authorize(scope);
   return async (_endpoint, init) => {
     const message = init.method === 'DELETE' ? { method: 'session/delete' } : JSON.parse(init.body);
-    const response = await exchange({ scope, method: message.method, params: message.params, sessionId: init.headers?.['mcp-session-id'], signal: init.signal });
+    const timeoutMs=require('../lib/automationAssertionTimeout').browserTransportTimeoutMs(message.method,message.params,assertionTimeoutMs,navigationTimeoutMs);
+    const response = await exchange({ scope, method: message.method, params: message.params, sessionId: init.headers?.['mcp-session-id'], signal: init.signal,timeoutMs });
     const body = response.body == null ? null : { ...response.body, ...(Object.hasOwn(message,'id') ? { id: message.id } : {}) };
     return new Response([204,205,304].includes(response.status) ? null : body == null ? null : JSON.stringify(body), { status: response.status,
       headers: { 'content-type':'application/json', ...(response.session_id ? { 'mcp-session-id':response.session_id } : {}) } });

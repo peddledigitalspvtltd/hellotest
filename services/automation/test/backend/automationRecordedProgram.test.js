@@ -8,6 +8,52 @@ const check = (assertion, fields = {}) => op('browser_assert', { assertion, ...f
 const compile = operations => { const result = compileRecordedProgram(operations); assert.ok(result); assert.equal(normalizeGeneratedProgram(result.source), result.source); return result; };
 const derive = source => deriveProgramTools({ payload: { steps: [{ step_id: 'one', automation_code: source }] }, execution: { required: true, step_id: 'one' } });
 
+test('frame paths compile to native nested frame locators and round-trip independently of identical page or sibling locators', () => {
+  const frame = ['iframe[name="work"]', '#inner'], otherFrame = ['#other'];
+  const requests = [op('browser_fill', { frame, locator: '#name', value: '@r.[full name]' }),
+    check('editable', { frame, locator: '#name' }), check('input_type', { frame, locator: '#name', value: 'text' }),
+    check('value', { frame, locator: '#name', value: '@r.[full name]' }),
+    check('text', { frame, locator: '#status', value: 'Ready' }),
+    check('value', { frame: otherFrame, locator: '#name', value: '' }), check('value', { locator: '#name', value: '' })];
+  const original = JSON.stringify(requests), compiled = compile(requests);
+  assert.equal(JSON.stringify(requests), original);
+  assert.match(compiled.source, /const object1 = page\.frameLocator\("iframe\[name=\\"work\\"\]"\)\.frameLocator\("#inner"\)\.locator\("#name"\);/);
+  assert.deepEqual(derive(compiled.source), requests);
+  assert.deepEqual(derive(compileRecordedProgram(requests, { layout: 'inline' }).source), requests);
+  assert.notEqual(recordedLocatorSource('#name', frame), recordedLocatorSource('#name', otherFrame));
+  assert.notEqual(recordedLocatorSource('#name', frame), recordedLocatorSource('#name'));
+});
+
+test('framed native semantic locators retain exact defaults, explicit indices and read-only predicates', () => {
+  for (const assertion of ['visible', 'hidden', 'enabled', 'disabled', 'editable', 'checked', 'unchecked', 'valid', 'invalid', 'field_valid', 'input_type', 'count', 'value', 'text', 'text_contains', 'text_content', 'text_content_contains']) {
+    const needsValue = ['input_type', 'count', 'value', 'text', 'text_contains', 'text_content', 'text_content_contains'].includes(assertion);
+    const request = check(assertion, { frame: ['#outer', '#middle', '#inner'], locator: 'getByLabel("Email", {exact:false}).nth(0)',
+      ...(needsValue ? { value: assertion === 'count' ? '1' : assertion === 'input_type' ? 'email' : '@r.email' } : {}) });
+    const source = compile([request]).source, lowered = derive(source);
+    assert.ok(lowered, assertion); assert.deepEqual(lowered[0].arguments.frame, request.arguments.frame);
+    assert.equal(lowered[0].arguments.assertion, assertion);
+    assert.match(lowered[0].arguments.locator, /getByLabel\("Email", \{"exact":false\}\)\.nth\(0\)/);
+    if (needsValue) assert.equal(lowered[0].arguments.value, request.arguments.value);
+  }
+});
+
+test('invalid frame paths and frame-scoped page assertions reject the complete program before any action', () => {
+  for (const frame of [[], ['#a', '#b', '#c', '#d'], '#frame', [''], ['  '], [null], [['#nested']], ['x'.repeat(2001)], ['page.frameLocator("#frame")']]) {
+    assert.equal(compileRecordedProgram([op('browser_fill', { locator: '#name', value: 'must-not-run' }), check('visible', { locator: '#status', frame })]), null);
+    assert.equal(recordedLocatorSource('#name', frame), null);
+  }
+  for (const assertion of ['url', 'url_contains', 'title', 'title_normalized']) assert.equal(compileRecordedProgram([check(assertion, { frame: ['#frame'], value: assertion.startsWith('url') ? 'https://selected.example/' : 'Title' })]), null);
+  assert.equal(compileRecordedProgram([op('browser_navigate', { frame: ['#frame'], url: 'https://selected.example/' })]), null);
+  for (const source of [
+    'await page.frameLocator(frame).locator("#name").fill("must-not-run");',
+    'await page.frameLocator("#a").frameLocator("#b").frameLocator("#c").frameLocator("#d").locator("#name").click();',
+    'await page.frameLocator("#frame").locator("getByRole(\\"button\\")").click();',
+    'await expect(page.frameLocator("#frame")).toHaveURL("https://selected.example/");',
+    'await page["frameLocator"]("#frame").locator("#name").click();',
+    'await page.frameLocator?.("#frame").locator("#name").click();'
+  ]) assert.equal(derive(source), null, source);
+});
+
 test('recorded operations produce ordered native source with every intermediate action and original scoped data reference', () => {
   const requests = [
     op('browser_navigate', { url: 'https://selected.example/auth' }),

@@ -26,16 +26,18 @@ const { storedAutomationCaseType, resolveAutomationCaseType, resolveAutomationCa
 const {normalizeParameterLayer}=require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 
 // Removing an authored own value restores its supplying layer's precedence.
-// A stale name-only marker must never keep shadowing live linked defaults.
+// A stale precedence marker must never keep shadowing live linked defaults.
 const caseDataOptions = (input, values, previousOptions) => {
   const options=normalizeDataOptions(input);
   const previousPrivate=previousOptions?normalizeDataOptions(previousOptions).private_parameter_names||[]:[];
   if(previousPrivate.length)options.private_parameter_names=[...new Set([...previousPrivate,...(options.private_parameter_names||[])])].sort();
   if(!options.parameter_overrides?.length&&!options.private_parameter_names?.length)return options;
   const ownNames=new Set(Object.keys(normalizeParameterLayer(values,'t')));
-  for(const field of ['parameter_overrides','private_parameter_names'])if(options[field]){
-    const names=options[field].filter(key=>ownNames.has(key));
-    if(names.length)options[field]=names;else delete options[field];
+  // Privacy belongs to the reference, including inherited/defaulted data. It
+  // must not disappear when an override is reset or the input is unset.
+  if(options.parameter_overrides){
+    const names=options.parameter_overrides.filter(key=>ownNames.has(key));
+    if(names.length)options.parameter_overrides=names;else delete options.parameter_overrides;
   }
   return normalizeDataOptions(options);
 };

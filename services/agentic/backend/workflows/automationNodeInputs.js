@@ -29,6 +29,8 @@ function parameterData(value) {
     item && typeof item === 'object' ? JSON.stringify(item) : String(item ?? '')])), 't');
 }
 function validateNodeOptions(data = {}) {
+  const browserMode = data.automationBrowserMode ?? (data.inspectBrowser === false ? 'offline' : 'read_only');
+  if (!['perform_steps', 'read_only', 'offline'].includes(browserMode)) throw fail('Choose perform steps, read-only inspection or offline generation for Automation Engineer.', 422);
   if (data.automationPassword != null && data.automationPassword !== '') throw fail('Store the Automation password in a protected credential and select it on the node.', 422);
   if (data.automationUsername != null && (typeof data.automationUsername !== 'string' || data.automationUsername.length > 255 || /[\r\n]/.test(data.automationUsername))) throw fail('Supply an Automation username of up to 255 characters without line breaks.', 422);
   if (data.automationCredentialId && (typeof data.automationCredentialId !== 'string' || !/^[\w-]{1,160}$/.test(data.automationCredentialId))) throw fail('Select a protected Automation credential.', 422);
@@ -38,7 +40,7 @@ function validateNodeOptions(data = {}) {
     const url = new URL(startUrl), names = [...url.searchParams.keys(), ...new URLSearchParams(url.hash.slice(1)).keys()];
     if (names.some(name=>SENSITIVE.test(name)||/^(?:signature|x-amz-signature|x-goog-signature)$/i.test(name))) throw fail('Keep credentials and signed tokens out of the Automation URL. Use a protected credential or parameter.',422);
   }
-  return { startUrl, values: parameterData(data.automationData), username: data.automationUsername, credentialId: data.automationCredentialId || null };
+  return { startUrl, browserMode, values: parameterData(data.automationData), username: data.automationUsername, credentialId: data.automationCredentialId || null };
 }
 
 // Credential authority is scoped to the application origin and checked again
@@ -64,7 +66,7 @@ async function resolveNodeInputs({ run, node, user, access }) {
     privateValues['t.password'] = password;
     if (!Object.hasOwn(values, 't.username')) values['t.username'] = credentialUsername;
   }
-  return { startUrl, values, privateValues, credentialId: options.credentialId };
+  return { startUrl, browserMode: options.browserMode, values, privateValues, credentialId: options.credentialId };
 }
 
 function caseInputs(draft, steps, inputs) {

@@ -1,6 +1,7 @@
 const { createHash } = require('node:crypto');
 const { sanitizeAiText } = require('@hellotest/platform/backend/src/security/aiTextPolicy');
 const { browserReceipt } = require('./automationInteractiveEvidence');
+const {validFramePath,framePathKey,snapshotFrameScope}=require('./automationFrameScope');
 
 const checks = new WeakMap();
 const checkTools = new Set(['browser_assert', 'browser_validate_locator']);
@@ -8,11 +9,17 @@ const mutations = new Set(['browser_navigate', 'browser_click', 'browser_fill', 
 const pageAssertionSubject = assertion => ['url', 'url_contains'].includes(assertion) ? 'address_bar_url' : ['title', 'title_normalized'].includes(assertion) ? 'document_title' : undefined;
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const safeText = (value, max = 1000) => typeof value === 'string' ? sanitizeAiText(value).text.slice(0, max) : undefined;
+const requestFrame = request => request?.arguments&&Object.hasOwn(request.arguments,'frame')
+  ?validFramePath(request.arguments.frame)?request.arguments.frame:null:[];
+const matchingScope = (page,path) => {
+  const scope=page&&snapshotFrameScope(page);
+  return scope&&path&&framePathKey(scope.path)===framePathKey(path)?scope:null;
+};
 
 function groundedAssertionTarget(page, request, location) {
   const locator = request?.name === 'browser_assert' && request.arguments?.locator;
   if (typeof locator !== 'string' || !page || !Array.isArray(page.elements) || location && page.url !== location
-    || page.partial || page.elements_truncated || page.scope && page.scope !== 'body') return null;
+    || !matchingScope(page,requestFrame(request)) || page.partial || page.elements_truncated || page.scope && page.scope !== 'body') return null;
   const matches = page.elements.filter(element => Array.isArray(element?.locator_candidates) && element.locator_candidates.includes(locator));
   if (matches.length !== 1) return null;
   const target = matches[0];
@@ -49,6 +56,7 @@ function unsuccessfulBrowserCheck(observation) {
     ...(typeof observation.arguments?.assertion === 'string' ? { assertion: observation.arguments.assertion.slice(0, 80) } : {}),
     ...(pageAssertionSubject(observation.arguments?.assertion) ? { assertion_subject: pageAssertionSubject(observation.arguments.assertion) } : {}),
     ...(typeof observation.arguments?.locator === 'string' ? { locator: safeText(observation.arguments.locator, 500) } : {}),
+    ...(validFramePath(observation.arguments?.frame)?{frame_path:[...observation.arguments.frame]}:{}),
     ...(Number.isSafeInteger(receipt?.match_count) && receipt.match_count >= 0 ? { match_count: receipt.match_count } : {}),
     ...(typeof receipt?.unique === 'boolean' ? { unique: receipt.unique } : {}),
     ...(typeof fault?.action_outcome === 'string' ? { action_outcome: fault.action_outcome } : {}),
@@ -60,10 +68,26 @@ function unsuccessfulBrowserCheck(observation) {
 /** Ignore observation IDs/timestamps; a repeated identical snapshot is not new
  * evidence. A confirmed mutation or changed controls/read values is new state. */
 function browserRecoveryState(observations = [], request) {
+  const path=requestFrame(request),pathKey=framePathKey(path);
   const invalidated = observations.findLastIndex(item => item.tool === 'browser_navigate' && item.result?.isError);
-  const snapshot = observations.findLast((item, index) => index > invalidated && item.tool === 'browser_snapshot' && !item.result?.isError);
-  const page = snapshot && browserReceipt(snapshot);
-  const actionIndex = observations.findLastIndex(item => item.mcp_call !== false && mutations.has(item.tool) && browserReceipt(item)?.action_outcome === 'completed');
+  const snapshot = observations.findLast((item, index) => index > invalidated && item.tool === 'browser_snapshot' && !item.result?.isError&&matchingScope(browserReceipt(item),path));
+  let page = snapshot && browserReceipt(snapshot),scope=page&&snapshotFrameScope(page);
+  // A fresh top inventory can invalidate an older child snapshot even when
+  // the iframe selector, URL and rendered fields did not change on reload.
+  if(path?.length){
+    const top=observations.findLast((item,index)=>index>invalidated&&item.tool==='browser_snapshot'&&!item.result?.isError&&matchingScope(browserReceipt(item),[]));
+    const inventory=top&&browserReceipt(top);
+    if(Array.isArray(inventory?.frames)){
+      const row=inventory.frames.find(row=>framePathKey(row?.path)===pathKey);
+      const current=row&&snapshotFrameScope({...inventory,frame_path:row.path,frame_url:row.url,frame_document_id:row.frame_document_id});
+      if(!current||current.identity!==scope?.identity){page=null;scope=current||null;}
+    }
+  }
+  const actionIndex = observations.findLastIndex(item => {
+    const receipt=browserReceipt(item);
+    return item.mcp_call !== false && !item.result?.isError&&mutations.has(item.tool) && receipt?.action_outcome === 'completed'
+      &&(item.tool==='browser_navigate'||matchingScope(receipt,path));
+  });
   const location = [...observations].reverse().map(browserReceipt).find(item => typeof item?.url === 'string')?.url;
   const action = actionIndex < 0 ? null : observations[actionIndex].action_id || actionIndex;
   const subject = request?.name === 'browser_assert' && pageAssertionSubject(request.arguments?.assertion);
@@ -88,20 +112,22 @@ function browserRecoveryState(observations = [], request) {
       // failed subject merely because its selector/value did not change.
       const ids = [...new Set(['aria-describedby', 'aria-errormessage'].flatMap(name => String(target.attributes[name] || '').trim().split(/[\t\n\f\r ]+/).filter(Boolean)))];
       const associated = ids.map(id => ({ id, nodes: page.elements.filter(element => element.attributes?.id === id) }));
-      if (associated.every(item => item.nodes.length === 1)) return hash({ url: location, action, target, associated });
+      if (associated.every(item => item.nodes.length === 1)) return hash({ url: location, action, scope:scope?.identity||pathKey, target, associated });
       // Missing/duplicate associations cannot be inferred from a filtered DOM
       // inventory. Keep the complete observed state as the conservative fallback.
-    } else return hash({ url: location, action, target });
+    } else return hash({ url: location, action, scope:scope?.identity||pathKey, target });
   }
   return hash({
     url: location,
     action,
+    scope:scope?.identity||pathKey,
     page: page ? { url: page.url, title: page.title, accessibility: page.accessibility, elements: page.elements } : null
   });
 }
 
 function checkKey(request) {
   if (!checkTools.has(request?.name) || !request.arguments || typeof request.arguments !== 'object' || Array.isArray(request.arguments)) return null;
+  if(requestFrame(request)===null||pageAssertionSubject(request.arguments.assertion)&&Object.hasOwn(request.arguments,'frame'))return null;
   return hash([request.name, Object.entries(request.arguments).sort(([left], [right]) => left.localeCompare(right))]);
 }
 
@@ -110,7 +136,7 @@ function checkFamilyKey(request) {
   // Rephrasing the expected text on the same target is not a browser state
   // change. Keep modes distinct: switching from URL to visible content or from
   // inner text to native textContent can be a legitimate correction.
-  return hash([request.name, request.arguments.assertion, request.arguments.locator]);
+  return hash([request.name, request.arguments.assertion, request.arguments.locator,requestFrame(request)]);
 }
 
 function promptCheckRequest(request, projectText) {

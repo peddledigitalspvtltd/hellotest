@@ -1117,6 +1117,12 @@ html body .modal-backdrop.test-case-ai-studio-backdrop > .modal-card.ai-test-gen
 .ai-test-generator-modal .ai-artifact-detail > header { flex-wrap: wrap; }
 .ai-test-generator-modal .ai-artifact-detail__tools { flex-wrap: wrap; margin-left: auto; }
 .ai-test-generator-modal .ai-artifact-item small { line-height: 1.5; }
+.ai-test-generator-parameters { min-width: 0; margin: 18px 0; padding: 12px; border: 1px solid var(--app-border, #dce5e4); border-radius: 8px; }
+.ai-test-generator-parameters summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.ai-test-generator-parameters p { color: var(--app-text-muted, #64737e); font-size: 12px; }
+.ai-test-generator-parameters table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
+.ai-test-generator-parameters :is(th, td) { padding: 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; border-top: 1px solid var(--app-border, #dce5e4); }
+.ai-test-generator-parameters th:nth-child(2) { width: 18%; }
 .ai-test-generator-modal .ai-test-case-order-actions { display: flex; grid-column: 2; gap: 5px; justify-content: flex-end; }
 .ai-test-generator-modal .ai-test-case-order-actions > button { width: 28px; height: 28px; }
 .ai-test-case-draft-title-field > input:focus-visible,

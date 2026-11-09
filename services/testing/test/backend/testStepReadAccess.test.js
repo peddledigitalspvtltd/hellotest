@@ -24,6 +24,7 @@ async function fixture(t, { automationFeatureEnabled = true } = {}) {
   vm.runInNewContext(source, { module, require: name => {
     if (name === 'node:crypto') return require('node:crypto');
     if (name === '@hellotest/automation/backend/lib/automationObjectSourceContext') return require('../../../automation/backend/lib/automationObjectSourceContext');
+    if (name === '@hellotest/automation/backend/services/automationInstructionMapping.service') return {attachInstructionMappings:async ({steps})=>steps.map(step=>({...step,automation_instructions:{schema:'test-mapping',label:'source-derived-private-display'}}))};
     if (name === "../services/testStep.service") return {
       getTestSteps: async ({ test_case_id }) => { calls.reads.push(test_case_id || "all"); return steps.filter(step => !test_case_id || step.test_case_id === test_case_id); },
       getTestCaseAutomationStartUrl:async()=> 'https://app.test/start',
@@ -76,6 +77,7 @@ test("case readers receive complete behavior and group metadata without executab
     assert.equal(step.api_request, null);
     assert.equal(step.automation_source_sha256, null);
     assert.equal(step.automation_context_sha256, null);
+    assert.equal(step.automation_instructions, null);
     assert.equal(step.automation_source_hidden, true);
   }
   assert.equal(visible[0].reusable_group_id, "shared-checkout");
@@ -107,6 +109,7 @@ test("engineers receive source only for the entity's authorized project", async 
     const records = Array.isArray(response.json()) ? response.json() : [response.json()];
     assert.equal(records.some(step => step.api_request?.headers?.[0]?.value === "private-token"), true);
     assert.equal(records.some(step => step.automation_source_hidden), false);
+    assert.equal(records.every(step=>step.automation_instructions?.label==='source-derived-private-display'),true);
     for (const record of records) assert.equal(record.automation_source_sha256,require('node:crypto').createHash('sha256').update(record.automation_code,'utf8').digest('hex'));
     const contexts=require('../../../automation/backend/lib/automationObjectSourceContext').automationObjectSourceContexts({caseStartUrl:'https://app.test/start',steps:steps.filter(step=>step.test_case_id==='case-a')});
     for(const record of records)assert.equal(record.automation_context_sha256,contexts.get(record.id)||null);

@@ -23,6 +23,42 @@ const observations = () => [snapshot(), fill(), snapshot(), value()];
 const accepted = assertions => ({ decision: 'accept', obligations: [{ id: 'current', action_operations: [1], assertion_operations: assertions }], issues: [] });
 const packet = prompt => JSON.parse(prompt.split('\n').at(-1));
 
+test('the real Password retention clause rejects type-only proof and accepts a symbolic value check without replaying its fill',async()=>{
+ const exact={required:true,step_id:'current',action:'Enter @r.orangehrm_password in the Password input.',expected_result:'The Password input retains @r.orangehrm_password and has type password.'};
+ const page=(scope={})=>snapshot({elements:[{tag:'input',attributes:{id:'password',type:'password'},accessible_name:'Password',locators_validated:true,locator_candidates:['#password','getByLabel("Password")']}],...scope});
+ const entered=()=>operation('browser_fill',{locator:'#password',value:'@r.orangehrm_password'}),typed=()=>operation('browser_assert',{assertion:'input_type',locator:'#password',value:'password'}),checked=(key='@r.orangehrm_password')=>operation('browser_assert',{assertion:'value',locator:'getByLabel("Password")',value:key});
+ let calls=0;const project=text=>text.replace(/@r\.(?:orangehrm_password|equal_password)/g,'[private parameter value]');
+ const review=createAutomationSemanticReviewer({execution:exact,projectText:project,projectPrivateText:(text,{preserveReferences}={})=>preserveReferences?text:project(text),complete:async prompt=>{
+  calls++;const data=packet(prompt);assert.ok(!JSON.stringify(data).includes('coverage_aliases'));assert.ok(!JSON.stringify(data).includes('coverage_scope'));
+  assert.equal(data.assertion_evidence_contract.find(row=>row.requirement==='named_input_retained_parameter').parameter_reference,'r.orangehrm_password');
+  return JSON.stringify(accepted([2,3]));
+ }});
+ const rows=[page(),entered(),page(),typed()];
+ const missing=await review.review({observations:rows});assert.equal(missing.accepted,false);assert.equal(calls,0);assert.match(missing.private_feedback.issues[0].message,/exact configured parameter/);
+ rows.push(checked());assert.equal((await review.review({observations:rows})).accepted,true);assert.equal(calls,1);
+ assert.equal(rows.filter(row=>row.tool==='browser_fill').length,1,'correction adds only the missing readonly check');
+ const different=[page(),entered(),page(),typed(),checked('@r.equal_password')];
+ assert.equal((await review.review({observations:different})).accepted,false,'equal masked values cannot reuse the accepted original-reference cache');assert.equal(calls,1);
+ const mapped=createAutomationSemanticReviewer({execution:exact,complete:async()=>JSON.stringify(accepted([2]))});
+ assert.equal((await mapped.review({observations:rows})).accepted,false,'model acceptance must map both type and value proof');
+});
+
+test('retained value coverage cannot borrow another frame or a replaced framed document',async()=>{
+ const exact={required:true,step_id:'current',action:'Enter @r.password in the Password input.',expected_result:'The Password input retains @r.password.'};
+ const page=(frame=['#auth'],doc='doc-one')=>snapshot({url:'https://app.test/shell',frame_path:frame,frame_url:'https://app.test/auth',frame_document_id:doc,
+  elements:[{tag:'input',attributes:{type:'password'},accessible_name:'Password',locators_validated:true,locator_candidates:['#password']}]});
+ const framed=(name,args,scope)=>{const request={name,arguments:{...args,frame:scope.frame_path}},observation={tool:name,execution_step_id:'current',result:receipt({url:scope.url,frame_path:scope.frame_path,frame_url:scope.frame_url,frame_document_id:scope.frame_document_id,...(name==='browser_assert'?{assertion_outcome:'satisfied'}:{action_outcome:'completed'})})};
+  recordBrowserOperation(observation,request,{snapshot:{tool:'browser_snapshot',result:receipt(scope)}});return observation;};
+ const scope=snapshot=>JSON.parse(snapshot.result.content[0].text),first=page(),entered=framed('browser_fill',{locator:'#password',value:'@r.password'},scope(first));
+ for(const after of [page(['#sibling']),page(['#auth'],'doc-replaced')]){
+  let calls=0;const review=createAutomationSemanticReviewer({execution:exact,complete:async()=>{calls++;return JSON.stringify(accepted([2]));}});
+  const checked=framed('browser_assert',{assertion:'value',locator:'#password',value:'@r.password'},scope(after));
+  assert.equal((await review.review({observations:[first,entered,after,checked]})).accepted,false);assert.equal(calls,0);
+ }
+ const review=createAutomationSemanticReviewer({execution:exact,complete:async()=>JSON.stringify(accepted([2]))}),checked=framed('browser_assert',{assertion:'value',locator:'#password',value:'@r.password'},scope(first));
+ assert.equal((await review.review({observations:[first,entered,first,checked]})).accepted,true);
+});
+
 test('content-only validation proof is rejected before a reviewer call and unchanged repeats reuse its rejection', async () => {
   let calls = 0;const events = [], rows = observations();
   const review = createAutomationSemanticReviewer({ execution, complete: async () => { calls++;return JSON.stringify(accepted([2])); }, onProgress: async event => events.push(event) });
@@ -170,4 +206,32 @@ test('malformed or mismatched original requirement identities cannot disable the
     const review = createAutomationSemanticReviewer({ execution: { ...execution, source_obligations }, complete: async () => 'unused' });
     await assert.rejects(review.review({ observations: observations() }), error => error.code === 'AUTOMATION_SEMANTIC_REVIEW_INVALID' && error.nonRetryable);
   }
+});
+
+const propertySnapshot=()=>snapshot({elements:[
+ {tag:'input',attributes:{type:'text',readonly:'',placeholder:'Username'},accessible_role:'textbox',accessible_name:'Username',locators_validated:true,locator_candidates:['#username']},
+ {tag:'input',attributes:{type:'password',placeholder:'Password'},accessible_name:'Password',locators_validated:true,locator_candidates:['#password']},
+ {tag:'input',attributes:{type:'text',placeholder:'Other'},accessible_role:'textbox',accessible_name:'Other',locators_validated:true,locator_candidates:['#other']}
+]});
+for(const kind of ['editable','input_type'])test(`model acceptance cannot replace the named field's ${kind} proof with enabled/value or another subject`,async()=>{
+ const expected=kind==='editable'?'Username input field is visible, focusable, and accepts text.':'Password input field is visible, of type password, and masks entered characters.';
+ const locator=kind==='editable'?'#username':'#password';
+ const current={required:true,step_id:'current',action:kind==='editable'?'Verify Username field is editable':'Verify Password field type',expected_result:expected};
+ const read=(assertion,target=locator)=>operation('browser_assert',{assertion,locator:target,...(assertion==='input_type'?{value:'password'}:assertion==='value'?{value:''}:{})});
+ const insufficient=[propertySnapshot(),read('visible'),read(kind==='editable'?'enabled':'value')];
+ const accept=indexes=>({decision:'accept',obligations:[{id:'current',action_operations:[],assertion_operations:indexes}],issues:[]});
+ let calls=0;
+ const review=createAutomationSemanticReviewer({execution:current,complete:async()=>{calls++;return JSON.stringify(accept([1,2,3]));}});
+ const before=await review.review({observations:insufficient});
+ assert.equal(before.accepted,false);assert.equal(calls,0,'known insufficient proof stops before the paid reviewer');
+ assert.match(before.private_feedback.issues[0].message,new RegExp(kind==='editable'?'editable':'input_type'));
+ const wrongSubject=await review.review({observations:[...insufficient,read(kind,'#other')]});
+ assert.equal(wrongSubject.accepted,false);assert.equal(calls,0,'a different field cannot discharge the named requirement');
+ const complete=[...insufficient,read(kind)];
+ assert.equal((await review.review({observations:complete})).accepted,true);assert.equal(calls,1);
+ const wrongMapping=createAutomationSemanticReviewer({execution:current,complete:async()=>JSON.stringify(accept([1,2]))});
+ const mapped=await wrongMapping.review({observations:complete});
+ assert.equal(mapped.accepted,false,'a model accept cannot omit the required typed proof from its obligation mapping');
+ assert.equal(mapped.feedback.assessment_source,'host_native_value_coverage_guard');
+ assert.ok(complete.every(row=>row.tool==='browser_assert'||row.tool==='browser_snapshot'),'the repair adds assertions without filling or replaying actions');
 });

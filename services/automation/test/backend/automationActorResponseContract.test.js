@@ -71,7 +71,9 @@ test('legacy typed source stays a proposal for the existing compiler and is neve
 test('current decision contract offers only available host decisions and does not advertise executable or arbitrary schemas', () => {
   const contract = automationActorResponseContract({ stepId: 'current', canRequestContext: true, deferredTools: ['browser_hover'] });
   assert.ok(contract.question);
-  assert.ok(contract.choices.some(choice => choice.stage === 'act' && choice.step_id === 'current' && choice.section_complete === false));
+  assert.deepEqual(contract.envelope,{stage:'act',step_id:'current'});
+  assert.ok(contract.choices.some(choice => choice.section_complete === false));
+  for(const choice of contract.choices){assert.equal(Object.hasOwn(choice,'stage'),false);assert.equal(Object.hasOwn(choice,'step_id'),false);}
   for (const choice of contract.choices) for (const tool of choice.tool_calls || []) {
     assert.ok(tool.arguments && typeof tool.arguments === 'object' && !Array.isArray(tool.arguments), 'decision examples must demonstrate an actual argument object');
   }
@@ -89,14 +91,16 @@ test('current decision contract offers only available host decisions and does no
 
 test('the active-section contract preserves broader constraints while preventing available data from selecting later actions',()=>{
  const contract=automationActorResponseContract({stepId:'current'}),rules=contract.rules.join('\n');
- assert.match(contract.question,/pinned active section action and expected result only/);
- assert.match(rules,/broader user request\/flow supplies constraints and context/);
- assert.match(rules,/not permission to execute later actions now/);
- assert.match(rules,/visible input or available parameter does not request a fill/);
- assert.match(rules,/set section_complete:true in the same response/);
- assert.match(rules,/without a separate acknowledgement turn/);
+ assert.match(contract.question,/ONE flat JSON choice, not this contract\/menu/);
+ assert.match(rules,/broader constraints never authorize later actions/);
+ assert.match(rules,/Visible inputs\/data grant no fill/);
+ assert.match(rules,/section_complete:true with final checks, no ack turn/);
  assert.match(rules,/Host review follows actual success/);
- assert.match(rules,/Preserve every authored outcome and literal/);
+ assert.match(rules,/every outcome\/literal/);
+ assert.match(rules,/scoped input\/recipient refs/);
+ assert.match(rules,/Vanished notices\/other-target failures prove no absence/);
+ assert.match(rules,/Sent code is not delivered email; never repeat submission/);
+ assert.match(rules,/host validation \+ independent review/);
  const finalChoice=contract.choices.find(choice=>choice.section_complete===true&&choice.tool_calls?.length),normal=normalize(finalChoice);
  assert.equal(normal.response.section_complete,true);assert.deepEqual(normal.response.tool_calls,finalChoice.tool_calls);
  assert.equal(Object.hasOwn(normal.response,'assertion_outcome'),false,'the decision shape does not create success evidence');
@@ -108,6 +112,38 @@ test('completion-only decision contracts offer completion or an observed issue w
   assert.ok(contract.choices.some(choice => Object.hasOwn(choice, 'section_issue')));
   assert.ok(contract.choices.every(choice => !Object.hasOwn(choice, 'actor_context_request') && !Object.hasOwn(choice, 'tool_catalog_request')));
   assert.ok(contract.choices.every(choice => !Array.isArray(choice.tool_calls) || choice.tool_calls.length === 0));
-  assert.match(contract.rules.join('\n'),/no further browser actions, context or discovery requests/);
+  assert.match(contract.rules.join('\n'),/no browser\/context\/discovery requests/);
   assert.doesNotMatch(contract.rules.join('\n'),/Batch the remaining supported actions|same response/);
+});
+
+test('compact common identity preserves every explicit decision and the exact authored active goal within a bounded prompt',()=>{
+ const goal={action:'Enter @r.email only; preserve the reviewed tenant and do not submit.',expected_result:'The exact @r.email value remains and the tenant is unchanged.'};
+ const contract=automationActorResponseContract({stepId:'current',activeGoal:goal,canRequestContext:true,canRecoverPrerequisite:true,deferredTools:['browser_fill']});
+ assert.deepEqual(contract.active_goal,goal);assert.equal(contract.active_goal_scope,'current_section');
+ for(const choice of contract.choices.filter(choice=>Array.isArray(choice.tool_calls))){
+  const result=normalize(choice);assert.equal(result.issues,undefined);
+  assert.equal(result.response.stage,contract.envelope.stage);assert.equal(result.response.step_id,contract.envelope.step_id);
+  assert.equal(result.response.section_complete,choice.section_complete);assert.equal(result.response.tool_calls,choice.tool_calls);
+  assert.equal(Object.hasOwn(result.response,'assertion_outcome'),false);
+ }
+ const discovery=contract.choices.find(choice=>choice.tool_catalog_request);
+ assert.ok(Array.isArray(discovery.tool_catalog_request)&&discovery.tool_catalog_request.length>0);
+ const base=automationActorResponseContract({stepId:'current',canRequestContext:true,canRecoverPrerequisite:true,deferredTools:['browser_fill']});
+ assert.ok(Buffer.byteLength(JSON.stringify(base))<=1900,'The full decision menu stays below the measured provider-capacity budget (previously2644bytes).');
+});
+
+test('copied decision menus are rejected before accompanying tools while flat choices and legacy source remain valid',()=>{
+ const contract=automationActorResponseContract({stepId:'current',canRequestContext:true,deferredTools:['browser_hover']});
+ for(const copy of [contract,{question:contract.question,envelope:contract.envelope,choices:contract.choices},
+  {question:contract.question,choices:contract.choices,rules:contract.rules},
+  {...contract,tool_calls:[fill()],section_complete:true}]){
+  const before=structuredClone(copy),result=normalize(copy);
+  assert.deepEqual(result.issues,[{field:'response',expected:'ONE flat JSON choice, not the contract/menu'}]);
+  assert.equal(result.response,undefined);assert.deepEqual(copy,before);
+  assert.doesNotMatch(JSON.stringify(result.issues),/observed-email|@t\.email/);
+ }
+ const flat={question:'Optional explanation',section_complete:true,tool_calls:[fill()]};
+ assert.equal(normalize(flat).issues,undefined);assert.equal(normalize(flat).response.tool_calls,flat.tool_calls);
+ const legacy={stage:'source',steps:[{step_id:'current',automation_code:'await web.expectVisible("#email");'}],notes:{question:contract.question,choices:contract.choices}};
+ assert.equal(normalize(legacy).response,legacy,'A nested application note is not a copied top-level actor menu.');
 });

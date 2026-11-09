@@ -6,6 +6,47 @@ const FATAL_CODES = new Set(['BATCH_LEASE_LOST', 'BATCH_JOB_LEASE_LOST']);
 
 const identifier = value => typeof value === 'string' && IDENTIFIER.test(value) ? value : undefined;
 const errorCode = value => typeof value === 'string' && CODE.test(value) ? value : undefined;
+const READ_TOOLS=new Set(['browser_snapshot','browser_screenshot','browser_assert','browser_validate_locator','browser_wait_for']);
+function safeReadinessDiagnostics(input){
+  if(!input||typeof input!=='object'||Array.isArray(input))return undefined;
+  const safe={};
+  for(const key of ['loaded','usable','actionable','busy','document_busy','document_root_busy'])if(typeof input[key]==='boolean')safe[key]=input[key];
+  for(const key of ['busy_regions','indeterminate_progress','signature_changes','quiet_ms','pending_requests','probe_count'])
+    if(Number.isSafeInteger(input[key])&&input[key]>=0&&input[key]<=1_000_000)safe[key]=input[key];
+  if(['loading','interactive','complete','unknown'].includes(input.load_state))safe.load_state=input.load_state;
+  return Object.keys(safe).length?safe:undefined;
+}
+
+/** Optional failure facts contain classifications only, never the observed
+ * address, field contents or an assertion's actual/expected text. */
+function safeAssertionDiagnostics(input){
+  if(!input||typeof input!=='object'||Array.isArray(input))return undefined;
+  const safe={};
+  for(const key of ['same_origin','authentication_form_visible','document_busy'])if(typeof input[key]==='boolean')safe[key]=input[key];
+  if(['loading','interactive','complete','unavailable'].includes(input.document_state))safe.document_state=input.document_state;
+  if(Number.isSafeInteger(input.visible_alert_count)&&input.visible_alert_count>=0&&input.visible_alert_count<=1000)safe.visible_alert_count=input.visible_alert_count;
+  return Object.keys(safe).length?safe:undefined;
+}
+
+/** A native read deadline ended the owned MCP session. Preserve only typed
+ * classifications; page text, URLs, selectors and native messages stay private. */
+function browserObservationDeadline(result,{tool}={}){
+  if(!result?.isError||!READ_TOOLS.has(tool))return null;
+  for(const block of result.content||[]){
+    if(block?.type!=='text'||typeof block.text!=='string'||block.text.length>64*1024)continue;
+    try{
+      const fault=JSON.parse(block.text);
+      if(fault?.source!=='playwright'||fault.code!=='BROWSER_TOOL_DEADLINE'||fault.action_outcome!=='not_attempted')continue;
+      const readiness=safeReadinessDiagnostics(fault.readiness_diagnostics);
+      return {error_code:'AUTOMATION_BROWSER_OBSERVATION_DEADLINE',browser_code:'BROWSER_TOOL_DEADLINE',tool,
+        ...(typeof fault.tool_phase==='string'&&/^[a-z_]{1,50}$/.test(fault.tool_phase)?{tool_phase:fault.tool_phase}:{}),
+        ...(fault.session_disposition==='quarantined'?{session_disposition:'quarantined'}:{}),
+        ...(readiness?{readiness_diagnostics:readiness}:{}),
+        action_outcome:'not_attempted',retry_safe:false};
+    }catch{}
+  }
+  return null;
+}
 
 /** Evidence is optional; cancellation, revoked access and lost ownership are not. */
 function isCriticalAutomationError(error) {
@@ -23,6 +64,10 @@ function actionDetails(input = {}) {
   if (typeof input.tool === 'string' && TOOL.test(input.tool)) details.tool = input.tool;
   if (typeof input.assertion === 'string' && /^[a-z_]{1,50}$/.test(input.assertion)) details.assertion = input.assertion;
   if (errorCode(input.error_code)) details.error_code = input.error_code;
+  if (errorCode(input.browser_code)) details.browser_code = input.browser_code;
+  if (typeof input.tool_phase === 'string' && /^[a-z_]{1,50}$/.test(input.tool_phase)) details.tool_phase = input.tool_phase;
+  const readiness=safeReadinessDiagnostics(input.readiness_diagnostics);
+  if(readiness)details.readiness_diagnostics=readiness;
   if (['completed', 'failed', 'unknown', 'not_attempted'].includes(input.action_outcome)) details.action_outcome = input.action_outcome;
   if (['satisfied', 'not_satisfied'].includes(input.assertion_outcome)) details.assertion_outcome = input.assertion_outcome;
   for (const key of ['attempt', 'section_attempt']) {
@@ -70,4 +115,4 @@ function createDiagnosticReporter({ warn = message => console.warn(message) } = 
 }
 
 const reportDiagnosticFailure = createDiagnosticReporter();
-module.exports = { actionDetails, progressEvent, isCriticalAutomationError, createDiagnosticReporter, reportDiagnosticFailure };
+module.exports = { actionDetails, progressEvent, isCriticalAutomationError, createDiagnosticReporter, reportDiagnosticFailure, browserObservationDeadline, safeReadinessDiagnostics, safeAssertionDiagnostics };

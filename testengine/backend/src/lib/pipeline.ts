@@ -87,6 +87,7 @@ export function buildCapabilities() {
       "goBack",
       "goForward",
       "waitForLoadState",
+      "waitForSelector",
       "click",
       "hover",
       "dblclick",

@@ -53,6 +53,24 @@ test('native lifecycle contracts retain real decisions and server-checked revisi
  assert.deepEqual(draft.required,['node_id','story_index','case_index']);assert.deepEqual(draft.properties.kind.enum,['manual','automation']);
 });
 
+test('Automation Engineer discovery retains its native build permission and durable command verification',()=>{
+ for(const path of ['/test-cases/:id/automation/generator-jobs','/test-cases/automation/build-batch']){
+  registry.register({method:'POST',url:path});
+  const operation=registry.all().find(item=>item.path===path&&item.method==='POST');
+  assert.equal(operation.permission,'automation.build');
+  assert.equal(operation.prepare,true);assert.equal(operation.exposure,'planned_action');
+  assert.match(operation.label,/Automation Engineer/);
+  assert.equal(operation.policy.effect,'command');
+  assert.equal(operation.policy.verification.path,'/test-cases/automation/jobs/:transactionId');
+  assert.equal(operation.policy.verification.idFromResponse,'transaction_id');
+  assert.equal(operation.policy.verification.async,true);
+ }
+ registry.register({method:'GET',url:'/test-cases/automation/jobs/:transactionId'});
+ const status=registry.all().find(item=>item.path==='/test-cases/automation/jobs/:transactionId');
+ assert.equal(status.read,true);assert.equal(status.permission,'automation.build');
+ assert.deepEqual(status.policy.scope,{entity:'transaction',path_parameter:'transactionId'});
+});
+
 test('actual report, binary and ALM GET routes are discoverable as wrapper-required rather than executable JSON reads',()=>{
  for(const url of ['/executions/:id/report.pdf','/executions/:id/report.html','/knowledge/sources/:id/file','/requirements/alm/projects','/requirements/alm/requirements']){
   registry.register({method:'GET',url});

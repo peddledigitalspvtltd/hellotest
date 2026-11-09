@@ -83,3 +83,11 @@ test('AI improvement preserves current private own values and never creates an o
   assert.equal(restoreAiPrivateParameterValues({}, current, ['t.password']).values['t.password'], current['t.password'], 'Omitting a hidden value cannot erase it');
   assert.deepEqual(current, { 't.password': 'PRIVATE_CURRENT_VALUE', 't.email': 'current@example.test' });
 });
+
+test('generated Run defaults are reviewable and their protected values survive AI improvement',()=>{
+  const draft={title:'Sign in',description:'Use reviewed input data.',parameter_values:{'r.email':'buyer@example.test','r.password':'@s.password'},steps:[{action:'Sign in with @r.email and @r.password',expected_result:'The account is displayed.'}]};
+  assert.deepEqual(draftReadinessIssues(draft),[]);
+  assert.match(draftReadinessIssues({...draft,parameter_values:{'r.email':'@r.password','r.password':'@r.email'}}).join(' '),/circular/);
+  const restored=restoreAiPrivateParameterValues({'r.password':'invented','r.email':'changed@example.test'},{'r.password':'protected-current'},['r.password']);
+  assert.equal(restored.values['r.password'],'protected-current');assert.deepEqual(restored.preservedNames,['r.password']);
+});

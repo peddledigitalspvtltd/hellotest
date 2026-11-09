@@ -13,8 +13,6 @@ const require=createRequire(new URL('../../../../testengine/backend/package.json
 const localRequire=createRequire(import.meta.url);
 const Fastify=require('fastify');
 const {connectAutomationBrowser,runAutomationBrowserAgent}=localRequire('../../backend/lib/automationBrowserAgent.js');
-const {createAutomationActorContext}=localRequire('../../backend/lib/automationActorContext.js');
-const {buildAutomationGoalObligations}=localRequire('../../backend/lib/automationGoalObligations.js');
 const {createBrowserParameterResolver}=localRequire('../../backend/lib/automationBrowserParameters.js');
 
 test('real MCP work becomes a backend-issued Playwright Test spec that replays in a fresh runner with private inputs, repository aliases and API captures',{timeout:90000},async t=>{
@@ -40,14 +38,13 @@ test('real MCP work becomes a backend-issued Playwright Test spec that replays i
   {name:'browser_assert',arguments:{assertion:'text',locator:'#status',value:'@t.email'}}
  ];
  const section={id:'save',step_order:1,step_type:'web',action:'Enter the supplied email and password and save the account',expected_result:'The status shows the supplied email'};
- const manualCases=[{id:'manual',title:'Save account',steps:[{...section,id:'manual-save'}]}];
- const obligations=buildAutomationGoalObligations({section,manualCases,activeManualStepIds:['manual-save']});
- const taskContext=createAutomationActorContext({task:{start_url:`${origin}/entry`,case:{id:'portable-account',title:'Portable account'},current_section:section,build_context:{parameter_data:{values:params.promptValues},linked_manual_cases:manualCases,generation_scope:{mode:'sequential',active_step_id:'save',active_manual_step_ids:['manual-save']}}},obligations,projectText:params.projectText});
+ const obligations=[{id:section.id,source:'section',action:section.action,expected_result:section.expected_result},{id:'manual:manual:manual-save',source:'manual_step',action:section.action,expected_result:section.expected_result,manual_test_case_id:'manual',manual_step_id:'manual-save'}];
+ const prompt=JSON.stringify({start_url:`${origin}/entry`,current_section:section,required_obligations:obligations,parameter_references:params.availableParameterNames});
  const callBrowser=session.call;
  session.projectPromptText=params.projectText;
  session.call=async(name,args)=>params.redactResult(await callBrowser(name,params.resolve(name,args)));
  let actors=0,reviews=0,saves=0;
- const generated=await runAutomationBrowserAgent({browser:session,startUrl:`${origin}/entry`,prompt:taskContext.prompt,taskContext,actorMode:true,generationMode:'sequential',parse:JSON.parse,
+ const generated=await runAutomationBrowserAgent({browser:session,startUrl:`${origin}/entry`,prompt,actorMode:true,generationMode:'sequential',parse:JSON.parse,
   execution:{required:true,step_id:section.id,action:section.action,expected_result:section.expected_result,semantic_review_required:true,obligations},
   onPartialBuild:async()=>{assert.equal(reviews,1,'semantic review precedes the saved-source receipt');saves++;return {generation_complete:true};},
   complete:async prompt=>{
@@ -56,8 +53,7 @@ test('real MCP work becomes a backend-issued Playwright Test spec that replays i
     return JSON.stringify({decision:'accept',obligations:packet.obligations.map(goal=>({id:goal.id,action_operations:packet.confirmed_operations.filter(item=>item.name!=='browser_assert').map(item=>item.index),assertion_operations:packet.confirmed_operations.filter(item=>item.name==='browser_assert').map(item=>item.index)})),issues:[]});
    }
    actors++;
-   if(actors===1)return JSON.stringify({actor_context_request:{parameter_names:['t.email']},stage:'act',step_id:'save',tool_calls:[operations[2]]});
-   if(actors===2){assert.equal(submissions,0,'a context selection cannot execute the accompanying submission');assert.equal(taskContext.additionalContext().length,1);return JSON.stringify({stage:'act',step_id:'save',section_complete:true,tool_calls:operations});}
+   if(actors===1){assert.equal(submissions,0);return JSON.stringify({stage:'act',step_id:'save',section_complete:true,tool_calls:operations});}
    const current=JSON.parse(prompt.match(/^Current browser state and confirmed section progress .*?: (.+)$/m)[1]);
    return JSON.stringify({stage:'act',step_id:'save',section_complete:true,tool_calls:current.recorded_section.completion_available?[]:[operations.at(-1)]});
   }});

@@ -165,23 +165,25 @@ function snapshotFixture(){
  let access=true,revision=3;
  const updates=[],permissions=[],module={exports:{}};
  const cases={getTestCase:async()=>({id:'automation',revision}),updateTestCase:async(id,payload,options)=>{updates.push({id,payload,options});if(payload.expected_revision!==revision)throw Object.assign(new Error('Changed after generation'),{statusCode:409,code:'REVISION_CONFLICT'});revision++;}};
- new Function('require','module',fs.readFileSync(require.resolve('../../backend/lib/automationBuildDataSnapshot'),'utf8'))(id=>id.endsWith('optionalEvidenceAccess.service')?{getOptionalEvidenceAccess:async(user,project,codes)=>{assert.equal(user.id,'builder');assert.equal(project,'project');permissions.push(codes);return Object.fromEntries(codes.map(code=>[code,access]));}}:id.endsWith('testCase.service')?cases:id.endsWith('scopedTestData')?require('../../../platform/backend/src/utils/scopedTestData'):require('../../../platform/backend/src/utils/linkedManualParameters'),module);
+ new Function('require','module',fs.readFileSync(require.resolve('../../backend/lib/automationBuildDataSnapshot'),'utf8'))(id=>id.endsWith('optionalEvidenceAccess.service')?{getOptionalEvidenceAccess:async(user,project,codes)=>{assert.equal(user.id,'builder');assert.equal(project,'project');permissions.push(codes);return Object.fromEntries(codes.map(code=>[code,access]));}}:id.endsWith('testCase.service')?cases:id.endsWith('scopedTestData')?require('../../../platform/backend/src/utils/scopedTestData'):id.endsWith('testDataGenerators')?require('../../../platform/backend/src/utils/testDataGenerators'):require('../../../platform/backend/src/utils/linkedManualParameters'),module);
  return {...module.exports,updates,permissions,setAccess:value=>{access=value;},advanceRevision:()=>{revision++;}};
 }
 
-test('generated public defaults save through versioned case updates, preserving explicit values and revision checks',async()=>{
+test('generated build samples leave reusable defaults intact while retaining versioned case checks',async()=>{
  const fixture=snapshotFixture(),input={testCase:{id:'automation',parameter_values:{'t.explicit':'kept','t.email':'{{yopmail}}'}},projectId:'project',userId:'builder'};
  const snapshot=await fixture.prepareBuildDataSnapshot({...input,generatedValues:{'t.email':'frozen@example.test'}});
  assert.equal(snapshot.expected_revision,3);
+ assert.deepEqual(snapshot.generated_parameter_names,['t.email']);
+ assert.equal(snapshot.values['t.email'],'frozen@example.test','The exact build sample stays in its protected snapshot');
  await fixture.persistBuildDataSnapshot({...input,snapshot});
- assert.deepEqual(fixture.updates[0],{id:'automation',payload:{parameter_values:{'t.explicit':'kept','t.email':'frozen@example.test'},expected_revision:3,updated_by:'builder'},options:{syncSharedGroups:false}});
+ assert.deepEqual(fixture.updates[0],{id:'automation',payload:{parameter_values:{'t.explicit':'kept','t.email':'{{yopmail}}'},expected_revision:3,updated_by:'builder'},options:{syncSharedGroups:false}});
  assert.deepEqual(fixture.permissions,[['testcase.update','data.view'],['testcase.update','data.view']]);
  const stale=await fixture.prepareBuildDataSnapshot({...input,generatedValues:{'t.email':'new@example.test'}});
  fixture.advanceRevision();
  await assert.rejects(fixture.persistBuildDataSnapshot({...input,snapshot:stale}),error=>error.code==='REVISION_CONFLICT');
 });
 
-test('freezing an inherited public generator preserves its chosen manual override priority for later sections and normal runs',async()=>{
+test('build samples preserve inherited generator ownership and chosen priority for fresh normal runs',async()=>{
  const linked=require('../../../platform/backend/src/utils/linkedManualParameters');
  const {resolveParameterLayers}=require('../../../platform/backend/src/utils/stepParameterResolution');
  const target={id:'automation',automated:'yes',parameter_values:{},test_data_options:{}};
@@ -193,17 +195,21 @@ test('freezing an inherited public generator preserves its chosen manual overrid
  const frozenId=first.resolve('browser_fill',{value:'@t.order_id'}).value;
  const fixture=snapshotFixture(),input={testCase:target,projectId:'project',userId:'builder'};
  const snapshot=await fixture.prepareBuildDataSnapshot({...input,generatedValues:{...first.generatedCaseValues,'t.unreviewed':'unreviewed-generated'},defaultedValues:{'r.missing':''},authoredValues:{'r.reviewed_empty':''},privateNames:first.privateParameterNames,parameterOverrides:inherited.effective_parameter_overrides});
- assert.deepEqual(snapshot.generated_priority_parameter_names,['t.order_id']);
+ assert.deepEqual(snapshot.generated_parameter_names,['t.order_id','t.unreviewed']);
  assert.deepEqual(snapshot.reviewed_parameter_names,['r.reviewed_empty']);
  assert.equal(Object.hasOwn(snapshot.values,'r.opaque_input'),false,'private generated values remain in the resolver rather than copied into public case defaults');
  await fixture.persistBuildDataSnapshot({...input,snapshot});
  const saved={...target,...fixture.updates[0].payload};
- assert.deepEqual(saved.test_data_options.parameter_overrides,['r.reviewed_empty','t.order_id']);
+ assert.deepEqual(saved.test_data_options.parameter_overrides,['r.reviewed_empty']);
+ assert.equal(Object.hasOwn(saved.parameter_values,'t.order_id'),false,'Building never takes ownership of a linked generator');
  assert.equal(saved.test_data_options.parameter_overrides.includes('r.missing'),false);
  assert.equal(saved.test_data_options.parameter_overrides.includes('t.unreviewed'),false);
  const later=linked.resolveLinkedManualParameters(saved,sources),options=linked.effectiveLinkedDataOptions(saved,later);
  const nextSection=createBrowserParameterResolver({caseValues:later.effective_parameter_values,caseOptions:options,dataSet,materialize:false});
- assert.equal(nextSection.resolve('browser_fill',{value:'@t.order_id'}).value,frozenId);
+ assert.equal(later.effective_parameter_values['t.order_id'],'{{randomString:10}}');
+ assert.ok(later.inherited_parameter_overrides.includes('t.order_id'));
+ assert.ok(nextSection.deferredParameterNames.includes('t.order_id'));
+ assert.equal(first.resolve('browser_fill',{value:'@t.order_id'}).value,frozenId,'Remaining build sections keep the original resolver sample');
  assert.equal(nextSection.resolve('browser_fill',{value:'@r.reviewed_empty'}).value,'');
  assert.equal(nextSection.resolve('browser_fill',{value:'@t.unreviewed'}).value,'DATASET_OTHER');
  assert.ok(later.inherited_parameter_overrides.includes('r.opaque_input'),'unmaterialized private generator retains chosen-source priority');
@@ -211,8 +217,9 @@ test('freezing an inherited public generator preserves its chosen manual overrid
  assert.notEqual(privateNext.resolve('browser_fill',{value:'@r.opaque_input'}).value,'DATASET_SECRET');
  assert.equal(privateNext.publicParameterValues['r.opaque_input'],undefined);
  assert.equal(privateNext.generatedCaseValues['r.opaque_input'],undefined);
- const normalRun=resolveParameterLayers({caseValues:later.effective_parameter_values,dataSet:{...dataSet,parameter_data_layers:{case:{rows:dataSet.rows}},data_scope_policy:{version:2,case:options,suite:{},run:{}}}});
- assert.equal(normalRun['t.order_id'],frozenId);
+ const normalRun=resolveParameterLayers({caseValues:require('../../../platform/backend/src/utils/testDataGenerators').materializeParameterValues(later.effective_parameter_values),dataSet:{...dataSet,parameter_data_layers:{case:{rows:dataSet.rows}},data_scope_policy:{version:2,case:options,suite:{},run:{}}}});
+ assert.match(normalRun['t.order_id'],/^[A-Za-z0-9]{10}$/);
+ assert.notEqual(normalRun['t.order_id'],frozenId);
  assert.equal(normalRun['r.reviewed_empty'],'');
  assert.equal(normalRun['t.unreviewed'],'DATASET_OTHER');
  assert.equal(normalRun['r.missing'],'');
@@ -239,11 +246,30 @@ test('first-source data snapshot persists reviewed blanks and authored private c
  assert.deepEqual(snapshot.reviewed_parameter_names,['r.password','r.name']);
  await fixture.persistBuildDataSnapshot({...input,snapshot});
  const payload=fixture.updates[0].payload;
- assert.deepEqual(payload.parameter_values,{'t.keep':'existing','t.email':'generated@example.test','r.missing':'','r.password':'authored-private','r.name':''});
+ assert.deepEqual(payload.parameter_values,{'t.keep':'existing','r.missing':'','r.password':'authored-private','r.name':''});
  assert.deepEqual(payload.test_data_options.parameter_overrides,['r.name','r.password','t.keep']);
  assert.equal(payload.test_data_options.override_shared_steps,false);
  assert.equal(payload.test_data_options.parameter_overrides.includes('r.missing'),false,'server blank defaults do not shadow later supplying layers');
  assert.equal(payload.parameter_values['r.inherited-secret'],undefined,'unreviewed hidden source values are never supplied to persistence');
+});
+test('explicit build edits override generated samples, retaining dynamic templates, constants and private policy',async()=>{
+ const fixture=snapshotFixture(),input={testCase:{id:'automation',parameter_values:{'r.employee':'{{randomString:8}}','r.keep':'Constant'}},projectId:'project',userId:'builder'};
+ const templates={'r.employee':'Reviewed-{{randomString:16}}','r.literal':'Reviewed constant','r.password':'{{randomString:20}}'};
+ const {materializeParameterValues}=require('../../../platform/backend/src/utils/testDataGenerators');
+ const actual=materializeParameterValues(templates);
+ const snapshot=await fixture.prepareBuildDataSnapshot({...input,generatedValues:{'r.employee':'old-build-sample'},authoredValues:actual,authoredTemplates:templates,privateNames:['r.password']});
+ assert.deepEqual(snapshot.generated_parameter_names,[],'Explicit reviewed choices retain ownership');
+ assert.equal(snapshot.values['r.employee'],actual['r.employee']);
+ assert.deepEqual(snapshot.parameter_template_values,{'r.employee':templates['r.employee'],'r.password':templates['r.password']});
+ await fixture.persistBuildDataSnapshot({...input,snapshot});
+ assert.deepEqual(fixture.updates[0].payload.parameter_values,{'r.keep':'Constant',...templates});
+ assert.deepEqual(fixture.updates[0].payload.test_data_options.private_parameter_names,['r.password']);
+ assert.deepEqual(fixture.updates[0].payload.test_data_options.parameter_overrides,['r.employee','r.literal','r.password']);
+ assert.equal(snapshot.values['r.password'],actual['r.password'],'The build continues using its reviewed secret sample');
+ const literalFixture=snapshotFixture();
+ const literal=await literalFixture.prepareBuildDataSnapshot({...input,generatedValues:{'r.employee':'Generated sample'},authoredValues:{'r.employee':'Reviewed fixed value'},authoredTemplates:{'r.employee':'Reviewed fixed value'}});
+ await literalFixture.persistBuildDataSnapshot({...input,snapshot:literal});
+ assert.equal(literalFixture.updates[0].payload.parameter_values['r.employee'],'Reviewed fixed value','A deliberate constant replacement is saved as authored');
 });
 test('the complete reviewed priority marker budget is checked before generation instead of failing first-source persistence later',async()=>{
  const fixture=snapshotFixture(),own=Object.fromEntries(Array.from({length:256},(_,i)=>[`r.existing${i}`,'stored']));

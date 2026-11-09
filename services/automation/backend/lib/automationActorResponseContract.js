@@ -4,26 +4,23 @@ const issue=(field,expected)=>({field,expected});
 /** Describe decisions, not executable source. Actual tool schemas, pinned
  * requirements and host receipts remain the authority for dispatch and saving. */
 function automationActorResponseContract({stepId,activeGoal,canRequestContext=false,canRecoverPrerequisite=false,deferredTools=[],completionOnly=false}={}){
- const choices=[...(!completionOnly?[{stage:'act',step_id:stepId,section_complete:false,tool_calls:[{name:'choose exact name from Tool catalog',arguments:{}}]}]:[]),
-  ...(!completionOnly?[{stage:'act',step_id:stepId,section_complete:true,tool_calls:[{name:'choose final required check from Tool catalog',arguments:{}}]}]:[]),
-  {stage:'act',step_id:stepId,section_complete:true,tool_calls:[]}];
- if(canRequestContext&&!completionOnly)choices.push({actor_context_request:'advertised context request'});
- if(deferredTools.length&&!completionOnly)choices.push({tool_catalog_request:'nonempty array of deferred tool names'});
- if(canRecoverPrerequisite&&!completionOnly)choices.push({prerequisite_request:{reason:'Why one missing UI navigation/disclosure is necessary for this current goal and case intent.',evidence_refs:['exact current observation or target ref'],tool_call:{name:'browser_click',arguments:{locator:'exact current target ref'}}}});
- choices.push({stage:'act',step_id:stepId,section_issue:{kind:'unmet_prerequisite | expectation_mismatch | unexpected_application_state',reason:'short observed reason',evidence_refs:['current observation or target ref']}});
- return {question:completionOnly?'Can this section finish from its confirmed receipts, or which observed prerequisite prevents completion?':'What remains for the pinned active section action and expected result only? Choose one response shape.',
-  choices,rules:['The broader user request/flow supplies constraints and context, not permission to execute later actions now. A visible input or available parameter does not request a fill.',
-   'Tools excluded by the current authored action policy cannot be borrowed for later actions. If current application evidence establishes a missing same-origin UI navigation/disclosure, use the separate prerequisite_request when advertised; it needs host validation and independent review before one click.',
-   'Use boolean section_complete and an array of tool_calls. Do not mix actions with context, discovery or an issue.',
-   'Use actual advertised tool argument schemas; examples supply no actions or values.',
-   'For element actions and positive checks, copy locator from current_snapshot.targets[].ref. Do not reconstruct role names or CSS. If the target is missing, request scoped discovery before acting. Page checks and hidden/count predicates retain their advertised schemas.',
-   'For a semantic outcome, compare persistent in-page statements and the reached destination with every authored clause. A status/alert notification can disappear; prefer a current page_content target when it proves the same requirement. Preserve explicit notification requirements and exact authored literals. A code-sent message does not prove email delivery.',
-   'After a failed text check, a vanished notification alone does not prove the outcome failed. Use fresh evidence and advertised read-only discovery/checks before reporting absence. Keep recipient/data clauses bound to their configured parameter references and never repeat a completed submission.',
-   completionOnly?'Use confirmed receipts only; no further browser actions, context or discovery requests.':'Batch the remaining supported actions and required checks for this section. If that batch finishes the goal, set section_complete:true in the same response, without a separate acknowledgement turn. Host review follows actual success; this flag certifies nothing.',
-   'Check case intent, current goal, prior confirmed work and future order before acting. Infer only necessary UI reachability through prerequisite_request; never invent data, business submissions or expectations. Inaccurate intent/application must report section_issue with current evidence.',
-   'Use scoped parameter references for inputs. Preserve every authored outcome and literal. Do not generate source or shell commands.'],
+ const choices=[...(!completionOnly?[{section_complete:false,tool_calls:[{name:'catalog name',arguments:{}}]}]:[]),
+  ...(!completionOnly?[{section_complete:true,tool_calls:[{name:'final catalog check',arguments:{}}]}]:[]),
+  {section_complete:true,tool_calls:[]}];
+ if(canRequestContext&&!completionOnly)choices.push({actor_context_request:'advertised request'});
+ if(deferredTools.length&&!completionOnly)choices.push({tool_catalog_request:['deferred name']});
+ if(canRecoverPrerequisite&&!completionOnly)choices.push({prerequisite_request:{reason:'current-goal necessity',evidence_refs:['current ref'],tool_call:{name:'browser_click',arguments:{locator:'current target ref'}}}});
+ choices.push({section_issue:{kind:'unmet_prerequisite | expectation_mismatch | unexpected_application_state',reason:'observed reason',evidence_refs:['current ref']}});
+ return {question:`Return ONE flat JSON choice, not this contract/menu. ${completionOnly?'Complete from receipts or report an observed blocker.':'Current goal only.'}`,envelope:{stage:'act',step_id:stepId},
+  choices,rules:['Current goal only; broader constraints never authorize later actions. Visible inputs/data grant no fill. Preserve authored policy/order, every outcome/literal, scoped input/recipient refs.',
+   'Advertised prerequisites only: one observed same-origin UI reachability click after host validation + independent review. No invented data/submission/expectation.',
+   'Boolean section_complete; exact-schema tool_calls array. Context/discovery/issues exclude actions; examples grant no data/actions.',
+   'Element actions/positive checks copy current target refs, never rebuild CSS/roles. Missing target: scoped read-only discovery. Page/hidden/count: schemas.',
+   'All clauses need persistent page/destination proof and fresh targets/validation. Vanished notices/other-target failures prove no absence; keep explicit notices. Sent code is not delivered email; never repeat submission.',
+   completionOnly?'Receipts only: no browser/context/discovery requests.':'Batch current actions/checks; section_complete:true with final checks, no ack turn. Host review follows actual success; flag proves none.',
+   'Mismatch: section_issue with current evidence. No source/shell.'],
    ...(record(activeGoal)&&typeof activeGoal.action==='string'&&typeof activeGoal.expected_result==='string'
-     &&activeGoal.action.length+activeGoal.expected_result.length<=2000?{active_goal:{action:activeGoal.action,expected_result:activeGoal.expected_result},active_goal_scope:'This is the current section only. Perform its action and every outcome; later case actions are not requested now.'}:{})};
+     &&activeGoal.action.length+activeGoal.expected_result.length<=2000?{active_goal:{action:activeGoal.action,expected_result:activeGoal.expected_result},active_goal_scope:'current_section'}:{})};
 }
 
 /** Mechanical envelope defaults reduce copying work for small models. They
@@ -32,6 +29,10 @@ function automationActorResponseContract({stepId,activeGoal,canRequestContext=fa
  * and malformed intent receive feedback before any accompanying tool runs. */
 function normalizeAutomationActorResponse(response,{stepId}={}){
  if(!record(response))return {issues:[issue('response','JSON object')]};
+ // A copied decision menu is neither a flat actor choice nor legacy source.
+ // Reject accompanying tools too; examples never become dispatch authority.
+ if(typeof response.question==='string'&&Array.isArray(response.choices)
+   &&(record(response.envelope)||Array.isArray(response.rules)))return {issues:[issue('response','ONE flat JSON choice, not the contract/menu')]};
  const dispositions=['actor_context_request','tool_catalog_request','section_issue','prerequisite_request'].filter(key=>Object.hasOwn(response,key));
  if(dispositions.length>1)return {issues:[issue('response','one context, discovery or issue decision')]};
  if(response.stage!==undefined&&!['act','source'].includes(response.stage))return {issues:[issue('stage','act for current browser work')]};

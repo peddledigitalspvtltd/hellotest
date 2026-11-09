@@ -83,7 +83,7 @@ test('automation flushes edited or explicitly reselected parameters before build
   const writes=[],cache=[];
   const dependencies={activeCase,lastAutomationCaseDraftSeedRef:{current:{caseKey:'case:project:automation'}},projectId:'project',
     normalizeAutomationParameterValues:normalizeStepParameterValues,testCaseParameterValues:{'r.blank':''},caseParameterSaveOptions,
-    visiblePrivateNames:new Set(['t.private_input']),caseParameterOverrideDraftRef:{current:{scope:'project:automation',names:new Set(['r.blank'])}},caseParameterPrivacyScope:'project:automation',
+    visiblePrivateNames:new Set(['t.private_input']),caseParameterOverrideDraftRef:{current:{scope:'project:automation',names:new Set(['r.blank'])}},caseParameterPrivacyScope:'project:automation',privateCaseParameterDraft:{scope:'project:automation',names:[]},
     canUpdateAutomationCase:true,canViewTestData:true,selectedParameterSuite:null,activeCaseSuiteIds:[],suiteParameterValues:{},hasPermission:()=>false,session:{},
     api:{testCases:{update:async(id,input)=>{writes.push({id,input});return{revision:8};}}},
     automationCaseDetailQueryKey:()=>['case'],queryClient:{setQueriesData:(query,update)=>cache.push(update(activeCase))}};

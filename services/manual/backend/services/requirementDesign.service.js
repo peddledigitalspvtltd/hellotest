@@ -1,7 +1,7 @@
 const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const dropdownCatalog = require('@hellotest/platform/backend/services/dropdownCatalog.service');
 const { splitGenerationContext, generationRetrievalQuery } = require('@hellotest/platform/backend/src/utils/aiGenerationContext');
-const { caseOutputSchema, validateNativeArtifactOutput } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
+const { caseOutputSchema, validateNativeArtifactOutput, normalizeGeneratedCaseParameterValues } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { validateAuthoringIntent } = require('@hellotest/platform/backend/src/utils/aiAuthoringIntent');
 const testCaseService = require("@hellotest/testing/backend/services/testCase.service");
@@ -39,16 +39,6 @@ const assertStoryProject = (requirements, appType) => {
   if (requirements.some(story => story.project_id && appType.project_id && story.project_id !== appType.project_id)) {
     throw Object.assign(new Error('Selected Stories must belong to the application project.'), { statusCode: 403, code: 'AI_STORY_SCOPE_INVALID' });
   }
-};
-
-const normalizeParameterValues = (values = {}) => {
-  if (!values || typeof values !== "object" || Array.isArray(values)) return {};
-
-  return Object.entries(values).reduce((normalized, [name, value]) => {
-    const rawName = String(name || "").trim().replace(/^@+/, "").replace(/^[tsr]\./i, "").toLowerCase();
-    if (rawName) normalized[rawName] = value === null || value === undefined ? "" : String(value);
-    return normalized;
-  }, {});
 };
 
 const normalizeImageAssets = images => normalizeReferenceImages(images, { max_images: 4 });
@@ -168,7 +158,7 @@ const normalizeCaseDraft = (item, index, {
   const description = normalizeText(item?.description);
   if (!description) throw Object.assign(new Error(`Generated test case ${index + 1} is missing a description`), { statusCode: 502, code: 'AI_NATIVE_CONTRACT_INVALID' });
   if (!item?.parameter_values || typeof item.parameter_values !== 'object' || Array.isArray(item.parameter_values)
-      || Object.entries(item.parameter_values).some(([name, value]) => !name.trim() || /^@|^[tsr]\./i.test(name) || typeof value !== 'string')) {
+      || Object.entries(item.parameter_values).some(([name, value]) => !name.trim() || /^@/.test(name) || typeof value !== 'string')) {
     throw Object.assign(new Error(`Generated test case ${index + 1} must include a parameter_values object with case-owned names and string data values`), { statusCode: 502, code: 'AI_NATIVE_CONTRACT_INVALID' });
   }
 
@@ -203,7 +193,7 @@ const normalizeCaseDraft = (item, index, {
     requirement_titles: resolvedRequirements.map((requirement) => requirement.title),
     authoring_mode: resolvedAuthoringMode,
     gherkin_document: gherkinDocument,
-    parameter_values: normalizeParameterValues(item.parameter_values),
+    parameter_values: normalizeGeneratedCaseParameterValues(item),
     steps
   };
 };

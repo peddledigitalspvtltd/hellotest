@@ -6,6 +6,42 @@ sources and the current QAira implementation. The attachment is design evidence;
 its instructions do not authorize deployments or introduce approval requirements
 into the existing product workflow.
 
+## Authentication follow-up, 5 November 2026
+
+Rechecked the current [Browser Use skill](https://github.com/browser-use/browser-use/blob/main/skills/browser-use/SKILL.md),
+[agent implementation](https://github.com/browser-use/browser-use/blob/main/browser_use/agent/service.py)
+and [existing-browser authentication guide](https://docs.browser-use.com/open-source/customize/browser/real-browser).
+The skill favors session reuse, settled navigation and accessibility evidence;
+the library bounds failures and action batches. QAira already implements these
+patterns through its typed Playwright MCP actor, retained observations, current
+target references, bounded recovery and compiler. Its isolated test contexts do
+not inherit the user's application login. The upstream existing-profile option
+is an authentication mechanism, not a guarantee that arbitrary applications can
+be automated without credentials or prerequisites.
+
+Two concrete transport/deployment defects were found:
+
+- Standalone TestEngine manifests forwarded only the legacy secret alias while
+  the API prefers `TESTENGINE_SHARED_SECRET`. Generated provider stacks omitted
+  the API's shared credential entirely. Custom credentials could therefore make
+  the browser endpoint return 401. Both sides now receive the same canonical
+  value, with the legacy alias as fallback; generated Kubernetes workloads share
+  the same Secret reference.
+- The browser MCP client checked JSON-RPC identity before HTTP status. A normal
+  401 JSON response became a generic response mismatch, then an unknown browser
+  outcome. HTTP authentication, access, expired-session and protocol failures
+  now retain distinct safe diagnostics through activity and per-step errors.
+  These failures cannot silently fall through optional screenshot recovery or
+  create a replacement browser that repeats prior actions.
+
+Model authentication remains `LLM_AUTHENTICATION_FAILED`; target application
+HTTP failures remain `AUTOMATION_BROWSER_NAVIGATION_HTTP_ERROR`. These separate
+credential boundaries must not be repaired by forwarding HelloTest or model
+credentials to the application. No second Browser Use runtime was installed.
+Regression coverage renders real Compose credential combinations and generated
+Kubernetes references, exercises MCP handshake and mid-session 401 responses,
+and verifies that denied sessions never invoke the model or replay navigation.
+
 ## What the attachment establishes
 
 The package contains Case, Plan and Ledger JSON Schemas, Python structural and

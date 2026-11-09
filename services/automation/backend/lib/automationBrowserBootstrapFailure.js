@@ -18,18 +18,22 @@ function navigationHttpFailureMessage(value) {
   return `The selected application returned HTTP ${status} while opening the Start URL. ${guidance} No navigation was retried.`;
 }
 
-function startupDiagnostic(observed, browserCode, tool) {
+function bootstrapDiagnostic(observed, browserCode, tool, phase = 'startup') {
   const { sanitize } = require('@hellotest/platform/backend/src/utils/llmTraceCapture');
   const sanitized = sanitize(String(observed.message || '')).payload;
   if (typeof sanitized !== 'string' || !sanitized.trim()) return null;
-  const diagnostic = { code: browserCode, launch_phase: 'startup', browser_tool: tool,
-    ...(['proxy', 'browser', 'context', 'page'].includes(observed.startup_stage) ? { startup_stage: observed.startup_stage } : {}), message: sanitized };
-  // Retain both the launch heading and fatal tail after redaction. Bound the
+  // Navigation call logs contain the selected URL, including private paths and
+  // arbitrary query values. Retain the error cause without retaining that URL.
+  const message = phase === 'navigation' ? sanitized.replace(/\b(?:https?|wss?|ftp|file|data):(?:\/\/|\\\/\\\/)[^\s"'<>]*/gi, '[URL_REDACTED]') : sanitized;
+  const diagnostic = { code: browserCode, browser_tool: tool,
+    ...(phase === 'startup' ? { launch_phase: 'startup', ...(['proxy', 'browser', 'context', 'page'].includes(observed.startup_stage) ? { startup_stage: observed.startup_stage } : {}) }
+      : { failure_phase: 'navigation', ...(['not_attempted', 'unknown', 'completed'].includes(observed.action_outcome) ? { action_outcome: observed.action_outcome } : {}) }), message };
+  // Retain both the failure heading and final cause after redaction. Bound the
   // serialized artifact, including multibyte text and JSON escaping.
-  const characters = Array.from(sanitized);
+  const characters = Array.from(message);
   let limit = Math.min(characters.length, 1800);
   do {
-    diagnostic.message = characters.length <= limit ? sanitized
+    diagnostic.message = characters.length <= limit ? message
       : `${characters.slice(0, Math.floor(limit / 2)).join('')}\n[DIAGNOSTIC_TRUNCATED]\n${characters.slice(-Math.ceil(limit / 2)).join('')}`;
     if (Buffer.byteLength(JSON.stringify(diagnostic), 'utf8') <= 2048) return diagnostic;
     limit -= 100;
@@ -40,6 +44,8 @@ function startupDiagnostic(observed, browserCode, tool) {
 /** Retry a bootstrap failure only when MCP confirms no browser action began. */
 function browserBootstrapFailure(result, { tool = 'browser_navigate', cause } = {}) {
   const observed = receipt(result);
+  const unsupported = require('./automationBrowserFlowPolicy').unsupportedBrowserFlowError(observed);
+  if (unsupported) return unsupported;
   const browserCode = typeof observed.code === 'string' && /^[A-Z][A-Z0-9_]{0,99}$/.test(observed.code) ? observed.code : null;
   const notAttempted = observed.action_outcome === 'not_attempted' && observed.retry_safe === true;
   const policyFailure = /AUTH|FORBIDDEN|PERMISSION|INVALID|POLICY|ORIGIN|HOST|URL/.test(browserCode || '');
@@ -63,7 +69,10 @@ function browserBootstrapFailure(result, { tool = 'browser_navigate', cause } = 
   // Protected artifact input only: never serialize into public outcomes or
   // include browser process diagnostics in generation prompts.
   if (retrySafe) {
-    const diagnostic = startupDiagnostic(observed, browserCode, tool);
+    const diagnostic = bootstrapDiagnostic(observed, browserCode, tool);
+    if (diagnostic) Object.defineProperty(error, 'browser_diagnostic', { value: diagnostic });
+  } else if (tool === 'browser_navigate' && browserCode !== 'BROWSER_LAUNCH_FAILED' && !launchFailure && !httpStatus && !cause) {
+    const diagnostic = bootstrapDiagnostic(observed, browserCode, tool, 'navigation');
     if (diagnostic) Object.defineProperty(error, 'browser_diagnostic', { value: diagnostic });
   }
   return error;

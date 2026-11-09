@@ -315,6 +315,19 @@
         "additionalProperties": true
       }
     },
+    "GET /requirements/:id": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        },
+        "additionalProperties": true
+      }
+    },
     "GET /requirements/ai-create-jobs": {
       "querystring": {
         "type": "object",
@@ -4354,6 +4367,12 @@
             "items": {
               "type": "number"
             }
+          },
+          "parameter_bindings": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
           }
         },
         "additionalProperties": true
@@ -5402,6 +5421,9 @@
       "body": {
         "type": "object",
         "properties": {
+          "worker_id": {
+            "type": "string"
+          },
           "status": {
             "type": "string"
           },
@@ -5441,7 +5463,35 @@
         "additionalProperties": true
       }
     },
+    "POST /testengine/internal/jobs/:id/heartbeat": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "worker_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker_id"
+        ],
+        "additionalProperties": true
+      }
+    },
     "POST /testengine/internal/jobs/:id/start": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "worker_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /testengine/internal/jobs/:id/steps/:stepId/execute": {
       "body": {
         "type": "object",
         "properties": {
@@ -5456,6 +5506,9 @@
       "body": {
         "type": "object",
         "properties": {
+          "worker_id": {
+            "type": "string"
+          },
           "status": {
             "type": "string"
           },

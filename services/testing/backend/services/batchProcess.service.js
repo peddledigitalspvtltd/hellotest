@@ -7,13 +7,49 @@ const obsDb = require("@hellotest/platform/backend/src/obsDb");
 const { randomUUID: uuid, createHash } = require("crypto");
 const workspaceTransactionService = require("@hellotest/platform/backend/services/workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("@hellotest/platform/backend/src/utils/externalReferences");
-const {createBatchJobLease}=require('./batchJobLease');
+const {createBatchJobLease,RENEWAL_TIMEOUT_MS}=require('./batchJobLease');
+const {runWithoutDatabaseOperationGuard,runWithDatabaseOperationGuard}=require('@hellotest/platform/backend/src/db/databaseOperationGuard');
 
 const QUEUED_BATCH_LIMIT = Math.max(1, Number(process.env.BATCH_PROCESS_CONCURRENCY || 1));
 const DEFAULT_MAX_ATTEMPTS = Math.max(1, Number(process.env.BATCH_PROCESS_MAX_ATTEMPTS || 5));
 const AI_RECOVERY_DELAY_MS = Math.max(60_000, Number(process.env.AI_RATE_LIMIT_RECOVERY_MS || 60 * 60 * 1000));
 const MAX_RETRY_DELAY_MS = Math.max(60_000, Number(process.env.BATCH_PROCESS_MAX_RETRY_DELAY_MS || 60 * 60 * 1000));
 const EXPORT_CHUNK_SIZE = Math.max(10, Math.min(500, Number(process.env.BATCH_EXPORT_CHUNK_SIZE || 100)));
+const activeAutomationBuildGuards = new Map();
+const selectAutomationBuildForCancellation=obsDb.prepare(`SELECT job.* FROM batch_process_jobs job
+ JOIN workspace_transactions activity ON activity.id=job.transaction_id
+ WHERE job.transaction_id=? AND activity.project_id=? AND activity.category='automation_build' AND job.operation='automation_build'
+ FOR UPDATE OF job`);
+const cancelAutomationBuildJob=obsDb.prepare(`UPDATE batch_process_jobs SET status='completed',
+ result=COALESCE(result,'{}'::jsonb)||?::jsonb,lease_owner=NULL,lease_expires_at=NULL,next_run_at=NULL,
+ completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+ WHERE id=? AND operation='automation_build' AND status IN ('queued','running')`);
+const stopAutomationBuildActivity=obsDb.prepare(`UPDATE workspace_transactions SET status='completed',description=?,
+ metadata=COALESCE(metadata,'{}'::jsonb)||?::jsonb,completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+ WHERE id=? AND project_id=? AND category='automation_build'`);
+
+// The scheduled Build UI uses this durable producer. Preserve its history and
+// supported terminal enum while revoking the exact automation_build lease.
+exports.cancelAutomationBuild=async({transactionId,projectId,userId}={})=>{
+ if(!transactionId||!projectId||!userId)throw Object.assign(new Error('A scoped automation build and actor are required.'),{statusCode:400});
+ const outcome=await obsDb.transaction(async()=>{
+  const job=await selectAutomationBuildForCancellation.get(transactionId,projectId);
+  if(!job)throw Object.assign(new Error('Automation build not found.'),{statusCode:404});
+  const result=parseJsonValue(job.result,{});
+  if(!['queued','running'].includes(job.status))return {jobId:job.id,status:result.cancelled===true?'cancelled':job.status};
+  const details={cancelled:true,cancelled_at:new Date().toISOString(),cancelled_by:userId,saved_instructions_retained:true,automatic_retry:false};
+  const changed=await cancelAutomationBuildJob.run(details,job.id);
+  if(changed.changes!==1)throw Object.assign(new Error('The automation build changed before it could be stopped.'),{statusCode:409});
+  const message='Build stopped. Saved sections and evidence retained.';
+  const activity=await stopAutomationBuildActivity.run(message,{...details,outcome_status:'cancelled',current_phase:'generator.cancelled',phase_message:message},transactionId,projectId);
+  if(activity.changes!==1)throw Object.assign(new Error('Automation build activity not found.'),{statusCode:404});
+  await workspaceTransactionService.appendTransactionEvent(transactionId,{phase:'generator.cancelled',message,
+   details:{job_id:job.id,operation:'automation_build',...details,in_flight_action_outcome:job.status==='running'?'unknown_until_reconciled':'not_started'}});
+  return {jobId:job.id,status:'cancelled'};
+ })();
+ if(outcome.status==='cancelled')activeAutomationBuildGuards.get(outcome.jobId)?.stop();
+ return {transaction_id:transactionId,status:outcome.status,cancelled:outcome.status==='cancelled'};
+};
 
 const insertJob = obsDb.prepare(`
   INSERT INTO batch_process_jobs (
@@ -44,9 +80,20 @@ const requeueExpiredLeases = obsDb.prepare(`
       lease_expires_at = NULL,
       updated_at = CURRENT_TIMESTAMP
   WHERE status = 'running'
+    AND operation IS DISTINCT FROM 'automation_build'
     AND lease_expires_at IS NOT NULL
     AND lease_expires_at <= CURRENT_TIMESTAMP
 `);
+
+const selectExpiredAutomationBuilds=obsDb.prepare(`SELECT id FROM batch_process_jobs
+ WHERE operation='automation_build' AND status='running' AND lease_expires_at IS NOT NULL AND lease_expires_at<=CURRENT_TIMESTAMP
+ ORDER BY lease_expires_at,id LIMIT 100`);
+const failAutomationBuildLease=obsDb.prepare(`UPDATE batch_process_jobs SET status='failed',
+ result=COALESCE(result,'{}'::jsonb)||?::jsonb,last_error=?,lease_owner=NULL,lease_expires_at=NULL,
+ completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+ WHERE id=? AND operation='automation_build' AND status='running'
+ AND (?::text IS NULL OR lease_owner=?) AND (?::boolean=FALSE OR lease_expires_at<=CURRENT_TIMESTAMP)
+ RETURNING id,transaction_id`);
 
 const markJobRunning = obsDb.prepare(`
   UPDATE batch_process_jobs
@@ -70,8 +117,13 @@ const markJobRetryQueued = obsDb.prepare(`
       updated_at = CURRENT_TIMESTAMP
   WHERE id = ? AND status='running' AND lease_owner=?
 `);
-const renewJobLease=obsDb.prepare(`UPDATE batch_process_jobs SET lease_expires_at=?,updated_at=CURRENT_TIMESTAMP
- WHERE id=? AND status='running' AND lease_owner=? AND lease_expires_at>CURRENT_TIMESTAMP`);
+// Lease ownership is control-plane state. A repository transaction must not
+// hold this row lock or inherit its optional child cancellation scope.
+const renewJobLease={run:async(expiresAt,jobId,workerId)=>{
+ const result=await runWithoutDatabaseOperationGuard(()=>obsDb.pool.query({text:`UPDATE batch_process_jobs SET lease_expires_at=$1,updated_at=CURRENT_TIMESTAMP
+  WHERE id=$2 AND status='running' AND lease_owner=$3 AND lease_expires_at>CURRENT_TIMESTAMP`,values:[expiresAt,jobId,workerId],query_timeout:RENEWAL_TIMEOUT_MS}));
+ return {changes:result.rowCount};
+}};
 
 const markJobCompleted = obsDb.prepare(`
   UPDATE batch_process_jobs
@@ -893,6 +945,48 @@ const JOB_HANDLERS = {
 
 let isProcessing = false;
 
+// A failed lease must not leave a durable Build looking active, and a late
+// optional transaction cannot own its terminal control-plane write.
+async function boundedLeaseRecovery(callback) {
+ const controller=new AbortController(),deadlineMs=Date.now()+3_000;
+ const reason=Object.assign(new Error('Lease recovery could not reach its bounded database deadline.'),{code:'BATCH_JOB_LEASE_RECOVERY_TIMEOUT',nonRetryable:true});
+ let timer;
+ try {
+  return await Promise.race([
+   Promise.resolve().then(()=>runWithoutDatabaseOperationGuard(()=>runWithDatabaseOperationGuard({signal:controller.signal,deadlineMs},()=>obsDb.outsideTransaction(callback)))),
+   new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort(reason);reject(reason);},3_000);timer.unref?.();})
+  ]);
+ } finally {if(timer)clearTimeout(timer);}
+}
+
+async function settleAutomationBuildLease({jobId,workerId=null,expiredOnly=false,leaseCode='BATCH_JOB_LEASE_EXPIRED'}) {
+ const errorCode=leaseCode==='BATCH_JOB_LEASE_RENEWAL_TIMEOUT'?'AUTOMATION_BUILD_LEASE_RENEWAL_TIMEOUT'
+  :leaseCode==='BATCH_JOB_LEASE_RENEWAL_FAILED'?'AUTOMATION_BUILD_LEASE_RENEWAL_FAILED':'AUTOMATION_BUILD_LEASE_EXPIRED';
+ const message='The automation build stopped after its worker lease was lost or expired. Any saved section instructions were retained. Review the application and saved sections before starting another build; completed or uncertain browser actions were not replayed.';
+ const diagnostic={error_code:errorCode,lease_code:leaseCode,saved_instructions_retained:true,automatic_retry:false,replay_safe:false};
+ try {
+  return await boundedLeaseRecovery(()=>obsDb.transaction(async()=>{
+   // Compare the original owner for watchdog failures. Expiry recovery instead
+   // rechecks expiry atomically, so a renewed or newly owned job is untouched.
+   const failed=await failAutomationBuildLease.get(diagnostic,message,jobId,workerId,workerId,expiredOnly);
+   if(!failed)return false;
+   const transaction=await workspaceTransactionService.getTransaction(failed.transaction_id);
+   if(transaction.category!=='automation_build')throw new Error('The expired build transaction scope changed.');
+   await workspaceTransactionService.updateTransaction(failed.transaction_id,{status:'failed',description:message,completed_at:new Date().toISOString(),
+    metadata:{current_phase:'failed',phase_message:message,error:message,...diagnostic}});
+   await workspaceTransactionService.appendTransactionEvent(failed.transaction_id,{level:'error',phase:'automation.agent.lease.failed',message,
+    details:{job_id:failed.id,operation:'automation_build',...diagnostic}});
+   return true;
+  })());
+ } catch {return false;} // A later expiry sweep retries unavailable storage.
+}
+
+async function recoverExpiredAutomationBuilds() {
+ let jobs;
+ try {jobs=await boundedLeaseRecovery(()=>selectExpiredAutomationBuilds.all());}catch{return;}
+ for(const job of jobs)await settleAutomationBuildLease({jobId:job.id,expiredOnly:true});
+}
+
 exports.processQueuedJobs = async () => {
   if (isProcessing) {
     return;
@@ -901,6 +995,7 @@ exports.processQueuedJobs = async () => {
   isProcessing = true;
 
   try {
+    await recoverExpiredAutomationBuilds();
     await requeueExpiredLeases.run();
     const jobs = await selectQueuedJobs.all(QUEUED_BATCH_LIMIT);
     const workerId = `api-${process.pid}`;
@@ -915,6 +1010,7 @@ exports.processQueuedJobs = async () => {
         const claim = await markJobRunning.run(workerId, leaseExpiresAt, job.id);
         if (claim.changes !== 1) continue;
         executionGuard=createBatchJobLease({renew:()=>renewJobLease.run(new Date(Date.now()+10*60*1000).toISOString(),job.id,workerId)});
+        if(operation==='automation_build')activeAutomationBuildGuards.set(job.id,executionGuard);
         if (!handler) throw new Error(`Unsupported batch operation: ${operation || "unknown"}`);
         await workspaceTransactionService.updateTransaction(job.transaction_id, {
           status: "running",
@@ -923,7 +1019,9 @@ exports.processQueuedJobs = async () => {
             current_phase: "running"
           }
         });
-        const result = await handler(job,executionGuard);
+        const result = operation==='automation_build'
+          ? await runWithDatabaseOperationGuard({signal:executionGuard.signal},()=>handler(job,executionGuard))
+          : await handler(job,executionGuard);
         await executionGuard.ensureOwnership();
         const completed=await markJobCompleted.run(result || {}, job.id,workerId);
         if(completed.changes!==1)throw Object.assign(new Error("The job lease changed before completion."),{code:"BATCH_JOB_LEASE_LOST"});
@@ -934,8 +1032,18 @@ exports.processQueuedJobs = async () => {
           message: completedTransaction.metadata?.agent_activity ? `${completedTransaction.title}: ${completedTransaction.metadata.phase_message || completedTransaction.description || "Review the agent activity in Automation."}` : `${completedTransaction.title} completed. Open the batch process for details and artifacts.`
         });
       } catch (error) {
-        if(executionGuard?.signal.aborted||error.code==='BATCH_JOB_LEASE_LOST')continue;
-        if(executionGuard)try{await executionGuard.ensureOwnership();}catch{continue;}
+        if(executionGuard?.signal.aborted||error.code==='BATCH_JOB_LEASE_LOST'){
+          const leaseCode=executionGuard?.signal.reason?.lease_code||error.lease_code;
+          if(operation==='automation_build'&&['BATCH_JOB_LEASE_RENEWAL_TIMEOUT','BATCH_JOB_LEASE_RENEWAL_FAILED'].includes(leaseCode))
+            await settleAutomationBuildLease({jobId:job.id,workerId,leaseCode});
+          continue;
+        }
+        if(executionGuard)try{await executionGuard.ensureOwnership();}catch(leaseError){
+          const leaseCode=executionGuard.signal.reason?.lease_code||leaseError.lease_code;
+          if(operation==='automation_build'&&['BATCH_JOB_LEASE_RENEWAL_TIMEOUT','BATCH_JOB_LEASE_RENEWAL_FAILED'].includes(leaseCode))
+            await settleAutomationBuildLease({jobId:job.id,workerId,leaseCode});
+          continue;
+        }
         const message = error instanceof Error ? error.message : "Batch process failed";
         const nextAttempt = Number(job.attempts || 0) + 1;
         const maxAttempts = resolveJobMaxAttempts(job);
@@ -1014,7 +1122,7 @@ exports.processQueuedJobs = async () => {
           title: "Batch process failed",
           message: message || "Batch process failed. Open the process for details."
         });
-      } finally {executionGuard?.stop();}
+      } finally {if(activeAutomationBuildGuards.get(job.id)===executionGuard)activeAutomationBuildGuards.delete(job.id);executionGuard?.stop();}
     }
   } finally {
     isProcessing = false;

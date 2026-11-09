@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ElementHandle, Locator, Page } from 'playwright';
+import type { ElementHandle, Locator, Page, Frame } from 'playwright';
 import { resolveRepositoryLocator } from './repositoryLocator.js';
 
 // Browser-side, read-only identity. Values, validity and selection state are
@@ -71,8 +71,10 @@ export class AutomationObservedSubjects {
   private aliases = new Map<string, Subject>();
   private subjects = new Set<Subject>();
   private enabled = false;
+  private generation = 0;
 
   async clear() {
+    this.generation++;
     const subjects = [...this.subjects];
     this.aliases.clear(); this.subjects.clear();
     await disposeHandles(subjects.map(subject => subject.handle));
@@ -80,13 +82,15 @@ export class AutomationObservedSubjects {
 
   async beginSnapshot() { await this.clear(); this.enabled = true; }
 
-  async observe(target: Locator, element: any, page: Page, deadline: number) {
+  async observe(target: Locator, element: any, page: Page | Frame, deadline: number) {
+    const generation=this.generation;
     let handle: ElementHandle | null = null;
     try {
       if (Date.now() >= deadline) return false;
       handle = await target.elementHandle({ timeout: Math.max(1, Math.min(750, deadline - Date.now())) });
-      if (!handle) return false;
+      if (!handle || Date.now()>=deadline || generation!==this.generation) return false;
       const identity = await target.evaluate(readSubject, handle, { timeout: Math.max(1, Math.min(750, deadline - Date.now())) });
+      if(Date.now()>=deadline || generation!==this.generation)return false;
       const originalAttrs = element.attributes || {};
       if (!identity.attached || !identity.same_node || !identity.complete || identity.tag !== element.tag || identity.text_excerpt !== element.text
         || identity.text_truncated !== Boolean(element.text_truncated)
@@ -105,7 +109,8 @@ export class AutomationObservedSubjects {
     finally { if (handle) await disposeHandles([handle]); }
   }
 
-  async resolve(page: Page, candidate: string, deadline: number) {
+  async resolve(page: Page | Frame, candidate: string, deadline: number) {
+    const generation=this.generation;
     if (!this.enabled) return null; // Existing direct clients without a snapshot retain their locator contract.
     let subject = this.aliases.get(candidate.trim());
     // Formatting or equivalent CSS may differ from the advertised aliases.
@@ -125,7 +130,7 @@ export class AutomationObservedSubjects {
       const locator = resolveRepositoryLocator(page, candidate);
       if (Date.now() >= deadline || await locator.count() !== 1) throw stale();
       const identity = await locator.evaluate(readSubject, subject.handle, { timeout: Math.max(1, Math.min(750, deadline - Date.now())) });
-      if (!identity.same_node || !identity.complete || fingerprint(identity) !== subject.identity) throw stale();
+      if (Date.now()>=deadline || generation!==this.generation || !identity.same_node || !identity.complete || fingerprint(identity) !== subject.identity) throw stale();
       return subject.handle;
     } catch (error) {
       if (error instanceof Error && 'code' in error && String(error.code).startsWith('BROWSER_OBSERVED_SUBJECT_')) throw error;

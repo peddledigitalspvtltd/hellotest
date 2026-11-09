@@ -217,3 +217,19 @@ test('recorded polling checks are executable only when awaited with a real polli
  assert.equal(hasExecutableAssertion('await expect.poll("not a callback").toBe("Exact title");'),false);
  assert.equal(hasExecutableAssertion('async function unused(){'+source+'} await page.locator("#save").click();'),false);
 });
+
+test('Playwright Test-only snapshot matchers report runner capability instead of becoming executable native-step assertions',()=>{
+ for(const source of [
+  'await expect(page.locator("body")).toMatchAriaSnapshot(`- list:\n  - listitem: Rows per page`);',
+  'await expect(page.locator("#noncoreIframe").contentFrame().getByRole("list")).toMatchAriaSnapshot("- list");',
+  'await expect.soft(page).not.toHaveScreenshot("screen.png");',
+  'expect("actual").toMatchSnapshot("baseline.txt");',
+  'await expect.configure({timeout:45000})(page.locator("body")).toMatchAriaSnapshot("- list");'
+ ]){
+  assert.throws(()=>normalizeGeneratedProgram(source),error=>error.code==='AUTOMATION_RUNNER_MATCHER_UNSUPPORTED'&&/testInfo/.test(error.message)&&/toBeVisible, toHaveText or toHaveCount/.test(error.message)&&/observed iframe target/.test(error.message));
+  assert.equal(hasExecutableAssertion(source),false);
+ }
+ const source='await expect(page.locator("#noncoreIframe").contentFrame().getByRole("columnheader",{name:"Owner(s)"})).toBeVisible();await expect(page.locator("#noncoreIframe").contentFrame().getByRole("listitem")).toHaveText(["Rows per page"]);';
+ assert.equal(normalizeGeneratedProgram(source),source);assert.equal(hasExecutableAssertion(source),true);
+ assert.doesNotThrow(()=>normalizeGeneratedProgram('await customChecks.toMatchSnapshot("ordinary helper data");'),'unrelated methods are not Playwright Test matchers');
+});

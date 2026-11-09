@@ -33,28 +33,34 @@ test('the exported navigation policy narrows discovery without exposing targets,
   assert.equal(Object.isFrozen(policy), true); assert.equal(Object.isFrozen(policy.allowed_tools), true);
 });
 
-test('unknown and compound instructions never produce a narrower advertised action policy', () => {
-  for (const action of ['Navigate https://app.test and enter the email', 'Open the sign-in screen', 'Navigate @r.url', 'メールを入力する', '']) {
+test('recognized current compounds retain only their explicit families while unknown language remains unclassified', () => {
+  for (const action of ['メールを入力する', '']) {
     assert.equal(browserCurrentActionPolicy(execution(action)), undefined, action);
   }
   assert.equal(browserCurrentActionPolicy(execution(undefined, { required: false })), undefined);
   assert.equal(browserCurrentActionPolicy(execution(undefined, { source_obligations: undefined })), undefined);
   const active = execution(); active.source_obligations.push({ action: 'Enter @r.email' });
-  assert.equal(browserCurrentActionPolicy(active), undefined);
+  assert.equal(browserCurrentActionPolicy(active).kind,'explicit_action_families');
+  assert.ok(browserCurrentActionPolicy(active).allowed_tools.includes('browser_fill'));
+  assert.ok(!browserCurrentActionPolicy(active).allowed_tools.includes('browser_click'));
+  assert.equal(browserCurrentActionPolicy(execution('Navigate @r.url')).kind,'navigation_only');
+  assert.equal(browserCurrentActionPolicy(execution('Open the sign-in screen')).kind,'click_only');
 });
 
-test('only a narrowly recognized explicit HTTP URL action activates this safeguard', () => {
+test('literal, parameterized and relative navigation intent restricts interactions without granting a destination', () => {
   for (const action of ['Navigate http://localhost:8080/auth', 'Navigate to https://app.test/sign-in?tenant=one&next=/home#form',
     'Please go to "https://app.test/sign-in?next=/home".', 'Open `https://app.test/`', "Visit 'https://app.test/sign-in'!", '  PLEASE NAVIGATE TO https://app.test/  ']) assert.ok(inspect('browser_fill', execution(action)), action);
-  for (const action of ['Navigate to /auth', 'Navigate @r.url', 'Open the sign-in form', 'Click the sign-in link', 'Navigate javascript:alert(1)',
-    'Navigate http://user:private-secret@app.test/', 'Navigate mailto:synthetic@example.test', 'Navigate http://', 'Navigate "https://app.test /login"',
+  for(const action of ['Navigate to /auth','Navigate @r.url','Open the sign-in form','Click the sign-in link',
+    'Navigate http://user:private-secret@app.test/','Navigate http://','Navigate "https://app.test /login"'])assert.ok(inspect('browser_fill',execution(action)),action);
+  for (const action of ['Navigate javascript:alert(1)', 'Navigate mailto:synthetic@example.test',
     '<p>Navigate https://app.test/</p>', 'Aller à https://app.test/', 'https://app.test/', '', 'x'.repeat(20_001)]) assert.equal(inspect('browser_fill', execution(action)), null, action.slice(0, 80));
 });
 
-test('compound or conditional navigation retains the ordinary actor and reviewer path', () => {
-  for (const action of ['Navigate http://localhost:8080/auth and enter @r.email', 'Open https://app.test then click Continue',
+test('explicit compound navigation retains its families and conditional or unknown clauses retain semantic review', () => {
+  for (const action of ['Navigate http://localhost:8080/auth and enter @r.email',
     'Visit https://app.test; enter a value', 'Navigate https://app.test\nEnter the value', 'Before entering data, navigate https://app.test',
-    'Navigate https://app.test and verify the page', 'Go to https://app.test after choosing the tenant', 'Open "https://app.test/ and click Continue"']) assert.equal(inspect('browser_fill', execution(action)), null, action);
+    'Go to https://app.test after choosing the tenant']) assert.equal(inspect('browser_fill', execution(action)), null, action);
+  for(const action of ['Open https://app.test then click Continue','Navigate https://app.test and verify the page','Open "https://app.test/ and click Continue"'])assert.ok(inspect('browser_fill',execution(action)),action);
 });
 
 test('every nonempty original obligation must be navigation-only; projected prose cannot create this boundary', () => {

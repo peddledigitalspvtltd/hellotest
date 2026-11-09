@@ -11,12 +11,13 @@ const ast=source=>stable(require('acorn').parse(source,{ecmaVersion:'latest',sou
 
 test('the host compiler round trips every saved assertion mode through verification without dropping checks',()=>{
  const fixtures=[
-  ...['visible','hidden','enabled','disabled','checked','unchecked','valid','invalid','field_valid'].map(mode=>operation(mode)),
+  ...['visible','hidden','enabled','disabled','editable','checked','unchecked','valid','invalid','field_valid'].map(mode=>operation(mode)),
+  ...['password','text','PASSWORD','@r.type','params["r.type"]'].map(value=>operation('input_type',value)),
   ...['text','text_contains','text_content','text_content_contains','value','title','title_normalized'].flatMap(mode=>['Expected message','@r.message','params["r.message"]'].map(value=>operation(mode,value))),
   ...['url','url_contains'].flatMap(mode=>['https://app.test/login','@r.target','params["r.target"]'].map(value=>operation(mode,value))),
   ...['0','2','@r.count','params["r.count"]'].map(value=>operation('count',value))
  ];
- const values={'r.message':'Expected message','r.target':'https://app.test/login','r.count':'2'};
+ const values={'r.message':'Expected message','r.target':'https://app.test/login','r.count':'2','r.type':'password'};
  for(const fixture of fixtures){
   const compiled=compileRecordedProgram([fixture]);assert.ok(compiled,JSON.stringify(fixture));
   const lowered=lower(compiled.source);assert.ok(lowered,fixture.arguments.assertion+' '+fixture.arguments.value);
@@ -24,6 +25,23 @@ test('the host compiler round trips every saved assertion mode through verificat
   const prepared=prepareVerificationSections([{id:'step',step_type:'web',automation_code:compiled.source}],{resolve:(_name,args)=>({...args,value:values[args.value.replace(/^@/,'').replace(/^params\["|"\]$/g,'')]??args.value})});
   assert.equal(prepared.sections[0].operations.length,1);assert.deepEqual(ast(compileRecordedProgram(prepared.sections[0].operations).source),ast(compiled.source));
  }
+});
+
+test('effective input-type and editability preserve exact native predicates, polarity and expected case',()=>{
+ const {normalizeGeneratedProgram,preserveGeneratedAssertions}=require('../../backend/lib/automationGeneratedProgram');
+ const editable=compileRecordedProgram([operation('editable')]).source;
+ assert.match(editable,/\.toBeEditable\(\)/);assert.equal(normalizeGeneratedProgram(editable),editable);
+ assert.equal(lower(editable)[0].arguments.assertion,'editable');
+ assert.deepEqual(ast(compileRecordedProgram(lower(editable)).source),ast(editable));
+ assert.equal(lower(editable.replace('.toBeEditable()', '.not.toBeEditable()')),null,'No unsupported inverse predicate is invented.');
+ assert.throws(()=>preserveGeneratedAssertions(editable,editable.replace('toBeEditable','toBeEnabled')), {code:'AUTOMATION_GENERATED_ASSERTION_NOT_PRESERVED'});
+ const typed=compileRecordedProgram([operation('input_type','PASSWORD')]).source;
+ assert.match(typed,/instanceof HTMLInputElement \? element\.type : null/);assert.doesNotMatch(typed,/getAttribute|toLowerCase|\.fill\(/);
+ assert.equal(lower(typed)[0].arguments.value,'PASSWORD','The native property normalizes the actual type, never the authored expectation.');
+ for(const corrupted of [typed.replace('element.type','element.getAttribute("type")'),typed.replace('HTMLInputElement','HTMLButtonElement'),typed.replace('timeout: 8000','timeout: 8001'),typed.replace('.toBe(','.not.toBe(')]) {
+  assert.equal(lower(corrupted),null,'Only the exact read-only compiler predicate may acquire typed input_type evidence.');
+ }
+ assert.throws(()=>preserveGeneratedAssertions(typed,typed.replace('element.type','element.getAttribute("type")')), {code:'AUTOMATION_GENERATED_ASSERTION_NOT_PRESERVED'});
 });
 
 test('canonical visible-text lowering keeps the visibility gate, normalization, subject, matcher and expected binding',()=>{

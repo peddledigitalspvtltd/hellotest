@@ -2,13 +2,39 @@ const { browserReceipt } = require('./automationInteractiveEvidence');
 const {isNavigationPrerequisite}=require('./automationActionReconciliation');
 const {unsuccessfulBrowserCheck,browserCheckPromptDetails}=require('./automationBrowserRecovery');
 
+function snapshotReadFailure(entry){
+  if(entry?.tool!=='browser_snapshot'||entry.mcp_call===false||!entry.result?.isError)return null;
+  // Successful receipts remain the only proof authority. Parse a separate
+  // error projection instead of weakening browserReceipt's isError boundary.
+  let value;for(const item of entry.result.content||[])if(item.type==='text')try{const parsed=JSON.parse(item.text);if(parsed?.source==='playwright'){value=parsed;break;}}catch{}
+  if(!value)return null;
+  const codes=new Set(['BROWSER_TOOL_FAILED','BROWSER_READ_UNAVAILABLE','BROWSER_PAGE_NOT_READY','BROWSER_TOOL_DEADLINE','BROWSER_CONTEXT_LOST','BROWSER_SESSION_CLOSED','BROWSER_SESSION_BUSY','BROWSER_FRAME_SCOPE_INVALID','BROWSER_FRAME_CHANGED','BROWSER_FRAME_UNAVAILABLE','BROWSER_FRAME_UNSUPPORTED','BROWSER_TOOL_INVALID_ARGUMENTS','BROWSER_FLOW_UNSUPPORTED',
+    'BROWSER_FRAME_NOT_OBSERVED','BROWSER_FRAME_STALE','BROWSER_NAVIGATION_FAILED','BROWSER_LAUNCH_FAILED','BROWSER_ACTION_OUTCOME_UNKNOWN',
+    'BROWSER_SNAPSHOT_SCOPE_NOT_FOUND','BROWSER_SNAPSHOT_SCOPE_AMBIGUOUS','BROWSER_SNAPSHOT_SCOPE_STALE']);
+  const phases=new Set(['admission','context_recovery','page_readiness','frame_scope','frame_readiness','frame_inventory','frame_resolution','scope_validation','snapshot_subjects','snapshot','capture','grounding','target_readiness','transport','response_body']);
+  const code=codes.has(value.code)?value.code:'BROWSER_READ_UNAVAILABLE';
+  const matched=/^Snapshot scope matches (\d{1,5}) elements;/.exec(typeof value.message==='string'?value.message:'');
+  const count=Number.isSafeInteger(value.match_count)&&value.match_count>=0&&value.match_count<=2000?value.match_count
+    :matched&&Number(matched[1])<=2000?Number(matched[1]):undefined;
+  return{tool:'browser_snapshot',kind:'snapshot_read',code,...(phases.has(value.tool_phase)?{tool_phase:value.tool_phase}:{}),
+    ...(count!==undefined?{match_count:count}:{}),action_outcome:value.action_outcome==='unknown'?'unknown':'not_attempted',
+    retry_safe:value.retry_safe===true,...(value.session_disposition==='quarantined'?{session_disposition:'quarantined'}:{}),
+    message:count!==undefined&&count!==1?'The requested snapshot scope is not unique. Read the current page root or inspect one unique scope before unfinished work. This failed read granted no targets and did not repeat an action.'
+      :'The requested browser snapshot failed. The displayed snapshot is retained earlier evidence. Read the current page root or one unique observed scope before unfinished work; do not replay completed actions.',
+    remaining_contract:'obtain_current_page_or_unique_scope_evidence_without_replaying_actions'};
+}
+
 function compactBrowserObservations(observations,maxChars=32000) {
   // Screenshots/validation feedback often follow the snapshot. Keep the latest
   // usable page state readable even when it is no longer the last two entries.
   const currentLocation=[...observations].reverse().map(browserReceipt).find(receipt=>typeof receipt?.url==='string')?.url;
   const stalePage=entry=>entry.tool==='browser_snapshot'&&currentLocation&&browserReceipt(entry)?.url&&browserReceipt(entry).url!==currentLocation;
   const latestSnapshot=observations.findLastIndex(entry=>entry.tool==='browser_snapshot'&&!entry.result?.isError&&!stalePage(entry));
-  const packed=observations.map((entry,index)=>({...entry,...(stalePage(entry)?{stale_page:true}:{}),result:{...entry.result,content:(Array.isArray(entry.result?.content)?entry.result.content:[]).filter(item=>item.type === "text").map(item=>{
+  const safeObservations=observations.map(entry=>entry.tool==='browser_snapshot'&&entry.result?.isError?{
+    tool:entry.tool,...(entry.execution_step_id?{execution_step_id:entry.execution_step_id}:{}),
+    result:{isError:true,content:[{type:'text',text:JSON.stringify(snapshotReadFailure(entry)||{code:'BROWSER_READ_UNAVAILABLE',message:'Snapshot read failed; no current page evidence was supplied.'})}]}
+  }:entry);
+  const packed=safeObservations.map((entry,index)=>({...entry,...(stalePage(entry)?{stale_page:true}:{}),result:{...entry.result,content:(Array.isArray(entry.result?.content)?entry.result.content:[]).filter(item=>item.type === "text").map(item=>{
     const recent=index===latestSnapshot||index>=observations.length-2;
     const limit=recent?12000:1800;
     if(String(item.text || "").length<=limit)return item;
@@ -51,7 +77,12 @@ function modelObservationHistory(observations,stepId,maxChars=4500) {
   const rows=[];
   const historicalChecks=new Map();
   for(const entry of observations){
-    if(['browser_snapshot','browser_screenshot'].includes(entry.tool))continue;
+    if(entry.tool==='browser_snapshot'){
+      const failure=snapshotReadFailure(entry);
+      if(failure&&(!entry.execution_step_id||entry.execution_step_id===stepId))rows.push({...failure,failed:true,...(entry.execution_step_id?{step_id:entry.execution_step_id}:{})});
+      continue;
+    }
+    if(entry.tool==='browser_screenshot')continue;
     // Current real receipts are already represented once in current progress.
     if(entry.tool?.startsWith('browser_')&&entry.execution_step_id===stepId)continue;
     const row={tool:entry.tool,...(entry.execution_step_id?{step_id:entry.execution_step_id}:{}),...(entry.mcp_call===false?{mcp_call:false}:{})};
@@ -101,9 +132,15 @@ function browserPromptContext(observations,stepId,{compactModel=false}={}) {
   }
   const completed={};
   const receipts=[];
-  let latestFailure,assertionFailure,failureBeforeLocator,locatorResolution;
+  let latestFailure,assertionFailure,failureBeforeLocator,locatorResolution,failureBeforeSnapshot,lastSnapshotFailure;
   for(const entry of observations){
     if(!stepId||entry.execution_step_id!==stepId)continue;
+    if(entry.tool==='browser_snapshot'){
+      const failure=snapshotReadFailure(entry);
+      if(failure){if(latestFailure?.kind!=='snapshot_read')failureBeforeSnapshot=latestFailure;latestFailure=failure;lastSnapshotFailure=entry;}
+      else if(entry.mcp_call!==false&&!entry.result?.isError){if(latestFailure?.kind==='snapshot_read')latestFailure=failureBeforeSnapshot;failureBeforeSnapshot=undefined;lastSnapshotFailure=undefined;}
+      continue;
+    }
     if(entry.mcp_call===false&&['automation_source_validation','automation_program_tools','automation_execution_feedback','automation_parameter_feedback','automation_browser_recovery_feedback','automation_browser_budget_feedback','automation_tool_schema_feedback','automation_navigation_feedback','automation_target_feedback','automation_locator_feedback','automation_assertion_feedback','automation_verification_feedback','automation_action_order_feedback','automation_snapshot_feedback','automation_actor_response_feedback','automation_section_issue_feedback'].includes(entry.tool)){
       for(const part of entry.result?.content||[])if(part.type==='text')try{
         const value=JSON.parse(part.text);
@@ -150,7 +187,18 @@ function browserPromptContext(observations,stepId,{compactModel=false}={}) {
         if(entry.tool==='automation_navigation_feedback'&&value.code==='AUTOMATION_NAVIGATION_ALREADY_REACHED'){
           latestFailure={tool:entry.tool,kind:'navigation_feedback',code:value.code,message:typeof value.message==='string'?value.message.slice(0,1000):undefined,remaining_contract:value.remaining_contract,observed_at:entry.observed_at};continue;
         }
-        if(['AUTOMATION_GENERATED_SOURCE_INVALID','AUTOMATION_PROGRAM_TOOLS_UNSUPPORTED','AUTOMATION_TOOL_BATCH_TOO_LARGE','AUTOMATION_BROWSER_PREREQUISITE_SOURCE_REQUIRED','AUTOMATION_PARAMETER_REFERENCE_REQUIRED','AUTOMATION_BROWSER_REPEATED_CHECK','AUTOMATION_BROWSER_TOOL_BUDGET_EXHAUSTED','AUTOMATION_BROWSER_ARGUMENT_SCHEMA_INVALID','AUTOMATION_BROWSER_TARGET_REF_STALE','AUTOMATION_BROWSER_TARGET_REF_INVALID','AUTOMATION_BROWSER_LOCATOR_NOT_OBSERVED'].includes(value?.code)||value?.code==='AUTOMATION_BROWSER_EXECUTION_REQUIRED'&&value.source_expected_result_check==='executable_assertion_required')latestFailure={tool:entry.tool,kind:value.code==='AUTOMATION_PARAMETER_REFERENCE_REQUIRED'?'input_reference':['automation_tool_schema_feedback','automation_target_feedback'].includes(entry.tool)?'tool_arguments':entry.tool.startsWith('automation_browser_')?'browser_recovery':'generated_source',code:value.code,
+        if(entry.tool==='automation_parameter_feedback'&&value.code==='AUTOMATION_INPUT_VALUE_PARAMETER_REQUIRED'){
+          const reference=require('./automationBrowserParameters').referenceKey(value.required_parameter_reference);
+          latestFailure={tool:entry.tool,kind:'input_reference',code:value.code,message:typeof value.message==='string'?value.message.slice(0,1000):undefined,
+            ...(reference?{required_parameter_reference:require('./automationBrowserParameters').parameterReference(reference)}:{}),
+            action_outcome:'not_attempted',retry_safe:true,observed_at:entry.observed_at};continue;
+        }
+        if(entry.tool==='automation_parameter_feedback'&&value.code==='AUTOMATION_CREDENTIAL_INPUT_SUBJECT_REQUIRED'){
+          latestFailure={tool:entry.tool,kind:'credential_subject',code:value.code,message:typeof value.message==='string'?value.message.slice(0,1000):undefined,
+            ...(['account','password'].includes(value.required_input_purpose)?{required_input_purpose:value.required_input_purpose}:{}),
+            action_outcome:'not_attempted',retry_safe:true,observed_at:entry.observed_at};continue;
+        }
+        if(['AUTOMATION_GENERATED_SOURCE_INVALID','AUTOMATION_PROGRAM_TOOLS_UNSUPPORTED','AUTOMATION_TOOL_BATCH_TOO_LARGE','AUTOMATION_BROWSER_PREREQUISITE_SOURCE_REQUIRED','AUTOMATION_PARAMETER_REFERENCE_REQUIRED','AUTOMATION_BROWSER_REPEATED_CHECK','AUTOMATION_BROWSER_TOOL_BUDGET_EXHAUSTED','AUTOMATION_BROWSER_ARGUMENT_SCHEMA_INVALID','AUTOMATION_BROWSER_TARGET_REF_STALE','AUTOMATION_BROWSER_TARGET_REF_INVALID','AUTOMATION_BROWSER_LOCATOR_NOT_OBSERVED','AUTOMATION_BROWSER_FRAME_SCOPE_INVALID'].includes(value?.code)||value?.code==='AUTOMATION_BROWSER_EXECUTION_REQUIRED'&&value.source_expected_result_check==='executable_assertion_required')latestFailure={tool:entry.tool,kind:value.code==='AUTOMATION_PARAMETER_REFERENCE_REQUIRED'?'input_reference':['automation_tool_schema_feedback','automation_target_feedback'].includes(entry.tool)?'tool_arguments':entry.tool.startsWith('automation_browser_')?'browser_recovery':'generated_source',code:value.code,
           message:typeof value.message==='string'?value.message.slice(0,1000):undefined,reason:value.reason,...(entry.tool==='automation_target_feedback'?{tool_name:value.tool,action_outcome:value.action_outcome,retry_safe:value.retry_safe}:{}),...(entry.tool==='automation_tool_schema_feedback'?{tool_name:value.tool,argument_names:value.argument_names,selected_mode:value.selected_mode,field_issues:value.field_issues}:{}),observed_at:entry.observed_at};
       }catch{}
       continue;
@@ -194,6 +242,12 @@ function browserPromptContext(observations,stepId,{compactModel=false}={}) {
       if(latestFailure?.tool==='browser_assert')latestFailure={...latestFailure,locator_resolution:'a_unique_locator_is_available',remaining_contract:'browser_assert_required_after_failed_check'};
     }else if(entry.tool==='browser_assert'&&result?.assertion_outcome==='satisfied'){
       assertionFailure=undefined;failureBeforeLocator=undefined;
+      if(latestFailure?.kind==='credential_subject')latestFailure=undefined;
+      if(latestFailure?.code==='AUTOMATION_INPUT_VALUE_PARAMETER_REQUIRED'){
+        const operation=require('./automationBrowserRecording').recordedSectionRequests([entry],stepId)[0];
+        const reference=require('./automationBrowserParameters').referenceKey;
+        if(operation?.arguments.assertion==='value'&&reference(operation.arguments.value)===reference(latestFailure.required_parameter_reference))latestFailure=undefined;
+      }
       if(latestFailure?.tool==='browser_assert'||latestFailure?.tool==='browser_validate_locator'||latestFailure?.kind==='navigation_feedback'||latestFailure?.kind==='browser_recovery'||latestFailure?.kind==='assertion_subject'||latestFailure?.kind==='assertion_prose'||latestFailure?.kind==='assertion_container_text'||latestFailure?.kind==='snapshot_redundant'||latestFailure?.kind==='actor_response'||latestFailure?.kind==='outcome_target'||latestFailure?.code==='AUTOMATION_BROWSER_LOCATOR_NOT_OBSERVED'&&latestFailure.tool_name===entry.tool)latestFailure=undefined;
     }
     if(result?.action_outcome==='completed'){
@@ -226,6 +280,7 @@ function browserPromptContext(observations,stepId,{compactModel=false}={}) {
   }
   const history=compactModel?modelObservationHistory(observations,stepId):compactBrowserObservations(observations.map(entry=>entry.tool==='browser_snapshot'&&!entry.result?.isError?snapshotMetadata(entry):entry),14000);
   return {current:{url:location,active_step_id:stepId,current_snapshot:page||null,snapshot_available:Boolean(page),
+    ...(lastSnapshotFailure?{snapshot_stale_after_read_failure:true,snapshot_freshness:'last_successful_before_failed_read'}:{}),
     snapshot_captured_for_step_id:snapshot?.execution_step_id,completed_actions:completed,recent_section_receipts:receipts,
     latest_failure:latestFailure,locator_resolution:locatorResolution},history};
 }

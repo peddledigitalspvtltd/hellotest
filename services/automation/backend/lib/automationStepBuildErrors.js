@@ -20,6 +20,16 @@ const prerequisiteFailureMessages = Object.freeze({
 const retainedSubjectFailureMessages = Object.freeze({
   AUTOMATION_RETAINED_SUBJECT_REVIEW_REQUIRED: 'The saved input and its value and validation checks use a field subject that cannot be confirmed on the current page. Review or reselect that field in the saved Plan before rebuilding. The new input was not performed, and the saved assertions were retained.'
 });
+function browserReadFailureMessage(code) {
+  return ({
+    BROWSER_SNAPSHOT_SCOPE_NOT_FOUND: 'The requested snapshot scope matched no elements. No usable snapshot was returned. Inspect the current document or frame and select a current observed target before retrying the read.',
+    BROWSER_SNAPSHOT_SCOPE_AMBIGUOUS: 'The requested snapshot scope matched multiple elements. No usable snapshot was returned. Inspect its parent document or frame and choose a unique observed target.',
+    BROWSER_SNAPSHOT_SCOPE_STALE: 'The snapshot scope changed or detached before the read finished. Refresh current document or frame evidence without replaying completed actions.',
+    BROWSER_FRAME_STALE: 'The observed frame document changed before the read finished. Refresh the frame inventory and inspect the current document without replaying completed actions.',
+    BROWSER_FRAME_NOT_OBSERVED: 'The requested frame is not in the current observed inventory. Inspect the document frame inventory before selecting a frame.',
+    BROWSER_TOOL_DEADLINE: 'The browser read reached its native deadline. Inspect the retained read phase and session status; completed actions must not be replayed.'
+  })[code] || 'The browser read did not complete. Review its diagnostic code and current document or frame evidence before retrying the read. Completed actions remain recorded.';
+}
 /** Only host-validated classifications and pinned identities belong in public
  * progress. Reviewer rationale and expanded requirement text stay protected. */
 function semanticIssues(value) {
@@ -36,7 +46,9 @@ function semanticIssues(value) {
 function stepBuildError(event,timestamp) {
   const details=event.details||{};
   let message,code=codeOf(details.error_code)||codeOf(details.code);
-  if(event.phase==='automation.agent.action.failed'){
+  if(event.phase==='automation.agent.read.failed'){
+    code=code||'BROWSER_READ_FAILED';message=browserReadFailureMessage(code);
+  }else if(event.phase==='automation.agent.action.failed'){
     code=code||'AUTOMATION_BROWSER_ACTION_FAILED';
     message=details.tool==='browser_assert'&&code==='BROWSER_ASSERTION_SUBJECT_UNSUPPORTED'
       ? details.assertion==='field_valid'
@@ -58,7 +70,8 @@ function stepBuildError(event,timestamp) {
   }else if(event.phase==='automation.agent.save.failed'){
     code=code||'AUTOMATION_SECTION_SAVE_FAILED';message='This section could not be saved. Previously committed sections remain in Plan.';
   }else if(['automation.llm.failed','automation.agent.browser.failed','automation.agent.browser.startup.failed'].includes(event.phase)){
-    code=code||'AUTOMATION_BUILD_INCOMPLETE';message=Object.hasOwn(providerFailureMessages,code)?providerFailureMessages[code]:code==='AUTOMATION_BROWSER_NAVIGATION_HTTP_ERROR'
+    const {browserTransportMessages}=require('./automationBrowserTransportError');
+    code=code||'AUTOMATION_BUILD_INCOMPLETE';message=Object.hasOwn(providerFailureMessages,code)?providerFailureMessages[code]:Object.hasOwn(browserTransportMessages,code)?browserTransportMessages[code]:code==='AUTOMATION_BROWSER_NAVIGATION_HTTP_ERROR'
       ? require('./automationBrowserBootstrapFailure').navigationHttpFailureMessage(details.http_status)
       : code==='AUTOMATION_BROWSER_ASSERTION_PROPOSAL_STALLED'
         ? 'The same unsupported assertion was proposed after correction feedback. Review the selected target and authored expected result; no repeated browser check was performed.'
@@ -88,4 +101,4 @@ function appendStepBuildError(row,event,timestamp) {
   row.build_errors=[...errors.filter(item=>item.id!==error.id),error].slice(-24);
 }
 
-module.exports={stepBuildError,appendStepBuildError,semanticIssues,providerFailureMessages,prerequisiteFailureMessages,retainedSubjectFailureMessages};
+module.exports={stepBuildError,appendStepBuildError,semanticIssues,providerFailureMessages,prerequisiteFailureMessages,retainedSubjectFailureMessages,browserReadFailureMessage};

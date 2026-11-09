@@ -11,6 +11,7 @@ for (const failCase of [false,true]) test(`queued setup/case/cleanup keeps iOS s
  const order=[], reports=[], keys=[];let completion;
  t.mock.method(globalThis,'fetch',async(input,options={})=>{
    const url = new URL(String(input)), body=options.body ? JSON.parse(options.body) : {};
+   if(url.pathname.endsWith('/heartbeat'))return json({job_id:url.pathname.split('/').at(-2),status:'running',authorized:true});
    if(url.hostname==='mobile.test') {
      if(options.method==='DELETE'){order.push('close');return json({});}
      keys.push(body.execution_session_key);assert.equal(body.platform_name,'ios');
@@ -19,8 +20,8 @@ for (const failCase of [false,true]) test(`queued setup/case/cleanup keeps iOS s
    }
    if(url.hostname==='app.test'){order.push(url.pathname);assert.equal(url.pathname,'/verify/created');return json({ok:true});}
    if(url.pathname.endsWith('/report'))reports.push({path:url.pathname,...body});
-   if(url.pathname.endsWith('/complete'))completion=body;
-   return json({status:'running',captures:body.captures||{}});
+   if(url.pathname.endsWith('/complete')){completion=body;return json({job_id:url.pathname.split('/').at(-2),status:body.status});}
+   return json({status:'running',case_status:'running',captures:body.captures||{}});
  });
  const mobile=(id)=>({id,order:1,step_type:'ios',automation_code:'await ios.tap("~save");'});
  const job={id:'hook-job-'+failCase,test_case_id:'case',test_case_title:'Native checkout',runtime_state:{},payload:{engine_run_id:'hooks-'+failCase,hellotest_test_case_id:'case',artifact_policy:{video_mode:'off'},steps:[mobile('case-step')],hooks:[
@@ -37,6 +38,7 @@ test('unpersisted evidence prevents a passing queue completion',async(t)=>{
  let completion;
  t.mock.method(globalThis,'fetch',async(input,options={})=>{
   const url=new URL(String(input)); if(url.hostname==='app.test')return json({ok:true});
+  if(url.pathname.endsWith('/heartbeat'))return json({job_id:url.pathname.split('/').at(-2),status:'running',authorized:true});
   if(url.pathname.endsWith('/report'))return new Response('storage unavailable',{status:503});
   if(url.pathname.endsWith('/complete'))completion=JSON.parse(options.body);
   return json({status:'running'});
@@ -49,6 +51,7 @@ test('native skip and optional boundaries preserve the driver and never execute 
  const blocks=[], keys=[], reports=[];let completion;
  t.mock.method(globalThis,'fetch',async(input,options={})=>{
   const url=new URL(String(input)),body=options.body?JSON.parse(options.body):{};
+  if(url.pathname.endsWith('/heartbeat'))return json({job_id:url.pathname.split('/').at(-2),status:'running',authorized:true});
   if(url.hostname==='mobile.test') {
    if(options.method==='DELETE')return json({});
    const ids=body.steps.map(step=>step.id);blocks.push(ids);keys.push(body.execution_session_key);
@@ -56,8 +59,8 @@ test('native skip and optional boundaries preserve the driver and never execute 
    return json({status:ids[0]==='optional'?'failed':'passed',results:ids.map(id=>({step_id:id,status:id==='optional'?'failed':'passed',note:id==='optional'?'Optional native assertion failed':'Native step passed',captures:id==='optional'?{'t.bad_capture':'must not propagate'}:{}}))});
   }
   if(url.pathname.endsWith('/report'))reports.push({id:url.pathname.split('/').at(-2),...body});
-  if(url.pathname.endsWith('/complete'))completion=body;
-  return json({status:'running',captures:body.captures||{}});
+  if(url.pathname.endsWith('/complete')){completion=body;return json({job_id:url.pathname.split('/').at(-2),status:body.status});}
+  return json({status:'running',case_status:'running',captures:body.captures||{}});
  });
  const step=(id,flags='')=>({id,order:{first:1,skip:2,optional:3,last:4}[id],step_type:'ios',automation_code:(flags?`// @hellotest-options ${flags}\n`:'')+'await ios.tap("~save");'});
  const payload={engine_run_id:'native-options',hellotest_test_case_id:'case',artifact_policy:{video_mode:'off'},steps:[step('first'),step('skip','skip'),step('optional','optional'),step('last')]};

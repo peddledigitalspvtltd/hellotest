@@ -1,7 +1,7 @@
 import { buildAutomationRepositoryFields as sharedRepositoryFields } from "../../shared/automationRepository.mjs";
 import type { AutomationLearningCacheEntry } from "@hellotest/platform/frontend/src/types";
 import { parse } from "acorn";
-import { parseStepParameterName } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
+import { extractStepParameterMatches, parseStepParameterName } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
 
 /** Locator presentation also accepts protected preview projections without learning metrics. */
 export type AutomationRepositoryReference = Pick<AutomationLearningCacheEntry,
@@ -58,6 +58,7 @@ export function getAutomationKeywordInputSpec(keywordId: string, platform = "web
   if (["switchtab", "closetab"].includes(keyword)) return spec("text", "Tab index, title, or URL", "", false, undefined, false);
   if (["reload", "goback", "goforward"].includes(keyword)) return spec("none", "");
   if (keyword === "waitforloadstate") return spec("none", "", "Load state");
+  if (keyword === "waitforselector") return spec("repository", "Element locator", "Wait state (visible or hidden)");
   if (keyword === "wait") return spec("none", "", "Milliseconds", true);
   if (keyword === "scroll") return spec("text", "Direction (down, up, left, right)", "Pixels", true, undefined, false);
   if (keyword === "expecturl") return spec("none", "", "URL fragment", true);
@@ -89,6 +90,26 @@ export function automationParameterArgument(value: string): string | null {
     return `params[${JSON.stringify(name)}]`;
   }
   return null;
+}
+
+/** Native programs resolve authored bindings once. Frozen inserted data is
+ * never scanned again; ordinary literals and email-like text remain literal. */
+export function automationStringArgument(value: string, parameterExpressions = false): string {
+  if (!parameterExpressions) return JSON.stringify(value);
+  const exact = value === value.trim() ? automationParameterArgument(value) : null;
+  if (exact) return exact;
+  const matches = extractStepParameterMatches(value, {knownLegacyNames: []});
+  if (!matches.length) return JSON.stringify(value);
+  if (value.length > 2000 || matches.length > 100) throw new Error('Split this parameterized input into bounded instructions.');
+  const parts: string[] = []; let offset = 0;
+  for (const match of matches) {
+    if (match.index > offset) parts.push(JSON.stringify(value.slice(offset, match.index)));
+    const argument = automationParameterArgument(match.token);
+    if (!argument) throw new Error('Use an exact scoped input reference.');
+    parts.push(`String(${argument})`); offset = match.index + match.token.length;
+  }
+  if (offset < value.length) parts.push(JSON.stringify(value.slice(offset)));
+  return `(${parts.join(' + ')})`;
 }
 
 export function automationNumericArgument(value: string, fallback: number) {
@@ -147,5 +168,5 @@ export function parseAutomationKeywordCall(code: string) {
     if ((arg[0] === "'" || arg[0] === "`") && arg[arg.length - 1] === arg[0]) return arg.slice(1, -1).replace(/\\([\\'"`])/g, "$1").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
     return negation && Number.isFinite(Number(arg)) ? String(-Number(arg)) : original;
   });
-  return { keyword: match[1], args: values };
+  return { keyword: match[1], args: values, argumentSources: args };
 }

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile, mkdir, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { gunzipSync } from "node:zlib";
@@ -17,6 +17,7 @@ test("the downloaded runtime imports and serves pairing status with only install
   await mkdir(join(directory, "node_modules"));
   for (const name of Object.keys(runtimeDependencies)) {
     assert.match(runtimeDependencies[name], /^\d+\.\d+\.\d+$/);
+    await mkdir(dirname(join(directory, "node_modules", name)), { recursive: true });
     await symlink(fileURLToPath(new URL(`../node_modules/${name}`, import.meta.url)), join(directory, "node_modules", name), "junction");
   }
   const bundle = JSON.parse(await readFile(new URL("../../../services/platform/backend/src/assets/inspection-agent-runtime.json", import.meta.url), "utf8"));
@@ -32,14 +33,19 @@ test("the downloaded runtime imports and serves pairing status with only install
   const { default: Fastify } = await import(pathToFileURL(join(directory, "node_modules/fastify/fastify.js")));
   const { registerRecorderRoutes } = await import(pathToFileURL(join(directory, "recorder.js")));
   const { registerPairedLocalExecutionRoutes } = await import(pathToFileURL(join(directory, "pairedLocalExecution.js")));
+  const { registerAutomationPlaywrightMcp } = await import(pathToFileURL(join(directory, "automationPlaywrightMcp.js")));
   const app = Fastify();
   t.after(() => app.close());
   await registerPairedLocalExecutionRoutes(app, { directory: join(directory, "receipts"), origin: "https://app.test", token });
+  await registerAutomationPlaywrightMcp(app, async () => {}, { pairedLocal: true });
   await registerRecorderRoutes(app);
   const status = await app.inject({ url: "/api/v1/recorder/agent/status", headers: { "x-hellotest-agent-token": token } });
   assert.equal(status.statusCode, 200);
   assert.equal(status.json().service, "hellotest-inspection-agent");
   assert.equal(status.json().capabilities.local_execution, true);
+  assert.equal(status.json().capabilities.parameter_expressions_v1, true);
   assert.equal(status.json().execution_protocol_version, 1);
+  assert.equal(status.json().capabilities.playwright_mcp_runtime.provider, "@playwright/mcp");
+  assert.equal(status.json().capabilities.playwright_mcp_runtime.version, "0.0.84");
   assert.ok(status.json().agent_id);
 });

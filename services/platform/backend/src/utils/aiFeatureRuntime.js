@@ -114,6 +114,14 @@ async function apply(init, options={}) {
     if(managedPlanner&&key===plannerInstructionKey&&block===profile.config.instruction_blocks?.[key])return '';
     if(managedReview&&key==='automationBrowserAgent.semanticReview'&&block===profile.config.instruction_blocks?.[key])return '';
     if(managedActor&&actorInstructionKeys.includes(key)&&block===profile.config.instruction_blocks?.[key])return '';
+    // Typed actors already receive the trusted actor frame, proof policies,
+    // current pending contract and exact failure feedback. Source-specialist
+    // and generic recovery stock blocks repeat that guidance and include
+    // irrelevant source-repair rules. Preserve every customized block and
+    // non-actor request; only exact registered duplicates are omitted here.
+    if(managedActor&&['automationBuild.specialist.web','automationBrowserAgent.recovery'].includes(key)
+      &&block===(configuration.catalog.find(item=>item.id===id)?.defaults.instruction_blocks?.[key]
+        ?? configuration.catalog.find(item=>item.id===feature)?.defaults.instruction_blocks?.[key]))return '';
     return block;
   });}
   function expandRecord(value) {

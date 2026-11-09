@@ -24,6 +24,7 @@ export async function startPairedLocalExecution(
     const key = Array.from(new Uint8Array(bytes), value => value.toString(16).padStart(2, "0")).join("");
     const agent = await probePairedLocalAgent();
     if (!agent.localExecution || !agent.agentId) throw new Error("Your browser is paired with an older inspection agent. Open Local agent setup, stop its terminal, and run the updated setup command. Your pairing is preserved; the updated agent also executes saved cases and suites on this computer.");
+    if (!agent.parameterExpressions) throw new Error("Update the paired agent before running saved cases or suites. Open Local agent setup, stop its terminal, and run the updated setup command. This agent must support native parameter expressions; your pairing is preserved.");
     let intent = pending.get(key);
     if (!intent) {
       try { intent = JSON.parse(sessionStorage.getItem(PREFIX + key) || "null") as Pending | null || undefined; } catch { /* Memory retry remains available. */ }

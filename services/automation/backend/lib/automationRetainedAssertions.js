@@ -4,6 +4,7 @@ const { parse } = require('acorn');
 const { prepareVerificationSections } = require('./automationVerificationPipeline');
 const { compileRecordedProgram } = require('./automationRecordedProgram');
 const { parameterReference, referenceKey } = require('./automationBrowserParameters');
+const { framePathKey } = require('./automationFrameScope');
 
 // A model, JSON copy or persisted UI history cannot authorize extra checks.
 const issued = new WeakMap();
@@ -18,7 +19,7 @@ function operationKey(operation) {
     const input = structuredClone(operation);
     // These are whole explicit bindings, never interpolated values. Normalize
     // their spelling without reading data or equating distinct scopes/keys.
-    for (const field of ['value', 'key']) {
+    for (const field of ['value', 'key', 'url']) {
       const key = referenceKey(input?.arguments?.[field]);
       if (key) input.arguments[field] = parameterReference(key);
     }
@@ -27,7 +28,21 @@ function operationKey(operation) {
   } catch { return null; }
 }
 
-const frozenOperation = operation => Object.freeze({ name: operation.name, arguments: Object.freeze({ ...operation.arguments }) });
+/** Caller supplies only recordedSectionRequests from the protected native
+ * ledger. This reports progress, never authorizes an action or proves an
+ * assertion. JSON/public contract fields cannot create a retained plan. */
+function retainedActionProgress({contract,stepId,operations=[]}={}) {
+  const retained=issued.get(contract);
+  if(!retained||contract.status!=='available'||contract.step_id!==stepId
+    ||!retained.action_keys.length||!Array.isArray(operations)||operations.length>250)return null;
+  const keys=operations.filter(operation=>operation?.name!=='browser_assert').map(operationKey);
+  if(keys.length>retained.action_keys.length||keys.some((key,index)=>!key||key!==retained.action_keys[index]))return null;
+  return Object.freeze({matching_prefix:true,complete:keys.length===retained.action_keys.length,
+    confirmed_action_count:keys.length,required_action_count:retained.action_keys.length});
+}
+
+const frozenOperation = operation => Object.freeze({ name: operation.name, arguments: Object.freeze({ ...operation.arguments,
+  ...(operation.arguments.frame ? { frame: Object.freeze([...operation.arguments.frame]) } : {}) }) });
 
 /** Inspect the entire saved program atomically. The existing verifier proves
  * derive -> compile AST equality, including native callback bodies, parameter
@@ -49,7 +64,7 @@ function createRetainedAssertionContract({ step } = {}) {
   if (source === undefined || source === null || typeof source === 'string' && !source.trim()) return finish('empty');
   if (typeof source !== 'string') return finish('unavailable', [], [], [], unavailable);
   try {
-    operations = prepareVerificationSections([{ id: step.id, step_type: 'web', automation_code: source }], { resolve: (_name, args) => args }, { allowLegacyFieldValidationRequirements: true }).sections[0].operations;
+    operations = prepareVerificationSections([{ id: step.id, step_type: 'web', automation_code: source }], { resolve: (_name, args) => args }, { allowLegacyFieldValidationRequirements: true, sourceOnly: true }).sections[0].operations;
   } catch { return finish('unavailable', [], [], [], unavailable); }
   let lastBarrier = -1;
   for (let index = 0; index < operations.length; index++) if (operations[index].name !== 'browser_assert') lastBarrier = index;
@@ -92,9 +107,10 @@ function retainedInputSubjectForRequest({ contract, request, operations = [], al
   const nextAction = saved.findIndex((operation,index) => index > inputIndex && operation.name !== 'browser_assert');
   const checks = saved.slice(inputIndex+1,nextAction < 0 ? undefined : nextAction);
   if (!checks.some(operation => operation.name === 'browser_assert' && operation.arguments.assertion === 'value'
-      && operation.arguments.locator === input.arguments.locator && referenceKey(operation.arguments.value) === binding)
-    || !checks.some(operation => operation.name === 'browser_assert' && operation.arguments.assertion === 'field_valid' && operation.arguments.locator === input.arguments.locator)) return null;
-  return Object.freeze({ locator: input.arguments.locator, operation_index: inputIndex + 1, tool: input.name });
+      && operation.arguments.locator === input.arguments.locator && framePathKey(operation.arguments.frame) === framePathKey(input.arguments.frame) && referenceKey(operation.arguments.value) === binding)
+    || !checks.some(operation => operation.name === 'browser_assert' && operation.arguments.assertion === 'field_valid' && operation.arguments.locator === input.arguments.locator
+      && framePathKey(operation.arguments.frame) === framePathKey(input.arguments.frame))) return null;
+  return Object.freeze({ locator: input.arguments.locator, ...(input.arguments.frame ? { frame: Object.freeze([...input.arguments.frame]) } : {}), operation_index: inputIndex + 1, tool: input.name });
 }
 
 /** The next original input oracle may use a fresh same-control alias only
@@ -109,7 +125,8 @@ function retainedNextInputAssertionSubjectForRequest({contract,request,operation
   const subject=retainedInputSubjectForRequest({contract,request:input,operations,allowCompleted:true});
   if(!subject||operations.length>=saved.length||operations.some((operation,index)=>operationKey(operation)!==operationKey(saved[index])))return null;
   const next=saved[operations.length];
-  if(next.name!=='browser_assert'||next.arguments.assertion!==request.arguments.assertion||next.arguments.locator!==subject.locator)return null;
+  if(next.name!=='browser_assert'||next.arguments.assertion!==request.arguments.assertion||next.arguments.locator!==subject.locator
+    ||framePathKey(next.arguments.frame)!==framePathKey(subject.frame))return null;
   if(next.arguments.assertion==='value'){
     const binding=referenceKey(next.arguments.value);
     if(!binding||referenceKey(request.arguments.value)!==binding)return null;
@@ -179,6 +196,13 @@ function retainedFinalAssertionHints(contract, { projectText, featureKey = 'ai.a
       if (projected === args.locator) descriptor.locator = projected;
       else descriptor.subject_omitted = true;
     }
+    if (args.frame) {
+      let projected;
+      try { projected = args.frame.map(selector => projectText(selector)); }
+      catch { throw failure('AUTOMATION_RETAINED_ASSERTIONS_INVALID', 'Saved assertion subjects could not be privacy-projected.'); }
+      if (projected.every((selector, index) => typeof selector === 'string' && selector === args.frame[index])) descriptor.frame = [...args.frame];
+      else { delete descriptor.locator; descriptor.subject_omitted = true; }
+    }
     if (Object.hasOwn(args, 'value')) {
       const key = referenceKey(args.value);
       if (key) descriptor.parameter_reference = parameterReference(key);
@@ -193,4 +217,4 @@ function retainedFinalAssertionHints(contract, { projectText, featureKey = 'ai.a
   return hints;
 }
 
-module.exports = { createRetainedAssertionContract, pendingFinalAssertions, retainedFinalAssertionHints, retainedInputSubjectForRequest, retainedNextInputAssertionSubjectForRequest };
+module.exports = { createRetainedAssertionContract, pendingFinalAssertions, retainedFinalAssertionHints, retainedInputSubjectForRequest, retainedNextInputAssertionSubjectForRequest, retainedActionProgress };

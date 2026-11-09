@@ -2,7 +2,8 @@
 // Feature services assemble bounded evidence; never slice serialized JSON here.
 const { getCompletionContent } = require('./llmResponse');
 const Ajv=require('ajv');
-const schemaAjv=new Ajv({strict:false,validateFormats:false,ownProperties:true,allErrors:true});
+const Ajv2019=require('ajv/dist/2019');
+const Ajv2020=require('ajv/dist/2020');
 const schemas=new Map();
 const OUTPUT_LIMITS = {
   'requirement.generate': 6144,
@@ -10,6 +11,7 @@ const OUTPUT_LIMITS = {
   'requirement.grooming': 6144,
   'requirement-design.generate': 8192,
   'case-authoring.generate': 6144,
+  'authoring.validate-request': 4096,
   'case-authoring.step-rephrase': 1024,
   'quality-assurance.story': 4096,
   'quality-assurance.test-case': 4096,
@@ -44,7 +46,11 @@ const supportsStrictOutput = model => {
 };
 function validator(schema){
  const key=JSON.stringify(schema);let compiled=schemas.get(key);
- if(!compiled){try{compiled=schemaAjv.compile(schema);}catch{throw policyError('The configured output or tool schema is invalid. Correct the contract before generation.','AI_OUTPUT_SCHEMA_INVALID',422);}
+ if(!compiled){try{
+   const revision=String(schema?.$schema||'');
+   const Constructor=/2020-12/.test(revision)?Ajv2020:/2019-09/.test(revision)?Ajv2019:Ajv;
+   compiled=new Constructor({strict:false,validateFormats:false,ownProperties:true,allErrors:true,addUsedSchema:false}).compile(schema);
+  }catch{throw policyError('The configured output or tool schema is invalid. Correct the contract before generation.','AI_OUTPUT_SCHEMA_INVALID',422);}
   if(schemas.size>=100)schemas.clear();schemas.set(key,compiled);}
  return compiled;
 }
@@ -115,6 +121,12 @@ const prepareChatRequest = (init, options = {}) => {
   delete payload.max_tokens;
   delete payload.max_completion_tokens;
   payload[field] = Math.min(requested, maximum);
+  // This small relevance verdict should not spend its entire completion
+  // allowance on hidden reasoning. Apply only to documented GPT-5 variants,
+  // after the managed feature has selected the actual provider/model.
+  if (options.operation === 'authoring.validate-request' && official
+      && /^gpt-5(?:-(?:mini|nano))?(?:-\d{4}-\d{2}-\d{2})?$/i.test(String(payload.model || ''))
+      && payload.reasoning_effort === undefined) payload.reasoning_effort = 'minimal';
   // These models reject sampling controls; do not spend a failed round trip.
   if (isReasoningModel(payload.model)) {
     delete payload.temperature;

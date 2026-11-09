@@ -1,8 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { automationCaseMappingStatus, automationMappingFieldsEqual, buildAutomationEditorStep, cacheCreatedAutomationStep, getAutomationStepInsertion, getAutomationStepReorder, isAutomationStepMapped, refreshCreatedAutomationStep, resolveAutomationMappingSave } from "../../frontend/lib/automationStepPersistence.ts";
+import { automationCaseMappingStatus, automationMappingFieldsEqual, buildAutomationEditorStep, cacheCreatedAutomationStep, getAutomationStepInsertion, getAutomationStepReorder, isAutomationStepMapped, patchAutomationStepDraft, refreshCreatedAutomationStep, resolveAutomationMappingSave } from "../../frontend/lib/automationStepPersistence.ts";
 
 const step = (id, overrides = {}) => ({ id, step_order: Number(id) || 1, test_case_id: "case", action: "Describe a behavior", expected_result: "It works", step_type: "web", automation_code: "", api_request: null, ...overrides });
+
+test("batched action, expected-result and blur patches preserve both authored parameter fields", () => {
+  const rendered = { name: "Choose inputs", expected_result: "Inputs show selected values", step_type: "web", keyword: "web.fill", value: "@r.input" };
+  const other = { ...rendered, name: "Another section" };
+  let state = { other };
+  // All callbacks close over the same render, as React can batch sibling
+  // change events and the preceding field's blur normalization before save.
+  const update = change => { state = patchAutomationStepDraft(state, "current", rendered, change); };
+  update({ name: "Fill Date @r.date then choose Location @r.location" });
+  update({ expected_result: "Date has @r.date and Location has @r.location" });
+  update({ name: "Fill Date @r.date then choose Location @r.location" });
+  assert.equal(state.current.name, "Fill Date @r.date then choose Location @r.location");
+  assert.equal(state.current.expected_result, "Date has @r.date and Location has @r.location");
+  assert.equal(state.current.value, "@r.input"); assert.equal(state.other, other);
+  assert.equal(rendered.expected_result, "Inputs show selected values");
+});
 
 test("a plan is ready only when every step has a real mapping", () => {
   const mapped = step("1", { automation_code: 'await web.click("Login.Submit");' });

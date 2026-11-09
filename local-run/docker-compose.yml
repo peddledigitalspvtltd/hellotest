@@ -187,6 +187,8 @@ services:
       - "${ADMIN_BIND:-127.0.0.1}:${HELLOTEST_ADMIN_PORT:-8081}:81"
     environment:
       HELLOTEST_API_BASE_URL: ${HELLOTEST_API_BASE_URL:-/api}
+      HELLOTEST_SERVICE_URLS: ${HELLOTEST_SERVICE_URLS:-}
+      HELLOTEST_CAPABILITY_UI_URLS: ${HELLOTEST_CAPABILITY_UI_URLS:-}
     depends_on:
       api:
         condition: service_healthy

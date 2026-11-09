@@ -233,11 +233,12 @@ export function createCorsHook(policy: CorsPolicy) {
 
     reply.header("access-control-allow-origin", origin);
     reply.header("vary", "Origin");
-    reply.header("access-control-allow-methods", "GET,POST,OPTIONS");
+    reply.header("access-control-allow-methods", "GET,POST,DELETE,OPTIONS");
     reply.header(
       "access-control-allow-headers",
-      "authorization,content-type,x-api-key,x-hellotest-recorder-token,x-hellotest-agent-token,x-hellotest-testengine-secret,x-testengine-secret"
+      "authorization,content-type,mcp-session-id,mcp-protocol-version,x-api-key,x-hellotest-recorder-token,x-hellotest-agent-token,x-hellotest-testengine-secret,x-testengine-secret"
     );
+    reply.header("access-control-expose-headers", "mcp-session-id");
     reply.header("access-control-max-age", "600");
     if (request.headers["access-control-request-private-network"] === "true") {
       reply.header("access-control-allow-private-network", "true");

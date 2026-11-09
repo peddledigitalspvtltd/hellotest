@@ -108,8 +108,8 @@ test('all section and linked source requirements must receive exact evidence map
 test('combined encoded manual identities preserve the authorized source case and step without UUID length assumptions', async () => {
   const id = `manual:${encodeURIComponent('漢'.repeat(200))}:${encodeURIComponent('字'.repeat(200))}`;
   const obligations = [{ id, source: 'manual_step', action: execution.action, expected_result: execution.expected_result }];
-  const review = reviewer(async prompt => { assert.equal(packet(prompt).obligations[0].id, id);return JSON.stringify(accepted([id])); }, { execution: { ...execution, obligations } });
-  assert.equal((await review.review({ observations: successful() })).accepted, true);
+  const review = reviewer(async prompt => { const wire=packet(prompt).obligations[0].id;assert.ok(wire.length<24);assert.notEqual(wire,id);return JSON.stringify(accepted([wire])); }, { execution: { ...execution, obligations } });
+  const outcome=await review.review({ observations: successful() });assert.equal(outcome.accepted, true);assert.equal(outcome.obligation_mappings[0].id,id);
 });
 
 test('visible validation feedback is accepted when it is the requested negative-test outcome', async () => {

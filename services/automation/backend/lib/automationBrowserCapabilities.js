@@ -5,19 +5,35 @@ const core = new Set([
   'browser_navigate', 'browser_snapshot', 'browser_click', 'browser_assert',
   'browser_validate_locator', 'browser_press_key'
 ]);
+const readOnly = new Set(['browser_snapshot', 'browser_assert', 'browser_validate_locator', 'browser_wait_for', 'browser_screenshot']);
+const mutations = new Set(['browser_navigate', 'browser_click', 'browser_fill', 'browser_press_key', 'browser_select_option', 'browser_hover', 'browser_check', 'browser_uncheck']);
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-function projectBrowserCapabilities({ tools = [], current = {}, action = '', expectedResult = '', expandedNames = [] } = {}) {
+function projectBrowserCapabilities({ tools = [], current = {}, action = '', expectedResult = '', expandedNames = [], preferReadOnly = false } = {}) {
   const catalog = Array.isArray(tools) ? tools : [];
   const snapshot = current?.current_snapshot;
+  const known = new Set(catalog.map(tool => tool?.name));
+  const expanded = typeof expandedNames !== 'string' && typeof expandedNames?.[Symbol.iterator] === 'function' ? expandedNames : [];
+  if (preferReadOnly === true) {
+    // A presentation preference after confirmed work, never a permission or
+    // completion boundary. Keep every discovered read schema; explicit schema
+    // requests can restore any still-admissible mutation from this catalog.
+    // Apply it even if a post-action snapshot is unavailable: reads can recover
+    // the evidence without repeating an already confirmed interaction.
+    const selected = new Set(catalog.filter(tool => readOnly.has(tool?.name)
+      || !mutations.has(tool?.name) && tool?.annotations?.readOnlyHint === true).map(tool => tool.name));
+    for (const name of expanded) if (typeof name === 'string' && known.has(name)) selected.add(name);
+    return {
+      tools: catalog.filter(tool => selected.has(tool?.name)),
+      deferred_tool_names: [...new Set(catalog.filter(tool => !selected.has(tool?.name)).map(tool => tool?.name).filter(name => typeof name === 'string'))]
+    };
+  }
   // Bootstrap and missing page evidence must not hide the very capability
   // needed to inspect the page. Once evidence exists, deferred tools remain
   // discoverable even when that observation is explicitly partial.
   if (!record(snapshot)) return { tools: [...catalog], deferred_tool_names: [] };
 
   const selected = new Set(core);
-  const known = new Set(catalog.map(tool => tool?.name));
-  const expanded = typeof expandedNames !== 'string' && typeof expandedNames?.[Symbol.iterator] === 'function' ? expandedNames : [];
   for (const name of expanded) {
     if (typeof name === 'string' && known.has(name)) selected.add(name);
   }

@@ -19,6 +19,9 @@ import { AiIntentCanvas } from "./AiIntentCanvas";
 import { AiContextPeek } from "./AiContextPeek";
 import { AiProposalCompare } from "./AiProposalCompare";
 import { draftReadinessIssues } from "../lib/draftReadiness";
+import { AI_DESIGN_DRAFT_COUNTS } from "../lib/aiDesignStudio";
+import { collectPrivateParameterNames, isPrivateParameterName } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
+import { normalizeStepParameterValues, parseStepParameterName } from "@hellotest/platform/frontend/src/shared/lib/stepParameters";
 import { SelectionToggleIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { buildGherkinFromSteps, GherkinEditor } from "@hellotest/testing/frontend/components/GherkinEditor";
 import { parseSharedStepGherkin } from "@hellotest/testing/frontend/lib/gherkin";
@@ -37,6 +40,7 @@ export type AiDesignSourceCase = {
   authoringMode?: AuthoringMode;
   gherkinDocument?: string;
   parameterValues?: Record<string, string>;
+  privateParameterNames?: string[];
   steps: Array<{
     step_order: number;
     step_type?: "web" | "api" | "android" | "ios" | null;
@@ -64,6 +68,7 @@ type AiDesignStudioModalProps = {
   externalLinksText: string;
   onExternalLinksTextChange: (value: string) => void;
   referenceImages: AiDesignImageInput[];
+  imageLimit?: number;
   contextFiles?: File[];
   onContextFilesChange?: (files:File[]) => void;
   onAddImages: (files: FileList | null) => void;
@@ -111,6 +116,31 @@ const plainText = (value: string | null | undefined) => String(value || "")
 const normalizeTitle = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const gherkinFor = (candidate: AiDesignedTestCaseCandidate) => candidate.gherkin_document
   || buildGherkinFromSteps(candidate.title, [], candidate.steps);
+
+function DraftParameterPreview({ values, source }: { values?: Record<string, string>; source?: AiDesignSourceCase }) {
+  const own = normalizeStepParameterValues(values);
+  const maps = [own, normalizeStepParameterValues(source?.parameterValues, "t")];
+  const hidden = collectPrivateParameterNames(maps, source?.privateParameterNames);
+  const secrets = maps.flatMap(map => Object.entries(map).filter(([name, value]) => hidden.has(name) && value !== "").map(([, value]) => value))
+    .flatMap(value => [value, encodeURIComponent(value)]);
+  const entries = Object.entries(own).map(([name, value]) => {
+    let sensitive = hidden.has(name) || secrets.some(secret => value.includes(secret));
+    try {
+      const url = new URL(value);
+      sensitive ||= Boolean(url.username || url.password) || [...url.searchParams.keys()].some(isPrivateParameterName);
+    } catch { /* Non-URL values retain their ordinary parameter privacy. */ }
+    const parameter = parseStepParameterName(name);
+    return { name, token: parameter?.token || `@${name}`, scope: parameter?.scopeLabel || "Run", value: sensitive ? "Hidden value" : value || "Empty value" };
+  });
+  if (!entries.length) return null;
+  return <details className="ai-test-generator-parameters">
+    <summary>Test parameters · {entries.length}</summary>
+    <p>Review generated inputs before acceptance. Private values remain hidden. Scope can be changed after the case is accepted.</p>
+    <table aria-label="Generated test parameters"><thead><tr><th scope="col">Parameter</th><th scope="col">Scope</th><th scope="col">Value</th></tr></thead>
+      <tbody>{entries.map(entry => <tr key={entry.name}><th scope="row"><code>{entry.token}</code></th><td>{entry.scope}</td><td>{entry.value}</td></tr>)}</tbody>
+    </table>
+  </details>;
+}
 
 export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
   const domainMetadata=useDomainMetadata();
@@ -311,6 +341,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
                     {issues.length ? <p className="ai-test-generator-draft-issues" role="status">{issues.join(" ")}</p> : null}
                     <AiTestCaseDraftFields section="fields" title={draft.title} description={draft.description} descriptionText={plainText(draft.description)} priority={draft.priority} testCaseType={draft.test_case_type} typeOptions={domainMetadata.data?.test_cases?.types||[]} editing={editing} disabled={busy} onChange={patch => updateDraft(draft,patch)} />
                     {draftMode === "gherkin" ? <GherkinEditor compact featureTitle={draft.title} onChange={(document) => updateDraft(draft, { authoring_mode: "gherkin", gherkin_document: document })} parameterValues={draft.parameter_values} readOnly={!editing} value={gherkinFor(draft)} /> : <AiTestCaseStepTable steps={draft.steps} editing={editing} disabled={busy} newStep={() => ({ step_order: draft.steps.length + 1, step_type: "web" as const, action: "", expected_result: "" })} onChange={items => { const steps = items.map((step, index) => ({ ...step, step_order: index + 1 })); updateDraft(draft, { steps, step_count: steps.length }); }} />}
+                    {draftMode !== "gherkin" ? <DraftParameterPreview values={draft.parameter_values} source={sourceCase} /> : null}
                     {selectedStories.length > 1 ? <div className="ai-test-generator-traceability"><span>Story traceability</span>{selectedStories.map((story) => <button className={draft.requirement_ids.includes(story.id) ? "is-linked" : ""} disabled={!onTogglePreviewRequirement || busy} key={story.id} onClick={() => onTogglePreviewRequirement?.(draft.client_id, story.id)} type="button">{draft.requirement_ids.includes(story.id) ? <IconCheck size={13} /> : <IconPlus size={13} />}{story.display_id || story.title}</button>)}</div> : null}
 
                   </article>;
@@ -352,17 +383,17 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
             </section> : null}
             <section className="ai-test-generator-section ai-test-generator-context-engine">
               <div className="ai-test-generator-section__heading"><span>Generation Context</span><small>Manual + Templates</small></div>
-              <AiPromptContextPanel contextFiles={props.contextFiles} onContextFilesChange={props.onContextFilesChange} additionalContext={additionalContext} includeArtifactContextInPack={false} artifactIds={sourceCase?.id ? [sourceCase.id] : []} artifactContext={sourceCase ? [
+              <AiPromptContextPanel imageLimit={props.imageLimit} contextFiles={props.contextFiles} onContextFilesChange={props.onContextFilesChange} additionalContext={additionalContext} includeArtifactContextInPack={false} artifactIds={sourceCase?.id ? [sourceCase.id] : []} artifactContext={sourceCase ? [
                 `Current Test Case: ${sourceCase.displayId || sourceCase.id || "draft"} — ${sourceCase.title}`,
                 sourceCase.description.slice(0, 1_500),
                 ...sourceCase.steps.slice(0, 8).map((step, index) => `${index + 1}. ${String(step.action || "").slice(0, 240)} Expected: ${String(step.expected_result || "").slice(0, 180)}`)
               ].filter(Boolean).join("\n") : ""} appTypeId={promptTemplateAppTypeId} disabled={busy} externalLinksText={externalLinksText} onAddImages={onAddImages} onAdditionalContextChange={onAdditionalContextChange} onBusyChange={setContextBusy} onExternalLinksTextChange={onExternalLinksTextChange} onRemoveImage={onRemoveImage} promptScope={sourceCase ? "test_case_steps" : "test_case_generation"} projectId={promptTemplateProjectId} referenceImages={referenceImages} referenceUploadPresentation="dropzone" requirements={selectedStories} showPromptEditor={false} />
             </section>
             <details className="ai-test-generator-section ai-test-generator-model-settings" open={integrationUnavailable || undefined}>
-              <summary><span>Model & generation</span><small>{integrationLabel}{!sourceCase ? ` · ${maxCases} drafts` : ""}</small><IconChevronDown size={15} /></summary>
+              <summary><span>Model & generation</span><small>{integrationLabel}{!sourceCase ? ` · ${maxCases} ${maxCases === 1 ? "draft" : "drafts"}` : ""}</small><IconChevronDown size={15} /></summary>
               <AiLlmSelect defaultIntegrationId={defaultIntegrationId} disabled={busy} integrations={integrations} onChange={onIntegrationIdChange} scopeKey={`${promptTemplateProjectId}:${llmUsageKey}`} value={integrationId} />
               {integrationUnavailable ? <p role="status">Choose an available LLM or Configured LLM to generate new drafts.</p> : null}
-              {!sourceCase ? <label className="ai-test-generator-count">Draft count<select disabled={busy} onChange={(event) => onMaxCasesChange(Number(event.target.value))} value={maxCases}>{[1, 2, 3].map((count) => <option key={count} value={count}>{count}</option>)}</select></label> : null}
+              {!sourceCase ? <label className="ai-test-generator-count">Draft count<select aria-label="Draft count" disabled={busy} onChange={(event) => onMaxCasesChange(Number(event.target.value))} value={maxCases}>{AI_DESIGN_DRAFT_COUNTS.map((count) => <option key={count} value={count}>{count}</option>)}</select></label> : null}
               {onParallelRequirementCountChange ? <p className="ai-test-generator-queue-note">Scheduled Stories run one at a time to keep provider usage predictable.</p> : null}
             </details>
     </AiContextPeek>

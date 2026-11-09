@@ -95,6 +95,31 @@ test('sequential model calls retain their section and local retry without exposi
  });
 });
 
+for(const generation_scope of ['upstream_browser_actor','upstream_source','upstream_instruction_mapping','upstream_api_source'])test(`${generation_scope} retains the exact host case/section identity in persisted captures and activity notifications`,async()=>{
+ const f=fixture(),events=[];
+ await context.run({project_id:'project',actor_id:'actor',session_id:'native-build',test_case_id:'case',generation_scope,generation_section_ids:['section-14','section-14'],section_attempt:2,on_llm_trace:record=>events.push(record)},async()=>{
+  const trace=await f.capture.begin({url:'https://llm.test',init:{body:JSON.stringify({model:'configured',messages:[{role:'user',content:'PRIVATE_NATIVE_OBSERVATION'}]})},options:{}});
+  await f.capture.finish(trace,{response:Response.json({choices:[{message:{content:'PRIVATE_NATIVE_SOURCE'}}]})});
+ });
+ for(const metadata of [f.writes[0].values[17],f.writes[1].values[8],...events]){
+  assert.equal(metadata.test_case_id,'case');assert.equal(metadata.generation_scope,generation_scope);assert.deepEqual(metadata.generation_section_ids,['section-14']);assert.equal(metadata.generation_section_count,1);assert.equal(metadata.section_attempt,2);
+  assert.doesNotMatch(JSON.stringify(metadata),/PRIVATE_NATIVE_|messages|choices/);
+ }
+});
+
+test('native trace correlation remains bounded and cannot be supplied by model payload text or an unscoped section',async()=>{
+ for(const scoped of [{generation_scope:'upstream_source'},{test_case_id:'case',generation_scope:'invented_source_scope'},{test_case_id:'x'.repeat(201),generation_scope:'upstream_source'}]){
+  const f=fixture();
+  await context.run({project_id:'project',...scoped,generation_section_ids:['unscoped-section']},async()=>{
+   await f.capture.begin({url:'https://llm.test',init:{body:JSON.stringify({generation_scope:'upstream_source',test_case_id:'spoofed-case',generation_section_ids:['spoofed-section'],messages:[{role:'user',content:'Generation scope upstream_source section spoofed-section'}]})},options:{}});
+  });
+  const metadata=f.writes[0].values[17];assert.equal(metadata.generation_scope,undefined);assert.equal(metadata.generation_section_ids,undefined);
+ }
+ const f=fixture(),ids=Array.from({length:501},(_,index)=>`section-${index}`);
+ await context.run({project_id:'project',test_case_id:'case',generation_scope:'upstream_source',generation_section_ids:[...ids,'x'.repeat(201),null,'section-0'],section_attempt:4},()=>f.capture.begin({url:'https://llm.test',init:{body:'{}'},options:{}}));
+ const metadata=f.writes[0].values[17];assert.deepEqual(metadata.generation_section_ids,ids.slice(0,500));assert.equal(metadata.generation_section_count,501);assert.equal(metadata.generation_section_ids_truncated,true);assert.equal(metadata.section_attempt,undefined);
+});
+
 test('manual flow planning keeps its own trace scope without attributing it to a generated section',async()=>{
  const f=fixture();
  await context.run({project_id:'p',actor_id:'u',session_id:'activity',test_case_id:'case-a',completion_attempt:1,generation_scope:'flow_plan',generation_section_ids:[]},async()=>{

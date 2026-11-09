@@ -75,7 +75,7 @@ for (const kind of ['manual', 'automation']) {
           await expect(input).toBeEnabled();
           await expect(input).toHaveValue('');
           await expect(input).toHaveAttribute('placeholder', /Hidden value/);
-          await expect(row(dialog, key).getByRole('combobox')).toBeDisabled();
+          await expect(row(dialog, key).getByRole('combobox', {name: `Data utility for @${key}`})).toBeDisabled();
         }
       };
 

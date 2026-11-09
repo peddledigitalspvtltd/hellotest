@@ -36,6 +36,14 @@ test('production review gate rejects unrelated success, then saves corrected com
       return verdict(packet, reviews === 2, reviews === 1 ? [2] : [3, 4]);
     }
     if (++actors === 1) return actor([click, check('#heading')]);
+    const catalog=JSON.parse(prompt.match(/^Tool catalog: (.+)$/m)[1]);
+    // This legacy proposal repeats its completed click. The proof-focused
+    // catalog must disclose that deferred schema before reconciling it; the
+    // additional model decision still cannot replay the saved operation.
+    if(actors===2){
+      assert.ok(!catalog.some(tool=>tool.name==='browser_click'));
+      assert.match(prompt,/Deferred tool names.*browser_click/);
+    }else assert.ok(catalog.some(tool=>tool.name==='browser_click'));
     const current = JSON.parse(prompt.match(/^Current browser state and confirmed section progress .*?: (.+)$/m)[1]);
     assert.equal(current.pending_contract.next_required, 'correct_manual_obligation_evidence');
     assert.equal(current.semantic_review_feedback.code, 'AUTOMATION_SEMANTIC_REVIEW_REJECTED');
@@ -47,9 +55,9 @@ test('production review gate rejects unrelated success, then saves corrected com
     assert.equal(current.pending_contract.completion_available, false);
     return actor([click, check('#status'), check('#row')]);
   } });
-  assert.equal(actors, 2); assert.equal(reviews, 2); assert.equal(state.saves.length, 1);
+  assert.equal(actors, 3); assert.equal(reviews, 2); assert.equal(state.saves.length, 1);
   assert.equal(state.calls.filter(item => item.name === 'browser_click').length, 1);
-  assert.deepEqual(state.modelCalls, ['actor', 'section_semantic_review', 'actor', 'section_semantic_review']);
+  assert.deepEqual(state.modelCalls, ['actor', 'section_semantic_review', 'actor', 'actor', 'section_semantic_review']);
   assert.match(result.steps[0].automation_code, /#status/); assert.match(result.steps[0].automation_code, /#row/);
 });
 

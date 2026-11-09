@@ -1616,12 +1616,23 @@ exports.getRequirements = async ({ project_id, status, priority, ids, limit }) =
   return hydrateRequirements(rows);
 };
 
-exports.getRequirement = async (id, { includeLinkedRecords = true } = {}) => {
-  const requirement = await db.prepare(`
-    SELECT * FROM requirements WHERE id = ?
-  `).get(id);
+exports.getRequirement = async (id, { includeLinkedRecords = true, projectId } = {}) => {
+  // Human-readable Story links are resolved only inside an explicit project.
+  // Existing internal callers keep their canonical ID lookup and authorization.
+  let requirement;
+  if (projectId !== undefined) {
+    if (typeof projectId !== 'string' || !projectId.trim() || projectId.length > 255) throw Object.assign(new Error('Supply a valid Story project.'), { statusCode:400 });
+    const candidates = await db.prepare(`SELECT * FROM requirements
+      WHERE project_id = ? AND (id = ? OR display_id = ?)
+      ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END LIMIT 2`).all(projectId, id, id, id);
+    requirement = candidates.find(row => row.id === id);
+    if (!requirement && candidates.length > 1) throw Object.assign(new Error('This Story reference is ambiguous in the current project. Open it using its canonical ID.'), { statusCode:409, code:'REQUIREMENT_REFERENCE_AMBIGUOUS' });
+    requirement ||= candidates[0];
+  } else {
+    requirement = await db.prepare(`SELECT * FROM requirements WHERE id = ?`).get(id);
+  }
 
-  if (!requirement) throw new Error("Requirement not found");
+  if (!requirement) throw Object.assign(new Error("Requirement not found"), { statusCode:404 });
 
   return includeLinkedRecords ? hydrateTestCaseIds(requirement) : normalizeRequirementFields(requirement);
 };

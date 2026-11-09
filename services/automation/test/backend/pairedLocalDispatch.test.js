@@ -104,6 +104,7 @@ test('paired dispatch freezes all three authored modes and each suite data row w
   assert.doesNotMatch(JSON.stringify(f.transactions), /scoped-|signing_secret/);
   assert.equal(f.queries.filter(sql => /FROM automation_learning_cache/.test(sql)).length, 3, 'Repository bindings load once per case rather than once per row.');
   assert.ok(!f.queries.some(sql => /test_suites/.test(sql)), 'No live suite settings are read for frozen policies.');
+  assert.ok(!f.queries.some(sql => /FROM test_cases/.test(sql)), 'Frozen case identities need no per-case authoring reads.');
 });
 
 test('paired individual case without a suite retains run scheduling and callback failure creates no partial receipts', async t => {
@@ -124,8 +125,75 @@ test('paired individual case without a suite retains run scheduling and callback
   assert.equal(f.transactions.length, count, 'Every callback is authorized before creating any transaction receipt.');
 });
 
+test('local and remote case and suite dispatch retain authoritative Playwright source and every frozen data row',async t=>{
+  for(const mode of ['individual','suite'])for(const includeAssertion of [true,false])await t.test(`${mode} / ${includeAssertion?'saved assertion':'actions only'}`,async t=>{
+    const f=fixture(t),queued=[],boundaries=[];
+    const source='// Automation Engineer source from upstream Playwright MCP\nawait page.getByRole("textbox", { name: "Email", exact: true }).fill(params["t.email"]);'
+      +(includeAssertion?'\nawait expect(page.getByRole("textbox", { name: "Email", exact: true })).toHaveValue(params["t.email"]);':'');
+    for(const step of f.execution.step_snapshots)step.automation_code=source;
+    f.execution.parameter_values={'r.browser':'reviewed-run-input'};
+    if(mode==='individual'){
+      f.execution.case_snapshots=f.execution.case_snapshots.slice(0,1);
+      f.execution.case_snapshots[0].suite_id=null;
+      f.execution.case_snapshots[0].test_data_options.execution_policy={suite_parallel_override:false};
+    }
+    const authoritative=structuredClone(f.execution);
+    t.mock.method(obs.pool,'connect',async()=>({release(){},query:async(statement,params)=>{
+      const sql=typeof statement==='string'?statement:statement.text,values=typeof statement==='string'?params||[]:statement.values||[];
+      if(['BEGIN','COMMIT','ROLLBACK'].includes(sql)){boundaries.push(sql);return {rows:[]};}
+      assert.match(sql,/INSERT INTO test_engine_jobs/);
+      queued.push(JSON.parse(values[13]));return {rows:[],rowCount:1};
+    }}));
+    const plan=await dispatch.planExecutionDispatch(f.execution);
+    assert.deepEqual(plan.warnings,[]);
+    const local=await dispatch.preparePairedLocalDispatch({plan,pairedDispatchId:'paired',callbackFor:()=>({url:'https://api.test/api/testengine/callbacks/runs',signing_secret:'scoped'})});
+    const remote=await dispatch.queueExecutionDispatch({plan,integration:{id:'engine',base_url:'https://engine.test',config:{}},initiatedBy:'actor'});
+    assert.equal(remote.queued_for_engine_count,mode==='individual'?2:6);
+    assert.equal(queued.length,local.envelopes.length);
+    assert.deepEqual(boundaries,['BEGIN','COMMIT'],'Remote suite publication remains atomic.');
+    for(let index=0;index<queued.length;index++){
+      const localEnvelope=JSON.parse(JSON.stringify(local.envelopes[index])),remoteEnvelope=queued[index];
+      assert.equal(remoteEnvelope.steps[0].automation_code,source);
+      assert.equal(localEnvelope.steps[0].automation_code,source);
+      assert.deepEqual(remoteEnvelope.steps,localEnvelope.steps);
+      for(const key of ['case_parameters','suite_parameters','run_parameters','data_set','execution_policy','parameters_frozen'])assert.deepEqual(remoteEnvelope[key],localEnvelope[key],key);
+      assert.equal(remoteEnvelope.case_parameters['t.email'],'saved@example.test');
+      assert.equal(remoteEnvelope.run_parameters['r.browser'],'reviewed-run-input');
+      assert.equal(remoteEnvelope.data_set.rows[0]['t.email'],index%2?'':'first@example.test','An intentionally empty row cannot fall back to a case default.');
+    }
+    assert.deepEqual(f.execution,authoritative,'Transport preparation never edits the authoritative snapshots.');
+    assert.ok(!f.queries.some(sql=>/FROM test_cases|FROM test_suites/.test(sql)),'Later authoring must not replace frozen source or suite data.');
+  });
+});
+
 test('paired dispatch rejects nonloopback origins, embedded credentials and URL suffixes before touching execution', async () => {
   for (const liveBaseUrl of ['https://remote.test', 'http://user:secret@localhost:4311', 'http://127.0.0.1:4311/path', 'http://127.0.0.1:4311/?secret=x', 'http://127.0.0.1:4311/#x', 'invalid']) {
     await assert.rejects(dispatch.preparePairedLocalDispatch({ liveBaseUrl, pairedDispatchId: 'dispatch', callbackFor: () => ({}) }), /loopback runner origin/);
   }
+});
+
+test('direct local marked programs require advertised runtime support before transaction publication or action dispatch',async t=>{
+ for(const [marked,capability] of [[true,undefined],[true,false],[true,true],[false,undefined]])await t.test(`${marked?'marked':'legacy'} / ${String(capability)}`,async t=>{
+  const f=fixture(t),requests=[];
+  f.execution.case_snapshots=f.execution.case_snapshots.slice(0,1);
+  Object.assign(f.execution.case_snapshots[0],{test_data_set_id:null,test_data_set_name:null,test_data_set_snapshot:null});
+  f.execution.step_snapshots=f.execution.step_snapshots.slice(0,1);
+  if(marked)f.execution.step_snapshots[0].automation_code='// @hellotest-parameter-bindings expressions-v1\nawait page.locator("#email").fill(params["t.email"]);await expect(page.locator("#email")).toHaveValue(params["t.email"]);';
+  const before=process.env.HELLOTEST_TESTENGINE_SECRET;process.env.HELLOTEST_TESTENGINE_SECRET='expression-runtime-fixture-secret';
+  t.after(()=>{if(before===undefined)delete process.env.HELLOTEST_TESTENGINE_SECRET;else process.env.HELLOTEST_TESTENGINE_SECRET=before;});
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+   requests.push({url:String(url),method:options.method});
+   return new Response(JSON.stringify(String(url).endsWith('/health')?{ready:true,capabilities:{parameter_expressions_v1:capability}}:{accepted:true}),{status:200,headers:{'content-type':'application/json'}});
+  });
+  const plan=await dispatch.planExecutionDispatch(f.execution);
+  const run=()=>dispatch.runExecutionDirectLocal({plan,integration:{base_url:'http://127.0.0.1:4313',config:{}},engineBaseUrl:'http://127.0.0.1:4313',initiatedBy:'actor'});
+  if(marked&&capability!==true){
+   await assert.rejects(run(),{code:'LOCAL_AGENT_UPGRADE_REQUIRED'});
+   assert.equal(f.transactions.length,0);assert.deepEqual(requests,[{url:'http://127.0.0.1:4313/health',method:'GET'}]);
+  }else{
+   assert.equal((await run()).local_run_count,1);
+   assert.equal(f.transactions.length,1);assert.equal(requests.filter(request=>request.method==='POST').length,1);
+   assert.equal(requests.filter(request=>request.method==='GET').length,marked?1:0);
+  }
+ });
 });

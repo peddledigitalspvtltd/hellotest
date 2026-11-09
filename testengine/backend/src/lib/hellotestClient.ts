@@ -119,17 +119,32 @@ export async function startQueuedJob(jobId: string, workerId: string) {
   return acknowledgement;
 }
 
-export async function executeQueuedApiStep(jobId: string, stepId: string) {
-  return request<{
+export async function heartbeatQueuedJob(jobId: string, workerId: string, signal?: AbortSignal) {
+  const receipt = await request<{ job_id: string; status: string; authorized: boolean }>(`/testengine/internal/jobs/${jobId}/heartbeat`, {
+    method: "POST", body: JSON.stringify({ worker_id: workerId }),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000)
+  });
+  if (receipt.authorized !== true || receipt.status !== "running" || receipt.job_id !== jobId) {
+    throw new Error("The queued execution is cancelled, finished, or no longer owned by this worker.");
+  }
+}
+
+export async function executeQueuedApiStep(jobId: string, stepId: string, workerId?: string) {
+  const receipt = await request<{
     job_id: string;
     step_id: string;
     status: "passed" | "failed";
     note: string;
     captures: Record<string, string>;
+    code?: string;
   }>(`/testengine/internal/jobs/${jobId}/steps/${stepId}/execute`, {
     method: "POST",
-    body: JSON.stringify({})
+    body: JSON.stringify({ worker_id: workerId })
   });
+  if (receipt.job_id !== jobId || receipt.step_id !== stepId || receipt.code || !['passed', 'failed'].includes(receipt.status)) {
+    throw new Error('The queued API request was not authorized or no longer accepts execution.');
+  }
+  return receipt;
 }
 
 export async function reportQueuedStep(
@@ -149,9 +164,10 @@ export async function reportQueuedStep(
     captures?: Record<string, string>;
     recovery_attempted?: boolean;
     recovery_succeeded?: boolean;
+    worker_id?: string;
   }
 ) {
-  return request<{
+  const receipt = await request<{
     job_id: string;
     step_id: string;
     status: "passed" | "failed" | "blocked" | "skipped";
@@ -162,6 +178,8 @@ export async function reportQueuedStep(
     method: "POST",
     body: JSON.stringify(payload)
   });
+  if (!['running', 'passed', 'failed', 'blocked'].includes(receipt.case_status)) throw new Error("The queued execution no longer accepts step results.");
+  return receipt;
 }
 
 export async function completeQueuedJob(jobId: string, status?: "passed" | "failed" | "blocked", error?: string) {
@@ -185,12 +203,18 @@ export async function completeQueuedJobWithMetadata(
     healing_succeeded?: boolean;
     artifact_bundle?: Record<string, unknown> | null;
     patch_proposals?: Array<Record<string, unknown>>;
+    worker_id?: string;
   }
 ) {
-  return request<{ job_id: string; status: string }>(`/testengine/internal/jobs/${jobId}/complete`, {
+  const receipt = await request<{ job_id: string; status: string }>(`/testengine/internal/jobs/${jobId}/complete`, {
     method: "POST",
     body: JSON.stringify(payload)
   });
+  if (receipt.job_id !== jobId || !['passed', 'failed', 'blocked'].includes(receipt.status)
+    || (payload.status && receipt.status !== payload.status)) {
+    throw new Error("The queued execution did not accept the requested completion. Inspect its current result before retrying.");
+  }
+  return receipt;
 }
 
 export async function failQueuedJob(jobId: string, message: string) {

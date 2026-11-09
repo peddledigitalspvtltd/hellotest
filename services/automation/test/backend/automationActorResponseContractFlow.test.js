@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { runAutomationBrowserAgent } = require('../../backend/lib/automationBrowserAgent');
-const { createAutomationActorContext } = require('../../backend/lib/automationActorContext');
 
 const receipt = value => ({ content: [{ type: 'text', text: JSON.stringify({ source: 'playwright', url: 'https://app.test/login', ...value }) }] });
 const snapshot = () => receipt({ observation_id: 'current-page', scope: 'body', title: 'Sign in', accessibility: '- textbox "Email"', elements: [{ tag: 'input', role: 'textbox', accessible_name: 'Email', attributes: { id: 'email', type: 'email' }, displayed: true, disabled: false, locators_validated: true, locator_candidates: ['#email'] }] });
@@ -33,7 +32,8 @@ test('a cheap-model typed response may omit stage and step ID, while completion 
     const line = prompt.split('\n').find(value => value.startsWith('Current decision contract: '));
     assert.ok(line, 'the current protocol is supplied on the first and final actor turn');
     const decision = JSON.parse(line.slice('Current decision contract: '.length));
-    assert.ok(decision.choices.some(choice => choice.step_id === 'current'));
+    assert.deepEqual(decision.envelope,{stage:'act',step_id:'current'});
+    assert.ok(decision.choices.every(choice=>!Object.hasOwn(choice,'stage')&&!Object.hasOwn(choice,'step_id')));
     assert.equal(decision.output_schema, undefined);
     if (actors === 1) return JSON.stringify({ tool_calls: [fill(), check()] });
     assert.equal(reviews, 0, 'missing completion metadata cannot infer a completion decision');
@@ -85,6 +85,33 @@ test('a repeated malformed response stops after one feedback without any MCP act
   assert.equal(state.observations.filter(row => row.tool === 'automation_actor_response_feedback').length, 1);
 });
 
+test('copying the decision menu gets explicit feedback before a flat corrected action executes once',async()=>{
+ const state=fixture();let actors=0,reviews=0,firstGoal,firstDecision;
+ const line=(prompt,prefix)=>prompt.split('\n').find(value=>value.startsWith(prefix));
+ await runAutomationBrowserAgent({...state.options,complete:async prompt=>{
+  const review=packet(prompt);if(review){reviews++;return accept(review);}
+  actors++;
+  const decision=JSON.parse(line(prompt,'Current decision contract: ').slice('Current decision contract: '.length));
+  assert.match(decision.question,/ONE flat JSON choice/);
+  if(actors===1){
+   firstGoal=line(prompt,'Interactive execution contract: ');firstDecision=decision;
+   return JSON.stringify({question:decision.question,envelope:decision.envelope,choices:decision.choices});
+  }
+  assert.equal(state.calls.length,0,'Copied examples cannot dispatch an accompanying or inferred action.');
+  assert.equal(state.saves.length,0);assert.equal(reviews,0);
+  assert.match(prompt,/AUTOMATION_ACTOR_RESPONSE_INVALID/);
+  assert.equal(current(prompt).latest_failure.kind,'actor_response');
+  assert.deepEqual(current(prompt).latest_failure.issues,[{field:'response',expected:'ONE flat JSON choice, not the contract/menu'}]);
+  assert.equal(line(prompt,'Interactive execution contract: '),firstGoal,'Correction preserves all pinned action/outcome text.');
+  assert.deepEqual(decision,firstDecision,'The correction retains the same decisions and exact current goal.');
+  return JSON.stringify({section_complete:true,tool_calls:[fill(),check()]});
+ }});
+ assert.equal(actors,2);assert.equal(reviews,1);assert.equal(state.saves.length,1);
+ assert.equal(state.calls.filter(call=>call.name==='browser_fill').length,1);
+ assert.equal(state.calls.filter(call=>call.name==='browser_assert').length,1);
+ assert.equal(state.observations.filter(row=>row.tool==='automation_actor_response_feedback').length,1);
+});
+
 test('format-only correction retains the goal, tools and completed work without adding browser recovery guidance or unrelated schemas', async () => {
   const state = fixture(); let actors = 0, before;
   const defaults = require('../../../platform/shared/aiFeatureCatalog.json').find(item => item.id === 'ai.automation.keyword_generation').defaults.instruction_blocks;
@@ -125,7 +152,12 @@ test('format-only correction retains the goal, tools and completed work without 
 test('single context-control precedence discloses the authorized data while suppressing accompanying actions', async () => {
   const task = { case: { id: 'case' }, current_section: { id: 'current', action: obligation.action, expected_result: obligation.expected_result },
     build_context: { parameter_data: { values: { 't.email': 'synthetic@example.test' } }, linked_manual_cases: [] } };
-  const context = createAutomationActorContext({ task, obligations: [obligation], canonicalGoals: true });
+  const disclosed = [];
+  const context = { prompt: JSON.stringify(task), additionalContext: () => disclosed, request: selection => {
+    assert.deepEqual(selection, { parameter_names: ['t.email'] });
+    const response = { code: 'AUTOMATION_ACTOR_CONTEXT_DISCLOSED', data: { parameter_values: { 't.email': 'synthetic@example.test' } } };
+    disclosed.push(response); return response;
+  } };
   const state = fixture({ prompt: context.prompt, taskContext: context }); let actors = 0;
   await runAutomationBrowserAgent({ ...state.options, complete: async prompt => {
     const review = packet(prompt); if (review) return accept(review);

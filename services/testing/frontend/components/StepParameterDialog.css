@@ -64,9 +64,29 @@
   overflow-wrap: anywhere;
 }
 
+.step-parameter-scope-select {
+  margin-inline-start: auto;
+  min-width: 0;
+}
+
+.step-parameter-scope-select select {
+  width: auto;
+  max-width: 100%;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+
 @media (max-width: 760px) {
   .step-parameter-dialog.is-wrapping-values .step-parameter-input-row,
   .step-parameter-dialog.is-wrapping-values .step-parameter-resolved-preview {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
+.step-parameter-secret-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.step-parameter-secret-toggle input[type="checkbox"] { width: 15px; height: 15px; min-height: 0; margin: 0; }

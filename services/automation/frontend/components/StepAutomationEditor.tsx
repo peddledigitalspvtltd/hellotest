@@ -33,7 +33,8 @@ import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/compo
 import { StepParameterizedText } from "@hellotest/testing/frontend/components/StepParameterizedText";
 import { AutomationParameterInput, AutomationReferencedParameters, AutomationRepositoryFieldPicker } from "./AutomationAuthoringInputs";
 import { readAutomationInstructions } from "../lib/automationInstructions";
-import { automationNumericArgument, automationParameterArgument, getAutomationKeywordInputSpec, resolveAutomationRepositoryTarget } from "../lib/automationKeywordInputs";
+import { automationNumericArgument, automationParameterArgument, automationStringArgument, getAutomationKeywordInputSpec, resolveAutomationRepositoryTarget } from "../lib/automationKeywordInputs";
+import { usesExpressionParameterBindings } from "../../shared/automationParameterMode.mjs";
 import "./StepAutomationEditor.css";
 
 const AUTHORING_STEP_TYPE_OPTIONS = STEP_TYPE_OPTIONS;
@@ -90,6 +91,7 @@ const WEB_KEYWORD_OPTIONS: WebKeywordOption[] = [
   { id: "goBack", label: "Go back", locatorLabel: "Optional note", dataLabel: "Wait until" },
   { id: "goForward", label: "Go forward", locatorLabel: "Optional note", dataLabel: "Wait until" },
   { id: "waitForLoadState", label: "Wait load state", locatorLabel: "Optional note", dataLabel: "load, domcontentloaded, or networkidle" },
+  { id: "waitForSelector", label: "Wait for element", locatorLabel: "Locator", dataLabel: "visible or hidden", locatorRequired: true },
   { id: "click", label: "Click", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
   { id: "hover", label: "Hover", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
   { id: "dblclick", label: "Double click", locatorLabel: "Locator", dataLabel: "Optional note", locatorRequired: true },
@@ -160,8 +162,8 @@ const WEB_TYPE_DEFAULTS = {
   delayMs: 35
 };
 
-function playwrightLocatorExpression(target: string) {
-  return `page.locator(${quoteCodeString(target)})`;
+function playwrightLocatorExpression(target: string, parameterExpressions = false) {
+  return `page.locator(${automationStringArgument(target, parameterExpressions)})`;
 }
 
 function webdriverElementBlock(selector: string, lines: string[]) {
@@ -173,11 +175,15 @@ function webdriverElementBlock(selector: string, lines: string[]) {
   ].join("\n");
 }
 
-function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data: string) {
+function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data: string, parameterExpressions = false) {
   const target = locator.trim();
-  const value = data.trim();
+  const value = parameterExpressions ? data : data.trim();
+  const argument = (input: string) => automationStringArgument(input, parameterExpressions);
   const loadState = /^(load|domcontentloaded|networkidle)$/i.test(value) ? value.toLowerCase() : "domcontentloaded";
-  const locatorExpression = playwrightLocatorExpression(target);
+  const parameterLoadState = automationParameterArgument(value);
+  const loadStateArgument = parameterLoadState || quoteCodeString(loadState);
+  const needsAdditionalLoadWait = Boolean(parameterLoadState) || loadState !== "domcontentloaded";
+  const locatorExpression = playwrightLocatorExpression(target, parameterExpressions);
   const targetBlock = (lines: string[]) => [
     "{",
     `  const target = ${locatorExpression};`,
@@ -187,90 +193,50 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
 
   switch (option.id) {
     case "aiStep":
-      return `await web.aiStep(${quoteCodeString(value)}, ${formatOptionsObject({ target: target || undefined })});`;
+      return `await web.aiStep(${argument(value)}, ${parameterExpressions ? target ? `{ target: ${argument(target)} }` : '{}' : formatOptionsObject({ target: target || undefined })});`;
     case "goto":
-      return [
-        `await page.goto(${quoteCodeString(target)});`,
-        `await page.waitForLoadState("domcontentloaded");`
-      ].join("\n");
+      return `await page.goto(${argument(target)});`;
     case "openTab":
       // The HelloTest helper mirrors Playwright context.newPage() and keeps later page.* calls on the active tab.
-      return `await web.openTab(${target ? quoteCodeString(target) : "null"}, ${formatOptionsObject({ timeoutMs: 30000, waitUntil: "domcontentloaded" })});`;
+      return `await web.openTab(${target ? argument(target) : "null"}, ${formatOptionsObject({ timeoutMs: 30000, waitUntil: "domcontentloaded" })});`;
     case "switchTab":
       // The HelloTest helper mirrors choosing a Page from browserContext.pages() and makes it active.
       return `await web.switchTab(${quoteCodeString(target || "latest")});`;
     case "closeTab":
       // The HelloTest helper mirrors Page.close() and moves the runtime to the next available tab.
-      return target ? `await web.closeTab(${quoteCodeString(target)});` : "await web.closeTab();";
+      return target ? `await web.closeTab(${argument(target)});` : "await web.closeTab();";
     case "reload":
-      return [
-        `await page.reload();`,
-        `await page.waitForLoadState(${quoteCodeString(loadState)});`
-      ].join("\n");
+      return needsAdditionalLoadWait ? `await page.reload();\nawait page.waitForLoadState(${loadStateArgument});` : `await page.reload();`;
     case "goBack":
-      return [
-        `await page.goBack();`,
-        `await page.waitForLoadState(${quoteCodeString(loadState)});`
-      ].join("\n");
+      return needsAdditionalLoadWait ? `await page.goBack();\nawait page.waitForLoadState(${loadStateArgument});` : `await page.goBack();`;
     case "goForward":
-      return [
-        `await page.goForward();`,
-        `await page.waitForLoadState(${quoteCodeString(loadState)});`
-      ].join("\n");
+      return needsAdditionalLoadWait ? `await page.goForward();\nawait page.waitForLoadState(${loadStateArgument});` : `await page.goForward();`;
     case "waitForLoadState":
       return `await page.waitForLoadState(${automationParameterArgument(value) || quoteCodeString(loadState)});`;
+    case "waitForSelector":
+      return `await web.waitForSelector(${argument(target)}, ${argument(/^(visible|hidden)$/i.test(value) ? value.toLowerCase() : "visible")});`;
     case "click":
-      return targetBlock([
-        `await target.waitFor({ state: "visible", timeout: 10000 });`,
-        `await target.click();`
-      ]);
+      return targetBlock([`await target.click();`]);
     case "hover":
-      return targetBlock([
-        `await target.waitFor({ state: "visible", timeout: 10000 });`,
-        `await target.hover();`
-      ]);
+      return targetBlock([`await target.hover();`]);
     case "dblclick":
-      return targetBlock([
-        `await target.waitFor({ state: "visible", timeout: 10000 });`,
-        `await target.dblclick();`
-      ]);
+      return targetBlock([`await target.dblclick();`]);
     case "rightClick":
-      return targetBlock([
-        `await target.waitFor({ state: "visible", timeout: 10000 });`,
-        `await target.click({ button: "right" });`
-      ]);
+      return targetBlock([`await target.click({ button: "right" });`]);
     case "fill":
-      return targetBlock([
-        `await target.waitFor({ state: "visible", timeout: 10000 });`,
-        `await target.fill(${quoteCodeString(value)});`
-      ]);
+      return targetBlock([`await target.fill(${argument(value)});`]);
     case "clear":
-      return targetBlock([
-        `await target.waitFor({ state: "visible", timeout: 10000 });`,
-        `await target.fill("");`
-      ]);
+      return targetBlock([`await target.fill("");`]);
     case "select":
-      return targetBlock([
-        `await target.waitFor({ state: "visible", timeout: 10000 });`,
-        `await target.selectOption(${quoteCodeString(value)});`
-      ]);
+      return targetBlock([`await target.selectOption(${argument(value)});`]);
     case "check":
-      return targetBlock([
-        `await target.waitFor({ state: "visible", timeout: 10000 });`,
-        `await target.check();`
-      ]);
+      return targetBlock([`await target.check();`]);
     case "uncheck":
-      return targetBlock([
-        `await target.waitFor({ state: "visible", timeout: 10000 });`,
-        `await target.uncheck();`
-      ]);
+      return targetBlock([`await target.uncheck();`]);
     case "press":
       return target
-        ? targetBlock([
-            `await target.waitFor({ state: "visible", timeout: 10000 });`,
-            `await target.press(${quoteCodeString(value)});`
-          ])
-        : `await page.press("body", ${quoteCodeString(value)});`;
+        ? targetBlock([`await target.press(${argument(value)});`])
+        : `await page.press("body", ${argument(value)});`;
     case "scroll": {
       const parameterDirection = automationParameterArgument(target);
       if (parameterDirection) return `{ const direction = String(${parameterDirection}).toLowerCase(); const amount = ${automationNumericArgument(value, 600)}; await page.mouse.wheel(direction === "left" ? -amount : direction === "right" ? amount : 0, direction === "up" ? -amount : direction === "down" ? amount : 0); }`;
@@ -286,18 +252,16 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
       return `await expect(${locatorExpression}).toBeVisible();`;
     case "expectText":
       return target
-        ? `await expect(${locatorExpression}).toContainText(${quoteCodeString(value)});`
-        : `await expect(page.locator("body")).toContainText(${quoteCodeString(value)});`;
+        ? `await expect(${locatorExpression}).toContainText(${argument(value)});`
+        : `await expect(page.locator("body")).toContainText(${argument(value)});`;
     case "expectUrl":
-      return `await expect(page).toHaveURL(${quoteCodeString(value)});`;
+      return `await expect(page).toHaveURL(${argument(value)});`;
     case "captureText":
       return targetBlock([
-        `await target.waitFor({ state: "visible", timeout: 10000 });`,
         `capture(${quoteCodeString(value || "@t.capturedText")}, (await target.textContent())?.trim() || "");`
       ]);
     case "captureValue":
       return targetBlock([
-        `await target.waitFor({ state: "visible", timeout: 10000 });`,
         `capture(${quoteCodeString(value || "@t.capturedValue")}, await target.inputValue());`
       ]);
     default:
@@ -2323,7 +2287,7 @@ export function StepAutomationDialog({
       return;
     }
 
-    const snippet = buildWebKeywordSnippet(selectedWebKeyword, webInputSpec.target === "none" ? "" : resolveAutomationRepositoryTarget(webKeywordLocator, objectRepository), webInputSpec.showValue ? webKeywordData : "");
+    const snippet = buildWebKeywordSnippet(selectedWebKeyword, webInputSpec.target === "none" ? "" : resolveAutomationRepositoryTarget(webKeywordLocator, objectRepository), webInputSpec.showValue ? webKeywordData : "", usesExpressionParameterBindings(automationCode));
     setAutomationCode((current) => [normalizeAutomationCode(current), snippet].filter(Boolean).join("\n"));
     setWebKeywordLocator("");
     setWebKeywordData("");

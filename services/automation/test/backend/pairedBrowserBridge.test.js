@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const security = require('../../backend/lib/pairedLocalSecurity');
 
-function fixture() {
+function fixture({pause}={}) {
   const bridges = new Map(), commands = new Map(), writes = [];
   const access = {active:true,allowed:true};
   const db = { transaction: fn => fn, prepare: sql => ({
@@ -44,7 +44,9 @@ function fixture() {
   vm.runInNewContext(fs.readFileSync(require.resolve('../../backend/services/pairedBrowserBridge.service'),'utf8'),{
     module,Response,URL,Buffer,Date,require:name=>name.endsWith('/src/db')?db:name.endsWith('/pairedLocalSecurity')?security
       :name.endsWith('/public/projectAccess')?{getProject:async()=>({})}
-      :name.endsWith('/optionalEvidenceAccess.service')?{getOptionalEvidenceAccess:async()=>({'automation.build':access.allowed,'automation.ai':access.allowed})}:require(name)
+      :name.endsWith('/optionalEvidenceAccess.service')?{getOptionalEvidenceAccess:async()=>({'automation.build':access.allowed,'automation.ai':access.allowed})}
+      :name.endsWith('/automationAssertionTimeout')?require('../../backend/lib/automationAssertionTimeout')
+      :name==='node:timers/promises'&&pause?{setTimeout:pause}:require(name)
   });
   return {...module.exports,bridges,commands,writes,access};
 }
@@ -107,6 +109,23 @@ test('bridge fetch transport preserves MCP session and caller correlation across
   const response=await pending;
   assert.equal(response.headers.get('mcp-session-id'),'session');
   assert.equal((await response.json()).id,42);
+});
+
+test('paired navigation honors the selected long wait beyond the ordinary command cap without reoffering it',async t=>{
+ let clock=Date.now(),f,auth;
+ t.mock.method(Date,'now',()=>clock);
+ f=fixture({pause:async()=>{
+  clock+=80_000;
+  const {command}=await f.poll(auth);
+  assert.equal(command.params.name,'browser_navigate');
+  assert.equal((await f.poll(auth)).command,null,'the delivered navigation is not replayed');
+  await f.result({...auth,commandId:command.id,response:{status:200,body:{jsonrpc:'2.0',id:command.id,result:{content:[{type:'text',text:'{"source":"playwright","action_outcome":"completed"}'}]}}}});
+ }});
+ const readyState=await ready(f);auth=readyState.auth;
+ const transport=await f.createTransport(readyState.scope,{navigationTimeoutMs:120_000});
+ const response=await transport('paired-browser-mcp',{method:'POST',headers:{'mcp-session-id':'session'},body:JSON.stringify({jsonrpc:'2.0',id:42,method:'tools/call',params:{name:'browser_navigate',arguments:{url:'https://app.fixture/'}}})});
+ assert.equal((await response.json()).result.content.length,1);
+ assert.equal(f.commands.size,1);assert.equal([...f.commands.values()][0].status,'completed');
 });
 
 test('a local build can queue before the first outbound poll and native verification retains its own receipt',async()=>{

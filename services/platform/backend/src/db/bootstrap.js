@@ -2592,6 +2592,7 @@ const statements = [
   ...require('@hellotest/knowledge/backend/graphSchema').statements,
   ...require('@hellotest/knowledge/backend/vectorProjectionSchema'),
   ...require('@hellotest/automation/backend/pairedExecutionSchema').statements,
+  ...require('@hellotest/automation/backend/recordingImportSchema').statements,
   ...require('./automationCaseIdentitySchema'),
   ...require('./automationCaseDeletionSchema'),
   ...require('./automationStartUrlSchema'),

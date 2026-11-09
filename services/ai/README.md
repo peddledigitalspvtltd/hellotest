@@ -47,6 +47,12 @@ questions or field gaps; the application does not invent prose to satisfy a requ
 | Defect triage | Supplied Defect IDs, permitted category, explanation and exact field citations. Priority and readiness remain host-owned. |
 | Smart Run | Supplied Test Case IDs, concise reasons and allowed citations. Risk ranking, eligibility and acceptance remain host-owned. |
 
+New Test Case inputs default to Run Params: generated declarations use `r.name`
+and authored references use `@r.name`. Explicit Test, Suite and Run identities are
+preserved through preview and Library acceptance. Existing library data retains
+its stored scope; the Test Params dialog can migrate an accepted case between
+Run and Test scope together with its source, API and authored-text references.
+
 All seven authoring/review paths accept explicit reference screenshots. Defect Improve,
 triage and Smart Run forward them through their actual API/model path. Saved attachments
 are not fetched implicitly. The frontend prepares one raster at a time, bounds its

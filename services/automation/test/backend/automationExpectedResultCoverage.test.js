@@ -112,3 +112,137 @@ test('all native input value properties remain content-only without reinterpreti
   for (const assertion of ['checked', 'visible', 'enabled'])
     assert.deepEqual(nativeValueCoverageIssues({ requirements, operations: [operation('value'), operation(assertion, 'input', '#other', 'checkbox')] }), [], assertion);
 });
+
+test('named editability and exact native input types require their own same-subject executable predicates',()=>{
+ const editable=nativeValueCoverageRequirements([{id:'current',action:'Verify Username field',expected_result:'Username input field is visible, focusable, and accepts text.'}]);
+ assert.equal(editable[0].assertion,'editable');assert.equal(editable[0].subject,'username');
+ const typed=(assertion,name='Username',value)=>({...operation(assertion),arguments:{assertion,locator:'#field',...(value===undefined?{}:{value})},observed_target:{tag:'input',name,input_type:'text'}});
+ for(const assertion of ['visible','enabled','value'])assert.equal(nativeValueCoverageIssues({requirements:editable,operations:[typed(assertion)]}).length,1,assertion);
+ assert.deepEqual(nativeValueCoverageIssues({requirements:editable,operations:[typed('visible'),typed('editable')]}),[]);
+ assert.equal(nativeValueCoverageIssues({requirements:editable,operations:[typed('editable','Other field')]}).length,1,'a different named input cannot supply the proof');
+ assert.equal(nativeValueCoverageIssues({requirements:editable,operations:[{...typed('editable'),observed_target:{tag:'input',name:'Username',excerpt_truncated:true}}]}).length,1);
+ const inputType=nativeValueCoverageRequirements([{id:'current',action:'Verify Password field',expected_result:'Password input field is visible, of type password, and masks entered characters.'}]);
+ assert.equal(inputType[0].assertion,'input_type');assert.equal(inputType[0].value,'password');assert.equal(inputType[0].subject,'password');
+ for(const operations of [[typed('value','Password','')],[typed('input_type','Username','password')],[typed('input_type','Password','PASSWORD')]])
+  assert.equal(nativeValueCoverageIssues({requirements:inputType,operations}).length,1);
+ assert.deepEqual(nativeValueCoverageIssues({requirements:inputType,operations:[typed('input_type','Password','password')]}),[]);
+ assert.equal(nativeValueCoverageIssues({requirements:editable,operations:[typed('editable')],mappings:[{id:'current',assertion_operations:[]}]}).length,1,'model mappings cannot omit the relevant native proof');
+});
+
+test('native property classification preserves exact literals without inventing positive proof for negated, quoted or unknown requirements',()=>{
+ for(const expected_result of ['Username field is not editable.','Username field must never be editable.','Username field is read-only.',
+  'Username field displays "editable".','Username field displays "type password".','Username field equals @r.[type password].',
+  'El campo de usuario permite editar texto.','The input is editable.'])
+  assert.deepEqual(nativeValueCoverageRequirements([{id:'current',expected_result}]),[],expected_result);
+ const quoted=nativeValueCoverageRequirements([{id:'current',expected_result:'Password input field has type "password".'}]);
+ assert.equal(quoted[0].value,'password');
+ const uppercase=nativeValueCoverageRequirements([{id:'current',expected_result:'Password input field has type "PASSWORD".'}]);
+ assert.equal(uppercase[0].value,'PASSWORD','authored comparison data is not normalized into a passing value');
+ assert.deepEqual(nativeValueCoverageRequirements([{id:'current',expected_result:'Password input field must not be of type password.'}]),[]);
+ const named=nativeValueCoverageRequirements([{id:'current',expected_result:'"Email address" field is editable.'}]);
+ assert.equal(named[0].subject,'email address');
+ const fallback=nativeValueCoverageRequirements([{id:'current',action:'Verify Username field',expected_result:'The field is editable.'}]);
+ assert.equal(fallback[0].subject,'username');
+});
+
+test('editable and input_type remain presentation rather than field-validation proof',()=>{
+ for(const assertion of ['editable','input_type'])assert.equal(nativeValueCoverageIssues({requirements,operations:[operation('value'),operation(assertion)]}).length,1);
+});
+
+test('an explicit named input retention clause requires the original parameter value oracle after its same-field fill',()=>{
+ const requirements=nativeValueCoverageRequirements([{id:'current',action:'Enter @r.orangehrm_password in the Password input.',expected_result:'The Password input retains @r.orangehrm_password and has type password.'}]);
+ assert.equal(requirements.filter(row=>row.requirement==='named_input_retained_parameter').length,1);
+ const named=(name,args,scope='same-doc',aliases=['same-field'])=>({name,arguments:args,observed_target:{tag:'input',name:'Password',input_type:'password',coverage_scope:scope,coverage_aliases:aliases}});
+ const fill=named('browser_fill',{locator:'#password',value:'@r.orangehrm_password'}),type=named('browser_assert',{assertion:'input_type',locator:'#password',value:'password'});
+ const value=named('browser_assert',{assertion:'value',locator:'#password',value:'@r.orangehrm_password'});
+ assert.equal(nativeValueCoverageIssues({requirements,operations:[fill,type]}).length,1,'a successful fill and password masking/type are not a retained-value oracle');
+ assert.deepEqual(nativeValueCoverageIssues({requirements,operations:[fill,type,value]}),[]);
+ for(const wrong of [{...value,arguments:{...value.arguments,value:'@r.equal_secret'}},{...value,arguments:{...value.arguments,value:'[private parameter value]'}},
+  {...value,observed_target:{...value.observed_target,coverage_scope:'other-doc'}},{...value,observed_target:{...value.observed_target,coverage_aliases:['other-field']}},
+  {...value,observed_target:{...value.observed_target,name:'Other'}}])assert.equal(nativeValueCoverageIssues({requirements,operations:[fill,type,wrong]}).length,1);
+ assert.equal(nativeValueCoverageIssues({requirements,operations:[value,fill,type]}).length,1,'an old check before input cannot discharge the new value');
+ assert.equal(nativeValueCoverageIssues({requirements,operations:[fill,type,value],mappings:[{id:'current',action_operations:[1],assertion_operations:[2]}]}).length,1);
+ assert.deepEqual(nativeValueCoverageIssues({requirements,operations:[fill,type,value],mappings:[{id:'current',action_operations:[1],assertion_operations:[2,3]}]}),[]);
+});
+
+test('retention classification never invents a value oracle from ambiguous, negated, quoted or composite prose',()=>{
+ for(const expected_result of ['The Password input does not retain @r.password.','The Password input displays "retains @r.password".',
+  'The Password input retains a masked value.','The Password input retains @r.password suffix.','The Name input retains @r.first @r.last.',
+  'Password retained.','El campo Password mantiene @r.password.'])assert.equal(nativeValueCoverageRequirements([{id:'current',action:'Enter @r.password and @r.first and @r.last.',expected_result}]).filter(row=>row.requirement==='named_input_retained_parameter').length,0,expected_result);
+ assert.equal(nativeValueCoverageRequirements([{id:'current',action:'Verify Password input',expected_result:'The Password input retains @r.password.'}]).length,0,'a pure readonly check does not invent a new fill requirement');
+});
+
+test('the actual entered-username expectation requires a reusable symbolic native value oracle',()=>{
+ const requirements=nativeValueCoverageRequirements([{id:'current',action:'Enter @r.orangehrm_username in the Username field.',
+  expected_result:'The Username field contains the entered username.'}]);
+ assert.equal(requirements.length,1);assert.equal(requirements[0].parameter_reference,'r.orangehrm_username');
+ assert.equal(requirements[0].classifier,'explicit_english_entered_input_retention_v1');
+ const target={tag:'input',name:'Username',input_type:'text',coverage_scope:'main-document',coverage_aliases:['username-control']};
+ const fill={name:'browser_fill',arguments:{locator:'#username',value:'@r.orangehrm_username'},observed_target:target};
+ const check=value=>({name:'browser_assert',arguments:{assertion:'value',locator:'#username',value},observed_target:target});
+ assert.equal(nativeValueCoverageIssues({requirements,operations:[fill,check('fixed-build-username')]}).length,1,'a configured literal is not a reusable relational oracle');
+ assert.deepEqual(nativeValueCoverageIssues({requirements,operations:[fill,check('@r.orangehrm_username')]}),[]);
+ assert.equal(nativeValueCoverageIssues({requirements,operations:[fill,check('@r.equal_other_parameter')]}).length,1);
+ for(const wrong of [{...check('@r.orangehrm_username'),observed_target:{...target,coverage_scope:'different-document'}},
+  {...check('@r.orangehrm_username'),observed_target:{...target,coverage_aliases:['other-control']}},
+  {...check('@r.orangehrm_username'),observed_target:{...target,name:'Other'}}])
+  assert.equal(nativeValueCoverageIssues({requirements,operations:[fill,wrong]}).length,1);
+ assert.equal(nativeValueCoverageIssues({requirements,operations:[check('@r.orangehrm_username'),fill]}).length,1,'do not reuse a check before the actual entry');
+});
+
+test('entered-value classification preserves fixed literals and rejects ambiguous or invented relations',()=>{
+ const action='Enter @r.username in the Username field.';
+ for(const expected_result of ['The Username field contains admin.','The Username field contains "the entered username".',
+  'The Username field does not contain the entered username.','The Username field contains the entered username suffix.',
+  'The Username field contains the entered password.','The field contains the entered username.','Username retained.',
+  'The Username field contains the entered username and any server-generated suffix.'])
+  assert.deepEqual(nativeValueCoverageRequirements([{id:'current',action,expected_result}]),[],expected_result);
+ for(const unknownAction of ['Verify @r.username in the Username field.','Do not enter @r.username in the Username field.',
+  'Enter @r.username and @r.equal_other_parameter in the Username field.'])
+  assert.deepEqual(nativeValueCoverageRequirements([{id:'current',action:unknownAction,expected_result:'The Username field contains the entered username.'}]),[],unknownAction);
+});
+
+test('entered private value proof stays symbolic and respects frame document scope',()=>{
+ const requirements=nativeValueCoverageRequirements([{id:'current',action:'Enter @r.private_password in the Password input.',
+  expected_result:'The Password input retains the entered value.'}]);
+ const target={tag:'input',name:'Password',input_type:'password',coverage_scope:'frame-document-1',coverage_aliases:['password-control']};
+ const fill={name:'browser_fill',arguments:{frame:['#work'],locator:'#password',value:'@r.private_password'},observed_target:target};
+ const check={name:'browser_assert',arguments:{frame:['#work'],assertion:'value',locator:'#password',value:'@r.private_password'},observed_target:target};
+ assert.deepEqual(nativeValueCoverageIssues({requirements,operations:[fill,check]}),[]);
+ assert.equal(nativeValueCoverageIssues({requirements,operations:[fill,{...check,arguments:{...check.arguments,value:'[private parameter value]'}}]}).length,1);
+ assert.equal(nativeValueCoverageIssues({requirements,operations:[fill,{...check,observed_target:{...target,coverage_scope:'frame-document-2'}}]}).length,1);
+ assert.equal(JSON.stringify(requirements).includes('[private parameter value]'),false);
+});
+
+test('complete repeated native labels match only one to three exact authored names with required markers',()=>{
+ const requirements=nativeValueCoverageRequirements([{id:'date',action:'Fill the Joined Date input with @r.employee_joined_date.',expected_result:'The Joined Date input retains @r.employee_joined_date.'}]);
+ const target={tag:'input',name:'Joined Date* Joined Date*',input_type:'text',coverage_scope:'current-document',coverage_aliases:['joined-date-control']};
+ const fill={name:'browser_fill',arguments:{locator:'#joinedDate',value:'@r.employee_joined_date'},observed_target:target};
+ const check={name:'browser_assert',arguments:{assertion:'value',locator:'#joinedDate',value:'@r.employee_joined_date'},observed_target:target};
+ for(const name of ['Joined Date','Joined Date*','Joined Date Joined Date','Joined Date* Joined Date*','Joined Date* Joined Date Joined Date*']){
+  const named={...target,name};assert.deepEqual(nativeValueCoverageIssues({requirements,operations:[{...fill,observed_target:named},{...check,observed_target:named}]}),[],name);
+ }
+ for(const name of ['Joined Date Joined Date Joined Date Joined Date','Joined Date* Joined Date* Joined Date* Joined Date*','Joined Date Password','Password Joined Date','Date','Joined Date confirmation','Joined DateJoined Date']){
+  const named={...target,name};assert.equal(nativeValueCoverageIssues({requirements,operations:[{...fill,observed_target:named},{...check,observed_target:named}]}).length,1,name);
+ }
+ for(const changed of [{excerpt_truncated:true},{name:'Unrelated',placeholder:'Joined Date* Joined Date*'},{coverage_scope:'different-frame-document'},
+  {coverage_aliases:['different-field']},{name:'Username Password'}])
+  assert.equal(nativeValueCoverageIssues({requirements,operations:[fill,{...check,observed_target:{...target,...changed}}]}).length,1);
+ assert.equal(nativeValueCoverageIssues({requirements,operations:[fill,{...check,arguments:{...check.arguments,value:'@r.equal_other'}}]}).length,1);
+ assert.equal(nativeValueCoverageIssues({requirements,operations:[check,fill]}).length,1);
+ assert.equal(nativeValueCoverageIssues({requirements,operations:[fill,check],mappings:[{id:'date',action_operations:[],assertion_operations:[2]}]}).length,1);
+ assert.deepEqual(nativeValueCoverageIssues({requirements,operations:[fill,check],mappings:[{id:'date',action_operations:[1],assertion_operations:[2]}]}),[]);
+ assert.equal(target.name,'Joined Date* Joined Date*','raw native name is preserved');assert.equal(check.arguments.locator,'#joinedDate');
+});
+
+test('native field properties share the bounded repeated name rule without changing field validation requirements',()=>{
+ const property=nativeValueCoverageRequirements([{id:'current',action:'Inspect the Username field.',expected_result:'The Username field is editable.'}]);
+ const target={tag:'input',name:'Username* Username*',input_type:'text'};
+ assert.deepEqual(nativeValueCoverageIssues({requirements:property,operations:[{name:'browser_assert',arguments:{assertion:'editable',locator:'#username'},observed_target:target}]}),[]);
+ for(const name of ['Username Password','Username Username Username Username'])
+  assert.equal(nativeValueCoverageIssues({requirements:property,operations:[{name:'browser_assert',arguments:{assertion:'editable',locator:'#username'},observed_target:{...target,name}}]}).length,1);
+ const validation=nativeValueCoverageRequirements([{id:'current',action:'Fill the Joined Date field with @r.date.',expected_result:'The Joined Date field retains @r.date without errors.'}]);
+ const observed={...target,name:'Joined Date* Joined Date*',coverage_scope:'current-document',coverage_aliases:['date']};
+ assert.equal(nativeValueCoverageIssues({requirements:validation,operations:[{name:'browser_fill',arguments:{locator:'#date',value:'@r.date'},observed_target:observed},
+  {name:'browser_assert',arguments:{assertion:'value',locator:'#date',value:'@r.date'},observed_target:observed}]}).length,1,'value-only proof still cannot discharge the independent validation requirement');
+});

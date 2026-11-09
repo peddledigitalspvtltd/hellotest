@@ -6,7 +6,31 @@ import { pathToFileURL } from 'node:url';
 const runtimeUrl = process.env.HELLOTEST_RUNTIME_TEST_BUILD
   ? pathToFileURL(path.resolve(process.env.HELLOTEST_RUNTIME_TEST_BUILD, 'lib/playwrightBindings.js'))
   : new URL('../dist/lib/playwrightBindings.js', import.meta.url);
-const { createPlaywrightCodeBindings } = await import(runtimeUrl.href);
+const { createPlaywrightCodeBindings, usesExpressionParameterBindings, PARAMETER_EXPRESSIONS_MARKER } = await import(runtimeUrl.href);
+const { interpolateText } = await import(new URL('./runtimeContext.js', runtimeUrl).href);
+
+test('only an exact leading portable marker enables expression mode', () => {
+  for (const source of [PARAMETER_EXPRESSIONS_MARKER, `${PARAMETER_EXPRESSIONS_MARKER}\nawait page.goto(params["r.url"]);`, `\ufeff \n// ordinary comment\n/* options */\n${PARAMETER_EXPRESSIONS_MARKER}\nawait page.goto(params["r.url"]);`, `// @hellotest-options screenshotOnFailure\r\n${PARAMETER_EXPRESSIONS_MARKER}\r\nawait page.goto(params["r.url"]);`]) assert.equal(usesExpressionParameterBindings(source), true);
+  for (const source of [undefined, '', `/* ${PARAMETER_EXPRESSIONS_MARKER} */`, `const note=${JSON.stringify(PARAMETER_EXPRESSIONS_MARKER)};`, `const note=\`${PARAMETER_EXPRESSIONS_MARKER}\`;`, `await page.goto("/");\n${PARAMETER_EXPRESSIONS_MARKER}`, PARAMETER_EXPRESSIONS_MARKER.replace('v1', 'v2'), PARAMETER_EXPRESSIONS_MARKER+' extra']) assert.equal(usesExpressionParameterBindings(source), false);
+});
+
+test('expression mode keeps inserted values literal across native actions, nested options, URLs and expectations', async () => {
+  const calls=[],resolved=[];let interpolations=0;
+  const context={values:{'r.value':'@r.other','r.other':'UNEXPECTED_EXPANSION'}};
+  const locator={count(){return 1;},click(){},fill(value){calls.push(['fill',value]);},selectOption(value){calls.push(['select',value]);}};
+  const native={goto(...args){calls.push(['goto',...args]);},locator(){return locator;},setExtraHTTPHeaders(value){calls.push(['headers',value]);}};
+  const {page,expect}=createPlaywrightCodeBindings(native,{parameterExpressions:true,
+    interpolate:value=>{interpolations++;return interpolateText(value,context);},resolveLocator:value=>{resolved.push(value);return value==='@repo.field'?'#field':value;},resolveUrl:value=>value,assertionTimeout:100});
+  page.locator('@repo.field').fill(context.values['r.value']);
+  page.locator('#field').selectOption({label:context.values['r.value']});
+  page.setExtraHTTPHeaders({'x-literal':context.values['r.value']});
+  page.goto('https://fixture.test/path?next=@r.other');
+  expect(context.values['r.value']).toBe('@r.other');
+  expect({email:'reader+@r.other.test',items:['@r.other']}).toEqual({email:'reader+@r.other.test',items:['@r.other']});
+  assert.deepEqual(calls,[['fill','@r.other'],['select',{label:'@r.other'}],['headers',{'x-literal':'@r.other'}],['goto','https://fixture.test/path?next=@r.other']]);
+  assert.deepEqual(resolved,['@repo.field','#field'],'Repository resolution stays explicit and active');
+  assert.equal(interpolations,0);
+});
 
 function fixture() {
   const values = { 't.email': 'reader@example.test', 't.other': 'another@example.test', 't.label': 'Signed in' };

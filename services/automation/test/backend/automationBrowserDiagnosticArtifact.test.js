@@ -36,6 +36,26 @@ test('only the protected artifact contains diagnostics and current access is che
   assert.doesNotMatch(JSON.stringify(events),/sandbox unavailable|browserType\.launch/);
 });
 
+test('nonstartup navigation failures retain only a bounded redacted protected diagnostic', async () => {
+  const error = browserBootstrapFailure({ isError: true, content: [{ type: 'text', text: JSON.stringify({
+    code: 'BROWSER_TOOL_FAILED', action_outcome: 'unknown', retry_safe: false,
+    message: `page.goto: Timeout 25000ms exceeded.\nhttps://operator:privatecredential@private.example/privateroute?customer=privatecustomer\nAuthorization: Bearer privatenavigationtoken\n${'界'.repeat(3000)}\nwaiting until "load"`,
+    url: 'https://private.example/privateroute'
+  }) }] });
+  const calls = [], events = [];
+  const artifact = await retainBrowserDiagnostic({ error, transactionId: 'activity', assertAccess: async () => { calls.push('access'); },
+    createArtifact: async (id, input) => { calls.push('artifact'); assert.equal(id, 'activity');
+      assert.equal(input.file_name, 'browser-navigation-diagnostic.json'); assert.equal(input.mime_type, DIAGNOSTIC_MIME);
+      assert.ok(Buffer.byteLength(input.content, 'utf8') <= 2048);
+      assert.match(input.content, /page.goto: Timeout 25000ms exceeded/); assert.match(input.content, /waiting until/);
+      assert.doesNotMatch(input.content, /privatecredential|private.example|privateroute|privatecustomer|privatenavigationtoken|https?:/);
+      return { id: 'protected-navigation' }; }, appendEvent: async (id, event) => { calls.push('event'); events.push(event); } });
+  assert.equal(artifact.id, 'protected-navigation'); assert.deepEqual(calls, ['access', 'artifact', 'event']);
+  assert.equal(error.code, 'AUTOMATION_BROWSER_BOOTSTRAP_OUTCOME_UNKNOWN'); assert.equal(error.retry_safe, false);
+  assert.deepEqual(events[0].details, { artifact_id: 'protected-navigation' });
+  assert.doesNotMatch(JSON.stringify(events) + JSON.stringify(buildFailureProgress(error)), /Timeout 25000ms|private|browser_diagnostic/);
+});
+
 test('optional diagnostic storage and event failures cannot replace the original browser failure', async () => {
   const error=launchFailure('browserType.launch: unavailable');
   for(const stage of ['access','artifact','event']){

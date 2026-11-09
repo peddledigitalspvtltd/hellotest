@@ -73,6 +73,8 @@
 .automation-engineer-code-tools > button { flex:0 0 auto; margin-left:auto; margin-bottom:8px; font-size:11px; }
 .automation-engineer-error-count { display:inline-grid; place-items:center; min-width:17px; height:17px; padding:0 4px; box-sizing:border-box; border-radius:9px; color:var(--app-danger,#b42318); background:color-mix(in srgb,var(--app-danger,#b42318) 10%,var(--app-surface)); font-size:10px; font-weight:650; }
 .automation-engineer-error-count[data-resolved="true"] { color:var(--app-text-muted); background:var(--app-surface-muted); }
+.automation-engineer-build-error-notice { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; margin:12px 16px 0; padding:10px 12px; border:1px solid var(--app-border); border-left:3px solid var(--app-danger,#b42318); border-radius:7px; font-size:12px; }
+.automation-engineer-build-error-notice p { flex:1; min-width:180px; margin:0; overflow-wrap:anywhere; }
 .automation-engineer-command-error { display:inline-flex; align-items:center; gap:4px; color:var(--app-danger,#b42318); }
 .automation-engineer-command-error[data-resolved="true"] { color:var(--app-text-muted); }
 .automation-engineer-build-errors { padding:16px; font-size:12px; line-height:1.7; }

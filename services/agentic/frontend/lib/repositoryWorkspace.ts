@@ -14,11 +14,20 @@ export function retainUnsavedInspectedFields<T extends { locator: string }>(curr
   const attemptedByLocator = new Map(attempted.map((field) => [field.locator, field]));
   const failedLocators = new Set(failed.map((field) => field.locator));
   return mergeInspectedFields(
-    failed,
+    failed.filter(field => current.some(selected => selected.locator === field.locator)),
     current.filter((field) => !attemptedByLocator.has(field.locator)
       || failedLocators.has(field.locator)
       || JSON.stringify(field) !== JSON.stringify(attemptedByLocator.get(field.locator)))
   );
+}
+
+/** A late validation response must not select removed fields or overwrite edits. */
+export function applyInspectedFieldValidation<T extends { locator: string }>(current: T[], attempted: T[], validated: T[]) {
+  const before = new Map(attempted.map(field => [field.locator, field]));
+  const after = new Map(validated.map(field => [field.locator, field]));
+  return current.map(field => before.has(field.locator)
+    && JSON.stringify(field) === JSON.stringify(before.get(field.locator))
+    ? after.get(field.locator) || field : field);
 }
 
 /** Confirm the screen first, then keep per-field failures available for retry. */

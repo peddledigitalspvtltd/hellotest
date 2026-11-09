@@ -71,7 +71,7 @@ import { type AssigneeOption, buildAssigneeOptions } from "@hellotest/platform/f
 import { findByRoutableId, getRoutableId } from "@hellotest/platform/frontend/src/shared/lib/urlSelection";
 import { formatReferenceList } from "@hellotest/platform/frontend/src/shared/lib/externalReferences";
 import { selectLatestExecutionResultInstances } from "../lib/executionResultMetrics";
-import { buildHistoryStatusBreakdown, buildReadinessScoreBreakdown } from "@hellotest/platform/frontend/src/shared/lib/tileProgressBreakdown";
+import { buildHistoryStatusBreakdown } from "@hellotest/platform/frontend/src/shared/lib/tileProgressBreakdown";
 import { readDefaultCatalogViewMode } from "@hellotest/platform/frontend/src/shared/lib/viewPreferences";
 import type { AppType, ExecutionResult, Project, ProjectMember, Requirement, RequirementIteration, RequirementRelease, TestCase, TestCaseModule, TestStep, TestSuite } from "@hellotest/platform/frontend/src/types";
 
@@ -2055,8 +2055,9 @@ export function DesignPage() {
       {confirmationDialog}
       <PageHeader
         className={selectedSuiteId ? "page-header--workspace-context" : ""}
-        eyebrow="Test Plan"
-        title="Test Suites"
+        eyebrow={selectedSuite ? "Test Suite" : "Test Plan"}
+        title={selectedSuite?.name || "Test Suites"}
+        textAside={selectedSuite ? <EntityIdBadge icon={<TileCardSuiteIcon />} value={selectedSuite.display_id || selectedSuite.id} /> : undefined}
         description="Organize executable coverage into reusable Suites, manage linked Test Cases, and keep run handoff governed and ready."
         meta={[
           { label: "Suites", value: designMetrics.totalSuites },
@@ -3273,21 +3274,22 @@ function TestCaseList({
                 const failedRunCount = history.filter((result) => ["failed", "blocked"].includes(String(result.status || "").toLowerCase())).length;
                 const passedRuns = history.filter((result) => result.status === "passed").length;
                 const stabilityScore = history.length ? Math.round((passedRuns / history.length) * 100) : 0;
-                const automationReadiness = testCase.automated === "yes"
-                  ? 100
-                  : Math.min(96, Math.max(26, 36 + stepCount * 4 + (requirement ? 14 : 0) + (history.length ? 8 : 0) - failedRunCount * 6));
-                const caseTypeLabel = testCase.automated === "yes" ? "Auto" : "Manual";
+                const caseTypeLabel = testCase.automated === "yes" ? "Automation" : "Manual";
                 const moduleLabel = moduleLabelByCaseId[testCase.id] || "Unassigned module";
                 const isRiskCase = failedRunCount > 0;
-                const isWarningCase = !requirement || stabilityScore < 60;
+                const isWarningCase = !requirement || !passedRuns || stabilityScore < 60;
                 const aiInsightTone = isRiskCase ? "danger" : isWarningCase ? "warning" : "success";
                 const aiInsight = isRiskCase
                   ? "Signal: Recent suite evidence includes failed or blocked runs. Review this case before the suite is promoted."
                   : !requirement
                     ? "Signal: Link this case to a story so the suite can report traceable coverage."
-                    : testCase.automated !== "yes" && automationReadiness >= 70
-                      ? "Signal: This suite case is a strong automation candidate because its scope and steps are ready."
-                      : "Signal: This case is healthy within the suite. Keep it ordered near related validation coverage.";
+                    : !history.length
+                      ? testCase.automated === "yes"
+                        ? "Signal: No run evidence yet. Build or review the saved instructions, then execute this case."
+                        : "Signal: No run evidence yet. Execute this case to establish a stability baseline."
+                      : !passedRuns
+                        ? "Signal: No completed passing evidence is recorded in this window. Inspect the current run status before release gating."
+                        : "Signal: Recent results include passing evidence. Inspect the latest run and saved plan before release gating.";
 
                 return (
                   <button
@@ -3363,10 +3365,6 @@ function TestCaseList({
 	                          <strong>{stepCount}</strong>
 	                          <small>Steps</small>
                         </span>
-                        <span title={`${caseTypeLabel} execution`}>
-                          <strong>{caseTypeLabel}</strong>
-                          <small>Type</small>
-                        </span>
                         <span title={`${suiteCount} linked suite${suiteCount === 1 ? "" : "s"}`}>
                           <strong>{suiteCount}</strong>
                           <small>Suites</small>
@@ -3374,11 +3372,11 @@ function TestCaseList({
                       </div>
                       <div className="tile-card-footer">
                         <div className="test-case-readiness-grid">
-                          <TileCardProgress
-                            breakdown={buildReadinessScoreBreakdown(automationReadiness)}
-                            label="Automation readiness"
-                            title={`${automationReadiness}% automation readiness score`}
-                            value={automationReadiness}
+                          <TileCardMetric
+                            label="Case type"
+                            title="Case classification only. Executable instructions and assertions are validated before dispatch; this does not establish run readiness or a passing result."
+                            tone="neutral"
+                            value={caseTypeLabel}
                           />
                           <TileCardProgress
                             breakdown={buildHistoryStatusBreakdown(history)}

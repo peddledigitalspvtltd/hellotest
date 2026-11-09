@@ -48,7 +48,7 @@ new claims about this follow-up:
 - [Automation workflow](../architecture/automation-workflow.md) describes Build
   tools, immutable build context, permissions, progressive saves and the
   separate TestEngine execution result.
-- [`automationActorPrompt.js`](../../services/automation/backend/lib/automationActorPrompt.js)
+- [Retired custom actor prompt](../architecture/automation-workflow.md#retired-and-shared-code) (removed in the 9 November 2026 upstream-generator cleanup)
   projects authorized task data without saved source or cached executable
   locators. Linked manual actions and expected results remain available.
 - [`automationBrowserModelTargets.js`](../../services/automation/backend/lib/automationBrowserModelTargets.js)

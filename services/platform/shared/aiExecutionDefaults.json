@@ -14,7 +14,7 @@
       },
       "output_schema": null,
       "instruction_blocks": {
-        "application.artifactContract": "Return nonempty title and description, integer priority 1–5, a permitted test_case_type, an explicit parameter_values object and complete executable steps with a separate action and expected_result for each step (or the requested complete Gherkin with Then outcomes). Use all supplied linked Story title, description and acceptance evidence. Every case-owned @t input must have its raw name and appropriate concrete synthetic string value in parameter_values; {} is valid when no local data is needed. Preserve supplied values and exact @t/@s/@r scope, including protected references. Do not fabricate real credentials, existing IDs, selectors, endpoints or unsupported outcomes."
+        "application.artifactContract": "Return nonempty title and description, integer priority 1–5, a permitted test_case_type, an explicit parameter_values object and complete executable steps with a separate action and expected_result for each step (or the requested complete Gherkin with Then outcomes). Use all supplied linked Story title, description and acceptance evidence. New reusable inputs default to Run Params: declare canonical r.name keys and concrete synthetic string values in parameter_values and reference @r.name. Preserve explicitly supplied t.name, s.name and r.name identities. {} is valid when no new input default is needed. Preserve supplied values and exact @t/@s/@r scope, including protected references. Do not fabricate real credentials, existing IDs, selectors, endpoints or unsupported outcomes."
       }
     }
   },
@@ -330,7 +330,7 @@
       },
       "output_schema": null,
       "instruction_blocks": {
-        "application.artifactContract": "Return nonempty title and description, integer priority 1–5, a permitted test_case_type, an explicit parameter_values object and complete executable steps with a separate action and expected_result for each step (or the requested complete Gherkin with Then outcomes). Use all supplied linked Story title, description and acceptance evidence. Every case-owned @t input must have its raw name and appropriate concrete synthetic string value in parameter_values; {} is valid when no local data is needed. Preserve supplied values and exact @t/@s/@r scope, including protected references. Do not fabricate real credentials, existing IDs, selectors, endpoints or unsupported outcomes."
+        "application.artifactContract": "Return nonempty title and description, integer priority 1–5, a permitted test_case_type, an explicit parameter_values object and complete executable steps with a separate action and expected_result for each step (or the requested complete Gherkin with Then outcomes). Use all supplied linked Story title, description and acceptance evidence. New reusable inputs default to Run Params: declare canonical r.name keys and concrete synthetic string values in parameter_values and reference @r.name. Preserve explicitly supplied t.name, s.name and r.name identities. {} is valid when no new input default is needed. Preserve supplied values and exact @t/@s/@r scope, including protected references. Do not fabricate real credentials, existing IDs, selectors, endpoints or unsupported outcomes."
       }
     }
   },

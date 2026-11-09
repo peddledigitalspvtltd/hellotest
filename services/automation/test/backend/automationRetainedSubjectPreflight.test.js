@@ -15,8 +15,8 @@ const valid = { name:'browser_assert', arguments:{assertion:'field_valid',locato
 const operation = { name:'browser_fill', arguments:{locator:'#password-input',value:'@r.password'} };
 const create = operations => createRetainedAssertionContract({step:{id:'password',step_type:'web',automation_code:compileRecordedProgram(operations).source}});
 const receipt = (value,isError=false) => ({isError,content:[{type:'text',text:JSON.stringify({source:'playwright',url:'https://app.test/auth',...value})}]});
-function snapshot({aliases=['#password-input'],extra=[]}={}) {
-  const observation={tool:'browser_snapshot',result:receipt({observation_id:'current-auth',title:'Create account',scope:'body',elements:[{
+function snapshot({aliases=['#password-input'],extra=[],frame,documentId='frame-doc-1'}={}) {
+  const observation={tool:'browser_snapshot',result:receipt({observation_id:'current-auth',title:'Create account',scope:'body',...(frame?{frame_path:frame,frame_url:'https://app.test/embedded-auth',frame_document_id:documentId}:{}),elements:[{
     tag:'input',attributes:{id:'password-input',name:'password',type:'password'},accessible_name:'Password',displayed:true,disabled:false,locators_validated:true,locator_candidates:aliases
   },...extra]})};
   projectModelSnapshot(observation);return observation;
@@ -38,6 +38,27 @@ test('fresh same-control aliases need no extra read; distinct observed fields ca
   const other={tag:'input',attributes:{id:'other',type:'password'},displayed:true,locators_validated:true,locator_candidates:[oldLocator]};
   await assert.rejects(call(contract,{snapshot:snapshot({extra:[other]}),read}),error=>error.code==='AUTOMATION_RETAINED_SUBJECT_REVIEW_REQUIRED'&&error.details.retained_subject_issue==='different_observed_field');
   assert.equal(reads,0);
+});
+
+test('retained input alias proof remains inside its saved frame and exposes that frame to a bounded subject read',async()=>{
+  const frame=['#work','#auth'],framed=op=>({...op,arguments:{...op.arguments,frame:[...frame]}});
+  const contract=create([framed(input),framed(value),framed(valid)]),current=snapshot({frame,aliases:['#password-input',oldLocator]});
+  const request=framed(operation),options={contract,stepId:'password',request,operations:[],snapshot:current};
+  const canonical=canonicalizeRetainedInputRequest(options);
+  assert.equal(canonical.canonicalized,true);assert.equal(canonical.request.arguments.locator,oldLocator);assert.deepEqual(canonical.request.arguments.frame,frame);
+  let reads=0;
+  assert.equal(await assertRetainedInputSubject({...options,read:async()=>{reads++;return{available:true,match_count:1};}}),false);assert.equal(reads,0);
+  for(const [proposed,observed]of [[{...request,arguments:{...request.arguments,frame:['#sibling']}},snapshot({frame:['#sibling'],aliases:['#password-input',oldLocator]})],
+    [operation,snapshot({aliases:['#password-input',oldLocator]})]]){
+    const changed={...options,request:proposed,snapshot:observed};
+    assert.equal(canonicalizeRetainedInputRequest(changed).canonicalized,false);
+    await assert.rejects(assertRetainedInputSubject({...changed,read:async()=>{reads++;}}),error=>error.details?.retained_subject_issue==='different_observed_frame');
+  }
+  const missing=snapshot({frame});
+  await assert.rejects(assertRetainedInputSubject({...options,snapshot:missing,read:async subject=>{
+    reads++;assert.deepEqual(subject.frame,frame);assert.equal(Object.isFrozen(subject.frame),true);return{available:true,match_count:0};
+  }}),{code:'AUTOMATION_RETAINED_SUBJECT_REVIEW_REQUIRED'});
+  assert.equal(reads,1);
 });
 
 test('only same-current-target aliases with exact binding and protected action prefix canonicalize to the saved input locator',()=>{

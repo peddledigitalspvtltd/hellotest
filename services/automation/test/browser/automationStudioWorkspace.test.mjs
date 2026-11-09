@@ -16,16 +16,18 @@ test('automation studio preserves section drafts, precondition order, AI scope a
   fixture += "\nimport '/src/product-experience.css';";
   fixture = fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';", "import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';").replace('element:<TestCasesPage/>', 'element:<AutomationPage/>');
   fixture = fixture.replace("const router=createMemoryRouter([{path:'/test-cases',element:<AutomationPage/>}]", "const router=createMemoryRouter([{path:'/test-cases',element:<AutomationPage/>},{path:'/executions',element:<div>Execution destination</div>}]" );
-  fixture = fixture.replace('const client=new QueryClient', `item.automated='yes';item.automation_status='ready';item.automation_start_url='https://checkout.test/login';steps.forEach(step=>step.automation_code='await web.click("Login.Submit");');
-    window.calls=[];window.failRun=false;api.testCases.automationAgentActivity=async()=>null;api.testCases.automationBuildStatus=async()=>({id:'build-job',project_id:'p',app_type_id:'a',status:'queued',metadata:{total_items:1,input_test_case_ids:['case1']},events:[]});
+  fixture = fixture.replace('const client=new QueryClient', `item.automated='yes';item.automation_status='ready';item.automation_start_url='https://checkout.test/login';item.suite_ids=['suite1'];steps.forEach(step=>step.automation_code='await web.click("Login.Submit");');
+    window.calls=[];window.failRun=false;window.failRecording=false;api.testCases.automationAgentActivity=async()=>null;api.testCases.automationBuildStatus=async()=>({id:'build-job',project_id:'p',app_type_id:'a',status:'queued',metadata:{total_items:1,input_test_case_ids:['case1']},events:[]});
     api.testSteps.list=async()=>steps.map(step=>structuredClone(step));
     api.testEnvironments.list=async()=>[{id:'qa',project_id:'p',app_type_id:'a',name:'QA'}];
     api.testConfigurations.list=async()=>[{id:'chrome',project_id:'p',app_type_id:'a',name:'Chrome'}];
+    const suite={id:'suite1',project_id:'p',app_type_id:'a',name:'Checkout suite',parameter_values:{}};api.testSuites.list=async()=>[suite];api.testSuites.update=async(id,input)=>{window.calls.push({kind:'suite-update',id,input});Object.assign(suite,input);return {...suite};};
+    api.testCases.automationParameterPlan=async(id,input)=>({test_case_id:id,test_suite_id:input?.test_suite_id,parameter_plan_key:'fixture-plan:'+id,parameter_values:{},parameter_references:[],private_parameter_references:[],missing_parameter_references:[],deferred_parameter_references:[]});
     api.testSteps.create=async input=>{window.calls.push({kind:'step',input});const result={...input,id:'new-step'};steps.splice(input.step_order-1,0,result);steps.forEach((step,index)=>step.step_order=index+1);return result;};
     api.testSteps.update=async(id,input)=>{window.calls.push({kind:'update',id,input});const target=steps.find(step=>step.id===id);Object.assign(target,input);return {...target};};
     api.testCases.buildAutomationBatch=async input=>{window.calls.push({kind:'build',id:input.test_case_ids[0],input});return {transaction_id:'build-job'};};
-    api.testCases.startRecorderSession=async(id,input)=>{window.calls.push({kind:'record-start',id,input});return {id:'record-session',status:'running',recorder_mode:'remote'};};
-    api.testCases.finishRecorderSession=async(id,sessionId,input)=>{window.calls.push({kind:'record-finish',id,sessionId,input});return {test_case_id:id,generated_step_count:0,learned_locator_count:0};};
+    api.testCases.startRecorderSession=async(id,input)=>{window.calls.push({kind:'record-start',id,input});return {id:'record-session',status:'running',recorder_mode:input.recorder_mode,actions:[{index:1,type:'fill',text:'Customer name',value:'Alice',url:'https://checkout.test/'+('long-path/').repeat(12),locator:'[data-testid="'+('customer-account-').repeat(10)+'"]'},{index:2,type:'fill',text:'Password',value:'fixture-only-password',locator:'input[type="password"]'},{index:3,type:'fill',text:'Region',locator:'#region',value:'West'}],network:[{index:1,method:'POST',status:200,url:'https://checkout.test/api/'+('checkout/').repeat(12)+'?access_token=recorder-query-private',content_type:'application/json; charset=utf-8'}]};};
+    api.testCases.finishRecorderSession=async(id,sessionId,input)=>{window.calls.push({kind:'record-finish',id,sessionId,input});if(window.failRecording)throw new Error('Recording save temporarily unavailable');return {test_case_id:id,generated_step_count:0,learned_locator_count:0,idempotent_replay:true};};
     api.executions.createLocalRun=async input=>{window.calls.push({kind:'local',input});if(window.failRun)throw new Error('Local Test Engine unavailable');return {id:'local-run'};};
     api.executions.create=async input=>{window.calls.push({kind:'remote',input});return {id:'remote-run'};};
     api.executions.start=async()=>{throw new Error('Duplicate start must never be called');};api.executions.get=async id=>({id,project_id:'p',app_type_id:'a',status:'running'});
@@ -132,6 +134,37 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     await expect(page.getByRole('button',{name:'Check local',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Settings',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Review step plan',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'Play saved plan',exact:true})).toHaveCount(0);
     await page.getByRole('button',{name:'Remote browser',exact:true}).click();
     await page.getByRole('button',{name:'Save recording to plan',exact:true}).waitFor();
+    assert.doesNotMatch(await page.locator('.recorder-session-insights').innerText(),/fixture-only-password|recorder-query-private/);
+    await page.getByLabel('Step 1 input parameter',{exact:true}).selectOption('@t.user');
+    await page.getByRole('button',{name:'New parameter for step 2',exact:true}).click();
+    await page.getByLabel('New parameter reference for step 2',{exact:true}).fill('@t.password');
+    await page.getByLabel('New parameter value for step 2',{exact:true}).fill('fixture-only-password');
+    await page.getByRole('button',{name:'Use new parameter',exact:true}).click();
+    await expect(page.getByLabel('Step 2 input parameter',{exact:true})).toHaveValue('@t.password');
+    await page.getByRole('button',{name:'New parameter for step 3',exact:true}).click();
+    await page.getByLabel('New parameter reference for step 3',{exact:true}).fill('@s.recorded_region');
+    await page.getByLabel('New parameter value for step 3',{exact:true}).fill('West');
+    await page.getByRole('button',{name:'Use new parameter',exact:true}).click();
+    await expect(page.getByLabel('Step 3 input parameter',{exact:true})).toHaveValue('@s.recorded_region');
+    await page.getByRole('button',{name:'Manage recording parameters',exact:true}).click();
+    await expect(page.getByRole('dialog',{name:'Automation case parameter values'}).getByRole('button',{name:'Checkout suite',exact:true})).toBeDisabled();
+    await page.keyboard.press('Escape');
+    for(const width of [1440,768,390]) {
+      await page.setViewportSize({width,height:1000});
+      const recording=page.locator('.automation-recording-workspace');
+      assert.ok(await recording.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'recording fits '+width);
+      const recordingBounds=await recording.boundingBox();assert.ok(recordingBounds.x>=0&&recordingBounds.x+recordingBounds.width<=width+1,'recording is inside viewport at '+width);
+      for(const row of await recording.locator('.recorder-insight-action').all()) {
+        assert.ok(await row.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'captured action fits '+width);
+        assert.ok(await row.evaluate(el=>el.scrollHeight<=el.clientHeight+1),'captured instructions are fully visible '+width+' '+JSON.stringify(await row.evaluate(el=>({height:el.clientHeight,scroll:el.scrollHeight,maxHeight:getComputedStyle(el).maxHeight,grid:getComputedStyle(el).gridTemplateRows,parentHeight:el.parentElement.clientHeight,parentGrid:getComputedStyle(el.parentElement).gridTemplateRows}))));
+        const copy=await row.locator('.recorder-insight-copy').boundingBox();
+        const locator=await row.locator('.execution-operation-json').boundingBox();
+        assert.ok(locator.y>=copy.y+copy.height-1,'captured instructions and locator do not overlap at '+width);
+      }
+      await recording.screenshot({path:screenshotRoot+'/studio-recording-'+width+'.png'});
+      if(width===390)await recording.locator('.recorder-session-insights').screenshot({path:screenshotRoot+'/studio-recording-actions-mobile.png'});
+    }
+    await page.setViewportSize({width:1440,height:1000});
     await expect(page.getByRole('button',{name:'Run local',exact:true})).toBeDisabled();
     await expect(page.getByRole('button',{name:'Run remote',exact:true})).toBeDisabled();
     recordingContext=page;
@@ -139,10 +172,19 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     await recordingContext.getByLabel('Test configuration',{exact:true}).selectOption('');
     await page.keyboard.press('Escape');
     await page.getByRole('tab',{name:/Build tools/}).click();
+    await page.evaluate(()=>window.failRecording=true);
+    await page.getByRole('button',{name:'Save recording to plan',exact:true}).click();
+    await expect(page.getByText('Recording save temporarily unavailable',{exact:true})).toBeVisible();
+    await expect(page.getByLabel('Step 2 input parameter',{exact:true})).toHaveValue('@t.password');
+    await page.evaluate(()=>window.failRecording=false);
     await page.getByRole('button',{name:'Save recording to plan',exact:true}).click();
     await page.waitForFunction(()=>window.calls.some(call=>call.kind==='record-finish'));
-    const recorded=await page.evaluate(()=>window.calls.find(call=>call.kind==='record-finish'));
+    const recorded=await page.evaluate(()=>window.calls.filter(call=>call.kind==='record-finish').at(-1));
     assert.equal(recorded.id,'case1');assert.equal(recorded.input.test_environment_id,'qa');assert.equal(recorded.input.test_configuration_id,'chrome');
+    assert.deepEqual(recorded.input.parameter_bindings,[{source_action_index:1,parameter_reference:'@t.user'},{source_action_index:2,parameter_reference:'@t.password'},{source_action_index:3,parameter_reference:'@s.recorded_region'}]);
+    assert.ok(await page.evaluate(()=>window.updates.some(input=>input.parameter_values?.['t.password']==='fixture-only-password')),'new recording parameters persist before finish');
+    assert.ok(await page.evaluate(()=>window.calls.some(call=>call.kind==='suite-update'&&call.input.parameter_values?.['s.recorded_region']==='West')),'new suite recording defaults persist');
+    await expect(page.getByText('This recording was already saved. The saved plan is available in Instructions.',{exact:true})).toBeVisible();
     // Use a fresh saved plan to exercise both dispatch paths independently.
     for(const mode of ['local','remote']) {
       await page.reload();

@@ -96,10 +96,10 @@ test('validated Plan sections and generated defaults persist progressively witho
     assert.equal(savedSteps[0].automation_code, first.updates[0].automation_code);
     assert.equal(savedSteps[1].automation_code, null);
     assert.equal((await cases.getTestCase(first.automation.id)).automation_status, 'incomplete');
-    assert.equal((await cases.getTestCase(first.automation.id)).parameter_values['t.email'], 'resolved@example.test');
+    assert.equal((await cases.getTestCase(first.automation.id)).parameter_values['t.email'], undefined, 'The linked generator keeps its manual owner');
     assert.equal((await cases.getTestCase(first.manual.id)).parameter_values['t.email'], '{{randomString:8}}');
     assert.equal(first.state.data_snapshot, null);
-    assert.notEqual(first.state.parameter_context_key, originalKey);
+    assert.equal(first.state.parameter_context_key, originalKey, 'Generated samples do not change the authored parameter baseline');
     assert.equal(await versionCount(first.automation.id), 1, 'Generated defaults must be captured once with the first saved section.');
 
     await applyBuild({ build: { ...first.guards, updates: [first.updates[1]] }, createdBy: author, progressiveState: first.state, partial: true });
@@ -141,7 +141,7 @@ test('validated Plan sections and generated defaults persist progressively witho
     await db.query('DROP TRIGGER fixture_progressive_commit ON test_steps');
     await db.query('DROP FUNCTION fixture_reject_progressive_commit()');
     await applyBuild({ build: { ...rollback.guards, updates: [rollback.updates[0]] }, createdBy: author, progressiveState: rollback.state, partial: true });
-    assert.equal((await cases.getTestCase(rollback.automation.id)).parameter_values['t.email'], 'resolved@example.test');
+    assert.equal((await cases.getTestCase(rollback.automation.id)).parameter_values['t.email'], undefined, 'Committing a build sample does not replace the inherited generator');
     assert.equal(await versionCount(rollback.automation.id), 1);
 
     const parameterState = structuredClone(rollback.state);

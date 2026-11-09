@@ -1,11 +1,62 @@
 const { expandManagedInstructions } = require('../../../platform/backend/test/helpers/managedInstructions');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeFlowPlan, planAutomationFlow, projectFlowPlanningBrief } = require('../../backend/lib/automationFlowPlanning');
+const { normalizeFlowPlan, planAutomationFlow, observeUpstreamEntry, projectFlowPlanningBrief } = require('../../backend/lib/automationFlowPlanning');
 const {createBrowserParameterResolver}=require('../../backend/lib/automationBrowserParameters');
 
 const flow = [{ action: 'Enter @t.email', expected_result: 'The supplied email appears', step_type: 'web' },
   { action: 'Continue', expected_result: 'The review page displays the email', step_type: 'web' }];
+
+test('intent planning receives bounded redacted native entry evidence without images or form actions',async()=>{
+ const calls=[],secret='PRIVATE_ENTRY_FIXTURE',raw='Observed login '+secret+'\n'+'x'.repeat(65000);let models=0;
+ const browser={tools:[{name:'browser_fill_form'},{name:'browser_navigate'},{name:'browser_snapshot'}],call:async(name,args,options)=>{
+  calls.push({name,args,deadlineMs:options.deadlineMs});
+  return {content:[{type:'text',text:raw},{type:'image',mimeType:'image/png',data:'PRIVATE_IMAGE_NOT_MODEL_CONTEXT'}]};
+ }};
+ const evidence=await observeUpstreamEntry({browser,startUrl:'https://app.test/login',redact:text=>text.replaceAll(secret,'[private]')});
+ assert.deepEqual(calls.map(call=>call.name),['browser_navigate','browser_snapshot']);assert.deepEqual(calls[0].args,{url:'https://app.test/login'});
+ assert.equal(calls[0].deadlineMs,calls[1].deadlineMs);assert.ok(Number.isFinite(calls[0].deadlineMs));
+ assert.equal(evidence.transport,'upstream_playwright_mcp');assert.equal(evidence.scope,'entry_page_only');
+ assert.ok(evidence.observations.every(item=>item.text.length===60000&&item.text_truncated));
+ assert.doesNotMatch(JSON.stringify(evidence),/PRIVATE_ENTRY_FIXTURE|PRIVATE_IMAGE_NOT_MODEL_CONTEXT|image\/png/);
+ assert.match(evidence.observations[0].text,/Observed login \[private\]/);assert.match(evidence.instruction,/Later screens remain unknown/);
+ const result=await planAutomationFlow({featureKey:'ai.agentic.automation-engineer',context:{user_request:'Enter email and continue',application_evidence:evidence},parse:JSON.parse,
+  complete:async prompt=>{models++;const packet=JSON.parse(prompt.split('\n').find(line=>line.startsWith('{"generation_stage":')));assert.deepEqual(packet.context.application_evidence,evidence);return JSON.stringify({flow_steps:flow});}});
+ assert.equal(models,1);assert.equal(result.length,2);assert.equal(calls.length,2,'Planning does not open a second custom browser loop.');
+});
+
+test('permission revocation after native entry navigation prevents the next read and any completed evidence',async()=>{
+ const calls=[];let allowed=true;
+ await assert.rejects(observeUpstreamEntry({browser:{call:async name=>{calls.push(name);allowed=false;return {content:[{type:'text',text:'Observed entry'}]};}},startUrl:'https://app.test',
+  assertAccess:async()=>{if(!allowed)throw Object.assign(new Error('Access revoked'),{statusCode:403});}}),{statusCode:403});
+ assert.deepEqual(calls,['browser_navigate']);
+ for(const content of [[],[{type:'image',mimeType:'image/png',data:'unreadable'}]]){
+  const dispatched=[];
+  await assert.rejects(observeUpstreamEntry({browser:{call:async name=>{dispatched.push(name);return {content:name==='browser_snapshot'?content:[{type:'text',text:'Navigation completed'}]};}},startUrl:'https://app.test'}),{code:'AUTOMATION_FLOW_ENTRY_UNAVAILABLE'});
+  assert.deepEqual(dispatched,['browser_navigate','browser_snapshot'],'Blank entry evidence never starts an inferred action loop.');
+ }
+});
+
+test('native entry errors and unknown transport acknowledgements stop planning without retries or fallback observations',async()=>{
+ for(const failingTool of ['browser_navigate','browser_snapshot']){
+  const calls=[];
+  await assert.rejects(observeUpstreamEntry({browser:{call:async name=>{calls.push(name);return name===failingTool?{isError:true,content:[{type:'text',text:'PRIVATE_NATIVE_FAILURE'}]}:{content:[{type:'text',text:'Observed entry'}]};}},startUrl:'https://app.test'}),
+   error=>error.code==='AUTOMATION_FLOW_ENTRY_UNAVAILABLE'&&error.nonRetryable===true&&!error.message.includes('PRIVATE_NATIVE_FAILURE'));
+  assert.deepEqual(calls,failingTool==='browser_navigate'?['browser_navigate']:['browser_navigate','browser_snapshot']);
+ }
+ const calls=[],unknown=Object.assign(new Error('Lost native acknowledgement'),{code:'MCP_CONNECTION_LOST'});
+ await assert.rejects(observeUpstreamEntry({browser:{call:async name=>{calls.push(name);throw unknown;}},startUrl:'https://app.test'}),error=>error===unknown);
+ assert.deepEqual(calls,['browser_navigate']);
+});
+
+test('entry inspection honors cancellation before dispatch and after its pending native read',async()=>{
+ for(const before of [true,false]){
+  const controller=new AbortController(),calls=[];
+  if(before)controller.abort();
+  await assert.rejects(observeUpstreamEntry({browser:{call:async name=>{calls.push(name);controller.abort();return {content:[]};}},startUrl:'https://app.test',signal:controller.signal}),{name:'AbortError'});
+  assert.deepEqual(calls,before?[]:['browser_navigate']);
+ }
+});
 
 test('a brief becomes ordered manual specifications without invented code or identifiers', () => {
   const result = normalizeFlowPlan({ flow_steps: flow.map(row => ({ ...row, id: 'untrusted', step_order: 999 })) });

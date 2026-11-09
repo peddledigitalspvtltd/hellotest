@@ -1,8 +1,10 @@
 const { parse, parseExpressionAt } = require('acorn');
 const { nativeConstraintValiditySource } = require('./automationNativeValidity');
 const { fieldValidationStateSource, legacyFieldValidationStateSource } = require('./automationFieldValidity');
-const { compileRecordedProgram, recordedLocatorSource } = require('./automationRecordedProgram');
+const { effectiveInputTypeSource } = require('./automationInputType');
+const { compileRecordedProgram, recordedLocatorSource, validRecordedFramePath } = require('./automationRecordedProgram');
 const { normalizeParameterKey } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
+const { recordedScopedSelectionLocatorSource } = require('./automationOptionParameterBinding');
 
 const MAX_SOURCE = 64_000, MAX_NODES = 10_000, MAX_TOOLS = 12, MAX_STRING = 2_000;
 const pages = new Set(['page', 'playwrightPage']);
@@ -15,7 +17,7 @@ const textLocators = new Set(['getByLabel', 'getByText', 'getByPlaceholder', 'ge
 const conditions = new Map([
   ['toBeVisible', ['visible', 'hidden']], ['toBeHidden', ['hidden', 'visible']],
   ['toBeEnabled', ['enabled', 'disabled']], ['toBeDisabled', ['disabled', 'enabled']],
-  ['toBeChecked', ['checked', 'unchecked']]
+  ['toBeChecked', ['checked', 'unchecked']], ['toBeEditable', ['editable', null]]
 ]);
 const valueConditions = new Map([['toHaveValue', 'value'], ['toHaveText', 'text_content'], ['toContainText', 'text_content_contains']]);
 const member = node => node?.type === 'MemberExpression' && !node.computed && !node.optional
@@ -26,7 +28,7 @@ const bounded = value => typeof value === 'string' && value.length <= MAX_STRING
 const isPage = node => node?.type === 'Identifier' && pages.has(node.name);
 const isCall = node => node?.type === 'CallExpression' && !node.optional;
 const nativeSelector = value => bounded(value) && value.trim()
-  && !/^(?:page\.|playwrightPage\.)?(?:getBy\w+|locator)\s*\(/.test(value.trim())
+  && !/^(?:page\.|playwrightPage\.)?(?:frameLocator|getBy\w+|locator)\s*\(/.test(value.trim())
   && !/\.(?:(?:first|last)\(\s*\)|nth\(\s*\d+\s*\))$/.test(value.trim()) ? value : null;
 const scopedReference=value=>typeof value==='string'&&/^@[tsr]\.(?:[A-Za-z][A-Za-z0-9_-]*|\[(?:\\.|[^\]\\\r\n])+\])$/i.test(value);
 
@@ -68,29 +70,53 @@ function compositeInputValue(node){
 }
 const assertionInputValue=node=>inputValue(node)??compositeInputValue(node);
 
+function framePath(node) {
+  if (isPage(node)) return [];
+  if (!isCall(node) || member(node.callee) !== 'frameLocator' || node.arguments.length !== 1) return null;
+  const parent = framePath(node.callee.object), selector = quoted(node.arguments[0]);
+  if (!parent) return null;
+  const path = [...parent, selector];
+  return validRecordedFramePath(path) ? path : null;
+}
+const targetArguments = (selector, frame = []) => selector ? { locator: selector, ...(frame.length ? { frame } : {}) } : null;
+const validToolArguments = args => Object.entries(args).every(([key, value]) => key === 'frame' ? validRecordedFramePath(value) : bounded(value));
+
 function locator(node, aliases) {
   if (node?.type === 'Identifier') return aliases.get(node.name) || null;
   if (!isCall(node) || !member(node.callee)) return null;
   const method = member(node.callee);
+  if (method === 'getByText' && isCall(node.callee.object) && member(node.callee.object.callee) === 'locator') {
+    const scopeCall = node.callee.object, frame = framePath(scopeCall.callee.object), scope = quoted(scopeCall.arguments[0]), name = quoted(node.arguments[0]);
+    const options = node.arguments[1], property = options?.properties?.[0];
+    if (frame && scopeCall.arguments.length === 1 && node.arguments.length === 2 && bounded(scope) && bounded(name)
+      && options?.type === 'ObjectExpression' && options.properties.length === 1 && property.type === 'Property'
+      && !property.computed && !property.method && !property.shorthand && (property.key?.name ?? property.key?.value) === 'exact'
+      && property.value?.type === 'Literal' && property.value.value === true) {
+      const candidate = `locator(${JSON.stringify(scope)}).getByText(${JSON.stringify(name)}, {"exact":true})`;
+      if (recordedScopedSelectionLocatorSource(candidate)) return targetArguments(candidate, frame);
+    }
+    return null;
+  }
   if (['first', 'last', 'nth'].includes(method)) {
     const base = locator(node.callee.object, aliases);
     // Repository locator parsing permits one explicit suffix, never an
     // implicit first match or an arbitrary locator chain.
-    if (!base || /\.(?:first|last|nth)\(/.test(base)) return null;
-    if (method !== 'nth') return node.arguments.length === 0 ? `${base}.${method}()` : null;
+    if (!base || /\.(?:first|last|nth)\(/.test(base.locator) || recordedScopedSelectionLocatorSource(base.locator)) return null;
+    if (method !== 'nth') return node.arguments.length === 0 ? { ...base, locator: `${base.locator}.${method}()` } : null;
     const index = node.arguments[0];
     return node.arguments.length === 1 && index?.type === 'Literal' && Number.isInteger(index.value)
-      && index.value >= 0 && index.value <= 2_000 ? `${base}.nth(${index.value})` : null;
+      && index.value >= 0 && index.value <= 2_000 ? { ...base, locator: `${base.locator}.nth(${index.value})` } : null;
   }
-  if (!isPage(node.callee.object) || node.arguments.length < 1 || node.arguments.length > 2) return null;
+  const frame = framePath(node.callee.object);
+  if (!frame || node.arguments.length < 1 || node.arguments.length > 2) return null;
   const value = quoted(node.arguments[0]);
   if (!bounded(value) || !value.trim()) return null;
   if (method === 'locator') {
     // Native Playwright treats this argument as a selector. Encoded getBy
     // expressions require a source correction, not a guessed reinterpretation.
-    return node.arguments.length === 1 ? nativeSelector(value) : null;
+    return node.arguments.length === 1 ? targetArguments(nativeSelector(value), frame) : null;
   }
-  if (method === 'getByTestId') return node.arguments.length === 1 ? `getByTestId(${JSON.stringify(value)})` : null;
+  if (method === 'getByTestId') return node.arguments.length === 1 ? targetArguments(`getByTestId(${JSON.stringify(value)})`, frame) : null;
   if (method !== 'getByRole' && !textLocators.has(method)) return null;
   const options = new Map([['exact', false]]);
   if (node.arguments.length === 2) {
@@ -109,7 +135,7 @@ function locator(node, aliases) {
   // Native getBy matching defaults to false, while MCP's expression parser
   // defaults to true. Spell it out so lowering cannot narrow the locator.
   const rendered = { ...(options.has('name') ? { name: options.get('name') } : {}), exact: options.get('exact') };
-  return `${method}(${JSON.stringify(value)}, ${JSON.stringify(rendered)})`;
+  return targetArguments(`${method}(${JSON.stringify(value)}, ${JSON.stringify(rendered)})`, frame);
 }
 
 function absoluteUrl(node) {
@@ -165,19 +191,19 @@ function assertion(call, aliases) {
       value: matcher === 'toHaveURL' && !scopedReference(value) ? new URL(value).href : value } };
   }
   const targetLocator = locator(target, aliases);
-  if (!targetLocator || targetLocator.length > MAX_STRING) return null;
+  if (!targetLocator || targetLocator.locator.length > MAX_STRING) return null;
   const condition = conditions.get(matcher);
-  if (condition) return call.arguments.length === 0
-    ? { name: 'browser_assert', arguments: { assertion: condition[negated ? 1 : 0], locator: targetLocator } } : null;
+  if (condition) return call.arguments.length === 0 && condition[negated ? 1 : 0]
+    ? { name: 'browser_assert', arguments: { assertion: condition[negated ? 1 : 0], ...targetLocator } } : null;
   if (negated || call.arguments.length !== 1) return null;
   if (matcher === 'toHaveCount') {
     const count = call.arguments[0];
     return count?.type === 'Literal' && Number.isInteger(count.value) && count.value >= 0 && count.value <= 2_000
-      ? { name: 'browser_assert', arguments: { assertion: 'count', locator: targetLocator, value: String(count.value) } } : null;
+      ? { name: 'browser_assert', arguments: { assertion: 'count', ...targetLocator, value: String(count.value) } } : null;
   }
   const valueCondition = valueConditions.get(matcher), value = matcher==='toHaveValue'?inputValue(call.arguments[0]):assertionInputValue(call.arguments[0]);
   return valueCondition && value !== null
-    ? { name: 'browser_assert', arguments: { assertion: valueCondition, locator: targetLocator, value } } : null;
+    ? { name: 'browser_assert', arguments: { assertion: valueCondition, ...targetLocator, value } } : null;
 }
 
 // A synchronous equality check of a fully awaited inputValue is exactly the
@@ -192,7 +218,7 @@ function inputValueAssertion(call,aliases){
   const reader=awaited?.type==='AwaitExpression'?awaited.argument:null;
   if(!isCall(reader)||member(reader.callee)!=='inputValue'||reader.arguments.length)return null;
   const target=locator(reader.callee.object,aliases),value=inputValue(call.arguments[0]);
-  return target&&value!==null?{name:'browser_assert',arguments:{assertion:'value',locator:target,value}}:null;
+  return target&&value!==null?{name:'browser_assert',arguments:{assertion:'value',...target,value}}:null;
 }
 
 const stableSyntax = value => Array.isArray(value) ? value.map(stableSyntax) : value && typeof value === 'object'
@@ -200,6 +226,7 @@ const stableSyntax = value => Array.isArray(value) ? value.map(stableSyntax) : v
 const nativeValidityReaderSyntax = JSON.stringify(stableSyntax(parseExpressionAt(nativeConstraintValiditySource, 0, { ecmaVersion: 'latest' })));
 const fieldValidityReaderSyntax = JSON.stringify(stableSyntax(parseExpressionAt(fieldValidationStateSource, 0, { ecmaVersion: 'latest' })));
 const legacyFieldValidityReaderSyntax = JSON.stringify(stableSyntax(parseExpressionAt(legacyFieldValidationStateSource, 0, { ecmaVersion: 'latest' })));
+const inputTypeReaderSyntax = JSON.stringify(stableSyntax(parseExpressionAt(effectiveInputTypeSource, 0, { ecmaVersion: 'latest' })));
 
 /** Recover only exact output of the host compiler. Candidate extraction is not
  * authority: recompilation must reproduce the entire assertion AST, including
@@ -209,7 +236,7 @@ function expandRecordedAliases(node, aliases) {
   if (Array.isArray(node)) return node.map(value => expandRecordedAliases(value, aliases));
   if (!node || typeof node !== 'object') return node;
   if (node.type === 'Identifier' && aliases.has(node.name)) {
-    const source = recordedLocatorSource(aliases.get(node.name));
+    const target = aliases.get(node.name), source = recordedLocatorSource(target.locator, target.frame);
     if (source) return stableSyntax(parseExpressionAt(source, 0, { ecmaVersion: 'latest' }));
   }
   return Object.fromEntries(Object.entries(node).map(([key, value]) => [key, expandRecordedAliases(value, aliases)]));
@@ -233,7 +260,7 @@ function recordedAssertion(call, aliases) {
   if (matcher === 'toHaveCount' && expectation.callee?.name === 'expect' && expectation.arguments.length === 1) {
     const number = call.arguments[0], value = isCall(number) && number.callee?.name === 'Number' && number.arguments.length === 1 ? inputValue(number.arguments[0]) : null;
     const target = locator(expectation.arguments[0], aliases);
-    return target && value && value.startsWith('@') ? exact({ name: 'browser_assert', arguments: { assertion: 'count', locator: target, value } }) : null;
+    return target && value && value.startsWith('@') ? exact({ name: 'browser_assert', arguments: { assertion: 'count', ...target, value } }) : null;
   }
   if (member(expectation.callee) !== 'poll' || expectation.callee.object?.name !== 'expect' || expectation.arguments.length !== 1) return null;
   const callback = expectation.arguments[0];
@@ -285,14 +312,13 @@ function recordedAssertion(call, aliases) {
     if (isCall(node) && member(node.callee) === 'innerText' && node.arguments.length === 0) targets.push(locator(node.callee.object, aliases));
     for (const item of Object.values(node)) if (Array.isArray(item)) pending.push(...item); else if (item && typeof item === 'object') pending.push(item);
   }
-  return targets.length === 1 && targets[0] ? exact({ name: 'browser_assert', arguments: { assertion, locator: targets[0], value } }) : null;
+  return targets.length === 1 && targets[0] ? exact({ name: 'browser_assert', arguments: { assertion, ...targets[0], value } }) : null;
 }
 /** Recognize only the compiler's exact read-only poll. No arbitrary evaluate
  * callback, validation method, changed polarity, option or extra argument can
  * be lowered into a claimed native-validity operation. */
 function nativeValidityAssertion(call, aliases, readers = new Map()) {
-  if (!isCall(call) || member(call.callee) !== 'toBe' || call.arguments.length !== 1
-    || call.arguments[0]?.type !== 'Literal' || typeof call.arguments[0].value !== 'boolean') return null;
+  if (!isCall(call) || member(call.callee) !== 'toBe' || call.arguments.length !== 1) return null;
   const poll = call.callee.object;
   if (!isCall(poll) || member(poll.callee) !== 'poll' || poll.callee.object?.type !== 'Identifier' || poll.callee.object.name !== 'expect' || poll.arguments.length !== 2) return null;
   const options = poll.arguments[1];
@@ -306,17 +332,30 @@ function nativeValidityAssertion(call, aliases, readers = new Map()) {
   if (!isCall(read) || member(read.callee) !== 'evaluate' || read.arguments.length !== 1) return null;
   const reader = read.arguments[0]?.type === 'Identifier' ? readers.get(read.arguments[0].name) : read.arguments[0];
   const syntax = JSON.stringify(stableSyntax(reader));
+  const target = locator(read.callee.object, aliases);
+  if (syntax === inputTypeReaderSyntax) {
+    const expected = inputValue(call.arguments[0]);
+    if (!target || expected === null) return null;
+    const value = call.arguments[0]?.type === 'MemberExpression' && call.arguments[0].object?.name === 'params'
+      ? `params[${JSON.stringify(normalizeParameterKey(expected))}]` : expected;
+    return { name: 'browser_assert', arguments: { assertion: 'input_type', ...target, value } };
+  }
+  if (call.arguments[0]?.type !== 'Literal' || typeof call.arguments[0].value !== 'boolean') return null;
   const assertion = syntax === nativeValidityReaderSyntax ? call.arguments[0].value ? 'valid' : 'invalid'
     : [fieldValidityReaderSyntax, legacyFieldValidityReaderSyntax].includes(syntax) && call.arguments[0].value === true ? 'field_valid' : null;
   if (!assertion) return null;
-  const target = locator(read.callee.object, aliases);
-  return target ? { name: 'browser_assert', arguments: { assertion, locator: target } } : null;
+  return target ? { name: 'browser_assert', arguments: { assertion, ...target } } : null;
 }
 
 function visibilityWaitCondition(call,aliases=new Map(),{allowCustomTimeout=false}={}){
   if(!isCall(call))return null;
-  const method=member(call.callee),page=isPage(call.callee?.object);
-  const target=page&&method==='waitForSelector'?nativeSelector(quoted(call.arguments[0])):method==='waitFor'?locator(call.callee.object,aliases):null;
+  const method=member(call.callee),page=isPage(call.callee?.object),webWait=call.callee?.object?.type==='Identifier'&&call.callee.object.name==='web'&&method==='waitForSelector';
+  const target=webWait?targetArguments(nativeSelector(inputValue(call.arguments[0]))):page&&method==='waitForSelector'?targetArguments(nativeSelector(quoted(call.arguments[0]))):method==='waitFor'?locator(call.callee.object,aliases):null;
+  if(webWait){
+    if(call.arguments.length<1||call.arguments.length>2)return null;
+    const state=call.arguments.length===2?inputValue(call.arguments[1]):'visible';
+    return target&&['visible','hidden'].includes(state)?{name:'browser_assert',arguments:{assertion:state,...target}}:null;
+  }
   const options=call.arguments.slice(page&&method==='waitForSelector'?1:0);
   if(!target||options.length>1)return null;
   let state='visible';
@@ -335,7 +374,7 @@ function visibilityWaitCondition(call,aliases=new Map(),{allowCustomTimeout=fals
       else return null;
     }
   }
-  return {name:'browser_assert',arguments:{assertion:state,locator:target}};
+  return {name:'browser_assert',arguments:{assertion:state,...target}};
 }
 
 /** Lower only a complete, bounded linear section into typed MCP calls. Parsing
@@ -371,18 +410,18 @@ function deriveLinearProgramTools({ payload, execution } = {},{allowCustomTimeou
         const name = declaration.id?.name;
         if (declaration.id?.type !== 'Identifier' || pages.has(name) || ['expect', 'params'].includes(name) || aliases.has(name) || readers.has(name)) return null;
         const readerSyntax = JSON.stringify(stableSyntax(declaration.init));
-        if ([nativeValidityReaderSyntax, fieldValidityReaderSyntax].includes(readerSyntax)) {
+        if ([nativeValidityReaderSyntax, fieldValidityReaderSyntax, inputTypeReaderSyntax].includes(readerSyntax)) {
           readers.set(name, declaration.init); continue;
         }
         const target = locator(declaration.init, aliases);
-        if (!target || target.length > MAX_STRING) return null;
+        if (!target || target.locator.length > MAX_STRING) return null;
         aliases.set(name, target);
       }
       continue;
     }
     if(statement.type==='ExpressionStatement'&&statement.expression?.type!=='AwaitExpression'){
       const tool=inputValueAssertion(statement.expression,aliases);
-      if(!tool||Object.values(tool.arguments).some(value=>!bounded(value)))return null;
+      if(!tool||!validToolArguments(tool.arguments))return null;
       tools.push(tool);if(tools.length>MAX_TOOLS)return null;continue;
     }
     if (statement.type !== 'ExpressionStatement' || statement.expression?.type !== 'AwaitExpression') return null;
@@ -403,15 +442,15 @@ function deriveLinearProgramTools({ payload, execution } = {},{allowCustomTimeou
       if (call.arguments.length !== 1 || url === null) return null;
       tool = { name: 'browser_navigate', arguments: { url } }; navigationReady = true;
     } else if (actions.has(method)) {
-      const target = page ? nativeSelector(quoted(call.arguments[0])) : locator(call.callee.object, aliases);
+      const target = page ? targetArguments(nativeSelector(quoted(call.arguments[0]))) : locator(call.callee.object, aliases);
       const values = call.arguments.slice(page ? 1 : 0), hasValue = ['fill', 'press', 'selectOption'].includes(method);
-      if (!bounded(target) || !target.trim() || values.length !== (hasValue ? 1 : 0)) return null;
+      if (!target || !bounded(target.locator) || !target.locator.trim() || values.length !== (hasValue ? 1 : 0)) return null;
       const value = hasValue ? inputValue(values[0]) : null;
       if (hasValue && value === null) return null;
-      tool = { name: actions.get(method), arguments: { locator: target,
+      tool = { name: actions.get(method), arguments: { ...target,
         ...(hasValue ? { [method === 'press' ? 'key' : 'value']: value } : {}) } }; navigationReady = false;
     } else tool = nativeValidityAssertion(call,aliases,readers)||recordedAssertion(call,aliases)||visibilityWaitCondition(call,aliases,{allowCustomTimeout})||assertion(call, aliases);
-    if (!tool || Object.values(tool.arguments).some(value => !bounded(value))) return null;
+    if (!tool || !validToolArguments(tool.arguments)) return null;
     tools.push(tool); if (tools.length > MAX_TOOLS) return null;
   }
   return tools.length ? tools : null;

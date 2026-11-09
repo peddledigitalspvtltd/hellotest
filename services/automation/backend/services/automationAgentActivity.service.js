@@ -31,12 +31,12 @@ function historyPage(input={}){
 async function history({projectId,appTypeId,caseId},input={}){
  const {limit,cursor}=historyPage(input);
  const params=[projectId,appTypeId,caseId||'',caseId||'',caseId||''];
- let sql=`SELECT id,project_id,app_type_id,status,description,created_at,created_at::text AS cursor_created_at FROM workspace_transactions WHERE project_id=? AND app_type_id=? AND category='automation_build' AND metadata->>'agent_activity'='true'
+ let sql=`SELECT id,project_id,app_type_id,status,description,created_at,metadata->>'cancelled' AS cancelled,created_at::text AS cursor_created_at FROM workspace_transactions WHERE project_id=? AND app_type_id=? AND category='automation_build' AND metadata->>'agent_activity'='true'
  AND (?='' OR metadata->'input_test_case_ids' @> jsonb_build_array(?::text) OR metadata->'output_test_case_ids' @> jsonb_build_array(?::text))`;
  if(cursor){sql+=' AND (created_at,id) < (?::timestamptz,?)';params.push(...cursor);}
  sql+=' ORDER BY created_at DESC,id DESC LIMIT ?';params.push(limit+1);
  const rows=await obsDb.prepare(sql).all(...params),selected=rows.slice(0,limit),last=selected.at(-1);
- const items=selected.map(({cursor_created_at,...row})=>row);
+ const items=selected.map(({cursor_created_at,cancelled,...row})=>({...row,cancelled:cancelled===true||cancelled==='true'}));
  return {items,next_cursor:rows.length>limit?Buffer.from(JSON.stringify([last.cursor_created_at||new Date(last.created_at).toISOString(),last.id])).toString('base64url'):null};
 }
 async function recordProgress(transactionId,event){
@@ -45,6 +45,7 @@ async function recordProgress(transactionId,event){
  return obsDb.transaction(async()=>{
   await obsDb.prepare('SELECT id FROM workspace_transactions WHERE id=? FOR UPDATE').get(transactionId);
   const transaction=await transactions.getTransaction(transactionId);
+  if(transaction.metadata?.cancelled===true)throw Object.assign(new Error('The automation build was stopped. Saved sections and evidence were retained.'),{name:'AbortError',code:'AUTOMATION_BUILD_CANCELLED',nonRetryable:true});
   const progress=require('../lib/automationActivityProgress').reduceActivityProgress(transaction.metadata,event);
   return transactions.appendTransactionEvent(transactionId,{...event,metadata:{...event.metadata,...progress}});
  })();
@@ -54,6 +55,7 @@ async function screenshot(transaction,artifactId){
  const artifact=await getArtifact(artifactId);
  const invalid=()=>Object.assign(new Error('Browser screenshot is unavailable for this activity.'),{statusCode:404});
  if(!artifact||artifact.transaction_id!==transaction.id||!['image/jpeg','image/png'].includes(artifact.mime_type)||typeof artifact.content!=='string'||artifact.content.length>196608||!/^[A-Za-z0-9+/]+={0,2}$/.test(artifact.content))throw invalid();
+ transactions.assertTransactionArtifactReadable(transaction,artifact);
  const bytes=Buffer.from(artifact.content,'base64');
  if(!bytes.length||bytes.length>128*1024||(artifact.mime_type==='image/jpeg'?!bytes.subarray(0,3).equals(Buffer.from([255,216,255])):!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))))throw invalid();
  return {id:artifact.id,mime_type:artifact.mime_type,data_url:`data:${artifact.mime_type};base64,${artifact.content}`};
@@ -69,6 +71,18 @@ async function createSectionPreview(transactionId,input){
 }
 async function createBrowserEvidence(transactionId,input){
  if(!transactionId)return null;
+ const failure=browserReadDiagnostic(input);
+ if(failure){
+  let artifact;
+  try{artifact=await transactions.createTransactionArtifact(transactionId,{file_name:`browser-read-diagnostic-${Date.now()}.json`,mime_type:'application/vnd.hellotest.automation-browser-diagnostic+json',content:JSON.stringify(failure)});}
+  catch(error){if(diagnostics.isCriticalAutomationError(error))throw error;diagnostics.reportDiagnosticFailure({activityId:transactionId,operation:'browser_read_diagnostic_storage',error});}
+  await recordProgress(transactionId,{phase:failure.action_id?'automation.agent.read.diagnostic':'automation.agent.read.failed',level:'warning',
+   message:require('../lib/automationStepBuildErrors').browserReadFailureMessage(failure.error_code),
+   details:{...failure,...(artifact?{diagnostic_artifact_id:artifact.id}:{})}});
+  // A failed read is a diagnostic, never the latest application evidence or
+  // proof used to compile/review an executable section.
+  return null;
+ }
  const workspace=require('../lib/automationWorkspacePreview'),observed=workspace.browserEvidence(input);
  if(!observed)return null;
  const {evidence,hasSnapshot,image}=observed;
@@ -83,6 +97,41 @@ async function createBrowserEvidence(transactionId,input){
  }catch(error){if(!snapshotArtifact||diagnostics.isCriticalAutomationError(error))throw error;diagnostics.reportDiagnosticFailure({activityId:transactionId,operation:'browser_screenshot_storage',error});screenshotUnavailable=true;}
  return {test_case_id:input.testCaseId,...(snapshotArtifact?{snapshot_artifact_id:snapshotArtifact.id,screenshot_artifact_id:null}:{}),...(screenshotArtifact?{screenshot_artifact_id:screenshotArtifact.id}:{}),...(screenshotUnavailable?{screenshot_unavailable:true}:{}),observed_at:evidence.observed_at,...(evidence.url?{url:evidence.url}:{}),...(evidence.title?{title:evidence.title}:{}),...(evidence.active_step_id?{active_step_id:evidence.active_step_id,active_manual_step_ids:evidence.active_manual_step_ids||[]}:{}),attempt:input.attempt,interaction_mode:input.interactionMode,verification_status:'unverified'};
 }
+const READ_FAILURE_CODES=new Set(['BROWSER_SNAPSHOT_SCOPE_NOT_FOUND','BROWSER_SNAPSHOT_SCOPE_AMBIGUOUS','BROWSER_SNAPSHOT_SCOPE_STALE',
+ 'BROWSER_FRAME_STALE','BROWSER_FRAME_NOT_OBSERVED','BROWSER_TOOL_FAILED','BROWSER_TOOL_DEADLINE','BROWSER_TOOL_INVALID_ARGUMENTS',
+ 'BROWSER_CONTEXT_LOST','BROWSER_PAGE_NOT_READY','BROWSER_FLOW_UNSUPPORTED','BROWSER_LAUNCH_FAILED','BROWSER_ASSERTION_AMBIGUOUS',
+ 'BROWSER_ASSERTION_CANCELLED','BROWSER_ASSERTION_INVALID','BROWSER_ASSERTION_NOT_SATISFIED','BROWSER_ASSERTION_SUBJECT_UNSUPPORTED',
+ 'BROWSER_OBSERVED_SUBJECT_CHANGED','BROWSER_OBSERVED_SUBJECT_REQUIRED','SCREENSHOT_UNAVAILABLE']);
+const READ_PHASES=new Set(['page_readiness','frame_inventory','frame_scope','frame_readiness','snapshot_subjects','snapshot','assertion','target_readiness','screenshot',
+ 'context_recovery','proxy_startup','browser_startup','context_startup','context_routing','page_startup']);
+const safeIdentity=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(value)?value:undefined;
+function browserReadDiagnostic({observation,testCaseId,attempt,active_step_id,active_manual_step_ids=[]}={}){
+ if(observation?.result?.isError!==true||observation.mcp_call===false||!['browser_snapshot','browser_screenshot','browser_assert','browser_validate_locator','browser_wait_for'].includes(observation.tool)||!safeIdentity(testCaseId))return null;
+ const payloads=[];
+ for(const block of Array.isArray(observation.result.content)?observation.result.content:[])if(block?.type==='text'&&typeof block.text==='string'&&block.text.length<=64000)try{
+  const value=JSON.parse(block.text);if(value?.source==='playwright'&&value&&typeof value==='object'&&!Array.isArray(value))payloads.push(value);
+ }catch{}
+ if(payloads.length!==1)return null;
+ const native=payloads[0],code=READ_FAILURE_CODES.has(native.code)?native.code:'BROWSER_READ_FAILED';
+ const framed=Array.isArray(observation.arguments?.frame)&&observation.arguments.frame.length>0&&observation.arguments.frame.length<=3;
+ const readiness=diagnostics.safeReadinessDiagnostics(native.readiness_diagnostics);
+ const assertion=diagnostics.safeAssertionDiagnostics(native.assertion_diagnostics);
+ return {schema_version:1,kind:'browser_read_diagnostic',source:'playwright',test_case_id:testCaseId,tool:observation.tool,error_code:code,
+  observed_at:new Date().toISOString(),verification_status:'unverified',current_page_evidence:false,expected_result_verified:false,
+  read_scope:typeof observation.arguments?.locator==='string'&&observation.arguments.locator.trim()?'element':'document',frame_scope_requested:framed,
+  ...(framed?{frame_depth:observation.arguments.frame.length}:{}),
+  ...(safeIdentity(active_step_id)?{active_step_id}:{}),active_manual_step_ids:[...new Set((Array.isArray(active_manual_step_ids)?active_manual_step_ids:[]).filter(safeIdentity))].slice(0,20),
+  ...(typeof observation.action_id==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(observation.action_id)?{action_id:observation.action_id}:{}),
+  ...(Number.isSafeInteger(attempt)&&attempt>0&&attempt<=1000?{attempt}:{}),
+  ...(READ_PHASES.has(native.tool_phase)?{tool_phase:native.tool_phase}:{}),
+  ...(['not_attempted','completed','unknown'].includes(native.action_outcome)?{action_outcome:native.action_outcome}:{}),
+  ...(typeof native.retry_safe==='boolean'?{retry_safe:native.retry_safe}:{}),
+  ...(native.session_disposition==='quarantined'?{session_disposition:'quarantined'}:{}),
+  ...(Number.isSafeInteger(native.match_count)&&native.match_count>=0&&native.match_count<=1000000?{match_count:native.match_count}:{}),
+  ...(Number.isInteger(native.http_status)&&native.http_status>=400&&native.http_status<=599?{http_status:native.http_status}:{}),
+  ...(readiness?{readiness_diagnostics:readiness}:{}),...(assertion?{assertion_diagnostics:assertion}:{})};
+}
+module.exports.browserReadDiagnostic=browserReadDiagnostic;
 async function getArtifact(artifactId){try{return await transactions.getTransactionArtifact(artifactId);}catch(error){if(error.message==='Workspace transaction artifact not found')throw Object.assign(new Error('Automation workspace evidence is unavailable for this activity.'),{statusCode:404});throw error;}}
 async function workspaceArtifact(transaction,artifactId,mime,kind){
  const workspace=require('../lib/automationWorkspacePreview');

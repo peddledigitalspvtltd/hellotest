@@ -141,9 +141,12 @@ export function WorkflowOperationFields({
           {connections.isError ? <p role="alert">Password connections could not be loaded. Refresh to retry.</p> : null}
           <p className="studio-caption">Add an HTTP connection with Basic authentication for this application URL. Its protected password is supplied as @t.password; the username uses @t.username.</p>
           {field("automationData", "Test data JSON", true, '{"invoice_id":"known-invoice","region":"EU"}')}
-          <p className="studio-caption">JSON object, up to 16 KB. Values override matching case parameters. Use parameter references for sensitive data. Each case is built in order; failures preserve completed cases and continue.</p>
+          <p className="studio-caption">JSON object, up to 16 KB. Values override matching case parameters. Use parameter references for sensitive data. Cases are built in order and completed results are retained. Uncertain browser actions stop the workflow for review.</p>
         </div>}
-        {automation && <label className="studio-checkbox"><input type="checkbox" checked={data.inspectBrowser !== false} onChange={event => onChange({ inspectBrowser: event.target.checked })} /><span>Inspect the browser before building</span><small>Uses the application URL in read-only mode. API-only cases use their contracts directly.</small></label>}
+        {automation && <>
+          {select("automationBrowserMode", "Browser generation", [["perform_steps", "Perform the test steps"], ["read_only", "Inspect the starting page only"], ["offline", "Generate without a browser"]], data.inspectBrowser === false ? "offline" : "read_only")}
+          <p className="studio-caption">Performing steps uses a background browser to carry out this case, including its form submissions, and returns the finished script. Use a test environment and test data. Inspection and offline modes produce unverified drafts. API-only cases use their contracts directly.</p>
+        </>}
         {automation && <>
           {select("readinessPolicy", "Readiness handling", [["verify-inputs", "Automation Engineer verifies inputs"], ["require-ready", "Require a ready assurance assessment"]], "verify-inputs")}
           <p className="studio-caption">The builder checks prior findings against the selected Story. Missing dependencies and invalid automation remain explicit failures.</p>

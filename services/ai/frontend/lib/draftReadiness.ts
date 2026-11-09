@@ -18,7 +18,7 @@ export function restoreAiPrivateParameterValues(proposed: Record<string, string>
   const existing = normalizeStepParameterValues(current, "t");
   const preservedNames: string[] = [];
   for (const name of new Set(Array.from(privateNames, key => normalizeStepParameterName(key, "t")))) {
-    if (!name.startsWith("t.")) continue;
+    if (!/^[tr]\./.test(name)) continue;
     const hasCurrent = Object.prototype.hasOwnProperty.call(existing, name);
     if (Object.prototype.hasOwnProperty.call(values, name) && (!hasCurrent || values[name] !== existing[name])) preservedNames.push(name);
     if (hasCurrent) values[name] = existing[name];
@@ -65,23 +65,24 @@ export function draftReadinessIssues(draft: ReviewableDraft, fallbackMode: "stru
     issues.push("Add Test Params and synthetic data, or an empty object when no case input is needed.");
   } else {
     const localValues = new Map<string, string>();
-    if (Object.keys(values).length > 100) issues.push("Use at most 100 Test Params per case.");
+    const gherkin = (draft.gherkin_document || "").split("\n").filter(line => !/^\s*[@#]/.test(line)).join("\n");
+    const content = [draft.title, draft.description || "", gherkin, ...draft.steps.flatMap(step => [step.action || "", step.expected_result || ""])].join("\n");
+    const authoredReferences = extractStepParameterMatches([content, ...Object.values(values)].join("\n"), { knownLegacyNames: [] });
+    if (Object.keys(values).length > 100) issues.push("Use at most 100 parameters per case.");
     for (const [name, value] of Object.entries(values)) {
-      // Workspace proposals use scoped t.name keys; manual case drafts use raw
-      // names. Both represent local data, never inherited suite/run values.
-      const normalized = normalizeStepParameterName(name, "t");
-      if (!normalized.startsWith("t.") || ['__proto__', 'constructor', 'prototype'].includes(normalized.slice(2)) || typeof value !== "string") issues.push("Use case-owned Test Param names and text data values.");
-      else if (localValues.has(normalized)) issues.push(`Declare Test Param ${normalized} only once.`);
+      const raw = normalizeStepParameterName(name, "r").slice(2);
+      const scopes = new Set(authoredReferences.filter(reference => reference.name.slice(2) === raw).map(reference => reference.scope));
+      const normalized = normalizeStepParameterName(name, scopes.size === 1 ? [...scopes][0] : "r");
+      if (!/^[tsr]\./.test(normalized) || ['__proto__', 'constructor', 'prototype'].includes(normalized.slice(2)) || typeof value !== "string") issues.push("Use scoped parameter names and text data values.");
+      else if (localValues.has(normalized)) issues.push(`Declare parameter ${normalized} only once.`);
       else localValues.set(normalized, value);
     }
     const generators = new Set(['t.random', 't.string', 't.randomstring', 't.randomnumber', 't.yopmail', 't.today', 't.timestamp']);
-    const references = (value: string) => [...new Set(extractStepParameterMatches(value, { knownLegacyNames: [] }).filter(match => match.scope === "t" && !generators.has(match.name)).map(match => match.name))];
-    const gherkin = (draft.gherkin_document || "").split("\n").filter(line => !/^\s*[@#]/.test(line)).join("\n");
-    const content = [draft.title, draft.description || "", gherkin, ...draft.steps.flatMap(step => [step.action || "", step.expected_result || ""])].join("\n");
+    const references = (value: string) => [...new Set(extractStepParameterMatches(value, { knownLegacyNames: [] }).filter(match => (match.scope === "t" || localValues.has(match.name)) && !generators.has(match.name)).map(match => match.name))];
     const checked = new Set<string>(), visiting = new Set<string>();
     const check = (name: string) => {
-      if (!localValues.has(name)) { issues.push(`Supply Test Param ${name} with synthetic data or a protected data reference.`); return; }
-      if (visiting.has(name)) { issues.push(`Remove the circular Test Param reference at ${name}.`); return; }
+      if (!localValues.has(name)) { issues.push(`Supply parameter ${name} with synthetic data or a protected data reference.`); return; }
+      if (visiting.has(name)) { issues.push(`Remove the circular parameter reference at ${name}.`); return; }
       if (checked.has(name)) return;
       visiting.add(name);
       references(localValues.get(name) || "").forEach(check);

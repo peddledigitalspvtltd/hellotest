@@ -163,12 +163,13 @@ test('final save rejects changed manual source expectations or link sets before 
   new Function('require','exports','module',source+'\nexports.applyForTest=applyBuild;')((id)=>{
    if(id.endsWith('/db')||id.endsWith('/obsDb'))return database;
    if(id.endsWith('/testStepAutomation'))return automationUtils;
+   if(id.endsWith('/automationReadiness.service'))return require('../../backend/services/automationReadiness.service');
    if(id.endsWith('/automationBuildContext'))return {loadAutomationManualContext:async input=>{assert.equal(input.lock,true);return currentManual;},loadAutomationParameterContext:async input=>{assert.equal(input.lock,true);return {source_key:scenario==='parameters'?'changed':'original'};},manualContextKey:require('../../backend/lib/automationBuildContext').manualContextKey};
    if(id.endsWith('/testStep.service'))return {updateTestStep:async(...args)=>writes.push(args)};
    if(id.endsWith('/automationBrowserParameters'))return {loadBrowserParameterResolver:async input=>{assert.equal(input.materialize,false);assert.equal(input.lock,true);return {inputSourceKey:scenario==='input_data'?'edited-selected-data':'original-inputs'};}};
    if(id==='crypto')return require('node:crypto');return {};
   },module.exports,module);
-  const operation=module.exports.applyForTest({build:{updates:[{step,step_type:'web',automation_code:'await page.locator("#submit").click();'}],manual_context:manual,manual_link_ids:['manual'],parameter_context_key:'original',input_context:{selection:{test_environment_id:'env'},source_key:'original-inputs'},project_id:'p',app_type_id:'app'},createdBy:'author'});
+  const operation=module.exports.applyForTest({build:{updates:[{step,step_type:'web',automation_code:'await page.locator("#submit").click(); await expect(page.locator("#status")).toHaveText("Saved");'}],manual_context:manual,manual_link_ids:['manual'],parameter_context_key:'original',input_context:{selection:{test_environment_id:'env'},source_key:'original-inputs'},project_id:'p',app_type_id:'app'},createdBy:'author'});
   if(scenario==='unchanged'){assert.equal((await operation).length,1);assert.equal(writes.length,1);assert.ok(locks.some(row=>row.id==='manual'&&row.sql.includes('FOR UPDATE')));}
   else{await assert.rejects(operation,/manual.*changed|Linked manual cases changed|application or project changed|test parameters changed|Selected test data.*changed/);assert.equal(writes.length,0);}
  }

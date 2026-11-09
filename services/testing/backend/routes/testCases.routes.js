@@ -892,6 +892,15 @@ module.exports = async function (fastify) {
     return require("@hellotest/automation/backend/services/automationAgentActivity.service").activity(transaction,req.query);
   });
 
+  fastify.post("/test-cases/automation/jobs/:transactionId/cancel", async (req) => {
+    await fastify.authenticate(req);
+    const transaction=await workspaceTransactionService.getTransaction(req.params.transactionId);
+    if(transaction.category!=="automation_build"||!transaction.project_id)throw Object.assign(new Error("Automation build not found"),{statusCode:404});
+    await projectService.getProject(transaction.project_id,req.user.id);
+    for(const code of ["automation.build","automation.ai"])await fastify.requirePermission(code,{projectId:transaction.project_id})(req);
+    return automationGeneratorService.cancelGeneratorJob({transactionId:transaction.id,projectId:transaction.project_id,userId:req.user.id});
+  });
+
   fastify.get("/test-cases/automation/agent-activity",async(req)=>{
     await fastify.authenticate(req);
     fastify.validate({app_type_id:{required:true,type:"string"},test_case_id:{required:false,type:"string"}},req.query||{});
@@ -937,6 +946,24 @@ module.exports = async function (fastify) {
   fastify.get("/test-cases/automation/jobs/:transactionId/previews/:artifactId", readAutomationActivityContent("preview"));
   fastify.get("/test-cases/automation/jobs/:transactionId/evidence/:artifactId", readAutomationActivityContent("evidence"));
   fastify.get("/test-cases/automation/jobs/:transactionId/build-data/:artifactId", readAutomationActivityContent("buildData"));
+
+  fastify.post("/test-cases/automation/jobs/:transactionId/source-proposal", async (req, reply) => {
+    await fastify.authenticate(req);
+    const transaction = await workspaceTransactionService.getTransaction(req.params.transactionId);
+    if (transaction.category !== "automation_build" || !transaction.project_id) throw Object.assign(new Error("Automation build not found"), { statusCode: 404 });
+    await projectService.getProject(transaction.project_id, req.user.id);
+    for (const code of require("@hellotest/automation/backend/services/automationRetainedSourcePreview.service").permissions) {
+      await fastify.requirePermission(code, { projectId: transaction.project_id })(req);
+    }
+    const body = req.body || {};
+    if (Object.keys(body).some(key => !["test_case_id", "step_id", "source_call_id", "evidence_transaction_id", "integration_id"].includes(key))) throw Object.assign(new Error("Only recorded section evidence identifiers are accepted."), { statusCode: 400 });
+    reply.header("cache-control", "no-store");
+    const controller = new AbortController(), abort = () => controller.abort();
+    req.raw?.once("aborted", abort);
+    try {
+      return await require("@hellotest/automation/backend/services/automationRetainedSourcePreview.service").previewRetainedSource({ transactionId: transaction.id, input: body, user: req.user, signal: controller.signal });
+    } finally { req.raw?.removeListener("aborted", abort); }
+  });
 
   fastify.post("/test-cases/automation/build-batch", async (req) => {
     await fastify.authenticate(req);
@@ -1304,7 +1331,8 @@ module.exports = async function (fastify) {
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
       target_step_id: { required: false, type: "string" },
-      included_action_indices: { required: false, type: "array", items: "number" }
+      included_action_indices: { required: false, type: "array", items: "number" },
+      parameter_bindings: { required: false, type: "array", items: "object" }
     }, req.body || {});
 
     const { testCase, projectId } = await ensureTestCasePermission(fastify, req, "automation.recorder");
@@ -1334,6 +1362,7 @@ module.exports = async function (fastify) {
       test_data_set_id: req.body?.test_data_set_id,
       target_step_id: req.body?.target_step_id,
       included_action_indices: req.body?.included_action_indices,
+      parameter_bindings: req.body?.parameter_bindings,
       created_by: req.user.id
     });
   });
