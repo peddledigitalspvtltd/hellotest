@@ -1,4 +1,6 @@
 const { parseStructuredLogs } = require('@hellotest/platform/backend/src/domain/executionStepEvidence');
+const { sanitizeAiText } = require('@hellotest/platform/backend/src/security/aiTextPolicy');
+const { sanitizeInternalErrorText } = require('@hellotest/platform/backend/src/utils/serviceErrors');
 const scopeSql = require('./agentEvidenceScope');
 
 const text = (value, max = 1600) => typeof value === 'string' ? value.slice(0, max) : '';
@@ -7,30 +9,46 @@ const object = value => value && typeof value === 'object' && !Array.isArray(val
 // request headers, credentials, captures, binary images or arbitrary payloads.
 function observedDetails(value) {
   const item = object(value);
-  return Object.fromEntries(['error', 'message', 'status', 'statusCode', 'method', 'url', 'actual', 'expected', 'selector']
-    .filter(key => ['string', 'number', 'boolean'].includes(typeof item[key]))
-    .map(key => [key, typeof item[key] === 'string' ? text(item[key], 1000) : item[key]]));
+  const fields = (entry, keys) => Object.fromEntries(keys
+    .filter(key => ['string', 'number', 'boolean'].includes(typeof entry[key]))
+    .map(key => [key, typeof entry[key] === 'string'
+      ? text(sanitizeAiText(sanitizeInternalErrorText(entry[key])).text, 1000) : entry[key]]));
+  const observed = fields(item, ['error', 'message', 'status', 'statusCode', 'method', 'url', 'actual', 'expected', 'selector']);
+  if (Object.keys(object(item.request)).length) observed.request = fields(item.request, ['method', 'url']);
+  if (Object.keys(object(item.response)).length) observed.response = fields(item.response, ['status', 'status_text']);
+  if (Array.isArray(item.assertions)) observed.assertions = item.assertions
+    .filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry))
+    .sort((a, b) => Number(a.passed === true) - Number(b.passed === true))
+    .slice(0, 10).map(entry => fields(entry, ['kind', 'passed', 'target', 'expected', 'actual']));
+  if (Array.isArray(item.network)) observed.network_issues = item.network
+    .filter(entry => entry && (entry.error || Number(entry.status) >= 400)).slice(-10)
+    .map(entry => fields(entry, ['method', 'url', 'status', 'resource_type', 'error']));
+  if (Array.isArray(item.console)) observed.console_errors = item.console
+    .filter(entry => entry && entry.type === 'error').slice(-5)
+    .map(entry => fields(entry, ['type', 'text']));
+  return observed;
 }
 
 async function collect({ projectId, appTypeId, runIds, testCaseIds = [], resultIds = [], evidenceScope, canView, read }) {
   if (!runIds.length || !await canView('result.view') || !await canView('testcase.view')) return [];
   const caseScope = scopeSql.predicate('test_case', 'tc', evidenceScope);
   const boundedCaseIds = [...new Set((Array.isArray(testCaseIds) ? testCaseIds : []).filter(value => typeof value === 'string' && value.trim()))].slice(0, 10);
-  const caseClause = boundedCaseIds.length ? `AND tc.id IN (${boundedCaseIds.map(() => '?').join(',')})` : '';
+  const caseClause = boundedCaseIds.length ? `AND r.test_case_id IN (${boundedCaseIds.map(() => '?').join(',')})` : '';
   const boundedResultIds = [...new Set(resultIds.filter(value => typeof value === 'string' && value.trim()))].slice(0, 20);
   const resultClause = boundedResultIds.length ? `AND r.id IN (${boundedResultIds.map(() => '?').join(',')})` : '';
   const args = [projectId, ...runIds, ...(appTypeId ? [appTypeId] : []), ...boundedCaseIds, ...boundedResultIds, ...caseScope.params];
   const rows = await read(`WITH latest AS (
     SELECT DISTINCT ON (r.execution_id, r.test_case_id, COALESCE(r.data_set_iteration_index, -1))
       r.id, r.execution_id, r.test_case_id, r.status, r.revision, r.created_at, r.error, r.logs,
-      r.data_set_iteration_index, cs.test_case_title AS title, cs.test_case_description AS description
+      r.data_set_iteration_index, COALESCE(cs.test_case_title, r.test_case_title) AS title, cs.test_case_description AS description
     FROM execution_results r
     JOIN executions e ON e.id = r.execution_id
-    JOIN execution_case_snapshots cs ON cs.execution_id = r.execution_id AND cs.test_case_id = r.test_case_id
-    JOIN test_cases tc ON tc.id = r.test_case_id
-    JOIN app_types app ON app.id = tc.app_type_id AND app.project_id = e.project_id
+    LEFT JOIN execution_case_snapshots cs ON cs.execution_id = r.execution_id AND cs.test_case_id = r.test_case_id
+    LEFT JOIN test_cases tc ON tc.id = r.test_case_id
+    LEFT JOIN app_types app ON app.id = tc.app_type_id AND app.project_id = e.project_id
     WHERE e.project_id = ? AND e.id IN (${runIds.map(() => '?').join(',')})
-      ${appTypeId ? 'AND e.app_type_id = ? AND tc.app_type_id = e.app_type_id' : ''} ${caseClause} ${resultClause} ${caseScope.sql}
+      AND (app.id IS NOT NULL OR (tc.id IS NULL AND cs.test_case_id IS NOT NULL))
+      ${appTypeId ? 'AND e.app_type_id = ? AND (tc.app_type_id = e.app_type_id OR tc.id IS NULL)' : ''} ${caseClause} ${resultClause} ${caseScope.sql}
     ORDER BY r.execution_id, r.test_case_id, COALESCE(r.data_set_iteration_index, -1), r.created_at DESC, r.id DESC
   ) SELECT *, COUNT(*) OVER()::INTEGER AS total_failed_cases FROM latest
     WHERE status IN ('failed', 'blocked') ORDER BY created_at DESC, id LIMIT 20`, args);
@@ -38,7 +56,7 @@ async function collect({ projectId, appTypeId, runIds, testCaseIds = [], resultI
   const packets = [];
   for (const row of rows) {
     const logs = parseStructuredLogs(row.logs);
-    const failedStepIds = Object.keys(logs.stepStatuses).filter(id => logs.stepStatuses[id] === 'failed').slice(0, 30);
+    const failedStepIds = Object.keys(logs.stepStatuses).filter(id => ['failed', 'blocked'].includes(logs.stepStatuses[id])).slice(0, 30);
     const stepPriority = failedStepIds.length ? `CASE WHEN snapshot_step_id IN (${failedStepIds.map(() => '?').join(',')}) THEN 0 ELSE 1 END, ` : '';
     const unavailable = [];
     const optionalRead = async (kind, sql, values) => {
@@ -49,7 +67,7 @@ async function collect({ projectId, appTypeId, runIds, testCaseIds = [], resultI
         return [];
       }
     };
-    const [steps, comments, attachments] = await Promise.all([read(`SELECT snapshot_step_id, step_order, action, expected_result, step_type,
+    const [steps, comments, attachments] = await Promise.all([optionalRead('Frozen step details', `SELECT snapshot_step_id, step_order, action, expected_result, step_type,
       COUNT(*) OVER()::INTEGER AS total_steps FROM execution_step_snapshots
       WHERE execution_id = ? AND test_case_id = ? ORDER BY ${stepPriority}step_order, snapshot_step_id LIMIT 30`, [row.execution_id, row.test_case_id, ...failedStepIds]),
     commentAccess ? optionalRead('Comments', `SELECT id, entity_type, LEFT(body, 1200) AS body, updated_at,
@@ -78,9 +96,11 @@ async function collect({ projectId, appTypeId, runIds, testCaseIds = [], resultI
       comments, attachments,
       coverage: { total_failed_cases: Number(row.total_failed_cases), returned_failed_cases: rows.length,
         omitted_failed_cases: Math.max(0, Number(row.total_failed_cases) - rows.length),
-        total_steps: Number(steps[0]?.total_steps || 0), omitted_steps: Math.max(0, Number(steps[0]?.total_steps || 0) - steps.length) },
+        total_steps: Number(steps[0]?.total_steps || 0), omitted_steps: Math.max(0, Number(steps[0]?.total_steps || 0) - steps.length),
+        unavailable_sources: unavailable },
       limitations: [boundedResultIds.length ? 'Only the selected result attempts are included. Omitted steps or cases are unknown.' : 'Only the latest attempt per case and data row is included. Omitted steps or cases are unknown.',
         'Attachment metadata does not establish screenshot contents; image interpretation requires the actual image parts.',
+        ...(!steps.length && !unavailable.includes('Frozen step details') ? ['No frozen step details are available for this result; the executed actions are unknown.'] : []),
         ...unavailable.map(kind => `${kind} could not be retrieved; their contents are unknown.`)] });
     packets[packets.length - 1].coverage.total_comments = Number(comments[0]?.total_comments || 0);
     packets[packets.length - 1].coverage.omitted_comments = Math.max(0, Number(comments[0]?.total_comments || 0) - comments.length);

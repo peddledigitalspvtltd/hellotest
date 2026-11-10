@@ -311,33 +311,37 @@ const loadExecutionImages = async ({ user, projectId, run, failures, reservedIma
   const admitted = [];
   let totalChars = reservedImages.reduce((total, image) => total + image.url.length, 0);
   let omitted = 0, duplicates = 0, inlineRequested = 0, unavailable = false;
+  const candidates = [];
+  const attachmentSteps = new Map();
+  const resultById = new Map(failures.map(failure => [failure.id, failure]));
+  const priorityFor = status => status === 'failed' ? 0 : status === 'blocked' ? 1 : status ? 3 : 2;
+  const stepContext = (failure, stepId, status) => {
+    const step = failure.steps?.find(value => value.id === stepId);
+    return `Result ${failure.id} · case ${failure.test_case_id} · step ${step?.order || stepId} · observed ${status || 'unknown'}`;
+  };
   for (const failure of failures) {
     const logs = parseStructuredLogs(failure.logs);
-    const evidence = Object.entries(logs.stepEvidence).sort(([a], [b]) => Number(logs.stepStatuses[b] === 'failed') - Number(logs.stepStatuses[a] === 'failed'));
+    const evidence = Object.entries(logs.stepEvidence).sort(([a], [b]) => priorityFor(logs.stepStatuses[a]) - priorityFor(logs.stepStatuses[b]));
     for (const [stepId, item] of evidence.slice(0, 50)) {
+      const status = logs.stepStatuses[stepId];
+      const context = { resultId: failure.id, name: stepContext(failure, stepId, status), priority: priorityFor(status) };
+      if (typeof item?.attachmentId === 'string') attachmentSteps.set(item.attachmentId, context);
       const url = item?.dataUrl || item?.data_url;
       if (typeof url !== 'string' || !url.startsWith('data:image/')) continue;
       inlineRequested++;
-      if (reservedImages.length + admitted.length >= imageLimit || url.length > Math.ceil(MAX_EXECUTION_IMAGE_BYTES * 4 / 3) + 100
-        || totalChars + url.length > MAX_REFERENCE_IMAGE_CHARS) { omitted++; continue; }
-      try {
-        const step = failure.steps?.find(value => value.id === stepId);
-        const [candidate] = normalizeReferenceImages([{ name: `Failed run ${failure.test_case_id} · step ${step?.order || stepId}`, url }]);
-        if ([...reservedImages, ...admitted].some(image => image.content_hash === candidate.content_hash)) { duplicates++; continue; }
-        admitted.push(candidate);
-        totalChars += candidate.url.length;
-      } catch { omitted++; }
+      candidates.push({ ...context, url });
     }
   }
+  const failureAttachmentIds = [...attachmentSteps].filter(([, value]) => value.priority < 2).map(([id]) => id);
   const resultClause = resultIds.length ? ` OR (entity_type = 'execution_result' AND entity_id IN (${resultIds.map(() => "?").join(",")}))` : "";
   const rows = await db.prepare(`
     SELECT id, project_id, entity_type, entity_id, file_name, mime_type, size_bytes
     FROM attachments
     WHERE project_id = ? AND (${exactResult ? `entity_type = 'execution_result' AND entity_id IN (${resultIds.map(() => "?").join(",")})` : `(entity_type = 'execution' AND entity_id = ?)${resultClause}`})
       AND (mime_type ILIKE 'image/png%' OR mime_type ILIKE 'image/jpeg%' OR mime_type ILIKE 'image/webp%')
-    ORDER BY created_at DESC, id DESC
+    ORDER BY ${failureAttachmentIds.length ? `CASE WHEN id IN (${failureAttachmentIds.map(() => '?').join(',')}) THEN 0 ELSE 1 END, ` : ''}created_at DESC, id DESC
     LIMIT 51
-  `).all(projectId, ...(exactResult ? resultIds : [run.id, ...resultIds])).catch(error => {
+  `).all(projectId, ...(exactResult ? resultIds : [run.id, ...resultIds]), ...failureAttachmentIds).catch(error => {
     if (error?.name === 'AbortError' || [401, 403, 499].includes(error?.statusCode) || error?.code === 'REQUEST_CANCELLED') throw error;
     unavailable = true;
     return [];
@@ -346,10 +350,34 @@ const loadExecutionImages = async ({ user, projectId, run, failures, reservedIma
   const deadline = Date.now() + EXECUTION_IMAGE_TIME_BUDGET_MS;
   omitted += Math.max(0, candidateRows.length - 50);
   for (const row of candidateRows.slice(0, 50)) {
+    const failure = resultById.get(row.entity_id);
+    const linkedStep = attachmentSteps.get(row.id);
+    const context = linkedStep && row.entity_type === 'execution_result' && row.entity_id === linkedStep.resultId ? linkedStep : null;
+    candidates.push({ row, ...(context || {
+      priority: failure ? 2 : 4,
+      name: failure
+        ? `Result ${failure.id} · case ${failure.test_case_id} · step unknown · attachment ${row.file_name || row.id}`
+        : `Run ${run.id} · step unknown · attachment ${row.file_name || row.id}`
+    }) });
+  }
+  // Admit failure images before earlier passed steps consume the shared image
+  // budget, regardless of whether the runner saved inline data or a receipt.
+  for (const candidate of candidates.sort((a, b) => a.priority - b.priority)) {
     if (reservedImages.length + admitted.length >= imageLimit || Date.now() >= deadline) {
       omitted++;
       continue;
     }
+    if (candidate.url) {
+      if (candidate.url.length > Math.ceil(MAX_EXECUTION_IMAGE_BYTES * 4 / 3) + 100 || totalChars + candidate.url.length > MAX_REFERENCE_IMAGE_CHARS) { omitted++; continue; }
+      try {
+        const [normalized] = normalizeReferenceImages([{ name: candidate.name, url: candidate.url }]);
+        if ([...reservedImages, ...admitted].some(image => image.content_hash === normalized.content_hash)) { duplicates++; continue; }
+        admitted.push(normalized);
+        totalChars += normalized.url.length;
+      } catch { omitted++; }
+      continue;
+    }
+    const { row } = candidate;
     const remainingBytes = Math.floor(Math.max(0, MAX_REFERENCE_IMAGE_CHARS - totalChars - 32) * 0.75);
     const maxBytes = Math.min(MAX_EXECUTION_IMAGE_BYTES, remainingBytes);
     const expectedType = String(row.mime_type || "").split(";", 1)[0].toLowerCase();
@@ -389,10 +417,10 @@ const loadExecutionImages = async ({ user, projectId, run, failures, reservedIma
           reject(new Error("Screenshot read exceeded its time budget."));
         }, Math.min(2_500, Math.max(1, deadline - Date.now())));
       })]);
-      const candidate = { name: row.file_name || "Execution screenshot", url: `data:${expectedType};base64,${bytes.toString("base64")}` };
+      const image = { name: candidate.name, url: `data:${expectedType};base64,${bytes.toString("base64")}` };
       const candidateHash = crypto.createHash("sha256").update(bytes).digest("hex");
       if ([...reservedImages, ...admitted].some((image) => image.content_hash === candidateHash)) { duplicates++; continue; }
-      const normalized = normalizeReferenceImages([...reservedImages, ...admitted, candidate]);
+      const normalized = normalizeReferenceImages([...reservedImages, ...admitted, image]);
       const normalizedCandidate = normalized.find((image) => image.content_hash === candidateHash);
       if (!normalizedCandidate) {
         omitted++;
@@ -411,47 +439,94 @@ const loadExecutionImages = async ({ user, projectId, run, failures, reservedIma
   return { images: admitted, requested: candidateRows.length + inlineRequested - duplicates, omitted, accessRestricted: false, unavailable };
 };
 
-const loadEvidence = async ({ user, projectId, runId, resultId, testCaseIds, requirementIds, referenceImages = [] }) => {
+const loadEvidence = async ({ user, projectId, runId, resultId, testCaseIds, suiteIds = [], moduleIds = [], requirementIds, referenceImages = [] }) => {
   const requestedCaseIds = unique(testCaseIds);
+  const requestedSuiteIds = unique(suiteIds);
+  const requestedModuleIds = unique(moduleIds);
   const requestedRequirementIds = unique(requirementIds);
-  const boundedCaseIds = requestedCaseIds.slice(0, MAX_TEST_CASES);
+  let boundedCaseIds = requestedCaseIds.slice(0, MAX_TEST_CASES);
   const boundedRequirementIds = requestedRequirementIds.slice(0, MAX_REQUIREMENTS);
+  const unavailable = [];
+  const optionalRead = async (kind, operation, fallback = []) => {
+    try { return await operation(); }
+    catch (error) {
+      if (error?.name === 'AbortError' || [401, 403, 499].includes(error?.statusCode) || error?.code === 'REQUEST_CANCELLED') throw error;
+      unavailable.push(kind);
+      return fallback;
+    }
+  };
   const run = runId
-    ? await db.prepare("SELECT id, name, status, trigger, release, sprint, build, project_id, test_environment_id, created_at FROM executions WHERE id = ? AND project_id = ?").get(runId, projectId)
+    ? await optionalRead('run', () => db.prepare("SELECT id, name, status, trigger, release, sprint, build, project_id, test_environment_id, created_at FROM executions WHERE id = ? AND project_id = ?").get(runId, projectId), null)
     : null;
-  let cases = await defectReproductionService.loadCaseReproduction({ projectId, testCaseIds: boundedCaseIds });
+  const canReadRunCases = Boolean(run && user && await optionalRead('case_permission', () => permissionService.hasPermission(user, 'testcase.view', projectId), false));
+  const selectedScopes = {};
+  for (const [kind, table, ids] of [['suites', 'test_suites', requestedSuiteIds], ['modules', 'test_case_modules', requestedModuleIds]]) {
+    const bounded = ids.slice(0, MAX_TEST_CASES);
+    selectedScopes[kind] = bounded.length ? await optionalRead(kind, () => db.prepare(`SELECT scope.id, scope.name
+      FROM ${table} scope JOIN app_types app ON app.id = scope.app_type_id
+      WHERE app.project_id = ? AND scope.id IN (${bounded.map(() => '?').join(',')})
+      ORDER BY scope.id LIMIT ${MAX_TEST_CASES}`).all(projectId, ...bounded)) : [];
+  }
+  const validSuiteIds = selectedScopes.suites.map(item => item.id);
+  const validModuleIds = selectedScopes.modules.map(item => item.id);
+  const scopeRequested = Boolean(requestedSuiteIds.length || requestedModuleIds.length);
+  const scopeResolved = (!requestedSuiteIds.length || validSuiteIds.length > 0) && (!requestedModuleIds.length || validModuleIds.length > 0);
+  const placeholders = ids => ids.map(() => '?').join(',');
+  let liveScopeCount = 0;
+  if (!runId && !requestedCaseIds.length && scopeRequested && scopeResolved) {
+    const rows = await optionalRead('scope_cases', () => db.prepare(`SELECT tc.id, COUNT(*) OVER()::INTEGER AS total_scope_cases
+      FROM test_cases tc JOIN app_types app ON app.id = tc.app_type_id
+      WHERE app.project_id = ?
+        ${validSuiteIds.length ? `AND (tc.suite_id IN (${placeholders(validSuiteIds)}) OR EXISTS (SELECT 1 FROM suite_test_cases membership WHERE membership.test_case_id = tc.id AND membership.suite_id IN (${placeholders(validSuiteIds)})))` : ''}
+        ${validModuleIds.length ? `AND EXISTS (SELECT 1 FROM test_case_effective_module_cases membership WHERE membership.test_case_id = tc.id AND membership.module_id IN (${placeholders(validModuleIds)}))` : ''}
+      ORDER BY tc.id LIMIT ${MAX_TEST_CASES}`).all(projectId, ...validSuiteIds, ...validSuiteIds, ...validModuleIds));
+    boundedCaseIds = rows.map(item => item.id);
+    liveScopeCount = Number(rows[0]?.total_scope_cases || rows.length);
+  }
+  // A missing selected run cannot turn into live-library evidence. Its frozen
+  // actions must remain unknown instead of silently using a changed test case.
+  let cases = !runId ? await optionalRead('test_cases', () => defectReproductionService.loadCaseReproduction({ projectId, testCaseIds: boundedCaseIds })) : [];
   const requirements = [];
   for (const id of boundedRequirementIds) {
-    const item = await db.prepare("SELECT id, display_id, title, description, additional_fields, status, priority, updated_at FROM requirements WHERE id = ? AND project_id = ?").get(id, projectId);
+    const item = await optionalRead('requirements', () => db.prepare("SELECT id, display_id, title, description, additional_fields, status, priority, updated_at FROM requirements WHERE id = ? AND project_id = ?").get(id, projectId), null);
     if (item) requirements.push(item);
   }
 
   let failures = [];
   let failureCount = 0;
   if (run) {
-    const selectedCaseIds = boundedCaseIds;
+    const selectedCaseIds = requestedCaseIds.length ? boundedCaseIds : [];
     const caseClause = selectedCaseIds.length
-      ? ` AND execution_results.test_case_id IN (${selectedCaseIds.map(() => "?").join(",")})`
+      ? ` AND execution_results.test_case_id IN (${placeholders(selectedCaseIds)})`
       : "";
+    // Explicit cases are authoritative. Suite/module dimensions only resolve
+    // cases when none were selected, and the dimensions intersect each other.
+    const scopeClause = !requestedCaseIds.length && scopeRequested
+      ? !scopeResolved ? ' AND FALSE' : ` AND EXISTS (SELECT 1 FROM execution_case_snapshots scoped_case
+        WHERE scoped_case.execution_id = execution_results.execution_id AND scoped_case.test_case_id = execution_results.test_case_id
+          ${validSuiteIds.length ? `AND scoped_case.suite_id IN (${placeholders(validSuiteIds)})` : ''}
+          ${validModuleIds.length ? `AND scoped_case.module_id IN (${placeholders(validModuleIds)})` : ''})`
+      : '';
+    const scopeParams = !requestedCaseIds.length && scopeRequested && scopeResolved ? [...validSuiteIds, ...validModuleIds] : [];
     const resultClause = resultId ? ' AND execution_results.id = ?' : '';
-    failures = await db.prepare(`WITH latest AS (
+    failures = await optionalRead('failure_results', () => db.prepare(`WITH latest AS (
       SELECT DISTINCT ON (test_case_id, COALESCE(data_set_iteration_index, -1))
-        id, test_case_id, status, error, logs, defects, created_at
-      FROM execution_results WHERE execution_results.execution_id = ?${caseClause}${resultClause}
+        id, test_case_id, test_case_title, status, error, logs, defects, created_at
+      FROM execution_results WHERE execution_results.execution_id = ?${caseClause}${scopeClause}${resultClause}
       ORDER BY test_case_id, COALESCE(data_set_iteration_index, -1), created_at DESC, id DESC
     ) SELECT *, COUNT(*) OVER()::INTEGER AS total_results FROM latest WHERE status IN ('failed', 'blocked')
-      ORDER BY created_at DESC, id DESC LIMIT ${MAX_FAILURE_RESULTS}`).all(run.id, ...selectedCaseIds, ...(resultId ? [resultId] : []));
+      ORDER BY created_at DESC, id DESC LIMIT ${MAX_FAILURE_RESULTS}`).all(run.id, ...selectedCaseIds, ...scopeParams, ...(resultId ? [resultId] : [])));
     failureCount = Number(failures[0]?.total_results || failures.length);
   }
 
   let failurePackets = [];
   let failureEvidenceUnavailable = false;
-  if (run && user && (!resultId || failures.length)) {
+  if (run && user && canReadRunCases && failures.length) {
     try {
       failurePackets = await agentFailureEvidence.collect({
         projectId,
         runIds: [run.id],
-        testCaseIds: boundedCaseIds,
+        testCaseIds: unique(failures.map(item => item.test_case_id)),
         resultIds: failures.map(item => item.id),
         canView: permission => permissionService.hasPermission(user, permission, projectId),
         read: (sql, values = []) => db.prepare(sql).all(...values)
@@ -475,16 +550,38 @@ const loadEvidence = async ({ user, projectId, runId, resultId, testCaseIds, req
   });
   const packetsByCase = new Map();
   for (const packet of failurePackets) if (!packetsByCase.has(packet.test_case_id)) packetsByCase.set(packet.test_case_id, packet);
-  cases = cases.map(item => {
-    const packet = packetsByCase.get(item.id);
-    if (!packet?.steps?.length) return item;
-    return { ...defectReproductionService.summarizeCase({ ...item, title: packet.title || item.title, description: packet.description || item.description },
-      packet.steps.map(step => ({ id: step.id, step_order: step.order, action: step.action, expected_result: step.expected_result,
-        total_case_steps: packet.coverage?.total_steps }))), source: 'execution_snapshot', execution_result_id: packet.result_id };
-  });
+  if (run && canReadRunCases) {
+    const caseIds = requestedCaseIds.length ? boundedCaseIds : unique(failures.map(item => item.test_case_id)).slice(0, MAX_TEST_CASES);
+    const frozenCases = caseIds.length ? await optionalRead('frozen_cases', () => db.prepare(`SELECT snapshot.test_case_id AS id,
+      snapshot.test_case_title AS title, snapshot.test_case_description AS description, snapshot.status, snapshot.priority
+      FROM execution_case_snapshots snapshot JOIN executions owner ON owner.id = snapshot.execution_id
+      WHERE owner.id = ? AND owner.project_id = ? AND snapshot.test_case_id IN (${placeholders(caseIds)})
+      ORDER BY snapshot.sort_order, snapshot.test_case_id LIMIT ${MAX_TEST_CASES}`).all(run.id, projectId, ...caseIds)) : [];
+    const frozenByCase = new Map(frozenCases.map(item => [item.id, item]));
+    const missingStepCaseIds = frozenCases.filter(item => !packetsByCase.has(item.id)).map(item => item.id);
+    const frozenSteps = missingStepCaseIds.length ? await optionalRead('frozen_steps', () => db.prepare(`SELECT id, test_case_id, step_order, action, expected_result, total_case_steps FROM (
+      SELECT snapshot.snapshot_step_id AS id, snapshot.test_case_id, snapshot.step_order, snapshot.action, snapshot.expected_result,
+        COUNT(*) OVER (PARTITION BY snapshot.test_case_id)::INTEGER AS total_case_steps,
+        ROW_NUMBER() OVER (PARTITION BY snapshot.test_case_id ORDER BY snapshot.step_order, snapshot.snapshot_step_id) AS case_step_rank
+      FROM execution_step_snapshots snapshot JOIN executions owner ON owner.id = snapshot.execution_id
+      WHERE owner.id = ? AND owner.project_id = ? AND snapshot.test_case_id IN (${placeholders(missingStepCaseIds)})
+    ) bounded_steps WHERE case_step_rank <= 30 ORDER BY test_case_id, step_order, id`).all(run.id, projectId, ...missingStepCaseIds)) : [];
+    cases = caseIds.flatMap(id => {
+      const packet = packetsByCase.get(id);
+      const frozen = frozenByCase.get(id);
+      const failure = failures.find(item => item.test_case_id === id);
+      if (!frozen && !packet && !failure) return [];
+      const steps = packet?.steps?.map(step => ({ id: step.id, step_order: step.order, action: step.action, expected_result: step.expected_result,
+        total_case_steps: packet.coverage?.total_steps })) || frozenSteps.filter(step => step.test_case_id === id);
+      return [{ ...defectReproductionService.summarizeCase({ id, title: frozen?.title || packet?.title || failure?.test_case_title || '',
+        description: frozen?.description || packet?.description || '', status: frozen?.status, priority: frozen?.priority }, steps),
+        source: frozen || steps.length ? 'execution_snapshot' : 'execution_result', execution_result_id: packet?.result_id || failure?.id || null }];
+    });
+  }
   let executionImageEvidence = { images: [], requested: 0, omitted: 0, accessRestricted: false, unavailable: false };
   try {
-    executionImageEvidence = await loadExecutionImages({ user, projectId, run, failures, reservedImages: referenceImages, exactResult: Boolean(resultId) });
+    executionImageEvidence = await loadExecutionImages({ user, projectId, run: failures.length ? run : null, failures, reservedImages: referenceImages,
+      exactResult: Boolean(resultId || requestedCaseIds.length || scopeRequested) });
   } catch (error) {
     if (error?.name === 'AbortError' || [401, 403, 499].includes(error?.statusCode) || error?.code === 'REQUEST_CANCELLED') throw error;
     executionImageEvidence.unavailable = true;
@@ -493,6 +590,8 @@ const loadEvidence = async ({ user, projectId, runId, resultId, testCaseIds, req
   const boundaries = {
     limits: {
       test_cases: MAX_TEST_CASES,
+      suites: MAX_TEST_CASES,
+      modules: MAX_TEST_CASES,
       requirements: MAX_REQUIREMENTS,
       failed_or_blocked_results: MAX_FAILURE_RESULTS,
       external_links: MAX_EXTERNAL_LINKS,
@@ -502,7 +601,9 @@ const loadEvidence = async ({ user, projectId, runId, resultId, testCaseIds, req
     requested: {
       run: runId ? 1 : 0,
       execution_result: resultId ? 1 : 0,
-      test_cases: requestedCaseIds.length,
+      test_cases: requestedCaseIds.length || liveScopeCount || unique(failures.map(item => item.test_case_id)).length,
+      suites: requestedSuiteIds.length,
+      modules: requestedModuleIds.length,
       requirements: requestedRequirementIds.length,
       failed_or_blocked_results: failureCount,
       execution_images: executionImageEvidence.requested
@@ -511,6 +612,8 @@ const loadEvidence = async ({ user, projectId, runId, resultId, testCaseIds, req
       run: run ? 1 : 0,
       execution_result: resultId && failures.some(item => item.id === resultId) ? 1 : 0,
       test_cases: cases.length,
+      suites: validSuiteIds.length,
+      modules: validModuleIds.length,
       requirements: requirements.length,
       failed_or_blocked_results: failures.length,
       execution_images: executionImageEvidence.images.length,
@@ -519,17 +622,24 @@ const loadEvidence = async ({ user, projectId, runId, resultId, testCaseIds, req
     omitted: {
       run: runId && !run ? 1 : 0,
       execution_result: resultId && !failures.some(item => item.id === resultId) ? 1 : 0,
-      test_cases: Math.max(0, requestedCaseIds.length - cases.length),
+      test_cases: Math.max(0, (requestedCaseIds.length || liveScopeCount || unique(failures.map(item => item.test_case_id)).length) - cases.length),
+      suites: Math.max(0, requestedSuiteIds.length - validSuiteIds.length),
+      modules: Math.max(0, requestedModuleIds.length - validModuleIds.length),
       requirements: Math.max(0, requestedRequirementIds.length - requirements.length),
       failed_or_blocked_results: Math.max(0, failureCount - failures.length),
       execution_images: executionImageEvidence.omitted,
       execution_images_unavailable: executionImageEvidence.unavailable ? 1 : 0,
       execution_image_access: executionImageEvidence.accessRestricted ? 1 : 0,
-      execution_failure_details_unavailable: failureEvidenceUnavailable ? 1 : 0
-    }
+      execution_failure_details_unavailable: failureEvidenceUnavailable ? 1 : 0,
+      execution_failure_sources_unavailable: failurePackets.reduce((total, packet) => total + (packet.coverage?.unavailable_sources?.length || 0), 0),
+      execution_case_context_access: run && failures.length && !canReadRunCases ? 1 : 0,
+      context_sources_unavailable: unavailable.length
+    },
+    unavailable_sources: unique([...unavailable, ...failurePackets.flatMap(packet => packet.coverage?.unavailable_sources || [])])
   };
   boundaries.partial_sources = Object.values(boundaries.omitted).some((count) => count > 0);
-  return { run, cases, requirements, failures, execution_images: executionImageEvidence.images, boundaries };
+  return { run, cases, requirements, failures, execution_images: executionImageEvidence.images, boundaries,
+    linked_test_suite_ids: validSuiteIds, linked_module_ids: validModuleIds };
 };
 
 const buildEvidenceSources = ({ input, context, imageAssets }) => {
@@ -711,7 +821,7 @@ const requestLlmDraft = async (integration, input, context, evidenceSources, ima
     images.length && !hasWrittenIncident(input, context)
       ? aiInstructionBlock("ai.bug.draft", "aiBugDraft.imageOnlyContext")
       : "",
-    visualEvidenceMap.length ? `Visual evidence is attached after this prompt in the same order listed here. Cite only the matching allowed source ref:\n${visualEvidenceMap.join("\n")}` : "",
+    visualEvidenceMap.length ? `Visual evidence is attached after this prompt in the same order listed here. Cite only the matching allowed source ref. Use the recorded step/status for chronology: earlier passed-step images do not establish the later failed state, and an image establishes only what is visible in it.\n${visualEvidenceMap.join("\n")}` : "",
     input.prompt_guidance ? `Workspace editorial guidance (lower priority than the evidence rules above):\n${input.prompt_guidance}` : "",
     [aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.prompt.segment.1"),String(JSON.stringify(allowedRefs)),""].join(''),
     aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.js.prompt.final.6"),
@@ -763,7 +873,7 @@ const buildProcessingSnapshot = ({ evidenceSources, generationMode, gaps, fallba
   ]
 });
 
-exports.preview = async ({ user, project_id, intent, evidence, additional_context, external_links, reference_photos, linked_test_run_id, linked_execution_result_id, linked_test_case_ids, linked_requirement_ids, integration_id, prompt_guidance, require_case_context = false } = {}) => {
+exports.preview = async ({ user, project_id, intent, evidence, additional_context, external_links, reference_photos, linked_test_run_id, linked_execution_result_id, linked_test_case_ids, linked_test_suite_ids, linked_module_ids, linked_requirement_ids, integration_id, prompt_guidance, require_case_context = false } = {}) => {
   const projectId = normalizeText(project_id, 255);
   const normalizedIntent = normalizeText(intent, 4_000);
   if (!projectId) throw Object.assign(new Error("project_id is required"), { statusCode: 400 });
@@ -782,6 +892,8 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
     linked_test_run_id: normalizeText(linked_test_run_id, 255),
     linked_execution_result_id: normalizeText(linked_execution_result_id, 255),
     linked_test_case_ids: unique(normalizeReferenceList(linked_test_case_ids)),
+    linked_test_suite_ids: unique(normalizeReferenceList(linked_test_suite_ids)),
+    linked_module_ids: unique(normalizeReferenceList(linked_module_ids)),
     linked_requirement_ids: unique(normalizeReferenceList(linked_requirement_ids)),
     prompt_guidance: normalizeText(prompt_guidance, 4_000)
   };
@@ -791,6 +903,8 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
     runId: input.linked_test_run_id,
     resultId: input.linked_execution_result_id,
     testCaseIds: input.linked_test_case_ids,
+    suiteIds: input.linked_test_suite_ids,
+    moduleIds: input.linked_module_ids,
     requirementIds: input.linked_requirement_ids,
     referenceImages: imageAssets
   });
@@ -828,6 +942,7 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
   let normalized = { ...deterministic, fallback_fields: [...DRAFT_FIELDS] };
   let integration = null;
   let providerError = null;
+  let providerFailure = null;
   try {
     integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({ integrationId: integration_id, userId: user?.id, usageKey: BUG_DRAFT_USAGE_KEY, projectId, fallback: "project-then-global", allowMissing: true });
     if (integration) {
@@ -867,6 +982,12 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
         const message = "The screenshot did not provide enough evidence for a valid Defect proposal. Describe what is wrong and what should happen, or attach a clearer screenshot. No Defect was created.";
         throw Object.assign(new Error(message), { statusCode: 422, code: "AI_DEFECT_EVIDENCE_REQUIRED", publicMessage: message });
       }
+      if (error?.code === 'AI_NATIVE_CONTRACT_INVALID') {
+        const fields = unique((error.validation_errors || []).map(item => item?.field).filter(field => DRAFT_FIELDS.includes(field)));
+        const message = `The model returned Defect details that still do not match the required format${fields.length ? ` (${fields.join(', ')})` : ''}. Retry or select another configured LLM. Your saved work is unchanged.`;
+        throw Object.assign(new Error(message, { cause: error }), { statusCode: 502, code: 'AI_DEFECT_RESPONSE_INVALID', publicMessage: message });
+      }
+      providerFailure = error instanceof Error ? error : new Error('LLM generation failed.');
       providerError = error instanceof Error ? error.message : "LLM generation failed.";
       normalized = { ...deterministic, fallback_fields: [...DRAFT_FIELDS] };
     }
@@ -877,7 +998,12 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
       : "The model did not identify a Defect supported by the supplied evidence. Add an observed problem or relevant failure evidence and retry. No Defect was created.";
     throw Object.assign(new Error(message), { statusCode: 422, code: "AI_DEFECT_EVIDENCE_REQUIRED", publicMessage: message });
   }
-  requireAiAssessment({ integration, failed: Boolean(providerError), accepted: normalized.fallback_fields.length < DRAFT_FIELDS.length });
+  try {
+    requireAiAssessment({ integration, failed: Boolean(providerError), accepted: normalized.fallback_fields.length < DRAFT_FIELDS.length });
+  } catch (error) {
+    if (providerFailure) error.cause = providerFailure;
+    throw error;
+  }
   const generationMode = !integration || providerError ? "deterministic" : normalized.fallback_fields.length ? "hybrid" : "llm";
   const fallbackReason = providerError
     || (!integration ? "No active LLM integration is configured." : normalized.fallback_fields.length ? "Some model fields were missing, invalid, or lacked allowed evidence refs and were replaced with evidence-bound deterministic values." : null);
@@ -904,6 +1030,8 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
       ...normalized.draft,
       linked_test_run_id: context.run?.id || "",
       linked_test_case_ids: context.cases.map((item) => item.id),
+      linked_test_suite_ids: rawContext.linked_test_suite_ids,
+      linked_module_ids: rawContext.linked_module_ids,
       linked_requirement_ids: context.requirements.map((item) => item.id)
     },
     citations,
@@ -942,5 +1070,6 @@ exports._private = {
   extractLabeledSection,
   extractHeadedSection,
   buildPromptContextSnapshot,
+  loadEvidence,
   BUG_DRAFT_CONTEXT_LIMITS
 };

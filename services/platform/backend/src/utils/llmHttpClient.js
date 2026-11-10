@@ -138,12 +138,19 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
   if (nativeContract && response.ok) {
     const validateArtifact = async candidate => {
       const value = await candidate.clone().json();
-      if (['length','content_filter'].includes(value.choices?.[0]?.finish_reason) || value.choices?.[0]?.message?.refusal || value.choices?.[0]?.message?.tool_calls?.length) return;
+      if (['length','content_filter'].includes(value.choices?.[0]?.finish_reason) || value.choices?.[0]?.message?.refusal || value.choices?.[0]?.message?.tool_calls?.length) return candidate;
       let parsed;
       try { parsed = JSON.parse(require('./llmResponse').getCompletionContent(value).trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'')); } catch { parsed = null; }
-      require('./aiGenerationContracts').validateNativeArtifactOutput(managed.profile.id, parsed, {testCaseTypes:options.nativeArtifactTestCaseTypes});
+      const normalized = require('./aiGenerationContracts').validateNativeArtifactOutput(managed.profile.id, parsed, {testCaseTypes:options.nativeArtifactTestCaseTypes});
+      if (normalized === parsed) return candidate;
+      // Keep the raw provider response in tracing while passing the canonical
+      // application shape to managed schema validation and feature consumers.
+      value.choices[0].message.content = JSON.stringify(normalized);
+      const headers = new Headers(candidate.headers);
+      headers.delete('content-length'); headers.delete('content-encoding');
+      return new Response(JSON.stringify(value), { status: candidate.status, statusText: candidate.statusText, headers });
     };
-    try { await validateArtifact(response); }
+    try { response = await validateArtifact(response); }
     catch (error) {
       const remainingMs = timeoutMs - (Date.now() - startedAt);
       if (error?.code !== 'AI_NATIVE_CONTRACT_INVALID' || error.empty_artifact_collection || remainingMs < 1000 || init.signal?.aborted) throw error;
@@ -155,7 +162,7 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
       // This is read-only authoring, never a replay of a browser/tool action.
       correctionFailure = error;
       response = await request({ ...init, body:JSON.stringify(body) }, remainingMs);
-      if (response.ok) await validateArtifact(response);
+      if (response.ok) response = await validateArtifact(response);
     }
   }
   await require("./aiFeatureRuntime").validateResponse(response, managed.profile);

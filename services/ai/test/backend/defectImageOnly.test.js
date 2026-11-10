@@ -89,7 +89,7 @@ function fixture(reply = supportedImageDraft, {
       'permission.service': { hasPermission: async () => true },
       'attachment.service': { download: async ({ id }) => ({
         row: attachments.find(item => item.id === id),
-        stream: Readable.from([attachmentBytes])
+        stream: Readable.from([typeof attachmentBytes === 'function' ? attachmentBytes(id) : attachmentBytes])
       }) }
     } : {}),
     'aiLlmSelection.service': { resolveLlmIntegrationForUsage: async () => selectedIntegration },
@@ -211,6 +211,45 @@ test('failed-step inline screenshots reach vision when object storage has no att
   assert.equal(result.provenance.partial_sources, false);
 });
 
+for (const storage of ['inline', 'attachments']) test(`failed-step attachment images precede six newer passed-step ${storage} images and retain exact result scope`, async () => {
+  const bytes = Buffer.from(screenshot.url.split(',')[1], 'base64');
+  const passed = Array.from({ length: 6 }, (_, index) => ({ id: `passed-${index + 1}`, bytes: Buffer.concat([bytes, Buffer.from(`passed-${index + 1}`)]) }));
+  const failedBytes = Buffer.concat([bytes, Buffer.from('failed-step-13')]);
+  const failedUrl = `data:image/png;base64,${failedBytes.toString('base64')}`;
+  const failure = { id: 'result-1', test_case_id: 'case', status: 'failed', error: 'Save timed out at step 13', logs: JSON.stringify({
+    stepStatuses: { ...Object.fromEntries(passed.map(item => [item.id, 'passed'])), 'failed-13': 'failed' },
+    stepEvidence: { ...Object.fromEntries(passed.map(item => [item.id, storage === 'inline'
+      ? { dataUrl: `data:image/png;base64,${item.bytes.toString('base64')}` } : { attachmentId: item.id }])), 'failed-13': { attachmentId: 'shot-failed' } }
+  }) };
+  const attachment = { id: 'shot-failed', project_id: 'project', entity_type: 'execution_result', entity_id: 'result-1', file_name: 'failure.png', mime_type: 'image/png', size_bytes: failedBytes.length };
+  const passedAttachments = storage === 'inline' ? [] : passed.map(item => ({ ...attachment, id: item.id, file_name: `${item.id}.png`, size_bytes: item.bytes.length }));
+  const f = fixture(call => {
+    const text = promptText(call);
+    const content = call.body.messages.find(message => message.role === 'user').content;
+    const parts = content.filter(part => part.type === 'image_url');
+    assert.equal(parts.length, 6);
+    assert.equal(parts[0].image_url.url, failedUrl);
+    assert.match(text, /Image part 1 supports execution-image:[a-f0-9]{64} \(Result result-1 · case case · step 13 · observed failed\)/);
+    assert.match(text, /observed passed/);
+    assert.match(text, /earlier passed-step images do not establish the later failed state/);
+    const ref = text.match(/execution-result:result-1/)?.[0];
+    return { draft: { title: 'Save times out', message: 'The selected run failed at Save.', actual_result: 'Save timed out at step 13', rationale: 'The saved failure records the timeout.' },
+      field_evidence: Object.fromEntries(['title', 'message', 'actual_result', 'rationale'].map(field => [field, [ref]])) };
+  }, {
+    run: { id: 'run-1', name: 'Save run', project_id: 'project' }, failures: [failure],
+    attachments: [...passedAttachments, attachment], attachmentBytes: id => id === attachment.id ? failedBytes : passed.find(item => item.id === id).bytes,
+    failurePackets: [{ result_id: 'result-1', test_case_id: 'case', error: failure.error,
+      steps: [{ id: 'failed-13', order: 13, action: 'Save profile', expected_result: 'Saved', observed_status: 'failed' }], comments: [] }]
+  });
+  const result = await f.service.preview({ user: { id: 'actor' }, project_id: 'project', intent: 'Save fails', linked_test_run_id: 'run-1', linked_execution_result_id: 'result-1', linked_test_case_ids: ['case'] });
+  const imageRead = f.reads.find(item => /FROM attachments/.test(item.sql));
+  assert.match(imageRead.sql, /CASE WHEN id IN \(\?\) THEN 0 ELSE 1 END/);
+  assert.doesNotMatch(imageRead.sql, /entity_type = 'execution' AND/);
+  assert.deepEqual(imageRead.params, ['project', 'result-1', 'shot-failed']);
+  assert.equal(result.boundaries.included.execution_images, 6);
+  assert.equal(result.boundaries.omitted.execution_images, 1);
+});
+
 for (const intent of [undefined, '']) {
   test(`Defect drafting accepts image-only input with ${intent === undefined ? 'omitted' : 'empty'} incident brief and cites the actual image`, async () => {
     const f = fixture();
@@ -317,6 +356,35 @@ test('Defect image-only invalid JSON has a sanitized actionable error', async ()
     assert.doesNotMatch(error.message, /PRIVATE_BAD_OUTPUT/);
     return true;
   });
+});
+
+test('an exhausted defect format correction identifies allowed fields and retains its diagnostic cause', async () => {
+  const failure = Object.assign(new Error('PRIVATE_INVALID_COMPLETION'), {
+    code: 'AI_NATIVE_CONTRACT_INVALID', statusCode: 502,
+    validation_errors: [{ field: 'steps_to_reproduce' }, { field: 'PRIVATE_FIELD' }]
+  });
+  const f = fixture(failure);
+  await assert.rejects(f.service.preview({ project_id: 'project', intent: 'Login fails after valid credentials', linked_test_case_ids: ['case'] }), error => {
+    assert.equal(error.code, 'AI_DEFECT_RESPONSE_INVALID');
+    assert.equal(error.statusCode, 502);
+    assert.match(error.message, /steps_to_reproduce/);
+    assert.doesNotMatch(error.message, /PRIVATE_INVALID_COMPLETION|PRIVATE_FIELD/);
+    assert.equal(error.cause, failure);
+    return true;
+  });
+  assert.equal(f.calls.length, 1, 'The feature must not replay an exhausted native correction or invent a draft.');
+});
+
+test('unexpected model failures retain a support cause without exposing provider details or a fallback draft', async () => {
+  const failure = new Error('PRIVATE_PROVIDER_DETAIL');
+  const f = fixture(failure);
+  await assert.rejects(f.service.preview({ project_id: 'project', intent: 'Login fails', linked_test_case_ids: ['case'] }), error => {
+    assert.equal(error.code, 'AI_ASSESSMENT_FAILED');
+    assert.equal(error.cause, failure);
+    assert.doesNotMatch(error.message, /PRIVATE_PROVIDER_DETAIL/);
+    return true;
+  });
+  assert.equal(f.calls.length, 1);
 });
 
 for (const [status, detail, code, expectedStatus] of [

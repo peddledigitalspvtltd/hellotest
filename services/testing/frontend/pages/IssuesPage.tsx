@@ -1725,18 +1725,11 @@ export function IssuesPage() {
     } finally { setIsAiBugContextBusy(false); }
   };
 
-  const hasAiBugInput = Boolean(aiIntent.trim() || aiEvidence.trim() || aiAdditionalContext.trim() || aiReferenceImages.length || aiContextFiles.length || aiLinkedRunId || aiLinkedCaseIds.length || aiLinkedRequirementIds.length);
+  const hasAiBugInput = Boolean(aiIntent.trim() || aiEvidence.trim() || aiAdditionalContext.trim() || aiReferenceImages.length || aiContextFiles.length || aiLinkedRunId || aiLinkedCaseIds.length || aiLinkedRequirementIds.length || (canViewSuites && aiSuiteScopeIds.length) || (canViewTestCases && aiModuleScopeIds.length));
 
   const handlePreviewAiBugDraft = async () => {
     if (!canUseCurrentAiDraft || isAiBugContextBusy || isPreparingAiBugDraft || previewAiBugDraft.isPending) return;
     if (aiBugMode === "improve" && (!aiLinkedCaseIds.length || aiLinkedCaseIds.length > 10)) { setAiDraftMessage("Select one to ten Test Cases as context."); setAiDraftMessageTone("error"); return; }
-    if (aiCasePrefillQuery.isFetching || aiCasePrefillQuery.isError) {
-      setAiDraftMessageTone("error");
-      setAiDraftMessage(aiCasePrefillQuery.isError
-        ? "Retry the selected Test Case scope in Evidence and impacted scope before generating a draft."
-        : "The selected Test Case scope is still loading. You can continue editing the draft details.");
-      return;
-    }
     if (!projectId || !hasAiBugInput) {
       setAiDraftMessageTone("error");
       setAiDraftMessage("Add a failure description, screenshot, file, or linked QA evidence before generating a Defect draft.");
@@ -1766,6 +1759,8 @@ export function IssuesPage() {
           && parseQueryIdList(searchParams.get("linked_test_case_ids"), searchParams.get("testCase")).includes(aiLinkedCaseIds[0])
           ? searchParams.get("executionResult") || undefined : undefined,
         linked_test_case_ids: canViewTestCases ? aiLinkedCaseIds : [],
+        linked_test_suite_ids: aiBugMode === "create" && canViewSuites ? aiSuiteScopeIds : [],
+        linked_module_ids: aiBugMode === "create" && canViewTestCases ? aiModuleScopeIds : [],
         linked_requirement_ids: canViewStories ? aiLinkedRequirementIds : [],
         integration_id: aiBugIntegrationId || getLlmIntegrationId("ai.bug.draft") || undefined,
         prompt_guidance: getPrompt("ai.bug.draft") || undefined
@@ -2091,6 +2086,8 @@ export function IssuesPage() {
   const aiBugExternalLinks = parseExternalLinks(aiExternalLinksText);
   const aiBugEvidenceSourceCount = aiLinkedCaseIds.length
     + aiLinkedRequirementIds.length
+    + (canViewSuites ? aiSuiteScopeIds.length : 0)
+    + (canViewTestCases ? aiModuleScopeIds.length : 0)
     + aiReferenceImages.length
     + aiContextFiles.length
     + aiBugExternalLinks.length
@@ -2163,7 +2160,7 @@ export function IssuesPage() {
               outputLabel="Editable Defect draft with reproduction evidence"
               approvalLabel="Accept into form, then review before create"
               primaryGenerateLabel={isAiBugDraftBusy ? "Generating draft…" : aiDraftMessageTone === "error" && aiDraftMessage ? "Retry draft generation" : aiDraftPreview ? "Regenerate draft" : "Generate draft"}
-              primaryGenerateDisabled={!canUseCurrentAiDraft || (aiBugMode === "improve" && (!aiLinkedCaseIds.length || aiLinkedCaseIds.length > 10)) || !projectId || !hasAiBugInput || isAiBugDraftBusy || isAiBugContextBusy || aiCasePrefillQuery.isFetching || aiCasePrefillQuery.isError || Boolean(can("integration.view") && aiBugIntegrationId && !aiBugIntegrations.some(item => item.id === aiBugIntegrationId))}
+              primaryGenerateDisabled={!canUseCurrentAiDraft || (aiBugMode === "improve" && (!aiLinkedCaseIds.length || aiLinkedCaseIds.length > 10)) || !projectId || !hasAiBugInput || isAiBugDraftBusy || isAiBugContextBusy || Boolean(can("integration.view") && aiBugIntegrationId && !aiBugIntegrations.some(item => item.id === aiBugIntegrationId))}
               onPrimaryGenerate={() => void handlePreviewAiBugDraft()}
               onClose={closeAiBugReport}
               closeDisabled={isAiBugDraftBusy}
@@ -2402,7 +2399,7 @@ export function IssuesPage() {
                 >
                   <div className="ai-bug-input-flyout__body">
                     {aiCasePrefillQuery.isFetching ? <p className="inline-message" role="status">Preparing the selected Test Case scope…</p> : null}
-                    {aiCasePrefillQuery.isError ? <p className="inline-message error" role="alert">Could not prepare the selected Test Cases. <button type="button" className="ghost-button" onClick={() => void aiCasePrefillQuery.refetch()}>Retry</button></p> : null}
+                    {aiCasePrefillQuery.isError ? <p className="inline-message" role="status">Test Case names could not be loaded. You can generate with the selected scope and available evidence. <button type="button" className="ghost-button" onClick={() => void aiCasePrefillQuery.refetch()}>Retry</button></p> : null}
                     <FormField label="Observed evidence">
                       <textarea
                         disabled={isAiBugDraftBusy}

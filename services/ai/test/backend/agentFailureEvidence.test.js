@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { collect } = require("../../backend/services/agentFailureEvidence");
+const { collect, observedDetails } = require("../../backend/services/agentFailureEvidence");
 
 test("failure evidence is scoped to the selected run/cases and returns failed step notes plus authorized comments", async () => {
   const reads = [];
@@ -23,7 +23,7 @@ test("failure evidence is scoped to the selected run/cases and returns failed st
     }
   });
   assert.match(reads[0].sql, /e\.project_id = \?/);
-  assert.match(reads[0].sql, /tc\.id IN \(\?,\?\)/);
+  assert.match(reads[0].sql, /r\.test_case_id IN \(\?,\?\)/);
   assert.match(reads[0].sql, /r\.error/);
   assert.match(reads[0].sql, /r\.id IN \(\?\)/);
   assert.deepEqual(reads[0].params, ["project-1", "run-1", "case-1", "case-2", "result-1"]);
@@ -66,4 +66,68 @@ test("optional comment retrieval failures preserve step evidence while cancellat
   assert.deepEqual(packet.comments, []);
   assert.ok(packet.limitations.some(item => /Comments could not be retrieved/.test(item)));
   await assert.rejects(collectWith(Object.assign(new Error('Cancelled'), { name: 'AbortError' })), { name: 'AbortError' });
+});
+
+test('structured failure observations retain failed assertions and network errors without raw payloads or captures', () => {
+  const observed = observedDetails({
+    request: { method: 'POST', url: 'https://example.test/save', headers: { Authorization: 'private-header' }, body: 'private-body' },
+    response: { status: 500, status_text: 'Server error', headers: { Cookie: 'private-cookie' }, body: 'private-response' },
+    captures: { password: 'private-capture' },
+    assertions: [...Array.from({ length: 12 }, () => ({ kind: 'status', passed: true, expected: '200', actual: '200' })),
+      { kind: 'json-path', passed: false, target: '$.saved', expected: 'true', actual: 'false', response: 'private-assertion-payload' }],
+    network: [{ method: 'GET', url: '/ready', status: 200 }, { method: 'POST', url: '/save', status: 500, error: 'Server rejected save', body: 'private-network-body' }],
+    console: [{ type: 'log', text: 'private-debug' }, { type: 'error', text: 'Save failed', extra: 'private-extra' }]
+  });
+  assert.deepEqual(observed.request, { method: 'POST', url: 'https://example.test/save' });
+  assert.deepEqual(observed.response, { status: 500, status_text: 'Server error' });
+  assert.equal(observed.assertions.length, 10);
+  assert.deepEqual(observed.assertions[0], { kind: 'json-path', passed: false, target: '$.saved', expected: 'true', actual: 'false' });
+  assert.deepEqual(observed.network_issues, [{ method: 'POST', url: '/save', status: 500, error: 'Server rejected save' }]);
+  assert.deepEqual(observed.console_errors, [{ type: 'error', text: 'Save failed' }]);
+  assert.doesNotMatch(JSON.stringify(observed), /private-/);
+});
+
+test('selected observation strings redact URL credentials, signed queries and nested secrets before reaching model evidence', () => {
+  const observed = observedDetails({
+    url: 'https://private-user:PRIVATE_URL_PASSWORD@example.test/login?next=dashboard&token=PRIVATE_URL_TOKEN&view_token=PRIVATE_VIEW_TOKEN',
+    request: { method: 'POST', url: 'https://example.test/save?search=invoice&access_token=PRIVATE_ACCESS_TOKEN&key=PRIVATE_QUERY_KEY' },
+    response: { status: 503, status_text: 'Temporarily unavailable' },
+    assertions: [{ kind: 'value', passed: false, expected: 'password=PRIVATE_EXPECTED_PASSWORD', actual: 'api_key=PRIVATE_ACTUAL_KEY' }],
+    network: [{ method: 'GET', status: 503, url: '/save?sort=name&x-amz-signature=PRIVATE_SIGNED_URL', error: 'Request failed using Basic PRIVATE_BASIC_TOKEN' }],
+    console: [{ type: 'error', text: 'Save failed using Bearer PRIVATE_BEARER_TOKEN; email=private.person@example.test' }]
+  });
+  const serialized = JSON.stringify(observed);
+  assert.doesNotMatch(serialized, /PRIVATE_|private-user|private\.person@example\.test/);
+  assert.match(observed.url, /next=dashboard/);
+  assert.match(observed.request.url, /search=invoice/);
+  assert.match(observed.network_issues[0].url, /sort=name/);
+  assert.equal(observed.request.method, 'POST');
+  assert.equal(observed.response.status, 503);
+  assert.equal(observed.response.status_text, 'Temporarily unavailable');
+  assert.equal(observed.assertions[0].passed, false);
+  assert.match(observed.console_errors[0].text, /Save failed/);
+  const bounded = observedDetails({ error: 'x'.repeat(980) + ' password=PRIVATE_BOUNDARY_SECRET' });
+  assert.equal(bounded.error.length, 1000);
+  assert.doesNotMatch(bounded.error, /PRIVATE/);
+});
+
+test('missing or unavailable frozen snapshots preserve authorized failure comments and disclose the missing actions', async () => {
+  for (const unavailable of [false, true]) {
+    const [packet] = await collect({ projectId: 'project', runIds: ['run'], canView: async () => true,
+      read: async sql => {
+        if (/WITH latest/.test(sql)) {
+          assert.match(sql, /LEFT JOIN execution_case_snapshots/);
+          return [{ id: 'result', execution_id: 'run', test_case_id: 'case', status: 'failed', error: 'Observed failure', logs: '{}', total_failed_cases: 1 }];
+        }
+        if (/FROM execution_step_snapshots/.test(sql) && unavailable) throw new Error('Snapshot store unavailable');
+        if (/FROM entity_comments/.test(sql)) return [{ body: 'Failed when saving in staging.' }];
+        return [];
+      }
+    });
+    assert.equal(packet.error, 'Observed failure');
+    assert.equal(packet.comments[0].body, 'Failed when saving in staging.');
+    assert.deepEqual(packet.steps, []);
+    assert.ok(packet.limitations.some(item => /frozen step details/i.test(item) && /unknown/.test(item)));
+    assert.deepEqual(packet.coverage.unavailable_sources, unavailable ? ['Frozen step details'] : []);
+  }
 });

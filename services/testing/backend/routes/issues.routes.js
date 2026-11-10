@@ -168,6 +168,8 @@ function registerFeedbackRoutes(fastify, basePath) {
       linked_test_run_id: { required: false, type: "string" },
       linked_execution_result_id: { required: false, type: "string" },
       linked_test_case_ids: { required: false, type: "array", items: "string" },
+      linked_test_suite_ids: { required: false, type: "array", items: "string" },
+      linked_module_ids: { required: false, type: "array", items: "string" },
       linked_requirement_ids: { required: false, type: "array", items: "string" },
       integration_id: { required: false, type: "string" },
       prompt_guidance: { required: false, type: "string", maxLength: 4_000 }
@@ -183,7 +185,8 @@ function registerFeedbackRoutes(fastify, basePath) {
     // test results, cases, or Stories that this role cannot view.
     const evidencePermissions = [
       ...(req.body.linked_test_run_id ? ["run.view", "result.view"] : []),
-      ...(req.body.linked_test_case_ids?.length ? ["testcase.view"] : []),
+      ...(req.body.linked_test_case_ids?.length || req.body.linked_test_suite_ids?.length || req.body.linked_module_ids?.length ? ["testcase.view"] : []),
+      ...(req.body.linked_test_suite_ids?.length ? ["suite.view"] : []),
       ...(req.body.linked_requirement_ids?.length ? ["requirement.view"] : [])
     ];
     for (const permission of evidencePermissions) {

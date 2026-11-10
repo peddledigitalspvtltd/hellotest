@@ -121,11 +121,25 @@ function validGherkinCase(document) {
   return feature && !delimiter && count <= 30 && scenarios.length > 0 && scenarios.every(item => item.named && item.action && item.outcome);
 }
 function nativeArtifactContract(id) { return nativeContracts[id] || null; }
+function normalizeNativeArtifactOutput(id, parsed) {
+  const steps = parsed?.draft?.steps_to_reproduce;
+  if (id !== 'ai.bug.draft' || !isObject(parsed) || !isObject(parsed.draft) || !Array.isArray(steps)) return parsed;
+  // Providers commonly express ordered prose as string arrays. This changes
+  // formatting only; never discard invalid rows, stringify objects or supply actions.
+  if (!steps.length || steps.length > 100 || steps.some(value => typeof value !== 'string' || !value.trim())) return parsed;
+  const actions = steps.map(value => value.trim().replace(/^\d+[.)](?:\s+|$)/, ''));
+  if (actions.some(value => !value.trim())) return parsed;
+  const text = actions.map((value, index) => `${index + 1}. ${value}`).join('\n');
+  if (text.length > 12_000) return parsed;
+  return { ...parsed, draft: { ...parsed.draft, steps_to_reproduce: text } };
+}
 function validateNativeArtifactOutput(id, parsed, { testCaseTypes } = {}) {
   const contract = nativeArtifactContract(id);
   if (!contract) return;
+  parsed = normalizeNativeArtifactOutput(id, parsed);
   const errors = [];
-  const missing = (path, field) => errors.push({ path, field, issue: 'required_or_invalid' });
+  const missing = (path, field) => errors.push({ path, field, issue: 'required_or_invalid',
+    ...(id === 'ai.bug.draft' && contract.required.includes(field) ? { expected_type: 'string' } : {}) });
   if (!isObject(parsed)) missing('', 'object');
   let items = contract.collection ? [contract.collection, ...(contract.aliases || [])].map(key => parsed?.[key]).find(Array.isArray) : [contract.object ? parsed?.[contract.object] : parsed];
   if (!items?.length) { missing('', contract.collection || contract.object || 'object'); items = []; }
@@ -165,5 +179,6 @@ function validateNativeArtifactOutput(id, parsed, { testCaseTypes } = {}) {
     if(contract.collection && [contract.collection,...(contract.aliases || [])].some(key=>Array.isArray(parsed?.[key]) && parsed[key].length===0))error.empty_artifact_collection=true;
     throw error;
   }
+  return parsed;
 }
-module.exports = { caseOutputSchema, stepOutputSchema, nativeArtifactContract, validateNativeArtifactOutput, validateCaseParameterBindings, validGherkinCase, normalizeGeneratedCaseParameterValues };
+module.exports = { caseOutputSchema, stepOutputSchema, nativeArtifactContract, normalizeNativeArtifactOutput, validateNativeArtifactOutput, validateCaseParameterBindings, validGherkinCase, normalizeGeneratedCaseParameterValues };

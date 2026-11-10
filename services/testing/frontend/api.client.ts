@@ -182,6 +182,8 @@ issues: {
       linked_test_run_id?: string;
       linked_execution_result_id?: string;
       linked_test_case_ids?: string[];
+      linked_test_suite_ids?: string[];
+      linked_module_ids?: string[];
       linked_requirement_ids?: string[];
       integration_id?: string;
       prompt_guidance?: string;

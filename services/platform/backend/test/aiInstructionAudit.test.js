@@ -116,6 +116,29 @@ test('stock Test Case completeness and data guidance upgrades without replacing 
  }
 });
 
+test('stock defect contracts gain explicit wire types and distinguish automation failures from confirmed product defects',async()=>{
+ const item=catalog.find(item=>item.id==='ai.bug.draft'),stored=structuredClone(item.defaults);
+ const keys=['application.artifactContract','aiBugDraft.service.js.prompt.final.1'];
+ for(const key of keys)stored.instruction_blocks[key]=item.instruction_default_migrations[key].at(-1);
+ const upgraded=(await service({[item.id]:{published:{version:4,config:stored}}}).resolve(item.id)).config;
+ for(const key of keys)assert.equal(upgraded.instruction_blocks[key],item.defaults.instruction_blocks[key]);
+ assert.match(upgraded.instruction_blocks['application.artifactContract'],/steps_to_reproduce \(one string/);
+ assert.match(upgraded.instruction_blocks['aiBugDraft.service.js.prompt.final.1'],/automation timeout.*does not prove an application element is absent/);
+ assert.match(upgraded.instruction_blocks['aiBugDraft.service.js.prompt.final.1'],/Inspect matched admitted screenshots and cite their exact image refs/);
+ assert.match(upgraded.instruction_blocks['aiBugDraft.service.js.prompt.final.1'],/does not establish hidden DOM state/);
+ assert.match(upgraded.instruction_blocks['aiBugDraft.service.js.prompt.final.1'],/Do not claim there is no screenshot or request a screenshot already supplied/);
+ assert.match(upgraded.instruction_blocks['aiBugDraft.service.js.prompt.final.1'],/specify the missing view, detail or capture time/);
+ for(const previous of item.instruction_default_migrations['aiBugDraft.service.js.prompt.final.1']){
+  const historical=structuredClone(stored);
+  historical.instruction_blocks['aiBugDraft.service.js.prompt.final.1']=previous;
+  const resolved=(await service({[item.id]:{published:{version:4,config:historical}}}).resolve(item.id)).config;
+  assert.equal(resolved.instruction_blocks['aiBugDraft.service.js.prompt.final.1'],item.defaults.instruction_blocks['aiBugDraft.service.js.prompt.final.1']);
+ }
+ stored.instruction_blocks['application.artifactContract']='Our reviewed defect response guidance.';
+ const reviewed=(await service({[item.id]:{published:{version:5,config:stored}}}).resolve(item.id)).config;
+ assert.equal(reviewed.instruction_blocks['application.artifactContract'],stored.instruction_blocks['application.artifactContract']);
+});
+
 test('assurance stock instructions follow the declared response schema without replacing reviewed guidance',async()=>{
  for(const item of catalog.filter(item=>item.defaults.instruction_blocks['artifactAssurance.reviewFocus'])){
   const stored=structuredClone(item.defaults),key='artifactAssurance.reviewFocus';

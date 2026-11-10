@@ -11,6 +11,30 @@ const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAA
 const screenshot={name:'Failure.png',url:png};
 const validStory={title:'Reject invalid sign in',description:'A visitor receives a credential error without opening a workspace.',acceptance_criteria:['Invalid credentials display a useful error.'],priority:2};
 const validCase={title:'Invalid sign in',description:'Invalid credentials keep the visitor signed out.',priority:2,test_case_type:'functional',parameter_values:{email:'invalid@example.test'},steps:[{action:'Sign in using @t.email',expected_result:'The credential error is visible'}]};
+// The production incident returned all fourteen source actions as strings in an
+// array, despite completing successfully with evidence refs and screenshots.
+const failedEmployeeSteps = [
+ 'Navigate to @r.orangehrm_url.',
+ 'Enter @r.orangehrm_username in Username, enter @r.orangehrm_password in Password, then click Login.',
+ 'Open Employee Management and then Employee List.',
+ 'Click Add Employee once to open the employee form.',
+ 'Enter @r.employee_first_name as First Name and @r.employee_last_name as Last Name.',
+ 'Fill the Joined Date input with @r.employee_joined_date.',
+ 'Select @r.employee_location in the Location dropdown.',
+ 'Verify Auto Generate Employee ID is checked, Create Login Details is unchecked and Initiate Preboarding is unchecked, then click Next.',
+ 'Leave optional personal details blank and click Next.',
+ 'Verify India Default Schedule and Work Schedule are selected, then click Next.',
+ 'Select @r.onboarding_template as Event Template.',
+ 'Click Save once.',
+ 'Open Onboarding, then On/Offboarding, then Manage Events/Templates.',
+ 'Filter Event Name by @r.employee_first_name and click Search.'
+];
+const defectDraft = steps => ({
+ draft: { title:'Unable to verify employee event results within the automation wait', message:'The run failed while the screenshot showed loading; the underlying cause is unconfirmed.', steps_to_reproduce:steps,
+  expected_result:'The employee event results are visible.', actual_result:'The verification timed out while loading was visible.', severity:'medium', priority:'Medium' },
+ field_evidence: { steps_to_reproduce:['test-case:failed-case'], actual_result:['execution-image:failure'] },
+ gaps:[{field:'rationale',reason:'The cause and user impact have not been independently verified.'}], assumptions:[]
+});
 
 test('reference image normalization preserves bounded compressed bytes and deduplicates exact content',()=>{
  const images=normalizeReferenceImages([screenshot,{name:'Duplicate.png',url:png}]);assert.equal(images.length,1);assert.equal(images[0].url,png);assert.equal(images[0].content_hash.length,64);
@@ -52,16 +76,50 @@ test('missing factual evidence remains a named gap instead of fabricated accepta
  validateNativeArtifactOutput('ai.bug.draft',{draft:{title:'Save fails',message:'An error is shown',steps_to_reproduce:'',expected_result:'',actual_result:'Error is shown',severity:'medium',priority:'Medium'},gaps:[{field:'steps_to_reproduce',reason:'No actions were supplied'},{field:'expected_result',reason:'Required behavior is unspecified'}]});
 });
 function isolatedHttpClient(responses,feature='ai.requirement.creation'){
- const file=require.resolve('../src/utils/llmHttpClient'),local=createRequire(file),module={exports:{}},calls=[],finishes=[];
+ const file=require.resolve('../src/utils/llmHttpClient'),local=createRequire(file),module={exports:{}},calls=[],finishes=[],validated=[];
  const overrides={
-  './aiFeatureRuntime':{apply:async(init,options)=>({init,options,profile:{id:feature,config:configuration.catalog.find(item=>item.id===feature).defaults}}),validateResponse:async()=>{}},
+  './aiFeatureRuntime':{apply:async(init,options)=>({init,options,profile:{id:feature,config:configuration.catalog.find(item=>item.id===feature).defaults}}),validateResponse:async response=>{if(response.ok)validated.push(await response.clone().json());}},
   '@hellotest/mcp/backend/gateway':{enrichChatRequest:async init=>init},
   './llmTraceCapture':{begin:async()=>({id:String(calls.length)}),finish:async(_trace,result)=>{finishes.push(result);},dispatch:()=>{}},
   './resilientHttpClient':{resilientHttpRequest:async(_url,init,options)=>{calls.push({body:JSON.parse(init.body),options});const next=responses[Math.min(calls.length-1,responses.length-1)];return next instanceof Response?next.clone():new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content:JSON.stringify(next)}}]}));}}
  };
  new Function('require','module','exports',fs.readFileSync(file,'utf8'))(id=>overrides[id]||local(id),module,module.exports);
- return{calls,finishes,fetch:module.exports.fetchLlmWithRetry};
+ return{calls,finishes,validated,fetch:module.exports.fetchLlmWithRetry};
 }
+test('completed defect drafts normalize ordered string arrays before native and managed validation without another model call',async()=>{
+ const expected=failedEmployeeSteps.map((value,index)=>`${index+1}. ${value}`).join('\n');
+ for(const steps of [failedEmployeeSteps,failedEmployeeSteps.map((value,index)=>`${index+1}. ${value}`)]){
+  const candidate=defectDraft(steps),before=structuredClone(candidate);
+  assert.equal(validateNativeArtifactOutput('ai.bug.draft',candidate).draft.steps_to_reproduce,expected);
+  assert.deepEqual(candidate,before,'Native formatting does not mutate the source candidate or evidence.');
+  const client=isolatedHttpClient([candidate],'ai.bug.draft');
+  const response=await client.fetch('http://provider.invalid',{method:'POST',body:JSON.stringify({model:'fixture',messages:[{role:'user',content:imageUserContent('Draft the failed employee case using these facts.',[screenshot])}]})},{timeoutMs:10000,maxAttempts:1});
+  const output=JSON.parse((await response.json()).choices[0].message.content);
+  assert.equal(client.calls.length,1,'Valid array formatting never incurs a paid correction.');
+  assert.equal(output.draft.steps_to_reproduce,expected);
+  assert.deepEqual(output.field_evidence,candidate.field_evidence);
+  assert.deepEqual(output.gaps,candidate.gaps);
+  assert.equal(JSON.parse(client.validated[0].choices[0].message.content).draft.steps_to_reproduce,expected,'Managed schema validation sees the same canonical wire type.');
+  const raw=await client.finishes.at(-1).response.clone().json();
+  assert.deepEqual(JSON.parse(raw.choices[0].message.content).draft.steps_to_reproduce,steps,'Diagnostics preserve the provider output.');
+  assert.deepEqual(client.calls[0].body.messages[0].content,imageUserContent('Draft the failed employee case using these facts.',[screenshot]));
+ }
+});
+test('defect step array normalization never discards malformed actions or accepts unbounded or empty arrays',()=>{
+ for(const steps of [[],['Open the page',{}],['Open the page',null],['Open the page',' '],['1. '],[{action:'Open page'}],Array(101).fill('Open the page'),['x'.repeat(12000)]]){
+  const candidate=defectDraft(steps);
+  assert.throws(()=>validateNativeArtifactOutput('ai.bug.draft',candidate),error=>error.code==='AI_NATIVE_CONTRACT_INVALID'&&error.validation_errors.some(issue=>issue.field==='steps_to_reproduce'&&issue.expected_type==='string'));
+  assert.deepEqual(candidate.draft.steps_to_reproduce,steps);
+ }
+ const ordinary=defectDraft('1. Open the page\n2. Submit');
+ assert.equal(validateNativeArtifactOutput('ai.bug.draft',ordinary),ordinary,'An existing canonical string is preserved.');
+});
+test('malformed defect fields include their required wire type in the single correction',async()=>{
+ const client=isolatedHttpClient([defectDraft([{action:'Open page'}]),defectDraft('1. Open page')],'ai.bug.draft');
+ const response=await client.fetch('http://provider.invalid',{body:JSON.stringify({messages:[{role:'user',content:'The page failed to open; draft from the supplied evidence.'}]})},{timeoutMs:10000,maxAttempts:1});
+ assert.equal(response.ok,true);assert.equal(client.calls.length,2);
+ assert.match(client.calls[1].body.messages.at(-1).content,/"field":"steps_to_reproduce","issue":"required_or_invalid","expected_type":"string"/);
+});
 test('one bounded format correction keeps the original images, task and frozen field requirements',async()=>{
  const client=isolatedHttpClient([{requirements:[{title:'Only title'}]},{requirements:[validStory]}]);
  const response=await client.fetch('http://provider.invalid',{method:'POST',body:JSON.stringify({model:'small',response_format:{type:'json_object'},messages:[{role:'user',content:imageUserContent('Explicit invalid-signin intent',[screenshot])}]})},{timeoutMs:10000,contextFallback:false,maxAttempts:1});
