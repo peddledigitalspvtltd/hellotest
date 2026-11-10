@@ -417,6 +417,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         <WorkflowOperationFields
           data={node.data}
           projectId={props.projectId}
+          appTypeId={props.appTypeId}
           canRun={props.canRun}
           triggerInput={triggerInput}
           onChange={props.onChange}

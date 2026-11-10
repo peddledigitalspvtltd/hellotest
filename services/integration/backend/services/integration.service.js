@@ -86,6 +86,16 @@ const normalizeTestEngineVideoMode = (value, fallback = "retain-on-failure") => 
   return ["off", "on", "retain-on-failure"].includes(normalized) ? normalized : fallback;
 };
 
+const normalizeTestEngineScreenshotMode = (value, raw = {}, fallback = "all") => {
+  const normalized = normalizeText(value);
+  if (["off", "all", "passed", "failed"].includes(normalized)) return normalized;
+  if (typeof raw.screenshot_on_success === "boolean" || typeof raw.screenshot_on_failure === "boolean") {
+    const passed = raw.screenshot_on_success !== false, failed = raw.screenshot_on_failure !== false;
+    return passed && failed ? "all" : passed ? "passed" : failed ? "failed" : "off";
+  }
+  return fallback;
+};
+
 const normalizeCloudRunProvider = (value, fallback = "browserstack") => {
   const normalized = normalizeText(value);
   return ["browserstack", "lambdatest", "saucelabs", "crossbrowser", "other"].includes(normalized) ? normalized : fallback;
@@ -564,6 +574,7 @@ const normalizeConfig = (type, input, username) => {
       max_repair_attempts: normalizeInteger(raw.max_repair_attempts) ?? Number(integrationTypeConfig.max_repair_attempts ?? 0),
       trace_mode: normalizeTestEngineTraceMode(raw.trace_mode, String(integrationTypeConfig.trace_mode || "off")),
       video_mode: normalizeTestEngineVideoMode(raw.video_mode, String(integrationTypeConfig.video_mode || "off")),
+      screenshot_mode: normalizeTestEngineScreenshotMode(raw.screenshot_mode, raw, String(integrationTypeConfig.screenshot_mode || "all")),
       capture_console: raw.capture_console !== false,
       capture_network: raw.capture_network !== false,
       artifact_retention_days: normalizeInteger(raw.artifact_retention_days) ?? Number(integrationTypeConfig.artifact_retention_days ?? 7),
@@ -588,6 +599,8 @@ const normalizeConfig = (type, input, username) => {
         integrationTypeConfig.recovery_wait_ms ?? 750,
         { min: 100, max: 30000 }
       ),
+      domcontentloaded_wait_ms: normalizeTestEngineTimeoutMs(raw.domcontentloaded_wait_ms, integrationTypeConfig.domcontentloaded_wait_ms ?? 5000, { min: 0, max: 60000 }),
+      network_idle_wait_ms: normalizeTestEngineTimeoutMs(raw.network_idle_wait_ms, integrationTypeConfig.network_idle_wait_ms ?? 1500, { min: 0, max: 30000 }),
       max_video_attachment_mb: normalizeTestEngineAttachmentLimitMb(
         raw.max_video_attachment_mb,
         integrationTypeConfig.max_video_attachment_mb ?? 25

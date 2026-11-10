@@ -310,17 +310,29 @@ async function checkReadiness(workflow, targetNodeId = "", user, inputPayload) {
     if (step.kind === "repositoryAgent" && !node.data.llmIntegrationId) continue;
     if (step.kind === "artifactTask") {
       try {
-        const codes = node.data.artifactTask === 'story-assurance' ? ['requirement.view', 'requirement.ai'] : node.data.artifactTask === 'automation-engineer' ? ['requirement.view', 'automation.ai', 'automation.build', 'automation.code.view'] : ['requirement.view', 'testcase.ai'];
+        const task = node.data.artifactTask;
+        const dataOptions = task === 'test-data-generator' ? require('../workflows/testDataGenerator').validateNodeOptions(node.data) : null;
+        const codes = task === 'story-assurance' ? ['requirement.view', 'requirement.ai']
+          : task === 'automation-engineer' ? ['requirement.view', 'automation.ai', 'automation.build', 'automation.code.view']
+            : task === 'test-data-generator' ? dataOptions.source === 'dataset' ? ['data.view'] : ['data.ai']
+              : ['requirement.view', 'testcase.ai'];
         if (workflow.settings?.template_id === 'sprint-automator' && workflow.settings?.library_publication_mode === 'automatic'
-          && ['test-case-generation', 'automation-engineer'].includes(node.data.artifactTask)) {
+          && ['test-case-generation', 'automation-engineer'].includes(task)) {
           codes.push('agentic_workflow.view', 'testcase.create');
-          if (node.data.artifactTask === 'automation-engineer') codes.push('automation.view');
+          if (task === 'automation-engineer') {
+            codes.push('automation.view');
+            if (node.data.testEnvironmentId) codes.push('data.view');
+          }
         }
         await require('../workflows/artifactTasks').access(user, workflow.project_id, codes);
-        if (node.data.artifactTask === 'automation-engineer') await require('../workflows/automationNodeInputs').resolveNodeInputs({ run:{project_id:workflow.project_id,input_payload:payload},node,user,
+        if (task === 'test-data-generator' && dataOptions.source === 'dataset') await require('../workflows/testDataGenerator').loadDataSet({ run:{project_id:workflow.project_id,app_type_id:workflow.app_type_id},node,user,
           access:require('../workflows/artifactTasks').access });
-        await nodeAiConfiguration.runNode(node, {}, () => agentRegistry.resolveModel(workflow.project_id, user?.id, node.data.llmIntegrationId || text(payload.integration_id) || undefined,
-          require('../workflows/artifactTasks').taskUsageKey(node.data.artifactTask)));
+        if (task === 'automation-engineer') await require('../workflows/automationNodeInputs').resolveNodeInputs({ run:{project_id:workflow.project_id,app_type_id:workflow.app_type_id,input_payload:payload},node,user,
+          access:require('../workflows/artifactTasks').access });
+        // Test Data Generator has a safe deterministic fallback and does not
+        // block dataset-backed workflows on an unrelated model connection.
+        if (task !== 'test-data-generator') await nodeAiConfiguration.runNode(node, {}, () => agentRegistry.resolveModel(workflow.project_id, user?.id, node.data.llmIntegrationId || text(payload.integration_id) || undefined,
+          require('../workflows/artifactTasks').taskUsageKey(task)));
       } catch (failure) { report.blockers.push({ node_id: node.id, node_name: nodeName(node), message: failure.publicMessage || failure.message || "Check the native task model and permissions." }); }
       continue;
     }
@@ -725,7 +737,21 @@ async function executeLoopBody(run, node, user, signal, persist = async () => {}
       loopResult.output = { data: batch, loop_mode: 'workflow', current_batch: batchIndex + 1, total_batches: batches };
       delete loopResult.execution_context;
       if (inputLineage) {
-        const selected = batch.map(item => inputLineage.data.find(packet => item?.story_id === packet.story_id && JSON.stringify(item.story_revision) === JSON.stringify(packet.story_revision)));
+        const selected = batch.map(item => {
+          const storyMatch = inputLineage.data.find(packet => item?.story_id === packet.story_id
+            && JSON.stringify(item.story_revision) === JSON.stringify(packet.story_revision));
+          if (storyMatch) return storyMatch;
+          // Nested Sprint loops iterate a case draft while its private native
+          // checkpoint remains Story-scoped. Bind by the exact draft identity
+          // and content, never by an untrusted array position alone.
+          if (typeof item?.client_id === 'string' && item.client_id) {
+            const fingerprint = require('../workflows/artifactTasks').fingerprint;
+            const matches = inputLineage.data.filter(packet => packet.cases?.some(draft => draft?.client_id === item.client_id
+              && fingerprint(draft) === fingerprint(item)));
+            return matches.length === 1 ? matches[0] : null;
+          }
+          return null;
+        });
         if (selected.some(packet => !packet)) throw error('A loop over native artifact results must select Story items with their exact Story identity and revision.', 409);
         loopResult.execution_context = { data: selected };
       }

@@ -363,7 +363,8 @@ exports.getActiveKnowledgeForLLM = async (projectId, appTypeId, user) => {
   return allowed.map(sanitizeLegacyKnowledgeForContext);
 };
 
-exports.searchKnowledge = async (projectId, filters = {}, user) => {
+exports.searchKnowledge = async (projectId, filters = {}, user, {signal} = {}) => {
+  signal?.throwIfAborted();
   const typeFilter = normalizeAssetType(filters.asset_type);
   const text = normalizeSearchText(filters.query);
   const results = await safeKnowledgeRead(
@@ -394,6 +395,7 @@ exports.searchKnowledge = async (projectId, filters = {}, user) => {
     []
   );
 
+  signal?.throwIfAborted();
   return user ? exports.filterLegacyKnowledgeForUser(projectId, results, user) : results;
 };
 
@@ -427,8 +429,10 @@ exports.createKnowledgeRelation = async (projectId, relation, user) => {
   return { id, project_id: projectId, source_id: source.id, source_type: source.type, target_type: target.type, target_id: target.id, relation_type: relationType, metadata: {} };
 };
 
-exports.getKnowledgeRelationsBySource = async (projectId, sourceId, user) => {
+exports.getKnowledgeRelationsBySource = async (projectId, sourceId, user, {signal} = {}) => {
+  signal?.throwIfAborted();
   const relations = await safeKnowledgeRead(() => selectKnowledgeRelationsBySource.all(projectId, sourceId), []);
+  signal?.throwIfAborted();
   return filterRelationsForUser(projectId, relations, user);
 };
 
@@ -438,21 +442,34 @@ exports.getKnowledgeRelationsByTarget = async (projectId, targetId, user) => {
 };
 
 exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
+  const contextExecution=require('./knowledgeExecution.service');
+  options.signal?.throwIfAborted();
+  contextExecution.assertActive();
   const executionPolicy=require('@hellotest/platform/backend/src/utils/aiExecutionConfiguration').current()?.config?.context;
   const policy=options.feature_key ? (await require('@hellotest/platform/backend/services/aiConfiguration.service').resolve(options.feature_key)).config.context : executionPolicy;
-  const requiredError=()=>Object.assign(new Error('Required authorized MCP evidence is unavailable for this task. Review the selected sources or evidence policy before generating.'),{code:'AI_MCP_CONTEXT_REQUIRED',statusCode:503,publicMessage:'Required authorized MCP evidence is unavailable for this task. Review the selected sources or evidence policy before generating.'});
+  const gap=require('@hellotest/platform/backend/src/utils/aiPromptEnvelope').policy.context_gap;
+  const deadline=Date.now()+8000,errorCodes=[];
+  const optionalRead=async(task,fallback)=>{
+    try{return await contextExecution.bounded(task,{timeoutMs:Math.max(0,deadline-Date.now()),signal:options.signal});}
+    catch(error){
+      options.signal?.throwIfAborted();
+      contextExecution.assertActive();
+      if([401,403].includes(error.statusCode))throw error;
+      errorCodes.push(/^[A-Z][A-Z0-9_]{0,63}$/.test(error.code||'')?error.code:'MCP_CONTEXT_UNAVAILABLE');
+      return fallback;
+    }
+  };
   const itemLimit=Math.min(30,Math.max(0,Math.floor(Number(options.limit??20))),policy?.max_items??30);
   const tokenBudget=Math.min(32000,Math.max(0,Number(options.context_token_budget??5000)),policy?.token_budget??32000);
   if(!Number.isFinite(itemLimit)||!Number.isFinite(tokenBudget))throw Object.assign(new Error('Use finite knowledge evidence budgets.'),{code:'MCP_INVALID_ARGUMENT',statusCode:400});
   if(policy?.mode==='none'||itemLimit===0||tokenBudget===0){
-    if(policy?.required)throw requiredError();
     return {project_id:projectId,query:options.query||null,filters:{},knowledge:[],related_context:[],retrieval:{context_transport:'not_required',status:'NOT_REQUESTED'},context_policy:{mode:'none'}};
   }
-  const [canViewKnowledge, knowledgeFeatureEnabled] = options.user ? await Promise.all([
+  const [canViewKnowledge, knowledgeFeatureEnabled] = options.user ? await optionalRead(()=>Promise.all([
     permissionService.hasPermission(options.user, "knowledge.view", projectId),
     featureFlagService.isEnabled("hellotest.ai.knowledge", { user: options.user })
-  ]) : [false, false];
-  if ((!canViewKnowledge || !knowledgeFeatureEnabled) && !policy?.required) {
+  ]),[false,false]) : [false, false];
+  if (!canViewKnowledge || !knowledgeFeatureEnabled) {
     return {
       project_id: projectId,
       query: options.query || null,
@@ -460,13 +477,15 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
       knowledge: [],
       related_context: [],
       access_restricted: true,
-      restriction_reason: !knowledgeFeatureEnabled ? "feature_disabled" : "permission_denied"
+      restriction_reason: !knowledgeFeatureEnabled ? "feature_disabled" : "permission_denied",
+      retrieval:{context_transport:'mcp',status:errorCodes.length?'UNAVAILABLE':'ACCESS_RESTRICTED',gaps:[gap]},
+      guardrails:[knowledgeRagService.ASSISTANT_GUARDRAILS,gap].flat().filter(Boolean)
     };
   }
   const evidenceScope = require('@hellotest/platform/backend/src/utils/agentEvidenceScopeSql').normalize(options.evidence_scope);
   const hasExplicitRagScope = Object.keys(evidenceScope).length > 0 || [options.source_ids, options.collection_ids, options.source_kinds]
     .some((value) => Array.isArray(value) && value.length);
-  const legacyKnowledge = hasExplicitRagScope || !canViewKnowledge || !knowledgeFeatureEnabled ? [] : await exports.searchKnowledge(projectId, {
+  const legacyKnowledge = hasExplicitRagScope ? [] : await optionalRead(signal=>exports.searchKnowledge(projectId, {
     app_type_id: options.app_type_id,
     asset_type: options.asset_type,
     module_name: options.module_name,
@@ -475,14 +494,13 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
     query: options.query,
     priority: options.priority,
     limit: Math.min(20, itemLimit)
-  }, options.user);
+  }, options.user,{signal}),[]);
   const sanitizedLegacyKnowledge = legacyKnowledge.map(sanitizeLegacyKnowledgeForContext);
   let ragKnowledge = [];
   let retrievalSummary = null;
   let retrievalGuardrails = knowledgeRagService.ASSISTANT_GUARDRAILS;
   if (normalizeSearchText(options.query)) {
-    let retrieval;
-    try { retrieval = await require("./knowledgeRetrieval.service").retrieveSearch({
+    const retrieval = await optionalRead(signal=>require("./knowledgeRetrieval.service").retrieveSearch({
       projectId,
       query: [policy?.focus?`Evidence focus: ${policy.focus}`:null,options.query].filter(Boolean).join('\n'),
       limit: Math.min(30, itemLimit),
@@ -496,15 +514,10 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
       },
       user: options.user,
       integrationId: options.integration_id,
-      signal: options.signal,
+      signal,
       planningMode:'deterministic',
-      budgets: { max_evidence_items: Math.min(30, itemLimit), deadline_ms: 12000, max_context_tokens: tokenBudget }
-    }); } catch(error) {
-      if([401,403].includes(error.statusCode)||error.name==='AbortError'||error.code==='REQUEST_CANCELLED')throw error;
-      if(policy?.required)throw requiredError();
-      options.signal?.throwIfAborted();
-      retrieval={results:[],guardrails:retrievalGuardrails,retrieval:{context_transport:'mcp',status:'UNAVAILABLE',error_code:error.code||'MCP_CONTEXT_UNAVAILABLE',gaps:['Additional authorized knowledge is unavailable; omitted source facts remain unknown.']}};
-    }
+      budgets: { max_evidence_items: Math.min(30, itemLimit), deadline_ms: Math.max(0,deadline-Date.now()), max_context_tokens: tokenBudget }
+    }),{results:[],guardrails:retrievalGuardrails,retrieval:{context_transport:'mcp',status:'UNAVAILABLE',gaps:[gap]}});
     retrievalSummary = retrieval.retrieval;
     retrievalGuardrails = retrieval.guardrails;
     ragKnowledge = retrieval.results.map((hit) => ({
@@ -538,11 +551,10 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
     seenChunks.add(key);
     return true;
   }).slice(0, itemLimit);
-  if(policy?.required && !ragKnowledge.length)throw requiredError();
 
   const relatedContexts = [];
   if (options.source_id && !Object.keys(evidenceScope).length) {
-    const relations = await exports.getKnowledgeRelationsBySource(projectId, options.source_id, options.user);
+    const relations = await optionalRead(signal=>exports.getKnowledgeRelationsBySource(projectId, options.source_id, options.user,{signal}),[]);
     for (const relation of relations) {
       relatedContexts.push({
         id: relation.id,
@@ -557,6 +569,12 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
     }
   }
 
+  if(!knowledge.length||errorCodes.length){
+    retrievalSummary={...retrievalSummary,context_transport:'mcp',status:errorCodes.length?(knowledge.length?'PARTIAL':'UNAVAILABLE'):'NO_AUTHORIZED_EVIDENCE',
+      degraded:true,gaps:[...new Set([...(retrievalSummary?.gaps||[]),gap])],...(errorCodes.length?{error_codes:[...new Set(errorCodes)]}:{}),
+      ...(policy?.required?{evidence_requirement_unmet:!knowledge.length}:{})};
+    retrievalGuardrails=[retrievalGuardrails,gap].flat().filter(Boolean);
+  }
   return {
     project_id: projectId,
     query: options.query || null,

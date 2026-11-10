@@ -1787,6 +1787,8 @@ exports.createLocalRun = async (input = {}) => {
 exports.preparePairedLocalExecution = async(id,options={})=>{
   const execution=await exports.getExecution(id,true);
   const paired=require('@hellotest/automation/backend/services/pairedLocalExecution.service');
+  const configuredIntegration=await integrationService.getActiveIntegrationByTypeForProject('testengine',execution.project_id);
+  const configuredOptions=configuredIntegration?.config && typeof configuredIntegration.config==='object' && !Array.isArray(configuredIntegration.config) ? configuredIntegration.config : {};
   const result=await paired.prepare({execution,expectedRevision:options.expected_revision,
     plan:async()=>{
       const runtime=await loadExecutionRuntimeContext(await exports.getExecution(id,true));
@@ -1795,7 +1797,8 @@ exports.preparePairedLocalExecution = async(id,options={})=>{
       if(plan.eligibleCases?.some(item=>item.steps.some(step=>['android','ios'].includes(step.step_type))))throw paired.security.fail('The paired browser runs Web and API cases. Select a mobile runner for Android or iOS execution.',422,'PAIRED_LOCAL_PLATFORM_UNSUPPORTED');
       return plan;
     },user:{id:options.initiated_by},agentId:options.local_agent_id,applicationOrigin:options.paired_origin,requestHash:options.request_hash,
-    integration:{config:{active_web_engine:'playwright',headless:false,healing_enabled:false,trace_mode:'retain-on-failure',video_mode:'retain-on-failure'}}});
+    integration:{...(configuredIntegration||{}),config:{...configuredOptions,active_web_engine:'playwright',headless:false,healing_enabled:false,
+      trace_mode:configuredOptions.trace_mode??'retain-on-failure',video_mode:configuredOptions.video_mode??'retain-on-failure'}}});
   executionCache.delete(id);return result;
 };
 

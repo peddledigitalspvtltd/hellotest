@@ -108,6 +108,14 @@ test('authoring relevance gains default reasoning headroom while published spend
   assert.equal(payload.max_completion_tokens,expected);assert.equal(payload.reasoning_effort,'minimal');assert.equal(payload.model,'gpt-5');
  }
 });
+test('GPT-5 Defect drafting uses minimal reasoning to leave the configured completion budget for the agreed JSON outcome',()=>{
+ const {prepareChatRequest}=require('../src/utils/llmRequestPolicy');
+ const payload=prepareChatRequest(request([{role:'system',content:'Return the agreed concise JSON object.'}],{model:'gpt-5'}),{operation:'bug-draft.generate',providerUrl:'https://api.openai.com/v1/chat/completions'}).payload;
+ assert.equal(payload.reasoning_effort,'minimal');
+ assert.equal(payload.max_completion_tokens,4096);
+ const thirdParty=prepareChatRequest(request([{role:'user',content:'Draft the Defect.'}],{model:'gpt-5'}),{operation:'bug-draft.generate',providerUrl:'https://provider.example/v1/chat/completions'}).payload;
+ assert.equal(Object.hasOwn(thirdParty,'reasoning_effort'),false,'Do not send OpenAI-specific reasoning controls to third-party compatible endpoints.');
+});
 test('retrieval queries use artifact data before managed instructions consume the query budget',async()=>{
  const id='ai.requirement.optimization',base=configuration.catalog.find(item=>item.id===id).defaults,key=Object.keys(base.instruction_blocks)[0];
  const rt=runtime({[id]:{instruction_blocks:{...base.instruction_blocks,[key]:'Scaffold '.repeat(1500)}}});
@@ -284,13 +292,14 @@ test('managed stage provider uses the verified actor/project and preserves expli
 });
 test.after(()=>require('../src/db').close());
 
-test('explicit agent retrieval focus survives shared instruction expansion and required preassembled MCP evidence is enforced',async()=>{
+test('explicit agent retrieval focus and missing-evidence policy survive shared instruction expansion',async()=>{
  const id='ai.agentic.browser_decision',base=configuration.catalog.find(item=>item.id===id).defaults,key=Object.keys(base.instruction_blocks)[0];
  const rt=runtime({[id]:{context:{...base.context,required:true}}});
  const input=request([{role:'system',content:aiInstructionBlock(id,key)},{role:'user',content:'Observe this browser page'}]);
  const result=await rt.apply(input,{featureKey:id,contextRetrievalQuery:'User goal: inspect checkout acceptance',mcpContextHandled:{evidence_count:1}});
  assert.equal(result.options.contextRetrievalQuery,'User goal: inspect checkout acceptance');
- await assert.rejects(rt.apply(input,{featureKey:id,mcpContextHandled:{evidence_count:0}}),error=>error.code==='AI_MCP_CONTEXT_REQUIRED');
+ const incomplete=await rt.apply(input,{featureKey:id,mcpContextHandled:{evidence_count:0}});
+ assert.equal(incomplete.options.mcpContextPolicy.required,true);assert.equal(incomplete.options.mcpContextHandled.evidence_count,0);assert.match(incomplete.init.body,/Observe this browser page/);
 });
 
 test('host-bound verification repair has a narrow managed contract and a 600-token response cap',async()=>{

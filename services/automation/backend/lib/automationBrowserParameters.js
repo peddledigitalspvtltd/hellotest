@@ -264,6 +264,12 @@ async function loadBrowserParameterResolver({testCase,projectId,userId,caseValue
  if(!access['data.view']){
   if(test_suite_id)throw Object.assign(new Error('Test data access is required to use selected suite inputs.'),{statusCode:403,code:'AUTOMATION_BUILD_DATA_ACCESS_REQUIRED',nonRetryable:true,failure_stage:'context',automation_stage:'context',generation_provider_requests:0,browser_actions:0});
   if(Object.keys(buildParameterValues||{}).length)throw Object.assign(new Error('Test data access is required to set automation build inputs.'),{statusCode:403});
+  if(test_data_set_id)throw Object.assign(new Error('Test data access is required to use the selected Test Data Set.'),{statusCode:403});
+  if(test_environment_id){
+   const environment=await db.prepare(`SELECT * FROM test_environments WHERE id=? AND project_id=? AND (app_type_id IS NULL OR app_type_id=?)${lock?' FOR SHARE':''}`).get(test_environment_id,projectId,testCase.app_type_id);
+   if(!environment)throw Object.assign(new Error('The selected Test Environment is unavailable in this application.'),{statusCode:404});
+   return Object.assign(createBrowserParameterResolver({environment,testCase,steps,materialize,privateParameterNames}),{required_permissions:requiredPermissions});
+  }
   return Object.assign(createBrowserParameterResolver({materialize:false}),{required_permissions:requiredPermissions});
  }
  const suite=await require('./automationBuildSuiteContext').loadAutomationBuildSuiteContext({testCase,projectId,testSuiteId:test_suite_id,hasSuiteAccess:access['suite.view']===true,allowUnselectedSuite,lock,database:db});

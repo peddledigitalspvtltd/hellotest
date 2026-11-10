@@ -58,8 +58,9 @@ test('resource-specific credentials cannot be mistaken for an app session and ta
 
 test('bounded context preserves token budgets and provenance while removing credentials',()=>{
  const real=load('backplane',{'@hellotest/platform/backend/src/db':fakeDb,'./auth':{permit,fail:(message,statusCode,code)=>Object.assign(new Error(message),{statusCode,code})}});
- const result=real.bounded({max_context_tokens:2000,token_count:24,citation:{source_id:'source-a',observed_at:new Date('2026-10-06T00:00:00Z')},access_token:'private',token:'private',password:'private',headers:{Authorization:'Bearer private'},items:[{id:'a'}]});
+ const result=real.bounded({max_context_tokens:2000,token_count:24,citation:{source_id:'source-a',observed_at:new Date('2026-10-06T00:00:00Z')},access_token:'private',token:'private',view_token:'private',live_sessions:[{url:'https://runner.test/live?view_token=private'}],password:'private',headers:{Authorization:'Bearer private'},items:[{id:'a'}]});
  assert.equal(result.max_context_tokens,2000);assert.equal(result.token_count,24);assert.equal(result.citation.source_id,'source-a');assert.equal(result.citation.observed_at,'2026-10-06T00:00:00.000Z');assert.ok(!JSON.stringify(result).includes('private'));
+ assert.equal(result.live_sessions,undefined);assert.equal(result.view_token,undefined);
  assert.throws(()=>real.bounded(Array.from({length:100},()=>({content:'a'.repeat(12000)}))),{code:'MCP_RESULT_TOO_LARGE'});
 });
 

@@ -3,11 +3,12 @@ async function configuredRepairBrief() {
   const blocks=config.instruction_blocks;
   return {goal:blocks['engineRepair.goal'],screen_selection:blocks['engineRepair.screen_selection'],correction_policy:blocks['engineRepair.correction_policy'].split('\n').filter(Boolean)};
 }
-const { createInlineArtifactAttacher } = require("../domain/executionArtifacts");
+const { createInlineArtifactAttacher, hasFailureScreenshotOverride } = require("../domain/executionArtifacts");
 const db = require("@hellotest/platform/backend/src/db");
 const obsDb = require("@hellotest/platform/backend/src/obsDb");
 const { randomUUID: uuid } = require("crypto");
 const executionResultService = require("@hellotest/testing/backend/services/executionResult.service");
+const { executionWithCaseEnvironment } = require('../lib/automationExecutionEnvironment');
 const workspaceTransactionService = require("@hellotest/platform/backend/services/workspaceTransaction.service");
 const attachInlineArtifacts = createInlineArtifactAttacher((id, ref) => workspaceTransactionService.createTransactionArtifact(id, ref));
 const apiRequestExecutionService = require("./apiRequestExecution.service");
@@ -762,7 +763,7 @@ const buildProviderLiveViewUrl = (integration, provider) => {
   const configured = normalizeText(integration?.config?.live_view_url);
   try {
     const parsed = new URL(configured);
-    if (parsed.pathname === "/api/v1/live-session") {
+    if (["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password && parsed.pathname.endsWith("/api/v1/live-session")) {
       parsed.searchParams.set("provider", provider === "selenium" ? "selenium" : "playwright");
       return parsed.toString();
     }
@@ -776,8 +777,8 @@ const buildProviderLiveViewUrl = (integration, provider) => {
 
   try {
     const parsed = new URL(baseUrl);
-
-    parsed.pathname = "/api/v1/live-session";
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) return null;
+    if (!parsed.pathname.endsWith("/api/v1/live-session")) parsed.pathname = `${parsed.pathname.replace(/\/+$/, "")}/api/v1/live-session`;
     parsed.search = `?provider=${provider === "selenium" ? "selenium" : "playwright"}`;
     parsed.hash = "";
     return parsed.toString();
@@ -1069,8 +1070,11 @@ const buildEngineEnvelope = async ({
   stepsByCaseId,
   integration,
   objectRepository = [],
-  dataSetIteration = null
+  dataSetIteration = null,
+  initiatedBy,
+  environmentCache
 }) => {
+  execution = await executionWithCaseEnvironment({ execution, caseSnapshot, actorId: initiatedBy, cache: environmentCache });
   const integrationConfig = integration?.config && typeof integration.config === "object" && !Array.isArray(integration.config)
     ? integration.config
     : {};
@@ -1139,7 +1143,9 @@ const buildEngineEnvelope = async ({
       navigation_timeout_ms: Math.max(1000, normalizeInteger(integrationConfig.navigation_timeout_ms, 30000) ?? 30000),
       action_timeout_ms: Math.max(250, normalizeInteger(integrationConfig.action_timeout_ms, 5000) ?? 5000),
       assertion_timeout_ms: Math.max(250, normalizeInteger(integrationConfig.assertion_timeout_ms, 10000) ?? 10000),
-      recovery_wait_ms: Math.max(100, normalizeInteger(integrationConfig.recovery_wait_ms, 750) ?? 750)
+      recovery_wait_ms: Math.max(100, normalizeInteger(integrationConfig.recovery_wait_ms, 750) ?? 750),
+      domcontentloaded_wait_ms: Math.max(0, normalizeInteger(integrationConfig.domcontentloaded_wait_ms, 5000) ?? 5000),
+      network_idle_wait_ms: Math.max(0, normalizeInteger(integrationConfig.network_idle_wait_ms, 1500) ?? 1500)
     },
     session_policy: {
       web: {
@@ -1217,8 +1223,12 @@ const buildEngineEnvelope = async ({
     artifact_policy: {
       trace_mode: normalizeText(integrationConfig.trace_mode) || "off",
       video_mode: normalizeText(integrationConfig.video_mode) || "off",
+      screenshot_mode: ["off", "all", "passed", "failed"].includes(integrationConfig.screenshot_mode)
+        ? integrationConfig.screenshot_mode
+        : (() => { const passed = integrationConfig.screenshot_on_success !== false, failed = integrationConfig.screenshot_on_failure !== false;
+          return passed && failed ? "all" : passed ? "passed" : failed ? "failed" : "off"; })(),
       screenshot_on_failure: integrationConfig.screenshot_on_failure !== false,
-      screenshot_on_success: integration?.config?.screenshot_on_success !== false,
+      screenshot_on_success: integrationConfig.screenshot_on_success !== false,
       capture_console: integrationConfig.capture_console !== false,
       capture_network: integrationConfig.capture_network !== false,
       artifact_retention_days: Math.max(1, normalizeInteger(integrationConfig.artifact_retention_days, 7) ?? 7),
@@ -1598,6 +1608,7 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
 
   const concurrencyLimit = Math.max(1, Math.min(32, normalizeInteger(process.env.TESTENGINE_DISPATCH_CONCURRENCY, 5) || 5));
   const repositories = new Map();
+  const environmentCache = new Map();
   const prepared = [];
   for (let i = 0; i < plan.eligibleCases.length; i += concurrencyLimit) {
     const chunk = plan.eligibleCases.slice(i, i + concurrencyLimit);
@@ -1617,7 +1628,8 @@ async function queueExecutionDispatch({ plan, integration, initiatedBy }) {
         stepsByCaseId: plan.stepsByCaseId,
         integration,
         objectRepository,
-        dataSetIteration: item.data_set_iteration
+        dataSetIteration: item.data_set_iteration,
+        initiatedBy, environmentCache
       });
       const orchestrationSteps = [...item.steps, ...(envelope.hooks || []).flatMap(hook => hook.steps)];
       const orchestrationClass = resolveOrchestrationClass(orchestrationSteps, plan.appType?.type || "web");
@@ -1754,6 +1766,7 @@ async function preparePairedLocalDispatch({ plan, integration, initiatedBy, call
   const directIntegration = localPlaywrightIntegration(integration, engineHost);
   const envelopes = [];
   const repositories = new Map();
+  const environmentCache = new Map();
   for (const item of plan?.eligibleCases || []) {
     const caseId = item.case_snapshot.test_case_id;
     if (!repositories.has(caseId)) repositories.set(caseId, await listObjectRepositoryForEnvelope({
@@ -1771,7 +1784,8 @@ async function preparePairedLocalDispatch({ plan, integration, initiatedBy, call
       stepsByCaseId: plan.stepsByCaseId,
       integration: directIntegration,
       objectRepository: repositories.get(caseId),
-      dataSetIteration: item.data_set_iteration
+      dataSetIteration: item.data_set_iteration,
+      initiatedBy, environmentCache
     });
     envelope.callback = await callbackFor(item, envelope);
     envelopes.push(envelope);
@@ -1802,7 +1816,7 @@ async function preparePairedLocalDispatch({ plan, integration, initiatedBy, call
         active_web_engine: 'playwright',
         live_view_url: liveViewUrl,
         artifact_policy: envelope.artifact_policy,
-        capture_failure_override: item.steps.some(step => /^\s*\/\/\s*@hellotest-options\s+[^\r\n]*\bscreenshotOnFailure\b/i.test(step.automation_code || ''))
+        capture_failure_override: hasFailureScreenshotOverride(envelope.steps, envelope.hooks)
       },
       related_kind: 'testengine_run',
       related_id: item.engine_run_id,
@@ -1853,6 +1867,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
   const directIntegration = localPlaywrightIntegration(integration, engineHost);
   const callback = buildDirectCallback({...directIntegration,config:{...directIntegration.config,callback_secret:null}});
   const dispatchSecret = resolveTestEngineSecret();
+  const environmentCache = new Map();
 
   for (const item of plan.eligibleCases) {
     const objectRepository = await listObjectRepositoryForEnvelope({
@@ -1870,7 +1885,8 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       stepsByCaseId: plan.stepsByCaseId,
       integration: directIntegration,
       objectRepository,
-      dataSetIteration: item.data_set_iteration
+      dataSetIteration: item.data_set_iteration,
+      initiatedBy, environmentCache
     });
     const envelope = {
       ...baseEnvelope,
@@ -1903,7 +1919,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       live_view_url: isApiOnlyRun ? null : liveViewUrl,
       callback_url: callback.url,
       artifact_policy: envelope.artifact_policy,
-      capture_failure_override: item.steps.some(step => /^\s*\/\/\s*@hellotest-options\s+[^\r\n]*\bscreenshotOnFailure\b/i.test(step.automation_code || ''))
+      capture_failure_override: hasFailureScreenshotOverride(envelope.steps, envelope.hooks)
     };
     const transaction = await workspaceTransactionService.createTransaction({
       project_id: plan.execution.project_id,
@@ -2072,7 +2088,8 @@ async function queueSingleStepDispatch({
     steps: [step],
     integration,
     objectRepository,
-    dataSetIteration
+    dataSetIteration,
+    initiatedBy
   });
   const activeWebEngine = envelope.web_engine?.active || "playwright";
   const orchestrationClass = resolveOrchestrationClass([step, ...(envelope.hooks || []).flatMap(hook => hook.steps)], appType?.type || "web");
@@ -3224,7 +3241,7 @@ exports.failQueuedJob = async ({ job_id, message } = {}) => {
 };
 
 exports.getQueuedJob = getQueuedJob;
-exports._internals = { scanEligibleJobs };
+exports._internals = { scanEligibleJobs, buildProviderLiveViewUrl, buildEngineEnvelope };
 exports.planExecutionDispatch = planExecutionDispatch;
 exports.queueExecutionDispatch = queueExecutionDispatch;
 exports.runExecutionDirectLocal = runExecutionDirectLocal;
@@ -3237,11 +3254,15 @@ exports.getExecutionLiveSessions = async (execution) => {
   if (execution?.status !== "running") return [];
   const rows = await obsDb.prepare(`SELECT related_id AS engine_run_id, metadata->>'live_view_url' AS url, metadata->>'active_web_engine' AS provider,
       metadata->>'test_case_id' AS test_case_id, metadata->>'data_set_iteration_index' AS data_set_iteration_index,
-      metadata->>'data_set_iteration_key' AS data_set_iteration_key
+      metadata->>'data_set_iteration_key' AS data_set_iteration_key, created_by,
+      metadata->>'source' AS source, metadata->>'queue_mode' AS queue_mode,
+      metadata->>'paired_dispatch_id' AS paired_dispatch_id
     FROM workspace_transactions WHERE project_id = ? AND action = 'testengine_run'
       AND metadata->>'execution_id' = ? AND status IN ('queued', 'running')
     ORDER BY created_at DESC LIMIT 5000`).all(execution.project_id, execution.id);
-  return rows.flatMap(row => {
+  const integration = rows.some(row => row.source !== 'hellotest.local-run')
+    ? await require('@hellotest/integration/backend/services/integration.service').getActiveIntegrationByTypeForProject('testengine', execution.project_id).catch(() => null) : null;
+  return (await Promise.all(rows.map(async row => {
     try {
       if (!row.test_case_id || !row.engine_run_id) return [];
       const url = new URL(row.url);
@@ -3249,14 +3270,21 @@ exports.getExecutionLiveSessions = async (execution) => {
       if (["host.docker.internal", "testengine", "testengine-gateway"].includes(url.hostname)) url.hostname = "localhost";
       // A shared VNC desktop cannot identify an individual test case. Publish
       // only the engine's run-scoped viewer for case execution.
-      if (url.pathname !== "/api/v1/live-session") return [];
+      if (!url.pathname.endsWith("/api/v1/live-session")) return [];
       url.searchParams.set("provider", row.provider === "selenium" ? "selenium" : "playwright");
       url.searchParams.set("run_id", row.engine_run_id);
       const iterationIndex = row.data_set_iteration_index == null ? null : Number(row.data_set_iteration_index);
+      const provider = row.provider === 'selenium' ? 'selenium' : 'playwright';
+      const secret = row.queue_mode === 'paired-local'
+        ? await require('./pairedLocalExecution.service').callbackSecretFor({ execution,
+          payload: { engine_run_id: row.engine_run_id, hellotest_test_case_id: row.test_case_id, data_set_iteration: Number.isInteger(iterationIndex) ? { index: iterationIndex } : null },
+          transaction: { project_id: execution.project_id, created_by: row.created_by, metadata: { paired_dispatch_id: row.paired_dispatch_id, data_set_iteration_index: Number.isInteger(iterationIndex) ? iterationIndex : null } } })
+        : resolveTestEngineSecret(row.source === 'hellotest.local-run' ? undefined : integration?.config?.shared_secret);
+      url.searchParams.set('view_token', require('../lib/automationLiveViewGrant').createLiveViewGrant({ engineRunId: row.engine_run_id, provider, secret }));
       return [{ engine_run_id: row.engine_run_id, test_case_id: row.test_case_id,
         data_set_iteration_index: Number.isInteger(iterationIndex) && iterationIndex >= 0 ? iterationIndex : null,
         data_set_iteration_key: row.data_set_iteration_key || null,
-        provider: row.provider || "playwright", url: url.toString() }];
+        provider, url: url.toString() }];
     } catch { return []; }
-  });
+  }))).flat();
 };

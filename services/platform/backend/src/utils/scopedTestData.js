@@ -5,6 +5,10 @@ function normalizeDataOptions(value = {}, sharedKind) {
   if (typeof value === 'string') { try { value = JSON.parse(value); } catch { value = {}; } }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Object.assign(new Error('Test data options must be an object.'), { statusCode: 400 });
   const result = {};
+  if (value.test_environment_id != null) {
+    if (typeof value.test_environment_id !== 'string' || !/^[\w-]{1,160}$/.test(value.test_environment_id)) throw Object.assign(new Error('Choose a valid default Test Environment.'), { statusCode: 400 });
+    result.test_environment_id = value.test_environment_id;
+  }
   // Automation platform is part of the versioned case metadata. Preserve it
   // when data controls are normalized or edited independently of the Plan.
   if (value.automation_case_type != null) result.automation_case_type = require('./automationCaseType').normalizeAutomationCaseType(value.automation_case_type, { required: true });

@@ -55,6 +55,15 @@ test('SMTP verifies credentials and closes transport without sending mail', asyn
   assert.equal(result.status, 'passed'); assert.equal(verified, 1); assert.equal(closed, 1); assert.match(result.next_step, /delivery/);
 });
 test('every catalog integration has a provider check', () => assert.deepEqual([...Object.keys(fixtures), 'email'].sort(), [...INTEGRATION_TYPE_VALUES].sort()));
+test('Test Engine keeps legacy screenshot defaults and allows readiness probes to be disabled', () => {
+  const normalize = config => service._internals.normalizeConfig('testengine', config, '');
+  assert.equal(normalize({ screenshot_on_failure: true }).screenshot_mode, 'all');
+  assert.equal(normalize({ screenshot_on_success: false }).screenshot_mode, 'failed');
+  assert.equal(normalize({ screenshot_on_success: false, screenshot_on_failure: false }).screenshot_mode, 'off');
+  assert.equal(normalize({ screenshot_mode: 'passed', screenshot_on_failure: false }).screenshot_mode, 'passed', 'the explicit mode wins over legacy flags');
+  assert.equal(normalize({ domcontentloaded_wait_ms: 0, network_idle_wait_ms: 0 }).domcontentloaded_wait_ms, 0);
+  assert.equal(normalize({ domcontentloaded_wait_ms: 0, network_idle_wait_ms: 0 }).network_idle_wait_ms, 0);
+});
 for (const [status, body, expected] of [[401, {}, /credentials/], [403, {}, /denied/], [429, {}, /rate limiting/], [429, { error: { code: 'insufficient_quota', message: key } }, /quota/], [503, {}, /503/]]) test(`provider failure ${status} is actionable and never echoes secrets`, async t => {
   const calls = network(t, [response(body, status)]);
   const result = await probe.testConnection({ type: 'llm', model: 'test', api_key: key });

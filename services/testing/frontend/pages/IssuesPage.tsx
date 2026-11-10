@@ -673,6 +673,8 @@ export function IssuesPage() {
   const [isAiBugDraftEvidenceOpen, setIsAiBugDraftEvidenceOpen] = useState(false);
   const [hasAppliedBugContextDefaults, setHasAppliedBugContextDefaults] = useState(true);
   const [hasAppliedAiBugContextDefaults, setHasAppliedAiBugContextDefaults] = useState(true);
+  const autoCaseReproduction = useRef({ steps_to_reproduce: "", expected_result: "" });
+  const caseReproductionEdited = useRef({ steps_to_reproduce: false, expected_result: false });
 
   const aiBugIntegrationsQuery = useQuery({
     queryKey: ["integrations", "llm", "ai-bug-draft"],
@@ -862,6 +864,50 @@ export function IssuesPage() {
   );
   const executionById = useMemo(() => new Map(executionItems.map((execution) => [execution.id, execution])), [executionItems]);
   const testCaseById = useMemo(() => new Map(testCaseItems.map((testCase) => [testCase.id, testCase])), [testCaseItems]);
+  const defectReproductionCaseIds = useMemo(
+    () => [...new Set(draft.linked_test_case_ids)].sort(),
+    [draft.linked_test_case_ids]
+  );
+  const defectCaseReproductionQuery = useQuery({
+    queryKey: ["defect-case-reproduction", projectId, defectReproductionCaseIds],
+    queryFn: ({ signal }) => api.testCases.previewReproduction({ project_id: projectId, test_case_ids: defectReproductionCaseIds }, { signal }),
+    enabled: Boolean(isCreating && projectId && canViewTestCases && defectReproductionCaseIds.length),
+    staleTime: 30_000,
+    retry: 1
+  });
+  useEffect(() => {
+    if (!isCreating) {
+      autoCaseReproduction.current = { steps_to_reproduce: "", expected_result: "" };
+      caseReproductionEdited.current = { steps_to_reproduce: false, expected_result: false };
+    }
+  }, [isCreating]);
+  useEffect(() => {
+    if (!isCreating) return;
+    const previous = autoCaseReproduction.current;
+    if (!defectReproductionCaseIds.length) {
+      setDraft((current) => ({
+        ...current,
+        steps_to_reproduce: !caseReproductionEdited.current.steps_to_reproduce && current.steps_to_reproduce === previous.steps_to_reproduce ? "" : current.steps_to_reproduce,
+        expected_result: !caseReproductionEdited.current.expected_result && current.expected_result === previous.expected_result ? "" : current.expected_result
+      }));
+      autoCaseReproduction.current = { steps_to_reproduce: "", expected_result: "" };
+      return;
+    }
+    if (!defectCaseReproductionQuery.isSuccess || !defectCaseReproductionQuery.data) return;
+    const generated = defectCaseReproductionQuery.data;
+    setDraft((current) => ({
+      ...current,
+      steps_to_reproduce: !caseReproductionEdited.current.steps_to_reproduce
+        && (!current.steps_to_reproduce.trim() || current.steps_to_reproduce === previous.steps_to_reproduce)
+        ? generated.steps_to_reproduce
+        : current.steps_to_reproduce,
+      expected_result: !caseReproductionEdited.current.expected_result
+        && (!current.expected_result.trim() || current.expected_result === previous.expected_result)
+        ? generated.expected_result
+        : current.expected_result
+    }));
+    autoCaseReproduction.current = generated;
+  }, [defectCaseReproductionQuery.data, defectCaseReproductionQuery.isSuccess, defectReproductionCaseIds, isCreating]);
   const requirementIdsFromTestCases = (testCaseIds: string[]) =>
     Array.from(
       new Set(
@@ -1715,6 +1761,10 @@ export function IssuesPage() {
         external_links: parseExternalLinks(aiExternalLinksText),
         reference_photos: aiReferenceImages,
         linked_test_run_id: canViewRuns ? aiLinkedRunId : undefined,
+        linked_execution_result_id: canViewRuns && aiLinkedRunId === searchParams.get("run")
+          && aiLinkedCaseIds.length === 1
+          && parseQueryIdList(searchParams.get("linked_test_case_ids"), searchParams.get("testCase")).includes(aiLinkedCaseIds[0])
+          ? searchParams.get("executionResult") || undefined : undefined,
         linked_test_case_ids: canViewTestCases ? aiLinkedCaseIds : [],
         linked_requirement_ids: canViewStories ? aiLinkedRequirementIds : [],
         integration_id: aiBugIntegrationId || getLlmIntegrationId("ai.bug.draft") || undefined,
@@ -2897,7 +2947,10 @@ export function IssuesPage() {
                       appearance="canonical"
                       rows={6}
                       value={draft.steps_to_reproduce}
-                      onChange={(steps_to_reproduce) => setDraft((current) => ({ ...current, steps_to_reproduce }))}
+                      onChange={(steps_to_reproduce) => {
+                        caseReproductionEdited.current.steps_to_reproduce = true;
+                        setDraft((current) => ({ ...current, steps_to_reproduce }));
+                      }}
                     />
                   </FormField>
                   <div className="issue-form-grid issue-form-evidence-result-grid">
@@ -2907,7 +2960,10 @@ export function IssuesPage() {
                         appearance="canonical"
                         rows={5}
                         value={draft.expected_result}
-                        onChange={(expected_result) => setDraft((current) => ({ ...current, expected_result }))}
+                        onChange={(expected_result) => {
+                          caseReproductionEdited.current.expected_result = true;
+                          setDraft((current) => ({ ...current, expected_result }));
+                        }}
                       />
                     </FormField>
                     <FormField label="Actual Result">

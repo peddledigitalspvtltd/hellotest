@@ -77,6 +77,7 @@ type IntegrationDraft = {
   engine_max_repair_attempts: string;
   engine_trace_mode: "off" | "on" | "on-first-retry" | "retain-on-failure";
   engine_video_mode: "off" | "on" | "retain-on-failure";
+  engine_screenshot_mode: "off" | "all" | "passed" | "failed";
   engine_capture_console: boolean;
   engine_capture_network: boolean;
   engine_artifact_retention_days: string;
@@ -85,6 +86,8 @@ type IntegrationDraft = {
   engine_action_timeout_ms: string;
   engine_assertion_timeout_ms: string;
   engine_recovery_wait_ms: string;
+  engine_domcontentloaded_wait_ms: string;
+  engine_network_idle_wait_ms: string;
   engine_max_video_attachment_mb: string;
   engine_queue_poll_interval_minutes: string;
   engine_max_api_workers: string;
@@ -247,6 +250,7 @@ const buildEmptyDraft = (
     engine_max_repair_attempts: String(testEngineDefaults.max_repair_attempts ?? "2"),
     engine_trace_mode: (typeof testEngineDefaults.trace_mode === "string" ? testEngineDefaults.trace_mode : "on-first-retry") as IntegrationDraft["engine_trace_mode"],
     engine_video_mode: (typeof testEngineDefaults.video_mode === "string" ? testEngineDefaults.video_mode : "retain-on-failure") as IntegrationDraft["engine_video_mode"],
+    engine_screenshot_mode: (typeof testEngineDefaults.screenshot_mode === "string" ? testEngineDefaults.screenshot_mode : "all") as IntegrationDraft["engine_screenshot_mode"],
     engine_capture_console: testEngineDefaults.capture_console !== false,
     engine_capture_network: testEngineDefaults.capture_network !== false,
     engine_artifact_retention_days: String(testEngineDefaults.artifact_retention_days ?? "14"),
@@ -255,6 +259,8 @@ const buildEmptyDraft = (
     engine_action_timeout_ms: String(testEngineDefaults.action_timeout_ms ?? "5000"),
     engine_assertion_timeout_ms: String(testEngineDefaults.assertion_timeout_ms ?? "10000"),
     engine_recovery_wait_ms: String(testEngineDefaults.recovery_wait_ms ?? "750"),
+    engine_domcontentloaded_wait_ms: String(testEngineDefaults.domcontentloaded_wait_ms ?? "5000"),
+    engine_network_idle_wait_ms: String(testEngineDefaults.network_idle_wait_ms ?? "1500"),
     engine_max_video_attachment_mb: String(testEngineDefaults.max_video_attachment_mb ?? "25"),
     engine_queue_poll_interval_minutes: String(testEngineDefaults.queue_poll_interval_minutes ?? "5"),
     engine_max_api_workers: String(testEngineDefaults.max_api_workers ?? "10"),
@@ -509,6 +515,7 @@ function applyDraftDefaultsForType(type: Integration["type"], current: Integrati
       engine_max_repair_attempts: current.engine_max_repair_attempts || String(testEngineDefaults.max_repair_attempts ?? "2"),
       engine_trace_mode: (current.engine_trace_mode || String(testEngineDefaults.trace_mode || "on-first-retry")) as IntegrationDraft["engine_trace_mode"],
       engine_video_mode: (current.engine_video_mode || String(testEngineDefaults.video_mode || "retain-on-failure")) as IntegrationDraft["engine_video_mode"],
+      engine_screenshot_mode: (current.engine_screenshot_mode || String(testEngineDefaults.screenshot_mode || "all")) as IntegrationDraft["engine_screenshot_mode"],
       engine_capture_console: current.engine_capture_console,
       engine_capture_network: current.engine_capture_network,
       engine_artifact_retention_days: current.engine_artifact_retention_days || String(testEngineDefaults.artifact_retention_days ?? "14"),
@@ -517,6 +524,8 @@ function applyDraftDefaultsForType(type: Integration["type"], current: Integrati
       engine_action_timeout_ms: current.engine_action_timeout_ms || String(testEngineDefaults.action_timeout_ms ?? "5000"),
       engine_assertion_timeout_ms: current.engine_assertion_timeout_ms || String(testEngineDefaults.assertion_timeout_ms ?? "10000"),
       engine_recovery_wait_ms: current.engine_recovery_wait_ms || String(testEngineDefaults.recovery_wait_ms ?? "750"),
+      engine_domcontentloaded_wait_ms: current.engine_domcontentloaded_wait_ms || String(testEngineDefaults.domcontentloaded_wait_ms ?? "5000"),
+      engine_network_idle_wait_ms: current.engine_network_idle_wait_ms || String(testEngineDefaults.network_idle_wait_ms ?? "1500"),
       engine_max_video_attachment_mb: current.engine_max_video_attachment_mb || String(testEngineDefaults.max_video_attachment_mb ?? "25"),
       engine_queue_poll_interval_minutes: current.engine_queue_poll_interval_minutes || String(testEngineDefaults.queue_poll_interval_minutes ?? "5")
     };
@@ -620,6 +629,7 @@ function getDraftFromIntegration(
           : emptyDraft.engine_max_repair_attempts,
     engine_trace_mode: (typeof config.trace_mode === "string" ? config.trace_mode : emptyDraft.engine_trace_mode) as IntegrationDraft["engine_trace_mode"],
     engine_video_mode: (typeof config.video_mode === "string" ? config.video_mode : emptyDraft.engine_video_mode) as IntegrationDraft["engine_video_mode"],
+    engine_screenshot_mode: (typeof config.screenshot_mode === "string" ? config.screenshot_mode : emptyDraft.engine_screenshot_mode) as IntegrationDraft["engine_screenshot_mode"],
     engine_capture_console: typeof config.capture_console === "boolean" ? config.capture_console : emptyDraft.engine_capture_console,
     engine_capture_network: typeof config.capture_network === "boolean" ? config.capture_network : emptyDraft.engine_capture_network,
     engine_artifact_retention_days:
@@ -658,6 +668,8 @@ function getDraftFromIntegration(
         : typeof config.recovery_wait_ms === "string"
           ? config.recovery_wait_ms
           : emptyDraft.engine_recovery_wait_ms,
+    engine_domcontentloaded_wait_ms: String(config.domcontentloaded_wait_ms ?? emptyDraft.engine_domcontentloaded_wait_ms),
+    engine_network_idle_wait_ms: String(config.network_idle_wait_ms ?? emptyDraft.engine_network_idle_wait_ms),
     engine_max_video_attachment_mb:
       typeof config.max_video_attachment_mb === "number"
         ? String(config.max_video_attachment_mb)
@@ -795,6 +807,7 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
       max_repair_attempts: Number.parseInt(draft.engine_max_repair_attempts, 10) || 0,
       trace_mode: draft.engine_trace_mode,
       video_mode: draft.engine_video_mode,
+      screenshot_mode: draft.engine_screenshot_mode,
       capture_console: draft.engine_capture_console,
       capture_network: draft.engine_capture_network,
       artifact_retention_days: Number.parseInt(draft.engine_artifact_retention_days, 10) || 7,
@@ -803,6 +816,8 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
       action_timeout_ms: Number.parseInt(draft.engine_action_timeout_ms, 10) || 5000,
       assertion_timeout_ms: Number.parseInt(draft.engine_assertion_timeout_ms, 10) || 10000,
       recovery_wait_ms: Number.parseInt(draft.engine_recovery_wait_ms, 10) || 750,
+      domcontentloaded_wait_ms: Number.parseInt(draft.engine_domcontentloaded_wait_ms, 10),
+      network_idle_wait_ms: Number.parseInt(draft.engine_network_idle_wait_ms, 10),
       max_video_attachment_mb: Number.parseInt(draft.engine_max_video_attachment_mb, 10) || 25,
       queue_poll_interval_minutes: Number.parseFloat(draft.engine_queue_poll_interval_minutes) || 5,
       max_api_workers: Number.parseInt(draft.engine_max_api_workers, 10) || 10,
@@ -2302,8 +2317,20 @@ export function IntegrationsPage({ embedded = false, additionalProviders = NO_AD
                         />
                       </FormField>
                       <div className="empty-state compact integration-helper">
-                        Wait timings are passed into every queued web run and honored by both Playwright and Selenium locators, navigation, assertions, and repair retries.
+                        DOM and network readiness probes are best-effort. A timeout is included in the step trace and never fails the test by itself; executable assertions decide pass or fail.
                       </div>
+                    </div>
+
+                    <div className="record-grid">
+                      <FormField label="DOM Ready Probe (ms)">
+                        <input inputMode="numeric" min="0" placeholder="5000" value={draft.engine_domcontentloaded_wait_ms}
+                          onChange={(event) => setDraft((current) => ({ ...current, engine_domcontentloaded_wait_ms: event.target.value }))} />
+                      </FormField>
+                      <FormField label="Network Quiet Probe (ms)">
+                        <input inputMode="numeric" min="0" placeholder="1500" value={draft.engine_network_idle_wait_ms}
+                          onChange={(event) => setDraft((current) => ({ ...current, engine_network_idle_wait_ms: event.target.value }))} />
+                      </FormField>
+                      <div className="empty-state compact integration-helper">Set either value to 0 to disable that probe. Probes run after navigation without blocking later assertions.</div>
                     </div>
 
                     <div className="record-grid">
@@ -2336,6 +2363,15 @@ export function IntegrationsPage({ embedded = false, additionalProviders = NO_AD
                           onChange={(event) => setDraft((current) => ({ ...current, engine_max_video_attachment_mb: event.target.value }))}
                         />
                       </FormField>
+                    </div>
+
+                    <div className="record-grid">
+                      <FormField label="Step Screenshots">
+                        <select value={draft.engine_screenshot_mode} onChange={(event) => setDraft((current) => ({ ...current, engine_screenshot_mode: event.target.value as IntegrationDraft["engine_screenshot_mode"] }))}>
+                          <option value="off">Off</option><option value="all">All steps</option><option value="passed">Passed steps</option><option value="failed">Failed steps</option>
+                        </select>
+                      </FormField>
+                      <div className="empty-state compact integration-helper">This policy applies to local and queued Test Engine runs. A section can explicitly request a failure screenshot.</div>
                     </div>
 
                     <div className="record-grid">

@@ -3,7 +3,7 @@ import { registerAutomationVerification } from "./lib/automationVerification.js"
 import { registerAutomationMcp } from "./lib/automationMcp.js";
 import { registerAutomationPlaywrightMcp, PLAYWRIGHT_MCP_RUNTIME } from "./lib/automationPlaywrightMcp.js";
 import { registerQualityAgentRoutes } from "./lib/qualityAgents/routes.js";
-import Fastify from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { buildAcceptedRun, buildCapabilities } from "./lib/pipeline.js";
 import { queueRunExecution, saveAcceptedRun } from "./lib/executor.js";
@@ -19,6 +19,7 @@ import {
 } from "./lib/testEngineSecurity.js";
 import { captureLiveSessionScreenshot, getLiveSessionStatus } from "./lib/webEngine.js";
 import { createLiveViewPeerReader } from "./lib/liveViewPeers.js";
+import { createLiveViewGrant, verifyLiveViewGrant } from './lib/liveViewGrant.js';
 import type { EngineRunEnvelope } from "./contracts/hellotest.js";
 
 const port = Number.parseInt(process.env.PORT || "4301", 10);
@@ -65,7 +66,7 @@ const buildPlaywrightLiveViewUrl = () => {
 
   try {
     const parsed = new URL(publicBase);
-    parsed.pathname = "/api/v1/live-session";
+    if (!parsed.pathname.endsWith("/api/v1/live-session")) parsed.pathname = `${parsed.pathname.replace(/\/+$/, "")}/api/v1/live-session`;
     parsed.search = "?provider=playwright";
     parsed.hash = "";
     return parsed.toString();
@@ -95,6 +96,14 @@ const app = Fastify({
 const sharedSecretConfig = resolveTestEngineSharedSecret();
 const privilegedRunGuard = createPrivilegedRunGuard(sharedSecretConfig);
 const readPeerLiveScreenshot = createLiveViewPeerReader();
+const authorizeLiveView = async (request: FastifyRequest, reply: FastifyReply, runId: string, provider: 'playwright' | 'selenium', token: unknown) => {
+  const secret = verifyLiveViewGrant({ token, engineRunId: runId, provider,
+    secrets: [sharedSecretConfig.secret, getRunEnvelope(runId)?.callback?.signing_secret] });
+  if (secret) return { secret, token: token as string };
+  await privilegedRunGuard(request, reply);
+  if (reply.sent || !sharedSecretConfig.secret) return null;
+  return { secret: sharedSecretConfig.secret, token: createLiveViewGrant({ engineRunId: runId, provider, secret: sharedSecretConfig.secret }) };
+};
 const corsPolicy = resolveCorsPolicy();
 const activeDirectExecutions = new Set<Promise<void>>();
 let queueWorker: QueueWorkerController | null = null;
@@ -166,7 +175,7 @@ app.get("/health", async () => ({
 app.get("/api/v1/capabilities", async () => buildCapabilities());
 
 app.get("/api/v1/live-session/screenshot", async (request, reply) => {
-  const query = request.query as { provider?: string; run_id?: string; local_only?: string };
+  const query = request.query as { provider?: string; run_id?: string; local_only?: string; view_token?: string };
   if (query.local_only === "1") {
     await privilegedRunGuard(request, reply);
     if (reply.sent) return;
@@ -175,6 +184,8 @@ app.get("/api/v1/live-session/screenshot", async (request, reply) => {
     return reply.code(400).send({ code: "LIVE_VIEW_RUN_REQUIRED", message: "Open Live view from a test case execution to select its browser session." });
   }
   const provider = query.provider === "selenium" ? "selenium" : "playwright";
+  const grant = await authorizeLiveView(request, reply, query.run_id, provider, query.view_token);
+  if (!grant) return;
   const screenshot = await captureLiveSessionScreenshot(provider, query.run_id)
     || (query.local_only === "1" ? null : await readPeerLiveScreenshot(provider, query.run_id));
 
@@ -183,20 +194,22 @@ app.get("/api/v1/live-session/screenshot", async (request, reply) => {
     return "";
   }
 
-  reply.header("Content-Type", provider === "selenium" ? "image/png" : "image/jpeg").header("Cache-Control", "no-store");
+  reply.header("Content-Type", provider === "selenium" ? "image/png" : "image/jpeg").header("Cache-Control", "no-store")
+    .header('x-hellotest-live-view-grant', createLiveViewGrant({ engineRunId: query.run_id, provider, secret: grant.secret }));
   return screenshot;
 });
 
 app.get("/api/v1/live-session", async (request, reply) => {
-  const query = request.query as { provider?: string; format?: string; run_id?: string };
+  const query = request.query as { provider?: string; format?: string; run_id?: string; view_token?: string };
   if (typeof query.run_id !== "string" || !query.run_id.trim() || query.run_id.length > 255) {
     return reply.code(400).send({ code: "LIVE_VIEW_RUN_REQUIRED", message: "Open Live view from a test case execution to select its browser session." });
   }
   const provider = query.provider === "selenium" ? "selenium" : "playwright";
+  const grant = await authorizeLiveView(request, reply, query.run_id, provider, query.view_token);
+  if (!grant) return;
 
   if (query.format !== "json") {
     const status = getLiveSessionStatus(provider, query.run_id);
-    const screenshotPath = "/api/v1/live-session/screenshot?provider=" + provider + (query.run_id ? "&run_id=" + encodeURIComponent(query.run_id) : "");
     reply.header("Content-Type", "text/html; charset=utf-8").header("Cache-Control", "no-store").header("Referrer-Policy", "no-referrer");
     return `<!doctype html>
 <html>
@@ -221,18 +234,51 @@ app.get("/api/v1/live-session", async (request, reply) => {
     const shot = document.getElementById("shot");
     const empty = document.getElementById("empty");
     const state = document.getElementById("state");
+    const screenshotUrl = new URL(window.location.href);
+    screenshotUrl.pathname = screenshotUrl.pathname.replace(/\\/+$/, "") + "/screenshot";
+    screenshotUrl.searchParams.delete("format");
     let imageUrl;
+    let timer;
+    let closed = false;
+    window.addEventListener("pagehide", () => {
+      closed = true;
+      clearTimeout(timer);
+      if (imageUrl) URL.revokeObjectURL(imageUrl);
+    });
     async function refresh() {
-      const src = "${screenshotPath}&t=" + Date.now();
-      const response = await fetch(src, { cache: "no-store" }).catch(() => null);
-      if (!response || !response.ok || response.status === 204) {
+      if (document.visibilityState === "hidden" || closed) return;
+      const src = new URL(screenshotUrl);
+      src.searchParams.set("t", String(Date.now()));
+      const controller = new AbortController();
+      const deadline = setTimeout(() => controller.abort(), 5000);
+      let frame;
+      try {
+        const response = await fetch(src, { cache: "no-store", signal: controller.signal });
+        if ([401, 403, 410].includes(response.status)) {
+          closed = true;
+          shot.style.display = "none";
+          empty.style.display = "block";
+          empty.textContent = "Live link expired. Reopen Live Run View from this Test Case execution.";
+          state.textContent = "Authorization expired";
+          if (imageUrl) URL.revokeObjectURL(imageUrl);
+          return;
+        }
+        if (response.ok && response.status !== 204) frame = await response.blob();
+        const renewed = response.headers?.get("x-hellotest-live-view-grant");
+        if (renewed && frame) screenshotUrl.searchParams.set("view_token", renewed);
+      } catch { /* A temporary worker/proxy failure is retried by the next frame. */ }
+      finally { clearTimeout(deadline); }
+      if (!frame || !/^image\\/(?:jpeg|png)$/.test(frame.type) || frame.size > 8 * 1024 * 1024) {
+        if (imageUrl) URL.revokeObjectURL(imageUrl);
+        imageUrl = undefined;
         shot.removeAttribute("src");
         shot.style.display = "none";
         empty.style.display = "block";
         state.textContent = "Waiting for this test case";
         return;
       }
-      const nextImageUrl = URL.createObjectURL(await response.blob());
+      if (closed) return;
+      const nextImageUrl = URL.createObjectURL(frame);
       shot.src = nextImageUrl;
       if (imageUrl) URL.revokeObjectURL(imageUrl);
       imageUrl = nextImageUrl;
@@ -240,7 +286,7 @@ app.get("/api/v1/live-session", async (request, reply) => {
       empty.style.display = "none";
       state.textContent = "Connected";
     }
-    async function poll() { try { await refresh(); } finally { setTimeout(poll, 1000); } }
+    async function poll() { try { await refresh(); } finally { if (!closed) timer = setTimeout(poll, 1000); } }
     poll();
   </script>
 </body>
@@ -253,9 +299,10 @@ app.get("/api/v1/live-session", async (request, reply) => {
   let caseLiveViewUrl: string | null = null;
   try {
     const url = new URL(playwrightLiveViewUrl || "");
-    url.pathname = "/api/v1/live-session";
+    if (!url.pathname.endsWith("/api/v1/live-session")) url.pathname = `${url.pathname.replace(/\/+$/, "")}/api/v1/live-session`;
     url.searchParams.set("provider", provider);
     if (query.run_id) url.searchParams.set("run_id", query.run_id);
+    url.searchParams.set('view_token', grant.token);
     caseLiveViewUrl = url.toString();
   } catch {}
 

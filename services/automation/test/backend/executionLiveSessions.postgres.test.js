@@ -18,6 +18,8 @@ test('dispatched live sessions use native PostgreSQL metadata and cannot cross p
    ['secret-url','project-a','run-a','https://user:private@example.test/live']
   ]) await obs.prepare("INSERT INTO workspace_transactions(id,project_id,category,action,status,title,related_kind,related_id,metadata) VALUES (?,?,'automation','testengine_run','running',?,'testengine_run',?,?)").run(id,project,id,id,{execution_id:execution,test_case_id:'case-a',live_view_url:url,active_web_engine:'playwright'});
   const sessions=await dispatch.getExecutionLiveSessions({id:'run-a',project_id:'project-a',status:'running'});
+  assert.ok(new URL(sessions[0].url).searchParams.get('view_token'));
+  const publicUrl=new URL(sessions[0].url);publicUrl.searchParams.delete('view_token');sessions[0].url=publicUrl.toString();
   assert.deepEqual(sessions,[{engine_run_id:'matching',test_case_id:'case-a',data_set_iteration_index:null,data_set_iteration_key:null,provider:'playwright',url:'http://localhost:4313/api/v1/live-session?provider=playwright&run_id=matching'}]);
   await obs.prepare("UPDATE workspace_transactions SET status='completed' WHERE id='matching'").run();
   assert.deepEqual(await dispatch.getExecutionLiveSessions({id:'run-a',project_id:'project-a',status:'running'}),[]);

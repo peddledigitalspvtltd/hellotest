@@ -75,7 +75,8 @@ test('reviewed context stays separate unverified user input anchored only to mat
     const result = await retrieveAgentContext({ testCase: { id: 'case-1', project_id: 'project-1', app_type_id: 'app-1', title: 'Signup' }, userId: 'author', selection: selection('Review the account confirmation in the supplied story.'), policy: { mode: 'mcp', required: true, max_items: 12, token_budget: 2000 } });
     assert.equal(result.knowledge.length, 1);
     assert.deepEqual(result.knowledge[0], source);
-    assert.deepEqual(result.limitations, packet.limitations);
+    assert.deepEqual({...result.limitations,delivery_gaps:undefined},{...packet.limitations,delivery_gaps:undefined});
+    assert.match(result.limitations.delivery_gaps[0],/missing evidence as a gap/);
     assert.equal(result.reviewed_context.kind, 'user_reviewed_supplement');
     assert.equal(result.reviewed_context.trust, 'unverified_user_input');
     assert.deepEqual(result.reviewed_context.current_evidence_ids, ['K-fragment-7']);
@@ -114,7 +115,8 @@ test('reviewed text is dropped for disabled/deselected contexts, empty or unmatc
     const empty = await retrieveAgentContext(input);
     assert.equal(empty.reviewed_context, undefined);
     assert.match(empty.supplemental_limitations[0], /no authorized evidence/);
-    await assert.rejects(retrieveAgentContext({ ...input, policy: { mode: 'mcp', required: true, token_budget: 2000, max_items: 12 } }), { code: 'AI_MCP_CONTEXT_REQUIRED' });
+    const required=await retrieveAgentContext({ ...input, policy: { mode: 'mcp', required: true, token_budget: 2000, max_items: 12 } });
+    assert.deepEqual(required.knowledge,[]);assert.equal(required.reviewed_context,undefined);assert.match(required.limitations[0],/missing evidence as a gap/);
     returned = [{ ...evidence(), source_id: 'another-source' }];
     assert.equal((await retrieveAgentContext(input)).reviewed_context, undefined);
     returned = [{ ...evidence(), source_kind: 'bug' }];

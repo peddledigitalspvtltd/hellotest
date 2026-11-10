@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { buildCapabilities, resolveMobilePlatform } from '../src/mobileCapabilities.js';
 import { executeMobileStepsWithDriver, app } from '../src/server.js';
 import { createExecutionSessions } from '../src/executionSessions.js';
+const { buildMobileRecorderPlan } = createRequire(import.meta.url)('../../../services/automation/backend/domain/mobileRecorderPlan.js');
 
 test('iOS targets XCUITest and preserves native app/device identity', () => {
   const result = buildCapabilities({ platform_name: 'ios', config: { device_name: 'iPhone 16', bundle_id: 'app.hello', udid: 'device', android_app: 'wrong.apk', ios_app: 'right.ipa', provider_options: { platformName: 'Android' } } });
@@ -34,6 +36,43 @@ test('native code executes aliases, repository bindings, captures and configured
   const placeholder = await executeMobileStepsWithDriver(driver, { steps: [{ id: 'bad', step_type: 'android', automation_code: 'await android.aiStep("log in");' }] });
   assert.equal(placeholder.status, 'failed');
   assert.match(placeholder.results[0].note, /no executable automation/);
+});
+
+test('mobile local execution inherits engine timeout, honors per-step timeout, and applies screenshot mode', async () => {
+  const timeouts = [], screenshots = [];
+  const driver = {
+    setTimeout: async value => { timeouts.push(value.implicit); },
+    $: () => ({ waitForDisplayed: async ({ timeout }) => { timeouts.push(timeout); }, click: async () => {} }),
+    takeScreenshot: async () => { screenshots.push('captured'); return 'cG5n'; }
+  };
+  const step = automation_code => ({ id: 'wait', step_type: 'android', automation_code });
+  const recordedCode = buildMobileRecorderPlan({ caseId: 'case', applicationPlatform: 'android', capturedActions: [{ type: 'tap', locator: '~late' }] })[0].input.automation_code;
+  const timed = await executeMobileStepsWithDriver(driver, {
+    timeouts: { action_timeout_ms: 7000 },
+    artifact_policy: { screenshot_mode: 'passed' },
+    steps: [step('// @hellotest-options timeoutMs=3000\n' + recordedCode)]
+  });
+  assert.equal(timed.results[0].status, 'passed');
+  assert.deepEqual(timeouts, [3000, 3000, 7000]);
+  assert.match(timed.results[0].evidence.dataUrl, /^data:image\/png/);
+  timeouts.length = 0;
+  await executeMobileStepsWithDriver(driver, { timeouts: { action_timeout_ms: 7000 }, steps: [step(recordedCode)] });
+  assert.deepEqual(timeouts, [7000, 7000, 7000], 'the engine default is used for actions and restored after each step');
+
+  const failingDriver = {
+    setTimeout: async () => {},
+    $: () => ({ waitForDisplayed: async () => { throw new Error('not ready'); } }),
+    takeScreenshot: async () => { screenshots.push('failed'); return 'cG5n'; }
+  };
+  const noFailedEvidence = await executeMobileStepsWithDriver(failingDriver, {
+    artifact_policy: { screenshot_mode: 'passed' }, steps: [step('await android.waitForDisplayed("~late");')]
+  });
+  assert.equal(noFailedEvidence.results[0].status, 'failed');
+  assert.equal(noFailedEvidence.results[0].evidence, null);
+  const failedEvidence = await executeMobileStepsWithDriver(failingDriver, {
+    artifact_policy: { screenshot_mode: 'failed' }, steps: [step('await android.waitForDisplayed("~late");')]
+  });
+  assert.match(failedEvidence.results[0].evidence.dataUrl, /^data:image\/png/);
 });
 
 test('device sessions are bounded, keep state across blocks, and release on failure', async () => {

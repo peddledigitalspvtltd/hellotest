@@ -10,18 +10,21 @@ import { sprintStoriesUrl } from "./sprintStoriesUrl";
 export function WorkflowOperationFields({
   data,
   projectId,
+  appTypeId,
   canRun,
   triggerInput,
   onChange,
 }: {
   data: AgenticWorkflowNodeData;
   projectId: string;
+  appTypeId: string;
   canRun: boolean;
   triggerInput?: Record<string, unknown>;
   onChange: (patch: Partial<AgenticWorkflowNodeData>) => void;
 }) {
   const kind = String(data.kind);
   const automation = kind === "artifactTask" && data.artifactTask === "automation-engineer";
+  const testDataGenerator = kind === "artifactTask" && data.artifactTask === "test-data-generator";
   const usesConnection = [
     "apiTool",
     "apiAgent",
@@ -31,12 +34,27 @@ export function WorkflowOperationFields({
   const connections = useQuery({
     queryKey: ["workflow-connections", projectId],
     queryFn: () => agenticApi.agenticWorkflows.connections(projectId),
-    enabled: Boolean(projectId && (usesConnection || automation)),
+    enabled: Boolean(projectId && usesConnection),
     staleTime: 30000,
     refetchOnWindowFocus: "always",
     refetchOnMount: "always",
   });
   const connection = connections.data?.find(item => item.id === data.connectionId);
+  const testDataSets = useQuery({
+    queryKey: ["workflow-test-data-sets", projectId, appTypeId],
+    queryFn: ({ signal }) => agenticApi.workflowTestDataSets.list({ project_id: projectId, ...(appTypeId ? { app_type_id: appTypeId } : {}) }, { signal }),
+    enabled: Boolean(projectId && appTypeId && testDataGenerator),
+    retry: false,
+    staleTime: 30000,
+  });
+  const testEnvironments = useQuery({
+    queryKey: ["workflow-test-environments", projectId, appTypeId],
+    queryFn: ({ signal }) => agenticApi.workflowTestEnvironments.list({ project_id: projectId, ...(appTypeId ? { app_type_id: appTypeId } : {}) }, { signal }),
+    enabled: Boolean(projectId && appTypeId && automation),
+    retry: false,
+    staleTime: 30000,
+  });
+  const selectedEnvironment = testEnvironments.data?.find(item => item.id === data.testEnvironmentId);
   const mcp = useQuery({
     queryKey: ["workflow-mcp-tools", projectId, data.connectionId, connection?.discovered_at || connection?.url],
     queryFn: ({ signal }) =>
@@ -128,20 +146,31 @@ export function WorkflowOperationFields({
           {field("generationInstructions", "Generation guidance (optional)", true, "Additional coverage or test data requirements")}
           <p className="studio-caption">Uses the current Story title, description and acceptance criteria. Saved cases are AI generated and pending review.</p>
         </div>}
+        {testDataGenerator && <div className="studio-parameter-group">
+          <h4>Case test data</h4>
+          {select("testDataSource", "Data source", [["synthetic", "Generate synthetic data"], ["dataset", "Use a Test Data Set"]], "synthetic")}
+          {data.testDataSource === "dataset" && <>
+            <label><span>Test Data Set</span><select aria-label="Test Data Set" value={String(data.testDataSetId || "")} onChange={event => onChange({ testDataSetId: event.target.value })}>
+              <option value="">Choose a Test Data Set</option>
+              {data.testDataSetId && !testDataSets.data?.some(item => item.id === data.testDataSetId) ? <option value={String(data.testDataSetId)}>Unavailable Test Data Set · choose another</option> : null}
+              {(testDataSets.data || []).map(item => <option key={item.id} value={item.id}>{item.name}{item.app_type_id ? " · application" : " · shared"}</option>)}
+            </select></label>
+            <div className="studio-parameter-actions"><button type="button" className="ghost-button compact" disabled={testDataSets.isFetching} onClick={() => void testDataSets.refetch()}><IconRefresh size={14} />Refresh</button></div>
+            {testDataSets.isError ? <p role="alert">Test Data Sets could not be loaded. Refresh to retry.</p> : !testDataSets.isFetching && !testDataSets.data?.length ? <p role="status">No Test Data Sets are available for this project and application.</p> : null}
+          </>}
+          <p className="studio-caption">Runs once per selected Test Case. Dataset mode maps a matching row and keeps secret values protected; synthetic mode creates safe sample values. Missing fixtures and credentials remain visible for review.</p>
+        </div>}
         {automation && <div className="studio-parameter-group">
-          <h4>Application and test data</h4>
-          {field("automationStartUrl", "Application URL", false, "https://your-application.example")}
-          {field("automationUsername", "Username (optional)", false)}
-          <label><span>Password connection</span><select aria-label="Password connection" value={String(data.automationCredentialId || "")} onChange={event => onChange({ automationCredentialId: event.target.value })}>
-            <option value="">No password · use case parameters</option>
-            {data.automationCredentialId && !connections.data?.some(item => item.id === data.automationCredentialId && item.authType === "basic") ? <option value={String(data.automationCredentialId)}>Unavailable credential · choose another</option> : null}
-            {connections.data?.filter(item => item.kind === "http" && item.authType === "basic" && item.authenticated).map(item => <option key={item.id} value={item.id}>{item.name}{item.username ? ` · ${item.username}` : ""}</option>)}
+          <h4>Test environment</h4>
+          <label><span>Test Environment</span><select aria-label="Test Environment" value={String(data.testEnvironmentId || "")} onChange={event => onChange({ testEnvironmentId: event.target.value })}>
+            <option value="">Choose a Test Environment</option>
+            {data.testEnvironmentId && !selectedEnvironment ? <option value={String(data.testEnvironmentId)}>Unavailable environment · choose another</option> : null}
+            {(testEnvironments.data || []).map(item => <option key={item.id} value={item.id}>{item.name}{item.base_url ? ` · ${item.base_url}` : item.app_type_id ? " · application" : " · shared"}</option>)}
           </select></label>
-          <div className="studio-parameter-actions"><Link to="/integrations?provider=http" target="_blank" rel="noreferrer" className="studio-caption">Manage passwords</Link><button type="button" className="ghost-button compact" disabled={connections.isFetching} onClick={() => void connections.refetch()}><IconRefresh size={14} />Refresh</button></div>
-          {connections.isError ? <p role="alert">Password connections could not be loaded. Refresh to retry.</p> : null}
-          <p className="studio-caption">Add an HTTP connection with Basic authentication for this application URL. Its protected password is supplied as @t.password; the username uses @t.username.</p>
-          {field("automationData", "Test data JSON", true, '{"invoice_id":"known-invoice","region":"EU"}')}
-          <p className="studio-caption">JSON object, up to 16 KB. Values override matching case parameters. Use parameter references for sensitive data. Cases are built in order and completed results are retained. Uncertain browser actions stop the workflow for review.</p>
+          <div className="studio-parameter-actions"><button type="button" className="ghost-button compact" disabled={testEnvironments.isFetching} onClick={() => void testEnvironments.refetch()}><IconRefresh size={14} />Refresh</button></div>
+          {testEnvironments.isError ? <p role="alert">Test Environments could not be loaded. Refresh to retry.</p> : !testEnvironments.isFetching && !testEnvironments.data?.length ? <p role="status">No Test Environments are available for this project and application.</p> : null}
+          {selectedEnvironment ? <p className="studio-caption">{selectedEnvironment.base_url || "No base URL configured"}{selectedEnvironment.variables?.length ? ` · ${selectedEnvironment.variables.length} variables, including protected values` : " · no environment variables"}</p> : null}
+          <p className="studio-caption">The environment provides the application URL and scoped variables such as @t.username and @t.password. The Test Data Generator supplies case-specific values to this node; secrets stay protected in the environment.</p>
         </div>}
         {automation && <>
           {select("automationBrowserMode", "Browser generation", [["perform_steps", "Perform the test steps"], ["read_only", "Inspect the starting page only"], ["offline", "Generate without a browser"]], data.inspectBrowser === false ? "offline" : "read_only")}

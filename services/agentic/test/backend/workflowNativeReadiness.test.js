@@ -46,6 +46,20 @@ test('native readiness resolves the exact feature defaults with trigger and node
   assert.ok(calls.every(call => call[2] === undefined && call[3].startsWith('ai.')));
 });
 
+test('Automation Engineer readiness checks its Test Environment against the workflow application', async t => {
+  allow(t);
+  t.mock.method(registry, 'resolveModel', async () => ({ id: 'model' }));
+  const environments = require('@hellotest/testing/backend/services/testEnvironment.service');
+  let appTypeId = 'app';
+  t.mock.method(environments, 'getTestEnvironment', async id => ({ id, project_id: 'project', app_type_id: appTypeId, base_url: 'https://fixture.example.test/', variables: [] }));
+  const workflow = graph(); workflow.nodes.find(item => item.id === 'automation-engineer').data.testEnvironmentId = 'selected-environment';
+  assert.equal((await runtime.checkReadiness(workflow, '', user, { sprint_id: 'sprint' })).ready, true);
+  appTypeId = 'another-app';
+  const report = await runtime.checkReadiness(workflow, '', user, { sprint_id: 'sprint' });
+  assert.equal(report.ready, false);
+  assert.ok(report.blockers.some(item => item.node_id === 'automation-engineer' && /project and application/.test(item.message)));
+});
+
 test('invalid native input fails before model resolution and input changes cannot reuse readiness', async t => {
   allow(t);
   const model = t.mock.method(registry, 'resolveModel', async () => ({ id: 'model' }));
@@ -117,4 +131,21 @@ test('automatic publication checks Library write grants before any native task s
   assert.ok(report.blockers.some(item=>item.node_id==='automation-engineer'&&/testcase.create/.test(item.message)));
   workflow.settings.library_publication_mode='manual';
   assert.equal((await runtime.checkReadiness(workflow,'',user,{sprint_id:'sprint'})).ready,true);
+});
+
+test('automatic environment publication checks data metadata permission before generation starts', async t => {
+  allow(t);
+  t.mock.method(registry, 'resolveModel', async () => ({ id: 'model' }));
+  t.mock.method(permissions, 'hasPermission', async (_user, code) => code !== 'data.view');
+  t.mock.method(require('@hellotest/testing/backend/services/testEnvironment.service'), 'getTestEnvironment', async id => ({ id,
+    project_id: 'project', app_type_id: 'app', base_url: 'https://fixture.example.test/', variables: [] }));
+  const workflow = graph();
+  workflow.settings = { template_id: 'sprint-automator', library_publication_mode: 'automatic' };
+  workflow.nodes.find(node => node.id === 'automation-engineer').data.testEnvironmentId = 'environment';
+  const report = await runtime.checkReadiness(workflow, '', user, { sprint_id: 'sprint' });
+  assert.equal(report.ready, false);
+  assert.ok(report.blockers.some(item => item.node_id === 'automation-engineer' && /data.view/.test(item.message)));
+  workflow.settings.library_publication_mode = 'manual';
+  assert.equal((await runtime.checkReadiness(workflow, '', user, { sprint_id: 'sprint' })).ready, true,
+    'Environment inspection remains independently authorized by environment.view; saving its default metadata additionally requires data.view.');
 });

@@ -19,15 +19,26 @@ test('retrieval pins the current case, honors selected sources and uses the sign
  assert.equal(input.filters.evidence_scope.sprint_id,'202610150001');assert.equal(input.filters.evidence_scope.story_id,'story');assert.ok(!Object.hasOwn(input.filters.evidence_scope,'execution_id'));assert.ok(!Object.hasOwn(input.filters.evidence_scope,'build'));assert.ok(!Object.hasOwn(input.filters.evidence_scope,'environment_id'));
  }finally{Module._load=original;}
 });
-test('MCP failures preserve explicit fallback, required evidence fails closed and caller cancellation stops retrieval',async()=>{
+test('MCP limits and failures retain a guarded generation path even for required retrieval while caller cancellation stops it',async()=>{
  const original=Module._load;let calls=0,captured;const controller=new AbortController();
  Module._load=function(id,...args){if(id==='@hellotest/mcp/backend/gateway')return {retrievePacket:async args=>{calls++;captured=args;if(args.signal)controller.abort(new Error('Cancelled automation build'));throw Object.assign(new Error('Unavailable'),{code:'MCP_UNAVAILABLE'});}};return original.call(this,id,...args);};
  const args={testCase:{id:'case',project_id:'project',app_type_id:'app',title:'Saved behavior'},userId:'reviewer',selection:{context_scopes:['test-cases']},prompt:'Build this case'};
  try {
   const fallback=await retrieveAgentContext(args);assert.deepEqual(fallback.knowledge,[]);assert.match(fallback.limitations[0],/MCP_UNAVAILABLE/);
-  await assert.rejects(retrieveAgentContext({...args,policy:{mode:'mcp',required:true,max_items:12,token_budget:2000}}),{code:'AI_MCP_CONTEXT_REQUIRED',statusCode:503});
+  const required=await retrieveAgentContext({...args,policy:{mode:'mcp',required:true,max_items:12,token_budget:2000}});assert.deepEqual(required.knowledge,[]);assert.match(required.limitations[0],/Complete only the selected feature's task/);
   await assert.rejects(retrieveAgentContext({...args,signal:controller.signal}),/Cancelled automation build/);assert.equal(captured.signal,controller.signal);
   const before=calls;await assert.rejects(retrieveAgentContext({...args,signal:controller.signal}),/Cancelled automation build/);assert.equal(calls,before);
   const disabled=await retrieveAgentContext({...args,policy:{mode:'none'}});assert.equal(disabled.context_transport,'not_required');assert.equal(calls,before);
+ }finally{Module._load=original;}
+});
+
+test('empty authorized retrieval stays an explicit evidence gap while access and scope failures propagate',async()=>{
+ const original=Module._load;let result={evidence:[],limitations:[]},failure;
+ Module._load=function(id,...args){if(id==='@hellotest/mcp/backend/gateway')return {retrievePacket:async()=>{if(failure)throw failure;return result;}};return original.call(this,id,...args);};
+ const args={testCase:{id:'case',project_id:'project',app_type_id:'app'},userId:'actor',selection:{context_scopes:['test-cases']},policy:{mode:'mcp',required:true,max_items:12,token_budget:2000}};
+ try {
+  assert.match((await retrieveAgentContext(args)).limitations[0],/missing evidence as a gap/);
+  for(const statusCode of [401,403]){failure=Object.assign(new Error('Denied'),{statusCode});await assert.rejects(retrieveAgentContext(args),failure);}
+  failure=null;const excluded=await retrieveAgentContext({...args,selection:{context_scopes:[]}});assert.deepEqual(excluded.knowledge,[]);assert.match(excluded.limitations.join(' '),/pinned case/);
  }finally{Module._load=original;}
 });

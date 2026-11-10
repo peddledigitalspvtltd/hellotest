@@ -99,7 +99,7 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
   await new Promise(resolve => provider.listen(0,'127.0.0.1',resolve));
   let runningId;
   try {
-    await db.prepare("INSERT INTO role_permissions(role_id,permission_id) SELECT member.role_id,permission.id FROM project_members member CROSS JOIN permissions permission WHERE member.project_id=? AND member.user_id=? AND permission.code IN ('automation.ai','automation.build','knowledge.view','requirement.view','testcase.view') ON CONFLICT DO NOTHING").run(projectId,user.id);
+    await db.prepare("INSERT INTO role_permissions(role_id,permission_id) SELECT member.role_id,permission.id FROM project_members member CROSS JOIN permissions permission WHERE member.project_id=? AND member.user_id=? AND permission.code IN ('automation.ai','automation.build','data.ai','knowledge.view','requirement.view','testcase.view') ON CONFLICT DO NOTHING").run(projectId,user.id);
     const integrationId = (await require('../../../../integration/backend/services/integration.service').createIntegration({type:'llm',name:'Disposable native HTTP provider',base_url:`http://127.0.0.1:${provider.address().port}/v1`,api_key:providerCredential,model:'native-http-fixture',config:{project_id:projectId},is_active:true})).id;
     const sprintId=randomUUID(), storyIds=[randomUUID(),randomUUID()];
     await db.prepare("INSERT INTO requirement_iterations(id,project_id,name,state,created_by) VALUES(?,?,?,'active',?)").run(sprintId,projectId,'Native HTTP pipeline Sprint',user.id);
@@ -286,30 +286,50 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     // Verify the same real HTTP/model/database services through explicit Loop,
     // Continue and Done edges, including receipts from earlier batches.
     connectedMode=true;multiCaseMode=false;incompleteReadiness=false;blockAutomation=false;
-    const connectedWorkflow=require('../../../../agentic/backend/workflows/sprintWorkflowMigration').upgradeSprintWorkflow({...automaticWorkflow,id:randomUUID()});
+    const nodeIds={request:'request',stories:'sprint-stories',each:'each-story',finish:'sprint-output'};
+    const versionTwoTemplate={...automaticWorkflow,id:randomUUID(),settings:{...automaticWorkflow.settings,template_version:2},
+      nodes:automaticWorkflow.nodes.map(node=>({...node,id:nodeIds[node.id]||node.id,
+        ...(node.id==='each'?{data:{...node.data,loopAction:'workflow',loopSourceKey:'input.items',loopBatchSize:'1'}}:{})})),
+      edges:[
+        {source:'request',target:'sprint-stories'}, {source:'sprint-stories',target:'each-story'},
+        {source:'each-story',target:'story-assurance',sourceHandle:'loop'},
+        {source:'story-assurance',target:'test-case-generation'}, {source:'test-case-generation',target:'test-case-assurance'},
+        {source:'test-case-assurance',target:'automation-engineer'},
+        {source:'automation-engineer',target:'each-story',targetHandle:'continue'},
+        {source:'each-story',target:'sprint-output',sourceHandle:'done'}
+      ]};
+    const connectedWorkflow=require('../../../../agentic/backend/workflows/sprintWorkflowMigration').upgradeSprintWorkflow(versionTwoTemplate);
+    assert.equal(connectedWorkflow.nodes.length,10,'A persisted v2 Sprint graph migrates to the nested case loop and Test Data Generator.');
     const connectedInput={...input,request_id:randomUUID()};
     const connectedCallStart=calls.length;
     const connectedStart=await runtime.start(connectedWorkflow,connectedInput,user);runningId=connectedStart.id;
     await runtime._internals.active.get(connectedStart.id)?.promise;
     const connectedRun=await runtime._internals.store.get(connectedStart.id);
     assert.equal(connectedRun.status,'completed',JSON.stringify({output:connectedRun.output_payload,errors:connectedRun.node_results.filter(row=>row.error).map(row=>({id:row.node_id,error:row.error})),failures}));
-    const connectedLoop=connectedRun.node_results.find(row=>row.node_id==='each');
+    const connectedLoop=connectedRun.node_results.find(row=>row.node_id==='each-story');
     assert.deepEqual(calls.slice(connectedCallStart).filter(call=>['story-assurance','test-case-generation','test-case-assurance','automation'].includes(call.kind)).map(call=>call.kind),
       ['story-assurance','test-case-generation','test-case-assurance','automation','story-assurance','test-case-generation','test-case-assurance','automation'],
       'Every Story completes the entire native chain before the next Story starts');
     assert.equal(connectedLoop.output.total_batches,2);
     assert.deepEqual(connectedLoop.output.data.map(packet=>packet.story_id).sort(),[...storyIds].sort());
-    for(const task of ['story-assurance','test-case-generation','test-case-assurance','automation-engineer']) {
+    for(const task of ['story-assurance','test-case-generation','test-case-assurance','test-data-generator','automation-engineer']) {
       const record=connectedRun.node_results.find(row=>row.node_id===task);
       assert.equal(record.iterations.length,2,task);
       assert.ok(record.iterations.every(iteration=>iteration.status==='completed' && iteration.input.input.length===1));
       assert.equal(new Set(record.iterations.map(iteration=>iteration.output.data[0].story_id)).size,2);
     }
+    const prepared=connectedRun.node_results.find(row=>row.node_id==='test-data-generator').iterations.map(iteration=>iteration.output.data[0]);
+    assert.ok(prepared.every(row=>row.test_data.status==='ready'&&row.test_data.source==='synthetic'));
+    const built=connectedRun.node_results.find(row=>row.node_id==='automation-engineer').iterations.map(iteration=>iteration.output.data[0]);
+    assert.ok(built.every(row=>row.automation[0].validation.status==='passed'&&row.test_data.status==='ready'));
     assert.equal((await db.prepare('SELECT COUNT(*)::integer AS count FROM test_cases WHERE source_idempotency_key LIKE ?').get(`workflow-draft:${connectedStart.id}:%`)).count,4);
     assert.match(connectedRun.output_payload.summary,/Saved 2 manual Test Cases/);
     assert.match(connectedRun.output_payload.summary,/Saved 2 automation Test Cases/);
+    const firstAutomationIteration=connectedRun.node_results.find(row=>row.node_id==='automation-engineer').iterations
+      .find(iteration=>iteration.output?.data?.[0]?.story_id===storyIds[0]);
+    assert.deepEqual(firstAutomationIteration.iteration_path,['each-story',0,'each-test-case',0]);
     const acceptedHistory=await app.inject({method:'POST',url:`/agentic-workflow-runs/${connectedStart.id}/drafts/accept`,headers,
-      payload:{node_id:'automation-engineer',story_index:0,case_index:0,kind:'manual',iteration_path:['each',0]}});
+      payload:{node_id:'automation-engineer',story_index:0,case_index:0,kind:'manual',iteration_path:firstAutomationIteration.iteration_path}});
     assert.equal(acceptedHistory.statusCode,200,acceptedHistory.body);
     assert.equal(acceptedHistory.json().reused,true);
     const invalidHistory=await app.inject({method:'POST',url:`/agentic-workflow-runs/${connectedStart.id}/drafts/accept`,headers,
@@ -336,22 +356,33 @@ module.exports = async function nativePipeline({ app, db, projectId, appId, user
     const failureStart=await runtime.start(connectedWorkflow,failureInput,user);runningId=failureStart.id;
     await runtime._internals.active.get(failureStart.id)?.promise;
     const failedRun=await runtime._internals.store.get(failureStart.id);
-    assert.equal(failedRun.status,'failed');
+    assert.equal(failedRun.status,'needs_review',JSON.stringify(failedRun.output_payload));
     const failedAssurance=failedRun.node_results.find(row=>row.node_id==='test-case-assurance');
-    assert.equal(failedAssurance.error_details.code,'AI_OUTPUT_SCHEMA_VIOLATION');
-    assert.equal(failedAssurance.error_details.category,'validation');assert.equal(failedAssurance.error_details.retryable,false);
-    assert.equal(failedAssurance.error_details.origin.node_id,'test-case-assurance');
-    assert.equal(failedAssurance.error_details.origin.batch_index,0);
-    assert.equal(failedAssurance.error_details.artifact.case_index,0);
-    assert.ok(storyIds.includes(failedAssurance.error_details.artifact.story_id));
-    assert.ok(failedAssurance.error_details.validation_errors.some(item=>item.path==='/insights/0/kind'&&item.keyword==='enum'));
-    assert.doesNotMatch(JSON.stringify(failedAssurance.error_details),/model_candidate|Name the exact amount field/);
-    assert.equal(calls.slice(failureCallStart).filter(call=>call.kind==='test-case-assurance').length,2);
+    assert.equal(failedAssurance.status,'completed');
+    const failedAssurancePackets=failedAssurance.iterations.flatMap(iteration=>iteration.output.data);
+    assert.equal(failedAssurancePackets.length,2);
+    assert.ok(failedAssurancePackets.every(packet=>packet.case_assurance_failures[0].code==='AI_OUTPUT_SCHEMA_VIOLATION'
+      && packet.case_assurance[0].verification.status==='needs_input'));
+    assert.doesNotMatch(JSON.stringify(failedAssurancePackets),/model_candidate|Name the exact amount field/);
+    const unavailableData=failedRun.node_results.find(row=>row.node_id==='test-data-generator').iterations.flatMap(iteration=>iteration.output.data);
+    assert.equal(unavailableData.length,2);
+    assert.ok(unavailableData.every(row=>row.test_data.status==='needs_input'),'An unassessed case is never given synthetic fixture data.');
+    const incompleteAutomation=failedRun.node_results.find(row=>row.node_id==='automation-engineer');
+    assert.equal(incompleteAutomation.status,'completed');
+    const incompleteAutomationPackets=incompleteAutomation.iterations.flatMap(iteration=>iteration.output.data);
+    assert.equal(incompleteAutomationPackets.length,2);
+    assert.ok(incompleteAutomationPackets.every(packet=>packet.automation[0]===null
+      && packet.automation_input_required[0].code==='AI_OUTPUT_SCHEMA_VIOLATION'));
+    assert.equal(calls.slice(failureCallStart).filter(call=>call.kind==='test-case-assurance').length,4,
+      'A failed case is retained while assurance continues on the remaining Story.');
     assert.equal(calls.slice(failureCallStart).filter(call=>call.kind==='automation').length,0);
-    assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM test_cases WHERE source_idempotency_key LIKE ?').get(`workflow-draft:${failureStart.id}:%`)).count,1,'A failed assurance keeps the already saved pending-review manual case.');
+    const failureDrafts=await db.prepare('SELECT automated,review_status,ai_generation_review_status FROM test_cases WHERE source_idempotency_key LIKE ?').all(`workflow-draft:${failureStart.id}:%`);
+    assert.ok(failureDrafts.length>=2,'Failed case assurance retains every already saved manual draft for review.');
+    assert.ok(failureDrafts.every(row=>row.automated==='no'&&row.review_status==='pending'&&row.ai_generation_review_status==='pending'),
+      'Incomplete assurance never publishes automation and keeps manual cases pending review.');
     const callsAtFailure=calls.length;assert.equal((await runtime.start(connectedWorkflow,failureInput,user)).id,failureStart.id);assert.equal(calls.length,callsAtFailure);
     assert.deepEqual(failures, []);
-    return {native_services_real:true,settings_credential_http_real:true,stories:final.data.length,model_provider:'local HTTP response fixture',model_calls:calls.length,request_replay_extra_calls:0,other_workflows_keep_manual_publication:true,native_acceptances:4,automatic_pending_review_manual_cases:17,automatic_unverified_automation_cases:13,known_native_dependency_retains_assessed_manual_draft:true,strict_unknown_and_missing_readiness_extra_automation_calls:0,independent_native_generation_resolves_upstream_readiness:true,readiness_manual_acceptance_preserved:true,blocked_automation_acceptance_rejected:true,all_cases_attempted_after_middle_failure:true,partial_success_library_receipts_idempotent:true,node_generation_limit_overrides_legacy_trigger:true,connected_foreach_real_pipeline:true,earlier_batch_receipts_and_acceptance_preserved:true,bounded_assurance_repair_in_foreach:true,terminal_assurance_failure_keeps_manual_case:true};
+    return {native_services_real:true,settings_credential_http_real:true,stories:final.data.length,model_provider:'local HTTP response fixture',model_calls:calls.length,request_replay_extra_calls:0,other_workflows_keep_manual_publication:true,native_acceptances:4,automatic_pending_review_manual_cases:17,automatic_unverified_automation_cases:13,known_native_dependency_retains_assessed_manual_draft:true,strict_unknown_and_missing_readiness_extra_automation_calls:0,independent_native_generation_resolves_upstream_readiness:true,readiness_manual_acceptance_preserved:true,blocked_automation_acceptance_rejected:true,all_cases_attempted_after_middle_failure:true,partial_success_library_receipts_idempotent:true,node_generation_limit_overrides_legacy_trigger:true,connected_nested_case_loop_real_pipeline:true,earlier_batch_receipts_and_acceptance_preserved:true,bounded_assurance_repair_in_nested_case_loop:true,incomplete_case_assurance_stays_reviewable_without_stopping_other_stories:true};
   } finally {
     const active=runningId&&runtime._internals.active.get(runningId);
     active?.controller.abort();await active?.promise;

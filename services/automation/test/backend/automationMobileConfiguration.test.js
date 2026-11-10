@@ -40,7 +40,7 @@ test('actual dispatch envelope retains the desktop browser while freezing both n
   const source=fs.readFileSync(path.resolve(__dirname,'../../backend/services/testEngineDispatch.service.js'),'utf8');
   const body=source.slice(source.indexOf('const buildEngineEnvelope ='),source.indexOf('const summarizeWarnings ='));
   const normalizeText=value=>typeof value==='string'&&value.trim()?value.trim():null;
-  const dependencies={configurationTargetsForRead,resolveAutomationCaseType,normalizeText,normalizeEngineBrowser:value=>value==='Chrome'?'chromium':value,
+  const dependencies={executionWithCaseEnvironment:require('../../backend/lib/automationExecutionEnvironment').executionWithCaseEnvironment,configurationTargetsForRead,resolveAutomationCaseType,normalizeText,normalizeEngineBrowser:value=>value==='Chrome'?'chromium':value,
     normalizeInteger:(value,fallback)=>Number.isFinite(Number(value))&&value!==undefined?Number(value):fallback,normalizeSessionMode:(_value,fallback)=>fallback,
     resolveExecutionPolicy:async()=>({}),resolveCaseDataSetContext:()=>null,resolveExecutionHooks:()=>[],preserveFrozenEngineEnvelope:value=>value,
     normalizeStoredReferenceList:()=>[],normalizeTestEngineWebEngine:()=> 'playwright',buildManualSpec:()=>({}),configuredRepairBrief:async()=>({}),

@@ -1,3 +1,16 @@
+FROM node:20-alpine AS inspection-agent-runtime
+
+WORKDIR /source
+COPY testengine/backend/package*.json ./testengine/backend/
+RUN --mount=type=cache,id=hellotest-npm,target=/root/.npm,sharing=locked npm ci --prefix testengine/backend --ignore-scripts --include=dev --include=optional --no-audit --no-fund
+COPY testengine/backend/tsconfig.json ./testengine/backend/
+COPY testengine/backend/src ./testengine/backend/src
+COPY testengine/backend/scripts/package-inspection-agent.mjs ./testengine/backend/scripts/
+COPY services/agentic/backend/services/inspectionAgentInstaller.js ./services/agentic/backend/services/
+# Build the downloaded agent from this image's native engine source. A checked-in
+# bundle must never leave local execution behind the remote worker's runtime.
+RUN npm --prefix testengine/backend run package:inspection-agent
+
 FROM node:20-alpine AS capability-ui
 
 # Reuse verified downloads and bound registry retries on unreliable connections.
@@ -76,6 +89,7 @@ COPY --chown=node:node services/ai/backend ./services/ai/backend
 COPY --chown=node:node services/ai/shared ./services/ai/shared
 COPY --chown=node:node services/trace/backend ./services/trace/backend
 COPY --chown=node:node services/integration/backend ./services/integration/backend
+COPY --from=inspection-agent-runtime --chown=node:node /source/services/platform/backend/src/assets/inspection-agent-runtime.json ./services/platform/backend/src/assets/inspection-agent-runtime.json
 
 ARG HELLOTEST_CAPABILITY=all
 ENV HELLOTEST_SERVICE_PROFILE=$HELLOTEST_CAPABILITY

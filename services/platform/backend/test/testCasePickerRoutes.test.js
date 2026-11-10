@@ -7,7 +7,7 @@ async function fixture() {
   const handlers = new Map();
   const calls = [];
   const permissions = [];
-  const state = { denied: null, authenticated: true, foreignRequirement: false, missingRequirement: false };
+  const state = { denied: null, authenticated: true, foreignRequirement: false, missingRequirement: false, missingCase: false };
   const register = { exports: {} };
   vm.runInNewContext(fs.readFileSync(require.resolve('../../../testing/backend/routes/testCases.routes'), 'utf8'), {
     module: register,
@@ -25,6 +25,13 @@ async function fixture() {
         resolveListProjectId: async query => query.project_id || (query.app_type_id ? 'project' : null),
         uniqueIds: ids => [...new Set(ids.map(id => id.trim()).filter(Boolean))],
         resolveRequirementScopes: async ids => state.missingRequirement ? [] : ids.map(id => ({ id, project_id: state.foreignRequirement ? 'foreign' : 'project' }))
+      };
+      if (name === '../services/defectReproduction.service') return {
+        loadCaseReproduction: async input => {
+          calls.push({ kind: 'reproduction', input });
+          return state.missingCase ? [] : input.testCaseIds.map(id => ({ id, reproduction_steps: ['Open form', 'Submit values'], expected_result: 'The record is saved.' }));
+        },
+        buildReproduction: cases => ({ steps_to_reproduce: cases.flatMap(item => item.reproduction_steps).join('\n'), expected_result: cases.map(item => item.expected_result).join('\n') })
       };
       if (name === '@hellotest/platform/backend/public/applicationAccess') return { getAppType: async id => ({ id, project_id: 'project' }) };
       if (name === '@hellotest/platform/backend/public/projectAccess') return { getProject: async id => ({ id }) };
@@ -112,4 +119,19 @@ test('explicit Requirement selection validates every reference in the app projec
   assert.deepEqual([...calls[0].query.requirement_ids], ['story']);
   assert.ok(permissions.some(item => item.code === 'testcase.view' && item.projectId === 'project'));
   assert.ok(permissions.some(item => item.code === 'requirement.view' && item.projectId === 'project'));
+});
+
+test('defect reproduction preview trims IDs, stays project scoped, and requires Test Case visibility', async () => {
+  const { handlers, calls, permissions, state, req } = await fixture();
+  const handler = handlers.get('POST /test-cases/reproduction-preview');
+  const request = req({}, { project_id: 'project', test_case_ids: [' case-1 ', 'case-1'] });
+  assert.deepEqual(await handler(request), { steps_to_reproduce: 'Open form\nSubmit values', expected_result: 'The record is saved.' });
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), { kind: 'reproduction', input: { projectId: 'project', testCaseIds: ['case-1'] } });
+  assert.ok(permissions.some(item => item.code === 'testcase.view' && item.projectId === 'project'));
+  state.denied = 'testcase.view';
+  await assert.rejects(handler(request), { statusCode: 403 });
+  state.denied = null;
+  state.missingCase = true;
+  await assert.rejects(handler(request), { statusCode: 404 });
+  await assert.rejects(handler(req({}, { project_id: 'project', test_case_ids: [' '] })), { statusCode: 400 });
 });

@@ -18,9 +18,11 @@ export function createLiveViewPeerReader(dependencies: Dependencies = {}) {
   const resolve = dependencies.resolve || ((hostname: string) => lookup(hostname, { all: true }));
   const request = dependencies.request || requestEngineService;
   const owners = new Map<string, string>();
+  const pending = new Map<string, Promise<Buffer | null>>();
   let addresses: string[] = [];
   let addressesExpireAt = 0;
-  return async (provider: EngineWebEngineProvider, engineRunId: string | undefined): Promise<Buffer | null> => {
+  let discovery: Promise<void> | null = null;
+  const readRun = async (provider: EngineWebEngineProvider, engineRunId: string | undefined): Promise<Buffer | null> => {
     const hostname = String(environment.TESTENGINE_LIVE_PEER_HOST || "").trim();
     if (!hostname || !/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i.test(hostname) || !engineRunId || engineRunId.length > 255) return null;
     const secret = resolveTestEngineSharedSecret(environment);
@@ -28,7 +30,7 @@ export function createLiveViewPeerReader(dependencies: Dependencies = {}) {
     const port = Number(environment.TESTENGINE_LIVE_PEER_PORT || "4301");
     if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
     if (Date.now() >= addressesExpireAt) {
-      try {
+      discovery ||= (async () => { try {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Peer lookup timed out")), 1500); });
         let records;
@@ -36,7 +38,9 @@ export function createLiveViewPeerReader(dependencies: Dependencies = {}) {
         finally { if (timer) clearTimeout(timer); }
         addresses = [...new Set(records.map(record => record.address).filter(address => isIP(address)))].slice(0, 8);
         addressesExpireAt = Date.now() + 5000;
-      } catch { return null; }
+      } catch { addresses = []; addressesExpireAt = Date.now() + 1000; }
+      })().finally(() => { discovery = null; });
+      await discovery;
     }
     const key = `${engineRunId}:${provider}`;
     const read = async (address: string) => {
@@ -58,5 +62,13 @@ export function createLiveViewPeerReader(dependencies: Dependencies = {}) {
     }
     try { return await Promise.any(addresses.filter(address => address !== owner).map(read)); }
     catch { return null; }
+  };
+  return (provider: EngineWebEngineProvider, engineRunId: string | undefined): Promise<Buffer | null> => {
+    const key = `${engineRunId}:${provider}`;
+    const existing = pending.get(key);
+    if (existing) return existing;
+    const reading = readRun(provider, engineRunId).finally(() => { pending.delete(key); });
+    pending.set(key, reading);
+    return reading;
   };
 }

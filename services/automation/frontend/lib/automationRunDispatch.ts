@@ -15,11 +15,28 @@ export async function startRemoteAutomationRun(receipt: PendingAutomationRun, st
 }
 
 export function assertAutomationDispatchAccepted(response: unknown, receipt: PendingAutomationRun) {
-  if (!response || typeof response !== "object") return;
-  const summary = response as { queued_for_engine_count?: number; unsupported_automated_case_count?: number; warnings?: string[] };
-  if (typeof summary.queued_for_engine_count === "number" && (summary.queued_for_engine_count === 0 || Number(summary.unsupported_automated_case_count) > 0)) {
-    throw new AutomationStartError({ ...receipt, retryAllowed: false }, new Error(summary.warnings?.join(" ") || "The engine did not accept every selected automation case. Review the saved run’s dispatch evidence."));
-  }
+  const summary = response && typeof response === "object" ? response as Record<string, unknown> : {};
+  const countFields = ["automated_case_count", "queued_for_engine_count", "local_run_count", "manual_case_count", "unsupported_automated_case_count"];
+  const validCounts = countFields.every(key => summary[key] === undefined || typeof summary[key] === "number" && Number.isSafeInteger(summary[key]) && Number(summary[key]) >= 0);
+  const selectedCount = new Set(receipt.caseIds).size;
+  const dispatchedCount = summary[receipt.mode === "local" ? "local_run_count" : "queued_for_engine_count"];
+  const expectedCount = Math.max(selectedCount, Number(summary.automated_case_count) || 0);
+  // A paired-agent reconnect returns the original grant without reconstructing
+  // counts. Its transport has already verified acceptance of this same run.
+  const replay = receipt.mode === "local" && summary.idempotent_replay === true
+    && (summary.local_dispatch as { execution_id?: unknown } | undefined)?.execution_id === receipt.id
+    && countFields.every(key => summary[key] === undefined);
+  const complete = replay || typeof dispatchedCount === "number" && dispatchedCount >= expectedCount
+    && (summary.automated_case_count === undefined || Number(summary.automated_case_count) >= selectedCount);
+  if (summary.started === true && selectedCount > 0 && validCounts && complete
+    && (summary.id === undefined || summary.id === receipt.id)
+    && (summary.execution_mode === undefined || summary.execution_mode === receipt.mode)
+    && !(Number(summary[receipt.mode === "local" ? "queued_for_engine_count" : "local_run_count"]) > 0)
+    && (summary.acknowledgement === undefined || summary.acknowledgement === "accepted")
+    && summary.accepted !== false && !["failed", "rejected"].includes(String(summary.status))
+    && !(Number(summary.unsupported_automated_case_count) > 0)) return;
+  const warnings = Array.isArray(summary.warnings) ? summary.warnings.filter((warning): warning is string => typeof warning === "string" && Boolean(warning.trim())).join(" ") : "";
+  throw new AutomationStartError({ ...receipt, retryAllowed: false }, new Error(warnings || "The engine did not accept every selected automation case. Review the saved run’s dispatch evidence."));
 }
 
 /** A lost HTTP response can hide a successful start. Inspect durable state first. */

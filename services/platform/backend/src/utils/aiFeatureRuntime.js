@@ -146,7 +146,6 @@ async function apply(init, options={}) {
   const execution=require('./aiExecutionConfiguration').current();
   const metricPolicy=!execution && (configuration.owner?.(profile) || profile.configuration_owner || 'admin')==='admin'
     ? await require('../../services/metricGovernance.service').resolveForFeature(id) : {instruction:'',metrics:[]};
-  if (options.mcpContextHandled && config.context?.required && !options.mcpContextHandled.evidence_count) throw Object.assign(new Error('This feature requires authorized MCP evidence before generating its outcome.'), {statusCode:503,code:'AI_MCP_CONTEXT_REQUIRED'});
   let url;
   if(profile.transport==='chat' && config.integration_id && options.integration && config.integration_id!==options.integration.id && !scope.integration_explicit) {
     const integration=await require('@hellotest/integration/backend/services/aiLlmSelection.service').resolveLlmIntegrationForUsage({

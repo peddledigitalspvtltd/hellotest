@@ -22,4 +22,6 @@ test('model text policy runs with no capability, provider or persistence impleme
   assert.ok(result.redaction_count >= 2);
   assert.ok(result.risk_flags.includes('ignore_instructions'));
   assert.equal(result.control_character_count, 1);
+  const viewer=policy.sanitizeAiText('https://runner.test/api/v1/live-session?run_id=case-run&view_token=PRIVATE_VIEW_GRANT');
+  assert.doesNotMatch(viewer.text,/PRIVATE_VIEW_GRANT/);assert.match(viewer.text,/run_id=case-run/);assert.ok(viewer.redaction_count>0);
 });

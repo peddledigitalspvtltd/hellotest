@@ -83,6 +83,26 @@ test('source correction retries the model without replaying an accepted browser 
   assert.equal(result.updates[0].automation_code,expressionProgram([goto,click,assertion].join('\n')));
 });
 
+test('source generation separates a grounded SPA route wait from exact assertions without changing accepted actions or authored timeouts',async()=>{
+  const routeWait='await page.waitForURL("https://app.test/profile", {waitUntil:"commit"});';
+  const routeAssertion='await expect(page).toHaveURL("https://app.test/profile", {timeout:4500});';
+  const state=fixture({source:request=>{
+    const packet=JSON.parse(request.prompt),guidance=packet.navigation_wait_contract;
+    assert.match(guidance,/native saved Playwright source, not typed MCP or recorded-ledger operations/);
+    assert.match(guidance,/hash or History API SPA route/);
+    assert.match(guidance,/identical expected URL or regex/);
+    assert.match(guidance,/inherit the configured engine navigation budget/);
+    assert.match(guidance,/preserve any explicitly authored wait or assertion timeout/);
+    assert.match(guidance,/preserve the action exactly once/);
+    assert.match(guidance,/Do not increase an expect timeout/);
+    assert.doesNotMatch(packet.task,/assert the final URL with the configured navigation timeout/);
+    return {automation_code:[goto,click,routeWait,routeAssertion,assertion].join('\n')};
+  }});
+  const result=await state.run();
+  assert.equal(result.updates[0].automation_code,expressionProgram([goto,click,routeWait,routeAssertion,assertion].join('\n')));
+  assert.equal(state.dispatched.filter(item=>item.name==='browser_click').length,1);
+});
+
 test('invalid source JSON receives bounded model correction without replaying completed native actions',async()=>{
   for(const failure of ['malformed_json','typed_json_error']){
     const state=fixture({source:(request,count)=>{

@@ -3,6 +3,7 @@ const obsDb = require('@hellotest/platform/backend/src/obsDb');
 const attachments = require('@hellotest/platform/backend/services/attachment.service');
 const { config } = require('@hellotest/platform/backend/src/config');
 const { createHmac, timingSafeEqual } = require('node:crypto');
+const { screenshotCaptureAllowed, hasFailureScreenshotOverride } = require('../domain/executionArtifacts');
 const failure = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
 
 async function authorize({ engineRunId, headers }) {
@@ -47,9 +48,9 @@ async function upload({ engineRunId, kind, outcome, checksum, fileName, mimeType
   if (!['passed','failed','blocked','skipped'].includes(outcome)) throw failure('A final capture outcome is required.');
   const mode = kind === 'video' ? policy.video_mode : policy.trace_mode;
   const sectionFailureCapture = kind === 'screenshot' && failed && (transaction.metadata.capture_failure_override === true
-    || (job?.payload?.steps || []).some(step => /^\s*\/\/\s*@hellotest-options\s+[^\r\n]*\bscreenshotOnFailure\b/i.test(step.automation_code || '')));
+    || hasFailureScreenshotOverride(job?.payload?.steps, job?.payload?.hooks));
   const enabled = kind === 'screenshot'
-    ? failed ? policy.screenshot_on_failure !== false || sectionFailureCapture : policy.screenshot_on_success === true
+    ? screenshotCaptureAllowed(policy, outcome, sectionFailureCapture)
     : mode && mode !== 'off' && (mode !== 'retain-on-failure' || failed);
   if (!enabled) throw failure('Evidence capture is disabled by the dispatched run policy.', 403);
   const limit = kind === 'video' ? Math.max(1, Math.min(250, Number(policy.max_video_attachment_mb) || 25)) * 1024 * 1024

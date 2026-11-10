@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeInlineArtifactRefs, createInlineArtifactAttacher } = require('../../backend/domain/executionArtifacts');
+const { normalizeInlineArtifactRefs, createInlineArtifactAttacher, screenshotCaptureAllowed } = require('../../backend/domain/executionArtifacts');
 
 test('engine evidence accepts legacy aliases and drops references without inline content', () => {
   assert.deepEqual(normalizeInlineArtifactRefs({ artifact_refs: [
@@ -27,4 +27,16 @@ test('evidence persistence failure does not fail execution completion or skip la
   assert.deepEqual(calls, []);
   assert.deepEqual(await attach('transaction-1', bundle), [{ id: 'first' }, { id: 'last' }]);
   assert.deepEqual(calls, [['transaction-1', 'first'], ['transaction-1', 'broken'], ['transaction-1', 'last']]);
+});
+
+test('managed screenshot upload honors the selected mode before legacy booleans and preserves failure overrides', () => {
+  for (const [mode, passed, failed] of [['all', true, true], ['passed', true, false], ['failed', false, true], ['off', false, false]]) {
+    const policy = { screenshot_mode: mode, screenshot_on_success: !passed, screenshot_on_failure: !failed };
+    assert.equal(screenshotCaptureAllowed(policy, 'passed'), passed, mode);
+    assert.equal(screenshotCaptureAllowed(policy, 'failed'), failed, mode);
+    assert.equal(screenshotCaptureAllowed(policy, 'blocked'), failed, mode);
+    assert.equal(screenshotCaptureAllowed(policy, 'failed', true), true, 'an explicitly requested failure screenshot remains authorized');
+  }
+  assert.equal(screenshotCaptureAllowed({ screenshot_on_success: true, screenshot_on_failure: false }, 'passed'), true);
+  assert.equal(screenshotCaptureAllowed({ screenshot_on_success: true, screenshot_on_failure: false }, 'failed'), false);
 });

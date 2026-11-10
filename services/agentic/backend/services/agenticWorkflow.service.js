@@ -449,6 +449,7 @@ exports.createWorkflow = async (input = {}, actorId = null) => {
   for (const node of record.nodes) { nodeAiConfiguration.normalize(node.data?.aiConfiguration); nodeAiConfiguration.reviewCriteria(node.data || {}); }
   for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'automation-engineer') require('../workflows/automationNodeInputs').validateNodeOptions(node.data);
   for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'test-case-generation') require('../workflows/generationNodeOptions').generationOptions(node.data);
+  for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'test-data-generator') require('../workflows/testDataGenerator').validateNodeOptions(node.data);
   await validateWorkflowScope(record.project_id, record.app_type_id);
 
   const id = uuid();
@@ -480,6 +481,7 @@ exports.updateWorkflow = async (id, input = {}, actorId = null) => {
   for (const node of record.nodes) { nodeAiConfiguration.normalize(node.data?.aiConfiguration); nodeAiConfiguration.reviewCriteria(node.data || {}); }
   for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'automation-engineer') require('../workflows/automationNodeInputs').validateNodeOptions(node.data);
   for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'test-case-generation') require('../workflows/generationNodeOptions').generationOptions(node.data);
+  for (const node of record.nodes) if (node.data?.kind === 'artifactTask' && node.data.artifactTask === 'test-data-generator') require('../workflows/testDataGenerator').validateNodeOptions(node.data);
   await validateWorkflowScope(record.project_id, record.app_type_id);
 
   await updateWorkflow.run(

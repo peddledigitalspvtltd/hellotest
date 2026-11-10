@@ -6,7 +6,9 @@ let transport;
 const installTransport=call=>{transport=call;};
 async function contextCall({userId,projectId,args,signal,privateInput,traceScope,timeoutMs=30000}){
  return withDeadline(async boundedSignal=>{
-  const actor=await principal(userId,projectId,'hellotest-internal');
+  let actor;
+  try{actor=await principal(userId,projectId,'hellotest-internal');}
+  catch(error){error.mcpContextIdentityFailure=true;throw error;}
   if(privateInput)Object.assign(actor,privateInput);
   if(!transport)throw Object.assign(new Error('MCP context transport is not initialized.'),{code:'MCP_CONTEXT_UNAVAILABLE'});
   const metadata=require('./contextAttribution').select(traceScope);
@@ -98,36 +100,46 @@ async function retrievePacket(input){
  const packet=verifyPacket(result.packet,input.projectId);
  traces.update({mcp_context:'retrieved'});return {...packet,retrieval:{...packet.retrieval,context_transport:'mcp'}};
 }
+function contextGap(init,options,status,errorCode){
+ options.mcpContextStatus=status;
+ traces.update({mcp_context:status,...(errorCode?{mcp_context_error:errorCode}:{})});
+ let body;try{body=JSON.parse(init.body);}catch{return init;}
+ if(!Array.isArray(body.messages))return init;
+ const notice=require('@hellotest/platform/backend/src/utils/aiPromptEnvelope').policy.context_gap;
+ if(body.messages.some(message=>message.role==='system'&&message.content===notice))return init;
+ const index=body.messages.findLastIndex(message=>message.role==='user');
+ const messages=[...body.messages];messages.splice(index<0?messages.length:index,0,{role:'system',content:notice});
+ return {...init,body:JSON.stringify({...body,messages})};
+}
 async function enrichChatRequest(init,options={}){
+ options.signal?.throwIfAborted();init.signal?.throwIfAborted();
  const trace={...traces.current(options.integration),...options.traceContext};
  const policy=options.mcpContextPolicy;
  if(policy?.mode==='none'){options.mcpContextStatus='not_required';return init;}
  if(options.mcpContextHandled){
   options.mcpContextStatus=options.mcpContextHandled.status|| (options.mcpContextHandled.evidence_count?'retrieved':'empty');
-  return init;
+  return options.mcpContextHandled.evidence_count?init:contextGap(init,options,options.mcpContextStatus);
  }
  if(options.contextRetrievalQuery===null){
   options.mcpContextStatus='query_unavailable';
-  if(policy?.required)throw Object.assign(new Error('This feature requires knowledge context. Add a written description or select a Story so relevant project evidence can be retrieved alongside the image.'),{statusCode:422,code:'AI_MCP_QUERY_REQUIRED'});
-  return init;
+  return policy?.required?contextGap(init,options,'query_unavailable'):init;
  }
  if(trace.mcp_context_depth||String(options.operation||'').startsWith('knowledge.')){options.mcpContextStatus=trace.mcp_context||'handled_by_context_pipeline';return init;}
- if(!trace.actor_id||!trace.project_id){options.mcpContextStatus='scope_missing';if(policy?.required)throw Object.assign(new Error('Required MCP context needs a verified project and user.'),{statusCode:422,code:'AI_MCP_SCOPE_REQUIRED'});return init;}
+ if(!trace.actor_id||!trace.project_id){options.mcpContextStatus='scope_missing';return policy?.required?contextGap(init,options,'scope_missing'):init;}
  if(typeof init.body!=='string')return init;
  let body;try{body=JSON.parse(init.body);}catch{return init;}
  if(!Array.isArray(body.messages))return init;
  const textContent=content=>typeof content==='string'?content:Array.isArray(content)?content.filter(part=>part?.type==='text'&&typeof part.text==='string').map(part=>part.text).join('\n'):'';
  const questionIndex=body.messages.findLastIndex(message=>message.role==='user'&&textContent(message.content).trim());
  const question=questionIndex<0?'':textContent(body.messages[questionIndex].content);
- if(!question)return init;
+ if(!question)return policy?.required?contextGap(init,options,'query_unavailable'):init;
  try{
   const timeoutMs=Math.max(1,Math.min(8000,Math.floor(Number(options.timeoutMs||90000)/3),Number(options.mcpContextTimeoutMs||8000)));
   const signal=options.signal&&init.signal?AbortSignal.any([options.signal,init.signal]):options.signal||init.signal;
   const taskQuestion=retrievalQuestion(options.contextRetrievalQuery||question);
   if(!taskQuestion){
    options.mcpContextStatus='query_unavailable';
-   if(policy?.required)throw Object.assign(new Error('No semantic retrieval objective is available.'),{code:'MCP_CONTEXT_QUERY_EMPTY'});
-   return init;
+   return policy?.required?contextGap(init,options,'query_unavailable'):init;
   }
   const focus=policy?.focus?`Context focus: ${policy.focus.slice(0,400)}\n`:'';
   const scopedQuestion=(`Task: ${trace.feature || options.operation || 'project assistance'}\n${focus}${taskQuestion}`).slice(0,4000);
@@ -139,7 +151,6 @@ async function enrichChatRequest(init,options={}){
     ...(options.mcpContextFilters&&!process.env.HELLOTEST_MCP_INTERNAL_URL?{privateInput:{packetInput}}:{})});
   const packet=verifyPacket(result.packet,trace.project_id);
   const evidence=packet.evidence;
-  if(policy?.required && !evidence.length)throw Object.assign(new Error('Required evidence is missing.'),{code:'MCP_CONTEXT_EMPTY'});
   const context={project_id:trace.project_id,packet_id:packet.packet_id,observed_at:result.observed_at||packet.created_at,evidence:evidence.slice(0,policy?.max_items||12),relationships:[],limitations:packet.limitations,authorization:packet.authorization,applied_filters:packet.applied_filters,coverage:packet.coverage,evidence_quality:packet.evidence_quality,retrieval_status:evidence.length?packet.retrieval?.status:'NO_AUTHORIZED_EVIDENCE',intent_planning_mode:packet.retrieval?.intent_planning_mode,information_needs:packet.retrieval?.model_context_plan?.information_needs,context_transport:'mcp'};
   // Bound whole evidence items, never chop JSON or discard provenance strings.
   // Match the native packet's conservative UTF-8 estimate. Character counts
@@ -151,10 +162,13 @@ async function enrichChatRequest(init,options={}){
   const refreshRelationships=()=>{
     context.relationships=retainMcpRelationships(packet.relationships,context.evidence);
     context.omitted_relationship_count=(packet.relationships?.length||0)-context.relationships.length;
-    if(context.omitted_evidence_count||context.omitted_relationship_count){
-     const gap='Additional evidence or relationship witnesses were omitted to fit the configured context budget; omitted facts are unknown.';
-     context.delivery_gaps=[gap];
-     context.limitations=Array.isArray(packet.limitations)?[...packet.limitations,gap]:packet.limitations&&typeof packet.limitations==='object'?{...packet.limitations,delivery_gaps:[gap]}:[gap];
+    const gaps=[];
+    if(context.omitted_evidence_count||context.omitted_relationship_count)gaps.push('Additional evidence or relationship witnesses were omitted to fit the configured context budget; omitted facts are unknown.');
+    if(!context.evidence.length)gaps.push(require('@hellotest/platform/backend/src/utils/aiPromptEnvelope').policy.context_gap);
+    if(policy?.required)context.evidence_requirement_unmet=!context.evidence.length;
+    if(gaps.length){
+     context.delivery_gaps=gaps;
+     context.limitations=Array.isArray(packet.limitations)?[...packet.limitations,...gaps]:packet.limitations&&typeof packet.limitations==='object'?{...packet.limitations,delivery_gaps:gaps}:gaps;
     }
   };
   refreshRelationships();
@@ -171,19 +185,14 @@ async function enrichChatRequest(init,options={}){
   refreshRelationships();
   while(bytes()>byteBudget&&context.evidence.length){context.evidence.pop();context.omitted_evidence_count++;refreshRelationships();}
   if(bytes()>byteBudget)throw Object.assign(new Error('MCP metadata exceeds the configured context budget.'),{code:'MCP_CONTEXT_BUDGET'});
-  if(policy?.required && !context.evidence.length)throw Object.assign(new Error('Required evidence exceeds the context budget.'),{code:'MCP_CONTEXT_BUDGET'});
   const messages=[...body.messages];messages.splice(questionIndex,0,{role:'user',content:MCP_CONTEXT_PREFIX+JSON.stringify(context)});
   options.mcpContextStatus=context.evidence.length?'retrieved':'empty';
   traces.update({mcp_context:options.mcpContextStatus});
   return {...init,body:JSON.stringify({...body,messages})};
  }catch(error){
   options.signal?.throwIfAborted();init.signal?.throwIfAborted();
-  if(error.code==='MCP_CONTEXT_SCOPE_MISMATCH'&&error.statusCode===403)throw error;
-  options.mcpContextStatus='unavailable';
-  if(policy?.required)throw Object.assign(new Error('Required MCP evidence is unavailable. Retry after restoring the context connection.'),{statusCode:503,code:'AI_MCP_CONTEXT_REQUIRED'});
-  traces.update({mcp_context:'unavailable',mcp_context_error:error.code||'MCP_CONTEXT_UNAVAILABLE'});
-  const messages=[...body.messages];messages.splice(questionIndex,0,{role:'user',content:'Additional HelloTest MCP context is unavailable for this request. Treat missing evidence as a gap; do not claim access, certainty or successful actions.'});
-  return {...init,body:JSON.stringify({...body,messages})};
+  if(error.mcpContextIdentityFailure||error.code==='MCP_CONTEXT_SCOPE_MISMATCH'&&error.statusCode===403)throw error;
+  return contextGap(init,options,'unavailable',error.code||'MCP_CONTEXT_UNAVAILABLE');
  }
 }
 module.exports={retrievalTimeout,packetArguments,retrievalQuestion,contextFromPacket,verifyPacket,installTransport,contextCall,retrieveContext,retrievePacket,enrichChatRequest};

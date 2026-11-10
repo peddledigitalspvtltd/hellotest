@@ -399,6 +399,8 @@ export async function executeQueuedJob(
     signal: options.signal,
     timeoutMs: options.timeoutMs ?? Math.max(1000, (envelope.run_timeout_seconds || 300) * 1000),
     intervalMs: options.controlIntervalMs,
+    initialLeaseExpiresAt: job.lease_expires_at,
+    onRetry: ({ attempt, remainingLeaseMs, error }) => logger.info({ jobId: job.id, attempt, remaining_lease_ms: remainingLeaseMs, error: serializeError(error) }, 'Retrying a temporary lease-control transport failure within the confirmed lease.'),
     onAbort: () => {
       if (webStartupFinished) void stopWebRunSession("blocked").catch(() => undefined);
       void mobileRunSession.close().catch(() => undefined);

@@ -4226,7 +4226,9 @@ export function ExecutionsPage() {
       }))].slice(0, MAX_AI_BUG_CONTEXT_ITEMS);
     const compactFailureEvidence = (value: string | null | undefined) =>
       String(value || "").replace(/\s+/g, " ").trim().slice(0, 180);
-    const selectedCaseResult = scopedCase ? resultByCaseId[scopedCase.id] : null;
+    const selectedCaseResult = scopedCase
+      ? scopedCase.id === selectedExecutionCase?.id ? selectedExecutionResult : resultByCaseId[scopedCase.id]
+      : null;
     const aiFailureEvidenceLines = selectedAiFailureCases
       .slice(0, MAX_AI_BUG_EVIDENCE_LINES)
       .map((failedCase) => {
@@ -4292,6 +4294,7 @@ export function ExecutionsPage() {
 
     navigate(buildBugReportPath({
       runId: selectedExecution.id,
+      executionResultId: selectedCaseResult?.derived ? undefined : selectedCaseResult?.id,
       runName: selectedExecution.name,
       runStatus: currentExecutionStatus,
       testCaseIds: contextualCaseIds,

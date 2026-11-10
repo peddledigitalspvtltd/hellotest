@@ -19,8 +19,9 @@ app.get('/ready-api', async () => ({ ready: true }));
 app.get('/side-effect', async () => { sideEffects += 1; return { changed: true }; });
 app.post('/callback', async req => { callback = req.body; return {}; });
 app.post('/testengine/internal/jobs/:id/start', async () => ({ status: 'running' }));
-app.post('/testengine/internal/jobs/:id/steps/:step/report', async req => { reports.push({ step: req.params.step, ...req.body }); return { captures: req.body.captures || {} }; });
-app.post('/testengine/internal/jobs/:id/complete', async req => { completion = req.body; return {}; });
+app.post('/testengine/internal/jobs/:id/heartbeat', async req => ({ job_id: req.params.id, status: 'running', authorized: true }));
+app.post('/testengine/internal/jobs/:id/steps/:step/report', async req => { reports.push({ step: req.params.step, ...req.body }); return { job_id: req.params.id, step_id: req.params.step, status: req.body.status, case_status: 'running', captures: req.body.captures || {} }; });
+app.post('/testengine/internal/jobs/:id/complete', async req => { completion = req.body; return { job_id: req.params.id, status: req.body.status }; });
 const base = await app.listen({ host: '127.0.0.1', port: 0 });
 process.env.HELLOTEST_API_BASE_URL = base;
 const { queueRunExecution, saveAcceptedRun } = await import('../../dist/lib/executor.js');
@@ -46,7 +47,7 @@ const envelope = id => ({
 test('execution options require a leading editor-owned comment', () => {
   assert.equal(automationStepOptions({ automation_code: 'const text = "@hellotest-options skip"; throw new Error(text);' }).skip, false);
   assert.equal(automationStepOptions({ automation_code: '// Notes\n// @hellotest-options skip\nthrow new Error("required");' }).skip, false);
-  assert.deepEqual(automationStepOptions({ automation_code: '\n// @hellotest-options skip optional screenshotOnFailure\n' }), { skip: true, optional: true, screenshotOnFailure: true });
+  assert.deepEqual(automationStepOptions({ automation_code: '\n// @hellotest-options skip optional screenshotOnFailure timeoutMs=45000\n' }), { skip: true, optional: true, screenshotOnFailure: true, timeoutMs: 45000 });
 });
 
 test('direct execution skips side effects and retains optional failure plus explicitly requested screenshot', { timeout: 45000 }, async () => {
@@ -107,5 +108,30 @@ for (const mode of ['direct', 'queued']) test(`${mode} optional API transport fa
     assert.equal(reports[0].status, 'skipped');
     assert.equal(reports[1].status, 'passed');
     assert.match(reports[0].note, /Optional section failed/);
+  }
+});
+
+test('direct and queued screenshot modes capture only the configured step outcomes', { timeout: 60000 }, async () => {
+  const expected = {
+    off: [false, false], all: [true, true], passed: [true, false], failed: [false, true]
+  };
+  for (const screenshotMode of Object.keys(expected)) {
+    const input = envelope(`screenshots-${screenshotMode}`);
+    input.artifact_policy.screenshot_mode = screenshotMode;
+    input.steps = [
+      { id: 'passed-step', order: 1, step_type: 'web', automation_code: 'await expect(page.locator("h1")).toHaveText("Ready");' },
+      { id: 'failed-step', order: 2, step_type: 'web', automation_code: 'throw new Error("expected failure");' }
+    ];
+    callback = null;
+    await queueRunExecution(input, saveAcceptedRun(input, buildAcceptedRun(input)), logger);
+    const directEvidence = callback.case_result.logs.stepEvidence || {};
+    assert.deepEqual(['passed-step', 'failed-step'].map(id => Boolean(directEvidence[id]?.dataUrl)), expected[screenshotMode], `direct ${screenshotMode}`);
+
+    reports.length = 0;
+    completion = null;
+    await executeQueuedJob({ id: `queue-${screenshotMode}`, test_case_title: 'Screenshot mode', payload: input, runtime_state: {} }, 'worker', logger);
+    const queuedEvidence = Object.fromEntries(reports.map(({ step, evidence }) => [step, Boolean(evidence?.dataUrl)]));
+    assert.deepEqual(['passed-step', 'failed-step'].map(id => Boolean(queuedEvidence[id])), expected[screenshotMode], `queued ${screenshotMode}`);
+    assert.equal(completion.status, 'failed');
   }
 });

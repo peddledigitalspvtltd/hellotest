@@ -6,6 +6,7 @@ const { ISSUE_STATUS_VALUES, DOMAIN_METADATA } = require("@hellotest/platform/ba
 const { normalizeReferenceList } = require("@hellotest/platform/backend/src/utils/externalReferences");
 const issueHistory = require("./issueHistory.service");
 const dropdownCatalog = require("@hellotest/platform/backend/services/dropdownCatalog.service");
+const defectReproduction = require("./defectReproduction.service");
 
 const DEFAULT_ISSUE_STATUS = DOMAIN_METADATA.issues.default_status;
 
@@ -190,6 +191,17 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, regr
 
   const project = await db.prepare("SELECT id FROM projects WHERE id = ?").get(project_id);
   if (!project) throw new Error("Project not found");
+  if (Array.isArray(linked_test_case_ids) && linked_test_case_ids.length) {
+    const reproduction = defectReproduction.buildReproduction(await defectReproduction.loadCaseReproduction({
+      projectId: project_id,
+      testCaseIds: linked_test_case_ids
+    }));
+    details = {
+      ...details,
+      steps_to_reproduce: normalizeText(details.steps_to_reproduce) || reproduction.steps_to_reproduce,
+      expected_result: normalizeText(details.expected_result) || reproduction.expected_result
+    };
+  }
   const derivedImpact = await deriveTestCaseImpactScope({ projectId: project_id, testCaseIds: linked_test_case_ids });
   const resolvedModuleIds = normalizeList([...normalizeList(linked_module_ids), ...derivedImpact.moduleIds]);
   const resolvedRequirementIds = normalizeList([...normalizeList(linked_requirement_ids), ...derivedImpact.requirementIds]);

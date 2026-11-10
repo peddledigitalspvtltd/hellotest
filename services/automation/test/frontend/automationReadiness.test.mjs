@@ -80,7 +80,7 @@ test('remote start failures preserve the durable execution and retries start the
     captured = error; assert.ok(error instanceof AutomationStartError); assert.equal(error.receipt, receipt); return true;
   });
   const calls = [];
-  const result = await startRemoteAutomationRun(captured.receipt, async id => calls.push(id));
+  const result = await startRemoteAutomationRun(captured.receipt, async id => { calls.push(id); return { started: true, queued_for_engine_count: 1 }; });
   assert.deepEqual(calls, ['saved-run']); assert.equal(result, receipt);
 });
 
@@ -89,7 +89,7 @@ test('recovery reads durable state and cannot start an execution twice after a l
   let starts = 0;
   const alreadyStarted = await retrySavedAutomationRun(receipt, async id => ({ id, project_id: 'p', app_type_id: 'app', status: 'running' }), async () => { starts++; });
   assert.equal(alreadyStarted.alreadyStarted, true); assert.equal(starts, 0);
-  const started = await retrySavedAutomationRun(receipt, async id => ({ id, project_id: 'p', app_type_id: 'app', status: 'queued' }), async () => { starts++; return { queued_for_engine_count: 1 }; });
+  const started = await retrySavedAutomationRun(receipt, async id => ({ id, project_id: 'p', app_type_id: 'app', status: 'queued' }), async () => { starts++; return { started: true, queued_for_engine_count: 1 }; });
   assert.equal(started.alreadyStarted, false); assert.equal(starts, 1);
   await assert.rejects(retrySavedAutomationRun(receipt, async id => ({ id, project_id: 'other', app_type_id: 'app', status: 'running' }), async () => {}), /outside/);
   await assert.rejects(retrySavedAutomationRun(receipt, async id => ({ id, project_id: 'p', app_type_id: 'app', status: null }), async () => { starts++; }), /no current status/);
@@ -99,8 +99,45 @@ test('recovery reads durable state and cannot start an execution twice after a l
 test('zero or partial automated handoff retains the run as evidence instead of inventing a successful start', async () => {
   const receipt = { id: 'saved-run', caseIds: ['one'], projectId: 'p', appTypeId: 'app', mode: 'remote' };
   assert.throws(() => assertAutomationDispatchAccepted({ started: true, queued_for_engine_count: 0, warnings: ['Engine offline'] }, receipt), error => error instanceof AutomationStartError && error.receipt.retryAllowed === false && /Engine offline/.test(error.message));
-  await assert.rejects(startRemoteAutomationRun(receipt, async () => ({ queued_for_engine_count: 1, unsupported_automated_case_count: 1 })), error => error.receipt.retryAllowed === false);
-  assert.doesNotThrow(() => assertAutomationDispatchAccepted({ queued_for_engine_count: 2, unsupported_automated_case_count: 0 }, receipt));
+  await assert.rejects(startRemoteAutomationRun(receipt, async () => ({ started: true, queued_for_engine_count: 1, unsupported_automated_case_count: 1 })), error => error.receipt.retryAllowed === false);
+  assert.doesNotThrow(() => assertAutomationDispatchAccepted({ started: true, queued_for_engine_count: 2, unsupported_automated_case_count: 0 }, receipt));
+});
+
+test('local acceptance uses the acknowledged local count while remote acceptance uses queued engine work', () => {
+  const local = { id: 'saved-local', caseIds: ['one', 'one'], projectId: 'p', appTypeId: 'app', mode: 'local' };
+  const response = { id: local.id, started: true, execution_mode: 'local', automated_case_count: 1,
+    local_run_count: 1, queued_for_engine_count: 0, unsupported_automated_case_count: 0 };
+  assert.doesNotThrow(() => assertAutomationDispatchAccepted(response, local));
+  assert.doesNotThrow(() => assertAutomationDispatchAccepted({ ...response, local_run_count: 3 }, local), 'Dataset iterations can outnumber selected cases.');
+  const remote = { ...local, mode: 'remote' };
+  assert.doesNotThrow(() => assertAutomationDispatchAccepted({ ...response, execution_mode: 'remote', local_run_count: 0, queued_for_engine_count: 1 }, remote));
+  assert.throws(() => assertAutomationDispatchAccepted(response, remote), AutomationStartError);
+  assert.throws(() => assertAutomationDispatchAccepted({ ...response, local_run_count: 0, queued_for_engine_count: 1 }, local), AutomationStartError);
+});
+
+test('incomplete counts, malformed receipts and failed or uncertain acknowledgements never claim a complete handoff', () => {
+  const receipt = { id: 'saved-local', caseIds: ['one', 'two'], projectId: 'p', appTypeId: 'app', mode: 'local' };
+  const response = { id: receipt.id, started: true, execution_mode: 'local', automated_case_count: 2,
+    local_run_count: 2, queued_for_engine_count: 0, unsupported_automated_case_count: 0 };
+  const invalid = [undefined, null, 1, {}, { started: true },
+    { ...response, started: false }, { ...response, acknowledgement: 'unknown' },
+    { ...response, acknowledgement: 'failed' }, { ...response, accepted: false }, { ...response, status: 'failed' },
+    { ...response, id: 'another-run' }, { ...response, local_run_count: 1 },
+    { ...response, automated_case_count: 3 }, { ...response, automated_case_count: 1 },
+    { ...response, unsupported_automated_case_count: 1 }, { ...response, queued_for_engine_count: 1 },
+    ...[NaN, Infinity, -1, 1.5, '2'].map(local_run_count => ({ ...response, local_run_count }))];
+  for (const summary of invalid) assert.throws(() => assertAutomationDispatchAccepted(summary, receipt),
+    error => error instanceof AutomationStartError && error.receipt.id === receipt.id && error.receipt.retryAllowed === false);
+  assert.throws(() => assertAutomationDispatchAccepted({ ...response, warnings: [null, 'Host declined the run'] , started: false }, receipt), /Host declined the run/);
+});
+
+test('a paired-agent replay acknowledges the same saved run without reconstructing counts or starting another execution', () => {
+  const receipt = { id: 'saved-local', caseIds: ['one'], projectId: 'p', appTypeId: 'app', mode: 'local' };
+  const replay = { id: receipt.id, started: true, execution_mode: 'local', idempotent_replay: true, local_dispatch: { execution_id: receipt.id } };
+  assert.doesNotThrow(() => assertAutomationDispatchAccepted(replay, receipt));
+  for (const summary of [{ ...replay, acknowledgement: 'unknown' }, { ...replay, local_dispatch: { execution_id: 'another' } }, { ...replay, local_run_count: 0 }]) {
+    assert.throws(() => assertAutomationDispatchAccepted(summary, receipt), AutomationStartError);
+  }
 });
 
 test('creation acknowledgement is verified by reading scope and state without a second start', async () => {

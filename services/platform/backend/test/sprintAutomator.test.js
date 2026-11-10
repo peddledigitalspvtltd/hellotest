@@ -84,7 +84,9 @@ test('Stories pagination never silently truncates oversized Sprints or follows r
 test('native tasks reject changed Stories, unassessed cases, cross-project scope and missing trigger Sprint before model calls', async t => {
   await setup(t, (_req,res) => page(res, []));
   const run = { id: 'run', project_id: 'project-a', app_type_id: 'app-a', input_payload: { sprint_id: 'sprint-a' } };
-  await assert.rejects(tasks.execute({ run, node: node('generate','artifactTask',{artifactTask:'test-case-generation'}), sources: [], user, signal: new AbortController().signal, onProgress: async()=>{}, context:{input:[{story_id:'story-a',story_revision:tasks.revision(story('story-a'))}]} }), /completed Story assurance/);
+  const skipped=await tasks.execute({ run, node: node('generate','artifactTask',{artifactTask:'test-case-generation'}), sources: [], user, signal: new AbortController().signal, onProgress: async()=>{}, context:{input:[{story_id:'story-a',story_revision:tasks.revision(story('story-a'))}]} });
+  assert.equal(skipped.__workflow_result.context.data[0].test_case_generation.verification.status,'needs_input');
+  assert.deepEqual(skipped.__workflow_result.context.data[0].cases,[]);
   await assert.rejects(tasks.loadStory(run,user,{story_id:'story-a',story_revision:'old'}), { statusCode:409 });
   t.mock.method(stories, 'getRequirement', async id => ({...story(id),project_id:'other'}));
   await assert.rejects(tasks.loadStory(run,user,{story_id:'story-a'}), {statusCode:403});
@@ -111,10 +113,11 @@ test('acceptance uses only saved, assessed outputs and atomically reuses a nativ
   t.mock.method(flags, 'areEnabled', async () => true);
   t.mock.method(require('../public/applicationAccess'), 'getAppType', async () => ({id:'app-a',project_id:'project-a'}));
   t.mock.method(stories, 'getRequirement', async id => story(id));
+  t.mock.method(require('../../../testing/backend/services/testEnvironment.service'), 'getTestEnvironment', async id => ({ id, project_id: 'project-a', app_type_id: 'app-a', variables: [] }));
   t.mock.method(db, 'transaction', task => async () => task());
   t.mock.method(db, 'prepare', sql => ({ get: async (...args) => sql.startsWith('SELECT request_hash') ? receipts.get(args.join(':')) : null, run: async (...args) => { if (sql.startsWith('INSERT INTO workflow_draft_acceptances')) receipts.set([args[0],args[2],args[3],args[4],args[5]].join(':'), {request_hash:args[7],receipt:args[8]}); } }));
   const draft = {client_id:'draft-1',title:'Read invoice',description:'Read an existing invoice',priority:2,test_case_type:'Functional',authoring_mode:'structured',requirement_ids:['story-a'],parameter_values:{},steps:[{action:'GET /invoices/one',expected_result:'Response status equals 200',step_type:'manual'}]};
-  const packet = {story_id:'story-a',story_revision:tasks.revision(story('story-a')),cases:[draft],case_assurance:[{case_fingerprint:tasks.fingerprint(draft),verification:{status:'passed'}}],automation:[{case_fingerprint:tasks.fingerprint(draft),validation:{status:'passed'},verification_status:'unverified',steps:[{...draft.steps[0],step_type:'api',api_request:{method:'GET',url:'https://invoices.example/invoices/one'}}]}]};
+  const packet = {story_id:'story-a',story_revision:tasks.revision(story('story-a')),cases:[draft],case_assurance:[{case_fingerprint:tasks.fingerprint(draft),verification:{status:'passed'}}],automation:[{case_fingerprint:tasks.fingerprint(draft),validation:{status:'passed'},verification_status:'unverified',test_environment_id:'selected-environment',test_data_options:{private_parameter_names:['t.password']},steps:[{...draft.steps[0],step_type:'api',api_request:{method:'GET',url:'https://invoices.example/invoices/one'}}]}]};
   const run = {id:'run-a',project_id:'project-a',app_type_id:'app-a',status:'completed',execution_mode:'review',input_payload:{sprint_id:'sprint-a'},node_results:[{node_id:'auto',node_type:'artifactTask',status:'completed',output:{data:[packet]}}]};
   const app = {inject:async input=>{injections.push(input);return{statusCode:201,json:()=>({id:'saved-case'})};}};
   const req = {user,body:{node_id:'auto',story_index:0,case_index:0,kind:'automation',artifact:{title:'Forged user supplied payload'}}};
@@ -122,6 +125,8 @@ test('acceptance uses only saved, assessed outputs and atomically reuses a nativ
   assert.equal(first.id,'saved-case');assert.equal(second.reused,true);assert.equal(injections.length,1);
   assert.equal(injections[0].url,'/test-cases');assert.equal(injections[0].payload.title,'Read invoice');assert.equal(injections[0].payload.steps[0].step_type,'api');assert.equal(injections[0].payload.automation_status,'incomplete');
   assert.equal(first.verification_status,'unverified');
+  assert.equal(injections[0].payload.test_data_options.test_environment_id, 'selected-environment');
+  assert.deepEqual(injections[0].payload.test_data_options.private_parameter_names, ['t.password']);
   await assert.rejects(accept(app,{...req,apiKey:{id:'api-key'}},run),{statusCode:403});
   await assert.rejects(accept(app,{...req,body:{...req.body,case_index:1}},run),{statusCode:409});
   const stale=structuredClone(run);stale.node_results[0].output.data[0].cases[0].title='Tampered draft';

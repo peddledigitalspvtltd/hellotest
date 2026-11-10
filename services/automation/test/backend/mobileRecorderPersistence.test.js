@@ -58,6 +58,14 @@ test("case readiness failures roll back the same step transaction", async () => 
   assert.equal(f.events.at(-1), "rollback");
 });
 
+test('concurrent plan edits after recording preflight are preserved under the mobile save lock', async () => {
+  const f = storageFixture();
+  f.rows[0].automation_code = 'concurrent edit';
+  await assert.rejects(persistMobileRecorderPlan({ ...f.input, expectedSteps: f.original }, f.ports), { code: 'AUTOMATION_RECORDER_CASE_CHANGED', statusCode: 409 });
+  assert.equal(f.rows[0].automation_code, 'concurrent edit');
+  assert.deepEqual(f.events, ['begin', 'lock', 'read', 'rollback']);
+});
+
 test("a deleted target is rejected after the case lock instead of creating a replacement step", async () => {
   const f = storageFixture();
   await assert.rejects(persistMobileRecorderPlan({ ...f.input, targetStepId: "deleted" }, f.ports), { code: "AUTOMATION_RECORDER_TARGET_CHANGED", statusCode: 409 });
@@ -89,8 +97,9 @@ test("repository references are compiled as literal data and targeted actions ke
   const calls = [];
   const driver = { $: async (selector) => { calls.push(selector); return { waitForDisplayed: async () => {}, click: async () => calls.push("click") }; }, keys: async (value) => calls.push(value) };
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  await new AsyncFunction("driver", plan[0].input.automation_code)(driver);
-  assert.deepEqual(calls, [dangerousLocator, "click", expectedValue]);
+  await new AsyncFunction("driver", "ios", plan[0].input.automation_code)(driver, { waitForDisplayed: async selector => calls.push(['configured-wait', selector]) });
+  assert.deepEqual(calls, [['configured-wait', dangerousLocator], dangerousLocator, "click", expectedValue]);
+  assert.doesNotMatch(plan[0].input.automation_code, /timeout:\s*10000/);
   assert.equal(plan.length, 1);
 });
 

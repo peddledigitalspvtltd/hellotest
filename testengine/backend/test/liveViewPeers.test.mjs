@@ -52,3 +52,15 @@ test("peer screenshots use bounded authenticated HTTP and refuse redirects", asy
   assert.equal(await reader("playwright", "redirect-case"), null);
   assert.equal(requests, 2);
 });
+
+test("concurrent remote viewers share discovery and the exact run lookup", async () => {
+  let lookups = 0, reads = 0;
+  const reader = createLiveViewPeerReader({ environment,
+    resolve: async () => { lookups++; await new Promise(resolve => setTimeout(resolve, 5)); return [{ address: "10.1.0.2" }]; },
+    request: async () => { reads++; await new Promise(resolve => setTimeout(resolve, 5)); return Buffer.from("case-image"); }
+  });
+  const images = await Promise.all([reader("playwright", "case"), reader("playwright", "case"), reader("playwright", "another-case")]);
+  assert.deepEqual(images.map(image => image.toString()), ["case-image", "case-image", "case-image"]);
+  assert.equal(lookups, 1);
+  assert.equal(reads, 2, "Only distinct case lookups reach the worker");
+});

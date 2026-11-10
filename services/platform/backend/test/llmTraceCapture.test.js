@@ -63,7 +63,7 @@ test('provider dispatch notification occurs only when the transport actually cal
 });
 
 test('trace redacts URL credentials, query signatures and key/value headers, including encoded tool bodies',()=>{
- const f=fixture();const result=f.capture.sanitize({url:'https://app.test/live?session=safe&token=PRIVATE_TOKEN&x-amz-signature=PRIVATE_SIGNATURE',headers:[{key:'X-API-Key',value:'PRIVATE_KEY'},{name:'Cookie',value:'PRIVATE_COOKIE'},{key:'Accept',value:'application/json'}],tool:JSON.stringify({token:'PRIVATE_BODY',url:'https://app.test?access_token=PRIVATE_ACCESS'})});
+ const f=fixture();const result=f.capture.sanitize({url:'https://app.test/live?session=safe&token=PRIVATE_TOKEN&x-amz-signature=PRIVATE_SIGNATURE',viewer:'https://runner.test/live?run_id=safe&view_token=PRIVATE_VIEW_GRANT',view_token:'PRIVATE_VIEW_FIELD',headers:[{key:'X-API-Key',value:'PRIVATE_KEY'},{name:'Cookie',value:'PRIVATE_COOKIE'},{key:'Accept',value:'application/json'}],tool:JSON.stringify({token:'PRIVATE_BODY',view_token:'PRIVATE_VIEW_TOOL',url:'https://app.test?access_token=PRIVATE_ACCESS'})});
  const text=JSON.stringify(result.payload);assert.doesNotMatch(text,/PRIVATE_/);assert.match(text,/session=safe/);assert.match(text,/application\/json/);assert.equal(result.redacted,true);
 });
 
@@ -223,11 +223,12 @@ test('missing or invalid reported cache usage never becomes a token estimate',as
  });
 });
 
-test('instance-scoped calls and required-context preflight failures are traced without a synthetic project',async()=>{
- const f=fixture({apply:async(init,options)=>({init,options})});
+test('instance-scoped calls reach the model with a context gap and never invent a project scope',async t=>{
+ const f=fixture({apply:async(init,options)=>({init,options}),validateResponse:async()=>{}});
+ let calls=0;t.mock.method(globalThis,'fetch',async(_url,init)=>{calls++;assert.match(init.body,/missing evidence as a gap/);assert.equal(JSON.parse(init.body).messages.at(-1).content,'Review');return Response.json({choices:[{finish_reason:'stop',message:{content:'Review needs source evidence.'}}]});});
  await context.run({actor_id:'instance-admin',project_id:null},async()=>{
-  await assert.rejects(f.client.fetchLlmWithRetry('https://provider-never-dispatched.invalid/chat/completions',{method:'POST',body:JSON.stringify({model:'fixture',messages:[{role:'user',content:'Review'}]})},{operation:'unmapped.preflight-fixture',mcpContextPolicy:{mode:'mcp',required:true}}),{code:'AI_MCP_SCOPE_REQUIRED'});
-  assert.equal(f.writes.length,2);assert.equal(f.writes[0].values[1],null);assert.equal(f.writes[0].values[2],'instance-admin');assert.equal(f.writes[0].values[17].scope,'instance');assert.equal(f.writes[0].values[17].mcp_context,'scope_missing');assert.equal(f.writes[1].values[1],'failed');
+  const response=await f.client.fetchLlmWithRetry('https://provider-fixture.invalid/chat/completions',{method:'POST',body:JSON.stringify({model:'fixture',messages:[{role:'user',content:'Review'}]})},{operation:'unmapped.preflight-fixture',mcpContextPolicy:{mode:'mcp',required:true},maxAttempts:1,validateResponse:false});
+  assert.equal(response.status,200);assert.equal(calls,1);assert.equal(f.writes.length,2);assert.equal(f.writes[0].values[1],null);assert.equal(f.writes[0].values[2],'instance-admin');assert.equal(f.writes[0].values[17].scope,'instance');assert.equal(f.writes[0].values[17].mcp_context,'scope_missing');assert.equal(f.writes[1].values[1],'succeeded');
  });
 });
 

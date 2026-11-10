@@ -2409,6 +2409,9 @@
           "linked_test_run_id": {
             "type": "string"
           },
+          "linked_execution_result_id": {
+            "type": "string"
+          },
           "linked_test_case_ids": {
             "type": "array",
             "items": {
@@ -2807,6 +2810,9 @@
             "maxItems": 6
           },
           "linked_test_run_id": {
+            "type": "string"
+          },
+          "linked_execution_result_id": {
             "type": "string"
           },
           "linked_test_case_ids": {
@@ -4916,6 +4922,29 @@
         },
         "required": [
           "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/reproduction-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "test_case_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10
+          }
+        },
+        "required": [
+          "project_id",
+          "test_case_ids"
         ],
         "additionalProperties": true
       }

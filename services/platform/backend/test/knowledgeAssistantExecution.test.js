@@ -184,6 +184,37 @@ test("intent planning runs once before scoped project reads and grounded synthes
   assert.match(events[intentIndex].message, /Stories.*Test Runs.*Defects/);
 }));
 
+test('a retrieval outage still reaches bounded synthesis and saves an evidence-gap answer without claims',async context=>fixture(async({input})=>{
+ context.mock.method(llmSelection,'resolveLlmIntegrationForUsage',async()=>({id:'gap-model',type:'llm',is_active:true,api_key:'fixture',base_url:'https://gap-model.invalid/v1',model:'test',config:{}}));
+ context.mock.method(llmSelection,'recordSuccessfulLlmIntegration',async()=>{});
+ context.mock.method(gateway,'retrieveContext',async()=>{throw Object.assign(new Error('PRIVATE_CONTEXT_STORE_DETAIL'),{code:'MCP_CONTEXT_TIMEOUT'});});
+ let calls=0;context.mock.method(global,'fetch',async(_url,init)=>{
+  calls++;const payload=JSON.parse(init.body);assert.match(payload.messages[0].content,/missing evidence as a gap/);
+  const task=JSON.parse(payload.messages.at(-1).content);assert.equal(task.context_packet.evidence.length,0);assert.equal(task.question,input.message);
+  return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({status:'insufficient_context',supported_claims:[],citation_ids:[],executive_summary:'The selected release evidence is unavailable.',evidence_gaps:['The approved release criteria could not be retrieved.']})}}]});
+ });
+ const result=await assistant.respond({...input,responseMode:'answer',retrievalBudgets:{max_tool_calls:2}});
+ assert.equal(calls,1);assert.equal(result.assistant_message.status,'insufficient_context');assert.equal(result.citations.length,0);assert.equal(result.answer_contract.claims.length,0);assert.equal(result.assistant_message.retrieval.retrieval_failed,true);assert.equal(result.assistant_message.retrieval.model_budget.retrieval_tool_calls_used,null);assert.equal(result.assistant_message.retrieval.model_budget.retrieval_tool_calls_reserved,1);assert.doesNotMatch(JSON.stringify(result),/PRIVATE_CONTEXT_STORE_DETAIL/);
+}));
+
+test('unknown failed-retrieval usage keeps its reservation and cannot fund an extra synthesis correction',async context=>fixture(async({input})=>{
+ context.mock.method(llmSelection,'resolveLlmIntegrationForUsage',async()=>({id:'gap-budget-model',type:'llm',is_active:true,api_key:'fixture',base_url:'https://gap-budget.invalid/v1',model:'test',config:{}}));
+ context.mock.method(llmSelection,'recordSuccessfulLlmIntegration',async()=>{});
+ context.mock.method(gateway,'retrieveContext',async()=>{throw Object.assign(new Error('Retrieval reply was lost.'),{code:'MCP_CONTEXT_TIMEOUT'});});
+ let calls=0;context.mock.method(global,'fetch',async(_url,init)=>{
+  calls++;const planning=JSON.parse(init.body).messages[0].content.includes('You plan evidence retrieval');
+  return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(planning?{search_queries:['release approval']}:{status:'answered',supported_claims:[{statement:'Unsupported approval.',citation_ids:['invented-proof']}]})}}]});
+ });
+ await assert.rejects(assistant.respond({...input,responseMode:'answer',retrievalBudgets:{max_tool_calls:3}}),{code:'MODEL_INVALID_RESPONSE'});assert.equal(calls,2,'one planner and its reserved answer may run; unknown retrieval usage cannot pay for another correction');
+}));
+
+test('a context authorization failure cannot fall through to synthesis',async context=>fixture(async({input})=>{
+ context.mock.method(llmSelection,'resolveLlmIntegrationForUsage',async()=>({id:'denied-model',type:'llm',is_active:true,api_key:'fixture',base_url:'https://denied-model.invalid/v1',model:'test',config:{}}));
+ context.mock.method(gateway,'retrieveContext',async()=>{throw Object.assign(new Error('Project context denied.'),{statusCode:403,code:'MCP_ACCESS_DENIED'});});
+ let calls=0;context.mock.method(global,'fetch',async()=>{calls++;throw new Error('Unauthorized context cannot dispatch synthesis.');});
+ await assert.rejects(assistant.respond({...input,responseMode:'answer',retrievalBudgets:{max_tool_calls:2}}),{statusCode:403,code:'MCP_ACCESS_DENIED'});assert.equal(calls,0);
+}));
+
 test('disabled retrieval performs no paid planning or synthesis and replay preserves the zero-call result', async context => fixture(async ({ input, state }) => {
   context.mock.method(llmSelection, 'resolveLlmIntegrationForUsage', async () => ({ id: 'disabled-retrieval-model', type: 'llm', is_active: true, api_key: 'test-credential', base_url: 'https://disabled-retrieval.invalid/v1', model: 'test', config: {} }));
   let calls = 0;

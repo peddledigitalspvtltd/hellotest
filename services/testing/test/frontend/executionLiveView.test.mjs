@@ -17,3 +17,8 @@ test("case Live View rejects a missing engine scope, shared VNC desktop and URLs
     assert.equal(caseLiveViewSession({ status: "running", live_sessions: [{ ...session("case", "run"), url }] }, { test_case_id: "case" }), null);
   }
 });
+
+test("case Live View accepts its exact run behind a configured reverse proxy path", () => {
+  const live = { ...session("case", "run"), url: "https://runner.example/engines/web/api/v1/live-session?provider=playwright&run_id=run" };
+  assert.equal(caseLiveViewSession({ status: "running", live_sessions: [live] }, { test_case_id: "case" }), live);
+});

@@ -11,6 +11,9 @@ const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.
 
 test("Bug report navigation carries Sprint and Release context and permits a Release return", () => {
   const path = buildBugReportPath({
+    runId: "run-1",
+    executionResultId: "selected-row-attempt",
+    testCaseIds: ["case-1"],
     requirementIds: ["story-1"],
     sprint: "Commerce Sprint 42",
     sprintId: "iteration-42",
@@ -24,6 +27,8 @@ test("Bug report navigation carries Sprint and Release context and permits a Rel
 
   assert.equal(url.pathname, "/issues");
   assert.equal(url.searchParams.get("create"), "1");
+  assert.equal(url.searchParams.get("executionResult"), "selected-row-attempt");
+  assert.equal(url.searchParams.get("run"), "run-1");
   assert.equal(url.searchParams.get("sprint"), "Commerce Sprint 42");
   assert.equal(url.searchParams.get("sprintId"), "iteration-42");
   assert.equal(url.searchParams.get("release"), "Payments GA");

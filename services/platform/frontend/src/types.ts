@@ -1,6 +1,6 @@
 export type AutomationAgentContextOptions = { context_scopes?: string[]; inputs?: Record<string,string>; smart_context?: {query?:string;source_ids?:string[];source_kinds?:string[];reviewed_context?:string} };
 export type AutomationCaseType = "web" | "api" | "android" | "ios" | "unified";
-export type TestDataOptions = { automation_case_type?: AutomationCaseType; parameter_overrides?: string[]; private_parameter_names?: string[]; override_shared_sections?: boolean; shared_data_kind?: "steps" | "sections"; override_lower_scopes?: boolean; override_test_case_data?: boolean; override_suite_data?: boolean; override_shared_steps?: boolean; runtime_policy?: { version: number; case?: TestDataOptions; suite?: TestDataOptions; run?: TestDataOptions } };
+export type TestDataOptions = { automation_case_type?: AutomationCaseType; test_environment_id?: string | null; parameter_overrides?: string[]; private_parameter_names?: string[]; override_shared_sections?: boolean; shared_data_kind?: "steps" | "sections"; override_lower_scopes?: boolean; override_test_case_data?: boolean; override_suite_data?: boolean; override_shared_steps?: boolean; runtime_policy?: { version: number; case?: TestDataOptions; suite?: TestDataOptions; run?: TestDataOptions } };
 export type DataSetValidation = { valid: boolean; missing_parameters: string[]; required_parameters: string[]; available_parameters: string[]; iteration_count?: number; reason?: string; test_data_set_id?: string; data_set_id?: string };
 export type User = {
   id: string;

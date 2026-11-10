@@ -11,6 +11,12 @@ const { parseAiJson } = require("@hellotest/platform/backend/src/utils/aiJsonRes
 const { createLlmProviderError } = require("@hellotest/platform/backend/src/utils/upstreamLlmError");
 const { object: aiObject, list: aiList } = require("@hellotest/platform/backend/src/utils/aiArtifactContext");
 const { splitGenerationContext } = require("@hellotest/platform/backend/src/utils/aiGenerationContext");
+const defectReproductionService = require("@hellotest/testing/backend/services/defectReproduction.service");
+const agentFailureEvidence = require("./agentFailureEvidence");
+const permissionService = require("@hellotest/platform/backend/services/permission.service");
+const attachmentService = require("@hellotest/platform/backend/services/attachment.service");
+const { sanitizeAiText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
+const { parseStructuredLogs } = require("@hellotest/platform/backend/src/domain/executionStepEvidence");
 
 const BUG_DRAFT_USAGE_KEY = "ai.bug.draft";
 const MAX_TEST_CASES = 10;
@@ -18,6 +24,9 @@ const MAX_REQUIREMENTS = 10;
 const MAX_FAILURE_RESULTS = 10;
 const MAX_EXTERNAL_LINKS = 12;
 const MAX_REFERENCE_IMAGES = 6;
+const MAX_REFERENCE_IMAGE_CHARS = 950_000;
+const MAX_EXECUTION_IMAGE_BYTES = 650_000;
+const EXECUTION_IMAGE_TIME_BUDGET_MS = 8_000;
 const DRAFT_FIELDS = [
   "title",
   "message",
@@ -38,6 +47,10 @@ const BUG_DRAFT_CONTEXT_LIMITS = Object.freeze({
   requirement_title: 300,
   requirement_description: 600,
   requirement_expected_section: 1_500,
+  case_step_text: 700,
+  case_reproduction: 4_000,
+  failure_step_text: 900,
+  failure_comment: 1_000,
   failure_observation: 1_000,
   status: 80,
   timestamp: 80
@@ -59,13 +72,40 @@ const plainText = (value) => stringifyTextValue(value)
   .replace(/<[^>]*>/g, " ")
   .replace(/\s+/g, " ")
   .trim();
-const stripMarkup = (value, max = 500) => plainText(value).slice(0, max);
+const stripMarkup = (value, max = 500) => sanitizeAiText(plainText(value)).text.slice(0, max);
 const normalizeExternalLinks = (value) => normalizeReferenceList(value)
   .map((item) => normalizeText(item, 2_048))
   .filter((item) => /^https?:\/\//i.test(item))
   .slice(0, MAX_EXTERNAL_LINKS);
 const normalizeImageAssets = images => normalizeReferenceImages(images);
-const hasWrittenIncident = input => Boolean(input.intent || input.evidence || splitGenerationContext(input.additional_context).user_request);
+const hasWrittenIncident = (input, context = {}) => Boolean(input.intent || input.evidence
+  || splitGenerationContext(input.additional_context).user_request || context.run
+  || context.cases?.length || context.requirements?.length || context.failures?.length);
+const failureLogsText = (failure) => {
+  // Structured runner logs also contain captures, request bodies and image data.
+  // Only observed outcome fields belong in the model's incident evidence.
+  const logs = parseStructuredLogs(failure?.logs);
+  return Object.entries(logs.stepStatuses).filter(([, status]) => status === "failed").slice(0, 30)
+    .map(([id]) => [logs.stepNotes[id], logs.stepApiDetails[id]?.error, logs.stepWebDetails[id]?.error]
+      .filter(value => typeof value === "string").map(value => stripMarkup(value, 2_400)).join("; "))
+    .filter(Boolean).join("\n");
+};
+const failureObservationText = (failure) => {
+  const observations = [];
+  if (failure?.error) observations.push(`Failure error: ${failure.error}`);
+  const observedLogs = failureLogsText(failure);
+  if (observedLogs) observations.push(`Failure logs: ${observedLogs}`);
+  if (failure?.defects) observations.push(`Recorded defects: ${failure.defects}`);
+  for (const step of failure?.steps || []) {
+    if (step.observed_status === "failed" || step.note || step.api_observation?.error || step.browser_observation?.error) {
+      observations.push(`Step ${step.order}: ${step.action || "(no action text)"} — ${step.observed_status || "unknown"}${step.note ? `; ${step.note}` : ""}`);
+      if (step.api_observation?.error) observations.push(`API error: ${step.api_observation.error}`);
+      if (step.browser_observation?.error) observations.push(`Browser error: ${step.browser_observation.error}`);
+    }
+  }
+  for (const comment of failure?.comments || []) if (comment?.body) observations.push(`Failure comment: ${comment.body}`);
+  return observations.map(value => stripMarkup(value, 1_600)).filter(Boolean).join("\n");
+};
 const defectRetrievalQuery = (input, context, images) => {
   const additional = splitGenerationContext(input.additional_context);
   const reviewedText = additional.reviewed_context.map(value => {
@@ -81,7 +121,7 @@ const defectRetrievalQuery = (input, context, images) => {
     context.run ? stripMarkup(context.run.name || context.run.id, 200) : "",
     ...context.cases.map(item => stripMarkup(item.title || item.description || item.id, 200)),
     ...context.requirements.map(item => stripMarkup(item.title || item.expected_section || item.id, 200)),
-    ...context.failures.map(item => stripMarkup(item.logs || item.defects || item.id, 300))
+    ...context.failures.map(item => stripMarkup(failureObservationText(item) || item.id, 300))
   ].filter(Boolean);
   return topics.length ? topics.join("\n").slice(0, 3_500) : images.length ? null : undefined;
 };
@@ -148,7 +188,7 @@ const storyExpectedBehavior = (story) => aiList(
 const buildPromptContextSnapshot = (context) => {
   const contentOmissions = [];
   const boundText = (sourceRef, field, value, limit) => {
-    const full = plainText(value);
+    const full = sanitizeAiText(plainText(value)).text;
     if (full.length > limit) contentOmissions.push({ source_ref: sourceRef, field, unit: "characters", omitted: full.length - limit });
     return full.slice(0, limit);
   };
@@ -163,15 +203,31 @@ const buildPromptContextSnapshot = (context) => {
     test_environment_id: normalizeText(context.run.test_environment_id, 255),
     created_at: boundText(evidenceRef("run", context.run.id), "created_at", context.run.created_at, BUG_DRAFT_CONTEXT_LIMITS.timestamp)
   } : null;
-  const cases = context.cases.map((item) => ({
-    id: normalizeText(item.id, 255),
-    display_id: normalizeText(item.display_id, 255),
-    title: boundText(evidenceRef("test-case", item.id), "title", item.title, BUG_DRAFT_CONTEXT_LIMITS.case_title),
-    description: boundText(evidenceRef("test-case", item.id), "description", item.description, BUG_DRAFT_CONTEXT_LIMITS.case_description),
-    status: boundText(evidenceRef("test-case", item.id), "status", item.status, BUG_DRAFT_CONTEXT_LIMITS.status),
-    priority: boundText(evidenceRef("test-case", item.id), "priority", item.priority, BUG_DRAFT_CONTEXT_LIMITS.status),
-    updated_at: boundText(evidenceRef("test-case", item.id), "updated_at", item.updated_at, BUG_DRAFT_CONTEXT_LIMITS.timestamp)
-  }));
+  const cases = context.cases.map((item) => {
+    const sourceRef = evidenceRef("test-case", item.id);
+    const stepRows = item.steps || [];
+    const omittedSteps = Number(item.omitted_steps || 0) + Math.max(0, stepRows.length - 30);
+    if (omittedSteps) contentOmissions.push({ source_ref: sourceRef, field: "steps", unit: "items", omitted: omittedSteps });
+    return {
+      id: normalizeText(item.id, 255),
+      display_id: normalizeText(item.display_id, 255),
+      title: boundText(sourceRef, "title", item.title, BUG_DRAFT_CONTEXT_LIMITS.case_title),
+      description: boundText(sourceRef, "description", item.description, BUG_DRAFT_CONTEXT_LIMITS.case_description),
+      steps: stepRows.slice(0, 30).map((step) => ({
+        order: Number(step.step_order || 0),
+        action: boundText(sourceRef, `step_${step.step_order}_action`, step.action, BUG_DRAFT_CONTEXT_LIMITS.case_step_text),
+        expected_result: boundText(sourceRef, `step_${step.step_order}_expected`, step.expected_result, BUG_DRAFT_CONTEXT_LIMITS.case_step_text)
+      })),
+      reproduction_steps: boundText(sourceRef, "reproduction_steps", (item.reproduction_steps || []).join("\n"), BUG_DRAFT_CONTEXT_LIMITS.case_reproduction),
+      expected_result: boundText(sourceRef, "expected_result", item.expected_result, BUG_DRAFT_CONTEXT_LIMITS.case_reproduction),
+      omitted_steps: omittedSteps,
+      status: boundText(sourceRef, "status", item.status, BUG_DRAFT_CONTEXT_LIMITS.status),
+      priority: boundText(sourceRef, "priority", item.priority, BUG_DRAFT_CONTEXT_LIMITS.status),
+      updated_at: boundText(sourceRef, "updated_at", item.updated_at, BUG_DRAFT_CONTEXT_LIMITS.timestamp),
+      source: item.source || 'saved_test_case',
+      execution_result_id: item.execution_result_id || null
+    };
+  });
   const requirements = context.requirements.map((item) => ({
     id: normalizeText(item.id, 255),
     display_id: normalizeText(item.display_id, 255),
@@ -187,26 +243,175 @@ const buildPromptContextSnapshot = (context) => {
     priority: boundText(evidenceRef("requirement", item.id), "priority", item.priority, BUG_DRAFT_CONTEXT_LIMITS.status),
     updated_at: boundText(evidenceRef("requirement", item.id), "updated_at", item.updated_at, BUG_DRAFT_CONTEXT_LIMITS.timestamp)
   }));
-  const failures = context.failures.map((item) => ({
-    id: normalizeText(item.id, 255),
-    test_case_id: normalizeText(item.test_case_id, 255),
-    status: boundText(evidenceRef("execution-result", item.id), "status", item.status, BUG_DRAFT_CONTEXT_LIMITS.status),
-    logs: boundText(evidenceRef("execution-result", item.id), "observation", [item.logs, item.defects].filter(Boolean).map(stringifyTextValue).join("\n"), BUG_DRAFT_CONTEXT_LIMITS.failure_observation),
-    defects: "",
-    created_at: boundText(evidenceRef("execution-result", item.id), "created_at", item.created_at, BUG_DRAFT_CONTEXT_LIMITS.timestamp)
-  }));
+  const failures = context.failures.map((item) => {
+    const sourceRef = evidenceRef("execution-result", item.id);
+    const stepRows = item.steps || [];
+    const omittedSteps = Number(item.evidence_coverage?.omitted_steps || 0) + Math.max(0, stepRows.length - 30);
+    if (omittedSteps) contentOmissions.push({ source_ref: sourceRef, field: "steps", unit: "items", omitted: omittedSteps });
+    const commentRows = item.comments || [];
+    const omittedComments = Number(item.evidence_coverage?.omitted_comments || 0) + Math.max(0, commentRows.length - 8);
+    if (omittedComments) contentOmissions.push({ source_ref: sourceRef, field: "comments", unit: "items", omitted: omittedComments });
+    return {
+      id: normalizeText(item.id, 255),
+      test_case_id: normalizeText(item.test_case_id, 255),
+      status: boundText(sourceRef, "status", item.status, BUG_DRAFT_CONTEXT_LIMITS.status),
+      error: boundText(sourceRef, "error", item.error, BUG_DRAFT_CONTEXT_LIMITS.failure_observation),
+      logs: boundText(sourceRef, "observation", failureLogsText(item), BUG_DRAFT_CONTEXT_LIMITS.failure_observation),
+      steps: stepRows.slice(0, 30).map((step) => ({
+        order: Number(step.order || 0),
+        action: boundText(sourceRef, `step_${step.order}_action`, step.action, BUG_DRAFT_CONTEXT_LIMITS.failure_step_text),
+        expected_result: boundText(sourceRef, `step_${step.order}_expected`, step.expected_result, BUG_DRAFT_CONTEXT_LIMITS.failure_step_text),
+        observed_status: boundText(sourceRef, `step_${step.order}_status`, step.observed_status, BUG_DRAFT_CONTEXT_LIMITS.status),
+        note: boundText(sourceRef, `step_${step.order}_note`, step.note, BUG_DRAFT_CONTEXT_LIMITS.failure_step_text),
+        api_observation: step.api_observation || {},
+        browser_observation: step.browser_observation || {}
+      })),
+      comments: commentRows.slice(0, 8).map((comment) => ({
+        body: boundText(sourceRef, "failure_comment", comment.body, BUG_DRAFT_CONTEXT_LIMITS.failure_comment),
+        updated_at: boundText(sourceRef, "comment_updated_at", comment.updated_at, BUG_DRAFT_CONTEXT_LIMITS.timestamp)
+      })),
+      coverage: item.evidence_coverage ? { ...item.evidence_coverage, omitted_steps: omittedSteps, omitted_comments: omittedComments } : null,
+      omitted_steps: omittedSteps,
+      limitations: item.evidence_limitations || [],
+      defects: "",
+      created_at: boundText(sourceRef, "created_at", item.created_at, BUG_DRAFT_CONTEXT_LIMITS.timestamp)
+    };
+  });
   return {
     run,
     cases,
     requirements,
     failures,
+    execution_images: (context.execution_images || []).map((image) => ({
+      name: plainText(image.name, 255),
+      content_hash: normalizeText(image.content_hash, 64)
+    })),
     content_limits: BUG_DRAFT_CONTEXT_LIMITS,
     content_omissions: contentOmissions,
     partial_sources: contentOmissions.length > 0
   };
 };
 
-const loadEvidence = async ({ projectId, runId, testCaseIds, requirementIds }) => {
+const loadExecutionImages = async ({ user, projectId, run, failures, reservedImages = [], exactResult = false }) => {
+  if (!run) return { images: [], requested: 0, omitted: 0, accessRestricted: false };
+  let canViewAttachments = false;
+  try {
+    canViewAttachments = Boolean(user
+      && await permissionService.hasPermission(user, "attachment.view", projectId)
+      && await permissionService.hasPermission(user, "result.view", projectId));
+  }
+  catch (error) {
+    if (error?.name === 'AbortError' || [401, 403, 499].includes(error?.statusCode) || error?.code === 'REQUEST_CANCELLED') throw error;
+    return { images: [], requested: 0, omitted: 0, accessRestricted: true };
+  }
+  if (!canViewAttachments) return { images: [], requested: 0, omitted: 0, accessRestricted: true };
+  const resultIds = unique(failures.map((item) => item.id)).slice(0, MAX_FAILURE_RESULTS);
+  if (exactResult && !resultIds.length) return { images: [], requested: 0, omitted: 0, accessRestricted: false };
+  const imageLimit = MAX_REFERENCE_IMAGES;
+  const admitted = [];
+  let totalChars = reservedImages.reduce((total, image) => total + image.url.length, 0);
+  let omitted = 0, duplicates = 0, inlineRequested = 0, unavailable = false;
+  for (const failure of failures) {
+    const logs = parseStructuredLogs(failure.logs);
+    const evidence = Object.entries(logs.stepEvidence).sort(([a], [b]) => Number(logs.stepStatuses[b] === 'failed') - Number(logs.stepStatuses[a] === 'failed'));
+    for (const [stepId, item] of evidence.slice(0, 50)) {
+      const url = item?.dataUrl || item?.data_url;
+      if (typeof url !== 'string' || !url.startsWith('data:image/')) continue;
+      inlineRequested++;
+      if (reservedImages.length + admitted.length >= imageLimit || url.length > Math.ceil(MAX_EXECUTION_IMAGE_BYTES * 4 / 3) + 100
+        || totalChars + url.length > MAX_REFERENCE_IMAGE_CHARS) { omitted++; continue; }
+      try {
+        const step = failure.steps?.find(value => value.id === stepId);
+        const [candidate] = normalizeReferenceImages([{ name: `Failed run ${failure.test_case_id} · step ${step?.order || stepId}`, url }]);
+        if ([...reservedImages, ...admitted].some(image => image.content_hash === candidate.content_hash)) { duplicates++; continue; }
+        admitted.push(candidate);
+        totalChars += candidate.url.length;
+      } catch { omitted++; }
+    }
+  }
+  const resultClause = resultIds.length ? ` OR (entity_type = 'execution_result' AND entity_id IN (${resultIds.map(() => "?").join(",")}))` : "";
+  const rows = await db.prepare(`
+    SELECT id, project_id, entity_type, entity_id, file_name, mime_type, size_bytes
+    FROM attachments
+    WHERE project_id = ? AND (${exactResult ? `entity_type = 'execution_result' AND entity_id IN (${resultIds.map(() => "?").join(",")})` : `(entity_type = 'execution' AND entity_id = ?)${resultClause}`})
+      AND (mime_type ILIKE 'image/png%' OR mime_type ILIKE 'image/jpeg%' OR mime_type ILIKE 'image/webp%')
+    ORDER BY created_at DESC, id DESC
+    LIMIT 51
+  `).all(projectId, ...(exactResult ? resultIds : [run.id, ...resultIds])).catch(error => {
+    if (error?.name === 'AbortError' || [401, 403, 499].includes(error?.statusCode) || error?.code === 'REQUEST_CANCELLED') throw error;
+    unavailable = true;
+    return [];
+  });
+  const candidateRows = rows.filter((row) => ["image/png", "image/jpeg", "image/webp"].includes(String(row.mime_type || "").split(";", 1)[0].toLowerCase()));
+  const deadline = Date.now() + EXECUTION_IMAGE_TIME_BUDGET_MS;
+  omitted += Math.max(0, candidateRows.length - 50);
+  for (const row of candidateRows.slice(0, 50)) {
+    if (reservedImages.length + admitted.length >= imageLimit || Date.now() >= deadline) {
+      omitted++;
+      continue;
+    }
+    const remainingBytes = Math.floor(Math.max(0, MAX_REFERENCE_IMAGE_CHARS - totalChars - 32) * 0.75);
+    const maxBytes = Math.min(MAX_EXECUTION_IMAGE_BYTES, remainingBytes);
+    const expectedType = String(row.mime_type || "").split(";", 1)[0].toLowerCase();
+    if (!maxBytes || Number(row.size_bytes || 0) <= 0 || Number(row.size_bytes || 0) > maxBytes) {
+      omitted++;
+      continue;
+    }
+    let stream, timer, expired = false;
+    try {
+      const read = (async () => {
+        const downloaded = await attachmentService.download({ user, id: row.id });
+        stream = downloaded.stream;
+        const stored = downloaded.row;
+        if (expired) {
+          stream.destroy();
+          throw new Error("Screenshot read exceeded its time budget.");
+        }
+        if (stored.project_id !== projectId || stored.entity_type !== row.entity_type || stored.entity_id !== row.entity_id
+          || !((stored.entity_type === "execution" && stored.entity_id === run.id)
+            || (stored.entity_type === "execution_result" && resultIds.includes(stored.entity_id)))) {
+          throw new Error("Screenshot attachment scope changed.");
+        }
+        const chunks = [];
+        let size = 0;
+        for await (const chunk of stream) {
+          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          size += bytes.length;
+          if (size > maxBytes) throw new Error("Screenshot exceeds the AI image budget.");
+          chunks.push(bytes);
+        }
+        return Buffer.concat(chunks);
+      })();
+      const bytes = await Promise.race([read, new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          expired = true;
+          stream?.destroy();
+          reject(new Error("Screenshot read exceeded its time budget."));
+        }, Math.min(2_500, Math.max(1, deadline - Date.now())));
+      })]);
+      const candidate = { name: row.file_name || "Execution screenshot", url: `data:${expectedType};base64,${bytes.toString("base64")}` };
+      const candidateHash = crypto.createHash("sha256").update(bytes).digest("hex");
+      if ([...reservedImages, ...admitted].some((image) => image.content_hash === candidateHash)) { duplicates++; continue; }
+      const normalized = normalizeReferenceImages([...reservedImages, ...admitted, candidate]);
+      const normalizedCandidate = normalized.find((image) => image.content_hash === candidateHash);
+      if (!normalizedCandidate) {
+        omitted++;
+        continue;
+      }
+      admitted.push(normalizedCandidate);
+      totalChars += normalizedCandidate.url.length;
+    } catch (error) {
+      if (error?.name === 'AbortError' || [401, 403, 499].includes(error?.statusCode) || error?.code === 'REQUEST_CANCELLED') throw error;
+      omitted++;
+    } finally {
+      clearTimeout(timer);
+      stream?.destroy();
+    }
+  }
+  return { images: admitted, requested: candidateRows.length + inlineRequested - duplicates, omitted, accessRestricted: false, unavailable };
+};
+
+const loadEvidence = async ({ user, projectId, runId, resultId, testCaseIds, requirementIds, referenceImages = [] }) => {
   const requestedCaseIds = unique(testCaseIds);
   const requestedRequirementIds = unique(requirementIds);
   const boundedCaseIds = requestedCaseIds.slice(0, MAX_TEST_CASES);
@@ -214,11 +419,7 @@ const loadEvidence = async ({ projectId, runId, testCaseIds, requirementIds }) =
   const run = runId
     ? await db.prepare("SELECT id, name, status, trigger, release, sprint, build, project_id, test_environment_id, created_at FROM executions WHERE id = ? AND project_id = ?").get(runId, projectId)
     : null;
-  const cases = [];
-  for (const id of boundedCaseIds) {
-    const item = await db.prepare(`SELECT test_cases.id, test_cases.display_id, test_cases.title, test_cases.description, test_cases.status, test_cases.priority, test_cases.updated_at FROM test_cases JOIN app_types ON app_types.id = test_cases.app_type_id WHERE test_cases.id = ? AND app_types.project_id = ?`).get(id, projectId);
-    if (item) cases.push(item);
-  }
+  let cases = await defectReproductionService.loadCaseReproduction({ projectId, testCaseIds: boundedCaseIds });
   const requirements = [];
   for (const id of boundedRequirementIds) {
     const item = await db.prepare("SELECT id, display_id, title, description, additional_fields, status, priority, updated_at FROM requirements WHERE id = ? AND project_id = ?").get(id, projectId);
@@ -228,14 +429,65 @@ const loadEvidence = async ({ projectId, runId, testCaseIds, requirementIds }) =
   let failures = [];
   let failureCount = 0;
   if (run) {
-    const selectedCaseIds = cases.map((item) => item.id);
+    const selectedCaseIds = boundedCaseIds;
     const caseClause = selectedCaseIds.length
       ? ` AND execution_results.test_case_id IN (${selectedCaseIds.map(() => "?").join(",")})`
       : "";
-    const params = [run.id, ...selectedCaseIds];
-    const countRow = await db.prepare(`SELECT COUNT(*) AS count FROM execution_results WHERE execution_results.execution_id = ? AND execution_results.status IN ('failed', 'blocked')${caseClause}`).get(...params);
-    failureCount = Number(countRow?.count || 0);
-    failures = await db.prepare(`SELECT execution_results.id, execution_results.test_case_id, execution_results.status, execution_results.logs, execution_results.defects, execution_results.created_at FROM execution_results WHERE execution_results.execution_id = ? AND execution_results.status IN ('failed', 'blocked')${caseClause} ORDER BY execution_results.created_at DESC LIMIT ${MAX_FAILURE_RESULTS}`).all(...params);
+    const resultClause = resultId ? ' AND execution_results.id = ?' : '';
+    failures = await db.prepare(`WITH latest AS (
+      SELECT DISTINCT ON (test_case_id, COALESCE(data_set_iteration_index, -1))
+        id, test_case_id, status, error, logs, defects, created_at
+      FROM execution_results WHERE execution_results.execution_id = ?${caseClause}${resultClause}
+      ORDER BY test_case_id, COALESCE(data_set_iteration_index, -1), created_at DESC, id DESC
+    ) SELECT *, COUNT(*) OVER()::INTEGER AS total_results FROM latest WHERE status IN ('failed', 'blocked')
+      ORDER BY created_at DESC, id DESC LIMIT ${MAX_FAILURE_RESULTS}`).all(run.id, ...selectedCaseIds, ...(resultId ? [resultId] : []));
+    failureCount = Number(failures[0]?.total_results || failures.length);
+  }
+
+  let failurePackets = [];
+  let failureEvidenceUnavailable = false;
+  if (run && user && (!resultId || failures.length)) {
+    try {
+      failurePackets = await agentFailureEvidence.collect({
+        projectId,
+        runIds: [run.id],
+        testCaseIds: boundedCaseIds,
+        resultIds: failures.map(item => item.id),
+        canView: permission => permissionService.hasPermission(user, permission, projectId),
+        read: (sql, values = []) => db.prepare(sql).all(...values)
+      });
+    } catch (error) {
+      if (error?.name === 'AbortError' || [401, 403, 499].includes(error?.statusCode) || error?.code === 'REQUEST_CANCELLED') throw error;
+      failureEvidenceUnavailable = true;
+    }
+  }
+  const packetsByResult = new Map(failurePackets.map((packet) => [packet.result_id, packet]));
+  failures = failures.map((failure) => {
+    const packet = packetsByResult.get(failure.id);
+    return packet ? {
+      ...failure,
+      error: packet.error || failure.error,
+      steps: packet.steps,
+      comments: packet.comments,
+      evidence_coverage: packet.coverage,
+      evidence_limitations: packet.limitations
+    } : failure;
+  });
+  const packetsByCase = new Map();
+  for (const packet of failurePackets) if (!packetsByCase.has(packet.test_case_id)) packetsByCase.set(packet.test_case_id, packet);
+  cases = cases.map(item => {
+    const packet = packetsByCase.get(item.id);
+    if (!packet?.steps?.length) return item;
+    return { ...defectReproductionService.summarizeCase({ ...item, title: packet.title || item.title, description: packet.description || item.description },
+      packet.steps.map(step => ({ id: step.id, step_order: step.order, action: step.action, expected_result: step.expected_result,
+        total_case_steps: packet.coverage?.total_steps }))), source: 'execution_snapshot', execution_result_id: packet.result_id };
+  });
+  let executionImageEvidence = { images: [], requested: 0, omitted: 0, accessRestricted: false, unavailable: false };
+  try {
+    executionImageEvidence = await loadExecutionImages({ user, projectId, run, failures, reservedImages: referenceImages, exactResult: Boolean(resultId) });
+  } catch (error) {
+    if (error?.name === 'AbortError' || [401, 403, 499].includes(error?.statusCode) || error?.code === 'REQUEST_CANCELLED') throw error;
+    executionImageEvidence.unavailable = true;
   }
 
   const boundaries = {
@@ -244,29 +496,40 @@ const loadEvidence = async ({ projectId, runId, testCaseIds, requirementIds }) =
       requirements: MAX_REQUIREMENTS,
       failed_or_blocked_results: MAX_FAILURE_RESULTS,
       external_links: MAX_EXTERNAL_LINKS,
-      reference_images: MAX_REFERENCE_IMAGES
+      reference_images: MAX_REFERENCE_IMAGES,
+      execution_images: MAX_REFERENCE_IMAGES
     },
     requested: {
       run: runId ? 1 : 0,
+      execution_result: resultId ? 1 : 0,
       test_cases: requestedCaseIds.length,
       requirements: requestedRequirementIds.length,
-      failed_or_blocked_results: failureCount
+      failed_or_blocked_results: failureCount,
+      execution_images: executionImageEvidence.requested
     },
     included: {
       run: run ? 1 : 0,
+      execution_result: resultId && failures.some(item => item.id === resultId) ? 1 : 0,
       test_cases: cases.length,
       requirements: requirements.length,
-      failed_or_blocked_results: failures.length
+      failed_or_blocked_results: failures.length,
+      execution_images: executionImageEvidence.images.length,
+      execution_failure_details: failurePackets.length
     },
     omitted: {
       run: runId && !run ? 1 : 0,
+      execution_result: resultId && !failures.some(item => item.id === resultId) ? 1 : 0,
       test_cases: Math.max(0, requestedCaseIds.length - cases.length),
       requirements: Math.max(0, requestedRequirementIds.length - requirements.length),
-      failed_or_blocked_results: Math.max(0, failureCount - failures.length)
+      failed_or_blocked_results: Math.max(0, failureCount - failures.length),
+      execution_images: executionImageEvidence.omitted,
+      execution_images_unavailable: executionImageEvidence.unavailable ? 1 : 0,
+      execution_image_access: executionImageEvidence.accessRestricted ? 1 : 0,
+      execution_failure_details_unavailable: failureEvidenceUnavailable ? 1 : 0
     }
   };
   boundaries.partial_sources = Object.values(boundaries.omitted).some((count) => count > 0);
-  return { run, cases, requirements, failures, boundaries };
+  return { run, cases, requirements, failures, execution_images: executionImageEvidence.images, boundaries };
 };
 
 const buildEvidenceSources = ({ input, context, imageAssets }) => {
@@ -281,14 +544,15 @@ const buildEvidenceSources = ({ input, context, imageAssets }) => {
   input.external_links.forEach((url) => add({ ref: `external-link:${shortHash(url)}`, type: "external-link-pointer", id: shortHash(url), title: url, excerpt: "Pointer only; linked content was not fetched.", url, trust: "pointer-only" }));
   imageAssets.forEach((image) => add({ ref: `reference-image:${image.content_hash}`, type: "reference-image", id: image.content_hash, title: image.name, excerpt: "Reporter-provided image admitted to the bounded evidence pack.", trust: "user-provided" }));
   if (context.run) add({ ref: evidenceRef("run", context.run.id), type: "test-run", id: context.run.id, title: context.run.name || context.run.display_id || context.run.id, excerpt: stripMarkup([context.run.status, context.run.build, context.run.release].filter(Boolean).join(" · ")), status: context.run.status || null, trust: "workspace" });
-  context.cases.forEach((item) => add({ ref: evidenceRef("test-case", item.id), type: "test-case", id: item.id, title: item.title || item.display_id || item.id, excerpt: stripMarkup(item.description), status: item.status || null, trust: "workspace" }));
+  context.cases.forEach((item) => add({ ref: evidenceRef("test-case", item.id), type: "test-case", id: item.id, title: item.title || item.display_id || item.id, excerpt: stripMarkup([item.description, ...(item.reproduction_steps || []), item.expected_result].filter(Boolean).join("\n")), status: item.status || null, trust: "workspace" }));
   context.requirements.forEach((item) => add({ ref: evidenceRef("requirement", item.id), type: "requirement", id: item.id, title: item.title || item.display_id || item.id, excerpt: stripMarkup(storyExpectedBehavior(item) || item.description), status: item.status || null, trust: "workspace" }));
-  context.failures.forEach((item) => add({ ref: evidenceRef("execution-result", item.id), type: "execution-result", id: item.id, title: `${item.status || "failed"} result`, excerpt: stripMarkup(item.logs || item.defects), status: item.status || null, related_id: item.test_case_id || null, trust: "workspace" }));
+  context.failures.forEach((item) => add({ ref: evidenceRef("execution-result", item.id), type: "execution-result", id: item.id, title: `${item.status || "failed"} result`, excerpt: stripMarkup(failureObservationText(item)), status: item.status || null, related_id: item.test_case_id || null, trust: "workspace" }));
+  (context.execution_images || []).forEach((image) => add({ ref: `execution-image:${image.content_hash}`, type: "execution-screenshot", id: image.content_hash, title: image.name, excerpt: "Screenshot captured or attached to the selected execution and sent to the vision model.", trust: "workspace" }));
   return sources;
 };
 
 const inferImpact = ({ intent, evidence, failures }) => {
-  const text = `${intent} ${evidence} ${failures.map((item) => `${item.logs || ""} ${item.defects || ""}`).join(" ")}`;
+  const text = `${intent} ${evidence} ${failures.map(failureObservationText).join(" ")}`;
   const criticalMatch = text.match(/\b(data loss|security breach|production down|outage|payment failure|unavailable)\b/i);
   const highMatch = text.match(/\b(crash|blocked|cannot|failure|failed|error)\b/i);
   if (criticalMatch) return { severity: "critical", priority: "Highest", signal: criticalMatch[0] };
@@ -301,6 +565,8 @@ const deterministicDraft = ({ input, context, evidenceSources }) => {
   const refs = (...items) => unique(items.flat()).filter((ref) => sourceRefs.has(ref));
   const runRef = context.run ? evidenceRef("run", context.run.id) : null;
   const caseRefs = context.cases.map((item) => evidenceRef("test-case", item.id));
+  const casesWithReproduction = context.cases.filter((item) => item.reproduction_steps?.length);
+  const casesWithExpected = context.cases.filter((item) => item.expected_result);
   const requirementRefs = context.requirements.map((item) => evidenceRef("requirement", item.id));
   const failureRefs = context.failures.map((item) => evidenceRef("execution-result", item.id));
   const explicitSteps = extractLabeledSection(input.evidence, ["steps to reproduce", "reproduction steps", "steps", "repro"]);
@@ -309,13 +575,14 @@ const deterministicDraft = ({ input, context, evidenceSources }) => {
   const explicitEnvironment = extractLabeledSection(input.evidence, ["environment", "test environment"]);
   const explicitBuild = extractLabeledSection(input.evidence, ["build", "version"]);
   const hasStructuredReporterEvidence = Boolean(explicitSteps || explicitExpected || explicitActual || explicitEnvironment || explicitBuild);
-  const requirementExpectationEntry = explicitExpected ? null : context.requirements
+  const caseReproduction = defectReproductionService.buildReproduction(context.cases);
+  const requirementExpectationEntry = explicitExpected || casesWithExpected.length ? null : context.requirements
     .map((item) => ({ item, expectation: item.expected_section || storyExpectedBehavior(item) }))
     .find(({ expectation }) => expectation);
   const requirementExpectation = requirementExpectationEntry?.expectation || "";
   const expectationRequirement = requirementExpectationEntry?.item || null;
-  const firstFailure = context.failures.find((item) => stripMarkup(item.logs || item.defects, 8_000));
-  const failureObservation = firstFailure ? stripMarkup(firstFailure.logs || firstFailure.defects, 8_000) : "";
+  const firstFailure = context.failures.find((item) => failureObservationText(item));
+  const failureObservation = firstFailure ? stripMarkup(failureObservationText(firstFailure), 8_000) : "";
   const impact = inferImpact({ intent: input.intent, evidence: input.evidence, failures: context.failures });
   const messageParts = [
     input.intent,
@@ -333,8 +600,8 @@ const deterministicDraft = ({ input, context, evidenceSources }) => {
   const fieldEvidence = {
     title: refs("reporter:intent"),
     message: refs("reporter:intent", runRef, caseRefs, "reporter:additional-context", input.external_links.map((url) => `external-link:${shortHash(url)}`)),
-    steps_to_reproduce: explicitSteps ? refs("reporter:evidence") : [],
-    expected_result: explicitExpected ? refs("reporter:evidence") : expectationRequirement ? refs(evidenceRef("requirement", expectationRequirement.id)) : [],
+    steps_to_reproduce: explicitSteps ? refs("reporter:evidence") : casesWithReproduction.length ? refs(casesWithReproduction.map((item) => evidenceRef("test-case", item.id))) : [],
+    expected_result: explicitExpected ? refs("reporter:evidence") : casesWithExpected.length ? refs(casesWithExpected.map((item) => evidenceRef("test-case", item.id))) : expectationRequirement ? refs(evidenceRef("requirement", expectationRequirement.id)) : [],
     actual_result: actualResultEvidence,
     severity: impact.signal ? refs("reporter:intent", "reporter:evidence", failureRefs) : [],
     priority: impact.signal ? refs("reporter:intent", "reporter:evidence", failureRefs) : [],
@@ -346,8 +613,8 @@ const deterministicDraft = ({ input, context, evidenceSources }) => {
   const draft = {
     title: normalizeText(input.intent, 180).replace(/[.\s]+$/, ""),
     message: messageParts.join("\n\n"),
-    steps_to_reproduce: explicitSteps,
-    expected_result: explicitExpected || requirementExpectation,
+    steps_to_reproduce: explicitSteps || caseReproduction.steps_to_reproduce,
+    expected_result: explicitExpected || caseReproduction.expected_result || requirementExpectation,
     actual_result: actualResult,
     severity: impact.severity,
     priority: impact.priority,
@@ -428,20 +695,30 @@ const normalizeCandidate = (candidate, fallback, evidenceSources) => {
   };
 };
 
-const requestLlmDraft = async (integration, input, context, evidenceSources, images = []) => {
+const requestLlmDraft = async (integration, input, context, evidenceSources, images = [], { compact = false, canonicalFields = {} } = {}) => {
   const allowedRefs = evidenceSources.map((source) => source.ref);
+  const modelContext = { ...context, cases: context.cases.map(item => item.steps?.length
+    ? { ...item, reproduction_steps: undefined, expected_result: undefined } : item) };
+  const visualEvidenceMap = images.map((image, index) => {
+    const executionImage = (context.execution_images || []).find((item) => item.content_hash === image.content_hash);
+    const ref = executionImage ? `execution-image:${image.content_hash}` : `reference-image:${image.content_hash}`;
+    return `Image part ${index + 1} supports ${ref} (${image.name || "unnamed image"}).`;
+  });
   const prompt = [
+    compact ? "Compact completion retry: the previous response reached its output limit. Return the complete agreed JSON object only. Do not explain your analysis or repeat evidence excerpts. Keep message and rationale brief, keep actual results to observed facts, and use the shortest valid evidence refs. For each host-owned canonical field below, return its exact short source-reference placeholder as the draft value and its evidence_refs as the matching field_evidence. HelloTest restores the full source text after native contract validation. These known fields are not evidence gaps. Never invent or expand source actions. Keep gaps focused on genuinely missing facts. The same complete evidence and screenshots are attached." : "Output concision: return only the agreed JSON object. Summarize evidence instead of repeating it. Preserve supplied Test Case actions in order in steps_to_reproduce without expanding them. Keep message, rationale, expected/actual results, gaps, and assumptions concise.",
+    compact && Object.keys(canonicalFields).length ? `Host-owned canonical fields:\n${JSON.stringify(canonicalFields)}` : '',
     aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.js.prompt.final.1"),
-    images.length && !hasWrittenIncident(input)
+    images.length && !hasWrittenIncident(input, context)
       ? aiInstructionBlock("ai.bug.draft", "aiBugDraft.imageOnlyContext")
       : "",
+    visualEvidenceMap.length ? `Visual evidence is attached after this prompt in the same order listed here. Cite only the matching allowed source ref:\n${visualEvidenceMap.join("\n")}` : "",
     input.prompt_guidance ? `Workspace editorial guidance (lower priority than the evidence rules above):\n${input.prompt_guidance}` : "",
     [aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.prompt.segment.1"),String(JSON.stringify(allowedRefs)),""].join(''),
     aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.js.prompt.final.6"),
     [aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.prompt.segment.2"),String(JSON.stringify({ ...input, prompt_guidance: undefined })),""].join(''),
     // Source excerpts duplicate the bounded record snapshot and reporter input.
     // Keep their refs and identity; include each evidence body only once.
-    [aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.prompt.segment.3"),String(JSON.stringify({ context, evidence_sources: evidenceSources.map(({ excerpt, ...source }) => source) })),""].join('')
+    [aiInstructionBlock("ai.bug.draft", "aiBugDraft.service.prompt.segment.3"),String(JSON.stringify({ context: modelContext, evidence_sources: evidenceSources.map(({ excerpt, ...source }) => source) })),""].join('')
   ].filter(Boolean).join("\n\n");
   const userContent = imageUserContent(prompt, images);
   const baseUrl = String(integration.base_url || "https://api.openai.com/v1").replace(/\/+$/, "");
@@ -454,7 +731,7 @@ const requestLlmDraft = async (integration, input, context, evidenceSources, ima
 
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: aiInstructionBlock("ai.bug.draft", "aiBugDraft.response.1") },
+        { role: "system", content: [aiInstructionBlock("ai.bug.draft", "aiBugDraft.response.1"), compact ? "For this compact retry, preserve every required key and exact evidence grounding while writing the shortest complete valid values. Use the supplied short source-reference placeholders for host-owned canonical fields; HelloTest restores their source text after validation." : "Use concise values. Do not restate the supplied records."].join("\n") },
         { role: "user", content: userContent }
       ]
     })
@@ -462,8 +739,12 @@ const requestLlmDraft = async (integration, input, context, evidenceSources, ima
   if (!response.ok) throw createLlmProviderError({ status: response.status, headers: response.headers, detail: await response.text() });
   try {
     const payload = await response.json();
+    if (["length", "max_tokens"].includes(payload?.choices?.[0]?.finish_reason)) {
+      throw Object.assign(new Error("The model reached its output limit before completing the Defect proposal."), { statusCode: 502, code: "AI_OUTPUT_TRUNCATED" });
+    }
     return extractJson(getCompletionContent(payload));
-  } catch {
+  } catch (error) {
+    if (error?.code === 'AI_OUTPUT_TRUNCATED') throw error;
     const message = "The model returned an incomplete or unreadable Defect proposal. Retry with a smaller scope or choose another configured model. No Defect was created.";
     throw Object.assign(new Error(message), { statusCode: 502, code: "AI_DEFECT_RESPONSE_INVALID", publicMessage: message });
   }
@@ -482,10 +763,11 @@ const buildProcessingSnapshot = ({ evidenceSources, generationMode, gaps, fallba
   ]
 });
 
-exports.preview = async ({ user, project_id, intent, evidence, additional_context, external_links, reference_photos, linked_test_run_id, linked_test_case_ids, linked_requirement_ids, integration_id, prompt_guidance, require_case_context = false } = {}) => {
+exports.preview = async ({ user, project_id, intent, evidence, additional_context, external_links, reference_photos, linked_test_run_id, linked_execution_result_id, linked_test_case_ids, linked_requirement_ids, integration_id, prompt_guidance, require_case_context = false } = {}) => {
   const projectId = normalizeText(project_id, 255);
   const normalizedIntent = normalizeText(intent, 4_000);
   if (!projectId) throw Object.assign(new Error("project_id is required"), { statusCode: 400 });
+  if (linked_execution_result_id && !linked_test_run_id) throw Object.assign(new Error("Select the Test Run for the requested execution result."), { statusCode: 400 });
   const project = await db.prepare("SELECT id FROM projects WHERE id = ?").get(projectId);
   if (!project) throw new Error("Project not found");
   const requestedExternalLinks = normalizeReferenceList(external_links);
@@ -498,11 +780,20 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
     external_links: normalizeExternalLinks(external_links),
     reference_photos: imageAssets.map((image) => ({ name: image.name, content_hash: image.content_hash })),
     linked_test_run_id: normalizeText(linked_test_run_id, 255),
+    linked_execution_result_id: normalizeText(linked_execution_result_id, 255),
     linked_test_case_ids: unique(normalizeReferenceList(linked_test_case_ids)),
     linked_requirement_ids: unique(normalizeReferenceList(linked_requirement_ids)),
     prompt_guidance: normalizeText(prompt_guidance, 4_000)
   };
-  const rawContext = await loadEvidence({ projectId, runId: input.linked_test_run_id, testCaseIds: input.linked_test_case_ids, requirementIds: input.linked_requirement_ids });
+  const rawContext = await loadEvidence({
+    user,
+    projectId,
+    runId: input.linked_test_run_id,
+    resultId: input.linked_execution_result_id,
+    testCaseIds: input.linked_test_case_ids,
+    requirementIds: input.linked_requirement_ids,
+    referenceImages: imageAssets
+  });
   if (require_case_context && !rawContext.cases.length) throw Object.assign(new Error("Selected Test Case context is unavailable in this project. Choose an accessible Test Case."), { statusCode: 400 });
   if (!input.intent && !input.evidence && !input.additional_context && !imageAssets.length && !rawContext.run && !rawContext.cases.length && !rawContext.requirements.length) {
     const message = "Describe the observed problem, attach a screenshot, or select accessible Test Case, Story or run evidence before drafting a Defect. External links alone are reference pointers; their content is not read.";
@@ -511,16 +802,21 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
   rawContext.boundaries.requested.external_links = requestedExternalLinks.length;
   rawContext.boundaries.requested.reference_images = requestedReferenceImages.length;
   rawContext.boundaries.included.external_links = input.external_links.length;
+  const admittedImages = normalizeReferenceImages([...imageAssets, ...rawContext.execution_images]);
+  const admittedExecutionImages = admittedImages.filter((image) => rawContext.execution_images.some((candidate) => candidate.content_hash === image.content_hash));
   rawContext.boundaries.included.reference_images = imageAssets.length;
   rawContext.boundaries.omitted.external_links = Math.max(0, requestedExternalLinks.length - input.external_links.length);
   rawContext.boundaries.omitted.reference_images = Math.max(0, requestedReferenceImages.length - imageAssets.length);
-  const evidenceSources = buildEvidenceSources({ input, context: rawContext, imageAssets });
+  rawContext.boundaries.included.execution_images = admittedExecutionImages.length;
+  rawContext.boundaries.omitted.execution_images = Math.max(rawContext.boundaries.requested.execution_images - admittedExecutionImages.length, rawContext.boundaries.omitted.execution_images || 0);
+  const evidenceSources = buildEvidenceSources({ input, context: { ...rawContext, execution_images: admittedExecutionImages }, imageAssets });
   const promptContext = buildPromptContextSnapshot(rawContext);
   const context = {
     run: promptContext.run,
     cases: promptContext.cases,
     requirements: promptContext.requirements,
     failures: promptContext.failures,
+    execution_images: promptContext.execution_images,
     boundaries: {
       ...rawContext.boundaries,
       content_limits: promptContext.content_limits,
@@ -534,22 +830,49 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
   let providerError = null;
   try {
     integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({ integrationId: integration_id, userId: user?.id, usageKey: BUG_DRAFT_USAGE_KEY, projectId, fallback: "project-then-global", allowMissing: true });
-    if (integration) normalized = normalizeCandidate(await requestLlmDraft(integration, input, context, evidenceSources, imageAssets), deterministic, evidenceSources);
+    if (integration) {
+      let candidate, restoredFields = [];
+      try {
+        candidate = await requestLlmDraft(integration, input, context, evidenceSources, admittedImages);
+      } catch (error) {
+        if (error?.code !== "AI_OUTPUT_TRUNCATED") throw error;
+        const canonicalFields = Object.fromEntries(['steps_to_reproduce', 'expected_result']
+          .filter(field => deterministic.draft[field] && deterministic.field_evidence[field]?.length)
+          .map(field => [field, { value: `source:${deterministic.field_evidence[field][0]}`, evidence_refs: deterministic.field_evidence[field] }]));
+        candidate = await requestLlmDraft(integration, input, context, evidenceSources, admittedImages, { compact: true, canonicalFields });
+        if (candidate?.draft && typeof candidate.draft === 'object' && !Array.isArray(candidate.draft)) {
+          restoredFields = Object.keys(canonicalFields);
+          candidate = { ...candidate, draft: { ...candidate.draft }, field_evidence: { ...candidate.field_evidence } };
+          for (const field of restoredFields) {
+            candidate.draft[field] = deterministic.draft[field];
+            candidate.field_evidence[field] = deterministic.field_evidence[field];
+          }
+        }
+      }
+      normalized = normalizeCandidate(candidate, deterministic, evidenceSources);
+      normalized.fallback_fields = unique([...normalized.fallback_fields, ...restoredFields]);
+    }
   } catch (error) {
-    if (error?.publicMessage) {
-      error.message = error.publicMessage;
-      throw error;
+    if (error?.code === "AI_OUTPUT_TRUNCATED") {
+      const message = "The selected model reached its output limit, including on a compact retry. Select fewer linked records or increase this feature’s output-token limit, then try again. No Defect draft was generated.";
+      throw Object.assign(new Error(message), { statusCode: 502, code: "AI_OUTPUT_TRUNCATED", publicMessage: message });
     }
-    if (['AI_VISION_UNSUPPORTED', 'AI_MCP_QUERY_REQUIRED', 'LLM_AUTHENTICATION_FAILED', 'LLM_QUOTA_EXCEEDED', 'LLM_RATE_LIMITED', 'LLM_RATE_LIMIT_REQUEST_TOO_LARGE', 'LLM_REQUEST_TOO_LARGE'].includes(error?.code)) throw error;
-    if (imageAssets.length && !hasWrittenIncident(input) && error?.code === 'AI_NATIVE_CONTRACT_INVALID') {
-      const message = "The screenshot did not provide enough evidence for a valid Defect proposal. Describe what is wrong and what should happen, or attach a clearer screenshot. No Defect was created.";
-      throw Object.assign(new Error(message), { statusCode: 422, code: "AI_DEFECT_EVIDENCE_REQUIRED", publicMessage: message });
+    else {
+      if (error?.publicMessage) {
+        error.message = error.publicMessage;
+        throw error;
+      }
+      if (['AI_VISION_UNSUPPORTED', 'AI_MCP_QUERY_REQUIRED', 'LLM_AUTHENTICATION_FAILED', 'LLM_QUOTA_EXCEEDED', 'LLM_RATE_LIMITED', 'LLM_RATE_LIMIT_REQUEST_TOO_LARGE', 'LLM_REQUEST_TOO_LARGE'].includes(error?.code)) throw error;
+      if (admittedImages.length && !hasWrittenIncident(input, context) && error?.code === 'AI_NATIVE_CONTRACT_INVALID') {
+        const message = "The screenshot did not provide enough evidence for a valid Defect proposal. Describe what is wrong and what should happen, or attach a clearer screenshot. No Defect was created.";
+        throw Object.assign(new Error(message), { statusCode: 422, code: "AI_DEFECT_EVIDENCE_REQUIRED", publicMessage: message });
+      }
+      providerError = error instanceof Error ? error.message : "LLM generation failed.";
+      normalized = { ...deterministic, fallback_fields: [...DRAFT_FIELDS] };
     }
-    providerError = error instanceof Error ? error.message : "LLM generation failed.";
-    normalized = { ...deterministic, fallback_fields: [...DRAFT_FIELDS] };
   }
   if (integration && !providerError && (!normalized.draft.title || normalized.fallback_fields.length === DRAFT_FIELDS.length)) {
-    const message = imageAssets.length
+    const message = admittedImages.length && !hasWrittenIncident(input, context)
       ? "The model did not identify a Defect supported by the screenshot and selected evidence. Describe the visible problem and expected outcome, or attach a clearer screenshot. No Defect was created."
       : "The model did not identify a Defect supported by the supplied evidence. Add an observed problem or relevant failure evidence and retry. No Defect was created.";
     throw Object.assign(new Error(message), { statusCode: 422, code: "AI_DEFECT_EVIDENCE_REQUIRED", publicMessage: message });
@@ -560,12 +883,12 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
     || (!integration ? "No active LLM integration is configured." : normalized.fallback_fields.length ? "Some model fields were missing, invalid, or lacked allowed evidence refs and were replaced with evidence-bound deterministic values." : null);
   const now = new Date().toISOString();
   const citations = evidenceSources
-    .filter((source) => ["test-run", "test-case", "requirement", "execution-result"].includes(source.type))
+    .filter((source) => ["test-run", "test-case", "requirement", "execution-result", "execution-screenshot"].includes(source.type))
     .map((source) => ({ type: source.type, id: source.id, title: source.title }));
   const evidenceSnapshot = {
     input,
     sources: evidenceSources.map(({ ref, type, id, title, excerpt, status, trust }) => ({ ref, type, id, title, excerpt, status, trust })),
-    context: { run: context.run, cases: context.cases, requirements: context.requirements, failures: context.failures },
+    context: { run: context.run, cases: context.cases, requirements: context.requirements, failures: context.failures, execution_images: context.execution_images },
     boundaries: context.boundaries
   };
   const processing = buildProcessingSnapshot({

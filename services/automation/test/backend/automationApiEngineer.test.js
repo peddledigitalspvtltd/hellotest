@@ -10,7 +10,7 @@ const {executeApiRequestStep}=require('../../backend/services/apiRequestExecutio
 // advertise real native functions even when the model needs no additional read.
 const nativeReadOnlyTools=[{name:'browser_snapshot',description:'Capture accessibility snapshot of the current page, this is better than screenshot',annotations:{readOnlyHint:true},inputSchema:{type:'object',properties:{target:{type:'string'},filename:{type:'string'},depth:{type:'number'},boxes:{type:'boolean'}},additionalProperties:false}}];
 
-function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=false,browserFixture,upstreamFixture,integrationFixture,mappingResponse=instructionMappingResponse}={}){
+function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=false,browserFixture,upstreamFixture,integrationFixture,environmentFixture,dataSetFixture,resolverInputs=[],mappingResponse=instructionMappingResponse}={}){
  const file=path.resolve(__dirname,'../../backend/services/aiAutomationBuilder.service.js');
  const original=require('node:module').createRequire(file),exports={};
  const db={prepare:sql=>({get:async()=>({id:'app',type:'unified'}),all:async()=>[],run:async()=>{dbWrites.push(sql);}})};
@@ -20,6 +20,7 @@ function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=fa
   if(id.endsWith('/automationActorModelPolicy'))return original(id);
   if(id.endsWith('/automationCaseType')||id.endsWith('/automationRuntimeSpecialist')||id.endsWith('/automationApiParameterContract')||id.endsWith('/automationExpectedResultTemplate')||id.endsWith('/automationJsonOutputRetry'))return original(id);
   if(id.endsWith('/optionalEvidenceAccess.service'))return {getOptionalEvidenceAccess:async(_,__,keys)=>Object.fromEntries(keys.map(key=>[key,!denied]))};
+  if(id.endsWith('/testEnvironment.service')&&environmentFixture)return {getTestEnvironment:async()=>environmentFixture};
   if(id.endsWith('/aiLlmSelection.service'))return {resolveLlmIntegrationForUsage:async()=>({type:"llm",is_active:true,id:'llm',api_key:'fixture-only',model:'fixture',base_url:'https://provider.fixture/v1'})};
   if(id.endsWith('/llmHttpClient'))return {fetchLlmWithRetry:async(url,init)=>{requests.push(JSON.parse(init.body));const request=requests.at(-1),mapping=mappingResponse(request),output=mapping===undefined?(typeof response==='function'?response(requests.length,request):response):mapping;return {ok:true,json:async()=>({choices:[{message:providerMessage?.(request,output)||{content:JSON.stringify(output)}}]})};}};
   if(id.endsWith('/llmCapacityRetry'))return {retryLlmCapacity:async fn=>fn({timeoutMs:30000})};
@@ -27,7 +28,7 @@ function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=fa
   if(id.endsWith('/llmResponse'))return {getCompletionContent:payload=>payload.choices[0].message.content};
   if(id.endsWith('/aiConfiguration.service'))return {resolve:async()=>({config:{}})};
   if(id.endsWith('/aiFeatureRuntime'))return {validateValue:async()=>{}};
-  if(id.endsWith('/automationBrowserParameters'))return original(id);
+  if(id.endsWith('/automationBrowserParameters')){const parameters=original(id);return environmentFixture||dataSetFixture?{...parameters,loadBrowserParameterResolver:async input=>{resolverInputs.push(input);return parameters.createBrowserParameterResolver({...input,environment:environmentFixture,dataSet:dataSetFixture});}}:parameters;}
   if(id.endsWith('/automationBrowserAgent')&&browserFixture)return browserFixture;
   if(id.endsWith('/automationUpstreamMcpClient')&&upstreamFixture)return upstreamFixture;
   if(id.endsWith('/automationUpstreamEngineer')||id.endsWith('/automationUpstreamSectionSource')||id.endsWith('/automationBuildPipelineOptions')||id.endsWith('/automationReadiness.service'))return original(id);
@@ -96,6 +97,26 @@ test('an explicitly API-only case in a Unified application dispatches only the A
  assert.equal(result.draft.automation_case_type,'api');assert.equal(result.draft.test_data_options.automation_case_type,'api');assert.equal(result.automation_start_url,null);
  assert.match(JSON.stringify(requests[0]),/API Automation Engineer/);assert.doesNotMatch(JSON.stringify(requests[0]),/Web Automation Engineer/);
  assert.match(result.executable.code,/api\.request/);assert.equal(result.verification_status,'unverified');
+});
+
+test('selected Test Environment replaces a stale draft URL and keeps only its reference in execution provenance',async()=>{
+ const environmentFixture={id:'environment',project_id:'project',app_type_id:'app',base_url:'https://qa.fixture.test/login',variables:[{key:'password',value:'PRIVATE_ENV_FIXTURE',is_secret:true}]};
+ const requests=[],builder=loadBuilder({requests,environmentFixture,response:{summary:'Verify the selected environment login',steps:[{step_id:'draft-step-1',step_type:'web',automation_code:'await page.goto("https://qa.fixture.test/login"); await expect(page.getByRole("heading", {name:"Login"})).toBeVisible();'}]}});
+ const result=await builder.previewAutomationDraft({draft:{title:'Login',automation_start_url:'https://stale.fixture.test/login',steps:[{step_type:'web',action:'Open login',expected_result:'Login heading is visible'}]},test_environment_id:'environment',project_id:'project',app_type_id:'app',user_id:'actor'});
+ assert.equal(result.automation_start_url,environmentFixture.base_url);
+ assert.equal(result.test_environment_id,'environment');assert.deepEqual(result.execution_context,{test_environment_id:'environment'});
+ assert.match(JSON.stringify(requests),/qa\.fixture\.test/);assert.doesNotMatch(JSON.stringify({requests,result}),/PRIVATE_ENV_FIXTURE/);
+ const moved=loadBuilder({environmentFixture:{...environmentFixture,project_id:'other'},response:{}});
+ await assert.rejects(moved.previewAutomationDraft({draft:{steps:[{step_type:'web',action:'Open login',expected_result:'Ready'}]},test_environment_id:'environment',project_id:'project',app_type_id:'app',user_id:'actor'}),error=>error.statusCode===403);
+});
+
+test('workflow dataset selections reach the scoped resolver without copying protected values into the prompt or source',async()=>{
+ const dataSetFixture={id:'selected-data',mode:'key_value',rows:[{key:'email',value:'protected-fixture@example.test',is_secret:true}]},requests=[],resolverInputs=[];
+ const builder=loadBuilder({requests,resolverInputs,dataSetFixture,response:{summary:'Fill the selected data value',steps:[{step_id:'draft-step-1',step_type:'web',automation_code:'await page.getByLabel("Email").fill("@r.email"); await expect(page.getByLabel("Email")).toHaveValue("@r.email");'}]}});
+ const result=await builder.previewAutomationDraft({draft:{title:'Fill email',automation_start_url:'https://qa.fixture.test/form',test_data_set_ids:['selected-data'],test_data_options:{private_parameter_names:['r.email']},steps:[{step_type:'web',action:'Fill Email using @r.email',expected_result:'Email equals @r.email'}]},test_data_set_id:'selected-data',project_id:'project',app_type_id:'app',user_id:'actor'});
+ assert.equal(resolverInputs[0].test_data_set_id,'selected-data');assert.equal(resolverInputs[0].testCase.app_type_id,'app');assert.equal(resolverInputs[0].testCase.project_id,'project');
+ assert.equal(result.execution_context.test_data_set_id,'selected-data');assert.ok(result.parameter_bindings.required_external_parameters.includes('r.email'));
+ assert.doesNotMatch(JSON.stringify({requests,result}),/protected-fixture@example\.test/);
 });
 
 test('incompatible browser work in an API-only case fails before provider, browser or draft writes',async()=>{

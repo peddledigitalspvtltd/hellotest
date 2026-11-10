@@ -40,6 +40,19 @@ test('recording expands the web plan, detaches copied shared groups and preserve
   assert.equal(rows[0].automation_code, 'old setup');assert.equal(rows[4].automation_code, 'old native');
 });
 
+test('fewer, equal and additional recorded actions preserve interleaved API/native dependency order', async () => {
+  for (const count of [1, 2, 4]) {
+    const source = [manual('api-before', 1, 'api'), manual('web-one', 2), manual('api-between', 3, 'api'), manual('web-two', 4), manual('native-after', 5, 'ios')];
+    const database = storage(source);
+    await persistWebRecorderPlan({ caseId: 'case', expectedSteps: source, candidates: Array.from({ length: count }, (_, index) => candidate(index + 1)) }, database.ports);
+    const rows = database.rows().sort((a, b) => a.step_order - b.step_order);
+    assert.deepEqual(rows.map(row => row.action), ['Manual api-before', 'Recorded action 1', 'Manual api-between',
+      ...Array.from({ length: count - 1 }, (_, index) => `Recorded action ${index + 2}`), 'Manual native-after']);
+    assert.deepEqual(rows.map(row => row.step_order), rows.map((_, index) => index + 1));
+    for (const id of ['api-before', 'api-between', 'native-after']) assert.equal(rows.find(row => row.id === id).automation_code, `old ${id}`);
+  }
+});
+
 test('a failed write rolls back all overwritten prose and a stale plan is rejected before writes', async () => {
   const source = [manual('one', 1)];
   const failed = storage(source, { failCreate: true });

@@ -14,10 +14,10 @@ type FieldLocatorCandidate = {locator:string;strategy:string;confidenceScore:num
 /** Keep exactly one primary and preserve distinct alternatives when it changes. */
 export function changeRepositoryFieldLocator(field:{locator:string;locatorKind:string;locatorCandidates?:FieldLocatorCandidate[];fallbackLocators:FieldLocatorCandidate[]}, locator:string, strategy = field.locatorKind) {
   const candidates = [...(field.locatorCandidates || []), ...field.fallbackLocators];
-  if (!candidates.some(candidate => candidate.locator === field.locator)) candidates.push({locator:field.locator,strategy:field.locatorKind,confidenceScore:0});
-  const selected = candidates.find(candidate => candidate.locator === locator) || {locator,strategy,confidenceScore:0};
-  const ordered = [selected, ...candidates.filter(candidate => candidate.locator !== locator)]
-    .filter((candidate,index,all) => all.findIndex(other => other.locator === candidate.locator) === index)
+  if (!candidates.some(candidate => sameRepositoryLocator(candidate.locator,field.locator))) candidates.push({locator:field.locator,strategy:field.locatorKind,confidenceScore:0});
+  const selected = candidates.find(candidate => sameRepositoryLocator(candidate.locator,locator)) || {locator,strategy,confidenceScore:0};
+  const ordered = [selected, ...candidates.filter(candidate => !sameRepositoryLocator(candidate.locator,locator))]
+    .filter((candidate,index,all) => all.findIndex(other => sameRepositoryLocator(other.locator,candidate.locator)) === index)
     .map((candidate,index) => ({...candidate,isPrimary:index===0,isFallback:index>0,matchCount:undefined,lastValidatedStatus:"pending"}));
   return {locator,locatorKind:selected.strategy,locatorCandidates:ordered,fallbackLocators:ordered.slice(1),
     validationStatus:"unverified" as const,validatedAt:undefined,validationWarning:"Locator changed. Validate it on the current page."};
@@ -67,11 +67,12 @@ function repositoryLocatorTree(locator:string):any {
   return (parse(expression+(suffix?"."+suffix[1]:""),{ecmaVersion:"latest"}) as any).body[0]?.expression;
 }
 
-const locatorIdentity=(locator:string)=>{try{return JSON.stringify(normalizeLocatorTree(repositoryLocatorTree(locator),true));}catch{return locator;}};
+export const repositoryLocatorIdentity=(locator:string)=>{try{return JSON.stringify(normalizeLocatorTree(repositoryLocatorTree(locator),true));}catch{return locator;}};
+export const sameRepositoryLocator=(left:string,right:string)=>left===right||repositoryLocatorIdentity(left)===repositoryLocatorIdentity(right);
 /** Query/hash routes may reuse identical controls. Compute this set once for
  * the workspace; only explicit references or source-bound usages disambiguate. */
 export function collectRouteScopedLocatorKeys(members:Array<Pick<Member,'entry'>>) {
-  return new Set(members.filter(member=>/^[a-f0-9]{64}$/.test(String(member.entry.metadata?.observed_route_sha256||""))&&member.entry.locator).map(member=>locatorIdentity(member.entry.locator!)));
+  return new Set(members.filter(member=>/^[a-f0-9]{64}$/.test(String(member.entry.metadata?.observed_route_sha256||""))&&member.entry.locator).map(member=>repositoryLocatorIdentity(member.entry.locator!)));
 }
 
 /** Parse each saved program once, rather than once per repository field. Only
@@ -120,7 +121,7 @@ export function isRepositoryMemberUsed(member:Member,caseId:string|undefined,ste
   const used=references || collectRepositoryStepReferences(steps,parameterValues);
   if(Array.isArray(member.entry.metadata?.reference_aliases)&&member.entry.metadata.reference_aliases.some(value=>typeof value==='string'&&used.targets.has(value)&&(!canonicalReferences?.has(value)||value===member.ref)))return true;
   if(used.targets.has(member.ref))return true;
-  if(routeSpecific||member.entry.locator&&routeScopedLocatorKeys?.has(locatorIdentity(member.entry.locator))){
+  if(routeSpecific||member.entry.locator&&routeScopedLocatorKeys?.has(repositoryLocatorIdentity(member.entry.locator))){
     const usages=member.entry.metadata?.instruction_usages;
     if(!Array.isArray(usages)||!usages.some(row=>row?.test_case_id===caseId&&typeof row.step_id==="string"&&/^[a-f0-9]{64}$/.test(row.source_sha256||"")&&used.sourceHashes.get(row.step_id)===row.source_sha256
       &&/^[a-f0-9]{64}$/.test(row.context_sha256||"")&&used.contextHashes.get(row.step_id)===row.context_sha256))return false;

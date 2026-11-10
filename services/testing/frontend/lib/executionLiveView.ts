@@ -11,7 +11,7 @@ export function caseLiveViewSession(execution: Pick<Execution, "status" | "live_
     try {
       const url = new URL(session.url);
       return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password
-        && url.pathname === "/api/v1/live-session" && url.searchParams.get("run_id") === session.engine_run_id;
+        && url.pathname.endsWith("/api/v1/live-session") && url.searchParams.get("run_id") === session.engine_run_id;
     } catch { return false; }
   }) || null;
 }

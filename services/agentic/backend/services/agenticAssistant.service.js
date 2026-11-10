@@ -451,11 +451,13 @@ const buildBoundedAgentPromptPayload = ({ mode, prompt, context, citations, cont
     context_manifest: {
       knowledge_repo_retrieval: {
         mode: knowledgeRetrieval?.mode || null,
+        status: knowledgeRetrieval?.status || null,
         candidate_count: Number(knowledgeRetrieval?.candidate_count || 0),
         result_count: Number(knowledgeRetrieval?.result_count || knowledgeRetrieval?.returned_count || 0),
         live_context_count: Number(knowledgeRetrieval?.live_context_count || 0),
         live_context_counts: knowledgeRetrieval?.live_context_counts || {},
         degraded: Boolean(knowledgeRetrieval?.degraded),
+        limitations: [...(knowledgeRetrieval?.limitations || []),...(knowledgeRetrieval?.gaps || [])].filter(item=>typeof item==='string').slice(0,6).map(item=>normalizeText(item,700)),
         evidence_sufficiency: knowledgeRetrieval?.evidence_sufficiency || null
       },
       source_precedence: aiInstructionBlock("ai.agentic.workflow", "agenticAssistant.sourcePrecedence"),
@@ -1223,7 +1225,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
           initialObservations:automationBrowser.initialObservations,maxCalls:Math.max(0,10-Math.max(0,automationBrowser.initialObservations.length-2)),signal:execution.current()?.signal,onObservation:observation=>automationBrowser.initialObservations.push(observation),onProgress:event=>appendEvent(transactionId,event)
         }) : await complete();
         const validatedRepair = repairContext?.status === "eligible" ? require("@hellotest/ai/backend/services/automationRepair.service").validatePatch(repairContext.base,candidate.automation_repair) : null;
-        const explicitAbstention = !candidate.findings?.length && !candidate.deliverables?.length && candidate.evidence_gaps?.length > 0;
+        const explicitAbstention = !candidate.findings?.length && !candidate.deliverables?.length && !candidate.artifacts?.length && candidate.evidence_gaps?.length > 0;
         const candidateCitations = candidate._suppliedEvidenceIds ? suppliedCitations.filter(citation => candidate._suppliedEvidenceIds.has(citation.id)) : suppliedCitations;
         issues = presentation.presentationIssues(candidate, candidateCitations);
         result = normalizeResult(candidate, baseline, candidateCitations, { allowUncited: explicitAbstention || agent.acceptance.require_evidence === false, artifactTargets, requireMetadata: true, testCaseTypes, pinnedStoryId:evidenceScope.story_id });
@@ -1298,11 +1300,18 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         successorRoute.evidence_scope = evidenceScope;
         successorRoute.retrieval_focus = successorConfig.focus;
         successorRoute.deliverable_contract = successorConfiguration.prompt;
-        const fresh = successorConfig.mode === 'none' || !successorScopes.length ? {results:[],retrieval:{status:'not_required'}} : await execution.bounded(() => require('@hellotest/knowledge/backend/services/knowledgeRetrieval.service').retrieveSearch({
+        let fresh = {results:[],retrieval:{status:'not_required'}};
+        if(successorConfig.mode !== 'none' && successorScopes.length)try{fresh=await execution.bounded(signal => require('@hellotest/knowledge/backend/services/knowledgeRetrieval.service').retrieveSearch({
           projectId, appTypeId, user, budgets: {max_context_tokens:successorConfig.token_budget,max_evidence_items:successorConfig.max_items,deadline_ms:CONTEXT_TIMEOUT_MS}, query: normalizeText(`${normalizedPrompt}\n${handoffFindings.map(finding => `${finding.title}: ${finding.detail}`).join('\n')}\n${successorConfig.focus || ""}`, 4000),
+          signal,
           filters: { app_type_id: appTypeId, agent_id: followupId, requested_scopes: successorScopes, evidence_scope: evidenceScope,
             source_ids: smartContext.source_ids, source_kinds: smartContext.source_kinds },
-        }), { timeoutMs: Math.max(1, Math.min(CONTEXT_TIMEOUT_MS, deadline - Date.now() - 5000)) });
+        }), { timeoutMs: Math.max(1, Math.min(CONTEXT_TIMEOUT_MS, deadline - Date.now() - 5000)) });}
+        catch(error){
+          execution.assertActive();
+          if([401,403].includes(error.statusCode))throw error;
+          fresh={results:[],retrieval:{context_transport:'mcp',status:'UNAVAILABLE',degraded:true,limitations:[require('@hellotest/platform/backend/src/utils/aiPromptEnvelope').policy.context_gap]}};
+        }
         // Each successor receives its own permitted retrieval. A parent packet
         // may include other source types that this specialist did not select.
         const successorContext = { ...suppliedTaskContext(context), live_project: fresh.results.map(hit => ({ ...hit, id: hit.chunk_id })) };
@@ -1333,7 +1342,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
         handoffPayload.outcome_contract = successorContract;
         const successorDeadline = Math.min(deadline, Date.now() + successorExecution.timeout_ms);
         const callStart = budget.used, rejected = new Set();
-        let next = baseline, candidate, correction = 0;
+        let next = baseline, candidate, correction = 0, blockedOutcome = null;
         while (budget.used < budget.max && budget.used - callStart < successorExecution.max_model_calls && correction <= successorExecution.max_revision_rounds && Date.now() < successorDeadline) {
           let issues = [];
           try {
@@ -1341,7 +1350,8 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
             candidate = await requestLlmResult({user,projectId,integration:followupIntegration,agent:successorAgent,mode:normalizedMode,prompt:normalizedPrompt,context:successorContext,citations:successorSupplied,history:[],contextRoute:successorRoute,knowledgeRetrieval:fresh.retrieval,promptPayload:JSON.stringify(handoffPayload),assertEvidenceAccess:assertOutcomeEvidenceAccess,deadline:successorDeadline,budget,repair:correction > 0});
             contextReductionUsed ||= Boolean(candidate._model?.context_reduced);
             const retainedCitations = candidate._suppliedEvidenceIds ? successorSupplied.filter(citation=>candidate._suppliedEvidenceIds.has(citation.id)) : successorSupplied;
-            next = normalizeResult(candidate,baseline,retainedCitations,{artifactTargets:successorTargets,requireMetadata:true,testCaseTypes,pinnedStoryId:evidenceScope.story_id});
+            const explicitAbstention=!candidate.findings?.length&&!candidate.deliverables?.length&&!candidate.artifacts?.length&&candidate.evidence_gaps?.length>0;
+            next = normalizeResult(candidate,baseline,retainedCitations,{allowUncited:explicitAbstention,artifactTargets:successorTargets,requireMetadata:true,testCaseTypes,pinnedStoryId:evidenceScope.story_id});
             revalidatedFindings = handoffFindings.map(original => {
               const reviewed = next.findings?.find(finding => finding.id === original.id);
               return reviewed ? {...original,...reviewed,artifact_kind:original.artifact_kind,requires_proposal:original.requires_proposal} : original;
@@ -1355,6 +1365,9 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
               issues.push({path:'artifacts.addressed_finding_ids',issue:'proposals_must_address_only_the_assigned_findings'});
             }
             if (next === baseline && !issues.length) issues = [{ path: 'citation_ids', issue: 'only_supplied_evidence_may_support_nonempty_claims' }];
+            if(next!==baseline&&!next.artifacts.length&&issues.length&&issues.every(issue=>issue.blocked)){
+              blockedOutcome=next;break;
+            }
             if (issues.length) next = baseline;
           } catch (error) {
             execution.assertActive();
@@ -1368,6 +1381,13 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
           correction += 1;
           handoffPayload.revision_feedback = revisionFeedback(candidate, issues, correction);
           if (budget.used < budget.max && correction <= successorExecution.max_revision_rounds) await appendEvent(transactionId,{phase:'outcome.revision',level:'warning',message:`${profile.name} is correcting the proposal against the original findings.`,details:{agent_id:followupId,issues,revision_round:correction,model_calls:budget.used,model_max_calls:budget.max,progress:80}});
+        }
+        if(blockedOutcome){
+          result.evidence_gaps=retainEvidenceGaps(result.evidence_gaps,blockedOutcome.evidence_gaps);
+          result.agent_chain.push({agent_id:followupId,name:profile.name,status:'needs_input',kind:handoff.kind,reason:handoff.reason,detail:blockedOutcome.evidence_gaps.join(' '),trace_id:candidate._model?.trace_id||null});
+          modelObservation=candidate._model;
+          await appendEvent(transactionId,{phase:'handoff.needs_input',level:'warning',message:`${profile.name} identified missing inputs for its proposal.`,details:{agent_id:followupId,progress:84}});
+          continue;
         }
         suppliedCitations = [...new Map([...suppliedCitations, ...successorSupplied].map(citation => [citation.id, citation])).values()];
         citations.push(...successorSupplied.filter(citation => !citations.some(existing => existing.id === citation.id)));

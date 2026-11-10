@@ -125,6 +125,28 @@ function mergeExecutionContext(sources) {
   const packets = new Map();
   const combine = (left, right, path) => {
     if (isDeepStrictEqual(left, right)) return left;
+    // A connected case loop returns a full Story snapshot for each iteration.
+    // Case-scoped assurance writes one slot at a time, so reconcile those
+    // indexed snapshots while still rejecting two different reviews for the
+    // same case. Failure records are keyed by their case_index because their
+    // compact arrays grow independently as failures occur.
+    if (path.at(-1) === 'case_assurance' && Array.isArray(left) && Array.isArray(right)) {
+      const merged = [];
+      for (let index = 0; index < Math.max(left.length, right.length); index++) {
+        const a = left[index], b = right[index];
+        merged[index] = a == null ? b : b == null ? a : combine(a, b, [...path, String(index)]);
+      }
+      return merged;
+    }
+    if (path.at(-1) === 'case_assurance_failures' && Array.isArray(left) && Array.isArray(right)
+      && [...left, ...right].every(item => object(item) && Number.isInteger(item.case_index))) {
+      const merged = new Map();
+      for (const item of [...left, ...right]) {
+        const key = String(item.case_index);
+        merged.set(key, merged.has(key) ? combine(merged.get(key), item, [...path, key]) : item);
+      }
+      return [...merged.values()].sort((a, b) => a.case_index - b.case_index);
+    }
     if (path.length < 12 && object(left) && object(right)) return Object.fromEntries([...new Set([...Object.keys(left), ...Object.keys(right)])].map(key => [key,
       !Object.hasOwn(left, key) ? right[key] : !Object.hasOwn(right, key) ? left[key] : combine(left[key], right[key], [...path,key])]));
     throw Object.assign(connections.fail(`Connected native branches contain conflicting Story lineage at ${path.join(".")}. Rejoin matching Story revisions and drafts before continuing.`, 409), { code: "WORKFLOW_LINEAGE_CONFLICT" });
@@ -286,6 +308,10 @@ function validate(node) {
   if (kind === 'artifactTask' && data.artifactTask === 'test-case-generation') {
     try { require('./generationNodeOptions').generationOptions(data); }
     catch (error) { errors.push(error.publicMessage || 'Check the Test Case Generator settings.'); }
+  }
+  if (kind === 'artifactTask' && data.artifactTask === 'test-data-generator') {
+    try { require('./testDataGenerator').validateNodeOptions(data); }
+    catch (error) { errors.push(error.publicMessage || 'Check the Test Data Generator settings.'); }
   }
   if (kind === "artifactTask" && data.artifactTask === "automation-engineer" && data.readinessPolicy != null && !["verify-inputs", "require-ready"].includes(data.readinessPolicy)) errors.push("Choose whether Automation Engineer verifies inputs or requires a ready assurance assessment.");
   if (kind === 'artifactTask' && data.artifactTask === 'automation-engineer') {

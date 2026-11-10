@@ -3,8 +3,8 @@ const context = require('./llmTraceContext');
 const { redactSensitiveData } = require('../security/aiTextPolicy');
 
 const MAX_CHARS = 96_000;
-const SECRET = /^(?:authorization|cookie|set-cookie|password|passwd|secret|client_secret|secret_key|private_key|credential|connection_string|token|api[_-]?key|access[_-]?token|refresh[_-]?token|reasoning_content|reasoning|thinking)$/i;
-const SENSITIVE_QUERY=/([?&](?:token|key|api[_-]?key|access[_-]?token|refresh[_-]?token|signature|x-amz-signature|x-amz-credential|x-goog-signature)=)[^&#\s"'<>]+/gi;
+const SECRET = /^(?:authorization|cookie|set-cookie|password|passwd|secret|client_secret|secret_key|private_key|credential|connection_string|token|api[_-]?key|access[_-]?token|refresh[_-]?token|view[_-]?token|reasoning_content|reasoning|thinking)$/i;
+const SENSITIVE_QUERY=/([?&](?:token|key|api[_-]?key|access[_-]?token|refresh[_-]?token|view[_-]?token|signature|x-amz-signature|x-amz-credential|x-goog-signature)=)[^&#\s"'<>]+/gi;
 function sanitize(value) {
   let remaining = MAX_CHARS, entries = 3000, truncated = false, redacted = false;
   function visit(item, depth = 0) {

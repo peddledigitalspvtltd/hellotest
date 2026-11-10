@@ -84,12 +84,13 @@ test("Defect drafting uses a compact prompt context and discloses source text tr
     run: { id: "run-1", name: "Run", status: "failed" },
     cases: [{ id: "case-1", title: "Case", description: "C".repeat(limits.case_description + 9) }],
     requirements: [{ id: "story-1", title: "Story", description: `<h2>Acceptance Criteria</h2><p>${"E".repeat(limits.requirement_expected_section + 5)}</p>` }],
-    failures: [{ id: "result-1", test_case_id: "case-1", status: "failed", logs: "L".repeat(limits.failure_observation + 17), defects: "" }]
+    failures: [{ id: "result-1", test_case_id: "case-1", status: "failed", logs: JSON.stringify({ stepStatuses: { failed: 'failed' }, stepNotes: { failed: "L".repeat(limits.failure_observation + 17) }, stepCaptures: { failed: { token: 'excluded-capture' } } }), defects: "" }]
   });
 
   assert.equal(snapshot.cases[0].description.length, limits.case_description);
   assert.equal(snapshot.requirements[0].expected_section.length, limits.requirement_expected_section);
   assert.equal(snapshot.failures[0].logs.length, limits.failure_observation);
+  assert.doesNotMatch(JSON.stringify(snapshot), /excluded-capture/);
   assert.equal(snapshot.partial_sources, true);
   assert.ok(snapshot.content_omissions.some((item) => item.source_ref === "execution-result:result-1" && item.field === "observation" && item.omitted === 17));
 });

@@ -120,13 +120,14 @@ export async function startQueuedJob(jobId: string, workerId: string) {
 }
 
 export async function heartbeatQueuedJob(jobId: string, workerId: string, signal?: AbortSignal) {
-  const receipt = await request<{ job_id: string; status: string; authorized: boolean }>(`/testengine/internal/jobs/${jobId}/heartbeat`, {
+  const receipt = await request<{ job_id: string; status: string; authorized: boolean; lease_expires_at?: string | null }>(`/testengine/internal/jobs/${jobId}/heartbeat`, {
     method: "POST", body: JSON.stringify({ worker_id: workerId }),
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000)
   });
   if (receipt.authorized !== true || receipt.status !== "running" || receipt.job_id !== jobId) {
     throw new Error("The queued execution is cancelled, finished, or no longer owned by this worker.");
   }
+  return { lease_expires_at: receipt.lease_expires_at };
 }
 
 export async function executeQueuedApiStep(jobId: string, stepId: string, workerId?: string) {

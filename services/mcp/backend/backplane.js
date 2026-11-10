@@ -11,7 +11,7 @@ const actionValidator=new Ajv({strict:false,coerceTypes:false,useDefaults:false}
 const actionSchemas=new Map();
 let app;
 const configure = instance => {app=instance;};
-const sensitive = /password|passwd|secret|api.?key|credential|authorization|cookie|embedding|encrypted|^(?:(?:access|refresh|session|bearer)[_-]?)?token$/i;
+const sensitive = /password|passwd|secret|api.?key|credential|authorization|cookie|embedding|encrypted|^(?:(?:access|refresh|session|bearer|view)[_-]?)?token$/i;
 // Protocol identity is not prose. Numeric UUID segments can resemble phone or
 // card numbers; rewriting them breaks scope checks and citation joins. Exempt
 // only declared fields with exact UUID/reference syntax, never their content.
@@ -48,7 +48,7 @@ function sanitize(value, depth=0, field='',delivery) {
   if(key==='authorization'&&item&&typeof item.project_scope_enforced==='boolean'&&typeof item.source_acl_enforced==='boolean')return [[key,sanitize({project_scope_enforced:item.project_scope_enforced,source_acl_enforced:item.source_acl_enforced,allowed_record_permissions:Array.isArray(item.allowed_record_permissions)?item.allowed_record_permissions:[]},depth+1,'',delivery)]];
   if(key==='authorization_partial'&&typeof item==='boolean')return [[key,item]];
   if(key==='authorization_coverage'&&item&&typeof item==='object')return [[key,sanitize(Object.fromEntries(['fully_visible_objects','partially_visible_objects','unavailable_objects'].filter(field=>typeof item[field]==='number').map(field=>[field,item[field]])),depth+1)]];
-  if(sensitive.test(key)){if(delivery)delivery.redacted=true;return [];}
+  if(key==='live_sessions'||sensitive.test(key)){if(delivery)delivery.redacted=true;return [];}
   return [[key,sanitize(item,depth+1,key,delivery)]];
   }));
  }

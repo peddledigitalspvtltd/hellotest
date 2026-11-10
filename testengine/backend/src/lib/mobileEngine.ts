@@ -72,6 +72,7 @@ export async function executeMobileSteps(
         platform_version: mobileOptions.platform_version || undefined,
         app: mobileOptions.app || undefined,
         config: mobileOptions,
+        timeouts: envelope.timeouts,
         object_repository: envelope.object_repository || [],
         parameter_values: toParameterValuesRecord(buildInitialContext(envelope, capturedValues)),
         steps: steps.map(step => ({ ...step, parameter_values: toParameterValuesRecord(buildInitialContext(envelope, capturedValues, step)) }))

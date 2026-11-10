@@ -18,6 +18,8 @@ const sandbox = { module: { exports: {} }, exports: {}, process, URL, Buffer, se
 } };
 vm.runInNewContext(`${builderSource}\nmodule.exports={normalizeCapturedActions,buildRecorderStepCandidates,buildRecorderStepCandidate,createRecorderAutomationCode};`, sandbox);
 const host = sandbox.module.exports;
+const { playwrightRepositoryLocatorExpression } = await import('../../../../services/automation/shared/automationProgramCompatibility.mjs');
+const repositoryModel = { locatorExpression: playwrightRepositoryLocatorExpression };
 const { createBrowserParameterResolver } = require('../lib/automationBrowserParameters');
 const { bindRecorderParameterCandidates } = require('../lib/automationRecorderParameters');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -49,8 +51,8 @@ for (const mode of ['remote', 'local']) test(`${mode} recorder stops with the fi
   const capture = stopped.json(), fill = capture.actions.find(action => action.type === 'fill' || action.type === 'change');
   assert.equal(capture.status, 'stopped');assert.ok(fill, JSON.stringify(capture.actions));assert.equal(fill.value, '  Final recorded input  ');
   const actions = host.normalizeCapturedActions(capture.actions), resolver = createBrowserParameterResolver({ caseValues: { 't.name': '  Changed playback input  ' } });
-  const bound = bindRecorderParameterCandidates({ actions, candidates: host.buildRecorderStepCandidates(actions), resolver,
-    parameterBindings: [{ source_action_index: fill.index, parameter_reference: '@t.name' }], rebuildCandidate: (action, order) => host.buildRecorderStepCandidate(action, order, null) });
+  const bound = bindRecorderParameterCandidates({ actions, candidates: host.buildRecorderStepCandidates(actions, repositoryModel), resolver,
+    parameterBindings: [{ source_action_index: fill.index, parameter_reference: '@t.name' }], rebuildCandidate: (action, order) => host.buildRecorderStepCandidate(action, order, repositoryModel) });
   const source = host.createRecorderAutomationCode(bound.candidates);
   assert.match(source, /@t.name/);assert.doesNotMatch(source, /Final recorded input|Changed playback input/);
   const browser = await chromium.launch({ headless: true });t.after(() => browser.close());

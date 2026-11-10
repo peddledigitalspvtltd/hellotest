@@ -14,10 +14,12 @@ test('plain JS, function helpers and instructions share configured waits and tru
   app.get('/', async (_req, reply) => reply.type('text/html').send(`<!doctype html><h1>Ready</h1><label>Ready<input id="ready" type="checkbox" checked></label>
     <button id="submit" onclick="setTimeout(()=>document.querySelector('output').textContent='Completed',180)">Submit</button>
     <button id="disabled" disabled>Later</button><output>Waiting</output>`));
+  app.get('/background', async (_req, reply) => reply.type('text/html').send('<!doctype html><h1>App shell</h1><script>fetch("/background-data").catch(()=>{});</script>'));
+  app.get('/background-data', async (_req, reply) => { await new Promise(resolve => setTimeout(resolve, 350)); return reply.send({ ready: true }); });
   app.get('/slow', async (_req, reply) => { await new Promise(resolve => setTimeout(resolve, 2400)); return reply.type('text/html').send('<h1>Slow page</h1>'); });
   const base = await app.listen({ host:'127.0.0.1', port:0 });
   const session = createWebRunSession({ engine_run_id:'synchronization', browser:'chromium', headless:true, web_engine:{active:'playwright'}, environment:{base_url:base},
-    run_timeout_seconds:20, max_repair_attempts:0, timeouts:{action_timeout_ms:1500,assertion_timeout_ms:3000,navigation_timeout_ms:1500},
+    run_timeout_seconds:20, max_repair_attempts:0, timeouts:{action_timeout_ms:1500,assertion_timeout_ms:3000,navigation_timeout_ms:1500,domcontentloaded_wait_ms:500,network_idle_wait_ms:50},
     artifact_policy:{trace_mode:'off',video_mode:'off',screenshot_on_failure:false,screenshot_on_success:false,capture_console:false,capture_network:false}, steps:[] });
   t.after(async()=>{await session.stop('failed');await app.close();await rm(root,{recursive:true,force:true});});
   await session.start();
@@ -26,8 +28,10 @@ test('plain JS, function helpers and instructions share configured waits and tru
   const helper = await run({ automation_code:'function label() { return "Completed"; }\nawait test.step("submit", async()=>{ await page.locator("#submit").click(); await web.expectText("output",label()); });' });
   assert.equal(helper.status,'passed',helper.note);
   assert.ok(helper.line_results.some(row=>row.status==='passed'));
+  assert.ok(helper.web_detail.readiness_waits.length, 'startup readiness probes appear once in the first step trace');
   const waitForState = await run({automation_code:'await page.evaluate(()=>setTimeout(()=>document.querySelector("#disabled").disabled=false,180));\nawait web.expectEnabled("#disabled");\nawait web.expectHidden("#never-present");'});
   assert.equal(waitForState.status,'passed',waitForState.note);
+  assert.deepEqual(waitForState.web_detail.readiness_waits, [], 'a prior readiness probe is not duplicated into later step traces');
   for (const action of ['Check #ready','Check #ready','Uncheck #ready','Uncheck #ready']) {
     const result=await run({action});assert.equal(result.status,'passed',result.note);
   }
@@ -58,6 +62,9 @@ test('plain JS, function helpers and instructions share configured waits and tru
   }
   const slow=await run({automation_code:'await page.goto("/slow");'});
   assert.equal(slow.status,'failed');assert.match(slow.note,/1500ms/);
+  const background=await run({automation_code:'await page.goto("/background"); await expect(page.locator("h1")).toHaveText("App shell");'});
+  assert.equal(background.status,'passed',background.note);
+  assert.ok(background.web_detail.readiness_waits.some(wait=>wait.state==='networkidle'&&wait.status==='timed_out'), 'a bounded network quiet probe timeout is diagnostic and does not fail a ready app assertion');
   const wrapped=await run({automation_code:'import {test,expect} from "@playwright/test";\ntest("one flow",async({page})=>{\n await page.goto("/");\n await test.step("verify",async()=>{await expect(page.locator("#ready")).toBeChecked();});\n});'});
   assert.equal(wrapped.status,'passed',wrapped.note);
   for (const wrapper of [

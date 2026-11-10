@@ -1,7 +1,8 @@
 import { automationStepOptions } from "./automationStepOptions.js";
+import { liveViewSessions, type LiveViewEntry } from "./liveViewSessions.js";
 import { instrumentAutomationLines, createAutomationLineTracer, type AutomationLineResult } from "./automationLineTrace.js";
 import { resolveRepositoryLocator } from "./repositoryLocator.js";
-import { createPlaywrightCodeBindings, usesExpressionParameterBindings } from "./playwrightBindings.js";
+import { createPlaywrightCodeBindings, runPlaywrightClick, usesExpressionParameterBindings, type PlaywrightNavigationWait } from "./playwrightBindings.js";
 import { normalizeAutomationAssertionTimeoutMs } from "./automationAssertionPolicy.js";
 import { parse } from "acorn";
 import { createHash } from "node:crypto";
@@ -60,6 +61,16 @@ type WebDiagnosticsMarker = {
   started_at: string;
   console_index: number;
   network_index: number;
+  readiness_wait_index?: number;
+};
+
+type WebReadinessWait = PlaywrightNavigationWait | {
+  state: "domcontentloaded" | "networkidle";
+  status: "ready" | "timed_out" | "skipped";
+  timeout_ms: number;
+  duration_ms: number;
+  timestamp: string;
+  message?: string;
 };
 
 type WebStepDetail = {
@@ -71,6 +82,8 @@ type WebStepDetail = {
   console: WebConsoleEntry[];
   network: WebNetworkEntry[];
   captures: Record<string, string>;
+  readiness_waits?: WebReadinessWait[];
+  capture_warnings?: string[];
   recovery?: AutomationRecoverySummary;
 };
 
@@ -218,6 +231,10 @@ type WebSession = {
   readonly provider: EngineWebEngineProvider;
   start: () => Promise<void>;
   stop: (finalStatus?: EngineStepOutcomeStatus) => Promise<WebSessionArtifacts>;
+  setStepTimeout?: (timeoutMs?: number) => Promise<() => Promise<void> | void> | (() => Promise<void> | void);
+  getTimeoutPolicy?: () => ReturnType<typeof resolveTimeoutPolicy>;
+  waitForDefaultReadiness?: () => Promise<void>;
+  recordNavigationWait?: (wait: PlaywrightNavigationWait) => void;
   startRetryTrace?: () => Promise<void>;
   goto: (target: string, options?: WebGotoOptions) => Promise<void>;
   reload: (options?: WebGotoOptions) => Promise<void>;
@@ -315,8 +332,20 @@ const resolveTimeoutPolicy = (envelope: EngineRunEnvelope) => ({
   navigation: normalizePositiveInteger(envelope.timeouts?.navigation_timeout_ms, 30_000, 1_000, 600_000),
   action: normalizePositiveInteger(envelope.timeouts?.action_timeout_ms, 5_000, 250, 120_000),
   assertion: normalizeAutomationAssertionTimeoutMs(envelope.timeouts?.assertion_timeout_ms),
-  recoveryWait: normalizePositiveInteger(envelope.timeouts?.recovery_wait_ms, 750, 100, 30_000)
+  recoveryWait: normalizePositiveInteger(envelope.timeouts?.recovery_wait_ms, 750, 100, 30_000),
+  domcontentloadedWait: normalizePositiveInteger(envelope.timeouts?.domcontentloaded_wait_ms, 5_000, 0, 60_000),
+  networkIdleWait: normalizePositiveInteger(envelope.timeouts?.network_idle_wait_ms, 1_500, 0, 30_000)
 });
+
+const shouldCaptureStepScreenshot = (policy: EngineRunEnvelope["artifact_policy"], status: "passed" | "failed", explicitFailure = false) => {
+  if (status === "failed" && explicitFailure) return true;
+  const mode = policy?.screenshot_mode;
+  if (mode === "all") return true;
+  if (mode === "passed") return status === "passed";
+  if (mode === "failed") return status === "failed";
+  if (mode === "off") return false;
+  return status === "failed" ? policy?.screenshot_on_failure !== false : policy?.screenshot_on_success === true;
+};
 
 const clampTimeout = (value: unknown, fallback: number) => {
   const numeric = Number(value);
@@ -390,48 +419,10 @@ const shouldAttachVideo = (envelope: EngineRunEnvelope, finalStatus?: EngineStep
   return true;
 };
 
-type LiveViewEntry = {
-  id: string;
-  provider: EngineWebEngineProvider;
-  startedAt: string;
-  url: () => Promise<string>;
-  screenshot: () => Promise<Buffer | null>;
-};
-
-const liveViewSessions = new Map<string, LiveViewEntry>();
-
-export const getLiveSessionStatus = (provider: EngineWebEngineProvider = "playwright", engineRunId?: string) => {
-  const sessions = [...liveViewSessions.values()].filter((entry) => entry.provider === provider);
-  const latest = engineRunId ? sessions.find(entry => entry.id === `${engineRunId}:${provider}`) || null : sessions[sessions.length - 1] || null;
-
-  return {
-    provider,
-    available: Boolean(latest),
-    session_id: latest?.id || null,
-    started_at: latest?.startedAt || null
-  };
-};
-
-export const captureLiveSessionScreenshot = async (provider: EngineWebEngineProvider = "playwright", engineRunId?: string) => {
-  const sessions = [...liveViewSessions.values()].filter((entry) => entry.provider === provider);
-  const latest = engineRunId ? sessions.find(entry => entry.id === `${engineRunId}:${provider}`) || null : sessions[sessions.length - 1] || null;
-
-  if (!latest) {
-    return null;
-  }
-
-  return latest.screenshot();
-};
-
-const registerLiveViewSession = (entry: LiveViewEntry) => {
-  liveViewSessions.set(entry.id, entry);
-};
-
-const unregisterLiveViewSession = (id: string | null) => {
-  if (id) {
-    liveViewSessions.delete(id);
-  }
-};
+export const getLiveSessionStatus = (provider: EngineWebEngineProvider = "playwright", engineRunId?: string) => liveViewSessions.status(provider, engineRunId);
+export const captureLiveSessionScreenshot = (provider: EngineWebEngineProvider = "playwright", engineRunId?: string) => liveViewSessions.capture(provider, engineRunId);
+const registerLiveViewSession = (entry: LiveViewEntry) => liveViewSessions.register(entry);
+const unregisterLiveViewSession = (id: string | null) => liveViewSessions.unregister(id);
 
 const normalizeBrowser = (value: string | null | undefined) => {
   const normalized = normalizeText(value)?.toLowerCase() || "chromium";
@@ -1203,14 +1194,18 @@ class PlaywrightWebSession implements WebSession {
   private ownsContext = true;
   private consoleEntries: WebConsoleEntry[] = [];
   private networkEntries: WebNetworkEntry[] = [];
+  private readinessWaits: WebReadinessWait[] = [];
+  private readinessReportedIndex = 0;
   private liveSessionId: string | null = null;
   private readonly videos = new Set<Video>();
   private screenshots: EngineArtifactRef[] = [];
   private readonly pageListener = (page: Page) => this.registerPageTelemetry(page);
-  private readonly timeouts: ReturnType<typeof resolveTimeoutPolicy>;
+  private readonly baseTimeouts: ReturnType<typeof resolveTimeoutPolicy>;
+  private timeouts: ReturnType<typeof resolveTimeoutPolicy>;
 
   constructor(private readonly envelope: EngineRunEnvelope) {
-    this.timeouts = resolveTimeoutPolicy(envelope);
+    this.baseTimeouts = resolveTimeoutPolicy(envelope);
+    this.timeouts = this.baseTimeouts;
   }
 
   private get pageOrThrow() {
@@ -1228,6 +1223,47 @@ class PlaywrightWebSession implements WebSession {
 
     return this.browserContext;
   }
+
+  setStepTimeout(timeoutMs?: number) {
+    if (!Number.isFinite(timeoutMs) || !timeoutMs || timeoutMs < 250) return () => undefined;
+    const previous = this.timeouts;
+    const timeout = Math.min(120_000, Math.trunc(timeoutMs));
+    this.timeouts = { ...this.baseTimeouts, action: timeout, assertion: timeout, navigation: timeout };
+    this.browserContext?.setDefaultTimeout(timeout);
+    this.browserContext?.setDefaultNavigationTimeout(timeout);
+    this.pageOrThrow.setDefaultTimeout(timeout);
+    this.pageOrThrow.setDefaultNavigationTimeout(timeout);
+    return () => {
+      this.timeouts = previous;
+      this.browserContext?.setDefaultTimeout(previous.action);
+      this.browserContext?.setDefaultNavigationTimeout(previous.navigation);
+      if (this.browserPage && !this.browserPage.isClosed()) {
+        this.browserPage.setDefaultTimeout(previous.action);
+        this.browserPage.setDefaultNavigationTimeout(previous.navigation);
+      }
+    };
+  }
+
+  async waitForDefaultReadiness() {
+    for (const [state, timeoutMs] of [["domcontentloaded", this.baseTimeouts.domcontentloadedWait], ["networkidle", this.baseTimeouts.networkIdleWait]] as const) {
+      const started = Date.now();
+      if (timeoutMs <= 0) {
+        this.readinessWaits.push({ state, status: "skipped", timeout_ms: timeoutMs, duration_ms: 0, timestamp: new Date().toISOString() });
+        continue;
+      }
+      try {
+        await this.pageOrThrow.waitForLoadState(state, { timeout: timeoutMs });
+        this.readinessWaits.push({ state, status: "ready", timeout_ms: timeoutMs, duration_ms: Date.now() - started, timestamp: new Date().toISOString() });
+      } catch (error) {
+        // These default readiness probes are diagnostic only. The authored
+        // locator/assertion decides whether the application is ready to test.
+        this.readinessWaits.push({ state, status: "timed_out", timeout_ms: timeoutMs, duration_ms: Date.now() - started,
+          timestamp: new Date().toISOString(), message: String(error instanceof Error ? error.message : error).slice(0, 500) });
+      }
+    }
+  }
+
+  recordNavigationWait(wait: PlaywrightNavigationWait) { this.readinessWaits.push(wait); }
 
   private usePage(page: Page) {
     this.browserPage = page;
@@ -1343,6 +1379,7 @@ class PlaywrightWebSession implements WebSession {
           return await this.browserPage.screenshot({
             type: "jpeg",
             quality: 45,
+            timeout: 1500,
             fullPage: false
           });
         } catch {
@@ -1481,30 +1518,34 @@ class PlaywrightWebSession implements WebSession {
 
   async goto(target: string, options?: WebGotoOptions) {
     await this.pageOrThrow.goto(target, {
-      waitUntil: options?.waitUntil || "domcontentloaded",
+      waitUntil: options?.waitUntil || "commit",
       timeout: clampTimeout(options?.timeoutMs, Math.min(Math.max(1_000, this.envelope.run_timeout_seconds * 1000), this.timeouts.navigation))
     });
+    if (!options?.waitUntil) await this.waitForDefaultReadiness();
   }
 
   async reload(options?: WebGotoOptions) {
     await this.pageOrThrow.reload({
-      waitUntil: normalizeLoadState(options?.waitUntil),
+      waitUntil: options?.waitUntil ? normalizeLoadState(options.waitUntil) : "commit",
       timeout: clampTimeout(options?.timeoutMs, this.timeouts.navigation)
     });
+    if (!options?.waitUntil) await this.waitForDefaultReadiness();
   }
 
   async goBack(options?: WebGotoOptions) {
     await this.pageOrThrow.goBack({
-      waitUntil: normalizeLoadState(options?.waitUntil),
+      waitUntil: options?.waitUntil ? normalizeLoadState(options.waitUntil) : "commit",
       timeout: clampTimeout(options?.timeoutMs, this.timeouts.navigation)
     });
+    if (!options?.waitUntil) await this.waitForDefaultReadiness();
   }
 
   async goForward(options?: WebGotoOptions) {
     await this.pageOrThrow.goForward({
-      waitUntil: normalizeLoadState(options?.waitUntil),
+      waitUntil: options?.waitUntil ? normalizeLoadState(options.waitUntil) : "commit",
       timeout: clampTimeout(options?.timeoutMs, this.timeouts.navigation)
     });
+    if (!options?.waitUntil) await this.waitForDefaultReadiness();
   }
 
   async waitForLoadState(state?: WebLoadState, options?: { timeoutMs?: number }) {
@@ -1646,11 +1687,20 @@ class PlaywrightWebSession implements WebSession {
 
   async click(target: string, options?: WebElementOptions) {
     const prepared = await this.prepareLocator(target, options);
-    await prepared.locator.click({
+    await this.clickLocator(prepared.locator, {
       button: prepared.options.button,
       force: prepared.options.force,
       trial: prepared.options.trial,
       timeout: prepared.options.timeoutMs
+    }, options);
+  }
+
+  private clickLocator(locator: Locator, settings: Parameters<Locator["click"]>[0], authored?: WebElementOptions) {
+    return runPlaywrightClick(this.pageOrThrow, () => locator.click(settings), {
+      navigationTimeout: this.timeouts.navigation,
+      actionOptions: { timeout: authored?.timeoutMs, trial: settings?.trial },
+      afterNavigation: () => this.waitForDefaultReadiness(),
+      onNavigationWait: wait => this.recordNavigationWait(wait)
     });
   }
 
@@ -1674,12 +1724,12 @@ class PlaywrightWebSession implements WebSession {
 
   async rightClick(target: string, options?: WebElementOptions) {
     const prepared = await this.prepareLocator(target, options);
-    await prepared.locator.click({
+    await this.clickLocator(prepared.locator, {
       button: "right",
       force: prepared.options.force,
       trial: prepared.options.trial,
       timeout: prepared.options.timeoutMs
-    });
+    }, options);
   }
 
   async drag(source: string, destination: string, options?: WebElementOptions) {
@@ -1837,15 +1887,16 @@ class PlaywrightWebSession implements WebSession {
     let buffer = await this.pageOrThrow.screenshot({
       fullPage: true,
       type: "jpeg",
+      timeout: Math.min(5000, this.timeouts.action),
       quality: 58
     });
-    if (buffer.length > 2 * 1024 * 1024) buffer = await this.pageOrThrow.screenshot({ fullPage: false, type: 'jpeg', quality: 45 });
+    if (buffer.length > 2 * 1024 * 1024) buffer = await this.pageOrThrow.screenshot({ fullPage: false, type: 'jpeg', quality: 45, timeout: Math.min(5000, this.timeouts.action) });
     const fileName = `${label.replace(/[^a-z0-9_-]/gi, '-')}.jpg`;
     const artifactPath = `artifacts/${this.envelope.engine_run_id}/${fileName}`;
     await mkdir(path.dirname(path.join(ARTIFACT_ROOT, artifactPath)), { recursive: true });
     await writeFile(path.join(ARTIFACT_ROOT, artifactPath), buffer);
     this.screenshots.push({ kind: 'screenshot', label: `Browser ${label}`, path: artifactPath, file_name: fileName, content_type: 'image/jpeg', size_bytes: buffer.length,
-      capture_outcome: label.endsWith('-passed') ? 'passed' : 'failed' });
+      capture_outcome: /-(?:passed|recovered)$/.test(label) ? 'passed' : 'failed' });
 
     return {
       dataUrl: `data:image/jpeg;base64,${buffer.toString("base64")}`,
@@ -1858,11 +1909,16 @@ class PlaywrightWebSession implements WebSession {
     return {
       started_at: new Date().toISOString(),
       console_index: this.consoleEntries.length,
-      network_index: this.networkEntries.length
+      network_index: this.networkEntries.length,
+      readiness_wait_index: this.readinessReportedIndex
     };
   }
 
+  getTimeoutPolicy() { return this.timeouts; }
+
   async collectDiagnostics(marker: WebDiagnosticsMarker, captures: Record<string, string>, durationMs: number) {
+    const readinessWaits = this.readinessWaits.slice(marker.readiness_wait_index ?? 0).slice(-20);
+    this.readinessReportedIndex = Math.max(this.readinessReportedIndex, this.readinessWaits.length);
     return {
       provider: this.provider,
       started_at: marker.started_at,
@@ -1871,7 +1927,8 @@ class PlaywrightWebSession implements WebSession {
       url: this.browserPage ? this.browserPage.url() : "",
       console: this.consoleEntries.slice(marker.console_index).slice(-80),
       network: this.networkEntries.slice(marker.network_index).slice(-120),
-      captures
+      captures,
+      readiness_waits: readinessWaits
     };
   }
 
@@ -1962,10 +2019,26 @@ class SeleniumWebSession implements WebSession {
   private driverInstance: WebDriver | null = null;
   private liveSessionId: string | null = null;
   private networkEntries: WebNetworkEntry[] = [];
-  private readonly timeouts: ReturnType<typeof resolveTimeoutPolicy>;
+  private readonly baseTimeouts: ReturnType<typeof resolveTimeoutPolicy>;
+  private timeouts: ReturnType<typeof resolveTimeoutPolicy>;
 
   constructor(private readonly envelope: EngineRunEnvelope) {
-    this.timeouts = resolveTimeoutPolicy(envelope);
+    this.baseTimeouts = resolveTimeoutPolicy(envelope);
+    this.timeouts = this.baseTimeouts;
+  }
+
+  async setStepTimeout(timeoutMs?: number) {
+    if (!Number.isFinite(timeoutMs) || !timeoutMs || timeoutMs < 250) return () => undefined;
+    const previous = this.timeouts;
+    const timeout = Math.min(120_000, Math.trunc(timeoutMs));
+    this.timeouts = { ...this.baseTimeouts, action: timeout, assertion: timeout, navigation: timeout };
+    const set = (value: ReturnType<typeof resolveTimeoutPolicy>) => this.driverOrThrow.manage().setTimeouts({
+      implicit: value.action,
+      pageLoad: Math.min(Math.max(1_000, this.envelope.run_timeout_seconds * 1000), value.navigation),
+      script: value.action
+    });
+    await set(this.timeouts);
+    return async () => { this.timeouts = previous; await set(previous).catch(() => undefined); };
   }
 
   private get driverOrThrow() {
@@ -2831,7 +2904,10 @@ const buildBindings = (
     interpolate: (value) => interpolateText(value, context),
     resolveLocator: (value) => resolveObjectRepositoryLocator(envelope, value),
     resolveUrl: (value) => resolveNavigationTarget(value, envelope),
-    assertionTimeout: resolveTimeoutPolicy(envelope).assertion
+    assertionTimeout: session.getTimeoutPolicy?.().assertion ?? resolveTimeoutPolicy(envelope).assertion,
+    navigationTimeout: session.getTimeoutPolicy?.().navigation ?? resolveTimeoutPolicy(envelope).navigation,
+    afterNavigation: () => session.waitForDefaultReadiness?.() || Promise.resolve(),
+    onNavigationWait: wait => session.recordNavigationWait?.(wait)
   }) : null;
 
   return {
@@ -3109,6 +3185,7 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
   const context = buildInitialContext(envelope, capturedValues);
   let stopped = false;
   let recoveryDeadline = 0;
+  const runCaptureWarnings: string[] = [];
 
   return {
     provider: session.provider,
@@ -3124,13 +3201,16 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
     },
     stop: async (finalStatus?: EngineStepOutcomeStatus) => {
       stopped = true;
-      return session.stop(finalStatus);
+      const artifacts = await session.stop(finalStatus);
+      return { ...artifacts, capture_warnings: [...(artifacts.capture_warnings || []), ...runCaptureWarnings].slice(-100) };
     },
     runStep: async (inputStep: EngineRunStep) => {
+      const options = automationStepOptions(inputStep);
+      const restoreStepTimeout = await session.setStepTimeout?.(options.timeoutMs);
+      try {
       // A caller changing an in-memory draft cannot replace the source whose
       // first attempt and retry eligibility belong to this execution.
       const step = { ...inputStep };
-      const options = automationStepOptions(step);
       const stepContext = buildInitialContext(envelope, context.capturedValues, step);
       const captures: Record<string, string> = {};
       const lineResults: AutomationLineResult[] = [];
@@ -3142,9 +3222,20 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
       let finalError: Error | null = null;
       const diagnosticsMarker = session.markDiagnostics();
       const startedAtMs = Date.now();
+      const captureWarnings: string[] = [];
+      const captureEvidence = async (status: 'passed' | 'failed', suffix: string) => {
+        if (!shouldCaptureStepScreenshot(envelope.artifact_policy, status, status === 'failed' && options.screenshotOnFailure)) return undefined;
+        try { return await session.screenshot(`${evidenceLabel}-${suffix}`); }
+        catch {
+          const warning = `Screenshot for step ${step.order} (${status}) could not be captured. The browser may have closed or evidence storage is unavailable.`;
+          captureWarnings.push(warning);
+          if (runCaptureWarnings.length < 100) runCaptureWarnings.push(warning);
+          return undefined;
+        }
+      };
       const collectWebDetail = async (): Promise<WebStepDetail> => {
         const firstFailure = lineResults.find(result => result.status === "failed" && result.attempt === 1);
-        return { ...await session.collectDiagnostics(diagnosticsMarker, captures, Math.max(Date.now() - startedAtMs, 0)), recovery: {
+        return { ...await session.collectDiagnostics(diagnosticsMarker, captures, Math.max(Date.now() - startedAtMs, 0)), ...(captureWarnings.length ? { capture_warnings: [...captureWarnings] } : {}), recovery: {
           strategy: "read_only_assertion_retry",
           status: recoverySucceeded ? "recovered" : !finalError ? "not_needed" : retriesPerformed ? "failed" : "blocked",
           attempts: retriesPerformed + 1,
@@ -3161,6 +3252,7 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
         await executeStepAttempt(session, { step, context: stepContext, envelope, lineResults, attempt: 1 }, captures);
         for (const [key, value] of Object.entries(captures)) registerContextValue(context, key, value);
 
+        const evidence = await captureEvidence('passed', 'passed');
         return {
           status: "passed",
           note: buildStepNote({
@@ -3173,7 +3265,7 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
           captures,
           web_detail: await collectWebDetail(),
           line_results: lineResults,
-          evidence: envelope.artifact_policy?.screenshot_on_success ? await session.screenshot(`${evidenceLabel}-passed`).catch(() => undefined) : undefined,
+          evidence,
           recovery_attempted: recoveryAttempted,
           recovery_succeeded: recoverySucceeded
         };
@@ -3184,7 +3276,8 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
       let completedRetries = 0;
       let recoverySource: string | null = null;
       try { recoverySource = normalizeAutomationSource(step.automation_code || ""); } catch { /* Invalid source never authorizes replay. */ }
-      const timeouts = resolveTimeoutPolicy(envelope);
+      const baseTimeouts = resolveTimeoutPolicy(envelope);
+      const timeouts = options.timeoutMs ? { ...baseTimeouts, action: options.timeoutMs, assertion: options.timeoutMs, navigation: options.timeoutMs } : baseTimeouts;
       const decideRecovery = (completed: number, waitMs: number) => automationRecoveryDecision({ source: recoverySource, error: finalError,
         requestedAttempts: envelope.max_repair_attempts || 0, completedRetries: completed,
         assertionTimeoutMs: timeouts.assertion, recoveryWaitMs: waitMs,
@@ -3208,6 +3301,7 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
           for (const [key, value] of Object.entries(captures)) registerContextValue(context, key, value);
           recoverySucceeded = true;
 
+          const evidence = await captureEvidence('passed', 'recovered');
           return {
             status: "passed",
             note: buildStepNote({
@@ -3220,7 +3314,7 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
             captures,
             web_detail: await collectWebDetail(),
             line_results: lineResults,
-            evidence: envelope.artifact_policy?.screenshot_on_failure === false && !options.screenshotOnFailure ? undefined : await session.screenshot(`${evidenceLabel}-recovered`).catch(() => undefined),
+            evidence,
             recovery_attempted: recoveryAttempted,
             recovery_succeeded: recoverySucceeded
           };
@@ -3229,6 +3323,7 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
         }
       }
 
+      const evidence = await captureEvidence('failed', 'failed');
       return {
         status: "failed",
         note: buildStepNote({
@@ -3243,10 +3338,13 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
         captures,
         web_detail: await collectWebDetail(),
         line_results: lineResults,
-        evidence: envelope.artifact_policy?.screenshot_on_failure === false && !options.screenshotOnFailure ? undefined : await session.screenshot(`${evidenceLabel}-failed`).catch(() => undefined),
+        evidence,
         recovery_attempted: recoveryAttempted,
         recovery_succeeded: recoverySucceeded
       };
+      } finally {
+        await restoreStepTimeout?.();
+      }
     }
   };
 };

@@ -44,4 +44,19 @@ const createInlineArtifactAttacher = (createArtifact) => async (transactionId, a
   return created;
 };
 
-module.exports = { normalizeInlineArtifactRefs, createInlineArtifactAttacher };
+const screenshotCaptureAllowed = (policy = {}, outcome, failureOverride = false) => {
+  const failed = outcome === 'failed' || outcome === 'blocked';
+  if (failed && failureOverride) return true;
+  if (policy.screenshot_mode === 'all') return true;
+  if (policy.screenshot_mode === 'passed') return !failed;
+  if (policy.screenshot_mode === 'failed') return failed;
+  if (policy.screenshot_mode === 'off') return false;
+  return failed ? policy.screenshot_on_failure !== false : policy.screenshot_on_success === true;
+};
+
+const hasFailureScreenshotOverride = (steps = [], hooks = []) => [...(Array.isArray(steps) ? steps : []), ...(Array.isArray(hooks) ? hooks : []).flatMap(hook => Array.isArray(hook?.steps) ? hook.steps : [])].some(step => {
+  const directive = String(step?.automation_code || '').match(/^\s*\/\/\s*@hellotest-options\s+([^\r\n]*)/i)?.[1] || '';
+  return directive.split(/\s+/).includes('screenshotOnFailure');
+});
+
+module.exports = { normalizeInlineArtifactRefs, createInlineArtifactAttacher, screenshotCaptureAllowed, hasFailureScreenshotOverride };

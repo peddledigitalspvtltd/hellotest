@@ -72,6 +72,7 @@ test('the common envelope adapts saved Web hooks without adding setup assertions
   ] };
   const before = JSON.stringify(hook);
   const dependencies = {
+    executionWithCaseEnvironment: require('../../backend/lib/automationExecutionEnvironment').executionWithCaseEnvironment,
     configurationTargetsForRead, resolveAutomationCaseType, normalizeText, normalizeEngineBrowser: value => value,
     normalizeInteger: (value, fallback) => value == null ? fallback : Number(value), normalizeSessionMode: (_value, fallback) => fallback,
     resolveExecutionPolicy: async () => ({}), resolveCaseDataSetContext: () => null, resolveExecutionHooks: () => [hook], preserveFrozenEngineEnvelope: value => value,

@@ -124,7 +124,7 @@ const prepareChatRequest = (init, options = {}) => {
   // This small relevance verdict should not spend its entire completion
   // allowance on hidden reasoning. Apply only to documented GPT-5 variants,
   // after the managed feature has selected the actual provider/model.
-  if (options.operation === 'authoring.validate-request' && official
+  if (['authoring.validate-request', 'bug-draft.generate'].includes(options.operation) && official
       && /^gpt-5(?:-(?:mini|nano))?(?:-\d{4}-\d{2}-\d{2})?$/i.test(String(payload.model || ''))
       && payload.reasoning_effort === undefined) payload.reasoning_effort = 'minimal';
   // These models reject sampling controls; do not spend a failed round trip.

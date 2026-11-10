@@ -14,12 +14,54 @@ parameters, hooks, data iterations, scheduling policy and result callback path.
 Parallelism is bounded to eight local cases. Local browser runs reject mobile
 steps explicitly. Remote workers keep their existing queue transport.
 
+Paired runs inherit the project-effective Test Engine configuration, including
+global settings when no project override exists. Timing, screenshots, console,
+network and retention settings use that configuration. Local execution keeps
+its headed Playwright session and per-dispatch callback credentials. Without a
+configured integration, the local defaults remain available.
+
 The agent saves a private receipt before executing. Retrying an uncertain
 acknowledgment reconnects the same run. Restarting an interrupted agent reports
 the interrupted attempt and never replays its steps automatically. Cancellation
 is delivered directly when possible and polled from the API every two seconds;
 revoked machine grants stop active work. Retained callback delivery can retry
 for up to seven days while the owner and project remain authorized.
+
+The API image builds its downloadable agent from the native engine source.
+After an engine update, refresh the installed agent through Local agent setup;
+its existing browser pairing can be preserved. For development, run
+`npm --prefix testengine/backend run check:inspection-agent` to detect a stale
+checked-in runtime bundle without rewriting it.
+
+Saved Playwright code and instruction clicks share the engine's action and
+navigation budgets. When native Playwright confirms that a click completed but
+times out waiting for its pending main-document navigation, the engine waits
+only for that existing navigation within the remaining navigation budget. It
+never repeats the click or relaxes the saved assertions. Explicit click timeout,
+`noWaitAfter`, and trial options retain native behavior. Navigation waits appear
+in the step diagnostics.
+
+Framed assertions share one readiness/assertion deadline and honor positive
+authored timeout overrides. The final owner/document/origin check has a separate
+bounded allowance; it cannot replace an ordinary assertion failure with a
+one-millisecond locator timeout. Frame replacement and foreign documents still
+stop execution.
+
+For a grounded SPA route transition, saved native code waits for that same URL
+with `page.waitForURL(..., { waitUntil: 'commit' })` before its exact URL and
+business assertions. Omitting a wait timeout uses the engine's navigation
+budget; the assertions retain their own budget. A successful submission response
+alone does not prove the requested final page or business outcome.
+
+Remote workers retry temporary heartbeat transport and service failures only
+within their last confirmed lease, reserving one second before expiry. The next
+application action waits for a positive control receipt. Explicit denial,
+cancellation, or lease expiry stops execution; an uncertain progress report
+does not trigger a replay of browser actions.
+
+Healthy partial local progress remains `running` until the final callback,
+including any After Test work. Failed or blocked sections remain visible, and
+delayed progress cannot reopen a finished attempt.
 
 A run freezes its cases, steps, environment, configuration, and selected test data. Later authoring edits do not change that run. A rerun creates a new snapshot and materializes generator templates again.
 
@@ -62,6 +104,12 @@ Assignees resolve from run to suite to module to case. An explicit lower-level a
 
 ## Evidence
 
-New attachments belong to an execution result and therefore to an exact case/data-row attempt. Step evidence also records the frozen step ID. Large supported static images are compressed in the browser when that produces a smaller file; small images and animations retain their bytes. Backend object storage stores the files, with compression where useful. Result logs retain attachment IDs and metadata, not embedded file bytes.
+New attachments belong to an execution result and therefore to an exact case/data-row attempt. Step evidence also records the frozen step ID. Large supported static images are compressed in the browser when that produces a smaller file; small images and animations retain their bytes. Backend object storage stores the files, with compression where useful. After a verified upload, result logs retain attachment IDs and metadata. If no storage receipt is available, bounded inline screenshot evidence can remain in the result; Defect AI admits those images under the current run/attachment permissions and image limits. Requested captures that fail produce diagnostics while preserving the test's actual outcome.
 
 Older run-level files remain under Earlier run attachments. Earlier case/step references stay readable without guessing which case an unscoped historical file belonged to. Resetting a case does not delete earlier evidence; open its saved attempt from History.
+
+## Case live view
+
+Live Run View selects the exact case and data row's engine run. The authorized execution API issues a five-minute signed viewer grant scoped to that run and browser provider. Both engine viewer routes verify the grant; an active frame can renew it, while ended or unavailable browser sessions cannot renew it indefinitely. Expired links stop polling and direct the user to reopen Live Run View from the case. Public reverse-proxy prefixes are retained.
+
+Concurrent viewers share bounded frame capture and replica lookup work. Hidden viewers pause polling. Viewer credentials are excluded from model context, request query logging and retained model traces. Deploy the application and Test Engine changes together so newly protected viewer routes receive the signed grant.

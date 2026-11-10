@@ -30,6 +30,70 @@ test('default case assurance guidance assigns only the selected case to each mod
  assert.match(defaults.instructions,/do not return a case collection or a results wrapper/);
 });
 
+test('case assurance exposes its exact case collection to the nested Test Case loop',()=>{
+ const cases=[draft()];
+ const row=tasks._internals.taskResult('test-case-assurance',{story_id:story.id,story_revision:'revision-1',story,cases,case_assurance:[]});
+ assert.deepEqual(row.cases,cases);
+});
+
+test('case-scoped Automation Engineer reports incomplete assurance as input and does not generate or fail the case',async t=>{
+ setup(t);
+ const current=draft();
+ const source={...packet(),story,cases:[current],case_assurance:[{client_id:current.client_id,case_fingerprint:tasks.fingerprint(current),verification:{status:'needs_input'},failure:{code:'AI_OUTPUT_SCHEMA_VIOLATION',message:'Review the incomplete Test Case assessment.'}}]};
+ const build=t.mock.method(automation,'previewAutomationDraft',async()=>{throw new Error('Incomplete assurance must not dispatch an automation model call.');});
+ const caseRun={...run(),loop_owner:'each-test-case',iteration_index:0,loop_item:current,iteration_path:['each-story',0,'each-test-case',0]};
+ const result=await tasks.execute({run:caseRun,node:{id:'automation',data:{artifactTask:'automation-engineer'}},user:{id:'actor'},sources:[],signal:new AbortController().signal,context:{input:[source],item:current},onProgress:async()=>{}});
+ const output=result.__workflow_result.output;
+ assert.equal(output.outcome,'automation_input_required');
+ assert.equal(output.verification.status,'needs_input');
+ assert.equal(output.data[0].automation[0],null);
+ assert.equal(output.data[0].automation_failures.length,0);
+ assert.equal(output.data[0].automation_input_required[0].code,'AI_OUTPUT_SCHEMA_VIOLATION');
+ assert.equal(build.mock.callCount(),0);
+});
+
+test('case-scoped Automation Engineer uses protected environment bindings and preserves execution defaults', async t => {
+ setup(t);
+ t.mock.method(require('../public/applicationAccess'), 'getAppType', async () => ({ id: 'app', project_id: 'project', type: 'api' }));
+ t.mock.method(require('../../../testing/backend/services/testEnvironment.service'), 'getTestEnvironment', async id => ({ id, project_id: 'project', app_type_id: 'app',
+   base_url: 'https://invoices.example/', variables: [{ key: 'username', value: 'selected-user' }, { key: 'password', value: '', is_secret: true, has_stored_value: true }] }));
+ const current = { ...draft(), parameter_values: { 't.username': '[missing: username]', 't.password': '[missing: password]' },
+   steps: [{ action: 'POST https://invoices.example/session with @t.username and @t.password', expected_result: 'The response status equals 200', step_type: 'api' }] };
+ const source = { ...packet(), story, cases: [current], case_assurance: [{ ...review('Assessed'), case_fingerprint: tasks.fingerprint(current) }] };
+ const built = [];
+ t.mock.method(automation, 'previewAutomationDraft', async input => { built.push(input); return { steps: input.draft.steps, validation: { status: 'passed' }, verification_status: 'unverified' }; });
+ const result = await tasks.execute({ run: { ...run(), loop_owner: 'each-test-case', iteration_index: 0 },
+   node: { id: 'automation', data: { artifactTask: 'automation-engineer', testEnvironmentId: 'selected-environment', automationBrowserMode: 'offline' } },
+   user: { id: 'actor' }, sources: [], signal: new AbortController().signal, context: { input: [source], item: current }, onProgress: async () => {} });
+ assert.equal(built.length, 1);
+ assert.equal(built[0].app_type_kind, 'api');
+ assert.equal(built[0].test_environment_id, 'selected-environment');
+ assert.equal(built[0].draft.parameter_values['t.password'], undefined);
+ assert.equal(built[0].draft.parameter_values['t.username'], undefined);
+ assert.match(built[0].draft.steps[0].action, /@r.username and @r.password/);
+ assert.equal(JSON.stringify(result).includes('selected-user'), false);
+ const saved = result.__workflow_result.context.data[0].automation_by_case[current.client_id];
+ assert.equal(saved.test_data_options.test_environment_id, 'selected-environment');
+ assert.ok(saved.test_data_options.private_parameter_names.includes('r.password'));
+});
+
+test('a truncated model result stays attached to its case while later Sprint cases still build', async t => {
+ setup(t);
+ const cases = [draft(), { ...draft(), client_id: 'draft-2', title: 'Read another saved invoice' }];
+ const source = { ...packet(), cases, case_assurance: cases.map(item => ({ ...review('Assessed'), case_fingerprint: tasks.fingerprint(item) })) };
+ let calls = 0;
+ t.mock.method(automation, 'previewAutomationDraft', async input => {
+   if (++calls === 1) throw Object.assign(new Error('The model reached its output limit.'), { statusCode: 502, code: 'AI_OUTPUT_TRUNCATED' });
+   return { steps: input.draft.steps, validation: { status: 'passed' }, verification_status: 'unverified' };
+ });
+ const result = await execute('automation-engineer', [source]);
+ assert.equal(calls, 2);
+ assert.equal(result.verification.status, 'needs_input');
+ assert.equal(result.data[0].automation[0], null);
+ assert.equal(result.data[0].automation_failures[0].code, 'AI_OUTPUT_TRUNCATED');
+ assert.equal(result.data[0].automation[1].client_id, 'draft-2');
+});
+
 test('per-case assurance requests include only the current draft and its selected Story context',async t=>{
  setup(t);
  const cases=[{...draft(),client_id:'case-one-only',title:'CASE_ONE_ONLY',description:'DESCRIPTION_ONE_ONLY'},
@@ -118,19 +182,19 @@ test('a configured automation node supplies its guidance once while retaining co
  assert.equal(automation.previewAutomationDraft.mock.callCount(),1);
 });
 
-test('native public output owns only its stage while pinned lineage remains internal', async t => {
+test('case assurance returns its exact cases for the nested loop while retaining pinned lineage internally', async t => {
   setup(t);
   t.mock.method(assurance,'reviewArtifact',async()=>review('Review invoice draft'));
   const item=draft(),upstream={...packet(),story_assurance:{...review('Story review'),story_id:story.id},cases:[item],test_case_generation:{cases:[item],verification:{status:'passed'}}};
   const result=await tasks.execute({run:run(),node:{data:{artifactTask:'test-case-assurance'}},user:{id:'actor'},signal:new AbortController().signal,onProgress:async()=>{},context:{input:[upstream]}});
   const {output,context}=result.__workflow_result;
-  assert.equal(output.data[0].cases,undefined);assert.equal(output.data[0].story_assurance,undefined);
+  assert.deepEqual(output.data[0].cases,[item]);assert.equal(output.data[0].story_assurance,undefined);
   assert.equal(output.data[0].story.title,story.title);
   assert.equal(output.data[0].case_assurance[0].client_id,item.client_id);assert.equal(output.data[0].case_assurance[0].case_index,0);
   assert.deepEqual(context.data[0].cases,[item]);assert.equal(context.data[0].case_assurance[0].case_fingerprint,tasks.fingerprint(item));
 });
 
-test('every native stage attributes terminal failures to its Story and assurance/automation case without exposing draft contents',async t=>{
+test('artifact contract failures stay attached to their Story or case while systemic provider failure remains attributed and private',async t=>{
  setup(t);
  const first=draft(),second={...draft(),client_id:'draft-2',title:'PRIVATE_CASE_TITLE'};
  const source={...packet(),story_assurance:{...review('Story review'),story_id:story.id},cases:[first,second],
@@ -146,15 +210,25 @@ test('every native stage attributes terminal failures to its Story and assurance
   if(input.draft.client_id==='draft-2')throw Object.assign(new Error('PRIVATE_PROVIDER_BODY'),{code:'LLM_PROVIDER_UNAVAILABLE',statusCode:503});
   return {steps:input.draft.steps,validation:{status:'passed'},verification_status:'unverified'};
  });
- for(const task of ['story-assurance','test-case-generation','test-case-assurance','automation-engineer']){
-  failing=task;
-  await assert.rejects(execute(task,[source]),error=>{
-   const diagnostic=require('../../../agentic/backend/workflows/runtimeEvents').failureInfo(error);
-   assert.deepEqual(diagnostic.artifact,{artifact_task:task,story_id:story.id,...(['test-case-assurance','automation-engineer'].includes(task)?{case_index:1,case_client_id:'draft-2'}:{})});
-   assert.doesNotMatch(JSON.stringify(diagnostic),/PRIVATE/);
-   return true;
-  });
- }
+ failing='story-assurance';
+ const storyResult=await execute('story-assurance',[source]);
+ assert.equal(storyResult.data[0].story_assurance.verification.status,'needs_input');
+ assert.equal(storyResult.data[0].story_assurance.failure.code,'AI_OUTPUT_SCHEMA_VIOLATION');
+ failing='test-case-generation';
+ const generationResult=await execute('test-case-generation',[source]);
+ assert.equal(generationResult.data[0].test_case_generation.verification.status,'needs_input');
+ assert.deepEqual(generationResult.data[0].cases,[]);
+ failing='test-case-assurance';
+ const assuranceResult=await execute('test-case-assurance',[source]);
+ assert.equal(assuranceResult.data[0].case_assurance[1].verification.status,'needs_input');
+ assert.equal(assuranceResult.data[0].case_assurance_failures[0].client_id,'draft-2');
+ failing='automation-engineer';
+ await assert.rejects(execute('automation-engineer',[source]),error=>{
+  const diagnostic=require('../../../agentic/backend/workflows/runtimeEvents').failureInfo(error);
+  assert.deepEqual(diagnostic.artifact,{artifact_task:'automation-engineer',story_id:story.id,case_index:1,case_client_id:'draft-2'});
+  assert.doesNotMatch(JSON.stringify(diagnostic),/PRIVATE/);
+  return true;
+ });
 });
 
 test('native stages bind the exact Story scope and supplied evidence without generic gateway retrieval or scope leakage', async t => {
@@ -189,12 +263,17 @@ test('native stages reject forged success, wrong Story cases, duplicate packets 
   setup(t);
   let reviewed={verification:{status:'passed'}};
   t.mock.method(assurance,'reviewArtifact',async()=>reviewed);
-  await assert.rejects(execute('story-assurance',[packet()]),/complete evidence-grounded native review/);
+  const incompleteReview=await execute('story-assurance',[packet()]);
+  assert.equal(incompleteReview.data[0].story_assurance.verification.status,'needs_input');
+  assert.equal(incompleteReview.data[0].story_assurance.failure.code,'NATIVE_ARTIFACT_REVIEW_INCOMPLETE');
   reviewed=review('Grounded review');
   await assert.rejects(execute('story-assurance',[packet(),packet()]),/duplicate Story/);
   const initial=await execute('story-assurance',[packet()]);
   t.mock.method(design,'previewRequirementsTestCases',async()=>({cases:[{...draft(),requirement_ids:['other-story']}]}));
-  await assert.rejects(execute('test-case-generation',initial.data),/trace only to its selected Story/);
+  const invalidDraft=await execute('test-case-generation',initial.data);
+  assert.equal(invalidDraft.data[0].test_case_generation.verification.status,'needs_input');
+  assert.equal(invalidDraft.data[0].test_case_generation.failure.code,'TEST_CASE_DRAFT_INVALID');
+  assert.deepEqual(invalidDraft.data[0].cases,[]);
   const assessed={...packet(),cases:[draft()],case_assurance:[{...review('Assessed'),case_fingerprint:tasks.fingerprint(draft())}]};
   t.mock.method(automation,'previewAutomationDraft',async()=>({steps:[],validation:{status:'passed'}}));
   const incomplete=await execute('automation-engineer',[assessed]);
@@ -260,7 +339,9 @@ test('explicit missing draft parameter markers stop automation before model disp
   assert.deepEqual(gap.required_parameters,['@r.auth','@t.endpoint','@t.fixture']);
   assert.doesNotMatch(JSON.stringify(gap),/PRIVATE_/,'only parameter names, not placeholder descriptors or input values, are exposed in the gap');
   const changed=structuredClone(assessed);changed.cases[0].description='Changed after assessment';
-  await assert.rejects(execute('automation-engineer',[changed]),{statusCode:409});
+  const stale=await execute('automation-engineer',[changed]);
+  assert.equal(stale.verification.status,'needs_input');
+  assert.equal(stale.data[0].automation_input_required[0].code,'TEST_CASE_ASSURANCE_STALE');
   assert.equal(build.mock.callCount(),0,'input gaps must not bypass assessed case lineage');
 });
 
@@ -332,7 +413,9 @@ test('require-ready policy preserves the explicit evidence-grounded upstream rea
   const output=await execute('automation-engineer',[assessed],{data:{readinessPolicy:'require-ready'}});
   assert.equal(output.verification.status,'passed');assert.equal(build.mock.callCount(),1);
   assessed.cases[0]={...item,title:'Changed after review'};
-  await assert.rejects(execute('automation-engineer',[assessed]),{statusCode:409});
+  const stale=await execute('automation-engineer',[assessed]);
+  assert.equal(stale.verification.status,'needs_input');
+  assert.equal(stale.data[0].automation_input_required[0].code,'TEST_CASE_ASSURANCE_STALE');
   assert.equal(build.mock.callCount(),1);
 });
 

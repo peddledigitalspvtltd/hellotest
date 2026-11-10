@@ -15,6 +15,7 @@ const testCaseVersionRestoreService = require("../services/testCaseVersionRestor
 const testDataSetService = require("../services/testDataSet.service");
 const mobileFeatureService = require("@hellotest/platform/backend/services/mobileFeature.service");
 const testCaseScopeService = require("../services/testCaseScope.service");
+const defectReproductionService = require("../services/defectReproduction.service");
 const { TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("@hellotest/platform/backend/src/domain/catalog");
 const { paginate, shouldPaginate } = require("@hellotest/platform/backend/src/utils/pagination");
 const {
@@ -1107,6 +1108,21 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     await ensureTestCasePermission(fastify, req, "testcase.view");
     return testCaseVersionService.list(req.params.id);
+  });
+
+  fastify.post("/test-cases/reproduction-preview", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      project_id: { required: true, type: "string" },
+      test_case_ids: { required: true, type: "array", items: "string", minItems: 1, maxItems: 10 }
+    }, req.body || {});
+    await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("testcase.view", { projectId: req.body.project_id })(req);
+    const requestedIds = [...new Set(req.body.test_case_ids.map((id) => id.trim()).filter(Boolean))];
+    if (!requestedIds.length) throw Object.assign(new Error("Select at least one Test Case."), { statusCode: 400 });
+    const cases = await defectReproductionService.loadCaseReproduction({ projectId: req.body.project_id, testCaseIds: requestedIds });
+    if (cases.length !== requestedIds.length) throw Object.assign(new Error("One or more selected Test Cases are unavailable in this project."), { statusCode: 404 });
+    return defectReproductionService.buildReproduction(cases);
   });
 
   fastify.get("/test-cases/:id/versions/:revision", async (req) => {

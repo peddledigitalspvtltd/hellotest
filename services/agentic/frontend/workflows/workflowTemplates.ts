@@ -18,7 +18,7 @@ export type WorkflowTemplate = {
   task?: string;
 };
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
-  { id: "sprint-automator", name: "Sprint Automator", category: "Data flow", description: "Read Sprint Stories, generate and assess Test Cases, save them into the Library as AI generated and pending review, and prepare automation when its inputs are ready." },
+  { id: "sprint-automator", name: "Sprint Automator", category: "Data flow", description: "Read Sprint Stories, generate and assess Test Cases, prepare case-specific data, and build automation for each case." },
   {
     id: "foreach",
     name: "Process a list of items",
@@ -108,6 +108,8 @@ export function draftFromTemplate(template: WorkflowTemplate): {
       ["story-assurance", "artifactTask", { label: "AI Story Assurance", artifactTask: "story-assurance" }],
       ["test-case-generation", "artifactTask", { label: "AI Test Case Generator", artifactTask: "test-case-generation" }],
       ["test-case-assurance", "artifactTask", { label: "AI Test Case Quality Assurance", artifactTask: "test-case-assurance" }],
+      ["each-test-case", "loop", { label: "For each Test Case", loopSourceKey: "input.0.cases", loopMaxIterations: "10", loopBatchSize: "1", loopAction: "workflow", timeoutMs: "3600000", outputKey: "case_automation" }],
+      ["test-data-generator", "artifactTask", { label: "AI Test Data Generator", artifactTask: "test-data-generator", testDataSource: "synthetic", testDataSetId: "" }],
       ["automation-engineer", "artifactTask", { label: "AI Automation Engineer", artifactTask: "automation-engineer" }],
       ["sprint-output", "output", { label: "Sprint results and Library cases" }],
     ];
@@ -117,13 +119,16 @@ export function draftFromTemplate(template: WorkflowTemplate): {
       createFlowEdge("sprint-stories", "each-story"),
       { ...createFlowEdge("each-story", "story-assurance"), sourceHandle: "loop" },
       createFlowEdge("story-assurance", "test-case-generation"),
-      createFlowEdge("test-case-generation", "test-case-assurance"),
-      createFlowEdge("test-case-assurance", "automation-engineer"),
-      { ...createFlowEdge("automation-engineer", "each-story"), targetHandle: "continue" },
+      createFlowEdge("test-case-generation", "each-test-case"),
+      { ...createFlowEdge("each-test-case", "test-case-assurance"), sourceHandle: "loop" },
+      createFlowEdge("test-case-assurance", "test-data-generator"),
+      createFlowEdge("test-data-generator", "automation-engineer"),
+      { ...createFlowEdge("automation-engineer", "each-test-case"), targetHandle: "continue" },
+      { ...createFlowEdge("each-test-case", "each-story"), sourceHandle: "done", targetHandle: "continue" },
       { ...createFlowEdge("each-story", "sprint-output"), sourceHandle: "done" },
     ];
     draft.nodes = layoutWorkflow(draft.nodes, draft.edges);
-    draft.settings = { execution_mode: "review", maxDurationMs: 3600000, template_id: "sprint-automator", template_version: 2, library_publication_mode: "automatic", requires_human_review: false, processing_mode: "sequential" };
+    draft.settings = { execution_mode: "review", maxDurationMs: 3600000, template_id: "sprint-automator", template_version: 4, library_publication_mode: "automatic", requires_human_review: false, processing_mode: "sequential" };
     return { draft, input: JSON.stringify({ sprint_id: "" }, null, 2) };
   }
   if (["foreach", "custom"].includes(template.id)) {

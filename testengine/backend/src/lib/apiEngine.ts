@@ -9,6 +9,7 @@ import type {
 import { compare, evaluateExtendedApiAssertion } from "./apiAssertions.js";
 import { readJsonPathValue } from "./apiJsonPath.js";
 import { apiRequestTimeoutMs } from "./apiRequestTimeout.js";
+import { automationStepOptions } from "./automationStepOptions.js";
 import {
   buildInitialContext,
   interpolateHeaders,
@@ -497,7 +498,8 @@ export async function executeApiStepInEngine(
   capturedValues: Record<string, string> = {},
   signal?: AbortSignal
 ): Promise<ApiStepExecutionResult> {
-  const request = resolveApiRequest(step.api_request, envelope, capturedValues, step);
+  const stepTimeout = automationStepOptions(step).timeoutMs;
+  const request = resolveApiRequest(stepTimeout && step.api_request ? { ...step.api_request, timeout_ms: stepTimeout } : step.api_request, envelope, capturedValues, step);
   const preview = await runResolvedApiRequest(request, signal);
   const assertions = evaluateApiAssertions(preview, request.validations || []);
   const captures = extractCaptures(request, preview);

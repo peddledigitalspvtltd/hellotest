@@ -8,6 +8,7 @@
     "test": "npm run build && node --test --test-concurrency=2 test/*.test.mjs",
     "package:host-recorder": "node scripts/build-host-recorder-binary.mjs",
     "package:inspection-agent": "npm run build && node scripts/package-inspection-agent.mjs",
+    "check:inspection-agent": "npm run build && node scripts/package-inspection-agent.mjs --check",
     "start": "node dist/server.js"
   },
   "dependencies": {

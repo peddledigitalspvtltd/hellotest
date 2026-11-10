@@ -18,13 +18,24 @@ const effectScript = transpile(`const effect = ${page.slice(effectStart, effectE
 function metadataFixture() {
   const state = {};
   const lastAutomationCaseDraftSeedRef = { current: null };
-  const setters = Object.fromEntries(["CaseDraft", "TestCaseParameterValues", "SuiteLinkDraftIds", "CaseRequirementIds", "CaseModuleIds", "CaseDataSetId", "AutomationManualLinkDraftIds", "SelectedExecutionDataSetId", "OverrideSharedSteps", "ExecutionHookDraft"].map((key) => [`set${key}`, (value) => { state[key] = typeof value === "function" ? value(state[key]) : value; }]));
+  const setters = Object.fromEntries(["CaseDraft", "TestCaseParameterValues", "SuiteLinkDraftIds", "CaseRequirementIds", "CaseModuleIds", "CaseDataSetId", "AutomationManualLinkDraftIds", "SelectedExecutionDataSetId", "SelectedExecutionEnvironmentId", "OverrideSharedSteps", "ExecutionHookDraft"].map((key) => [`set${key}`, (value) => { state[key] = typeof value === "function" ? value(state[key]) : value; }]));
   const refresh = (activeCase) => {
     const context = { resolveAutomationCaseType, automatedSteps: [], selectedRuntimeType: "web", mapExecutionHooksToRunHooks, activeCase, selectedCaseId: activeCase?.id || "", projectId: "project", lastAutomationCaseDraftSeedRef, ...setters, ...helpers, normalizeAutomationParameterValues: (value) => value || {}, formatParameterText: (value) => JSON.stringify(value || {}) };
     new Function(...Object.keys(context), `${effectScript}\neffect();`)(...Object.values(context));
   };
   return { state, refresh };
 }
+
+test("saved environment defaults seed the existing context selector while preserving an explicit in-progress override", () => {
+  const { state, refresh } = metadataFixture();
+  const original = { id: "case", title: "Login", test_data_options: { test_environment_id: "qa" } };
+  refresh(original); assert.equal(state.SelectedExecutionEnvironmentId, "qa");
+  state.SelectedExecutionEnvironmentId = "staging";
+  refresh({ ...original, revision: 2 }); assert.equal(state.SelectedExecutionEnvironmentId, "staging");
+  refresh({ id: "another", title: "Checkout", test_data_options: { test_environment_id: "preview" } });
+  assert.equal(state.SelectedExecutionEnvironmentId, "preview");
+  refresh(null); assert.equal(state.SelectedExecutionEnvironmentId, "");
+});
 
 test("step-save and AI refetch preserve unsaved metadata while updating pristine fields", () => {
   const { state, refresh } = metadataFixture();
@@ -107,14 +118,14 @@ test("revoked case-update access stops an automation metadata write before any A
 
 test('saved section options only come from a leading metadata comment',()=>{
  assert.equal(parseAutomationStepOptions({automation_code:'await web.fill("Hint", "// @hellotest-options skip");'}).skip,false);
- assert.deepEqual(parseAutomationStepOptions({automation_code:'// @hellotest-options skip optional screenshotOnFailure\r\nawait web.click("Submit");'}),{skip:true,optional:true,screenshotOnFailure:true});
+ assert.deepEqual(parseAutomationStepOptions({automation_code:'// @hellotest-options skip optional screenshotOnFailure timeoutMs=45000\r\nawait web.click("Submit");'}),{skip:true,optional:true,screenshotOnFailure:true,timeoutMs:45000});
 });
 
 test('shared section options replace only metadata while preserving full program structure',()=>{
  const program='import { test } from "@playwright/test";\n\ntest.beforeEach(async () => { await setup(); });\ntest("flow", async ({ page }) => {\n  await page.goto("/");\n});';
- const updated=applyAutomationStepOptions(`// @hellotest-options optional\n${program}`,{skip:true,optional:false,screenshotOnFailure:true});
- assert.equal(updated,`// @hellotest-options screenshotOnFailure skip\n${program}`);
- assert.equal(applyAutomationStepOptions(updated,{skip:false,optional:false,screenshotOnFailure:false}),program);
+ const updated=applyAutomationStepOptions(`// @hellotest-options optional\n${program}`,{skip:true,optional:false,screenshotOnFailure:true,timeoutMs:60000});
+ assert.equal(updated,`// @hellotest-options screenshotOnFailure skip timeoutMs=60000\n${program}`);
+ assert.equal(applyAutomationStepOptions(updated,{skip:false,optional:false,screenshotOnFailure:false,timeoutMs:null}),program);
 });
 
 test("metadata-only save without Test Data access preserves every saved parameter value and option", async () => {

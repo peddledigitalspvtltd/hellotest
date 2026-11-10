@@ -30,6 +30,7 @@ function setup(t, count=3) {
   return {run,node,packet,progress,execute};
 }
 const built = input => ({steps:input.draft.steps,validation:{status:'passed'},verification_status:'unverified',summary:`Built ${input.draft.client_id}`});
+const completedCaseCheckpoint = value => value.automation_checkpoint?.stories?.some(packet => packet.automation_progress?.processed >= value.current_case);
 
 test('workflow browser builds select the shared upstream Engineer without granting interactive browser actions',async t=>{
   const fixture=setup(t,1),requests=[];
@@ -136,8 +137,8 @@ test('interactive multi-case generation reuses durable artifacts after a lost ch
   called.push(input.draft.client_id);
   return{...built(input),executable:{filename:'automation.spec.ts',code:'// complete native artifact\n'+'x'.repeat(160*1024)}};
  });
- await assert.rejects(tasks.execute({run:fixture.run,node:fixture.node,user:{id:'actor'},signal:new AbortController().signal,context:{input:[fixture.packet]},onProgress:async()=>{
-  throw Object.assign(new Error('Checkpoint acknowledgement was lost'),{code:'WORKFLOW_CHECKPOINT_UNAVAILABLE',statusCode:503});
+ await assert.rejects(tasks.execute({run:fixture.run,node:fixture.node,user:{id:'actor'},signal:new AbortController().signal,context:{input:[fixture.packet]},onProgress:async value=>{
+  if(completedCaseCheckpoint(value))throw Object.assign(new Error('Checkpoint acknowledgement was lost'),{code:'WORKFLOW_CHECKPOINT_UNAVAILABLE',statusCode:503});
  }}),{code:'WORKFLOW_CHECKPOINT_UNAVAILABLE'});
  assert.deepEqual(called,['case-1']);assert.equal(fixture.run.node_results[0].progress,undefined);
  assert.equal([...store.rows.values()][0].state,'response_received');
@@ -217,8 +218,10 @@ test('Automation Engineer checkpoints every case, continues generation failures 
   assert.deepEqual(first.output.data[0].automation.map(item=>item?.client_id||null),['case-1',null,'case-3']);
   assert.equal(first.output.data[0].automation_failures[0].case_index,1);
   assert.match(first.output.data[0].automation_failures[0].validation_feedback[0].message,/invoice assertion/);
-  assert.deepEqual(fixture.progress.map(item=>item.current_case),[1,2,3]);
-  assert.deepEqual(fixture.progress[1].automation_checkpoint.stories[0].automation.map(item=>item?.client_id||null),['case-1',null]);
+  const checkpoints=fixture.progress.filter(completedCaseCheckpoint);
+  assert.deepEqual(checkpoints.map(item=>item.current_case),[1,2,3]);
+  assert.ok(fixture.progress.some(item=>item.completed_items[0]?.automation_progress?.active_case_index===0),'Active case progress is visible before its completed checkpoint.');
+  assert.deepEqual(checkpoints[1].automation_checkpoint.stories[0].automation.map(item=>item?.client_id||null),['case-1',null]);
   assert.deepEqual(first.context.data[0].cases,fixture.packet.cases,'Internal lineage remains pinned to original authored drafts');
   const cancelledRetry=new AbortController();called.length=0;
   await assert.rejects(tasks.execute({run:fixture.run,node:fixture.node,user:{id:'actor'},signal:cancelledRetry.signal,context:{input:[fixture.packet]},onProgress:async value=>{
@@ -251,7 +254,7 @@ test('cancellation between cases does not dispatch a later case or discard a com
   const fixture=setup(t),controller=new AbortController(),called=[];
   t.mock.method(automation,'previewAutomationDraft',async input=>{called.push(input.draft.client_id);return built(input);});
   await assert.rejects(tasks.execute({run:fixture.run,node:fixture.node,user:{id:'actor'},signal:controller.signal,context:{input:[fixture.packet]},onProgress:async value=>{
-    fixture.run.node_results[0].progress=structuredClone(value);controller.abort();
+    fixture.run.node_results[0].progress=structuredClone(value);if(completedCaseCheckpoint(value))controller.abort();
   }}),{statusCode:499});
   assert.deepEqual(called,['case-1']);assert.equal(fixture.run.node_results[0].progress.automation_checkpoint.stories[0].automation.length,1);
 });

@@ -28,8 +28,8 @@ test('Sprint template snapshots the correct editable intent for each native task
   }).outputText)(name => name === './workflowGraph' ? graph : name === './nativeTaskProfiles' ? nativeProfiles : profiles, templates);
   const { draft } = templates.draftFromTemplate(templates.WORKFLOW_TEMPLATES.find(item => item.id === 'sprint-automator'));
   const tasks = draft.nodes.filter(node => node.data.kind === 'artifactTask');
-  assert.equal(tasks.length, 4);
-  assert.equal(new Set(tasks.map(node => node.data.task)).size, 4);
+  assert.equal(tasks.length, 5);
+  assert.equal(new Set(tasks.map(node => node.data.task)).size, 5);
   for (const {data} of tasks) {
     const profile = nativeProfiles.nativeTaskProfiles[data.artifactTask];
     assert.equal(data.task, profile.task);
@@ -39,13 +39,19 @@ test('Sprint template snapshots the correct editable intent for each native task
   assert.equal(draft.settings.library_publication_mode, 'automatic');
   assert.equal(tasks.find(node => node.data.artifactTask === 'automation-engineer').data.readinessPolicy, 'verify-inputs');
   assert.equal(draft.settings.requires_human_review, false);
-  const loop = draft.nodes.find(node => node.data.kind === 'loop');
-  assert.equal(loop.data.loopAction, 'workflow');
-  assert.equal(Number(loop.data.loopBatchSize), 1);
-  assert.equal(Number(loop.data.timeoutMs), 3600000);
-  assert.ok(draft.edges.some(edge => edge.source === loop.id && edge.sourceHandle === 'loop' && edge.target === 'story-assurance'));
-  assert.ok(draft.edges.some(edge => edge.source === 'automation-engineer' && edge.target === loop.id && edge.targetHandle === 'continue'));
-  assert.ok(draft.edges.some(edge => edge.source === loop.id && edge.sourceHandle === 'done' && edge.target === 'sprint-output'));
+  const storyLoop = draft.nodes.find(node => node.id === 'each-story'), caseLoop = draft.nodes.find(node => node.id === 'each-test-case');
+  assert.equal(storyLoop.data.loopAction, 'workflow'); assert.equal(caseLoop.data.loopAction, 'workflow');
+  assert.equal(Number(storyLoop.data.loopBatchSize), 1); assert.equal(Number(caseLoop.data.loopBatchSize), 1);
+  assert.equal(Number(storyLoop.data.loopMaxIterations), 100); assert.equal(Number(caseLoop.data.loopMaxIterations), 10);
+  assert.equal(caseLoop.data.loopSourceKey, 'input.0.cases');
+  assert.equal(draft.settings.template_version, 4);
+  assert.ok(draft.edges.some(edge => edge.source === storyLoop.id && edge.sourceHandle === 'loop' && edge.target === 'story-assurance'));
+  assert.ok(draft.edges.some(edge => edge.source === caseLoop.id && edge.sourceHandle === 'loop' && edge.target === 'test-case-assurance'));
+  assert.ok(draft.edges.some(edge => edge.source === 'test-case-assurance' && edge.target === 'test-data-generator'));
+  assert.ok(draft.edges.some(edge => edge.source === 'test-data-generator' && edge.target === 'automation-engineer'));
+  assert.ok(draft.edges.some(edge => edge.source === 'automation-engineer' && edge.target === caseLoop.id && edge.targetHandle === 'continue'));
+  assert.ok(draft.edges.some(edge => edge.source === caseLoop.id && edge.sourceHandle === 'done' && edge.target === storyLoop.id && edge.targetHandle === 'continue'));
+  assert.ok(draft.edges.some(edge => edge.source === storyLoop.id && edge.sourceHandle === 'done' && edge.target === 'sprint-output'));
   assert.equal(draft.edges.some(edge => edge.source === 'automation-engineer' && edge.target === 'sprint-output'), false);
 });
 

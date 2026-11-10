@@ -12,10 +12,20 @@ async function persistWebRecorderPlan({ caseId, candidates, expectedSteps }, { t
     const steps = await readSteps(caseId);
     if (snapshot(steps) !== snapshot(expectedSteps)) throw invalid('The case changed while preparing this recording. Refresh the plan before saving. Existing instructions were retained.');
     const webSteps = steps.filter(step => inferAutomationStepType(step) === 'web');
-    const firstWebIndex = steps.findIndex(step => webSteps.includes(step));
-    const retained = steps.filter(step => !webSteps.includes(step));
-    const insertionIndex = firstWebIndex < 0 ? retained.length : firstWebIndex;
-    const plan = [...retained.slice(0, insertionIndex), ...candidates.map((candidate, index) => ({ candidate, existing: webSteps[index] })), ...retained.slice(insertionIndex)];
+    const webIds = new Set(webSteps.map(step => step.id));
+    let webIndex = 0;
+    // API/native sections can prepare state for the following web action.
+    // Replace the original slots instead of moving every web action ahead of
+    // those dependencies. Extra recorded actions extend the final web slot.
+    const plan = steps.flatMap(step => {
+      if (!webIds.has(step.id)) return [step];
+      const index = webIndex++;
+      const replacement = candidates[index] ? [{ candidate: candidates[index], existing: step }] : [];
+      return index === webSteps.length - 1
+        ? [...replacement, ...candidates.slice(webSteps.length).map(candidate => ({ candidate }))]
+        : replacement;
+    });
+    if (!webSteps.length) plan.push(...candidates.map(candidate => ({ candidate })));
     const applied = [], orderedIds = [];
     for (let index = 0; index < plan.length; index++) {
       const entry = plan[index], stepOrder = index + 1;

@@ -157,8 +157,8 @@ const writeRunSummary = async (
   summary: {
     execution: {
       started_at: string;
-      ended_at: string;
-      status: EngineStepOutcomeStatus;
+      ended_at: string | null;
+      status: EngineStepOutcomeStatus | "running";
       summary: string;
     };
     steps: ApiStepExecutionResult["summary"][];
@@ -507,7 +507,8 @@ const buildProgressCallback = ({
   healing_succeeded: Boolean(healingSucceeded),
   step_outcomes: [latestOutcome],
   case_result: {
-    status: stepOutcomes.length === totalSteps && stepOutcomes.every((outcome) => outcome.status === "passed") ? "passed" : "blocked",
+    status: stepOutcomes.some(outcome => outcome.status === 'failed') ? 'failed'
+      : stepOutcomes.some(outcome => outcome.status === 'blocked') ? 'blocked' : 'running',
     duration_ms: durationMs,
     error: null,
     logs: buildLogsPayload(stepOutcomes, stepSummaries, stepCaptures, stepWebDetails, stepAutomationDetails)
@@ -750,8 +751,8 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
         await persistRunSummary(progressRun, {
           execution: {
             started_at: new Date(startedAt).toISOString(),
-            ended_at: nowIso(),
-            status: result.outcome.status === "failed" ? "failed" : "blocked",
+            ended_at: null,
+            status: result.outcome.status === "failed" ? "failed" : result.outcome.status === "blocked" ? "blocked" : "running",
             summary: progressSummary
           },
           steps: stepSummaries,

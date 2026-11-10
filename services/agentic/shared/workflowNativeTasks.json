@@ -23,6 +23,22 @@
     "guardrails": "Do not claim coverage or readiness from a score alone. Do not invent missing application contracts or mark a case executed. Keep the original draft identity and assess the supplied version. Library acceptance leaves cases pending review. Do not invent dependencies from optional quality heuristics or turn missing execution history into a contract gap. Identify the exact required action, outcome or input that is absent or contradictory; do not make a generic missing-contract claim when the source supplies those details.",
     "featureKey": "ai.quality.test_case_assurance"
   },
+  "test-data-generator": {
+    "label": "AI Test Data Generator",
+    "description": "Prepares case-scoped synthetic values or maps one authorized Test Data Set row to the selected case.",
+    "task": "Prepare only the data required by the selected Test Case and preserve its original identity and assertions.",
+    "instructions": "Read the selected case, its Story context and every referenced test parameter. In dataset mode, map matching columns or key/value entries from the selected project and application scoped Test Data Set, verify referenced columns exist in every dataset row, and link the complete dataset for native runtime iteration with its provenance. In synthetic mode, fill missing ordinary case-owned values with safe fictional data within the node's model-call budget. Keep existing explicit case values, including intentionally empty values, unless the selected dataset provides a matching value. Do not invent working accounts, credentials, fixtures, endpoints or product rules. Never generate passwords, tokens or other secrets. Represent dataset-managed secrets only by protected parameter references. If a required fixture or value is unavailable, return a case-specific input gap and continue the remaining cases. Return one result for the current case; the enclosing For each Test Case node owns iteration.",
+    "guardrails": "Stay within the selected project, application, Sprint, revision-pinned Story and current Test Case. Dataset mode may read only the explicitly selected dataset after scope and permission checks. Never expose secret dataset values in prompts, outputs, logs, checkpoints or automation source. Synthetic values are not proof that a real account or record exists. Do not mutate saved Test Cases or datasets. Preserve every case step and expected result; generated data remains a draft for review.",
+    "featureKey": "ai.test_data.synthetic",
+    "workspaceSpecialist": {
+      "prompt": "Prepare test data for the selected Test Case only. Map authorized dataset values by parameter name or produce safe synthetic values, and identify fixture gaps without claiming that fictional accounts or records exist.",
+      "skills": [{
+        "id": "builtin-test-data-generator",
+        "name": "Workspace Test Data Generation",
+        "instructions": "Read the complete selected Test Case and its pinned Story context. For dataset-backed work, use only the explicitly selected, project and application scoped Test Data Set; map matching fields and preserve row provenance. For synthetic work, fill missing ordinary case-owned inputs with safe fictional values. Preserve explicit case data and all authored steps. Never invent working accounts, fixtures, credentials, endpoints or business rules, and never generate passwords, tokens or secrets. Distinguish synthetic samples from verified live fixtures. Report exact missing values that require a reviewer or protected credential. Prepare one case at a time; keep outputs reviewable and do not claim that data was executed."
+      }]
+    }
+  },
   "automation-engineer": {
     "label": "AI Automation Engineer",
     "description": "Build whole-case automation with instructions and validated Playwright code.",

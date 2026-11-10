@@ -267,7 +267,7 @@ async function resolveElementCenter(driver, selector, resolveSelector = (value) 
   };
 }
 
-async function executeCodedMobileScript(driver, source, resolveSelector, params, platform) {
+async function executeCodedMobileScript(driver, source, resolveSelector, params, platform, timeoutMs = 10000) {
   const driverFacade = createDriverFacade(driver, (selector) => resolveSelector(interpolateMobileText(selector, params)));
   const $ = (selector) => driverFacade.$(selector);
   const fn = new AsyncFunction("android", "ios", "mobile", "driver", "browser", "$", "params", "capture", source);
@@ -279,12 +279,12 @@ async function executeCodedMobileScript(driver, source, resolveSelector, params,
     params[normalizedKey] = normalizedValue;
     if (!normalizedKey.includes(".")) params[`t.${normalizedKey}`] = normalizedValue;
   };
-  const mobile = buildMobileApi(driver, resolveSelector, params, platform, capture);
+  const mobile = buildMobileApi(driver, resolveSelector, params, platform, capture, timeoutMs);
   await fn(mobile, mobile, mobile, driverFacade, driverFacade, $, params, capture);
   return captures;
 }
 
-async function executeKeyword(driver, command, resolveSelector = (value) => value, platform = "android") {
+async function executeKeyword(driver, command, resolveSelector = (value) => value, platform = "android", defaultTimeoutMs = 10000) {
   if (platform === "ios" && ["pressBack", "pressKeyCode", "startActivity", "openDeepLink", "deepLink"].includes(command.keyword)) throw new Error(`${command.keyword} is Android-only. Use an iOS locator or driver command.`);
   const [selector, value, extra] = command.args;
   const resolvedSelector = selector !== undefined && selector !== null ? resolveSelector(selector) : selector;
@@ -346,15 +346,15 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
       await driver.hideKeyboard().catch(() => undefined);
       return { status: "passed", note: "Keyboard hidden" };
     case "waitForDisplayed":
-      await driver.$(String(resolvedSelector)).waitForDisplayed({ timeout: numericArgument(value, 10000) });
+      await driver.$(String(resolvedSelector)).waitForDisplayed({ timeout: numericArgument(value, defaultTimeoutMs) });
       return { status: "passed", note: `${selector} displayed` };
     case "waitForExist":
-      await driver.$(String(resolvedSelector)).waitForExist({ timeout: numericArgument(value, 10000) });
+      await driver.$(String(resolvedSelector)).waitForExist({ timeout: numericArgument(value, defaultTimeoutMs) });
       return { status: "passed", note: `${selector} exists` };
     case "waitForEnabled": {
       const element = await driver.$(String(resolvedSelector));
       await driver.waitUntil(async () => element.isEnabled(), {
-        timeout: numericArgument(value, 10000),
+        timeout: numericArgument(value, defaultTimeoutMs),
         timeoutMsg: `${selector} was not enabled`
       });
       return { status: "passed", note: `${selector} enabled` };
@@ -373,7 +373,7 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
     }
     case "expectNotDisplayed": {
       const element = await driver.$(String(resolvedSelector));
-      await element.waitForDisplayed({ timeout: numericArgument(value, 10000), reverse: true });
+      await element.waitForDisplayed({ timeout: numericArgument(value, defaultTimeoutMs), reverse: true });
       return { status: "passed", note: `${selector} is not displayed` };
     }
     case "expectEnabled": {
@@ -490,11 +490,11 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
   }
 }
 
-function buildMobileApi(driver, resolveSelector, params, platform, capture) {
+function buildMobileApi(driver, resolveSelector, params, platform, capture, timeoutMs = 10000) {
   const run = (keyword, args) => executeKeyword(driver, {
     keyword,
     args: args.map((value) => interpolateMobileValue(value, params))
-  }, resolveSelector, platform);
+    }, resolveSelector, platform, timeoutMs);
   return {
     step: async (_name, fn) => { if (typeof fn !== "function") throw new Error("A mobile step needs an executable callback."); return fn(); },
     aiStep: (instruction, options) => run("aiStep", [instruction, options]),
@@ -634,11 +634,29 @@ export async function executeMobileStepsWithDriver(driver, payload = {}) {
     return resolved === String(selector || "") ? resolved : interpolateMobileText(resolved, params);
   };
   const results = [];
+  const actionTimeoutMs = Math.max(250, Math.min(120000, Number(payload.timeouts?.action_timeout_ms) || 10000));
+  const screenshotMode = payload.artifact_policy?.screenshot_mode;
+  const shouldCaptureScreenshot = (status, source) => {
+    if (status === "failed" && /^\s*\/\/\s*@hellotest-options\s+[^\r\n]*\bscreenshotOnFailure\b/i.test(source)) return true;
+    if (["off", "all", "passed", "failed"].includes(screenshotMode)) return screenshotMode === "all" || screenshotMode === status;
+    return status === "failed" ? payload.artifact_policy?.screenshot_on_failure !== false : payload.artifact_policy?.screenshot_on_success === true;
+  };
+  const captureScreenshot = async fileName => {
+    try {
+      const image = await driver.takeScreenshot();
+      return typeof image === "string" && image.length < 4 * 1024 * 1024
+        ? { dataUrl: `data:image/png;base64,${image}`, fileName, mimeType: "image/png" } : null;
+    } catch { return null; }
+  };
 
   for (const step of steps) {
     const startedAt = Date.now();
     params = buildMobileParameterValues({ ...payload.parameter_values, ...step.parameter_values, ...capturedValues });
     const source = String(step.automation_code || "").trim();
+    const optionDirective = source.match(/^\s*\/\/\s*@hellotest-options\s+([^\r\n]*)/i)?.[1] || "";
+    const timeoutMatch = optionDirective.match(/(?:^|\s)timeoutMs=(\d+)(?:\s|$)/i);
+    const timeoutOverride = timeoutMatch ? Number(timeoutMatch[1]) : 0;
+    const timeoutMs = Number.isInteger(timeoutOverride) && timeoutOverride >= 250 && timeoutOverride <= 120000 ? timeoutOverride : actionTimeoutMs;
     if (!source) {
       results.push({
         step_id: step.id,
@@ -649,17 +667,13 @@ export async function executeMobileStepsWithDriver(driver, payload = {}) {
     }
 
     try {
-      const captures = await executeCodedMobileScript(driver, source, resolveSelector, params, platform);
+      await driver.setTimeout?.({ implicit: timeoutMs });
+      const captures = await executeCodedMobileScript(driver, source, resolveSelector, params, platform, timeoutMs);
       Object.assign(capturedValues, captures);
-      results.push({ step_id: step.id, status: "passed", note: `${label} step completed.`, captures, duration_ms: Date.now() - startedAt });
+      const evidence = shouldCaptureScreenshot("passed", source) ? await captureScreenshot(`mobile-${step.id}-passed.png`) : null;
+      results.push({ step_id: step.id, status: "passed", note: `${label} step completed.`, captures, duration_ms: Date.now() - startedAt, ...(evidence ? { evidence } : {}) });
     } catch (error) {
-      let evidence = null;
-      if (payload.artifact_policy?.screenshot_on_failure === true) {
-        try {
-          const image = await driver.takeScreenshot();
-          if (typeof image === "string" && image.length < 4 * 1024 * 1024) evidence = { dataUrl: `data:image/png;base64,${image}`, fileName: `mobile-${step.id}.png`, mimeType: "image/png" };
-        } catch { /* Screenshot failure must not replace the original test failure. */ }
-      }
+      const evidence = shouldCaptureScreenshot("failed", source) ? await captureScreenshot(`mobile-${step.id}-failed.png`) : null;
       results.push({
         step_id: step.id,
         status: "failed",
@@ -668,6 +682,8 @@ export async function executeMobileStepsWithDriver(driver, payload = {}) {
         note: error instanceof Error ? error.message : `${label} step failed.`
       });
       break;
+    } finally {
+      try { await driver.setTimeout?.({ implicit: actionTimeoutMs }); } catch { /* Restore the engine default best-effort. */ }
     }
   }
 

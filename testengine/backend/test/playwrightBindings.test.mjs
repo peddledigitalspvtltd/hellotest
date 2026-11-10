@@ -2,16 +2,82 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { EventEmitter } from 'node:events';
+import { errors } from 'playwright';
 
 const runtimeUrl = process.env.HELLOTEST_RUNTIME_TEST_BUILD
   ? pathToFileURL(path.resolve(process.env.HELLOTEST_RUNTIME_TEST_BUILD, 'lib/playwrightBindings.js'))
   : new URL('../dist/lib/playwrightBindings.js', import.meta.url);
-const { createPlaywrightCodeBindings, usesExpressionParameterBindings, PARAMETER_EXPRESSIONS_MARKER } = await import(runtimeUrl.href);
+const { createPlaywrightCodeBindings, runPlaywrightClick, usesExpressionParameterBindings, PARAMETER_EXPRESSIONS_MARKER } = await import(runtimeUrl.href);
 const { interpolateText } = await import(new URL('./runtimeContext.js', runtimeUrl).href);
 
 test('only an exact leading portable marker enables expression mode', () => {
   for (const source of [PARAMETER_EXPRESSIONS_MARKER, `${PARAMETER_EXPRESSIONS_MARKER}\nawait page.goto(params["r.url"]);`, `\ufeff \n// ordinary comment\n/* options */\n${PARAMETER_EXPRESSIONS_MARKER}\nawait page.goto(params["r.url"]);`, `// @hellotest-options screenshotOnFailure\r\n${PARAMETER_EXPRESSIONS_MARKER}\r\nawait page.goto(params["r.url"]);`]) assert.equal(usesExpressionParameterBindings(source), true);
   for (const source of [undefined, '', `/* ${PARAMETER_EXPRESSIONS_MARKER} */`, `const note=${JSON.stringify(PARAMETER_EXPRESSIONS_MARKER)};`, `const note=\`${PARAMETER_EXPRESSIONS_MARKER}\`;`, `await page.goto("/");\n${PARAMETER_EXPRESSIONS_MARKER}`, PARAMETER_EXPRESSIONS_MARKER.replace('v1', 'v2'), PARAMETER_EXPRESSIONS_MARKER+' extra']) assert.equal(usesExpressionParameterBindings(source), false);
+});
+
+test('an unrelated hash change cannot commit an accepted click pending a different document', async () => {
+  let currentUrl = 'https://fixture.test/form', readiness = 0, settled = false;
+  const frame = { url: () => currentUrl }, page = Object.assign(new EventEmitter(), { mainFrame: () => frame });
+  const request = { isNavigationRequest: () => true, frame: () => frame, url: () => 'https://fixture.test/saved' };
+  const timeout = new errors.TimeoutError('locator.click: Timeout 500ms exceeded.\nCall log:\n  - click action done\n  - waiting for scheduled navigations to finish\n');
+  const running = runPlaywrightClick(page, async () => {
+    page.emit('request', request);
+    currentUrl += '#unrelated'; page.emit('framenavigated', frame);
+    throw timeout;
+  }, { navigationTimeout: 2000, afterNavigation: async () => { readiness++; } });
+  running.then(() => { settled = true; }, () => { settled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false); assert.equal(readiness, 0);
+  currentUrl = 'https://fixture.test/saved#profile'; page.emit('framenavigated', frame);
+  await running;
+  assert.equal(readiness, 1); assert.equal(page.listenerCount('request'), 0); assert.equal(page.listenerCount('framenavigated'), 0);
+});
+
+test('completed-click proof accepts exact production navigation logs and rejects actionability or unrelated tails', async () => {
+  const production = [
+    "  - waiting for getByRole('button', { name: 'Login' })",
+    '    - locator resolved to <button type="submit">…</button>',
+    '  - attempting click action',
+    '    - waiting for element to be visible, enabled and stable',
+    '    - element is visible, enabled and stable',
+    '    - scrolling into view if needed',
+    '    - done scrolling',
+    '    - performing click action',
+    '    - click action done',
+    '    - waiting for scheduled navigations to finish'
+  ].join('\n');
+  const navigation = '    - navigated to "https://jayarajum-trials821.orangehrmlive.com/auth/validateCredentials"';
+  const variants = [
+    ['waiting only', production, true],
+    ['actual production committed tail', `${production}\n${navigation}`, true],
+    ['multiple observed navigation tails', `${production}\n${navigation}\n    - navigated to "https://fixture.test/dashboard"`, true],
+    ['navigation finished', `${production}\n${navigation}\n    - navigations have finished`, true],
+    ['known native lifecycle progress', `${production}\n${navigation}\n    - "domcontentloaded" event fired\n    - "load" event fired`, true],
+    ['ANSI and CRLF', `${production}\n${navigation}`.split('\n').map(line => `\u001b[2m${line}\u001b[22m`).join('\r\n'), true],
+    ['actionability failure', production.split('    - performing click action')[0], false],
+    ['no completion marker', production.replace('click action done', 'element is not visible'), false],
+    ['trial completion', production.replace('click action done', 'trial click action done'), false],
+    ['no navigation wait', production.replace('waiting for scheduled navigations to finish', 'waiting for element to be visible'), false],
+    ['new action attempt', `${production}\n${navigation}\n  - attempting click action`, false],
+    ['later actionability failure', `${production}\n${navigation}\n  - element is not enabled`, false],
+    ['retry after completed navigation', `${production}\n${navigation}\n  - retrying click action`, false],
+    ['unrecognized progress', `${production}\n${navigation}\n  - browser command failed`, false],
+    ['unrecognized lifecycle', `${production}\n${navigation}\n  - "click" event fired`, false]
+  ];
+  for (const [label, log, allowed] of variants) {
+    let url = 'https://fixture.test/form', calls = 0, ready = 0;
+    const frame = { url: () => url }, page = Object.assign(new EventEmitter(), { mainFrame: () => frame });
+    const request = { isNavigationRequest: () => true, frame: () => frame, url: () => 'https://fixture.test/saved' };
+    const error = new errors.TimeoutError(`locator.click: Timeout 5000ms exceeded.\nCall log:\n${log}\n`);
+    const run = () => runPlaywrightClick(page, async () => {
+      calls++; page.emit('request', request); url = request.url(); page.emit('framenavigated', frame); throw error;
+    }, { navigationTimeout: 30000, afterNavigation: async () => { ready++; } });
+    if (allowed) { await run(); assert.equal(ready, 1, label); }
+    else { await assert.rejects(run(), actual => actual === error, label); assert.equal(ready, 0, label); }
+    assert.equal(calls, 1, `${label}: the click is never repeated`);
+    assert.equal(page.listenerCount('request'), 0, label);
+  }
 });
 
 test('expression mode keeps inserted values literal across native actions, nested options, URLs and expectations', async () => {
@@ -27,7 +93,7 @@ test('expression mode keeps inserted values literal across native actions, neste
   page.goto('https://fixture.test/path?next=@r.other');
   expect(context.values['r.value']).toBe('@r.other');
   expect({email:'reader+@r.other.test',items:['@r.other']}).toEqual({email:'reader+@r.other.test',items:['@r.other']});
-  assert.deepEqual(calls,[['fill','@r.other'],['select',{label:'@r.other'}],['headers',{'x-literal':'@r.other'}],['goto','https://fixture.test/path?next=@r.other']]);
+  assert.deepEqual(calls,[['fill','@r.other'],['select',{label:'@r.other'}],['headers',{'x-literal':'@r.other'}],['goto','https://fixture.test/path?next=@r.other',{waitUntil:'commit'}]]);
   assert.deepEqual(resolved,['@repo.field','#field'],'Repository resolution stays explicit and active');
   assert.equal(interpolations,0);
 });
@@ -116,4 +182,24 @@ test('keyboard, wait URL and upload paths share late binding while file payload 
   await page.locator('#file').setInputFiles(payload);
   assert.deepEqual(calls.slice(0,7),[['key','Tab'],['url','https://fixture.test/next'],['locator.files',['/tmp/first.txt']],['page.files','#file','/tmp/first.txt'],['key','Enter'],['text','Enter'],['locator.files','/tmp/second.txt']]);
   assert.equal(calls[7][1],payload);assert.equal(payload.buffer.toString(),'@t.file');
+});
+
+test('condition waits use the configured assertion timeout and preserve explicit timeouts', async () => {
+  const waits=[];
+  const locator={count(){return 1;},click(){},waitFor(options){waits.push(options);}};
+  const calls=[];
+  const native={goto(){},locator(){return locator;},waitForSelector(...args){calls.push(['selector',...args]);},waitForFunction(...args){calls.push(['function',...args]);}};
+  const {page}=createPlaywrightCodeBindings(native,{interpolate:value=>value,resolveLocator:value=>value,resolveUrl:value=>value,assertionTimeout:45_000});
+  const predicate=()=>Boolean(document.querySelector('#dashboard'));
+
+  await page.locator('#dashboard').waitFor({state:'visible'});
+  await page.locator('#dashboard').waitFor({state:'visible',timeout:3_000});
+  await page.waitForSelector('#dashboard',{state:'visible'});
+  await page.waitForFunction(predicate);
+
+  assert.deepEqual(waits,[{state:'visible',timeout:45_000},{state:'visible',timeout:3_000}]);
+  assert.deepEqual(calls,[
+    ['selector','#dashboard',{state:'visible',timeout:45_000}],
+    ['function',predicate,undefined,{timeout:45_000}]
+  ]);
 });

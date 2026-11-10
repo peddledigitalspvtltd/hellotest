@@ -146,6 +146,7 @@ export type EngineRunArtifactPolicy = {
   video_mode: EngineVideoMode;
   screenshot_on_failure: boolean;
   screenshot_on_success?: boolean;
+  screenshot_mode?: "off" | "all" | "passed" | "failed";
   capture_console: boolean;
   capture_network: boolean;
   artifact_retention_days: number;
@@ -157,6 +158,8 @@ export type EngineRunTimeoutPolicy = {
   action_timeout_ms?: number;
   assertion_timeout_ms?: number;
   recovery_wait_ms?: number;
+  domcontentloaded_wait_ms?: number;
+  network_idle_wait_ms?: number;
 };
 
 export type EngineSessionPolicy = {

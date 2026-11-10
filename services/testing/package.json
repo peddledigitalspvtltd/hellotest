@@ -19,6 +19,7 @@
     "./backend/services/executionPlanPreconditions.service": "./backend/services/executionPlanPreconditions.service.js",
     "./backend/services/executionResult.service": "./backend/services/executionResult.service.js",
     "./backend/services/issues.service": "./backend/services/issues.service.js",
+    "./backend/services/defectReproduction.service": "./backend/services/defectReproduction.service.js",
     "./backend/services/testCase.service": "./backend/services/testCase.service.js",
     "./backend/services/linkedManualParameters.service": "./backend/services/linkedManualParameters.service.js",
     "./backend/services/effectiveCaseDataSets.service": "./backend/services/effectiveCaseDataSets.service.js",

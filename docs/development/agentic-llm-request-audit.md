@@ -31,6 +31,14 @@ The repository run summary reports the shared ledger's actual call total. A batc
 
 The specialist ledger previously counted outer HTTP-helper calls. A helper could issue additional provider POSTs for native schema correction while the agent still reported one call. Budget, cancellation, current run access, evidence freshness and deadline checks now run at the actual dispatch hook. Each real POST receives a separate usage/status receipt from provider-dispatch trace metadata. A blocked preflight is not counted as a dispatched request; missing usage remains unknown rather than being replaced by an estimate.
 
+## Supplemental retrieval availability
+
+Supplemental context is bounded independently of generation. Knowledge prefetch shares an eight-second deadline across legacy, indexed and relationship reads; automatic MCP enrichment also reserves the model's remaining deadline. A failed, empty or oversized retrieval produces a bounded evidence-gap notice and keeps the original task and native output contract. The saved `context.required` setting flags missing evidence for review; it no longer prevents model dispatch solely because retrieval did not complete. The model may return a supported draft or an explicit incomplete outcome, and must not invent missing source facts, credentials, locators or successful actions.
+
+Specialist handoffs preserve supplied task input when their own retrieval fails. A valid no-proposal response with specific missing evidence ends that handoff as `needs_input` without spending further correction calls. Knowledge Assistant answer mode can synthesize an evidence-gap response from an empty, authorized packet after retrieval failure; native claim validation prevents unsupported claims. Without a retrieval usage receipt, its full call allocation stays reserved and usage remains unknown; the answer call reserved before retrieval remains available. Explicit evidence-only mode and disabled retrieval retain their no-generation behavior.
+
+Caller cancellation, revoked identity/project access, source scope mismatches and native task-input/output validation remain enforced. Exact authored input that cannot fit its native bound is still rejected rather than silently losing required subjects. Trace status distinguishes unavailable supplemental context from a provider or contract failure.
+
 ## Request-size evidence
 
 A deterministic fixture used the same native response schema, eight workflow items, eight connected subjects and configured guidance. Both variants ran through the current specialist request builder; the before variant used the prior `specialistPrompt` implementation and the after variant used the canonical input layout.

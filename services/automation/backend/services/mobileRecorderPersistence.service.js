@@ -1,4 +1,5 @@
 const { buildMobileRecorderPlan } = require("../domain/mobileRecorderPlan");
+const { recorderPlanFingerprint } = require('../lib/automationRecorderPlan');
 
 /** The caller supplies its transaction and storage ports; this service owns the
  * atomic save boundary, and never starts a browser or contacts an LLM. */
@@ -6,6 +7,9 @@ async function persistMobileRecorderPlan(input, { transaction, lockCase, readSte
   return transaction(async () => {
     if (!await lockCase(input.caseId)) throw Object.assign(new Error("The recorder case no longer exists."), { code: "AUTOMATION_RECORDER_CASE_MISSING", statusCode: 404 });
     const existingSteps = await readSteps(input.caseId);
+    if (input.expectedSteps && recorderPlanFingerprint(existingSteps) !== recorderPlanFingerprint(input.expectedSteps)) {
+      throw Object.assign(new Error('The case changed while preparing this mobile recording. Refresh the plan before saving. Existing instructions were retained.'), { code: 'AUTOMATION_RECORDER_CASE_CHANGED', statusCode: 409 });
+    }
     const changes = buildMobileRecorderPlan({ ...input, existingSteps });
     const results = [];
     for (const change of changes) {

@@ -278,13 +278,13 @@ const deriveCaseStatus = (explicitStatus, stepStatuses, expectedStepIds, fallbac
   const expectedIds = Array.isArray(expectedStepIds) ? expectedStepIds.filter(Boolean) : [];
   const values = expectedIds.length ? expectedIds.map((id) => stepStatuses?.[id]) : Object.values(stepStatuses || {});
   if (explicitStatus === "failed" || values.includes("failed")) return "failed";
-  if (explicitStatus === "blocked") return "blocked";
+  if (explicitStatus === "blocked" || values.includes("blocked")) return "blocked";
   const complete = values.length > 0 && values.some((status) => status === "passed")
     && values.every((status) => status === "passed" || status === "skipped");
   if (explicitStatus === "passed") return complete ? "passed" : "blocked";
   if (event === "run.failed" || event === "run.incident") return "failed";
+  if ((event === "run.progress" || event === "run.step.completed") && explicitStatus === "running") return fallbackStatus === 'failed' ? 'failed' : 'running';
   if (complete) return "passed";
-  if (event === "run.progress" && explicitStatus === "running" && !values.some(Boolean)) return "running";
   // A final callback with missing/blocked sections cannot inherit a previous
   // progress pass. Keep incomplete evidence visible as blocked.
   if (event === "run.completed") return "blocked";
@@ -500,6 +500,14 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
       execution_result_id: boundTransaction.metadata.execution_result_id || null,
       transaction_id: boundTransaction.id
     };
+    // A delayed progress delivery cannot reopen a stopped/finished attempt or
+    // a completed Run whose older receipt predates callback_final_received.
+    if (!FINAL_ENGINE_EVENTS.has(event) && (
+      boundTransaction?.status && !['queued', 'running'].includes(boundTransaction.status)
+      || ['completed', 'failed', 'aborted', 'cancelled'].includes(execution.status)
+    )) return { accepted: true, stale: true, execution_id: execution.id,
+      execution_result_id: boundTransaction?.metadata?.execution_result_id || null,
+      transaction_id: boundTransaction?.id || null };
 
     const caseSnapshot = (execution.case_snapshots || []).find((snapshot) => snapshot.test_case_id === testCaseId);
 

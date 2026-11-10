@@ -64,17 +64,18 @@ test('unsupported named tools stay out of discovery and cannot activate an unwra
 });
 
 test('Automation Engineer prepares the shared durable domain operation without browser transport or execution',async()=>{
-  const f=fixture(),name='hellotest_automation_engineer_prepare',tool=f.tools[name];
+  const f=fixture(),name='hellotest_automation_engineer_prepare',tool=f.tools[name],planKey='a'.repeat(64);
   assert.equal(tool.available(),false);
   await assert.rejects(call(f,name,{test_case_id:'case-1'}),{code:'MCP_OPERATION_UNAVAILABLE'});
   f.operations.push({id:'build-case',method:'POST',path:'/test-cases/:id/automation/generator-jobs',prepare:true});
   assert.equal(tool.available(),true);
-  const result=await call(f,name,{test_case_id:'case-1',integration_id:'model',start_url:'https://application.test/login',test_environment_id:'environment',test_configuration_id:'configuration',test_suite_id:'suite',test_data_set_id:'data',parameter_plan_key:'reviewed-plan'});
-  assert.deepEqual(f.plans,[ [actor,{operation_id:'build-case',arguments:{path:{id:'case-1'},body:{integration_id:'model',start_url:'https://application.test/login',test_environment_id:'environment',test_configuration_id:'configuration',test_suite_id:'suite',test_data_set_id:'data',parameter_plan_key:'reviewed-plan',ai_feature:'ai.agentic.automation-engineer',verification_mode:'generate_only'}}}] ]);
+  const result=await call(f,name,{test_case_id:'case-1',integration_id:'model',start_url:'https://application.test/login',test_environment_id:'environment',test_configuration_id:'configuration',test_suite_id:'suite',test_data_set_id:'data',parameter_plan_key:planKey});
+  assert.deepEqual(f.plans,[ [actor,{operation_id:'build-case',arguments:{path:{id:'case-1'},body:{integration_id:'model',start_url:'https://application.test/login',test_environment_id:'environment',test_configuration_id:'configuration',test_suite_id:'suite',test_data_set_id:'data',parameter_plan_key:planKey,ai_feature:'ai.agentic.automation-engineer',verification_mode:'generate_only'}}}] ]);
   assert.equal(result.state,'requires_authorization');
   assert.equal(f.reads.length,0);assert.equal(f.queries.length,0);
   assert.equal(tool.schema.safeParse({test_case_id:'case-1',project_id:'foreign'}).success,false);
-  for(const extra of [{browser_driver:'custom'},{allow_browser_actions:true},{parameter_values:{password:'private'}},{approved:true},{paired_browser_bridge_id:'machine-grant'}])assert.equal(tool.schema.safeParse({test_case_id:'case-1',...extra}).success,false);
+  for(const extra of [{browser_driver:'custom'},{allow_browser_actions:true},{parameter_plan_key:'reviewed-plan'},{approved:true},{paired_browser_bridge_id:'machine-grant'}])assert.equal(tool.schema.safeParse({test_case_id:'case-1',...extra}).success,false);
+  assert.equal(tool.schema.safeParse({test_case_id:'case-1',parameter_values:{'t.quantity':'2'},parameter_plan_key:planKey}).success,true,'Bounded reviewed parameter inputs are part of the native build contract.');
   for(const start_url of ['file:///etc/passwd','javascript:alert(1)','https://user:private@application.test/'])assert.equal(tool.schema.safeParse({test_case_id:'case-1',start_url}).success,false);
   const controller=new AbortController();controller.abort();
   await assert.rejects(tool.run(actor,tool.schema.parse({test_case_id:'case-1'}),controller.signal),{name:'AbortError'});

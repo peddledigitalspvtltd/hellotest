@@ -13,6 +13,7 @@ const initialBlocks = {
   'story-assurance': ['artifactAssurance.result.9'],
   'test-case-generation': ['application.artifactContract', 'legacy.reviewed', 'format.structured'],
   'test-case-assurance': ['artifactAssurance.result.9'],
+  'test-data-generator': ['aiTestDataGeneration.response.1', 'aiTestDataGeneration.response.3'],
   'automation-engineer': ['agenticAssistant.messages.1', 'agenticAssistant.messages.2',
     'agenticAssistant.messages.11', 'agenticAssistant.messages.12', 'agenticAssistant.messages.14']
 };

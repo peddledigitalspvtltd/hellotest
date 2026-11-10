@@ -56,6 +56,18 @@ test('case Before / After hooks stay scoped to their owner and compose inside th
  assert.equal(requests[0].hooks[1].steps[0].source_case_context.suite_parameters['s.region'],'source');
 });
 
+test('shared local and remote engine envelopes honor the saved case environment with current actor access',async t=>{
+ let environmentReads=0;
+ t.mock.method(require('@hellotest/platform/backend/services/aiConfiguration.service'),'resolve',async()=>({config:{instruction_blocks:{'engineRepair.goal':'Retain behavior','engineRepair.screen_selection':'Observed screen','engineRepair.correction_policy':'Retain assertions'}}}));
+ t.mock.method(require('@hellotest/platform/backend/services/optionalEvidenceAccess.service'),'getOptionalEvidenceAccess',async(user,project,permissions)=>{assert.equal(user.id,'executor');assert.equal(project,'p');assert.deepEqual(permissions,['environment.view']);return {'environment.view':true};});
+ t.mock.method(db.pool,'query',async statement=>{assert.match(statement.text,/FROM test_environments WHERE id=\$1 AND project_id=\$2/);assert.deepEqual(statement.values,['case-environment','p','a']);environmentReads++;return {rows:[{id:'case-environment',name:'QA',base_url:'https://qa.fixture.test',browser:'firefox',variables:[{key:'password',value:'private-runtime-only',is_secret:true}]}]};});
+ const caseSnapshot={...run.case_snapshots[0],test_data_options:{test_environment_id:'case-environment'}};
+ const envelope=await dispatch._internals.buildEngineEnvelope({engineRunId:'case-run',execution:run,caseSnapshot,steps:[],project:{id:'p',name:'Project'},appType:{id:'a',type:'web'},integration:{config:{}},initiatedBy:'executor'});
+ assert.equal(environmentReads,1);assert.equal(envelope.environment.base_url,'https://qa.fixture.test');assert.equal(envelope.browser,'firefox');
+ assert.deepEqual(envelope.environment.variables,[{key:'password',value:'private-runtime-only',is_secret:true}]);
+ assert.doesNotMatch(JSON.stringify(caseSnapshot),/private-runtime-only/);
+});
+
 test('legacy direct-local dispatch rejects suites or multiple data rows before reads, receipts or launches',async t=>{
  let effects=0;
  const unexpected=async()=>{effects++;throw Error('No launch or persistence is allowed for an unsupported legacy suite.');};
@@ -96,16 +108,27 @@ test('configured remote runner status does not fall back to an unrelated local b
 });
 
 test('live sessions use dispatched project scope and omit credentials or unrelated URLs', async t => {
+ t.mock.method(integration,'getActiveIntegrationByTypeForProject',async()=>null);
  const requests=[];
  t.mock.method(obs.pool,'query',async statement=>{requests.push(statement);return {rows:[
   {engine_run_id:'local-run',test_case_id:'c',data_set_iteration_index:'1',data_set_iteration_key:'data:2',url:'http://host.docker.internal:4313/api/v1/live-session?provider=playwright',provider:'playwright'},
   {engine_run_id:'bad',url:'https://user:private@example.test/session',provider:'playwright'},
   {engine_run_id:'bad-scheme',url:'javascript:alert(1)',provider:'playwright'}],rowCount:3};});
  const links=await dispatch.getExecutionLiveSessions(run);
- assert.equal(links.length,1);assert.equal(links[0].url,'http://localhost:4313/api/v1/live-session?provider=playwright&run_id=local-run');
+ assert.equal(links.length,1);const url=new URL(links[0].url);assert.ok(url.searchParams.get('view_token'));url.searchParams.delete('view_token');assert.equal(url.toString(),'http://localhost:4313/api/v1/live-session?provider=playwright&run_id=local-run');
  assert.equal(links[0].test_case_id,'c');assert.equal(links[0].data_set_iteration_index,1);assert.equal(links[0].data_set_iteration_key,'data:2');
  assert.deepEqual(requests[0].values,['p','run']);
  assert.deepEqual(await dispatch.getExecutionLiveSessions({...run,status:'completed'}),[]);
+});
+
+test('remote case live view preserves the configured reverse proxy path', async t => {
+ t.mock.method(integration,'getActiveIntegrationByTypeForProject',async()=>null);
+ const build=dispatch._internals.buildProviderLiveViewUrl;
+ assert.equal(build({base_url:'http://worker:4301',config:{public_base_url:'https://runner.example/engines/web/'}},'playwright'),'https://runner.example/engines/web/api/v1/live-session?provider=playwright');
+ assert.equal(build({config:{live_view_url:'https://runner.example/engines/web/api/v1/live-session?provider=playwright'}},'selenium'),'https://runner.example/engines/web/api/v1/live-session?provider=selenium');
+ assert.equal(build({base_url:'https://user:secret@runner.example'},'playwright'),null);
+ t.mock.method(obs.pool,'query',async()=>({rows:[{engine_run_id:'remote-run',test_case_id:'c',provider:'playwright',url:'https://runner.example/engines/web/api/v1/live-session?provider=playwright'}]}));
+ const url=new URL((await dispatch.getExecutionLiveSessions(run))[0].url);assert.ok(url.searchParams.get('view_token'));url.searchParams.delete('view_token');assert.equal(url.toString(),'https://runner.example/engines/web/api/v1/live-session?provider=playwright&run_id=remote-run');
 });
 
 test('local runner status distinguishes inspection-only agents and services that are not ready', async t => {
@@ -121,6 +144,7 @@ test('local runner status distinguishes inspection-only agents and services that
 });
 
 test('a case-scoped viewer never publishes a shared Selenium desktop or a session missing case identity',async t=>{
+ t.mock.method(integration,'getActiveIntegrationByTypeForProject',async()=>null);
  t.mock.method(obs.pool,'query',async()=>({rows:[
   {engine_run_id:'selenium',test_case_id:'c',provider:'selenium',url:'http://localhost:7900/?autoconnect=1'},
   {engine_run_id:'unscoped',provider:'playwright',url:'http://localhost:4313/api/v1/live-session'},

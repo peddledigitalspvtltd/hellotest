@@ -180,6 +180,7 @@ issues: {
       external_links?: string[];
       reference_photos?: AiDesignImageInput[];
       linked_test_run_id?: string;
+      linked_execution_result_id?: string;
       linked_test_case_ids?: string[];
       linked_requirement_ids?: string[];
       integration_id?: string;
@@ -284,6 +285,8 @@ testCases: {
       request<PagedResult<TestCase>>(`/test-cases${toQueryString({ page_size: 25, ...query, projection: "picker", include_page: true, include_total: false })}`, { signal: options?.signal }),
     resolveRequirementCases: (input: { app_type_id: string; requirement_ids: string[] }) =>
       request<TestCase[]>("/test-cases/resolve-requirements", { method: "POST", body: JSON.stringify(input) }),
+    previewReproduction: (input: { project_id: string; test_case_ids: string[] }, options?: { signal?: AbortSignal }) =>
+      request<{ steps_to_reproduce: string; expected_result: string }>("/test-cases/reproduction-preview", { method: "POST", body: JSON.stringify(input), signal: options?.signal }),
     get: (id: string, query?: { project_id?: string; include_execution?: boolean }, options?: { signal?: AbortSignal }) =>
       request<TestCase>(`/test-cases/${id}${toQueryString(query)}`, { signal: options?.signal }),
     create: (input: { ai_generation_source?: "interactive"; app_type_id?: string; source_issue_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; automation_case_type?: TestCase["automation_case_type"]; automation_start_url?: string | null; manual_test_case_id?: string | null; manual_test_case_ids?: string[]; execution_hooks?: TestCase["execution_hooks"]; authoring_mode?: "structured" | "gherkin"; test_case_type?: TestCase["test_case_type"]; gherkin_document?: string | null; test_data_set_ids?: string[]; test_data_options?: TestDataOptions; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; author_id?: string; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>

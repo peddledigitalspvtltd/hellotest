@@ -3,6 +3,7 @@ const test = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createRequire } = require('node:module');
+const { Readable } = require('node:stream');
 const Fastify = require('fastify');
 
 const profiles = new Map(require('../../../platform/shared/aiFeatureCatalog.json').map(profile => [profile.id, profile.defaults]));
@@ -47,19 +48,50 @@ function supportedImageDraft(call) {
   };
 }
 
-function fixture(reply = supportedImageDraft, { caseAvailable = true, selectedIntegration = integration } = {}) {
-  const calls = [];
+function fixture(reply = supportedImageDraft, {
+  caseAvailable = true,
+  selectedIntegration = integration,
+  run,
+  failures = [],
+  steps = [],
+  attachments = [],
+  attachmentBytes,
+  failurePackets
+} = {}) {
+  const calls = [], reads = [];
   const db = { prepare(sql) {
     return {
       get: async () => /FROM projects/.test(sql) ? { id: 'project' }
-        : /FROM test_cases/.test(sql) && caseAvailable ? { id: 'case', title: 'Save profile', description: 'Exercise profile save.' }
+        : /FROM executions/.test(sql) && run ? run
+          : /COUNT\(\*\) AS count/.test(sql) ? { count: failures.length }
           : null,
-      all: async () => [],
+      all: async (...params) => { reads.push({ sql, params }); return /FROM test_cases tc/.test(sql) && caseAvailable ? [{ id: 'case', display_id: 'TC-1', title: 'Save profile', description: 'Exercise profile save.', status: 'active', priority: 2, updated_at: '2026-11-01', authoring_mode: 'structured' }]
+        : /FROM test_steps/.test(sql) ? steps
+          : /FROM execution_results/.test(sql) ? failures
+            : /FROM attachments/.test(sql) ? attachments
+              : []; },
       run: () => assert.fail('Defect previews must not save changes')
     };
   } };
+  const reproduction = load(path.resolve(__dirname, '../../../testing/backend/services/defectReproduction.service.js'), { db });
   const overrides = {
     db,
+    'defectReproduction.service': reproduction,
+    ...(failurePackets ? { agentFailureEvidence: { collect: async ({ projectId, runIds, testCaseIds, canView, read }) => {
+      assert.equal(projectId, 'project');
+      assert.deepEqual(runIds, ['run-1']);
+      assert.deepEqual(testCaseIds, ['case']);
+      assert.equal(typeof canView, 'function');
+      assert.equal(typeof read, 'function');
+      return failurePackets;
+    } } } : {}),
+    ...(attachmentBytes ? {
+      'permission.service': { hasPermission: async () => true },
+      'attachment.service': { download: async ({ id }) => ({
+        row: attachments.find(item => item.id === id),
+        stream: Readable.from([attachmentBytes])
+      }) }
+    } : {}),
     'aiLlmSelection.service': { resolveLlmIntegrationForUsage: async () => selectedIntegration },
     llmHttpClient: { fetchLlmWithRetry: async (url, options, policy) => {
       const call = { url, body: JSON.parse(options.body), policy };
@@ -71,8 +103,113 @@ function fixture(reply = supportedImageDraft, { caseAvailable = true, selectedIn
     } }
   };
   const service = load(path.resolve(__dirname, '../../backend/services/aiBugDraft.service.js'), overrides);
-  return { service, calls, overrides };
+  return { service, calls, reads, overrides };
 }
+
+test('AI defect context pins the selected result screenshot and execution steps, includes comments, and excludes raw log payloads', async () => {
+  const imageBytes = Buffer.from(screenshot.url.split(',')[1], 'base64');
+  const fullRunnerError = `Full runner error ${'expected dashboard heading but the login form remained visible. '.repeat(5)}`;
+  const failure = { id: 'result-1', test_case_id: 'case', status: 'failed', error: fullRunnerError, logs: JSON.stringify({ stepStatuses: { 'snapshot-1': 'failed' }, stepNotes: { 'snapshot-1': 'The page remained on the login form.' }, stepCaptures: { 'snapshot-1': { token: 'captured-secret-never-send' } }, stepApiDetails: { 'snapshot-1': { request: { password: 'request-secret-never-send' } } } }), defects: '', created_at: '2026-11-08T10:00:00Z' };
+  const attachment = { id: 'shot-1', project_id: 'project', entity_type: 'execution_result', entity_id: 'result-1', file_name: 'login-failure.png', mime_type: 'image/png', size_bytes: imageBytes.length };
+  const packet = {
+    result_id: 'result-1', test_case_id: 'case', status: 'failed', error: fullRunnerError,
+    steps: [{ id: 'snapshot-1', order: 1, action: 'Submit valid login credentials', expected_result: 'The dashboard opens', observed_status: 'failed', note: 'The page remained on the login form.', api_observation: {}, browser_observation: { error: 'Login response rendered an error banner.' } }],
+    comments: [{ body: 'Reproduced twice in staging.', updated_at: '2026-11-08T10:02:00Z' }],
+    attachments: [attachment], coverage: { total_failed_cases: 1, returned_failed_cases: 1, omitted_failed_cases: 0, total_steps: 1, omitted_steps: 0 }
+  };
+  let attempt = 0;
+  const reply = call => {
+    attempt++;
+    const prompt = promptText(call);
+    assert.match(prompt, /Reproduced twice in staging/);
+    assert.match(prompt, /The page remained on the login form/);
+    assert.match(prompt, /Full runner error/);
+    assert.match(prompt, /expected dashboard heading but the login form remained visible/);
+    assert.match(prompt, /Submit valid login credentials/);
+    assert.doesNotMatch(prompt, /Open the sign-in page|captured-secret-never-send|request-secret-never-send/);
+    assert.match(prompt, /The dashboard opens/);
+    assert.match(prompt, /execution_snapshot/);
+    assert.match(prompt, /Image part 1 supports execution-image:/);
+    const resultRef = prompt.match(/execution-result:result-1/)?.[0];
+    assert.ok(resultRef);
+    if (attempt === 1) return Object.assign(new Error('The LLM reached the output limit before finishing.'), { code: 'AI_OUTPUT_TRUNCATED', publicMessage: 'The LLM reached the output limit before finishing.' });
+    assert.match(prompt, /Compact completion retry: the previous response reached its output limit/);
+    assert.match(call.body.messages.find(message => message.role === 'system').content, /shortest complete valid values/);
+    const candidate = {
+      draft: { title: 'Login fails', message: 'The linked run failed during login.', steps_to_reproduce: 'source:test-case:case', expected_result: 'source:test-case:case', actual_result: 'The page remained on the login form.', severity: 'high', priority: 'High', environment: '', build: '', labels: [], rationale: 'Failure and case evidence support this draft.' },
+      field_evidence: { title: ['reporter:intent'], message: ['reporter:intent', 'test-case:case'], steps_to_reproduce: ['test-case:case'], expected_result: ['test-case:case'], actual_result: [resultRef], severity: [resultRef], priority: [resultRef], environment: [], build: [], labels: [resultRef], rationale: [resultRef] }
+    };
+    require('../../../platform/backend/src/utils/aiGenerationContracts').validateNativeArtifactOutput('ai.bug.draft', candidate);
+    assert.match(prompt, /source:test-case:case/);
+    return candidate;
+  };
+  const f = fixture(reply, {
+    run: { id: 'run-1', name: 'Login regression', status: 'failed', project_id: 'project', created_at: '2026-11-08T10:00:00Z' },
+    failures: [failure],
+    steps: [{ id: 'step-1', test_case_id: 'case', step_order: 1, action: 'Open the sign-in page', expected_result: 'Dashboard opens' }],
+    attachments: [attachment],
+    attachmentBytes: imageBytes,
+    failurePackets: [packet]
+  });
+  const result = await f.service.preview({
+    user: { id: 'user-1' }, project_id: 'project', intent: 'Login fails after valid credentials',
+    linked_test_run_id: 'run-1', linked_execution_result_id: 'result-1', linked_test_case_ids: ['case']
+  });
+  assert.equal(f.calls.length, 2, 'A truncated first completion gets one compact retry.');
+  for (const call of f.calls) {
+    const content = call.body.messages.find(message => message.role === 'user').content;
+    assert.deepEqual(content.filter(part => part.type === 'image_url'), [{ type: 'image_url', image_url: { url: screenshot.url, detail: 'low' } }]);
+  }
+  assert.equal(result.draft.steps_to_reproduce, '1. Submit valid login credentials');
+  assert.equal(result.draft.expected_result, 'The dashboard opens');
+  assert.ok(result.fallback_fields.includes('steps_to_reproduce'));
+  const selectedRead = f.reads.find(item => /FROM execution_results/.test(item.sql));
+  assert.match(selectedRead.sql, /execution_results.id = \?/);
+  assert.deepEqual(selectedRead.params, ['run-1', 'case', 'result-1']);
+  assert.doesNotMatch(f.reads.find(item => /FROM attachments/.test(item.sql)).sql, /entity_type = 'execution' AND/);
+  assert.ok(result.citations.some(item => item.type === 'execution-screenshot'));
+  assert.equal(result.boundaries.included.execution_images, 1);
+  assert.equal(result.boundaries.included.execution_failure_details, 1);
+  assert.match(JSON.stringify(f.calls[1].body.messages), /Full runner error/);
+});
+
+test('a compact retry that also truncates returns a clear error without presenting a deterministic draft as AI output', async () => {
+  let attempts = 0;
+  const truncated = () => ++attempts === 1
+    ? Response.json({ choices: [{ finish_reason: 'length', message: { content: '{"draft":' } }] })
+    : Object.assign(new Error('Output truncated.'), { code: 'AI_OUTPUT_TRUNCATED', publicMessage: 'Output truncated.' });
+  const f = fixture(truncated, { steps: [
+    { id: 'step-1', test_case_id: 'case', step_order: 1, action: 'Open the sign-in page', expected_result: 'Sign-in form appears' },
+    { id: 'step-2', test_case_id: 'case', step_order: 2, action: 'Submit valid credentials', expected_result: 'Dashboard opens' }
+  ] });
+  await assert.rejects(f.service.preview({ project_id: 'project', intent: 'Valid login is rejected', linked_test_case_ids: ['case'] }), error => {
+    assert.equal(error.code, 'AI_OUTPUT_TRUNCATED');
+    assert.match(error.message, /including on a compact retry/);
+    assert.match(error.message, /No Defect draft was generated/);
+    return true;
+  });
+  assert.equal(f.calls.length, 2);
+  assert.match(promptText(f.calls[1]), /Compact completion retry: the previous response reached its output limit/);
+  assert.match(promptText(f.calls[1]), /Open the sign-in page/);
+  assert.match(promptText(f.calls[1]), /Submit valid credentials/);
+});
+
+test('failed-step inline screenshots reach vision when object storage has no attachment receipt', async () => {
+  const f = fixture(call => {
+    const ref = promptText(call).match(/execution-image:[a-f0-9]{64}/)?.[0];
+    assert.ok(ref);
+    return { draft: { title: 'Save shows an error', message: 'The recorded image shows Save with an error.', actual_result: 'An error is visible.', rationale: 'Investigate the recorded save failure.' },
+      field_evidence: Object.fromEntries(['title', 'message', 'actual_result', 'rationale'].map(field => [field, [ref]])) };
+  }, { run: { id: 'run-1', name: 'Save run', project_id: 'project' },
+    failures: [{ id: 'result-1', test_case_id: 'case', status: 'failed', error: 'Save failed', logs: JSON.stringify({ stepStatuses: { 'snapshot-1': 'failed' }, stepEvidence: { 'snapshot-1': { dataUrl: screenshot.url } } }) }],
+    attachmentBytes: Buffer.alloc(0) });
+  const result = await f.service.preview({ user: { id: 'actor' }, project_id: 'project', intent: 'Save fails', linked_test_run_id: 'run-1', linked_execution_result_id: 'result-1', linked_test_case_ids: ['case'] });
+  const content = f.calls[0].body.messages.find(message => message.role === 'user').content;
+  assert.deepEqual(content.filter(part => part.type === 'image_url'), [{ type: 'image_url', image_url: { url: screenshot.url, detail: 'low' } }]);
+  assert.doesNotMatch(promptText(f.calls[0]), /data:image\//);
+  assert.equal(result.boundaries.included.execution_images, 1);
+  assert.equal(result.provenance.partial_sources, false);
+});
 
 for (const intent of [undefined, '']) {
   test(`Defect drafting accepts image-only input with ${intent === undefined ? 'omitted' : 'empty'} incident brief and cites the actual image`, async () => {

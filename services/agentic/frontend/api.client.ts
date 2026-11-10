@@ -1,6 +1,6 @@
 import { consumeAssistantProgress, type AgentProgress } from "./lib/assistantProgressStream";
 import { streamQualityProgress, type QualityStreamOptions } from './lib/qualityProgressStream';
-import type { AgentStructuredArtifact } from '@hellotest/platform/frontend/src/types';
+import type { AgentStructuredArtifact, TestDataSet, TestEnvironment } from '@hellotest/platform/frontend/src/types';
 import { AI_REQUEST_TIMEOUT_MS } from "@hellotest/platform/frontend/src/platform/lib/requestTimeout";
 import type { RepositoryAgentCatalog, RepositoryAgentPublicationStatus, RepositoryAgentPublishResult, RepositoryAgentRun, RepositoryAgentRunInput, RepositoryAgentRunPage } from "./agents/agentTypes";
 import type { AgenticAssistantMode, AgenticAssistantSessionResponse, AgenticAssistantSavedSessionResponse, AgenticWorkflow, AgenticWorkflowRun, AgenticWorkflowReadiness, RecorderSessionResponse, WorkspaceTransaction } from "@hellotest/platform/frontend/src/types";
@@ -25,6 +25,12 @@ export type AgentEvidenceScopeOption = { id: string; label: string; description?
 export const agenticApi = {
   evidenceScope: {
     options: (query: { project_id: string; app_type_id?: string; field: string; search?: string; limit?: number; story_id?: string; test_case_id?: string; execution_id?: string; release_id?: string; sprint_id?: string }, options?: { signal?: AbortSignal }) => request<{ items: AgentEvidenceScopeOption[]; has_more: boolean }>(`/agentic-workflows/evidence-scope/options${toQueryString(query)}`, { signal: options?.signal, cache: 'no-store' }),
+  },
+  workflowTestDataSets: {
+    list: (query: { project_id: string; app_type_id?: string }, options?: { signal?: AbortSignal }) => request<TestDataSet[]>(`/test-data-sets${toQueryString(query)}`, { signal: options?.signal, cache: 'no-store' }),
+  },
+  workflowTestEnvironments: {
+    list: (query: { project_id: string; app_type_id?: string }, options?: { signal?: AbortSignal }) => request<TestEnvironment[]>(`/test-environments${toQueryString(query)}`, { signal: options?.signal, cache: 'no-store' }),
   },
   agentProposals: {
     list: (sessionId: string) => request<Array<{ proposal_index: number; receipt: AgentProposalReceipt }>>(`/agentic-assistant/sessions/${encodeURIComponent(sessionId)}/proposals`, { cache: 'no-store' }),

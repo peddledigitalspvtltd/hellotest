@@ -97,6 +97,6 @@ export function SprintAutomatorSetup(props: Props) {
     </div>
     {parsed.error && <p className="sprint-setup-error" role="alert">{parsed.error}</p>}
     {!props.projectId ? <p role="status">Choose a project to load Sprints.</p> : !props.canViewSprints ? <p role="status">Sprint access is required to browse this project's Sprints.</p> : null}
-    {props.onConfigureAutomation && <p className="sprint-automation-guidance">Browser automation needs your application's reviewed start URL. <button type="button" onClick={props.onConfigureAutomation}>Configure AI Automation Engineer</button>. API-only cases use their supplied API URLs.</p>}
+    {props.onConfigureAutomation && <p className="sprint-automation-guidance">Select the reviewed Test Environment to supply the application URL and protected variables. <button type="button" onClick={props.onConfigureAutomation}>Configure AI Automation Engineer</button>. API-only cases can use their supplied API URLs.</p>}
   </section>;
 }

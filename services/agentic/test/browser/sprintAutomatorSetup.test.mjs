@@ -9,8 +9,10 @@ const root = new URL('../../../platform/frontend/', import.meta.url);
 const base = (await readFile(new URL('agentWorkspace.test.mjs', import.meta.url), 'utf8')).match(/const fixture = `([\s\S]*?)`;\nconst specialists/)[1];
 const setup = `
 window.enablePreviewFixture();
-window.sprintSetupCalls={lookups:[],readiness:[],execute:[],preview:[]};
+window.sprintSetupCalls={lookups:[],dataSets:[],environments:[],readiness:[],execute:[],preview:[]};
 api.evidenceScope.options=async query=>{window.sprintSetupCalls.lookups.push(query);const all=[{id:'sprint-a',label:'Sprint Alpha'},{id:'sprint-b',label:'Sprint Beta'}];return {items:all.filter(item=>!query.search||(item.label+' '+item.id).toLowerCase().includes(query.search.toLowerCase())),has_more:!query.search};};
+api.workflowTestDataSets.list=async query=>{window.sprintSetupCalls.dataSets.push(query);return [{id:'dataset-1',name:'Reviewed login fixtures',project_id:'project',app_type_id:'app',mode:'table',columns:['username','password'],rows:[]}]};
+api.workflowTestEnvironments.list=async query=>{window.sprintSetupCalls.environments.push(query);return [{id:'env-reviewed',name:'Reviewed QA environment',project_id:'project',app_type_id:'app',base_url:'https://invoice.example/app',variables:[{key:'password',value:'',is_secret:true,has_stored_value:true}]}]};
 api.agenticWorkflows.connections=async()=>[
  {id:'stories-api',name:'HelloTest Stories API',kind:'http',url:'https://testing.example/api',authenticated:true,methods:['GET'],tools:[]},
  {id:'no-key',name:'Unauthenticated API',kind:'http',url:'https://testing.example/api',authenticated:false,methods:['GET'],tools:[]},
@@ -56,11 +58,15 @@ test('guided Sprint setup saves and restores input, invalidates stale readiness 
     await page.getByLabel('Test Cases per Story').fill('7');
     await page.getByLabel('Test Case format').selectOption('gherkin');
     await page.getByLabel('Generation guidance (optional)').fill('Prioritize the successful invoice journey.');
+    await page.locator('.react-flow__node[data-id="test-data-generator"]').click();
+    await page.getByLabel('Data source',{exact:true}).selectOption('dataset');
+    await page.getByLabel('Test Data Set',{exact:true}).waitFor();
+    await page.getByLabel('Test Data Set',{exact:true}).selectOption('dataset-1');
     await page.locator('.react-flow__node[data-id="automation-engineer"]').click();
-    await page.getByLabel('Application URL',{exact:true}).fill('https://invoice.example/app');
-    await page.getByLabel('Username (optional)').fill('reviewer');
-    await page.getByLabel('Test data JSON').fill('{"invoice_id":"known-invoice"}');
-    assert.equal(await page.getByLabel('Password connection').count(),1);
+    await page.getByLabel('Test Environment',{exact:true}).selectOption('env-reviewed');
+    assert.equal(await page.getByLabel('Application URL',{exact:true}).count(),0);
+    assert.equal(await page.getByLabel('Username (optional)').count(),0);
+    assert.equal(await page.getByLabel('Password connection').count(),0);
     assert.equal(await page.getByRole('button', {name:'Save and check readiness',exact:true}).count(),0);
     await page.getByRole('button', { name: 'Save changes', exact: true }).click();
     await page.waitForFunction(() => window.previewWorkflow?.nodes?.find(n=>n.id==='test-case-generation')?.data.maxCasesPerStory === 7);
@@ -72,10 +78,11 @@ test('guided Sprint setup saves and restores input, invalidates stale readiness 
     assert.equal(generator.data.maxCasesPerStory,7);
     assert.equal(generator.data.authoringMode,'gherkin');
     assert.equal(generator.data.generationInstructions,'Prioritize the successful invoice journey.');
+    const dataNode = saved.nodes.find(node=>node.id==='test-data-generator');
+    assert.equal(dataNode.data.testDataSource,'dataset');
+    assert.equal(dataNode.data.testDataSetId,'dataset-1');
     const automation = saved.nodes.find(node=>node.id==='automation-engineer');
-    assert.equal(automation.data.automationStartUrl,'https://invoice.example/app');
-    assert.equal(automation.data.automationUsername,'reviewer');
-    assert.equal(JSON.parse(automation.data.automationData).invoice_id,'known-invoice');
+    assert.equal(automation.data.testEnvironmentId,'env-reviewed');
     const apiNode = saved.nodes.find(node => node.data.apiResource === 'sprintStories');
     assert.equal(apiNode.data.connectionId, 'stories-api'); assert.equal(new URL(apiNode.data.apiUrl).origin, 'https://testing.example'); assert.equal(new URL(apiNode.data.apiUrl).pathname, '/api/requirements'); assert.equal(new URL(apiNode.data.apiUrl).searchParams.get('sprint_id'), 'sprint-b'); assert.equal(apiNode.data.apiMethod, 'GET'); assert.equal(apiNode.data.retryCount, '0');
     await page.getByRole('button', { name: 'Back to workflows', exact: true }).click();
@@ -117,6 +124,8 @@ test('guided Sprint setup saves and restores input, invalidates stale readiness 
     assert.ok(calls.readiness.length>=3,'Save changes checks readiness with the saved definition');
     assert.equal(calls.readiness.at(-1).input.sprint_id, 'sprint-a');
     assert.ok(calls.lookups.every(query => query.field === 'sprint_id' && query.limit === 10 && query.project_id === 'project'));
+    assert.ok(calls.dataSets.length>0 && calls.dataSets.every(query=>query.project_id==='project'&&query.app_type_id==='app'));
+    assert.ok(calls.environments.length>0 && calls.environments.every(query=>query.project_id==='project'&&query.app_type_id==='app'));
     assert.deepEqual(errors, []);
   } catch (failure) {
     console.error(failure);

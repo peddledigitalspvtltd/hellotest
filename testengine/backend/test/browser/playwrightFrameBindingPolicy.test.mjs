@@ -176,3 +176,63 @@ test('an explicit native assertion timeout also bounds its initial frame readine
  const started=Date.now();await assert.rejects(f.bindings.expect(f.bindings.page.locator('#noncoreIframe').contentFrame().getByLabel('Name',{exact:true})).toBeVisible({timeout:300}),{code:'AUTOMATION_FRAME_SCOPE_INVALID'});
  assert.ok(Date.now()-started<650);assert.equal(f.local(),0);
 });
+
+test('a framed native assertion retains its real failure after consuming the default budget',{timeout:10000},async t=>{
+ const f=await fixture(t,{assertionTimeout:300});
+ const target=f.bindings.page.frameLocator('#work').getByText('Rows per page',{exact:true});
+ const started=Date.now();
+ await assert.rejects(f.bindings.expect(target).toBeVisible(),error=>{
+  assert.notEqual(error.code,'AUTOMATION_FRAME_SCOPE_INVALID');
+  assert.match(error.message,/toBeVisible|to\.be\.visible/);
+  assert.match(error.message,/element\(s\) not found|Rows per page/);
+  assert.doesNotMatch(error.message,/locator\.evaluate|Timeout 1ms/);
+  return true;
+ });
+ assert.ok(Date.now()-started<900,'scope verification checks identity once without restarting the assertion');
+ assert.equal(f.local(),0);assert.equal(f.foreign(),0);
+});
+
+test('a positive authored assertion timeout extends delayed frame readiness beyond the default',{timeout:10000},async t=>{
+ const f=await fixture(t,{assertionTimeout:250});await f.page.goto(f.base+'/waiting-shell');
+ await f.page.evaluate(()=>{
+  const frame=document.createElement('iframe');frame.id='noncoreIframe';frame.src='/one';frame.style.cssText='display:none;width:600px;height:300px';document.querySelector('main').appendChild(frame);
+  setTimeout(()=>{frame.style.display='block';},500);
+ });
+ const started=Date.now();
+ await f.bindings.expect(f.bindings.page.locator('#noncoreIframe').contentFrame().getByLabel('Name',{exact:true})).toBeVisible({timeout:1200});
+ assert.ok(Date.now()-started>=450);assert.equal(f.local(),0);
+});
+
+test('frame scope verification survives a delayed assertion reply and preserves its original error',{timeout:10000},async t=>{
+ const f=await fixture(t,{assertionTimeout:300}),target=f.bindings.page.frameLocator('#work').getByLabel('Name',{exact:true});
+ const original=new Error('Original framed assertion failure');let checks=0;
+ const expect=f.bindings.expect.extend({async toHaveDelayedFrameReply(actual,fail){
+  await nativeExpect(actual).toBeVisible();checks++;
+  // The condition is observed before its deadline; protocol/model extension
+  // delivery can finish later. Scope checking has a separate bounded allowance.
+  await new Promise(resolve=>setTimeout(resolve,350));
+  if(fail)throw original;
+  return{pass:true,message:()=> 'The observed input remains visible'};
+ }});
+ await expect(target).toHaveDelayedFrameReply(false);
+ await assert.rejects(expect(target).toHaveDelayedFrameReply(true),error=>error===original);
+ assert.equal(checks,2);assert.equal(f.local(),0);assert.equal(f.foreign(),0);
+});
+
+test('post-assertion scope checks reject owner replacement, foreign documents and ambiguous owners',{timeout:20000},async t=>{
+ const f=await fixture(t),target=f.bindings.page.locator('#work').contentFrame().getByLabel('Name',{exact:true});
+ const expect=f.bindings.expect.extend({async toCheckThenChangeFrame(actual,change){
+  await nativeExpect(actual).toBeVisible();await change();
+  return{pass:true,message:()=> 'The input was visible before the frame changed'};
+ }});
+ const changes=[
+  async()=>{await f.page.locator('#work').evaluate(element=>{const next=element.cloneNode(true);next.src='/two';element.replaceWith(next);});await nativeExpect(f.page.frameLocator('#work').locator('#name')).toHaveAttribute('data-stage','two');},
+  async()=>{await f.page.locator('#work').evaluate((element,url)=>{element.src=url;},f.other+'/foreign');await nativeExpect(f.page.frameLocator('#work').locator('#name')).toHaveAttribute('data-stage','foreign');},
+  async()=>{await f.page.locator('#work').evaluate(element=>element.parentElement.appendChild(element.cloneNode(true)));}
+ ];
+ for(const change of changes){
+  await f.page.goto(f.base+'/shell');
+  await assert.rejects(expect(target).toCheckThenChangeFrame(change),{code:'AUTOMATION_FRAME_SCOPE_INVALID'});
+ }
+ assert.equal(f.local(),0);assert.equal(f.foreign(),0);
+});

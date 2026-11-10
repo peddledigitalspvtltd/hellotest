@@ -34,6 +34,11 @@ test('scope choices honor permission and feature revocation before reading names
   await assert.rejects(service.options({ project_id: 'project-a', field: 'test_case_id' }, { id: 'user-a' }), { statusCode: 403 });
   assert.equal(queries.length, 0);
 });
+test('Sprint choices use the human Sprint name as the primary label', async t => {
+  fixture(t);
+  const result = await service.options({ project_id: 'project-a', field: 'sprint_id' }, { id: 'user-a' });
+  assert.deepEqual(result.items[0], { id: 'story-0', label: 'Story 0', description: 'ST-0' });
+});
 test('delivery choices remain project bound while intersecting the selected Story and Run', async t => {
   const queries = fixture(t);
   await service.options({ project_id: 'project-a', field: 'release_id', story_id: 'story-a', execution_id: 'run-a' }, { id: 'user-a' });

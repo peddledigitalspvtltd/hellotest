@@ -8,7 +8,7 @@ const issues = require("../../../testing/backend/services/issues.service");
 const history = require("../../../testing/backend/services/issueHistory.service");
 
 const installDatabase = (t) => {
-  const state = { issue: null, events: [], failHistory: false, locks: 0, depth: 0 };
+  const state = { issue: null, events: [], failHistory: false, locks: 0, depth: 0, reproductionCases: [], reproductionSteps: [] };
   const users = {
     reporter: { id: "reporter", name: "Original Reporter", email: "reporter@example.test" },
     editor: { id: "editor", name: "Editing User", email: "editor@example.test" }
@@ -42,6 +42,9 @@ const installDatabase = (t) => {
     },
     all: async (...params) => {
       if (/FROM issue_history/.test(sql)) return structuredClone(state.events).reverse();
+      if (/WITH selected_cases AS/.test(sql)) return params.map(id => ({ id, project_ids: ["project-1"] }));
+      if (/SELECT tc\.id, tc\.display_id[\s\S]*FROM test_cases tc/.test(sql)) return structuredClone(state.reproductionCases);
+      if (/FROM test_steps/.test(sql)) return structuredClone(state.reproductionSteps);
       if (/AS label FROM users/.test(sql)) return params.flatMap((id) => users[id] ? [{ id, label: users[id].name }] : []);
       if (/AS label FROM projects/.test(sql)) return [{ id: "project-1", label: "Payments" }];
       if (/AS label FROM test_cases/.test(sql)) return params.map((id) => ({ id, label: `Case ${id}` }));
@@ -87,6 +90,21 @@ test("Bug creation persists independent primary/QA causes and a named creation e
   assert.equal(state.events[0].action, "created");
   assert.equal(state.events[0].actor_name, "Original Reporter");
   assert.equal(state.events[0].changes.find((change) => change.field === "qa_root_cause").new_value, "Missed test scenario");
+});
+
+test("Bug creation derives missing reproduction fields from linked scoped Test Case steps without replacing authored text", async (t) => {
+  const state = installDatabase(t);
+  state.reproductionCases = [{ id: "case-1", title: "Sign in", authoring_mode: "structured" }];
+  state.reproductionSteps = [
+    { id: "step-1", test_case_id: "case-1", step_order: 1, action: "Open the sign-in page", expected_result: "The form is visible" },
+    { id: "step-2", test_case_id: "case-1", step_order: 2, action: "Submit valid credentials", expected_result: "The dashboard opens" }
+  ];
+  await issues.createIssue({ ...createPayload, linked_test_case_ids: ["case-1"] });
+  assert.equal(state.issue.steps_to_reproduce, "1. Open the sign-in page\n2. Submit valid credentials");
+  assert.equal(state.issue.expected_result, "The form is visible\nThe dashboard opens");
+  await issues.createIssue({ ...createPayload, title: "Explicit report", linked_test_case_ids: ["case-1"], steps_to_reproduce: "Reporter-authored reproduction", expected_result: "Explicit expected result" });
+  assert.equal(state.issue.steps_to_reproduce, "Reporter-authored reproduction");
+  assert.equal(state.issue.expected_result, "Explicit expected result");
 });
 
 test("Bug edits record exact previous/new values and the editor independently of the reporter", async (t) => {

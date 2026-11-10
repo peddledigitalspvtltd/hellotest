@@ -1,14 +1,15 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),{createRequire}=require('node:module');
 const filename=path.resolve(__dirname,'../../backend/gateway.js'),original=createRequire(filename),traces=original('@hellotest/platform/backend/src/utils/llmTraceContext');
-function gateway(callLocal){const module={exports:{}};new Function('require','module','exports',fs.readFileSync(filename,'utf8'))(id=>id==='./auth'?{principal:async(userId,projectId)=>({user:{id:userId},projectId})}:id==='./server'?{callLocal}:original(id),module,module.exports);module.exports.installTransport(callLocal);return module.exports;}
+function gateway(callLocal,principal=async(userId,projectId)=>({user:{id:userId},projectId})){const module={exports:{}};new Function('require','module','exports',fs.readFileSync(filename,'utf8'))(id=>id==='./auth'?{principal}:id==='./server'?{callLocal}:original(id),module,module.exports);module.exports.installTransport(callLocal);return module.exports;}
 const request=question=>({body:JSON.stringify({messages:[{role:'system',content:'Trusted system policy'},{role:'user',content:question}]})});
-test('image-only authoring skips optional text retrieval but preserves an Admin required context policy',async()=>{
+test('image-only authoring preserves images and continues with an evidence gap when additional evidence was requested',async()=>{
  let calls=0;const instance=gateway(async()=>{calls++;throw new Error('No text query should be dispatched');});
  const init=request(JSON.stringify({reference_images:[{name:'Screenshot.png'}]}));
  const options={contextRetrievalQuery:null,mcpContextPolicy:{mode:'mcp',required:false}};
  assert.equal(await traces.run({actor_id:'author',project_id:'project'},()=>instance.enrichChatRequest(init,options)),init);
  assert.equal(options.mcpContextStatus,'query_unavailable');assert.equal(calls,0);
- await assert.rejects(traces.run({actor_id:'author',project_id:'project'},()=>instance.enrichChatRequest(init,{...options,mcpContextPolicy:{mode:'mcp',required:true}})),{code:'AI_MCP_QUERY_REQUIRED',statusCode:422});
+ const result=await traces.run({actor_id:'author',project_id:'project'},()=>instance.enrichChatRequest(init,{...options,mcpContextPolicy:{mode:'mcp',required:true}}));
+ const messages=JSON.parse(result.body).messages;assert.match(messages[1].content,/missing evidence as a gap/);assert.equal(messages[1].role,'system');assert.equal(messages.at(-1).content,JSON.parse(init.body).messages.at(-1).content);
  assert.equal(calls,0);
 });
 test('shared AI gateway keeps simultaneous actor/project contexts isolated and preserves provenance',async()=>{
@@ -68,16 +69,33 @@ test('image authoring requests retrieve MCP evidence from text while preserving 
 test('a stalled MCP read returns a context gap within its budget and cancels the read',async()=>{
  let signal;
  const instance=gateway(async(_actor,_name,_args,activeSignal)=>{signal=activeSignal;return new Promise(()=>{});});
- const result=await traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(request('help'),{mcpContextTimeoutMs:20}));
+ const result=await traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(request('help'),{mcpContextTimeoutMs:20,mcpContextPolicy:{mode:'mcp',required:true}}));
  assert.equal(signal.aborted,true);assert.match(JSON.parse(result.body).messages[1].content,/missing evidence as a gap/);
 });
-test('configured item and context budgets disclose omitted evidence and required empty evidence fails closed',async()=>{
+test('configured context budgets disclose omissions and empty evidence continues without inventing evidence',async()=>{
  const instance=gateway(async()=>({packet:{project_id:'p',evidence:Array.from({length:6},(_,i)=>({evidence_id:'e'+i,content:'evidence '.repeat(30)}))}}));
  const result=await traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(request('refunds'),{mcpContextPolicy:{mode:'mcp',max_items:2,token_budget:256}}));
  const text=JSON.parse(result.body).messages[1].content,packet=JSON.parse(text.slice(text.indexOf('\n')+1));
  assert.ok(packet.evidence.length<=2);assert.ok(packet.omitted_evidence_count>=4);assert.match(packet.limitations.join(' '),/omitted/);
  const empty=gateway(async()=>({packet:{project_id:'p',evidence:[]}}));
- await assert.rejects(traces.run({actor_id:'a',project_id:'p'},()=>empty.enrichChatRequest(request('refunds'),{mcpContextPolicy:{mode:'mcp',required:true}})),{code:'AI_MCP_CONTEXT_REQUIRED'});
+ const available=await traces.run({actor_id:'a',project_id:'p'},()=>empty.enrichChatRequest(request('refunds'),{mcpContextPolicy:{mode:'mcp',required:true}}));
+ assert.match(available.body,/evidence_requirement_unmet/);assert.match(available.body,/missing evidence as a gap/);assert.equal(JSON.parse(available.body).messages.at(-1).content,'refunds');
+});
+
+test('retrieval metadata limits and empty preassembled evidence do not block the original feature task',async()=>{
+ const instance=gateway(async()=>({packet:{project_id:'p',evidence:[],limitations:{detail:'PRIVATE_OVERSIZED_METADATA'.repeat(1000)}}}));
+ const options={mcpContextPolicy:{mode:'mcp',required:true,token_budget:256}};
+ const result=await traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(request('Draft one defect for the supplied failure.'),options));
+ assert.equal(options.mcpContextStatus,'unavailable');assert.match(result.body,/selected feature/);assert.doesNotMatch(result.body,/PRIVATE_OVERSIZED_METADATA/);assert.equal(JSON.parse(result.body).messages.at(-1).content,'Draft one defect for the supplied failure.');
+ const preassembled=await instance.enrichChatRequest(request('Review the selected case.'),{mcpContextPolicy:{required:true},mcpContextHandled:{evidence_count:0,status:'unavailable'}});
+ assert.match(preassembled.body,/missing evidence as a gap/);assert.equal(JSON.parse(preassembled.body).messages.at(-1).content,'Review the selected case.');
+});
+
+test('a revoked MCP principal remains an authorization error instead of a retrieval gap',async()=>{
+ let calls=0;const denied=Object.assign(new Error('Project membership was revoked.'),{statusCode:403,code:'MCP_ACCESS_DENIED'});
+ const instance=gateway(async()=>{calls++;},async()=>{throw denied;});
+ await assert.rejects(traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(request('Review this case.'),{mcpContextPolicy:{required:true}})),error=>error===denied);
+ assert.equal(calls,0);
 });
 
 test('user cancellation stops enrichment instead of proceeding to the model with a gap',async()=>{

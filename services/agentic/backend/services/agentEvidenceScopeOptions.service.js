@@ -61,6 +61,12 @@ async function options(input = {}, user) {
     FROM ${source.table} record ${joins} WHERE ${clauses.join(' AND ')}
     ORDER BY ${search ? 'CASE WHEN LOWER(record.id) = LOWER(?) THEN 0 ELSE 1 END,' : ''} record.created_at DESC NULLS LAST, record.id
     LIMIT ?`).all(...params, ...(search ? [search] : []), limit + 1);
-  return { items: rows.slice(0, limit).map(row => ({ id: row.id, label: row.display_id || row.id, description: row.name || undefined })), has_more: rows.length > limit };
+  return { items: rows.slice(0, limit).map(row => ({ id: row.id,
+    // Sprint pickers need the human name as their primary value. Keep the
+    // stable display ID as secondary context; other evidence pickers retain
+    // their established display-ID-first labels.
+    label: source.kind === 'sprint' ? row.name || row.display_id || row.id : row.display_id || row.id,
+    description: source.kind === 'sprint' ? row.display_id || undefined : row.name || undefined
+  })), has_more: rows.length > limit };
 }
 module.exports = { options };

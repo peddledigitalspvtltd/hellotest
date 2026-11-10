@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const runtime = require('../../backend/services/agenticWorkflowExecution.service');
+const artifactTasks = require('../../backend/workflows/artifactTasks');
 const permissions = require('@hellotest/platform/backend/services/permission.service');
 const flags = require('@hellotest/platform/backend/services/featureFlag.service');
 const node = (id, kind, data = {}) => ({ id, data: { label: id, kind, ...data } });
@@ -79,6 +80,63 @@ test('each connected loop batch receives its own native Story input, while Done 
   await runtime._internals.runStep(run, nodes.at(-1), { id: 'actor' }, new AbortController().signal, async () => {});
   assert.deepEqual(seen.at(-1).map(item => item.story_id), ['a', 'b'], 'A native task after Done receives every collected checkpoint, rather than only the final batch.');
   assert.deepEqual(seen.at(-1).map(item => item.story_revision), ['revision-a', 'revision-b']);
+});
+
+test('nested Sprint loops prepare and automate every exact case, then merge all case results into each Story checkpoint', async t => {
+  t.mock.method(permissions, 'hasPermission', async () => true);
+  t.mock.method(flags, 'areEnabled', async () => true);
+  const cases = storyId => [1, 2].map(number => ({ client_id: `${storyId}-case-${number}`, title: `Case ${number}`, steps: [{ action: 'Open the page', expected_result: 'The page is visible.' }] }));
+  const packets = ['story-a', 'story-b'].map((story_id, index) => ({ story_id, story_revision: `revision-${index + 1}`,
+    story: { id: story_id, title: story_id }, cases: cases(story_id), case_assurance: [] }));
+  const seen = [];
+  t.mock.method(require('../../backend/workflows/artifactTasks'), 'execute', async ({ node: taskNode, context }) => {
+    const task = taskNode.data.artifactTask;
+    assert.equal(context.input.length, 1);
+    const packet = context.input[0], selected = context.item;
+    assert.equal(packet.cases.find(draft => draft.client_id === selected.client_id)?.client_id, selected.client_id);
+    seen.push({ task, story_id: packet.story_id, client_id: selected.client_id,
+      has_case_data: Boolean(packet.test_data_by_case?.[selected.client_id]) });
+    const next = task === 'test-case-assurance'
+      ? { ...packet, case_assurance: Object.assign([...packet.case_assurance], { [packet.cases.findIndex(item => item.client_id === selected.client_id)]: { client_id: selected.client_id,
+          case_fingerprint: artifactTasks.fingerprint(selected), verification: { status: 'passed' } } }) }
+      : task === 'test-data-generator'
+        ? { ...packet, test_data_by_case: { ...(packet.test_data_by_case || {}), [selected.client_id]: { status: 'ready' } } }
+        : { ...packet, automation_by_case: { ...(packet.automation_by_case || {}), [selected.client_id]: { client_id: selected.client_id, validation: { status: 'passed' } } } };
+    return { __workflow_result: { output: { data: [{ story_id: packet.story_id, client_id: selected.client_id, task }] }, context: { data: [next] } } };
+  });
+  const nodes = [node('request', 'trigger'), node('source', 'artifactTask'),
+    node('each-story', 'loop', { loopAction: 'workflow', loopSourceKey: 'input', loopMaxIterations: 10, loopBatchSize: 1 }),
+    node('each-case', 'loop', { loopAction: 'workflow', loopSourceKey: 'input.0.cases', loopMaxIterations: 10, loopBatchSize: 1 }),
+    node('assurance', 'artifactTask', { artifactTask: 'test-case-assurance' }),
+    node('test-data', 'artifactTask', { artifactTask: 'test-data-generator' }),
+    node('automation', 'artifactTask', { artifactTask: 'automation-engineer' }), node('finish', 'output')];
+  const edges = [{ source: 'request', target: 'source' }, { source: 'source', target: 'each-story' },
+    { source: 'each-story', target: 'each-case', sourceHandle: 'loop' }, { source: 'each-case', target: 'assurance', sourceHandle: 'loop' },
+    { source: 'assurance', target: 'test-data' },
+    { source: 'test-data', target: 'automation' }, { source: 'automation', target: 'each-case', targetHandle: 'continue' },
+    { source: 'each-case', target: 'each-story', sourceHandle: 'done', targetHandle: 'continue' },
+    { source: 'each-story', target: 'finish', sourceHandle: 'done' }];
+  const result = { node_id: 'each-story', node_name: 'each-story', node_type: 'loop', status: 'queued', attempts: 0, logs: [] };
+  const run = { id: 'nested-sprint-lineage', project_id: 'p', input_payload: {}, output_payload: {},
+    workflow_snapshot: { id: 'workflow', settings: {}, nodes, execution_order: nodes.map(item => item.id), edges },
+    node_results: [
+      { node_id: 'source', node_name: 'source', node_type: 'artifactTask', status: 'completed', output: { data: packets }, execution_context: { data: packets } },
+      result,
+      ...nodes.slice(3).map(item => ({ node_id: item.id, node_name: item.id, node_type: item.data.kind, status: 'queued', attempts: 0, logs: [] }))
+    ] };
+  await runtime._internals.runStep(run, nodes[2], { id: 'actor' }, new AbortController().signal, async () => {});
+  assert.deepEqual(seen.map(item => [item.task, item.story_id, item.client_id, item.has_case_data]), [
+    ['test-case-assurance', 'story-a', 'story-a-case-1', false], ['test-data-generator', 'story-a', 'story-a-case-1', false], ['automation-engineer', 'story-a', 'story-a-case-1', true],
+    ['test-case-assurance', 'story-a', 'story-a-case-2', false], ['test-data-generator', 'story-a', 'story-a-case-2', false], ['automation-engineer', 'story-a', 'story-a-case-2', true],
+    ['test-case-assurance', 'story-b', 'story-b-case-1', false], ['test-data-generator', 'story-b', 'story-b-case-1', false], ['automation-engineer', 'story-b', 'story-b-case-1', true],
+    ['test-case-assurance', 'story-b', 'story-b-case-2', false], ['test-data-generator', 'story-b', 'story-b-case-2', false], ['automation-engineer', 'story-b', 'story-b-case-2', true],
+  ]);
+  assert.deepEqual(result.execution_context.data.map(packet => packet.story_id), ['story-a', 'story-b']);
+  for (const packet of result.execution_context.data) {
+    assert.deepEqual(Object.keys(packet.test_data_by_case).sort(), packet.cases.map(draft => draft.client_id).sort());
+    assert.deepEqual(packet.case_assurance.map(item => item.verification.status), ['passed', 'passed']);
+    assert.deepEqual(Object.keys(packet.automation_by_case).sort(), packet.cases.map(draft => draft.client_id).sort());
+  }
 });
 
 test('native graph fields cannot override exclusive effect scheduling', () => {

@@ -32,7 +32,7 @@ const redactSensitiveData = (value) => {
   const redactions = {
     email: countMatches(text, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi),
     bearer_token: countMatches(text, /\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi),
-    secret_assignment: countMatches(text, /\b(?:api[_-]?key|access[_-]?token|secret|password|passwd)\s*[:=]\s*["']?[^\s,"';]{6,}/gi),
+    secret_assignment: countMatches(text, /\b(?:api[_-]?key|access[_-]?token|view[_-]?token|secret|password|passwd)\s*[:=]\s*["']?[^\s,"';]{6,}/gi),
     card_number: countMatches(text, /\b(?:\d[ -]*?){13,19}\b/g),
     phone: countMatches(text, PHONE_PATTERN),
     government_id: countMatches(text, /\b\d{3}-\d{2}-\d{4}\b/g),
@@ -59,7 +59,7 @@ const redactSensitiveData = (value) => {
     .replace(networkIdPattern, "[REDACTED_NETWORK_ID]")
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[REDACTED_EMAIL]")
     .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer [REDACTED_TOKEN]")
-    .replace(/\b(api[_-]?key|access[_-]?token|secret|password|passwd)\s*[:=]\s*["']?[^\s,"';]{6,}/gi, "$1=[REDACTED_SECRET]")
+    .replace(/\b(api[_-]?key|access[_-]?token|view[_-]?token|secret|password|passwd)\s*[:=]\s*["']?[^\s,"';]{6,}/gi, "$1=[REDACTED_SECRET]")
     .replace(/\b(?:\d[ -]*?){13,19}\b/g, "[REDACTED_NUMBER]")
     .replace(PHONE_PATTERN, "[REDACTED_PHONE]")
     .replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[REDACTED_ID]");

@@ -47,6 +47,13 @@ test('options reject non-boolean policy values and preserve defaults', () => {
   assert.throws(() => normalizeDataOptions({ override_lower_scopes: 'false' }), error => error.statusCode === 400);
 });
 
+test('case execution metadata preserves only a valid opaque default Test Environment reference', () => {
+  assert.equal(normalizeDataOptions({ test_environment_id: 'env-123' }).test_environment_id, 'env-123');
+  for (const id of ['', ' env', '../env', 'env\n', {}, false, 'x'.repeat(161)]) {
+    assert.throws(() => normalizeDataOptions({ test_environment_id: id }), error => error.statusCode === 400);
+  }
+});
+
 test('case protection applies only to shared steps and retains the case iteration count', () => {
   const { resolveParameterLayers } = require('../src/utils/stepParameterResolution');
   const sharedNames = sharedParameterNames([{ group_kind: 'reusable', action: 'Given <login>', shared_parameter_values: { 'r.login': 'group' } }]);

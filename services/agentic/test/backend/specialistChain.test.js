@@ -1,6 +1,6 @@
 const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');const {createRequire}=require('node:module');
 const filename=path.resolve(__dirname,'../../backend/services/agenticAssistant.service.js');
-function fixture({ reviewPatch = {}, failKind = null, sequence = [], executionPatch = {}, revokeAfterModel = false, failKnowledge = false } = {}){
+function fixture({ reviewPatch = {}, failKind = null, sequence = [], executionPatch = {}, revokeAfterModel = false, failKnowledge = false, failFollowupRetrieval = false } = {}){
  const native=createRequire(filename),orchestrator=native('@hellotest/ai/backend/services/aiContextOrchestrator.service');
  const events=[],requests=[],retrievals=[];let transaction={id:'review',metadata:{}};
  const citation={id:'K-live-stories-1',scope:'stories',label:'Approved checkout story',source_kind:'live_project',source_id:'live-project-p-stories'};
@@ -13,7 +13,7 @@ function fixture({ reviewPatch = {}, failKind = null, sequence = [], executionPa
   ...(failKnowledge ? {'@hellotest/knowledge/backend/services/aiKnowledge.service':{buildKnowledgeContextPackage:async()=>{throw new Error('Optional knowledge lookup unavailable');}},'@hellotest/platform/backend/services/featureFlag.service':{getFeatureKeysForPermission:()=>[],areEnabled:async()=>true}} : {}),
   '@hellotest/platform/backend/services/dropdownCatalog.service':{getField:async()=>({options:[{value:'functional',active:true},{value:'regression',active:true},{value:'disabled',active:false}]})},
   '@hellotest/platform/backend/services/aiConfiguration.service':{...configuration,resolve:async id=>{const defaults=configuration.catalog.find(item=>item.id===id).defaults;return {config:{...defaults,agent_execution:{...defaults.agent_execution,...executionPatch}}};}},
-  '@hellotest/knowledge/backend/services/knowledgeRetrieval.service':{retrieveSearch:async input=>{retrievals.push(input);return {results:[sourceHit],retrieval:{context_transport:'mcp',live_context_counts:{stories:1}}};},authorizeFreshEvidence:async({hits})=>({allowed:hits,denied_ids:[]})},
+  '@hellotest/knowledge/backend/services/knowledgeRetrieval.service':{retrieveSearch:async input=>{retrievals.push(input);if(failFollowupRetrieval&&requests.length)throw Object.assign(new Error('PRIVATE_RETRIEVAL_ERROR'),{code:'CONTEXT_TIMEOUT'});return {results:[sourceHit],retrieval:{context_transport:'mcp',live_context_counts:{stories:1}}};},authorizeFreshEvidence:async({hits})=>({allowed:hits,denied_ids:[]})},
   '@hellotest/platform/backend/services/optionalEvidenceAccess.service':{getOptionalEvidenceAccess:async(u,p,codes)=>Object.fromEntries(codes.map(c=>[c,!(revokeAfterModel&&requests.length)]))},
   '../agents/agentRegistry.service':{resolveModel:async()=>({id:'model',name:'Fixture model',model:'test-model',base_url:'https://model.fixture/v1',is_active:true})},
   '@hellotest/platform/backend/services/permission.service':{hasPermission:async()=>true},
@@ -157,6 +157,14 @@ test('optional knowledge retrieval failure cannot discard the user-supplied revi
  const reply=await f.service.respond({project_id:'p',user:{id:'u'},agent_id:'quality-evaluator',context_scopes:['stories','knowledge'],prompt:'Review checkout acceptance.',smart_context:{reviewed_context:reviewed}});
  assert.ok(reply.result.readiness.limitations.some(item=>item.includes('Knowledge retrieval was unavailable')));
  for(const request of f.requests)assert.equal(JSON.parse(request.messages.at(-1).content).bounded_workspace_context.reviewed_context[0].content,reviewed);
+});
+test('a successor context failure still reaches its model and returns explicit missing evidence without fabricated proposals',async()=>{
+ const sequence=[],f=fixture({failFollowupRetrieval:true,sequence});
+ sequence.push(f.reviewer,{...f.reviewer,response:'The approved retry behavior is unavailable for this completion.',findings:[],artifacts:[],recommendations:[],citation_ids:[],evidence_gaps:['The approved selected Story acceptance criteria were not retrieved, so its retry boundary cannot be authored.']});
+ const reply=await f.service.respond({project_id:'p',user:{id:'u'},agent_id:'quality-evaluator',context_scopes:['stories'],prompt:'Review and complete checkout acceptance.'});
+ assert.equal(f.requests.length,2);const payload=JSON.parse(f.requests[1].messages.at(-1).content);
+ assert.equal(payload.request,'Review and complete checkout acceptance.');assert.equal(payload.context_manifest.knowledge_repo_retrieval.degraded,true);assert.match(payload.context_manifest.knowledge_repo_retrieval.limitations.join(' '),/missing evidence as a gap/);
+ assert.equal(reply.result.agent_chain[1].status,'needs_input');assert.equal(reply.result.artifacts.length,0);assert.doesNotMatch(JSON.stringify(reply),/PRIVATE_RETRIEVAL_ERROR/);
 });
 test('published schema rejection gets safe concrete revision feedback under the same call budget',async()=>{
  const sequence=[],f=fixture({sequence});

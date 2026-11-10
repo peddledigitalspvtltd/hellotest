@@ -52,7 +52,7 @@ function compileAction(action, platform, repositoryReferences) {
       }
       code = `await driver.action("pointer").move({ x: ${x}, y: ${y} }).down().up().perform();`;
     } else {
-      code = elementBlock(target, ['await element.waitForDisplayed({ timeout: 10000 });', 'await element.click();']);
+      code = `await ${platform}.waitForDisplayed(${quote(target)});\n` + elementBlock(target, ['await element.click();']);
     }
     return { action: `Tap ${label} screen at ${action.locator || `${action.x},${action.y}`}`, expected_result: `The ${label} app accepts the tap and continues the flow.`, keyword,
       automation_code: `${keywordComment(keyword, [target])}\n${code}` };
@@ -62,7 +62,7 @@ function compileAction(action, platform, repositoryReferences) {
     const value = String(action.value ?? "");
     const keyword = `${platform}.type`;
     const code = target === "focused" ? `await driver.keys(${quote(value)});`
-      : elementBlock(target, ['await element.waitForDisplayed({ timeout: 10000 });', 'await element.clearValue();', `await element.setValue(${quote(value)});`]);
+      : `await ${platform}.waitForDisplayed(${quote(target)});\n` + elementBlock(target, ['await element.clearValue();', `await element.setValue(${quote(value)});`]);
     return { action: `Type text into the focused ${label} field`, expected_result: `The value is entered in the ${label} app.`, keyword,
       automation_code: `${keywordComment(keyword, [target, value])}\n${code}` };
   }

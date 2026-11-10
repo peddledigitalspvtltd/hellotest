@@ -33,7 +33,7 @@ function fixture({ rejectStart = false, denyRead = false } = {}) {
   const mocks = {
     '@hellotest/platform/backend/src/db': db,
     './registry': { all: () => operations, get: id => operations.find(item => item.id === id), revision: () => 'catalog', rootFor: () => ['/executions', 'execution'] },
-    './featureOperations': { assertScope: async () => {}, assertResponseScope: async () => {}, readMembership: async () => [] },
+    './featureOperations': { ...nativeRequire('./featureOperations'), assertScope: async () => {}, assertResponseScope: async () => {}, readMembership: async () => [] },
     './auth': { fail, permit: async (_actor, permission) => { permissions.push(permission); if (denyRead && permission === 'run.view') throw fail('Permission required: run.view'); } },
     '@hellotest/platform/backend/src/utils/token': { createToken: () => 'internal-test-token' },
     '@hellotest/platform/backend/services/entityScope.service': {},
@@ -87,6 +87,12 @@ test('prepare checks create read-back permission before persisting an approval p
   await assert.rejects(f.backplane.prepare(actor, { operation_id: f.create.id, arguments: { body: { app_type_id: 'app', name: 'Reviewed run', test_case_ids: ['case'] } } }), { code: 'MCP_ACCESS_DENIED' });
   assert.equal(f.submitted, 0);
   assert.ok(f.permissions.includes('run.view'));
+});
+
+test('the shared prepare boundary rejects credential-valued inputs before any domain write',async()=>{
+  const f=fixture();
+  await assert.rejects(f.backplane.prepare(actor,{operation_id:f.create.id,arguments:{body:{app_type_id:'app',name:'Reviewed run',parameter_values:{password:'private-value'}}}}),{code:'MCP_INVALID_ARGUMENT'});
+  assert.equal(f.submitted,0);assert.equal(f.persisted,false);
 });
 
 test('an update acknowledgement cannot substitute another matching record for the reviewed target', async () => {

@@ -508,7 +508,8 @@ test('unsupported screenshot input stops Test Case design without a text-only se
 test('Defect creation and Test Case grounded improvement pass screenshots to the same protected draft path',async()=>{
  for(const require_case_context of [false,true]){
   const fixture=providerFixture({draft:{title:'Invoice approval fails'},field_evidence:{title:['reporter:intent']}});
-  const service=load('aiBugDraft.service',{...fixture.overrides,'../db':{prepare(sql){return{get:async()=>/FROM test_cases/.test(sql)?{id:'case',title:'Approve invoice',description:'Approve an invoice',priority:2}:{id:'project'}};}}});
+  const reproduction={...require('../../../testing/backend/services/defectReproduction.service'),loadCaseReproduction:async({testCaseIds})=>testCaseIds.map(id=>({id,title:'Approve invoice',description:'Approve an invoice',priority:2,steps:[],reproduction_steps:[],expected_result:''}))};
+  const service=load('aiBugDraft.service',{...fixture.overrides,'./defectReproduction.service':reproduction,'../db':{prepare(sql){return{get:async()=>/FROM test_cases/.test(sql)?{id:'case',title:'Approve invoice',description:'Approve an invoice',priority:2}:{id:'project'}};}}});
   await service.preview({user,project_id:'project',intent:'Invoice approval fails',linked_test_case_ids:require_case_context?['case']:[],require_case_context,reference_photos:[referenceScreenshot]});assertScreenshotRequest(fixture.calls[0]);
  }
 });

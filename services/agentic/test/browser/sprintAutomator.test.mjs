@@ -55,9 +55,9 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html?route=${encodeURIComponent('/agentic-workflows?view=workflows')}`);
     await page.getByRole('button',{name:/Data flow Sprint Automator/}).click();
     await page.locator('.studio-node[data-kind="artifactTask"]').first().waitFor();
-    assert.equal(await page.locator('.studio-node[data-kind="artifactTask"]').count(),4);
-    assert.equal(await page.locator('.studio-node[data-kind="loop"]').count(),1);
-    const loop=page.locator('.studio-node[data-kind="loop"]');
+    assert.equal(await page.locator('.studio-node[data-kind="artifactTask"]').count(),5);
+    assert.equal(await page.locator('.studio-node[data-kind="loop"]').count(),2);
+    const loop=page.locator('.studio-node[data-kind="loop"]').first();
     for(const port of ['loop','done','continue']) assert.equal(await loop.locator(`[data-handleid="${port}"]`).count(),1,`Sprint foreach exposes its ${port} port`);
     await page.screenshot({path:'/tmp/hellotest-sprint-foreach-editor.png',fullPage:true});
     await page.getByText('Read all Sprint Stories',{exact:true}).click();
@@ -66,7 +66,8 @@ test('Sprint template exposes its real native chain and lets assessed manual/API
     await page.getByRole('button',{name:'Save changes',exact:true}).click();
     await page.waitForFunction(()=>Boolean(window.previewWorkflow));
     assert.equal(await page.evaluate(()=>window.previewWorkflow.nodes.find(node=>node.data.kind==='loop').data.loopAction),'workflow');
-    assert.equal(await page.evaluate(()=>window.previewWorkflow.edges.some(edge=>edge.source==='automation-engineer' && edge.target==='each-story' && edge.targetHandle==='continue')),true);
+    assert.equal(await page.evaluate(()=>window.previewWorkflow.edges.some(edge=>edge.source==='automation-engineer' && edge.target==='each-test-case' && edge.targetHandle==='continue')),true);
+    assert.equal(await page.evaluate(()=>window.previewWorkflow.edges.some(edge=>edge.source==='each-test-case' && edge.sourceHandle==='done' && edge.target==='each-story' && edge.targetHandle==='continue')),true);
     await page.evaluate(()=>window.openSprintRun());
     await page.getByRole('button',{name:'Results',exact:true}).click();
     const drafts=page.getByRole('region',{name:'Sprint Test Case drafts'});

@@ -48,7 +48,7 @@ import { AddIcon, BugIcon, CollapseExpandIcon, CopyIcon, ExportIcon, ImportIcon,
 
 import { RepositoryLocatorBuilder } from "../components/RepositoryLocatorBuilder";
 import { AutomationObjects } from "../components/AutomationObjects";
-import { changeRepositoryFieldLocator, collectRepositoryStepReferences, collectRouteScopedLocatorKeys, isRepositoryMemberUsed } from "../lib/repositoryLocators";
+import { changeRepositoryFieldLocator, collectRepositoryStepReferences, collectRouteScopedLocatorKeys, isRepositoryMemberUsed, repositoryLocatorIdentity, sameRepositoryLocator } from "../lib/repositoryLocators";
 import { AiFeatureComposer } from "@hellotest/agentic/frontend/components/AgenticExperience";
 import { CatalogActionMenu } from "@hellotest/platform/frontend/src/shared/components/CatalogActionMenu";
 import { CatalogCardDescription } from "@hellotest/platform/frontend/src/shared/components/CatalogCardDescription";
@@ -2115,7 +2115,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     return Array.from(byLocator.values()).filter((field) => !dismissedInspectLocators.includes(field.locator));
   }, [aiSuggestedInspectFields, dismissedInspectLocators, inspectedFields]);
   const selectedInspectLocatorSet = useMemo(
-    () => new Set(stagedInspectFields.flatMap((field) => [field.locator, field.sourceLocator || field.locator])),
+    () => new Set(stagedInspectFields.flatMap((field) => [field.locator, field.sourceLocator || field.locator, repositoryLocatorIdentity(field.locator), repositoryLocatorIdentity(field.sourceLocator || field.locator)])),
     [stagedInspectFields]
   );
   const inspectFieldInventory = useMemo(() => {
@@ -2472,6 +2472,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         setAutomationManualLinkDraftIds([]);
         setExecutionHookDraft([]);
         setSelectedExecutionDataSetId("");
+        setSelectedExecutionEnvironmentId("");
         lastAutomationCaseDraftSeedRef.current = null;
       }
       return;
@@ -2507,6 +2508,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     setExecutionHookDraft(current => previous ? mergeAutomationMetadataValue(current, mapExecutionHooksToRunHooks(previous.execution_hooks), mapExecutionHooksToRunHooks(activeCase.execution_hooks)) : mapExecutionHooksToRunHooks(activeCase.execution_hooks));
     setAutomationManualLinkDraftIds((current) => previous ? mergeAutomationMetadataValue(current, manualCasesFromCase(previous), manualCasesFromCase(activeCase)) : manualCasesFromCase(activeCase));
     setSelectedExecutionDataSetId((current) => previous ? mergeAutomationMetadataValue(current, previous.test_data_set_ids?.[0] || "", nextDataSetId) : nextDataSetId);
+    setSelectedExecutionEnvironmentId(current => previous ? mergeAutomationMetadataValue(current, previous.test_data_options?.test_environment_id || "", activeCase.test_data_options?.test_environment_id || "") : activeCase.test_data_options?.test_environment_id || "");
     lastAutomationCaseDraftSeedRef.current = { caseKey, detail: activeCase };
   }, [activeCase, projectId, selectedCaseId]);
 
@@ -3992,20 +3994,33 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   };
 
   const stageInspectField = (field: RepositoryExtractedField) => {
-    const isExistingSelection = stagedInspectFieldsRef.current.some((item) => item.locator === field.locator);
+    const selected = stagedInspectFieldsRef.current;
+    let nextField = field;
+    const collision = selected.find(item => sameRepositoryLocator(item.locator, field.locator)
+      && (item.sourceLocator || item.locator) !== field.locator);
+    if (collision) {
+      const alternative = (field.locatorCandidates || []).find(candidate => !selected.some(item => sameRepositoryLocator(item.locator, candidate.locator)));
+      if (!alternative) {
+        setInspectMessage(`${field.name} shares its locator with ${collision.name}. Choose a distinct validated locator before selecting both fields.`);
+        return;
+      }
+      nextField = { ...field, sourceLocator: field.sourceLocator || field.locator,
+        ...changeRepositoryFieldLocator(field, alternative.locator, alternative.strategy) };
+    }
+    const isExistingSelection = selected.some((item) => (item.sourceLocator || item.locator) === (nextField.sourceLocator || nextField.locator));
     setStagedInspectFields((current) => {
-      const existingIndex = current.findIndex((item) => item.locator === field.locator);
+      const existingIndex = current.findIndex((item) => (item.sourceLocator || item.locator) === (nextField.sourceLocator || nextField.locator));
       if (existingIndex < 0) {
-        const next = [...current, field];
+        const next = [...current, nextField];
         stagedInspectFieldsRef.current = next;
         return next;
       }
-      const next = current.map((item, index) => index === existingIndex ? { ...item, ...field } : item);
+      const next = current.map((item, index) => index === existingIndex ? { ...item, ...nextField } : item);
       stagedInspectFieldsRef.current = next;
       return next;
     });
-    setFocusedInspectLocator(field.locator);
-    setInspectMessage(`${isExistingSelection ? "Updated" : "Selected"} ${field.name}. Remove unwanted fields or save the selected set.`);
+    setFocusedInspectLocator(nextField.locator);
+    setInspectMessage(`${isExistingSelection ? "Updated" : "Selected"} ${field.name}${nextField.locator !== field.locator ? " with a distinct alternate locator" : ""}. Remove unwanted fields or save the selected set.`);
   };
 
   const updateStagedInspectField = (currentLocator: string, patch: Partial<RepositoryExtractedField>) => {
@@ -4450,6 +4465,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     mutationFn: async () => {
       const pendingCapture = isInspectingLiveField ? await stopLiveInspect() : null;
       const fields = [...stagedInspectFieldsRef.current];
+      for (let index = 0; index < fields.length; index++) {
+        const duplicate = fields.slice(0, index).find(field => sameRepositoryLocator(field.locator, fields[index].locator));
+        if (duplicate) throw new Error(`${fields[index].name} and ${duplicate.name} use equivalent selectors. Choose a distinct locator for each field before saving.`);
+      }
       const evidence = pendingCapture ? {
         screenDom: pendingCapture.screen_dom,
         screenScreenshotUrl: pendingCapture.screen_screenshot_url,
@@ -5268,17 +5287,26 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     if (!browserInspectFields.length) {
       return;
     }
-    const selectedLocatorSet = new Set(stagedInspectFields.map((field) => field.locator));
-    const fieldsToSelect = browserInspectFields.filter((field) => !selectedLocatorSet.has(field.locator));
-    const nextSelected = [
-      ...stagedInspectFields,
-      ...fieldsToSelect
-    ].filter((field, index, fields) => fields.findIndex((item) => item.locator === field.locator) === index);
+    const nextSelected = [...stagedInspectFieldsRef.current];
+    let duplicateCount = 0;
+    for (const field of browserInspectFields) {
+      if (nextSelected.some(item => (item.sourceLocator || item.locator) === (field.sourceLocator || field.locator))) continue;
+      let candidate = field;
+      const collision = nextSelected.some(item => sameRepositoryLocator(item.locator, field.locator));
+      if (collision) {
+        const alternative = (field.locatorCandidates || []).find(value => !nextSelected.some(item => sameRepositoryLocator(item.locator, value.locator)));
+        if (!alternative) { duplicateCount++; continue; }
+        candidate = { ...field, sourceLocator: field.sourceLocator || field.locator,
+          ...changeRepositoryFieldLocator(field, alternative.locator, alternative.strategy) };
+      }
+      nextSelected.push(candidate);
+    }
+    const added = nextSelected.length - stagedInspectFieldsRef.current.length;
     setStagedInspectFields(nextSelected);
     stagedInspectFieldsRef.current = nextSelected;
     setFocusedInspectLocator(nextSelected[nextSelected.length - 1]?.locator || "");
     setBrowserInspectFields([]);
-    setInspectMessage(`${fieldsToSelect.length} captured field${fieldsToSelect.length === 1 ? "" : "s"} moved to Selected fields.`);
+    setInspectMessage(`${added} captured field${added === 1 ? "" : "s"} moved to Selected fields.${duplicateCount ? ` ${duplicateCount} duplicate selector${duplicateCount === 1 ? " was" : "s were"} left unselected because no distinct fallback was available.` : ""}`);
     void syncInspectHighlights(nextSelected, []);
   };
 
@@ -6128,7 +6156,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                                   {spec.showValue ? <label className="form-field automation-plan-target"><span>{spec.valueLabel}</span>{spec.valueTarget === "repository" ? <AutomationRepositoryFieldPicker ariaLabel={`Step ${step.step_order} destination field`} disabled={!canEditAutomationCode} objectRepository={learningCache} onChange={(value) => updateDraft({ value })} value={draft.value} /> : <AutomationParameterInput ariaLabel={`Step ${step.step_order} ${spec.valueLabel}`} availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} disabled={!canEditAutomationCode} onChange={(value) => updateDraft({ value })} value={draft.value} />}</label> : null}
                                 </>}
                               </div>}
-                              <details><summary>Execution options</summary><div className="automation-plan-actions">{([['optional', 'Optional step'], ['skip', 'Skip step'], ['screenshotOnFailure', 'Screenshot on failure']] as const).map(([key, label]) => <label className="checkbox-field" key={key}><input disabled={!canEditAutomationCode} checked={options[key]} onChange={(event) => setStepOptionDrafts((current) => ({ ...current, [step.id]: { ...options, [key]: event.target.checked } }))} type="checkbox" />{label}</label>)}</div></details>
+                              <details><summary>Execution options</summary><div className="automation-plan-actions">{([['optional', 'Optional step'], ['skip', 'Skip step'], ['screenshotOnFailure', 'Screenshot on failure']] as const).map(([key, label]) => <label className="checkbox-field" key={key}><input disabled={!canEditAutomationCode} checked={options[key]} onChange={(event) => setStepOptionDrafts((current) => ({ ...current, [step.id]: { ...options, [key]: event.target.checked } }))} type="checkbox" />{label}</label>)}<label className="form-field"><span>Step timeout override (ms)</span><input aria-label={`Step ${step.step_order} timeout override`} type="number" min="250" max="120000" step="250" placeholder="Use Test Engine default" value={options.timeoutMs ?? ""} disabled={!canEditAutomationCode} onChange={event => setStepOptionDrafts(current => ({ ...current, [step.id]: { ...options, timeoutMs: event.target.value === "" ? null : Number(event.target.value) } }))} /><small>Blank inherits the Test Engine action/assertion timeout. Allowed range: 250–120000 ms.</small></label></div></details>
                               <div className="automation-plan-actions">
                                 {canEditAutomationCode ? (<button className="primary-button compact" disabled={!canEditAutomationCode || updateAutomationStep.isPending || updateAutomationStepCode.isPending} onMouseDown={event => { if (event.button === 0) event.preventDefault(); }} onClick={() => updateAutomationStepCode.mutate(step)} type="button">{updateAutomationStep.isPending || updateAutomationStepCode.isPending ? "Saving…" : "Save section"}</button>) : null}
                                 {canEditAutomationCode && (hasChanges || apiSourceDrafts[step.id] !== undefined) ? <button className="ghost-button compact" disabled={updateAutomationStep.isPending || updateAutomationStepCode.isPending} onClick={() => syncAutomationStepDrafts(step)} type="button">Discard changes</button> : null}
@@ -6689,7 +6717,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       </div>
                       <div className="object-repository-suggestion-list">
                       {inspectFieldInventory.map((field) => {
-                        const isSelected = selectedInspectLocatorSet.has(field.locator);
+                        const isSelected = selectedInspectLocatorSet.has(field.locator) || selectedInspectLocatorSet.has(repositoryLocatorIdentity(field.locator));
                         const locatorHealth = field.locatorCandidates?.[0];
                         const sourceLabel = field.source === "live_inspect" ? "Captured" : field.source === "ai_extract" ? "AI suggested" : "DOM detected";
                         const validationStatus = field.validationStatus || (locatorHealth?.matchCount === 1 ? "unique" : (locatorHealth?.matchCount || 0) > 1 ? "ambiguous" : "unverified");

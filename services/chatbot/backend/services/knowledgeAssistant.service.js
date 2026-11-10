@@ -458,6 +458,7 @@ const requestGroundedAnswer = async ({ integration, question, hits, history = []
     information_needs: asArray(retrievalPlan?.intent_plan?.information_needs).slice(0, 8)
   };
   data.retrieval_outcome.retrieval_strategy = retrievalPlan?.retrieval_strategy || null;
+  if(!contextPacket.evidence.length)data.retrieval_outcome.evidence_gap=require('@hellotest/platform/backend/src/utils/aiPromptEnvelope').policy.context_gap;
   const deadlineAt = Date.now() + answerModelTimeout();
   const request = {
     integration,
@@ -466,7 +467,8 @@ const requestGroundedAnswer = async ({ integration, question, hits, history = []
     outputSchema: modelRequest.output_schema,
     messages: [
       { role: "system", content: [
-        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.10")
+        aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.10"),
+        ...(!contextPacket.evidence.length?[require('@hellotest/platform/backend/src/utils/aiPromptEnvelope').policy.context_gap]:[])
       ].join(" ") + aiInstructionBlock("ai.knowledge.assistant", "knowledgeAssistant.request.27") + JSON.stringify(modelRequest.output_schema) },
       { role: "user", content: JSON.stringify(data) }
     ]
@@ -1212,10 +1214,21 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
     const intentModelCalls = execution.current().modelStats.calls;
     const contextRequest = { ...retrievalRequest, budgets: { ...retrievalRequest.budgets,
       max_tool_calls: Math.max(0, retrievalRequest.budgets.max_tool_calls - intentModelCalls - (integration && !retrievalDisabled ? 1 : 0)) } };
-    const context = await require("@hellotest/mcp/backend/gateway").retrieveContext({ request: contextRequest, user, history, smartContext, integration, intentPlan, signal: execution.current()?.signal, timeoutMs: Math.max(1, execution.current().turn.deadlineAt - Date.now() - ANSWER_FINALIZATION_RESERVE_MS) });
+    let context;
+    try{context=await require("@hellotest/mcp/backend/gateway").retrieveContext({ request: contextRequest, user, history, smartContext, integration, intentPlan, signal: execution.current()?.signal, timeoutMs: Math.max(1, execution.current().turn.deadlineAt - Date.now() - ANSWER_FINALIZATION_RESERVE_MS) });}
+    catch(error){
+      execution.assertActive();
+      if([401,403].includes(error.statusCode)||error.code==='MCP_CONTEXT_SCOPE_MISMATCH')throw error;
+      const budget=new knowledgeContracts.RetrievalBudget(contextRequest.budgets);budget.terminate(knowledgeContracts.TERMINATION_REASONS.FAILED);
+      const failedRetrieval={status:'FAILED',retrieval_failed:true,tool_call_usage_unknown:true,tool_calls_reserved:contextRequest.budgets.max_tool_calls,gaps:[require('@hellotest/platform/backend/src/utils/aiPromptEnvelope').policy.context_gap]};
+      const packet=knowledgeContracts.buildContextPacket({retrievalRequest:contextRequest,evidence:[],budget,retrieval:failedRetrieval,authorization:{project_scope_enforced:true,source_acl_enforced:true}});
+      context={packet,hits:[],retrieval:packet.retrieval,budget:{tool_calls_used:0,tool_calls_reserved:contextRequest.budgets.max_tool_calls},route:{},projectScope:{project_id:sessionRow.project_id,app_type_id:sessionRow.app_type_id,filters:mergedFilters,context_route:{}}};
+    }
     // The planner was already charged by the model gateway. Do not add its
     // calls back when reconciling the observed retrieval work.
-    execution.current().modelBudget.max_tool_calls = Math.max(0, retrievalRequest.budgets.max_tool_calls - context.budget.tool_calls_used);
+    // A failed read has no usage receipt. Keep its entire allocated reservation
+    // charged while retaining the answer call reserved before retrieval.
+    execution.current().modelBudget.max_tool_calls = Math.max(0, retrievalRequest.budgets.max_tool_calls - (context.budget.tool_calls_reserved ?? context.budget.tool_calls_used));
     contextPacket = context.packet;
     if (retrieval.history_unavailable) contextPacket.retrieval.history_unavailable = true;
     retrieval = { ...retrieval, ...context.retrieval, selected_integration_id: integration?.id || null,
@@ -1233,7 +1246,7 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
       if (deterministic) { trustedDeterministic = true; return deterministic; }
       return createGroundedExtractiveFallback({ hits, reason, question: sanitizedQuestion.text, contextRoute: context.route });
     };
-    if (!hits.length) {
+    if (!hits.length && (retrievalDisabled || responseMode === 'evidence' || !integration)) {
       outcome = respondWithoutModel({ status: "insufficient_context", reason: context.retrieval.retrieval_failed
         ? "Authorized retrieval is temporarily unavailable. Try again or narrow the selected sources."
         : "The selected sources do not contain enough authorized evidence. Add or refresh the related sources, or narrow your question." });
@@ -1267,7 +1280,7 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
     // Access can change while a model is running. Recheck before saving or
     // sending claims, and drop every claim whose evidence is no longer visible.
     execution.emit("VALIDATION", "started", { message: "Checking the final answer against its source references." });
-    const access = await assistantRead((signal) => authorizeFreshEvidence({ projectId: sessionRow.project_id, user, hits, asOf: mergedFilters.as_of, signal }), { code: "ANSWER_AUTHORIZATION_TIMEOUT" });
+    const access = hits.length?await assistantRead((signal) => authorizeFreshEvidence({ projectId: sessionRow.project_id, user, hits, asOf: mergedFilters.as_of, signal }), { code: "ANSWER_AUTHORIZATION_TIMEOUT" }):{allowed:[],denied_ids:[]};
     const allowed = new Set(access.allowed.map((hit) => hit.citation?.id));
     contextPacket.evidence = contextPacket.evidence.filter((item) => allowed.has(item.evidence_id));
     if (access.denied_ids.length) {
@@ -1308,7 +1321,8 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
   retrieval.model_usage = execution.current().usage;
   retrieval.model_budget = { calls_used: execution.current().modelStats.calls, retries_used: Number(execution.current().modelStats.retries || 0), cost_limit_enforced: execution.current().modelBudget?.max_query_cost_usd != null,
     total_tool_call_limit: retrievalRequest.budgets.max_tool_calls,
-    retrieval_tool_calls_used: Number(contextPacket?.budget?.used?.tool_calls || 0),
+    retrieval_tool_calls_used: contextPacket?.retrieval?.tool_call_usage_unknown?null:Number(contextPacket?.budget?.used?.tool_calls || 0),
+    retrieval_tool_calls_reserved: contextPacket?.retrieval?.tool_calls_reserved ?? null,
     provider_requests: Number(execution.current().modelStats.provider_requests || 0),
     compatibility_retries: Number(execution.current().modelStats.compatibility_retries || 0),
     cost_usd: execution.current().usage.length && execution.current().usage.every((item) => item.cost_usd != null)

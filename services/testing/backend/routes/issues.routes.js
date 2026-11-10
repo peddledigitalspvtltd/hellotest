@@ -166,6 +166,7 @@ function registerFeedbackRoutes(fastify, basePath) {
       external_links: { required: false, type: "array", items: "string", maxItems: 12 },
       reference_photos: { required: false, type: "array", maxItems: 6 },
       linked_test_run_id: { required: false, type: "string" },
+      linked_execution_result_id: { required: false, type: "string" },
       linked_test_case_ids: { required: false, type: "array", items: "string" },
       linked_requirement_ids: { required: false, type: "array", items: "string" },
       integration_id: { required: false, type: "string" },

@@ -3,6 +3,20 @@ const db = require('@hellotest/platform/backend/src/db');
 const { createToken } = require('@hellotest/platform/backend/src/utils/token');
 const tasks = require('./artifactTasks');
 const { fail } = require('./connections');
+const { normalizeDataOptions } = require('@hellotest/platform/backend/src/utils/scopedTestData');
+
+async function dataOptionsForDraft({ run, user, draft, automated }) {
+  const options = { ...(draft.test_data_options || {}), ...(automated?.test_data_options || {}) };
+  const environmentIds = [...new Set([options.test_environment_id, automated?.test_environment_id, automated?.execution_context?.test_environment_id].filter(id => id != null))];
+  if (environmentIds.length > 1) throw fail('The recorded automation has conflicting Test Environment references. Rebuild this draft before acceptance.', 409);
+  if (environmentIds.length) options.test_environment_id = environmentIds[0];
+  const hasOptions = Object.values(options).some(value => value != null && (!Array.isArray(value) || value.length > 0));
+  if (hasOptions || automated?.test_data_set_ids?.length) await tasks.access(user, run.project_id, ['data.view']);
+  if (!hasOptions) return undefined;
+  const normalized = normalizeDataOptions(options);
+  if (normalized.test_environment_id) await require('./automationNodeInputs').selectedEnvironment({ run, node: { data: { testEnvironmentId: normalized.test_environment_id } }, user, access: tasks.access });
+  return normalized;
+}
 
 async function accept(app, req, run) {
   if (req.apiKey) throw fail('Use your signed-in session to accept workflow drafts.', 403);
@@ -23,7 +37,7 @@ async function accept(app, req, run) {
   if (!packet.story_revision || !Array.isArray(draft.requirement_ids) || draft.requirement_ids.length !== 1 || draft.requirement_ids[0] !== packet.story_id) throw fail('The recorded draft is missing its selected Story revision or traceability. Run the native workflow again.', 409);
   await tasks.access(req.user, run.project_id, ['agentic_workflow.view', 'testcase.create']);
   if (kind === 'automation') await tasks.access(req.user, run.project_id, ['automation.view', 'automation.code.view', 'automation.build']);
-  const automated = packet.automation?.[caseIndex];
+  const automated = packet.automation?.[caseIndex] || packet.automation_by_case?.[draft.client_id];
   if (kind === 'automation' && (!automated || automated.case_fingerprint !== tasks.fingerprint(draft) || !Array.isArray(automated.steps) || !automated.steps.length || automated.validation?.status !== 'passed')) throw fail('The automation draft has not passed its native contract checks. Review its output before acceptance.', 409);
   const appType = await require('@hellotest/platform/backend/public/applicationAccess').getAppType(run.app_type_id);
   if (appType.project_id !== run.project_id) throw fail('The workflow application is unavailable in this project.', 403);
@@ -41,8 +55,10 @@ async function accept(app, req, run) {
     // If the reviewed manual version was accepted first, keep the native
     // manual-to-automation relationship rather than creating an unrelated case.
     const manualReceipt = kind === 'automation' ? await db.prepare('SELECT request_hash,receipt FROM workflow_draft_acceptances WHERE run_id=? AND story_id=? AND case_index=? AND kind=? AND project_id=?').get(run.id, packet.story_id, caseIndex, 'manual', run.project_id) : null;
+    const dataOptions = await dataOptionsForDraft({ run, user: req.user, draft, automated: kind === 'automation' ? automated : null });
     const payload = { app_type_id: run.app_type_id, title: draft.title, description: draft.description, priority: draft.priority, test_case_type: draft.test_case_type, status: 'draft', requirement_ids: [story.id], authoring_mode: draft.authoring_mode, gherkin_document: draft.gherkin_document, parameter_values: draft.parameter_values || {}, steps: draft.steps, ai_generation_source: 'interactive', ai_generation_review_status: 'pending', review_status: 'pending', reviewer_id: req.user.id,
-      ...(kind === 'automation' ? { automated: 'yes', automation_status: 'incomplete', automation_case_type: resolveAutomationCaseType(automated,{steps:automated.steps}), automation_start_url: automated.automation_start_url || automated.start_url || undefined, steps: automated.steps, parameter_values: automated.parameter_values || draft.parameter_values || {}, ...(manualReceipt?.receipt?.id ? { manual_test_case_ids: [manualReceipt.receipt.id] } : {}) } : {}) };
+      ...(dataOptions ? { test_data_options: dataOptions } : {}),
+      ...(kind === 'automation' ? { automated: 'yes', automation_status: 'incomplete', automation_case_type: resolveAutomationCaseType(automated,{steps:automated.steps}), automation_start_url: automated.automation_start_url || automated.start_url || undefined, steps: automated.steps, parameter_values: automated.parameter_values || draft.parameter_values || {}, test_data_set_ids: Array.isArray(automated.test_data_set_ids) ? automated.test_data_set_ids : [], ...(manualReceipt?.receipt?.id ? { manual_test_case_ids: [manualReceipt.receipt.id] } : {}) } : {}) };
     const response = await app.inject({ method: 'POST', url: '/test-cases', headers: { authorization: `Bearer ${createToken(req.user)}` }, payload });
     let body; try { body = response.json(); } catch { throw fail('The Test Case service returned an invalid receipt.', 502); }
     if (response.statusCode >= 400) throw fail(body.publicMessage || body.error || body.message || 'The Test Case could not be accepted.', response.statusCode);
@@ -101,6 +117,7 @@ async function publishCase({ run, nodeId, packet, draft, caseIndex, kind, automa
     const manual = kind === 'automation' ? await db.prepare("SELECT receipt FROM workflow_draft_acceptances WHERE run_id=? AND story_id=? AND case_index=? AND kind='manual' AND project_id=?")
       .get(run.id, story.id, caseIndex, run.project_id) : null;
     if (kind === 'automation' && !manual?.receipt?.id) throw fail('Publish the generated manual case before its automation.', 409);
+    const dataOptions = await dataOptionsForDraft({ run, user: actor, draft, automated: kind === 'automation' ? automated : null });
     // Automatic publication saves authored data for later review. It never
     // records a reviewer decision or claims the generated automation was run.
     const payload = { app_type_id: run.app_type_id, title: draft.title, description: draft.description,
@@ -109,9 +126,11 @@ async function publishCase({ run, nodeId, packet, draft, caseIndex, kind, automa
       steps: draft.steps, ai_generation_source: 'interactive', ai_generation_review_status: 'pending',
       review_status: 'pending', reviewer_id: actor.id, author_id: actor.id, created_by: actor.id, updated_by: actor.id,
       source_idempotency_key: `workflow-draft:${key}`,
+      ...(dataOptions ? { test_data_options: dataOptions } : {}),
       ...(kind === 'automation' ? { automated: 'yes', automation_status: 'incomplete', automation_case_type: resolveAutomationCaseType(automated,{steps:automated.steps}),
         automation_start_url: automated.automation_start_url || automated.start_url || undefined,
         steps: automated.steps, parameter_values: automated.parameter_values || draft.parameter_values || {},
+        test_data_set_ids: Array.isArray(automated.test_data_set_ids) ? automated.test_data_set_ids : [],
         manual_test_case_ids: [manual.receipt.id] } : {}) };
     assertPublicationActive(signal);
     const saved = await require('@hellotest/testing/backend/services/testCase.service').createTestCase(payload);
@@ -153,11 +172,13 @@ async function publishNodeArtifacts({ run, node, user, signal }) {
   for (const packet of packets) {
     if (!packet?.story_revision || seen.has(packet.story_id)) throw fail('Publish each revision-pinned Story once.', 409);
     seen.add(packet.story_id);
+    if (task === 'test-case-generation' && packet.test_case_generation?.verification?.status === 'needs_input'
+      && Array.isArray(packet.cases) && packet.cases.length === 0) continue;
     tasks._internals.assertDrafts(packet.cases, packet.story_id, require('./generationNodeOptions').pinnedGenerationOptions(stored).maxCases);
     if (packet.test_case_generation?.verification?.status !== 'passed'
       || tasks.fingerprint(packet.test_case_generation.cases) !== tasks.fingerprint(packet.cases)) throw fail('The generated cases changed after native validation.', 409);
     for (const [caseIndex, draft] of packet.cases.entries()) {
-      const automated = packet.automation?.[caseIndex];
+      const automated = packet.automation?.[caseIndex] || packet.automation_by_case?.[draft.client_id];
       if (task === 'automation-engineer') {
         if (automated == null) continue;
         const assessed = packet.case_assurance?.[caseIndex];

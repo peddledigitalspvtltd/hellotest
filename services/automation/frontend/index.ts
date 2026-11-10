@@ -3,5 +3,5 @@ import type { ServiceDefinition } from "@hellotest/platform/frontend/src/service
 export const automationService: ServiceDefinition = {
   id: "automation",
   envKey: "VITE_AUTOMATION_SERVICE_URL",
-  matches: (pathname) => /^\/(?:api\/testengine|testengine\/|automation-generator|api\/engine|api\/runs|local-agent)/.test(pathname)
+  matches: (pathname) => /^\/(?:automation\/|local-browser-bridges\/|api\/testengine|testengine\/|automation-generator|api\/engine|api\/runs|local-agent)/.test(pathname)
 };

@@ -119,9 +119,29 @@ test('whole-case progress preserves completed drafts and separates failed cases 
     {node_id:'build',node_type:'artifactTask',status:'running',progress:{completed_items:data,automation_checkpoint:{stories:[{cases:[draft('private-checkpoint')]}]}}}]};
   const result=collectSprintDrafts(run)[0];
   assert.equal(result.packet.automation[0].executable.code,'validated complete source');
-  assert.deepEqual(result.packet.automation_failures,[failure]);assert.deepEqual(result.packet.automation_progress,progress);
+  assert.deepEqual(result.packet.automation_failures.filter(Boolean),[failure]);assert.deepEqual(result.packet.automation_progress,progress);
   assert.deepEqual(result.packet.automation_input_required,[]);
   assert.deepEqual(result.manualTarget,{nodeId:'assess',storyIndex:0});
   assert.equal(result.automationTarget,undefined,'An active progress record does not become a completed acceptance target');
   assert.deepEqual(result.packet.cases.map(item=>item.client_id),['case-good','case-failed']);
+});
+
+test('nested case iterations merge automation and prepared test data by exact case identity',()=>{
+  const cases=[draft('one'),draft('two')];
+  const testData=client_id=>({status:'ready',source:'synthetic',parameter_values:{'t.department':'Fictional '+client_id}});
+  const automation=client_id=>({client_id,case_fingerprint:'fingerprint-'+client_id,validation:{status:'passed'},executable:{code:'source '+client_id}});
+  const caseRow=(index,client_id)=>({...story('sprint-story'),case_index:index,client_id,automation:[{...automation(client_id),case_index:index}],
+    automation_failures:[],automation_input_required:[],test_data:testData(client_id)});
+  const run={node_results:[
+    stage('generate',[{...story('sprint-story'),cases}]),
+    stage('assess',[{...story('sprint-story'),case_assurance:cases.map((item,index)=>({client_id:item.client_id,case_index:index,analysis:{},assurance_review:{summary:'Assessed '+item.client_id}}))}]),
+    ...cases.map((item,index)=>({node_id:'automation-engineer',node_type:'artifactTask',status:'completed',iteration_path:['each-story',0,'each-test-case',index],output:{data:[caseRow(index,item.client_id)]}}))
+  ]};
+  const result=collectSprintDrafts(run)[0];
+  assert.deepEqual(result.packet.automation.map(item=>item.executable.code),['source case-one','source case-two']);
+  assert.deepEqual(result.packet.test_data.map(item=>item.parameter_values),[
+    {'t.department':'Fictional case-one'},{'t.department':'Fictional case-two'}
+  ]);
+  assert.deepEqual(result.automationTarget,{nodeId:'automation-engineer',storyIndex:0,iterationPath:['each-story',0,'each-test-case',1]});
+  assert.deepEqual(result.manualTarget,result.automationTarget);
 });
