@@ -10,11 +10,16 @@ const base=(await readFile(new URL('agentWorkspace.test.mjs',import.meta.url),'u
 const setup=`
 window.enablePreviewFixture();
 const savedNodes=['request','records','skipped','large','finish','iterations'].map((id,index)=>({id,type:'agenticStep',position:{x:index*280,y:120},data:{kind:id==='request'?'trigger':id==='finish'?'output':'editFields',label:{request:'Manual request',records:'Read recorded data',skipped:'Skipped node',large:'Large recorded output',finish:'Explicit null output',iterations:'Repeated batch step'}[id]}}));
+savedNodes.push({id:'running-automation',type:'agenticStep',position:{x:1680,y:120},data:{kind:'artifactTask',artifactTask:'automation-engineer',label:'Build running automation'}});
 window.recordedInput={story_id:'recorded-story',enabled:false,count:0,items:[{id:'recorded-item',value:null}]};
 window.recordedOutput={status:200,records:[{id:'recorded-item',passed:false}],literal:'<script>window.untrustedExecuted=true</script>'};
 window.largeRecordedOutput={start:'RECORDED_START',body:'x'.repeat(120000),end:'RECORDED_END'};
 window.ioRun={id:'execution-io-fixture',workflow_id:'saved-workflow',workflow_name:'Recorded data inspection',project_id:'project',app_type_id:'app',execution_mode:'review',trigger_kind:'manual',status:'completed',created_at:'2026-10-27T10:00:00Z',started_at:'2026-10-27T10:00:00Z',completed_at:'2026-10-27T10:01:00Z',input_payload:{sprint_id:'recorded-sprint'},workflow_snapshot:{nodes:savedNodes,edges:savedNodes.slice(1).map((item,index)=>({id:'edge-'+index,source:savedNodes[index].id,target:item.id}))},node_results:savedNodes.map(node=>({node_id:node.id,node_name:node.data.label,node_type:node.data.kind,status:node.id==='skipped'?'skipped':'completed',attempts:node.id==='skipped'?0:1,...(node.id==='records'?{input:{input_mode:'connected_results',request:{sprint_id:'recorded-sprint'},input:window.recordedInput,source_node_ids:['request'],upstream:[{node_id:'request',status:'completed',preview:'recorded upstream preview',truncated:true}],prompt:'Recorded exact prompt'},output:window.recordedOutput}:node.id==='large'?{input:{input:window.recordedInput},output:window.largeRecordedOutput}:node.id==='finish'?{input:null,output:null}:node.id==='request'?{input:{input:{sprint_id:'recorded-sprint'}},output:{sprint_id:'recorded-sprint'}}:{}),logs:[{at:'2026-10-27T10:00:01Z',level:'info',message:'Recorded event for '+node.id}]})),output_payload:{summary:'Saved records available for inspection.'}};
 window.iterationInput={enabled:false,count:0,item:null};
+window.ioRun.status='running';
+Object.assign(window.ioRun.node_results.find(item=>item.node_id==='running-automation'),{status:'running',attempts:1,
+ progress:{percent:6,current_case:1,total_cases:1,automation_progress:{total:1,processed:0,active_case_index:0,active_step_order:2,completed_sections:1,total_sections:17,active_message:'Playwright MCP: navigate.'},automation_checkpoint:{source:'PRIVATE_BUILD_CHECKPOINT'}},
+ execution_context:{source:'PRIVATE_EXECUTION_CONTEXT'}});
 window.recordedNodeFailure={code:'LLM_JSON_INSTRUCTION_REQUIRED',category:'provider_request',message:'The model messages did not include a JSON instruction.',status_code:400,upstream_status_code:400,retryable:false,provider_error:{code:null,type:'invalid_request_error',param:'messages',request_id:'req-workflow-browser-fixture'},origin:{node_id:'iterations',node_name:'Repeated batch step',loop_node_id:'request',batch_index:0,iteration_path:['request',0,'records',1]}};
 const repeated=window.ioRun.node_results.find(item=>item.node_id==='iterations');
 Object.assign(repeated,{output:{latest:true},input:{input:{current:'latest'}},logs:[{message:'Latest batch event'}],iterations:[
@@ -42,6 +47,14 @@ test('execution dialog shows actual read-only node JSON, bounds large records an
     const dialog=page.getByRole('dialog',{name:'Workflow execution details',exact:true});await dialog.waitFor();
     const width=(await dialog.boundingBox()).width;assert.ok(width>=1200 && width<=1360,'execution dialog stays comfortably bounded on desktop');
     const select=label=>dialog.locator('.studio-execution-steps button').filter({hasText:label}).click();
+    await select('Build running automation');
+    const liveOutput=dialog.getByRole('region',{name:'Node output',exact:true});
+    await liveOutput.getByText('Automation progress',{exact:true}).waitFor();
+    assert.match(await liveOutput.innerText(),/Case 1 of 1/);assert.match(await liveOutput.innerText(),/Section 2 of 17 · 1 completed/);assert.match(await liveOutput.innerText(),/Playwright MCP: navigate\./);
+    assert.equal(await liveOutput.getByRole('progressbar',{name:'Automation generation progress',exact:true}).getAttribute('value'),'6');
+    assert.equal(await liveOutput.getByRole('textbox',{name:'Node output JSON',exact:true}).count(),0,'Active progress cannot become completed automation code');
+    assert.match(await liveOutput.innerText(),/Completed automation code appears here when this case finishes/);
+    assert.doesNotMatch(await liveOutput.innerText(),/PRIVATE_BUILD_CHECKPOINT|PRIVATE_EXECUTION_CONTEXT/);
     await select('Read recorded data');
     const output=page.getByRole('textbox',{name:'Node output JSON',exact:true});
     assert.deepEqual(JSON.parse(await output.inputValue()),await page.evaluate(()=>window.recordedOutput));
@@ -119,7 +132,7 @@ test('execution dialog shows actual read-only node JSON, bounds large records an
     assert.deepEqual(await page.evaluate(()=>JSON.parse(window.copiedJson)),await page.evaluate(()=>window.largeRecordedOutput),'copy includes the entire actual recorded value');
     await dialog.getByRole('button',{name:'Execution log',exact:true}).click();
     await dialog.getByRole('group',{name:'Execution log format',exact:true}).getByRole('button',{name:'JSON',exact:true}).click();
-    assert.equal(JSON.parse(await page.getByRole('textbox',{name:'Execution log JSON',exact:true}).inputValue()).length,6);
+    assert.equal(JSON.parse(await page.getByRole('textbox',{name:'Execution log JSON',exact:true}).inputValue()).length,7);
     assert.deepEqual(errors,[]);
   } catch(error) {
     if(page){await page.screenshot({path:screenshots+'/failure.png',fullPage:true}).catch(()=>{});await writeFile(screenshots+'/failure.txt',await page.locator('body').innerText().catch(()=>''));}

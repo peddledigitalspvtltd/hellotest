@@ -1,7 +1,7 @@
 // The API includes the engine's compiled recorder modules, so local setup does
 // not depend on a configured or reachable remote Test Engine.
 // The packaging check verifies every bundled module against this manifest.
-const runtimeDependencies = Object.freeze({ "@playwright/mcp": "0.0.84", acorn: "8.18.0", ajv: "8.18.0", fastify: "4.29.1", "jsonpath-plus": "10.4.0", playwright: "1.59.1", "selenium-webdriver": "4.43.0" });
+const runtimeDependencies = Object.freeze({ "@playwright/mcp": "0.0.84", acorn: "8.18.0", ajv: "8.18.0", fastify: "4.29.1", "jsonpath-plus": "10.4.0", playwright: "1.65.0-alpha-2026-10-30", "selenium-webdriver": "4.43.0", ws: "8.20.0" });
 exports.runtimeDependencies = runtimeDependencies;
 exports.buildInstaller = ({ recorder, security, inspection_security, inspection_proxy, repository_locator, runtime_modules, origin, api_origin = origin, agent_token }) => {
   if (![recorder, security, inspection_security, inspection_proxy, repository_locator].every(value => typeof value === "string" && value.length > 100 && value.length < 1024 * 1024)) {

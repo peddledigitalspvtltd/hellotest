@@ -245,6 +245,13 @@ const selectStepsForTestCase = db.prepare(`
   WHERE test_case_id = ?
 `);
 
+const selectEditableSteps = db.prepare("SELECT * FROM test_steps WHERE test_case_id = ? ORDER BY step_order ASC, id ASC");
+const selectEditableStepsForUpdate = db.prepare("SELECT * FROM test_steps WHERE test_case_id = ? ORDER BY step_order ASC, id ASC FOR UPDATE");
+const updateOwnedStep = db.prepare(`UPDATE test_steps SET step_order = ?, action = ?, expected_result = ?, step_type = ?,
+  automation_code = ?, api_request = ?, group_id = ?, group_name = ?, group_kind = ?, reusable_group_id = ?
+  WHERE id = ? AND test_case_id = ?`);
+const deleteOwnedStep = db.prepare("DELETE FROM test_steps WHERE test_case_id = ? AND id = ?");
+
 const deleteTestCaseRecord = db.prepare(`
   DELETE FROM test_cases
   WHERE id = ?
@@ -795,31 +802,77 @@ const normalizeGroupKind = (value) => {
   return null;
 };
 
-const normalizeSteps = (steps = []) => {
+const normalizeSteps = (steps = [], { preserveEmptyIds = false, validateApiRequests = true } = {}) => {
   if (!Array.isArray(steps)) {
     return [];
   }
 
   return steps
     .map((step, index) => ({
+      ...(normalizeText(step?.id) ? { id: normalizeText(step.id) } : {}),
       step_order: Number.isFinite(Number(step?.step_order)) ? Number(step.step_order) : index + 1,
       action: normalizeText(step?.action),
       expected_result: normalizeText(step?.expected_result || step?.expectedResult),
       step_type: normalizeTestStepType(step?.step_type || step?.stepType, "web"),
       automation_code: normalizeRichText(step?.automation_code || step?.automationCode),
-      api_request: normalizeApiRequest(validateAuthoredApiRequest(step?.api_request || step?.apiRequest, {stepOrder:index+1})),
+      api_request: normalizeApiRequest(validateApiRequests ? validateAuthoredApiRequest(step?.api_request || step?.apiRequest, {stepOrder:index+1}) : step?.api_request || step?.apiRequest),
       group_id: normalizeText(step?.group_id || step?.groupId),
       group_name: normalizeText(step?.group_name || step?.groupName),
       group_kind: normalizeGroupKind(step?.group_kind || step?.groupKind || (step?.group_id || step?.groupId ? "local" : null)),
       reusable_group_id: normalizeText(step?.reusable_group_id || step?.reusableGroupId)
     }))
-    .filter((step) => step.action || step.expected_result || step.automation_code || step.api_request)
+    .filter((step) => preserveEmptyIds && step.id || step.action || step.expected_result || step.automation_code || step.api_request)
     .sort((left, right) => left.step_order - right.step_order)
     .map((step, index) => ({
       ...step,
       step_order: index + 1
     }));
 };
+
+// Existing step IDs are durable evidence and locator ownership references.
+// Whole-case editing replaces the submitted set, while retaining owned rows
+// and fields omitted by clients whose roles cannot view automation metadata.
+async function prepareStepSetUpdate(testCaseId, incoming, { lock = false } = {}) {
+  const invalid = (message, code = "TEST_STEP_SCOPE_CHANGED", statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
+  if (!Array.isArray(incoming)) throw invalid("Test case steps must be an array.", "INVALID_TEST_STEPS", 400);
+  const current = await (lock ? selectEditableStepsForUpdate : selectEditableSteps).all(testCaseId);
+  const owned = new Map(current.map(step => [step.id, step])), ids = new Set();
+  for (const step of incoming) {
+    if (!step || typeof step !== "object" || Array.isArray(step)) throw invalid("Each test step must be an object.", "INVALID_TEST_STEPS", 400);
+    if (step.test_case_id !== undefined && step.test_case_id !== testCaseId) throw invalid("A submitted step does not belong to this test case.");
+    if (step.id === undefined || step.id === null || step.id === "") continue;
+    if (typeof step.id !== "string" || !step.id.trim() || ids.has(step.id.trim())) throw invalid("Submitted test step identities must be unique strings.", "INVALID_TEST_STEP_ID", 400);
+    ids.add(step.id.trim());
+  }
+  const unknown = [...ids].filter(id => !owned.has(id));
+  if (unknown.length) {
+    const foreign = await db.prepare("SELECT id FROM test_steps WHERE id IN (SELECT jsonb_array_elements_text(?::jsonb))").all(JSON.stringify(unknown));
+    if (foreign.length) throw invalid("A submitted step does not belong to this test case.");
+  }
+  const aliases = { expected_result: "expectedResult", step_type: "stepType", automation_code: "automationCode", api_request: "apiRequest",
+    group_id: "groupId", group_name: "groupName", group_kind: "groupKind", reusable_group_id: "reusableGroupId" };
+  const provided = (step, field) => Object.hasOwn(step, field) && step[field] !== undefined;
+  const submittedById = new Map();
+  const steps = normalizeSteps(incoming.map((step, index) => {
+    const previous = owned.get(typeof step.id === "string" ? step.id.trim() : null), merged = { ...previous, ...step, step_order: step.step_order ?? index + 1 };
+    for (const [field, alias] of Object.entries(aliases)) {
+      if (!provided(step, field)) merged[field] = provided(step, alias) ? step[alias] : previous?.[field];
+      delete merged[alias];
+    }
+    if (provided(step, "api_request") || provided(step, "apiRequest")) validateAuthoredApiRequest(merged.api_request, { stepOrder: index + 1 });
+    // Temporary client IDs cannot claim a database identity. New rows receive
+    // a server UUID; only rows already owned by this case retain their ID.
+    if (previous) { merged.id = previous.id; submittedById.set(previous.id, step); } else delete merged.id;
+    return merged;
+  }), { preserveEmptyIds: true, validateApiRequests: false });
+  for (const step of steps) if (step.id) {
+    const previous = owned.get(step.id), submitted = submittedById.get(step.id);
+    for (const field of ["action", ...Object.keys(aliases)]) if (!provided(submitted, field) && !(aliases[field] && provided(submitted, aliases[field]))) {
+      step[field] = previous[field] ?? null;
+    }
+  }
+  return { current, steps };
+}
 
 const splitImportSequence = (value) => {
   if (value === undefined || value === null) {
@@ -2013,7 +2066,7 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
     ai_quality_score: data.ai_quality_score !== undefined
       ? normalizeAiQualityScore(data.ai_quality_score)
       : normalizeAiQualityScore(existing.ai_quality_score),
-    steps: data.steps !== undefined ? normalizeSteps(data.steps) : null,
+    steps: data.steps !== undefined ? (await prepareStepSetUpdate(id, data.steps)).steps : null,
     author_id: requestedAuthorId,
     updated_by: normalizeText(data.updated_by) || existing.updated_by || existing.created_by || null
   };
@@ -2021,7 +2074,7 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
     const platform = resolveAutomationCaseSteps({
       automation_case_type: data.automation_case_type ?? storedAutomationCaseType({ test_data_options: data.test_data_options }) ?? storedAutomationCaseType(existing),
       test_data_options: payload.test_data_options
-    }, data.steps !== undefined ? data.steps : await selectStepsForTestCase.all(id), { appTypeKind: finalAppType?.type });
+    }, payload.steps !== null ? payload.steps : await selectStepsForTestCase.all(id), { appTypeKind: finalAppType?.type });
     payload.test_data_options.automation_case_type = platform.automation_case_type;
   }
   if (data.automation_start_url !== undefined) {
@@ -2073,12 +2126,23 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
       throw reviewError("The test case review changed while saving. Refresh before editing.");
     }
     await testCaseVersionService.assertExpectedRevision(id, data.expected_revision);
+    let currentSteps;
+    if (data.steps !== undefined) {
+      const retainedIds = payload.steps.flatMap(step => step.id ? [step.id] : []);
+      const refreshed = await prepareStepSetUpdate(id, data.steps, { lock: true });
+      if (retainedIds.some(stepId => !refreshed.current.some(step => step.id === stepId))) {
+        throw Object.assign(new Error("A test step changed while saving. Refresh the case before editing."), { statusCode: 409, code: "TEST_STEP_SCOPE_CHANGED" });
+      }
+      currentSteps = refreshed.current;
+      payload.steps = refreshed.steps;
+      if (payload.automated === "yes") resolveAutomationCaseSteps({ test_data_options: payload.test_data_options }, payload.steps, { appTypeKind: finalAppType?.type });
+    }
     const capturedVersion = await testCaseVersionService.capture({
       testCase: existing,
       createdBy: payload.updated_by,
       nextSnapshot: {
         ...payload,
-        steps: payload.steps === null ? await testCaseVersionService.buildSnapshot(existing).then((snapshot) => snapshot.steps) : payload.steps
+        steps: payload.steps === null ? await testCaseVersionService.buildSnapshot(existing).then((snapshot) => snapshot.steps) : payload.steps.map(({ id: stepId, ...step }) => step)
       }
     });
     await updateTestCaseRecord.run(
@@ -2133,9 +2197,14 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
     }
 
     if (data.steps !== undefined) {
-      await deleteStepsForTestCase.run(id);
-
+      const retained = new Set(payload.steps.flatMap(step => step.id ? [step.id] : []));
+      for (const step of currentSteps) if (!retained.has(step.id)) await deleteOwnedStep.run(id, step.id);
       for (const step of payload.steps || []) {
+        if (step.id) {
+          await updateOwnedStep.run(step.step_order, step.action, step.expected_result, step.step_type || "web", step.automation_code,
+            step.api_request, step.group_id, step.group_name, step.group_kind, step.reusable_group_id, step.id, id);
+          continue;
+        }
         await insertStep.run(
           uuid(),
           id,

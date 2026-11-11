@@ -52,6 +52,16 @@ test('save-only generation never loads verification state, data or browser adapt
   assert.equal(result.status, 'not_requested');
 });
 
+test('a known live blocker preserves the saved draft without dispatching another run or repair', async () => {
+  const {input, ports, calls} = fixture('verify_and_repair');
+  const result = await verifySavedBuild({...input,liveValidation:{status:'blocked',reason:'The fixed expected price differs.'}}, ports);
+  assert.equal(result.status,'blocked');
+  assert.equal(result.error_code,'AUTOMATION_LIVE_VALIDATION_BLOCKED');
+  assert.equal(result.attempts,0);assert.equal(calls.access,1);
+  assert.equal(calls.runs,0);assert.equal(calls.diagnoses,0);assert.equal(calls.commits,0);
+  assert.doesNotMatch(JSON.stringify(result),/fixed expected price/);
+});
+
 test('exact saved build verification reports bounded source-check timing without data or source', async () => {
   const {input, ports, calls, events} = fixture();
   const result = await verifySavedBuild(input, ports);

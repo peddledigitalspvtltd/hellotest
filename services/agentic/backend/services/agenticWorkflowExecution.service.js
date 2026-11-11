@@ -11,6 +11,9 @@ const graphContract = require('@hellotest/platform/backend/src/utils/agenticWork
 const scheduling = require('../workflows/workflowScheduling');
 const flowOperations = require('../workflows/flowOperations');
 const mergeOperations = require('../workflows/mergeOperations');
+const loopBudget = require('../workflows/workflowLoopBudget');
+const { isDeepStrictEqual } = require('node:util');
+const { mapWithConcurrency } = require('@hellotest/platform/backend/src/utils/boundedConcurrency');
 
 // Every offered node has a bounded adapter. Legacy unsupported definitions
 // fail readiness before a run starts; no simulated output is passed as real data.
@@ -44,6 +47,9 @@ const processing = workflow => ({ mode: workflow.settings?.processing_mode === '
   max_parallel_nodes: workflow.settings?.processing_mode === 'parallel' ? Math.min(8, Math.max(1, Number(workflow.settings?.max_parallel_nodes) || 2)) : 1 });
 const nodeName = (node) => text(node.data?.label) || node.id;
 const hydrate = (run) => run && ({ ...run, execution_mode: parse(run.workflow_snapshot, {}).execution_mode || "preview", workflow_snapshot: parse(run.workflow_snapshot, {}), input_payload: parse(run.input_payload, {}), output_payload: parse(run.output_payload, {}), node_results: parse(run.node_results, []) });
+const publicationRecoveryNeeded = run => run?.execution_mode === MODE && ['cancelled','interrupted','failed'].includes(run.status)
+  && run.workflow_snapshot?.settings?.template_id === 'sprint-automator'
+  && run.workflow_snapshot?.settings?.library_publication_mode === 'automatic';
 
 const store = {
   get: async (id) => hydrate(await db.prepare("SELECT * FROM agentic_workflow_runs WHERE id = ?").get(id)),
@@ -73,8 +79,16 @@ const store = {
   // A cancellation may win while the current atomic case publication commits.
   // Recover only committed domain receipts, without replacing cancellation,
   // other node results, or their timestamps with a worker's earlier snapshot.
-  mergePublication: async (id, nodeId = null, publicationStatus = null) => {
-    const rows = await db.prepare(`SELECT acceptances.node_id,acceptances.receipt
+  // A list poll shares one bounded receipt read per group, rather than issuing
+  // a query for each historical failure or each repeated receipt projection.
+  publicationRows: async runs => db.prepare(`SELECT runs.id AS run_id,receipts.node_id,receipts.receipt
+    FROM jsonb_to_recordset(?::jsonb) AS scope(id text,project_id text)
+    JOIN agentic_workflow_runs runs ON runs.id=scope.id AND runs.project_id=scope.project_id
+    JOIN LATERAL (SELECT node_id,receipt FROM workflow_draft_acceptances
+      WHERE run_id=runs.id AND project_id=runs.project_id
+      ORDER BY node_id,story_id,case_index,kind LIMIT 2001) receipts ON true`).all(runs.map(run => ({id:run.id,project_id:run.project_id}))),
+  mergePublication: async (id, nodeId = null, publicationStatus = null, supplied = {}) => {
+    const rows = supplied.rows ?? await db.prepare(`SELECT acceptances.node_id,acceptances.receipt
       FROM workflow_draft_acceptances acceptances JOIN agentic_workflow_runs runs
         ON runs.id=acceptances.run_id AND runs.project_id=acceptances.project_id
       WHERE runs.id=? AND (?::text IS NULL OR acceptances.node_id=?)
@@ -91,6 +105,12 @@ const store = {
       if (receipt.kind === 'automation') grouped[row.node_id].automation_cases_saved++;
     }
     if (!Object.keys(grouped).length) return null;
+    const current = supplied.run;
+    if (current?.id === id && current.output_payload?.project_changes_applied === true
+      && array(current.node_results).every(node => !grouped[node.node_id] || isDeepStrictEqual(node.output?.library_publication,
+        { ...grouped[node.node_id], ...(publicationStatus === null ? { status:node.output?.library_publication?.status
+          ?? (['cancelled','interrupted','failed'].includes(current.status) ? 'partial' : 'saved') } : {}) }))
+      && (current.status === 'running' || terminalSummary(current,current.status,current.node_results,current.output_payload.summary) === current.output_payload.summary)) return current;
     const updated = hydrate(await db.prepare(`UPDATE agentic_workflow_runs SET
       node_results=(SELECT jsonb_agg(CASE WHEN (?::jsonb -> (item.value->>'node_id')) IS NOT NULL
         THEN jsonb_set(item.value,'{output}',COALESCE(NULLIF(item.value->'output','null'::jsonb),'{}'::jsonb)
@@ -100,7 +120,13 @@ const store = {
         ELSE item.value END ORDER BY item.ordinality)
         FROM jsonb_array_elements(node_results) WITH ORDINALITY AS item(value,ordinality)),
       output_payload=COALESCE(output_payload,'{}'::jsonb)||'{"project_changes_applied":true}'::jsonb,
-      updated_at=CURRENT_TIMESTAMP WHERE id=? RETURNING *`).get(grouped,grouped,publicationStatus,id));
+      updated_at=CURRENT_TIMESTAMP WHERE id=? AND (
+        output_payload->'project_changes_applied' IS DISTINCT FROM 'true'::jsonb OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements(node_results) item WHERE (?::jsonb -> (item->>'node_id')) IS NOT NULL
+            AND item#>'{output,library_publication}' IS DISTINCT FROM ((?::jsonb -> (item->>'node_id')) ||
+              CASE WHEN ?::text IS NULL THEN jsonb_build_object('status',COALESCE(item#>>'{output,library_publication,status}',
+                CASE WHEN status IN ('cancelled','interrupted','failed') THEN 'partial' ELSE 'saved' END)) ELSE '{}'::jsonb END)
+        )) RETURNING *`).get(grouped,grouped,publicationStatus,id,grouped,grouped,publicationStatus)) || await store.get(id);
     if (!updated || updated.status === 'running') return updated;
     const summary = terminalSummary(updated,updated.status,updated.node_results,updated.output_payload.summary);
     if (summary === updated.output_payload.summary) return updated;
@@ -273,8 +299,13 @@ function readiness(workflow, targetNodeId = "") {
   warnings.push(processing(workflow).mode === 'parallel'
     ? `Up to ${processing(workflow).max_parallel_nodes} independent nodes run together after their dependencies finish. External mutations, loops and native artifact tasks run alone; merges preserve input order.`
     : 'Connected branches execute sequentially in dependency order. Each specialist retrieves fresh evidence with its own bounded context policy.');
+  try {
+    const capacity = loopBudget.sprintCapacity({ ...workflow, nodes, edges });
+    if (capacity != null) warnings.push(`With the saved case count, this Sprint workflow supports at most ${capacity} Stories within the shared loop budget. Split larger Sprints or lower the case count before running.`);
+  } catch (failure) { add(null, failure.publicMessage || failure.message); }
   return { ready: blockers.length === 0, execution_mode: MODE, target_node_id: targetNodeId || null, blockers, warnings,
-    processing: processing(workflow), limits: { max_steps: 100, max_specialists: 4, timeout_ms: workflowDuration(workflow), input_limit_bytes: MAX_INPUT_BYTES, max_parallel_nodes: processing(workflow).max_parallel_nodes },
+    processing: processing(workflow), limits: { max_steps: 100, max_specialists: 4, timeout_ms: workflowDuration(workflow), input_limit_bytes: MAX_INPUT_BYTES, max_parallel_nodes: processing(workflow).max_parallel_nodes,
+      max_loop_batches: loopBudget.LIMITS.batches, max_loop_node_executions: loopBudget.LIMITS.node_executions },
     steps: ordered.map(node => ({ node_id: node.id, name: nodeName(node), kind: kindOf(node), specialist_id: node.data?.agentId || null })) };
 }
 
@@ -362,11 +393,10 @@ const terminalNodes = (nodes, currentId, state) => nodes.map(node => node.status
   ? { ...node, status: node.node_id === currentId || ['cancelled', 'interrupted'].includes(state) ? state : 'interrupted', completed_at: new Date().toISOString() }
   : node.status === "queued" ? { ...node, status: "skipped", completed_at: new Date().toISOString() } : node);
 
-async function reconcile(run) {
+async function reconcile(run, { publicationRows } = {}) {
   if (!run || run.execution_mode !== MODE) return run;
-  if (['cancelled','interrupted','failed'].includes(run.status) && run.workflow_snapshot?.settings?.template_id === 'sprint-automator'
-    && run.workflow_snapshot?.settings?.library_publication_mode === 'automatic') {
-    return await store.mergePublication(run.id) || run;
+  if (publicationRecoveryNeeded(run)) {
+    return await store.mergePublication(run.id,null,null,{ rows:publicationRows,run }) || run;
   }
   if (run.status !== 'running') return run;
   if (run.workflow_snapshot.runtime_contract?.orchestrator === "temporal") return run;
@@ -378,6 +408,40 @@ async function reconcile(run) {
   const deadline = Date.parse(run.workflow_snapshot?.runtime_contract?.deadline_at || "");
   if (!Number.isFinite(deadline) || deadline > Date.now()) return run;
   return stopRun(run, "interrupted", { summary: "This review exceeded its deadline or the worker stopped. Completed step results are preserved. Start a new review to retry.", error_code: "WORKFLOW_INTERRUPTED" });
+}
+
+async function reconcileMany(runs, { signal } = {}) {
+  const assertActive = () => { if (signal?.aborted) throw execution.abortError(); };
+  const result = new Array(runs.length);
+  // Request-local only: a later poll must reread receipts, revisions and access.
+  const receipts = new Map();
+  for (let offset=0;offset<runs.length;offset+=8) {
+    assertActive();
+    const batch=runs.slice(offset,offset+8), pending=new Map();
+    for (const run of batch) if (publicationRecoveryNeeded(run)) {
+      const key=JSON.stringify([run.project_id,run.id]);
+      if (!receipts.has(key)) pending.set(key,run);
+    }
+    if (pending.size) {
+      const rows=await store.publicationRows([...pending.values()]);
+      assertActive();
+      const byId=new Map([...pending.values()].map(run=>[run.id,run]));
+      for (const key of pending.keys()) receipts.set(key,[]);
+      for (const row of rows) {
+        const run=byId.get(row.run_id);
+        if (!run) continue;
+        const values=receipts.get(JSON.stringify([run.project_id,run.id]));
+        values.push(row);
+        if (values.length>2000) throw error('Recorded publication receipts exceed the workflow limit.',409);
+      }
+    }
+    const reconciled=await mapWithConcurrency(batch,2,run=>{
+      assertActive();
+      return reconcile(run,{publicationRows:receipts.get(JSON.stringify([run?.project_id,run?.id]))});
+    });
+    reconciled.forEach((run,index)=>{result[offset+index]=run;});
+  }
+  return result;
 }
 
 // Compare the saved node snapshot when stopping, so a stale cancellation or
@@ -726,10 +790,11 @@ async function executeLoopBody(run, node, user, signal, persist = async () => {}
   let lineageComplete = true;
   let collectedLineage = null;
   const budget = run.loop_budget || (run.loop_budget = { batches: 0, node_executions: 0 });
+  loopBudget.estimate({ workflow: run.workflow_snapshot, node, items, context, used: budget });
   const budgetStart = { ...budget };
   await execution.bounded(async loopSignal => {
     for (let batchIndex = 0; batchIndex < batches; batchIndex++) {
-      if (++budget.batches > 100) throw error('Connected loops support at most 100 total batches, including nested loops. Reduce the input or increase batch size.', 422);
+      if (++budget.batches > loopBudget.LIMITS.batches) throw error(`Connected loops support at most ${loopBudget.LIMITS.batches} total batches, including nested loops. Reduce the input or increase batch size.`, 422);
       const batch = items.slice(batchIndex * size, (batchIndex + 1) * size);
       const child = { ...run, loop_owner: node.id, loop_item: size === 1 ? batch[0] : batch,
         iteration_index: batchIndex, iteration_total: batches, loop_batch_size: batch.length,
@@ -768,7 +833,7 @@ async function executeLoopBody(run, node, user, signal, persist = async () => {}
           const next = scheduling.readyBatch({ nodes: bodyNodes, edges: run.workflow_snapshot.edges, results: run.node_results, pending, maxParallel: 1, loopOwner: node.id });
           if (!next.length) throw error('The loop body has unresolved dependencies.', 409);
           const step = next[0];
-          if (++budget.node_executions > 1000) throw error('Connected loops support at most 1000 body step executions. Reduce the input or simplify the body.', 422);
+          if (++budget.node_executions > loopBudget.LIMITS.node_executions) throw error(`Connected loops support at most ${loopBudget.LIMITS.node_executions} body step executions. Reduce the input or simplify the body.`, 422);
           let outcome;
           try { outcome = await runStep(child, step, user, loopSignal, persist); }
           catch (failure) {
@@ -1039,4 +1104,4 @@ const startOnce = async (workflow, input = {}, user) => {
   try { return await promise; } finally { starting.delete(key); }
 };
 
-module.exports = { readiness, checkReadiness, start: startOnce, cancel, reconcile, _internals: { store, active, pendingTerminals, persistTerminal, diagnostics, perform, requireRunAccess, specialistPrompt, collectReviews, reviewSource, needsAttention, terminalSummary, executeNode, runStep, terminalNodes, MAX_DURATION_MS } };
+module.exports = { readiness, checkReadiness, start: startOnce, cancel, reconcile, reconcileMany, _internals: { store, active, pendingTerminals, persistTerminal, diagnostics, perform, requireRunAccess, specialistPrompt, collectReviews, reviewSource, needsAttention, terminalSummary, executeNode, runStep, terminalNodes, MAX_DURATION_MS } };

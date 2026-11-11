@@ -238,6 +238,25 @@ test("data paths cannot access prototypes and mappings preserve literal values",
     { title: "One", constant: 3, missing: null },
   );
 });
+
+test('HTTP evidence preserves declared public product identifiers across sibling fields without retaining phones or secrets', () => {
+  const result = connections.redact({
+    request: { url: 'http://127.0.0.1:3000/requirements?project_id=project&access_token=private-grant' },
+    data: { items: [{ title: 'Search 9000017248', description: '<p>Product code: <b>9000017248</b></p>',
+      product_code: '9000017248', gtin: '12345678901231',
+      acceptance_criteria: ['Type 9000017248', 'Verify the model 9000017248'],
+      phone_number: '9000017248', other_phone: '9876543210', password: '9000017248', email: 'private@example.test' }] }
+  }, {});
+  const story = result.data.items[0];
+  assert.equal(story.title, 'Search 9000017248');
+  assert.match(story.description, /9000017248/);
+  assert.equal(story.product_code, '9000017248');
+  assert.equal(story.gtin, '12345678901231');
+  assert.equal(story.acceptance_criteria[0], 'Type 9000017248');
+  assert.doesNotMatch(story.phone_number + story.other_phone + story.password + story.email, /9000017248|9876543210|private@example/);
+  assert.match(result.request.url, /127\.0\.0\.1:3000/);
+  assert.doesNotMatch(result.request.url, /private-grant/);
+});
 test("public address policy rejects internal and mapped addresses", () => {
   for (const ip of [
     "127.0.0.1",

@@ -82,6 +82,9 @@ test("real server exposes split health, protects run APIs, enforces CORS, and ex
     const readyPayload = await ready.json();
     assert.equal(readyPayload.status, "ready");
     assert.equal(readyPayload.checks.queue_worker.status, "disabled");
+    const transport = await fetch(`${baseUrl}/health/transport`);
+    assert.equal(transport.status, 200);
+    assert.equal((await transport.json()).checks.playwright_mcp_initialized, true);
     const compatibilityHealth = await (await fetch(`${baseUrl}/health`)).json();
     assert.equal(compatibilityHealth.ready, true);
     assert.equal(compatibilityHealth.capabilities.local_execution, true);

@@ -92,22 +92,43 @@ const serviceError = (code, options = {}) => new ServiceBoundaryError(
 const isAbortLike = (error) => ["AbortError", "TimeoutError"].includes(error?.name)
   || ["ABORT_ERR", "UND_ERR_ABORTED"].includes(error?.code);
 
-const isNetworkLike = (error) => {
-  const code = error?.code || error?.cause?.code;
-  return [
-    "ECONNABORTED",
-    "ECONNREFUSED",
-    "ECONNRESET",
-    "EHOSTUNREACH",
-    "ENETUNREACH",
-    "ENOTFOUND",
-    "EPIPE",
-    "ETIMEDOUT",
-    "UND_ERR_CONNECT_TIMEOUT",
-    "UND_ERR_HEADERS_TIMEOUT",
-    "UND_ERR_SOCKET"
-  ].includes(code) || error instanceof TypeError;
+const NETWORK_FAILURE_CODES = new Set([
+  "ECONNABORTED", "ECONNREFUSED", "ECONNRESET", "EAI_AGAIN", "EHOSTUNREACH",
+  "ENETDOWN", "ENETUNREACH", "ENOTFOUND", "EPIPE", "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT", "UND_ERR_SOCKET"
+]);
+const CONFIGURATION_FAILURE_CODES = new Set([
+  "ERR_INVALID_URL", "ERR_INVALID_ARG_TYPE", "ERR_INVALID_ARG_VALUE", "ERR_INVALID_HTTP_TOKEN",
+  "ERR_HTTP_INVALID_HEADER_VALUE", "ERR_INVALID_CHAR", "ERR_UNESCAPED_CHARACTERS",
+  "UND_ERR_INVALID_ARG", "UND_ERR_NOT_SUPPORTED", "UND_ERR_REQ_CONTENT_LENGTH_MISMATCH",
+  "CERT_HAS_EXPIRED", "CERT_NOT_YET_VALID", "DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_GET_ISSUER_CERT", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "ERR_TLS_CERT_ALTNAME_INVALID",
+  "ERR_TLS_CERT_SIGNATURE_ALGORITHM_UNSUPPORTED", "CERT_SIGNATURE_FAILURE"
+]);
+
+// Node fetch may wrap DNS/socket failures in TypeError and AggregateError.
+// Inspect only bounded error links, never request configs or arbitrary payloads.
+const errorChain = error => {
+  const queue = [{ error, depth: 0 }], seen = new Set(), errors = [];
+  for (let index = 0; index < queue.length && errors.length < 32; index++) {
+    const item = queue[index], current = item.error;
+    if (!current || typeof current !== "object" || seen.has(current)) continue;
+    seen.add(current); errors.push(current);
+    if (item.depth >= 4) continue;
+    if (current.cause) queue.push({ error: current.cause, depth: item.depth + 1 });
+    if (Array.isArray(current.errors)) for (const child of current.errors.slice(0, 5)) queue.push({ error: child, depth: item.depth + 1 });
+  }
+  return errors;
 };
+
+// Only a reviewed transport code is suitable for logs and trace metadata.
+// Unknown codes can contain caller-controlled text or credentials.
+const networkFailureCode = error => errorChain(error).find(item => NETWORK_FAILURE_CODES.has(item.code))?.code || null;
+const configurationFailure = error => errorChain(error).some(item => CONFIGURATION_FAILURE_CODES.has(item.code)
+  || /^(?:bad port|unknown scheme|unexpected redirect)$/i.test(String(item.message || "").trim()));
+const nativeFetchFailure = error => errorChain(error).some(item => (item instanceof TypeError || item.name === "TypeError")
+  && /^(?:fetch failed|failed to fetch|networkerror when attempting to fetch resource\.?|network request failed)$/i.test(String(item.message || "").trim()));
+const isNetworkLike = error => !configurationFailure(error) && (networkFailureCode(error) !== null || nativeFetchFailure(error));
 
 const classifyServiceFailure = (error, context = {}) => {
   if (error instanceof ServiceBoundaryError) return error;
@@ -139,6 +160,17 @@ const classifyServiceFailure = (error, context = {}) => {
     });
   }
 
+  // Invalid request inputs and programming errors cannot recover by sending
+  // the same request again. A generic TypeError is not evidence of an outage.
+  if (configurationFailure(error) || ["TypeError", "SyntaxError", "ReferenceError", "RangeError"].includes(error?.name)) {
+    return serviceError(SERVICE_ERROR_CODES.CONFIGURATION, {
+      ...context,
+      retryable: false,
+      statusCode: 500,
+      cause: error
+    });
+  }
+
   return serviceError(SERVICE_ERROR_CODES.UNAVAILABLE, {
     ...context,
     retryable: true,
@@ -154,6 +186,7 @@ module.exports = {
   classifyServiceFailure,
   isAbortLike,
   isNetworkLike,
+  networkFailureCode,
   normalizeDependency,
   normalizeRetryAfter,
   sanitizeInternalErrorText,

@@ -148,23 +148,28 @@ function redact(value, connection) {
   const secret = connection?.secretEnv ? process.env[connection.secretEnv] : connection?.encryptedSecret ? settings.credential(connection) : "";
   const basicPassword = connection?.authType === "basic" && secret.includes(":") ? secret.slice(secret.indexOf(":") + 1) : "";
   const secrets = [...new Set([secret, basicPassword, ...Object.values(settings.headers(connection))].filter(Boolean))].sort((left, right) => right.length - left.length);
-  return JSON.parse(JSON.stringify(value, function (key, item) {
+  const scrubbed = JSON.parse(JSON.stringify(value, function (key, item) {
     if (/^(authorization|proxy-authorization|cookie|set-cookie|password|secret|token|api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret)$/i.test(key)) return "[REDACTED]";
     if (typeof item !== "string") return item;
     // Redact before JSON escaping so credentials containing quotes/backslashes
     // cannot reappear in an endpoint's echo or diagnostic response.
     for (const secret of secrets) for (const token of [secret, Buffer.from(secret).toString("base64")]) item = item.split(token).join("[REDACTED]");
+    return item;
+  }));
+  const publicTechnicalIdentifiers = require('@hellotest/platform/backend/src/security/aiTextPolicy').publicTechnicalIdentifiers(JSON.stringify(scrubbed));
+  return JSON.parse(JSON.stringify(scrubbed, function (key, item) {
+    if (typeof item !== 'string') return item;
     // This is the endpoint the user configured, rather than model evidence.
     // Preserve its host and record IDs so the complete request remains useful
     // in the node inspector; credential query parameters remain redacted.
-    if (this === value?.request && ["url", "last_page_url"].includes(key)) {
+    if (this === scrubbed?.request && ["url", "last_page_url"].includes(key)) {
       try {
         const endpoint = new URL(item);
         for (const name of [...endpoint.searchParams.keys()]) if (/authorization|cookie|password|secret|token|api[-_]?key|access[-_]?key/i.test(name)) endpoint.searchParams.set(name, "[REDACTED]");
         return endpoint.toString();
       } catch { return "[REDACTED_ENDPOINT]"; }
     }
-    return sanitizeAiText(item).text;
+    return sanitizeAiText(item, { publicTechnicalIdentifiers, field: key }).text;
   }));
 }
 async function request({

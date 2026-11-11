@@ -121,6 +121,95 @@ test('a capable official model receives constrained assurance fields and citatio
   assert.equal(result.assurance_review.automation_readiness.status,'unknown');
 });
 
+test('custom workflow guidance still receives native fixed-oracle and optional-environment boundaries with resolved case inputs',async t=>{
+  const artifact={id:'case',title:'Verify the product offer',description:'Use a fresh guest session and the selected public offer.',
+    parameter_values:{'r.product_code':'9000017248','r.expected_price':'353','r.expected_discount':'12','t.quantity':'1'},
+    steps:[{id:'draft-step-1',step_type:'web',action:'Search @r.product_code and add @t.quantity unit.',expected_result:'Price equals @r.expected_price and discount equals @r.expected_discount; a mismatch fails.'}]};
+  const linked=[{id:'story',kind:'requirement',title:'Verify a fixed product offer',description:'In a fresh guest session, search product code 9000017248. Require price INR 353, discount 12% and quantity 1. A changed live offer is an assertion mismatch; never adopt it as the expectation.',
+    acceptance_criteria:['Price is exactly INR 353 and discount exactly 12%; quantity is 1.']}];
+  const f=await fixture(t,payload=>{
+    const text=payload.messages.map(message=>message.content).join('\n');
+    assert.match(text,/Resolve every referenced runtime parameter, including @r and @t/);
+    assert.match(text,/fixed expected price, discount, quantity or other threshold is a decided contract/);
+    assert.match(text,/Do not recommend replacing it with observed values or weaker consistency checks/);
+    assert.match(text,/Delivery location, seller selection, locale or additional fixtures are not mandatory/);
+    assert.match(text,/Use needs_input only for an absent, unresolved or contradictory required action/);
+    assert.match(text,/same-tab\/new-tab requirements, popup prohibitions, invented buttons or expandable panels as unsupported additions/);
+    assert.match(text,/Preserve explicit navigation and UI constraints/);
+    for(const [key,value]of Object.entries(artifact.parameter_values))assert.ok(text.includes(JSON.stringify(key)+':'+JSON.stringify(value)),key);
+    assert.match(text,/changed live offer is an assertion mismatch/);
+    const result=review('draft:test-case:case');result.insights=[];
+    result.automation_readiness={status:'ready',summary:'The linked Story supplies the exact offer assertions and guest context.',evidence_refs:['requirement:story'],missing_context:[]};
+    return result;
+  },{artifact,linked});
+  const result=await f.run();
+  assert.equal(result.assurance_review.automation_readiness.status,'ready');
+  assert.equal(f.calls.length,1);
+});
+
+test('clarified advisory-risk guidance does not force readiness when a required protected input is missing',async t=>{
+  const f=await fixture(t,()=>{
+    const result=review('draft:test-case:case');
+    result.automation_readiness={status:'needs_input',summary:'The required authenticated account is not configured.',evidence_refs:['requirement:story'],
+      missing_context:[{kind:'authentication',reason:'The Story requires signing in, but no protected password reference is supplied.',evidence_refs:['requirement:story'],step_refs:['step:1']}]};
+    return result;
+  },{artifact:{...draft,steps:[{id:'draft-step-1',step_type:'web',action:'Sign into the required account.',expected_result:'The authenticated page is shown.'}]},
+    linked:[{...story,description:'The page requires an authorized customer account and password; anonymous access is unsupported.'}]});
+  const result=await f.run();
+  assert.equal(result.assurance_review.automation_readiness.status,'needs_input');
+  assert.equal(result.assurance_review.automation_readiness.missing_context[0].kind,'authentication');
+  assert.equal(f.calls.length,1);
+});
+
+test('manual browser readiness does not require implementation fixtures or claim lifecycle execution on the actual request',async t=>{
+  const description='Use a fresh private guest session. Wait on observable page readiness without fixed sleeps. Navigate to the matching product, capture its displayed confirmation, then inspect the cart.';
+  const artifact={id:'case',title:'Review the public product journey',description,parameter_values:{product_code:'9000017248',quantity:'1'},steps:[
+    {id:'draft-step-1',step_type:'web',action:'Start a fresh private guest session.',expected_result:'The journey uses an isolated guest session.'},
+    {id:'draft-step-2',step_type:'web',action:'Open the public application and wait until its search field is ready without fixed sleeps.',expected_result:'The search field is usable.'},
+    {id:'draft-step-3',step_type:'web',action:'Search @t.product_code and open the matching result.',expected_result:'The selected product details are displayed.'},
+    {id:'draft-step-4',step_type:'web',action:'Add @t.quantity unit and capture the displayed confirmation.',expected_result:'The cart confirmation identifies the selected product and quantity 1.'},
+    {id:'draft-step-5',step_type:'web',action:'Navigate to the cart.',expected_result:'The cart contains the selected product with quantity 1.'}
+  ]};
+  const linked=[{id:'story',kind:'requirement',title:'Public product journey',description,
+    acceptance_criteria:['Search model 9000017248 as a guest and add quantity 1. The confirmation and cart must identify the selected product.']}];
+  const f=await fixture(t,payload=>{
+    const text=payload.messages.map(message=>message.content).join('\n');
+    assert.match(text,/A manual case or Story need not embed Playwright code, fixture declarations, configured tool names, fixed sleeps or screenshot mechanics/);
+    assert.match(text,/Absence of implementation declarations in a manual specification is not evidence that the configured platform lacks a capability/);
+    assert.match(text,/Assess platform support only from trusted supplied host\/tool context/);
+    assert.match(text,/do not invent capability claims or claim a browser\/context was created or an action ran/);
+    assert.match(text,/Preserve explicit user or Story infrastructure constraints/);
+    assert.ok(text.includes(description),'The explicit private-session, readiness and capture constraints remain in source evidence.');
+    assert.match(text,/The journey uses an isolated guest session/);
+    const result=review('draft:test-case:case');result.insights=[];
+    result.automation_readiness={status:'ready',summary:'The Story supplies the required guest journey, product input and observable outcomes; missing implementation declarations are not input gaps.',evidence_refs:['requirement:story'],missing_context:[]};
+    return result;
+  },{artifact,linked});
+  const result=await f.run();
+  assert.equal(result.assurance_review.automation_readiness.status,'ready');
+  assert.equal(Object.hasOwn(result,'browser_context'),false,'Assurance must not manufacture a lifecycle receipt.');
+  assert.equal(f.calls.length,1);
+});
+
+test('manual readiness guidance preserves an explicit unresolved nonstandard browser fixture',async t=>{
+  const constraint='Use the dedicated hardware-backed client-certificate browser profile attached to the private test network. Ordinary guest contexts cannot access this application.';
+  const f=await fixture(t,payload=>{
+    const text=payload.messages.map(message=>message.content).join('\n');
+    assert.ok(text.includes(constraint));
+    assert.match(text,/Keep genuinely required nonstandard capabilities, authorizations, real accounts and external fixtures unresolved/);
+    assert.match(text,/rather than waiving it or assuming support/);
+    const result=review('draft:test-case:case');result.insights=[];
+    result.automation_readiness={status:'needs_input',summary:'The explicitly required hardware-backed profile and private network are not supplied.',evidence_refs:['requirement:story'],
+      missing_context:[{kind:'fixture',reason:'The Story requires a dedicated hardware-backed client-certificate profile on its private test network; no trusted fixture or availability evidence is supplied.',evidence_refs:['requirement:story'],step_refs:['step:1']}]};
+    return result;
+  },{artifact:{...draft,description:constraint,steps:[{id:'draft-step-1',step_type:'web',action:'Open the application in its required certificate profile.',expected_result:'The private application is accessible.'}]},
+    linked:[{...story,description:constraint}]});
+  const result=await f.run();
+  assert.equal(result.assurance_review.automation_readiness.status,'needs_input');
+  assert.equal(result.assurance_review.automation_readiness.missing_context[0].kind,'fixture');
+  assert.equal(f.calls.length,1);
+});
+
 for(const [name,change,path,keyword] of [
   ['duplicate citations',value=>{value.dimensions[0].evidence.push(value.dimensions[0].evidence[0]);},'/dimensions/0/evidence','uniqueItems'],
   ['oversized review text',value=>{value.summary='x'.repeat(1201);},'/summary','maxLength'],

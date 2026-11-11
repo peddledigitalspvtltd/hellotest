@@ -1,19 +1,22 @@
 const { randomUUID, createHash } = require('node:crypto');
 const context = require('./llmTraceContext');
-const { redactSensitiveData } = require('../security/aiTextPolicy');
+const { redactSensitiveData, publicTechnicalIdentifiers } = require('../security/aiTextPolicy');
+const { networkFailureCode } = require('./serviceErrors');
 
 const MAX_CHARS = 96_000;
 const SECRET = /^(?:authorization|cookie|set-cookie|password|passwd|secret|client_secret|secret_key|private_key|credential|connection_string|token|api[_-]?key|access[_-]?token|refresh[_-]?token|view[_-]?token|reasoning_content|reasoning|thinking)$/i;
 const SENSITIVE_QUERY=/([?&](?:token|key|api[_-]?key|access[_-]?token|refresh[_-]?token|view[_-]?token|signature|x-amz-signature|x-amz-credential|x-goog-signature)=)[^&#\s"'<>]+/gi;
 function sanitize(value) {
   let remaining = MAX_CHARS, entries = 3000, truncated = false, redacted = false;
-  function visit(item, depth = 0) {
+  let identifiers;
+  try { identifiers = publicTechnicalIdentifiers(JSON.stringify(value).slice(0, MAX_CHARS)); } catch { identifiers = new Set(); }
+  function visit(item, depth = 0, field = '') {
     if (remaining <= 0 || --entries <= 0 || depth > 18) { truncated = true; return '[CAPTURE_LIMIT]'; }
     if (typeof item === 'string') {
       if (/^data:[^;,]+;base64,/i.test(item)) { redacted = true; return '[BINARY_INPUT_OMITTED]'; }
       // JSON-encoded tool arguments can themselves contain credential fields.
       if (/^\s*[\[{]/.test(item)) { try { return JSON.stringify(visit(JSON.parse(item), depth + 1)); } catch { /* ordinary text */ } }
-      const safe = redactSensitiveData(item).text
+      const safe = redactSensitiveData(item, { publicTechnicalIdentifiers: identifiers, field }).text
         .replace(/(["']?(?:password|passwd|secret|client_secret|api[_-]?key|access[_-]?token)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)/gi, '$1[REDACTED]')
         .replace(/\b(https?|postgres(?:ql)?):\/\/[^\s/@]+:[^\s/@]+@/gi, '$1://[REDACTED]@')
         .replace(/\bsk-[A-Za-z0-9_-]{12,}/g, '[REDACTED_KEY]');
@@ -26,7 +29,7 @@ function sanitize(value) {
       const output = [];
       for (const entry of item.slice(0,200)) {
         if (remaining <= 0 || entries <= 0) { truncated = true; break; }
-        output.push(visit(entry,depth+1));
+        output.push(visit(entry,depth+1,field));
       }
       truncated ||= output.length < item.length;
       return output;
@@ -39,7 +42,7 @@ function sanitize(value) {
         const boundedKey = key.slice(0,Math.min(255,remaining)); remaining -= boundedKey.length;
         truncated ||= boundedKey !== key;
         if (SECRET.test(key)||(privateEntry&&key==='value')) { redacted = true; output.push([boundedKey,'[REDACTED]']); }
-        else output.push([boundedKey,visit(val,depth+1)]);
+        else output.push([boundedKey,visit(val,depth+1,key)]);
       }
       truncated ||= output.length < input.length;
       return Object.fromEntries(output);
@@ -125,6 +128,7 @@ async function finish(trace, { response, error, invalid = false, attempts = 1 } 
   if (response) { try { raw = parse(await response.clone().text()); } catch { /* failed body */ } }
   const result = sanitize(raw);
   const code = error?.code || error?.name || (response && !response.ok ? `HTTP_${response.status}` : null);
+  const transportCode = networkFailureCode(error);
   const status = invalid ? 'invalid' : error ? (/ABORT|CANCEL/i.test(code) ? 'cancelled' : 'failed') : response?.ok ? 'succeeded' : 'failed';
   let usage = raw?.usage && typeof raw.usage === 'object' ? Object.fromEntries(['prompt_tokens', 'completion_tokens', 'total_tokens', 'input_tokens', 'output_tokens'].filter(key => Number.isSafeInteger(raw.usage[key]) && raw.usage[key]>=0).map(key => [key, raw.usage[key]])) : null;
   if(usage){
@@ -142,7 +146,8 @@ async function finish(trace, { response, error, invalid = false, attempts = 1 } 
     http_status=$4, effective_model=$5, provider_request_id=$6, usage=$7, response_payload=$8, capture=$9, error_code=$10, attempt=$11 WHERE id=$1`,
   [trace.id, status, Math.max(0, (trace.received || Date.now()) - (trace.dispatched || trace.started)), response?.status || null, typeof raw?.model === 'string' ? raw.model.slice(0, 255) : null,
     response?.headers?.get('x-request-id')?.slice(0, 255) || (typeof raw?.id === 'string' ? raw.id.slice(0, 255) : null), usage, result.payload,
-    { ...trace.profileCapture, request_truncated: trace.request.truncated, response_truncated: result.truncated, redacted: result.redacted || trace.request.redacted, body_available: raw !== null }, code?.slice(0, 100) || null, attempts]);
+    { ...trace.profileCapture, request_truncated: trace.request.truncated, response_truncated: result.truncated, redacted: result.redacted || trace.request.redacted, body_available: raw !== null,
+      ...(transportCode ? { transport_error_code: transportCode } : {}) }, code?.slice(0, 100) || null, attempts]);
   if (response?.headers?.set) {
     response.headers.set('x-hellotest-llm-trace-id', trace.id);
     response.headers.set('x-hellotest-llm-trace-status', trace.saved && saved ? 'recorded' : 'unavailable');

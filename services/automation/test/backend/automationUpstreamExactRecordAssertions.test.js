@@ -49,7 +49,7 @@ test('source-only retries correct indexed assertions and misplaced locator filte
    return {automation_code:good};
   }
   const packet=JSON.parse(request.prompt.slice(request.prompt.indexOf('{"task":'))),mapped=packet.steps[0];return {schema:'hellotest.playwrightInstructionMapping.v1',steps:[{step_id:step.id,source_sha256:mapped.source_sha256,instructions:mapped.operations.map(op=>({operation_id:op.operation_id,kind:op.kind,depth:op.depth,label:'Perform observed operation',args:[]}))}]};}});
- assert.deepEqual(phases,['upstream_source','upstream_source','upstream_source','upstream_instruction_mapping']);
+ assert.deepEqual(phases,['upstream_source','upstream_source','upstream_source']);
  assert.equal((update.automation_code.match(/\.(?:fill|selectOption|click)\(/g)||[]).length,5);
  assert.doesNotMatch(update.automation_code,/\.(?:first|last|nth)\(/);
  assert.ok(update.automation_code.indexOf('name:"Search"')<update.automation_code.indexOf('await expect(record)'));

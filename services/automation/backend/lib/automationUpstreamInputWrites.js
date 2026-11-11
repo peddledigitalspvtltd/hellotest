@@ -1,18 +1,55 @@
-const {parse} = require('acorn');
 const {normalizeParameterKey} = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
 const {tokenFor} = require('@hellotest/platform/backend/src/utils/parameterNames');
 const {parameterTemplateParts} = require('./automationParameterTemplates');
+const {parseNativeSourceAliases}=require('./automationUpstreamSourceAliases');
+
+function authoredInputValueReferences(action){
+ const command=/^(?:(?:given|when|then|and|i|the user|user)\s+)*(fill|type|enter)\b\s*([\s\S]*)$/i.exec(action);
+ if(!command)return [];
+ // These explicit prose forms identify which references are written values:
+ // Fill <target> with <value>, or Type/Enter <value> into/in/to <target>.
+ // Unknown phrasing retains all references instead of guessing a value role.
+ const clauses=(`${command[1]} ${command[2]}`).split(/(?:[.;]|\b(?:and(?:\s+then)?|then))\s+(?=(?:(?:i|the user|user)\s+)?(?:fill|type|enter)\b)/i);
+ const required=new Set();
+ const valuesBeforeTargets=text=>{
+  // Keep reference spans opaque while locating prose separators. A repeated
+  // pair starts after a conjunction/comma in the preceding target phrase;
+  // its complete value phrase can itself contain several references.
+  const parts=parameterTemplateParts(text),prose=parts?parts.map(part=>part.key?'x'.repeat(part.reference.length):part.literal).join(''):text;
+  const targets=[...prose.matchAll(/\s+(?:into|in|to|onto)\s+/gi)];
+  if(!targets.length)return [text];
+  const values=[text.slice(0,targets[0].index)];
+  for(let index=1;index<targets.length;index++){
+   const start=targets[index-1].index+targets[index-1][0].length,between=prose.slice(start,targets[index].index);
+   const separator=/\s+(?:and(?:\s+then)?|then)\s+|,\s*/i.exec(between);
+   if(!separator)return [text]; // Unknown prose retains every reference.
+   values.push(text.slice(start+separator.index+separator[0].length,targets[index].index));
+  }
+  const tailStart=targets.at(-1).index+targets.at(-1)[0].length,tail=text.slice(tailStart);
+  const unpaired=/\s+(?:and(?:\s+then)?|then)\s+|,\s*/i.exec(prose.slice(tailStart));
+  if(unpaired&&parameterTemplateParts(tail.slice(unpaired.index+unpaired[0].length)))return [text];
+  return values;
+ };
+ for(const clause of clauses){
+  const write=/^(?:(?:i|the user|user)\s+)*(fill|type|enter)\b\s*([\s\S]*)$/i.exec(clause);
+  if(!write)continue;
+  let value=write[2].split(/\s+(?:and(?:\s+then)?|then)\s+(?:click|tap|press|select|verify|assert|check|inspect|open|navigate)\b/i)[0];
+  const withValue=/\s+with\s+([\s\S]*)$/i.exec(value);
+  const values=write[1].toLowerCase()==='fill'&&withValue?[withValue[1]]:valuesBeforeTargets(value);
+  for(const input of values)for(const part of parameterTemplateParts(input)||[])if(part.key)required.add(part.key);
+ }
+ return [...required];
+}
 
 /** A narrow source audit for explicit parameterized text-entry commands. It
  * neither infers targets nor produces actions. Only an unconditional awaited
  * Playwright text-write argument can satisfy an authored input reference. */
 function auditAuthoredInputWrites({step = {}, source = ';'} = {}) {
   const action = String(step.action || '').replace(/<[^>]*>/g, ' ').trim();
-  const explicitWrite = /^(?:(?:given|when|then|and|i|the user|user)\s+)*(?:fill|type|enter)\b/i.test(action);
-  const required = explicitWrite ? [...new Set((parameterTemplateParts(action) || []).filter(part => part.key).map(part => part.key))] : [];
+  const required = authoredInputValueReferences(action);
   const result = {required_parameter_references: required.map(tokenFor), missing_parameter_references: [], text_write_count: 0};
   if (!required.length) return result;
-  const tree = parse(source, {ecmaVersion: 'latest', allowAwaitOutsideFunction: true});
+  const tree = parseNativeSourceAliases(source);
   const member = node => node?.type === 'MemberExpression' ? node.computed ? node.property?.value : node.property?.name : null;
   const root = node => node?.type === 'Identifier' ? node.name : node?.type === 'CallExpression' ? root(node.callee)
     : node?.type === 'MemberExpression' ? root(node.object) : null;
@@ -50,4 +87,4 @@ function auditAuthoredInputWrites({step = {}, source = ';'} = {}) {
   return result;
 }
 
-module.exports = {auditAuthoredInputWrites};
+module.exports = {auditAuthoredInputWrites,authoredInputValueReferences};

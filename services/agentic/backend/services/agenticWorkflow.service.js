@@ -2,7 +2,6 @@ const { randomUUID: uuid } = require("crypto");
 const db = require("@hellotest/platform/backend/src/db");
 const { validateWorkflowGraph } = require("@hellotest/platform/backend/src/utils/agenticWorkflowGraph");
 const { sanitizeAiText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
-const { mapWithConcurrency } = require("@hellotest/platform/backend/src/utils/boundedConcurrency");
 const { withNativeTaskDefaults } = require("../workflows/taskProfiles");
 const nodeAiConfiguration = require('../workflows/nodeAiConfiguration');
 const workflowCredentialPolicy = require('../workflows/workflowCredentialPolicy');
@@ -631,7 +630,7 @@ exports.createWorkflowRun = async (workflowId, input = {}, actorId = null) => {
   return exports.getWorkflowRun(runId);
 };
 
-exports.listWorkflowRuns = async ({ project_id, app_type_id, workflow_id, status, user, limit = 100, summary_only = false } = {}) => {
+exports.listWorkflowRuns = async ({ project_id, app_type_id, workflow_id, status, user, limit = 100, summary_only = false, signal } = {}) => {
   let query = `
     SELECT *
     FROM agentic_workflow_runs
@@ -665,7 +664,7 @@ exports.listWorkflowRuns = async ({ project_id, app_type_id, workflow_id, status
 
   const rows = await db.prepare(query).all(...params);
   const execution = require("./agenticWorkflowExecution.service");
-  const runs = await mapWithConcurrency(rows, 4, row => execution.reconcile(hydrateWorkflowRun(row)));
+  const runs = await execution.reconcileMany(rows.map(hydrateWorkflowRun), { signal });
   if (!summary_only) return runs;
   return runs.map(run => ({ ...run, summary_only: true, input_payload: {},
     workflow_snapshot: { execution_mode: run.execution_mode },

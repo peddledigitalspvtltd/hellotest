@@ -94,6 +94,24 @@ test('saved output becomes stale after input, connections, settings or task chan
   assert.equal(matches(draft.nodes,draft.edges,'{"scope":"Checkout"}',{...draft,settings:{requiresApproval:true}}),false);
 });
 
+test('readiness survives server property ordering and native task normalization while retaining semantic invalidation', () => {
+  const data = nativeProfiles.withNativeTaskDefaults({ kind: 'artifactTask', artifactTask: 'test-case-generation',
+    llmIntegrationId: 'reviewed-model', maxCasesPerStory: 1, metadata: { context: { product_code: '9000017248', quantity: 1 } } });
+  const saved = [{ id: 'generate', type: 'agenticStep', data: Object.fromEntries(Object.entries(data).reverse()) }];
+  const normalized = saved.map(graph.normalizeWorkflowNodeDirectLlm);
+  assert.deepEqual(normalized, saved, 'normalizing these saved defaults changes ordering only');
+  const key = (nodes = saved, settings = { nested: { ready: false, retries: 0 } }) => graph.reviewDefinitionKey(nodes, [], 'draft', 'manual', settings);
+  assert.equal(key(), key(normalized));
+  assert.equal(key(), key(normalized, { nested: { retries: 0, ready: false } }));
+  for (const patch of [{ llmIntegrationId: 'another-model' }, { maxCasesPerStory: 2 }, { instructions: 'Changed coverage' },
+    { metadata: { context: { quantity: 2, product_code: '9000017248' } } }]) {
+    assert.notEqual(key(), key(saved.map(node => ({ ...node, data: { ...node.data, ...patch } }))));
+  }
+  assert.notEqual(key(), key(saved, { nested: { ready: true, retries: 0 } }));
+  const ordered = [...saved, { id: 'output', type: 'agenticStep', data: { kind: 'output' } }];
+  assert.notEqual(key(ordered), key([...ordered].reverse()), 'node execution order remains significant');
+});
+
 test('blank workflows start with one trigger and node insertion preserves the downstream graph', () => {
   const first = graph.insertWorkflowNode([], [], 'customAI');
   assert.equal(first.node.data.kind, 'trigger');

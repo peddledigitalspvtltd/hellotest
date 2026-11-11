@@ -17,6 +17,7 @@ module.exports = async function (fastify) {
     return app;
   };
   const withConnection = async (req, reply, task) => {
+    if (!req.raw?.once || !reply?.raw?.once) return task();
     const controller = new AbortController();
     const cancel = () => controller.abort();
     req.raw.once("aborted", cancel);
@@ -347,7 +348,7 @@ module.exports = async function (fastify) {
       requested_at: command?.created_at || null, delivered_at: command?.delivered_at || null };
   });
 
-  fastify.get("/agentic-workflow-runs", async (req) => {
+  fastify.get("/agentic-workflow-runs", async (req, reply) => {
     await fastify.authenticate(req);
 
     if (req.query.project_id) {
@@ -361,17 +362,20 @@ module.exports = async function (fastify) {
       if (req.query.project_id && req.query.project_id !== workflow.project_id) throw Object.assign(new Error("Workflow must belong to the selected project."), { statusCode: 400 });
     }
 
-    const runs = await agenticWorkflowService.listWorkflowRuns({
-      project_id: req.query.project_id,
-      app_type_id: req.query.app_type_id,
-      workflow_id: req.query.workflow_id,
-      status: req.query.status,
-      user: req.user,
-      limit: req.query.limit,
-      summary_only: req.query.summary_only === true || req.query.summary_only === "true"
+    return withConnection(req,reply,async signal => {
+      const runs = await agenticWorkflowService.listWorkflowRuns({
+        project_id: req.query.project_id,
+        app_type_id: req.query.app_type_id,
+        workflow_id: req.query.workflow_id,
+        status: req.query.status,
+        user: req.user,
+        limit: req.query.limit,
+        summary_only: req.query.summary_only === true || req.query.summary_only === "true",
+        signal
+      });
+      const accessCache = new Map();
+      return Promise.all(runs.map(run => publicRun(run, req.user, accessCache)));
     });
-    const accessCache = new Map();
-    return Promise.all(runs.map(run => publicRun(run, req.user, accessCache)));
   });
 
   fastify.get("/agentic-workflow-runs/:id", async (req) => {

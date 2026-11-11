@@ -1,7 +1,8 @@
 import { retryRunCallbacks } from "./lib/callbackDelivery.js";
 import { registerAutomationVerification } from "./lib/automationVerification.js";
 import { registerAutomationMcp } from "./lib/automationMcp.js";
-import { registerAutomationPlaywrightMcp, PLAYWRIGHT_MCP_RUNTIME } from "./lib/automationPlaywrightMcp.js";
+import { registerAutomationPlaywrightMcp, PLAYWRIGHT_MCP_RUNTIME, PLAYWRIGHT_MCP_ENDPOINT } from "./lib/automationPlaywrightMcp.js";
+import { registerTestEngineReadiness } from "./lib/testEngineReadiness.js";
 import { registerQualityAgentRoutes } from "./lib/qualityAgents/routes.js";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
@@ -136,30 +137,13 @@ const buildLiveHealth = () => ({
 
 app.get("/health/live", async () => buildLiveHealth());
 
-app.get("/health/ready", async (_request, reply) => {
-  const worker = queueWorker?.getHealthSnapshot() || null;
-  const ready = !shuttingDown
-    && Boolean(opsTelemetry)
-    && sharedSecretConfig.ready
-    && Boolean(worker?.ready);
-
-  reply.code(ready ? 200 : 503).header("cache-control", "no-store");
-  return {
-    ok: ready,
-    status: ready ? "ready" : "not_ready",
-    service: process.env.ENGINE_NAME || "HelloTest Test Engine",
-    checks: {
-      accepting_requests: !shuttingDown,
-      shared_secret: {
-        ready: sharedSecretConfig.ready,
-        configured: Boolean(sharedSecretConfig.source && sharedSecretConfig.source !== "development-fallback"),
-        source: sharedSecretConfig.source,
-        reason: sharedSecretConfig.reason
-      },
-      queue_worker: worker,
-      ops_telemetry_initialized: Boolean(opsTelemetry)
-    }
-  };
+registerTestEngineReadiness(app, {
+  sharedSecret: sharedSecretConfig,
+  isShuttingDown: () => shuttingDown,
+  isTelemetryInitialized: () => Boolean(opsTelemetry),
+  isRuntimeInitialized: () => app.hasDecorator("playwrightMcpRuntime") && app.hasRoute({ method: "POST", url: PLAYWRIGHT_MCP_ENDPOINT }),
+  getQueueHealth: () => queueWorker?.getHealthSnapshot() || null,
+  serviceName: () => process.env.ENGINE_NAME || "HelloTest Test Engine"
 });
 
 // Compatibility endpoint for older operators. Deployment probes use the explicit live/ready endpoints.

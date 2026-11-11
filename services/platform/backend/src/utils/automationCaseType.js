@@ -73,4 +73,23 @@ function resolveAutomationCaseSteps(testCase, steps = [], options = {}) {
   return { automation_case_type: type, steps: resolved, allowed_step_types: allowed };
 }
 
-module.exports = { AUTOMATION_CASE_TYPES, ALLOWED_STEP_TYPES, normalizeAutomationCaseType, storedAutomationCaseType, resolveAutomationCaseType, automationStepType, resolveAutomationCaseSteps };
+// Manual authoring and Gherkin fixtures have no executable runtime yet. Keep
+// their preparation shared by preview generation and its dispatch policy, so
+// action authority and effect receipts cover the runtime that will really run.
+function resolveAutomationDraftSteps(testCase, source = [], options = {}) {
+  const apiFixture = step => !normalizeRichText(step.automation_code)
+    && (!step.step_type || ['manual', 'web'].includes(step.step_type))
+    && (step.gherkin_keyword === 'Given' || step.gherkin_role === 'background' && step.gherkin_keyword === 'And')
+    && /\b(?:existing|exists|available|configured|valid|authenticated|precondition|fixture|API)\b/i.test(step.action || '')
+    && !/\b(?:browser|page|screen|dashboard|button|tab|window|click|tap|type|fill|enter|select|navigate|browse|visit|hover|scroll)\b/i.test(step.action || '')
+    && !/^(?:I\s+)?open\b/i.test(step.action || '');
+  const apiScenario = source.some(step => step.gherkin_keyword === 'When' && inferAutomationStepType(step) === 'api')
+    && source.every(step => inferAutomationStepType(step) === 'api' || apiFixture(step));
+  return resolveAutomationCaseSteps(testCase, source.map((step, index) => ({ ...step,
+    id: typeof step.id === 'string' && step.id ? step.id : `draft-step-${index + 1}`,
+    step_order: index + 1,
+    step_type: apiScenario && apiFixture(step) ? 'api' : step.step_type
+  })), options);
+}
+
+module.exports = { AUTOMATION_CASE_TYPES, ALLOWED_STEP_TYPES, normalizeAutomationCaseType, storedAutomationCaseType, resolveAutomationCaseType, automationStepType, resolveAutomationCaseSteps, resolveAutomationDraftSteps };

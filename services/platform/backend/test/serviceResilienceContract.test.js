@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const Fastify = require("fastify");
+const http = require("node:http");
 
 const errorHandlerPlugin = require("../src/plugins/errorHandler");
 const {
@@ -8,9 +9,69 @@ const {
   resilientHttpRequest,
   resetServiceResilienceState
 } = require("../src/utils/resilientHttpClient");
-const { SERVICE_ERROR_CODES, serviceError } = require("../src/utils/serviceErrors");
+const { SERVICE_ERROR_CODES, serviceError, classifyServiceFailure, isNetworkLike, networkFailureCode } = require("../src/utils/serviceErrors");
 
 test.beforeEach(() => resetServiceResilienceState());
+
+test("network classification follows bounded native causes and exports only reviewed transport codes", () => {
+  for (const code of ["EAI_AGAIN", "ECONNRESET", "ENOTFOUND", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET"]) {
+    const failure = new TypeError("fetch failed", { cause: new AggregateError([Object.assign(new Error("private provider details"), { code })]) });
+    assert.equal(networkFailureCode(failure), code);
+    assert.equal(isNetworkLike(failure), true);
+    assert.equal(classifyServiceFailure(failure).retryable, true);
+  }
+  assert.equal(isNetworkLike(new TypeError("fetch failed")), true, "Native fetch can omit a platform cause.");
+  assert.equal(networkFailureCode(new TypeError("fetch failed")), null, "Do not invent a socket cause from a message.");
+  const cyclic = new Error("cycle"); cyclic.cause = cyclic;
+  assert.equal(networkFailureCode(cyclic), null);
+  assert.equal(networkFailureCode({ errors: Array.from({ length: 100 }, () => ({ code: "private-token-value" })) }), null);
+  assert.equal(networkFailureCode({ errors: Array.from({ length: 5 }, () => ({})).concat({ code: "ECONNRESET" }) }), null, "Aggregate traversal is bounded.");
+  let deep = { code: "ECONNRESET" };
+  for (let depth = 0; depth < 6; depth++) deep = { cause: deep };
+  assert.equal(networkFailureCode(deep), null);
+});
+
+test("invalid inputs, TLS configuration and programming errors are not transient network failures", async () => {
+  const failures = [new TypeError("Cannot read properties of undefined"), new SyntaxError("Bad provider parser"), new ReferenceError("unknown binding"), new RangeError("invalid buffer size")];
+  for (const code of ["ERR_INVALID_URL", "ERR_INVALID_ARG_TYPE", "UND_ERR_INVALID_ARG", "CERT_HAS_EXPIRED", "ERR_TLS_CERT_ALTNAME_INVALID"]) {
+    failures.push(new TypeError("fetch failed", { cause: Object.assign(new Error("private request configuration"), { code }) }));
+  }
+  for (const reason of ["bad port", "unknown scheme", "unexpected redirect"]) failures.push(new TypeError("fetch failed", { cause: new Error(reason) }));
+  for (const failure of failures) {
+    assert.equal(isNetworkLike(failure), false);
+    const classified = classifyServiceFailure(failure);
+    assert.equal(classified.code, SERVICE_ERROR_CODES.CONFIGURATION);
+    assert.equal(classified.retryable, false);
+    let attempts = 0;
+    await assert.rejects(resilientHttpRequest("https://invalid.test/request", { method: "POST", body: "{}" }, {
+      idempotent: true, maxAttempts: 4, fetchImpl: async () => { attempts++; throw failure; }
+    }), { code: SERVICE_ERROR_CODES.CONFIGURATION, retryable: false });
+    assert.equal(attempts, 1, "A replay-safe generation does not authorize retrying a programming error.");
+  }
+  const network = Object.assign(new Error("socket reset"), { code: "ECONNRESET" });
+  assert.equal(classifyServiceFailure(network, { callerAborted: true }).code, SERVICE_ERROR_CODES.CANCELLED);
+  assert.equal(classifyServiceFailure(network, { timedOut: true }).code, SERVICE_ERROR_CODES.TIMEOUT);
+  const explicit = serviceError(SERVICE_ERROR_CODES.UPSTREAM_REJECTED, { retryable: false, statusCode: 401 });
+  assert.equal(classifyServiceFailure(explicit), explicit, "Existing authorization and boundary decisions remain authoritative.");
+});
+
+test("a real native fetch socket reset can recover within the explicit buffered-request retry allowance", async t => {
+  let requests = 0;
+  const server = http.createServer((request, response) => {
+    requests++;
+    if (requests === 1) { request.socket.destroy(); return; }
+    response.writeHead(200, { "content-type": "application/json" }); response.end('{"proposal":"ready"}');
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const events = [];
+  const response = await resilientHttpRequest(`http://127.0.0.1:${server.address().port}/generation`, { method: "POST", body: "{}" }, {
+    idempotent: true, maxAttempts: 2, baseDelayMs: 10, deadlineMs: 2000, onEvent: event => events.push(event)
+  });
+  assert.deepEqual(await response.json(), { proposal: "ready" });
+  assert.equal(requests, 2);
+  assert.equal(events.filter(event => event.event === "dependency.request_retry").length, 1);
+});
 
 test("the boundary client retries only replay-safe requests and bounds the logical operation", { timeout: 5000 }, async (t) => {
   // The mocked transport has no live request socket. Represent that bounded

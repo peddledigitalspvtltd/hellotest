@@ -22,6 +22,19 @@ test('trace sanitizer redacts secrets and hidden reasoning and bounds payloads w
   assert.ok(result.truncated); assert.ok(result.redacted); assert.ok(text.length < 97000);
 });
 
+test('captured request and draft JSON preserve declared product values while redacting same-digit private fields', () => {
+  const f = fixture();
+  const draft = { title: 'Search 9000017248', parameter_values: { product_code: '9000017248' },
+    steps: [{ action: 'Type 9000017248', expected_result: 'Model 9000017248 appears' }],
+    customer_phone: '9000017248', password_confirmation: '9000017248', phone: '9876543210' };
+  const result = f.capture.sanitize({ messages: [{ role: 'user', content: JSON.stringify(draft) }] });
+  const captured = JSON.parse(result.payload.messages[0].content);
+  assert.equal(captured.parameter_values.product_code, '9000017248');
+  assert.equal(captured.title, 'Search 9000017248');
+  assert.equal(captured.steps[0].action, 'Type 9000017248');
+  assert.doesNotMatch(captured.customer_phone + captured.password_confirmation + captured.phone, /9000017248|9876543210/);
+});
+
 test('retained calls identify the configuration actually used before and after a prompt publication',async()=>{
  const f=fixture();
  const configurations=[{configuration_source:'legacy_override',configuration_version:0,configuration_hash:'a'.repeat(64)},
@@ -192,6 +205,21 @@ test('invalid and missing responses retain explicit failures, not fabricated usa
     assert.equal(f.writes[1].values[1],'failed');assert.equal(f.writes[1].values[6],null);assert.equal(f.writes[1].values[9],'TIMEOUT');
     assert.doesNotMatch(JSON.stringify(f.writes),/credential detail/);
   });
+});
+
+test('failure traces retain only a whitelisted nested transport code without raw diagnostics or request credentials',async()=>{
+  for(const [code,expected] of [['ECONNRESET','ECONNRESET'],['EAI_AGAIN','EAI_AGAIN'],['https://private.test/?token=PRIVATE_NETWORK',undefined]]){
+    const f=fixture();
+    await context.run({project_id:'p'},async()=>{
+      const trace=await f.capture.begin({url:'https://llm.test',init:{body:'{}'},options:{}});
+      const cause=Object.assign(new Error('PRIVATE_DIAGNOSTIC password=PRIVATE_CREDENTIAL'),{code,address:'PRIVATE_HOST'});
+      const error=Object.assign(new Error('PRIVATE_OUTER_MESSAGE'),{code:'DEPENDENCY_NETWORK_ERROR',cause:new TypeError('fetch failed',{cause})});
+      await f.capture.finish(trace,{error,attempts:3});
+      assert.equal(f.writes[1].values[8].transport_error_code,expected);
+      assert.equal(f.writes[1].values[10],3);
+      assert.doesNotMatch(JSON.stringify(f.writes),/PRIVATE_|private\.test|address|fetch failed/);
+    });
+  }
 });
 
 test('provider token counts and cached subset reach trace and activity without double counting or payload copies',async()=>{

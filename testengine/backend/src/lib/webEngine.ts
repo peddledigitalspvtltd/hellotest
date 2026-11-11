@@ -4,6 +4,7 @@ import { instrumentAutomationLines, createAutomationLineTracer, type AutomationL
 import { resolveRepositoryLocator } from "./repositoryLocator.js";
 import { createPlaywrightCodeBindings, runPlaywrightClick, usesExpressionParameterBindings, type PlaywrightNavigationWait } from "./playwrightBindings.js";
 import { normalizeAutomationAssertionTimeoutMs } from "./automationAssertionPolicy.js";
+import { automationTabIdentityUrl, canonicalAutomationTabUrl, type AutomationTabIdentity } from "./automationTabIdentity.js";
 import { parse } from "acorn";
 import { createHash } from "node:crypto";
 import { expect as playwrightExpect } from "playwright/test";
@@ -209,6 +210,7 @@ type WebTabTarget =
       index?: number;
       title?: string;
       url?: string;
+      identity?: AutomationTabIdentity;
       latest?: boolean;
       current?: boolean;
     };
@@ -1559,7 +1561,34 @@ class PlaywrightWebSession implements WebSession {
   }
 
   private async resolvePageTarget(target?: WebTabTarget | null) {
-    const pages = this.contextOrThrow.pages().filter((page) => !page.isClosed());
+    if (target && typeof target === "object" && target.identity !== undefined) {
+      const expected = automationTabIdentityUrl(target.identity);
+      const matching = () => this.contextOrThrow.pages().filter(page => !page.isClosed() && canonicalAutomationTabUrl(page.url()) === expected);
+      // Popup creation, commit and tab order can differ on replay. Wait for the
+      // native owned Page identity; an observed index is only a build receipt.
+      try { await playwrightExpect.poll(() => matching().length, { timeout: this.timeouts.navigation }).toBeGreaterThan(0); }
+      catch { throw new Error("No browser tab reached its reviewed semantic identity. No tab selection was performed."); }
+      const matches = matching();
+      if (matches.length !== 1 || target.url && canonicalAutomationTabUrl(target.url) !== expected
+        || target.title && !(await matches[0].title()).includes(target.title)) {
+        throw new Error("No unique browser tab matches its reviewed semantic identity. No tab selection was performed.");
+      }
+      return matches[0];
+    }
+    const matchesUrl = (actual: string, expected: string) => {
+      if (!/^https?:\/\//i.test(expected)) return actual.includes(expected);
+      try {
+        const value = new URL(actual), reviewed = new URL(expected);
+        return value.origin === reviewed.origin && value.pathname === reviewed.pathname
+          && (!reviewed.search || value.search === reviewed.search) && (!reviewed.hash || value.hash === reviewed.hash);
+      } catch { return false; }
+    };
+    let pages = this.contextOrThrow.pages().filter((page) => !page.isClosed());
+    if (target && typeof target === "object" && Number.isSafeInteger(target.index)
+      && target.index === pages.length && target.url) {
+      await this.contextOrThrow.waitForEvent("page", { timeout: this.timeouts.navigation });
+      pages = this.contextOrThrow.pages().filter((page) => !page.isClosed());
+    }
 
     if (!pages.length) {
       throw new Error("No browser tabs are available");
@@ -1588,6 +1617,12 @@ class PlaywrightWebSession implements WebSession {
         const page = pages[target.index];
         if (!page) {
           throw new Error(`No browser tab exists at index ${target.index}`);
+        }
+        if (target.url && page.url() === "about:blank") {
+          await page.waitForURL(url => matchesUrl(url.href, target.url!), { waitUntil: "commit", timeout: this.timeouts.navigation });
+        }
+        if (target.url && !matchesUrl(page.url(), target.url) || target.title && !(await page.title()).includes(target.title)) {
+          throw new Error(`Browser tab ${target.index} does not match its reviewed URL or title. No tab selection was performed.`);
         }
         return page;
       }
@@ -2777,7 +2812,8 @@ const buildBindings = (
     return {
       ...target,
       title: target.title ? interpolateText(target.title, context) : undefined,
-      url: target.url ? interpolateText(target.url, context) : undefined
+      url: target.url ? interpolateText(target.url, context) : undefined,
+      ...(target.identity ? { identity: { ...target.identity, url: interpolateText(target.identity.url, context) } } : {})
     };
   };
   const page: PageFacade = {
@@ -2899,7 +2935,14 @@ const buildBindings = (
     capture
   };
 
-  const nativeBindings = providerBindings.playwrightPage ? createPlaywrightCodeBindings(providerBindings.playwrightPage, {
+  const nativePages = new WeakMap<Page, ReturnType<typeof createPlaywrightCodeBindings>>();
+  const nativeOwners: ReturnType<typeof createPlaywrightCodeBindings>[] = [];
+  const nativeForCurrentPage = () => {
+    const current = session.bindings().playwrightPage;
+    if (!current || current.isClosed()) throw new Error("The selected browser page is unavailable.");
+    let bindings = nativePages.get(current);
+    if (bindings) return bindings;
+    bindings = createPlaywrightCodeBindings(current, {
     parameterExpressions,
     interpolate: (value) => interpolateText(value, context),
     resolveLocator: (value) => resolveObjectRepositoryLocator(envelope, value),
@@ -2908,10 +2951,49 @@ const buildBindings = (
     navigationTimeout: session.getTimeoutPolicy?.().navigation ?? resolveTimeoutPolicy(envelope).navigation,
     afterNavigation: () => session.waitForDefaultReadiness?.() || Promise.resolve(),
     onNavigationWait: wait => session.recordNavigationWait?.(wait)
-  }) : null;
+    });
+    nativePages.set(current, bindings);
+    nativeOwners.push(bindings);
+    return bindings;
+  };
+  const initialNativeBindings = providerBindings.playwrightPage ? nativeForCurrentPage() : null;
+  // Existing locators keep their native document ownership. Fresh page queries
+  // follow an explicit web.switchTab/openTab/closeTab in this same section.
+  const selectedNativePage = initialNativeBindings ? new Proxy(initialNativeBindings.page, { get(_target, key) {
+    const current = nativeForCurrentPage().page;
+    const value = Reflect.get(current, key, current);
+    return typeof value === "function" && key !== "constructor" ? value.bind(current) : value;
+  } }) : undefined;
+  const nativeAssertion = (args: unknown[]) => {
+    const selectedPage = args[0] === selectedNativePage;
+    const bindings = selectedPage ? nativeForCurrentPage()
+      : nativeOwners.find(owner => owner.owns(args[0])) || nativeForCurrentPage();
+    // Resolve the dynamic page once at the assertion boundary. Its owning
+    // binding unwraps the actual Page while retained locators keep their owner.
+    return { expect: bindings.expect, args: selectedPage ? [bindings.page, ...args.slice(1)] : args };
+  };
+  const nativeBindings = initialNativeBindings ? {
+    page: selectedNativePage!,
+    expect: new Proxy(initialNativeBindings.expect, {
+      apply(_target, receiver, args) {
+        const assertion = nativeAssertion(args);
+        return Reflect.apply(assertion.expect, receiver, assertion.args);
+      },
+      get(target, key) {
+        if (key === "soft") return (...args: unknown[]) => {
+          const assertion = nativeAssertion(args);
+          return Reflect.apply(assertion.expect.soft, assertion.expect, assertion.args);
+        };
+        const current = nativeForCurrentPage().expect;
+        const value = Reflect.get(Reflect.has(current, key) ? current : target, key);
+        return typeof value === "function" ? value.bind(current) : value;
+      }
+    })
+  } : null;
 
   return {
     ...providerBindings,
+    ...(nativeBindings ? { playwrightPage: nativeBindings.page } : {}),
     page: nativeBindings ? nativeBindings.page as unknown as PageFacade : page,
     web,
     expect: nativeBindings ? Object.assign(nativeBindings.expect, { equal: expect.equal, truthy: expect.truthy, contains: expect.contains }) as unknown as ExpectationApi : expect,

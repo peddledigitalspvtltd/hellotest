@@ -6,6 +6,27 @@ const runtime = require('../../backend/services/agenticWorkflowExecution.service
 const projects = require('@hellotest/platform/backend/public/projectAccess');
 const permissions = require('@hellotest/platform/backend/services/permission.service');
 const flags = require('@hellotest/platform/backend/services/featureFlag.service');
+const {EventEmitter}=require('node:events');
+
+test('workflow history disconnect cancels queued reconciliation and removes request listeners',async t=>{
+  const registered=new Map();
+  const app={...Object.fromEntries(['get','post','put','delete'].map(method=>[method,(path,...args)=>registered.set(`${method} ${path}`,args.at(-1))])),
+    authenticate:async()=>{},validate:()=>{},requirePermission:()=>async()=>{}};
+  t.mock.method(projects,'getProject',async()=>({id:'project-a'}));
+  let started;const entered=new Promise(resolve=>{started=resolve;});
+  t.mock.method(workflows,'listWorkflowRuns',async input=>{
+    assert.equal(input.user.id,'current-reader');assert.equal(input.project_id,'project-a');
+    assert.ok(input.signal instanceof AbortSignal);started();
+    await new Promise(resolve=>input.signal.addEventListener('abort',resolve,{once:true}));
+    throw Object.assign(new Error('Cancelled'),{name:'AbortError',code:'REQUEST_CANCELLED'});
+  });
+  await routes(app);
+  const req={user:{id:'current-reader'},query:{project_id:'project-a'},raw:new EventEmitter()},reply={raw:new EventEmitter()};
+  const reading=registered.get('get /agentic-workflow-runs')(req,reply);
+  await entered;reply.raw.emit('close');
+  await assert.rejects(reading,{name:'AbortError',code:'REQUEST_CANCELLED'});
+  assert.equal(req.raw.listenerCount('aborted'),0);assert.equal(reply.raw.listenerCount('close'),0);
+});
 
 test('workflow execution API exposes owned node I/O while retaining private lineage for native acceptance', async t => {
   const registered = new Map();

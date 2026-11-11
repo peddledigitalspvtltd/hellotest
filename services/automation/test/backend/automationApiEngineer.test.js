@@ -10,7 +10,7 @@ const {executeApiRequestStep}=require('../../backend/services/apiRequestExecutio
 // advertise real native functions even when the model needs no additional read.
 const nativeReadOnlyTools=[{name:'browser_snapshot',description:'Capture accessibility snapshot of the current page, this is better than screenshot',annotations:{readOnlyHint:true},inputSchema:{type:'object',properties:{target:{type:'string'},filename:{type:'string'},depth:{type:'number'},boxes:{type:'boolean'}},additionalProperties:false}}];
 
-function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=false,browserFixture,upstreamFixture,integrationFixture,environmentFixture,dataSetFixture,resolverInputs=[],mappingResponse=instructionMappingResponse}={}){
+function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=false,browserFixture,upstreamFixture,integrationFixture,environmentFixture,dataSetFixture,resolverInputs=[],mappingResponse=instructionMappingResponse,managedTransport=false}={}){
  const file=path.resolve(__dirname,'../../backend/services/aiAutomationBuilder.service.js');
  const original=require('node:module').createRequire(file),exports={};
  const db={prepare:sql=>({get:async()=>({id:'app',type:'unified'}),all:async()=>[],run:async()=>{dbWrites.push(sql);}})};
@@ -18,16 +18,17 @@ function loadBuilder({response,providerMessage,dbWrites=[],requests=[],denied=fa
   if(id.endsWith('/db')||id.endsWith('/obsDb'))return db;
   if(id.endsWith('/testStepAutomation'))return utils;
   if(id.endsWith('/automationActorModelPolicy'))return original(id);
+  if(id.endsWith('/llmTraceContext'))return original(id);
   if(id.endsWith('/automationCaseType')||id.endsWith('/automationRuntimeSpecialist')||id.endsWith('/automationApiParameterContract')||id.endsWith('/automationExpectedResultTemplate')||id.endsWith('/automationJsonOutputRetry'))return original(id);
   if(id.endsWith('/optionalEvidenceAccess.service'))return {getOptionalEvidenceAccess:async(_,__,keys)=>Object.fromEntries(keys.map(key=>[key,!denied]))};
   if(id.endsWith('/testEnvironment.service')&&environmentFixture)return {getTestEnvironment:async()=>environmentFixture};
   if(id.endsWith('/aiLlmSelection.service'))return {resolveLlmIntegrationForUsage:async()=>({type:"llm",is_active:true,id:'llm',api_key:'fixture-only',model:'fixture',base_url:'https://provider.fixture/v1'})};
-  if(id.endsWith('/llmHttpClient'))return {fetchLlmWithRetry:async(url,init)=>{requests.push(JSON.parse(init.body));const request=requests.at(-1),mapping=mappingResponse(request),output=mapping===undefined?(typeof response==='function'?response(requests.length,request):response):mapping;return {ok:true,json:async()=>({choices:[{message:providerMessage?.(request,output)||{content:JSON.stringify(output)}}]})};}};
+  if(id.endsWith('/llmHttpClient'))return managedTransport?original(id):{fetchLlmWithRetry:async(url,init)=>{requests.push(JSON.parse(init.body));const request=requests.at(-1),mapping=mappingResponse(request),output=mapping===undefined?(typeof response==='function'?response(requests.length,request):response):mapping;return {ok:true,json:async()=>({choices:[{message:providerMessage?.(request,output)||{content:JSON.stringify(output)}}]})};}};
   if(id.endsWith('/llmCapacityRetry'))return {retryLlmCapacity:async fn=>fn({timeoutMs:30000})};
   if(id.endsWith('/aiInstructionBlocks'))return {aiInstructionBlock:(feature,key)=>require('../../../platform/shared/aiFeatureCatalog.json').find(row=>row.id===feature)?.defaults.instruction_blocks[key]||''};
   if(id.endsWith('/llmResponse'))return {getCompletionContent:payload=>payload.choices[0].message.content};
-  if(id.endsWith('/aiConfiguration.service'))return {resolve:async()=>({config:{}})};
-  if(id.endsWith('/aiFeatureRuntime'))return {validateValue:async()=>{}};
+  if(id.endsWith('/aiConfiguration.service'))return managedTransport?original(id):{resolve:async()=>({config:{}})};
+  if(id.endsWith('/aiFeatureRuntime'))return managedTransport?original(id):{validateValue:async()=>{}};
   if(id.endsWith('/automationBrowserParameters')){const parameters=original(id);return environmentFixture||dataSetFixture?{...parameters,loadBrowserParameterResolver:async input=>{resolverInputs.push(input);return parameters.createBrowserParameterResolver({...input,environment:environmentFixture,dataSet:dataSetFixture});}}:parameters;}
   if(id.endsWith('/automationBrowserAgent')&&browserFixture)return browserFixture;
   if(id.endsWith('/automationUpstreamMcpClient')&&upstreamFixture)return upstreamFixture;
@@ -180,12 +181,13 @@ test('API Gherkin fixtures require their real setup contract instead of a browse
 
 test('offline workflow authors the whole case once, maps Web source separately and emits the shared executable artifact',async()=>{
  const requests=[],writes=[];
+ const source='const invoiceTitle = await page.title();\nawait expect(page.getByRole("heading", {name:"Invoice one"})).toBeVisible();';
  const builder=loadBuilder({requests,dbWrites:writes,
   browserFixture:{connectAutomationBrowser:async()=>assert.fail('Offline previews cannot connect the custom browser controller.')},
   upstreamFixture:{connectUpstreamPlaywright:async()=>assert.fail('Offline previews cannot connect Playwright MCP.')},
   response:{summary:'Read then inspect the invoice',steps:[
   {step_id:'draft-step-1',step_type:'api',api_request:{method:'GET',url:'https://api.fixture/invoices/one',validations:[{kind:'status',expected:'200'}]}},
-  {step_id:'draft-step-2',step_type:'web',automation_code:'await expect(page.getByRole("heading", {name:"Invoice one"})).toBeVisible();'}
+  {step_id:'draft-step-2',step_type:'web',automation_code:source}
  ]}});
  const result=await builder.previewAutomationDraft({draft:{title:'Invoice journey',automation_start_url:'https://api.fixture/invoices/one',parameter_values:{'t.api_token':'private-not-exported'},steps:[
   {action:'GET https://api.fixture/invoices/one',expected_result:'Status equals 200'},
@@ -197,7 +199,7 @@ test('offline workflow authors the whole case once, maps Web source separately a
  const mappingInput=JSON.parse(requests[1].messages.at(-1).content.slice(requests[1].messages.at(-1).content.indexOf('{"task":')));
  assert.deepEqual(mappingInput.steps.map(step=>step.step_id),['draft-step-2'],'API requests do not enter Playwright display mapping.');
  assert.equal(mappingInput.steps[0].automation_code,result.steps[1].automation_code);
- assert.equal(result.steps[1].automation_code,'await expect(page.getByRole("heading", {name:"Invoice one"})).toBeVisible();');
+ assert.equal(result.steps[1].automation_code,source);
  assert.equal(result.steps[1].automation_instructions.source_sha256,require('node:crypto').createHash('sha256').update(result.steps[1].automation_code).digest('hex'));
  assert.equal(result.steps[0].automation_instructions,undefined);
  assert.ok(require('../../backend/lib/automationInstructionMapping').validSavedInstructionMapping(result.steps[1].automation_instructions,{source:result.steps[1].automation_code,stepId:'draft-step-2'}));
@@ -237,7 +239,7 @@ test('workflow browser inspection uses upstream MCP, closes the session and publ
  },browserFixture:{connectAutomationBrowser:async()=>assert.fail('Upstream builds cannot connect the custom browser controller.')},response:(_,request)=>readOnlyUpstreamResponse(request,{source:'await expect(page.getByRole("heading", {name:"Invoice"})).toBeVisible();'})});
  const result=await builder.previewAutomationDraft({draft:{title:'Invoice',description:'Review the supplied invoice',preconditions:['The review account has an existing invoice'],automation_start_url:'https://ui.fixture/invoice',steps:[{action:'Read the Invoice heading',expected_result:'Invoice is visible'}]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true});
  assert.equal(calls[0][0],'connect');assert.equal(calls[1][0],'browser_navigate');
- assert.equal(calls.at(-1)[0],'closed');assert.equal(requests.length,3);
+ assert.equal(calls.at(-1)[0],'closed');assert.equal(requests.length,2);
  assert.deepEqual(requests[0].tools,[{type:'function',function:{name:nativeReadOnlyTools[0].name,description:nativeReadOnlyTools[0].description,parameters:nativeReadOnlyTools[0].inputSchema}}]);
  assert.equal(requests[0].tool_choice,'auto');assert.equal(Object.hasOwn(requests[0],'response_format'),false);
  assert.deepEqual(requests[1].response_format,{type:'json_object'});assert.equal(Object.hasOwn(requests[1],'tools'),false,'Source generation remains a separate configured JSON completion.');
@@ -277,8 +279,37 @@ test('an explicit workflow browser build performs native steps and returns one c
  assert.equal(result.steps.length,2);assert.ok(result.steps.every(step=>step.automation_instructions));assert.equal(result.executable.filename,'automation.spec.ts');
  assert.match(result.executable.code,/First Name/);assert.match(result.executable.code,/Saved/);assert.equal(result.browser_evidence.interaction_mode,'interactive');
  const mappingCalls=requests.filter(request=>request.messages.at(-1).content.includes('Map the authoritative'));
- assert.equal(mappingCalls.length,2);assert.ok(mappingCalls.every(request=>!request.tools));assert.equal(requests.filter(request=>request.tools).length,4);
+ assert.equal(mappingCalls.length,0,'Complete native statements receive source-linked deterministic display mappings.');assert.equal(requests.filter(request=>request.tools).length,4);
  assert.equal(result.verification_status,'unverified','Developing the flow does not impersonate a saved-plan Run.');
+});
+
+test('workflow-owned preview phases use the real managed transport without imposing the final schema on tools, done, source or mapping',async t=>{
+ const nodes=require('../../../agentic/backend/workflows/nodeAiConfiguration');
+ const trace=require('@hellotest/platform/backend/src/utils/llmTraceContext');
+ const capture=require('@hellotest/platform/backend/src/utils/llmTraceCapture');
+ t.mock.method(capture,'begin',async()=>null);t.mock.method(capture,'finish',async()=>{});t.mock.method(capture,'dispatch',()=>{});
+ for(const minItems of [1,2])await t.test(`final minimum steps ${minItems}`,async t=>{
+  const requests=[],scopes=[];let actors=0;
+  const source='const invoiceTitle = await page.title();\nawait expect(page.getByRole("heading",{name:"Invoice"})).toBeVisible();';
+  t.mock.method(globalThis,'fetch',async(_url,init)=>{
+   const request=JSON.parse(init.body);requests.push(request);scopes.push(trace.current());
+   let value=instructionMappingResponse(request),message;
+   if(request.tools){actors++;message=actors===1?{tool_calls:[{id:'read',type:'function',function:{name:'browser_snapshot',arguments:'{}'}}]}:{content:'{"done":true}'};}
+   else if(value===undefined)value={automation_code:source};
+   return Response.json({choices:[{finish_reason:message?.tool_calls?'tool_calls':'stop',message:message||{content:JSON.stringify(value)}}]});
+  });
+  const builder=loadBuilder({managedTransport:true,upstreamFixture:{connectUpstreamPlaywright:async()=>({tools:nativeReadOnlyTools,
+   call:async()=>({content:[{type:'text',text:'### Snapshot\n- heading "Invoice" [ref=e1]'}]}),close:async()=>{}})}});
+  const invoke=()=>trace.run({run_id:'workflow-run',node_id:'engineer-node'},()=>nodes.runNode({id:'engineer-node',data:{kind:'artifactTask',artifactTask:'automation-engineer',
+   aiConfiguration:{context:{mode:'none',required:false,token_budget:1000,max_items:4,focus:''},output_schema:{type:'object',required:['summary','steps'],properties:{summary:{type:'string'},steps:{type:'array',minItems}},additionalProperties:true}}
+  }},{revision:'pinned'},()=>builder.previewAutomationDraft({draft:{title:'Invoice',automation_start_url:'https://ui.fixture/invoice',steps:[{action:'Read the Invoice heading',expected_result:'Invoice is visible'}]},
+   project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true})));
+  if(minItems===1){const result=await invoke();assert.equal(result.validation.status,'passed');assert.equal(result.steps.length,1);}
+  else await assert.rejects(invoke(),{code:'AI_MANAGED_SCHEMA_INVALID'});
+  assert.equal(requests.length,4,'One native tool call, done, source and display mapping reach the configured provider; only the assembled outcome is schema-admitted.');
+  assert.ok(scopes.every(scope=>scope.run_id==='workflow-run'&&scope.node_id==='engineer-node'&&scope.automation_browser_loop===true&&scope.automation_case_generation===true&&scope.mcp_context==='supplied_native_evidence'));
+  assert.deepEqual(scopes.map(scope=>scope.generation_scope),['upstream_browser_actor','upstream_browser_actor','upstream_source','upstream_instruction_mapping']);
+ });
 });
 
 test('workflow browser execution options fail before permissions, provider calls or native transport when not explicitly valid',async()=>{
@@ -308,7 +339,7 @@ test('mixed workflow previews use one upstream browser session and native ground
   response:(_,request)=>readOnlyUpstreamResponse(request,{apiRequest,source:'await expect(page.getByRole("heading", {name:"Invoice one"})).toBeVisible();'})});
  const result=await builder.previewAutomationDraft({draft:{title:'Read and inspect an invoice',automation_start_url:'https://ui.fixture/invoice',steps:[{step_type:'api',action:'GET https://api.fixture/invoices/one',expected_result:'HTTP 200'},{step_type:'web',action:'Read the Invoice one heading',expected_result:'Invoice one is visible'}]},project_id:'project',app_type_id:'app',user_id:'actor',inspect_browser:true});
  assert.deepEqual(calls,['connect','browser_navigate','close']);assert.deepEqual(writes,[]);
- assert.equal(requests.length,4);assert.match(requests[0].messages[0].content,/API Automation Engineer/);
+ assert.equal(requests.length,3);assert.match(requests[0].messages[0].content,/API Automation Engineer/);
  assert.deepEqual(result.steps.map(step=>step.step_type),['api','web']);
  assert.equal(result.steps[0].automation_code,null);assert.equal(result.steps[0].api_request.url,apiRequest.url);
  assert.equal(result.steps[0].automation_instructions,undefined);assert.ok(result.steps[1].automation_instructions);
@@ -331,8 +362,8 @@ test('a generated action without its authored expected-result assertion cannot b
  const requests=[];
  const builder=loadBuilder({requests,response:attempt=>({summary:'Inspect invoice',steps:[{step_id:'draft-step-1',step_type:'web',automation_code:attempt===1?'await page.getByRole("button", {name:"Invoice"}).click();':'await page.getByRole("button", {name:"Invoice"}).click(); await expect(page.getByRole("heading", {name:"Invoice"})).toBeVisible();'}]})});
  const result=await builder.previewAutomationDraft({draft:{title:'Invoice',automation_start_url:'https://ui.fixture/invoice',steps:[{action:'Open Invoice',expected_result:'Invoice heading visible'}]},project_id:'project',app_type_id:'app',user_id:'actor'});
- assert.equal(requests.length,3);assert.match(JSON.stringify(requests[1]),/needs an executable assertion/);
- assert.match(JSON.stringify(requests[2]),/Map the authoritative code/);
+ assert.equal(requests.length,2);assert.match(JSON.stringify(requests[1]),/needs an executable assertion/);
+ assert.ok(result.steps[0].automation_instructions,'Corrected complete source is mapped without another provider call.');
  assert.match(result.steps[0].automation_code,/toBeVisible/);assert.equal(result.validation.status,'passed');
 });
 

@@ -14,11 +14,28 @@ const includesCase=(transaction,id)=>[transaction.metadata?.test_case_id,...(tra
 function sourcePacket(trace,{transactionId,testCaseId,stepId}){
  if(!trace||trace.session_id!==transactionId||trace.capture?.test_case_id!==testCaseId||trace.status!=='succeeded'||trace.capture?.request_truncated||trace.capture?.response_truncated)throw fail('A complete successful source-model request from this exact case and activity is required. Truncated or expired captures cannot establish native action authority.');
  const messages=trace.request_payload?.messages;
- const user=Array.isArray(messages)?messages.filter(message=>message.role==='user').at(-1)?.content:null;
+ const content=Array.isArray(messages)?messages.filter(message=>message.role==='user').at(-1)?.content:null;
+ // Vision requests retain their structured source packet as a text part.
+ // Historical pixels are deliberately omitted by tracing and confer no image
+ // evidence or permission to fetch them during this source-only proposal.
+ const user=Array.isArray(content)?content.filter(part=>part?.type==='text'&&typeof part.text==='string').map(part=>part.text).join('\n'):content;
  let packet;try{packet=JSON.parse(user);}catch{throw fail('The retained source request is not a complete structured native-source packet.');}
- if(!packet?.task?.startsWith('Save this section as executable Playwright JavaScript.')||packet.step?.id!==stepId||typeof packet.native_emitted_code!=='string'||packet.interactive!==true||!Array.isArray(packet.observations)||!packet.final_observation||packet.final_observation.result?.isError===true)throw fail('This call does not contain the completed native work and final observation for the selected section.');
- if(packet.observation_delivery?.historical_page_text_omitted!==true||packet.final_observation.result?.text_truncated||JSON.stringify(packet).includes('[CAPTURE_LIMIT]'))throw fail('The retained native source evidence is incomplete.');
- return packet;
+ if(!packet?.task?.startsWith('Save this section as executable Playwright JavaScript.')||packet.step?.id!==stepId||typeof packet.native_emitted_code!=='string'||packet.interactive!==true||!Array.isArray(packet.observations))throw fail('This call does not contain the completed native work and final observation for the selected section.');
+ const authoringOnly=packet.authoring_only===true&&packet.live_validation?.status==='blocked';
+ const snapshot=packet.current_page_snapshot;
+ // Later planned sections have no new tool receipt. Only the explicit host
+ // blocked-authoring packet may reuse its complete last live snapshot. An
+ // explicit failed final observation or uncertain effect can never use it.
+ const uncertain=[packet,packet.live_validation,packet.final_observation,snapshot,...packet.observations].some(item=>item?.outcome_unknown===true
+  ||item?.reconciliation_required===true||item?.native_tool_failure?.status==='unconfirmed'||item?.result?.failure?.status==='unconfirmed');
+ const useSnapshot=!Object.hasOwn(packet,'final_observation')&&authoringOnly&&!uncertain&&snapshot?.result?.isError!==true
+  &&Array.isArray(snapshot?.result?.content)&&snapshot.result.content.some(block=>block?.type==='text'&&typeof block.text==='string'&&block.text.trim());
+ const final=useSnapshot?snapshot:packet.final_observation;
+ if(!final||final.result?.isError===true||authoringOnly&&uncertain)throw fail('This call does not contain the completed native work and final observation for the selected section.');
+ if(packet.observation_delivery?.historical_page_text_omitted!==true||final.result?.text_truncated||JSON.stringify(packet).includes('[CAPTURE_LIMIT]'))throw fail('The retained native source evidence is incomplete.');
+ const omittedImages=Array.isArray(content)&&content.some(part=>part?.type==='image_url');
+ return useSnapshot||omittedImages?{...packet,...(useSnapshot?{final_observation:final}:{}),observation_delivery:{...packet.observation_delivery,
+  ...(useSnapshot?{retained_snapshot_fallback:true}:{}),...(omittedImages?{historical_images_omitted:true}:{})}}:packet;
 }
 function defaultPorts(){
  const db=require('@hellotest/platform/backend/src/db');
@@ -81,7 +98,12 @@ async function previewRetainedSource({transactionId,input={},user,signal},ports=
  // Recheck complete current source, data and manual context before every dispatch.
  const assertCurrent=async()=>{proposalSignal.throwIfAborted();await guard();if(hash(await ports.current(input.test_case_id,user,target.project_id))!==baseline)throw fail('The current case, source, parameters or manual specification changed. Request a fresh proposal.','AUTOMATION_SOURCE_PROPOSAL_STALE');proposalSignal.throwIfAborted();};
  const completed=current.steps.filter(row=>Number(row.step_order)<Number(step.step_order)).map(row=>({step:row,automation_code:row.automation_code}));
- const update=await generateUpstreamSectionSource({step:authored,emitted:packet.native_emitted_code,sourceContext:{latest_observation:packet.final_observation,observations:packet.observations,delivery:packet.observation_delivery},sourceBindings,privateScope,completed,interactive:true,guard:assertCurrent,signal:proposalSignal,validate:ports.validate,
+ // Reuse the complete protected phase packet, including its already bounded
+ // snapshot and sanitized Story/guidance. Re-authoring must not lose evidence
+ // merely because the last native verifier returned only a status receipt.
+ const update=await generateUpstreamSectionSource({step:authored,emitted:packet.native_emitted_code,brief:packet.brief||'',taskContext:packet.task_context,
+  authoringOnly:packet.authoring_only===true&&packet.live_validation?.status==='blocked',
+  sourceContext:{latest_observation:packet.final_observation,current_page_snapshot:packet.current_page_snapshot,observations:packet.observations,delivery:packet.observation_delivery,live_validation:packet.live_validation},sourceBindings,privateScope,completed,interactive:true,guard:assertCurrent,signal:proposalSignal,validate:ports.validate,
   complete:async({prompt,phase})=>{await assertCurrent();if(Date.now()>=deadline)throw fail('The source-only proposal model allowance ended.');return ports.complete({projectId:target.project_id,userId:user.id,integrationId:input.integration_id,prompt,phase,caseId:input.test_case_id,sectionId:step.id,signal:proposalSignal,timeoutMs:Math.min(90000,deadline-Date.now()),beforeDispatch:assertCurrent,sessionId:target.id});}});
  await assertCurrent();
  const manifest=createGenerationManifest({testCaseId:input.test_case_id,step,update,manualCoverage:lineage.manualCoverage,manualSpecification:lineage.manualSpecification});

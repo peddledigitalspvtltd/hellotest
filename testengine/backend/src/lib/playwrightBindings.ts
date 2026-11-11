@@ -453,5 +453,6 @@ export function createPlaywrightCodeBindings(page: Page, options: {
     }
   });
   const expect = wrapExpect(nativeExpect);
-  return { page: wrap(page) as Page, expect };
+  return { page: wrap(page) as Page, expect,
+    owns: (value: unknown) => Boolean(value && typeof value === "object" && originals.has(value)) };
 }

@@ -42,7 +42,7 @@ test('mixed sections preserve authored order while only web source uses native a
  assert.deepEqual(result.updates.map(update=>update.step_type),['api','web','api','web']);
  assert.deepEqual(f.calls.map(call=>call.name),['browser_navigate','browser_click']);
  assert.deepEqual(f.normalized,['before','after']);
- assert.deepEqual(f.models.filter(model=>model.phase==='upstream_instruction_mapping').map(model=>model.step.id),['save','verify']);
+ assert.deepEqual(f.models.filter(model=>model.phase==='upstream_instruction_mapping').map(model=>model.step.id),[]);
  assert.equal(result.updates[1].automation_code,expressionProgram([goto,click,assertion].join('\n')));assert.equal(result.updates[3].automation_code,expressionProgram(assertion));
  for(const saved of f.saved.filter(item=>item.update.step_type==='api')){assert.equal(saved.update.automation_instructions,undefined);assert.equal(saved.evidence.execution_status,'not_executed');assert.equal(saved.evidence.transport,'llm_api_contract');}
  assert.equal(result.side_effects.browser_actions,1);assert.equal(f.closes,1);

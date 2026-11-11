@@ -252,3 +252,31 @@ test('report analysis preserves reviewed legacy report blocks without inheriting
  const independent=await service({[old.id]:{published:{version:7,config:saved}},[report.id]:{published:{version:1,config:own}}}).resolve(report.id);
  assert.equal(independent.config.instruction_blocks[key],own.instruction_blocks[key]);
 });
+
+test('assurance contract-clarity guidance upgrades only recognized stock blocks and preserves reviewed publications',async()=>{
+ const keys=['artifactAssurance.reviewFocus','artifactAssurance.caseApplicability','artifactAssurance.automationReadiness'];
+ for(const item of catalog.filter(value=>value.defaults.instruction_blocks['artifactAssurance.reviewFocus'])) {
+  const stock=structuredClone(item.defaults),changed=keys.filter(key=>item.instruction_default_migrations?.[key]?.length);
+  for(const key of changed)stock.instruction_blocks[key]=item.instruction_default_migrations[key].at(-1);
+  const detail=await service({[item.id]:{revision:9,published:{version:6,config:stock},draft:{config:stock}}}).detail(item.id);
+  for(const key of changed){assert.equal(detail.config.instruction_blocks[key],item.defaults.instruction_blocks[key]);assert.equal(detail.draft.config.instruction_blocks[key],item.defaults.instruction_blocks[key]);}
+  assert.equal(detail.revision,9);assert.equal(detail.published_version,6);
+  const custom=structuredClone(stock);
+  for(const key of changed)custom.instruction_blocks[key]=`Reviewed ${key}: retain the explicit source contract.  `;
+  const reviewed=await service({[item.id]:{published:{version:7,config:custom},draft:{config:custom}}}).detail(item.id);
+  for(const key of changed){assert.equal(reviewed.config.instruction_blocks[key],custom.instruction_blocks[key]);assert.equal(reviewed.draft.config.instruction_blocks[key],custom.instruction_blocks[key]);}
+ }
+});
+
+test('case UI-fidelity contract migrations preserve reviewed blocks and accepted workflow instructions',async()=>{
+ for(const id of ['ai.test_case.design','ai.case_authoring.full_case']) {
+  const item=catalog.find(value=>value.id===id),key='application.artifactContract',old=structuredClone(item.defaults);
+  old.instruction_blocks[key]=item.instruction_default_migrations[key].at(-1);
+  const migrated=await service({[id]:{revision:8,published:{version:5,config:old},draft:{config:old}}}).detail(id);
+  assert.equal(migrated.config.instruction_blocks[key],item.defaults.instruction_blocks[key]);assert.equal(migrated.draft.config.instruction_blocks[key],item.defaults.instruction_blocks[key]);
+  assert.equal(migrated.revision,8);assert.equal(migrated.published_version,5);
+  old.instruction_blocks[key]='Reviewed UI contract: preserve our explicit tab requirements.  ';
+  const reviewed=await service({[id]:{published:{version:6,config:old}}}).resolve(id);
+  assert.equal(reviewed.config.instruction_blocks[key],old.instruction_blocks[key]);
+ }
+});

@@ -10,9 +10,7 @@ const DIMENSIONS = {
   story: ["industry-standards", "usefulness", "design-maturity", "market-patterns"],
   "test-case": ["scenario-coverage", "execution-clarity", "data-reliability", "trace-maintainability"]
 };
-const ASSURANCE_REQUEST_TIMEOUT_MS = 60_000;
-const ASSURANCE_REPAIR_TIMEOUT_MS = 60_000;
-const ASSURANCE_TOTAL_TIMEOUT_MS = ASSURANCE_REQUEST_TIMEOUT_MS + ASSURANCE_REPAIR_TIMEOUT_MS;
+const ASSURANCE_TOTAL_TIMEOUT_MS = 120_000;
 const ASSURANCE_MAX_OUTPUT_TOKENS = 6_144;
 const READINESS_STATUSES = ['ready', 'needs_input', 'unknown', 'not_applicable'];
 const READINESS_CONTEXT_KINDS = ['api_contract', 'authentication', 'test_data', 'fixture', 'application_context', 'other'];
@@ -320,7 +318,13 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     ...(readinessRequested ? [aiInstructionBlock(featureKey, 'artifactAssurance.automationReadiness'),
       JSON.stringify({ automation_readiness_contract: readinessContract(sources.map(source => source.ref), stepRefs), product_evidence_refs: [...productRefs], step_references: stepReferences })] : [])
   ].join("\n");
-  const deadline = Date.now() + ASSURANCE_TOTAL_TIMEOUT_MS;
+  const executionPolicy = object(require('@hellotest/platform/backend/src/utils/aiExecutionConfiguration').current()?.config?.agent_execution);
+  const timeoutMs = Math.min(ASSURANCE_TOTAL_TIMEOUT_MS,
+    Number.isInteger(executionPolicy.timeout_ms) && executionPolicy.timeout_ms > 0 ? executionPolicy.timeout_ms : ASSURANCE_TOTAL_TIMEOUT_MS);
+  const maxModelCalls = Math.min(2,
+    Number.isInteger(executionPolicy.max_model_calls) && executionPolicy.max_model_calls > 0 ? executionPolicy.max_model_calls : 2,
+    executionPolicy.max_revision_rounds === 0 ? 1 : 2);
+  const deadline = Date.now() + timeoutMs;
   let modelCalls = 0;
   let repairAttempted = false;
   let receivedGeneration = false;
@@ -333,14 +337,14 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
     const headers = { "Content-Type": "application/json" };
     if (integration.api_key) headers.Authorization = `Bearer ${integration.api_key}`;
-    const request = (messages, { operation, timeoutMs, maxOutputTokens }) => {
+    const request = (messages, { operation, maxOutputTokens }) => {
       const remaining = deadline - Date.now();
-      if (remaining < 1000 || modelCalls >= 2) throw Object.assign(new Error("AI assurance exhausted its request budget."), { code: "AI_BUDGET_EXCEEDED", statusCode: 504 });
+      if (remaining < 1000 || modelCalls >= maxModelCalls) throw Object.assign(new Error("AI assurance exhausted its request budget."), { code: "AI_BUDGET_EXCEEDED", statusCode: 504 });
       modelCalls += 1;
       if (operation.endsWith('.repair')) repairAttempted = true;
       return fetchLlmWithRetry(url, { method: "POST", headers, signal, body: JSON.stringify({
       model: integration.model,  response_format: { type: "json_object" }, messages
-    }) }, { integration, operation, featureKey, outputSchema:transportSchema, providerOutputSchema, outputSchemaName:'artifact_assurance_review', timeoutMs: Math.min(timeoutMs, remaining), maxOutputTokens, maxAttempts: 1, compatibility: false, contextFallback: false })
+    }) }, { integration, operation, featureKey, outputSchema:transportSchema, providerOutputSchema, outputSchemaName:'artifact_assurance_review', timeoutMs: remaining, maxOutputTokens, maxAttempts: 1, compatibility: false, contextFallback: false })
         .then(response => { receivedGeneration ||= response.ok; return response; });
     };
     const allowedRefs = new Set(sources.map(item => item.ref));
@@ -351,7 +355,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       const result = await readReviewResponse(await request([
         { role: "system", content: [aiInstructionBlock(featureKey, "artifactAssurance.result.9"), responseScope].join('\n') },
         { role: "user", content: prompt }
-      ], { operation: `quality-assurance.${artifactType}`, timeoutMs: ASSURANCE_REQUEST_TIMEOUT_MS, maxOutputTokens: ASSURANCE_MAX_OUTPUT_TOKENS }));
+      ], { operation: `quality-assurance.${artifactType}`, maxOutputTokens: ASSURANCE_MAX_OUTPUT_TOKENS }));
       originalContent = result.content;
       review = normalizeReview(result.parsed, dimensionIds, allowedRefs, normalization);
     } catch (error) {
@@ -377,7 +381,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       const repairedResult = await readReviewResponse(await request([
         { role: "system", content: [aiInstructionBlock(featureKey, "artifactAssurance.repairedResult.13"), responseScope].join('\n') },
         { role: "user", content: repairPrompt }
-      ], { operation: `quality-assurance.${artifactType}.repair`, timeoutMs: ASSURANCE_REPAIR_TIMEOUT_MS, maxOutputTokens: ASSURANCE_MAX_OUTPUT_TOKENS }));
+      ], { operation: `quality-assurance.${artifactType}.repair`, maxOutputTokens: ASSURANCE_MAX_OUTPUT_TOKENS }));
       review = normalizeReview(repairedResult.parsed, dimensionIds, allowedRefs, normalization);
       repaired = true;
     }
@@ -385,7 +389,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       response_repaired: repaired,
       execution_status: "completed", publication_status: "proposal",
       verification: { status: "passed", verifier_version: "artifact-assurance/2", checks: ["output_shape", "evidence_references"], limitations: ["Citation matching does not verify factual correctness or readiness."] },
-      model_execution: { model_calls: modelCalls, max_model_calls: 2, deadline_ms: ASSURANCE_TOTAL_TIMEOUT_MS, format_repair_attempted: repairAttempted },
+      model_execution: { model_calls: modelCalls, max_model_calls: maxModelCalls, deadline_ms: timeoutMs, format_repair_attempted: repairAttempted },
       integration: { id: integration.id, name: integration.name, type: integration.type, model: integration.model, generation_mode: "hybrid", direct_model_invocation: true } };
   } catch (error) {
     if (signal?.aborted) throw Object.assign(new Error('Workflow cancelled.'), { statusCode: 499, publicMessage: 'Workflow cancelled.' });
@@ -410,7 +414,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     throw Object.assign(new Error(reason), { ...failureMetadata(error),
       ...(receivedGeneration ? { generation_received:true, retryable:false, nonRetryable:true } : {}),
       code: error?.code || "AI_REVIEW_FAILED", statusCode: error?.statusCode || 502, publicMessage: reason,
-      model_execution: { model_calls: modelCalls, max_model_calls: 2, deadline_ms: ASSURANCE_TOTAL_TIMEOUT_MS, format_repair_attempted: repairAttempted }, cause: error });
+      model_execution: { model_calls: modelCalls, max_model_calls: maxModelCalls, deadline_ms: timeoutMs, format_repair_attempted: repairAttempted }, cause: error });
   }
 }
 

@@ -19,10 +19,10 @@ function fixture({ appKind = 'web', row = null } = {}) {
       const sql = statement.replace(/\s+/g, ' ').trim();
       return {
         get: async id => {
+          if (/FROM test_cases/.test(sql)) return clone(state.row);
           if (/FROM app_types/.test(sql)) return { id: 'app', project_id: 'project', type: appKind };
           if (/FROM users/.test(sql)) return { id, name: 'Author' };
           if (/FROM project_members/.test(sql)) return { user_id: 'author' };
-          if (/FROM test_cases/.test(sql)) return clone(state.row);
           return null;
         },
         all: async () => /FROM test_steps/.test(sql) ? clone(state.steps) : [],

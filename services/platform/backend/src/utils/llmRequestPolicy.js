@@ -124,9 +124,14 @@ const prepareChatRequest = (init, options = {}) => {
   // This small relevance verdict should not spend its entire completion
   // allowance on hidden reasoning. Apply only to documented GPT-5 variants,
   // after the managed feature has selected the actual provider/model.
-  if (['authoring.validate-request', 'bug-draft.generate'].includes(options.operation) && official
-      && /^gpt-5(?:-(?:mini|nano))?(?:-\d{4}-\d{2}-\d{2})?$/i.test(String(payload.model || ''))
-      && payload.reasoning_effort === undefined) payload.reasoning_effort = 'minimal';
+  if (official && /^gpt-5(?:-(?:mini|nano))?(?:-\d{4}-\d{2}-\d{2})?$/i.test(String(payload.model || ''))
+      && payload.reasoning_effort === undefined) {
+    if (['authoring.validate-request', 'bug-draft.generate'].includes(options.operation)) payload.reasoning_effort = 'minimal';
+    // These reviews have a closed, bounded evidence/schema contract. Leave
+    // time and output allowance for the actual cited findings instead of the
+    // provider's default hidden reasoning; explicit choices remain authoritative.
+    else if (/^quality-assurance\.(?:story|test-case)(?:\.repair)?$/.test(options.operation || '')) payload.reasoning_effort = 'low';
+  }
   // These models reject sampling controls; do not spend a failed round trip.
   if (isReasoningModel(payload.model)) {
     delete payload.temperature;

@@ -43,7 +43,8 @@ RUN mkdir -p /quality-data && chmod 700 /quality-data
 
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,id=hellotest-npm,target=/root/.npm,sharing=locked npm ci --omit=dev \
-    && node -e "const assert = require('node:assert/strict'); const { createRequire } = require('node:module'); const upstream = createRequire(require.resolve('@playwright/mcp/package.json')); assert.equal(require('playwright/package.json').version, '1.59.1'); assert.equal(upstream('@playwright/mcp/package.json').version, '0.0.84'); assert.ok(require('node:fs').existsSync(require('playwright').chromium.executablePath())); console.log('Verified independent Playwright MCP package and installed Run Chromium');"
+    && node node_modules/playwright/cli.js install --with-deps chromium firefox webkit \
+    && node -e "const assert = require('node:assert/strict'); const { createRequire } = require('node:module'); const upstream = createRequire(require.resolve('@playwright/mcp/package.json')); assert.equal(require('playwright/package.json').version, '1.65.0-alpha-2026-10-30'); assert.equal(upstream('playwright/package.json').version, require('playwright/package.json').version); assert.equal(upstream('@playwright/mcp/package.json').version, '0.0.84'); for (const name of ['chromium', 'firefox', 'webkit']) assert.ok(require('node:fs').existsSync(require('playwright')[name].executablePath())); console.log('Verified aligned Playwright MCP, Run runtime and pinned browsers');"
 
 COPY --from=build /app/dist ./dist
 

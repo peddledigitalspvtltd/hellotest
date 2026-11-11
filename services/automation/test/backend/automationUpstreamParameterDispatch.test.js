@@ -72,7 +72,7 @@ test('a public parameter alias cannot smuggle an unauthorized native secret key 
   const packet=JSON.parse(request.prompt);assert.deepEqual(packet.private_parameter_tokens,{});
   if(count===1)return {tool:{name:'browser_type',arguments:{ref:'employee-name',text:'@r.first'}}};
   assert.equal(packet.host_feedback.code,'AUTOMATION_UPSTREAM_PRIVATE_BINDING_SCOPE');return {blocked_reason:'The requested private alias is outside the authored section.'};
- },call:()=>native(goto)});
- await assert.rejects(state.run(),{code:'AUTOMATION_UPSTREAM_BUILD_INCOMPLETE'});assert.deepEqual(state.dispatched.map(item=>item.name),['browser_navigate']);assert.equal(state.saved.length,0);
+ },call:()=>native(goto),source:'await page.getByLabel("First name").fill(process.env.HELLOTEST_R_PASSWORD);\nawait expect(page.getByLabel("First name")).toHaveValue(process.env.HELLOTEST_R_PASSWORD);'});
+ await assert.rejects(state.run(),{code:'AUTOMATION_UPSTREAM_PRIVATE_BINDING_SCOPE'});assert.deepEqual(state.dispatched.map(item=>item.name),['browser_navigate']);assert.equal(state.saved.length,0);
  assert.doesNotMatch(JSON.stringify(state.requests),new RegExp(secret));
 });

@@ -2,6 +2,7 @@ const {
   SERVICE_ERROR_CODES,
   ServiceBoundaryError,
   classifyServiceFailure,
+  networkFailureCode,
   normalizeDependency,
   serviceError
 } = require("./serviceErrors");
@@ -403,11 +404,13 @@ async function resilientHttpRequest(url, init = {}, options = {}) {
         if (canRetry) {
           const delayMs = fullJitterDelayMs(attempt, policy.baseDelayMs, policy.maxDelayMs);
           if (delayMs < policy.deadlineMs - (policy.now() - startedAt)) {
+            const transportCode = networkFailureCode(error);
             state.counters.retries += 1;
             emit(policy, "dependency.request_retry", {
               attempt,
               resend_count: attempt,
               error_type: error.code,
+              ...(transportCode ? { transport_error_code: transportCode } : {}),
               delay_ms: delayMs
             });
             await wait(delayMs, init.signal);

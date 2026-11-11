@@ -28,6 +28,55 @@ test('explicit parameterized input commands need a real text-write data argument
   }
 });
 
+test('authored write values remain distinct from parameterized field labels and later click targets',()=>{
+ const source='const message=params["r.message"]; const field=page.frameLocator("#editor").getByLabel(params["r.label"]); await field.fill(message);';
+ for(const action of [
+  'Type @r.message into the field labelled @r.label',
+  'Enter @r.message in @r.label',
+  'Fill the input labelled @r.label with @r.message',
+  'Given I fill @r.label with @r.message and click @r.search_button'
+ ]){
+  const audit=auditAuthoredInputWrites({step:{action},source});
+  assert.deepEqual(audit.required_parameter_references,['@r.message'],action);
+  assert.deepEqual(audit.missing_parameter_references,[],action);assert.equal(audit.text_write_count,1);
+ }
+ const composite={action:'Enter @r.first_name and @r.last_name into the field labelled @r.label'};
+ assert.deepEqual(auditAuthoredInputWrites({step:composite,source:'const value=params["r.first_name"]+" "+params["r.last_name"]; await page.getByLabel("Name").fill(value);'}).missing_parameter_references,[]);
+ const repeated={action:'Fill @r.label with @r.message then type @r.second_message into @r.second_label'};
+ assert.deepEqual(auditAuthoredInputWrites({step:repeated,source:'await page.getByLabel("First").fill(params["r.message"]); await page.getByLabel("Second").fill(params["r.second_message"]);'}).required_parameter_references,['@r.message','@r.second_message']);
+});
+
+test('a target reference, mutable value, wrong scope or conditional alias cannot substitute for the authored value write',()=>{
+ const authored={action:'Type @r.message into the field labelled @r.label'};
+ for(const source of [
+  'const label=params["r.label"]; await page.getByLabel(label).fill(label);',
+  'const message=params["s.message"]; await page.getByLabel("Message").fill(message);',
+  'let message=params["r.message"]; message="Changed"; await page.getByLabel("Message").fill(message);',
+  'const message=params["r.message"]; if(false) await page.getByLabel("Message").fill(message);',
+  'const message=params["r.message"]; page.getByLabel("Message").fill(message);'
+ ])assert.deepEqual(auditAuthoredInputWrites({step:authored,source}).missing_parameter_references,['@r.message'],source);
+});
+
+test('one input verb retains every repeated value-target pair while excluding labels and following click targets',()=>{
+ const username='await page.getByLabel(params["r.username_label"]).fill(params["r.username"]);';
+ const password='await page.getByLabel("Password").fill(params["r.password"]);';
+ for(const action of [
+  'Enter @r.username in Username and @r.password in Password, then click Login.',
+  'Enter @r.username in @r.username_label and @r.password in Password, then click @r.login_button.',
+  'Type @r.username into the field labelled @r.username_label and @r.password into the field labelled @r.password_label and click @r.login_button.'
+ ]){
+  const authored={action};
+  assert.deepEqual(auditAuthoredInputWrites({step:authored,source:username}).required_parameter_references,['@r.username','@r.password'],action);
+  assert.deepEqual(auditAuthoredInputWrites({step:authored,source:username}).missing_parameter_references,['@r.password'],action);
+  assert.deepEqual(auditAuthoredInputWrites({step:authored,source:password}).missing_parameter_references,['@r.username'],action);
+  assert.deepEqual(auditAuthoredInputWrites({step:authored,source:username+'\n'+password}).missing_parameter_references,[],action);
+ }
+ const composite={action:'Enter @r.username in @r.username_label and @r.first_name and @r.last_name into Full Name.'};
+ assert.deepEqual(auditAuthoredInputWrites({step:composite,source:';'}).required_parameter_references,['@r.username','@r.first_name','@r.last_name']);
+ const unknown={action:'Enter @r.username in Username and @r.password using the configured interaction.'};
+ assert.deepEqual(auditAuthoredInputWrites({step:unknown,source:username}).missing_parameter_references,['@r.password'],'An unpaired second reference remains required when its role is unknown.');
+});
+
 function fixture({actor, emitFill = fill, generated = [goto, fill, assertion].join('\n'), interactive = true} = {}) {
   const calls = [], requests = [], saved = []; let turns = 0, closed = 0;
   const tools = [

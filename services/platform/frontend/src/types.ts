@@ -2910,6 +2910,7 @@ export type AgenticWorkflowFailureDetails = {
   code?: string;
   provider_failure_code?: string;
   category?: string;
+  failure_category?: string;
   message?: string;
   status_code?: number;
   upstream_status_code?: number;
@@ -2922,6 +2923,7 @@ export type AgenticWorkflowFailureDetails = {
   effect_dispatched?: boolean;
   completed_sections?: number;
   total_sections?: number;
+  section_order?: number;
   provider_error?: { code?: string | null; type?: string | null; param?: string | null; request_id?: string };
   origin?: { node_id: string; node_name?: string; loop_node_id?: string; batch_index?: number; iteration_path?: Array<string | number> };
   artifact?: { artifact_task?: string; story_id?: string; case_index?: number; case_client_id?: string };
@@ -2957,7 +2959,7 @@ export type AgenticWorkflowReadiness = {
   execution_mode: "review";
   blockers: Array<{ node_id: string | null; node_name: string | null; message: string }>;
   warnings: string[];
-  limits: { max_steps: number; max_specialists: number; timeout_ms: number; input_limit_bytes: number };
+  limits: { max_steps: number; max_specialists: number; timeout_ms: number; input_limit_bytes: number; max_loop_batches?: number; max_loop_node_executions?: number };
   steps: Array<{ node_id: string; name: string; kind: string; specialist_id: string | null }>;
 };
 

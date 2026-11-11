@@ -114,6 +114,16 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         repository_run_id?: string;
         repository_agent_type?: string;
         percent?: number;
+        current_case?: number;
+        total_cases?: number;
+        automation_progress?: {
+          total?: number;
+          active_case_index?: number;
+          active_step_order?: number;
+          completed_sections?: number;
+          total_sections?: number;
+          active_message?: string;
+        };
         stages?: Array<{
           id: string;
           label: string;
@@ -122,6 +132,9 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         }>;
       }
     | undefined;
+  const automationProgress = kind === "artifactTask" && node.data.artifactTask === "automation-engineer" ? progress?.automation_progress : undefined;
+  const activeCase = progress?.current_case ?? (automationProgress?.active_case_index == null ? undefined : automationProgress.active_case_index + 1);
+  const totalCases = progress?.total_cases ?? automationProgress?.total;
   const output = result?.output as Record<string, unknown> | undefined;
   const splitData = expanded && !["logs", "model calls"].includes(tab) && (!run || editable || tab !== "parameters");
   const field = (name: string, label: string, multiline = false) => (
@@ -192,10 +205,16 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
       <WorkflowFailureDetails value={result?.error_details} />
       {progress && (
         <div className="studio-source-progress">
+          {automationProgress && <div role="status">
+            <strong>Automation progress</strong>
+            {activeCase != null && <p>Case {activeCase}{totalCases != null ? ` of ${totalCases}` : ""}</p>}
+            {automationProgress.active_step_order != null && <p>Section {automationProgress.active_step_order}{automationProgress.total_sections != null ? ` of ${automationProgress.total_sections}` : ""}{automationProgress.completed_sections != null ? ` · ${automationProgress.completed_sections} completed` : ""}</p>}
+            {automationProgress.active_message && <p>{automationProgress.active_message}</p>}
+          </div>}
           <progress
             max={100}
             value={Number(progress.percent) || 0}
-            aria-label="Source analysis progress"
+            aria-label={automationProgress ? "Automation generation progress" : "Source analysis progress"}
           />
           <ol>
             {progress.stages?.map((stage) => (
@@ -229,7 +248,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         copyJsonLabel="Copy output JSON"
         empty={
           result?.status === "running"
-            ? "This step is running. Output appears here when it completes."
+            ? automationProgress ? "Completed automation code appears here when this case finishes." : "This step is running. Output appears here when it completes."
             : result?.status === "skipped"
               ? String(result.skip_reason || "This step was not reached.")
               : run ? "No output was recorded for this step." : undefined

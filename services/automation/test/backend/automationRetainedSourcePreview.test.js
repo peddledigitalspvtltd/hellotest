@@ -36,11 +36,97 @@ test('cross-build source proposal normalizes OLD public samples, preserves exact
  const structured=createGenerationManifest({testCaseId:'case',step:f.state.steps[0],update:{step_type:'web',automation_code:result.automation_code,api_request:null}});
  assert.equal(result.generation_manifest.source_sha256,structured.source_sha256);
  assert.notEqual(result.generation_manifest.source_sha256,result.proposed_source_sha256);
- assert.equal(result.generation_manifest.manual_specification.length,1);assert.equal(f.calls.filter(call=>call.phase==='upstream_source').length,1);assert.deepEqual(f.calls.map(call=>call.phase),['upstream_source','upstream_instruction_mapping']);
+ assert.equal(result.generation_manifest.manual_specification.length,1);assert.equal(f.calls.filter(call=>call.phase==='upstream_source').length,1);assert.deepEqual(f.calls.map(call=>call.phase),['upstream_source'],'The complete straight-line source uses deterministic display mapping.');
  assert.equal(JSON.parse(f.calls[0].prompt).parameters['r.first_name'],'OldSample');assert.equal(f.state.steps[0].automation_code,'await expect(page.locator("#old")).toBeVisible();');
 });
 
 test('failed current section needs no saved preview when its exact same-build native source packet and grounded manual data exist',async()=>{const f=fixture({crossBuild:false});const result=await previewRetainedSource(f.request,f.ports);assert.equal(result.evidence_transaction_id,'target');assert.equal(result.source_call_id,'trace');});
+
+test('a retained multimodal source request reuses its complete text packet without inventing historical pixels',async()=>{
+ const f=fixture(),read=f.ports.trace;
+ f.ports.trace=async(...args)=>{
+  const trace=await read(...args),message=trace.request_payload.messages.filter(item=>item.role==='user').at(-1);
+  message.content=[{type:'text',text:message.content},{type:'image_url',image_url:{url:'[BINARY_INPUT_OMITTED]'}}];
+  return trace;
+ };
+ const result=await previewRetainedSource(f.request,f.ports),packet=JSON.parse(f.calls[0].prompt);
+ assert.equal(packet.observation_delivery.historical_images_omitted,true);
+ assert.equal(result.side_effects.browser_actions,0);assert.equal(result.side_effects.cases_saved,0);
+ assert.doesNotMatch(JSON.stringify(f.calls),/BINARY_INPUT_OMITTED|image_url/);
+});
+
+test('retained source proposals preserve the bounded iframe snapshot and pinned Story guidance after a final Done receipt',async()=>{
+ const f=fixture();
+ f.packet.brief=JSON.stringify({workflow_scope:{story_id:'story'},selected_story:{ref:'requirement:story',content:{title:'Exact onboarding record',description:'Preserve the complete record identity and Activated status.'}},supplied_context:'Use the exact authored business expectations.'});
+ f.packet.task_context={case:{title:'Onboarding search'},browser_context:{scope:'initial_session_setup',applies_to_current_section_setup:false}};
+ f.packet.current_page_snapshot={tool:'browser_snapshot',arguments:'{}',result:{isError:false,content:[{type:'text',text:'### Snapshot\n- iframe "Events" [ref=f1e1]:\n  - table "Events" [ref=f1e2]:\n    - row "Onboard for OldSample Person Onboarding Activated" [ref=f1e3]'}]},step_id:'step'};
+ f.packet.final_observation={tool:'browser_verify_element_visible',result:{isError:false}};
+ f.packet.observation_delivery.historical_find_refs_require_refresh_after_scoped_snapshot=true;
+ f.syncPacket();
+ const result=await previewRetainedSource(f.request,f.ports),proposal=JSON.parse(f.calls[0].prompt);
+ assert.equal(proposal.brief,f.packet.brief);assert.deepEqual(proposal.task_context,f.packet.task_context);
+ assert.deepEqual(proposal.current_page_snapshot,f.packet.current_page_snapshot);
+ assert.match(JSON.stringify(proposal.current_page_snapshot),/iframe.*Events/);
+ assert.match(JSON.stringify(proposal.current_page_snapshot),/Onboard for OldSample Person Onboarding Activated/);
+ assert.equal(proposal.observation_delivery.historical_find_refs_require_refresh_after_scoped_snapshot,true);
+ assert.deepEqual(proposal.final_observation.result,{isError:false});
+ assert.equal(f.calls.filter(call=>call.phase==='upstream_source').length,1);
+ assert.deepEqual(result.side_effects,{browser_actions:0,cases_saved:0});
+});
+
+function blockedLaterSectionFixture(){
+ const f=fixture();
+ f.packet.authoring_only=true;
+ f.packet.live_validation={status:'blocked',reason:'The application stopped at the previous section.',stopped_at_step_id:'previous-step',stopped_at_step_order:13};
+ f.packet.native_emitted_code='';
+ f.packet.current_page_snapshot={tool:'browser_snapshot',step_id:'previous-step',result:{isError:false,content:[{type:'text',text:'### Snapshot\n- iframe "Events":\n  - textbox "Event Name"\n  - button "Search"'}]}};
+ f.packet.observation_delivery.page_state='last_live_observation_before_authoring_stopped';
+ f.packet.observation_delivery.planned_sections_after_observation=['previous-step'];
+ delete f.packet.final_observation;
+ f.syncPacket();
+ return f;
+}
+
+test('a later blocked-authoring section reuses its retained live snapshot only as unexecuted proposal evidence',async()=>{
+ const f=blockedLaterSectionFixture(),result=await previewRetainedSource(f.request,f.ports),proposal=JSON.parse(f.calls[0].prompt);
+ assert.equal(proposal.authoring_only,true);
+ assert.deepEqual(proposal.live_validation,f.packet.live_validation);
+ assert.deepEqual(proposal.final_observation,f.packet.current_page_snapshot);
+ assert.deepEqual(proposal.current_page_snapshot,f.packet.current_page_snapshot);
+ assert.equal(proposal.observation_delivery.retained_snapshot_fallback,true);
+ assert.equal(proposal.observation_delivery.page_state,'last_live_observation_before_authoring_stopped');
+ assert.equal(result.verification_status,'unverified');assert.equal(result.save_status,'not_saved');
+ assert.deepEqual(result.side_effects,{browser_actions:0,cases_saved:0});
+ assert.match(result.automation_code,/params\["r.first_name"\]/);
+ assert.equal(f.calls.filter(call=>call.phase==='upstream_source').length,1);
+});
+
+for(const change of ['observed_packet','unblocked_packet','missing_snapshot','failed_snapshot','truncated_snapshot','empty_snapshot','failed_final',
+ 'unknown_packet','unknown_blocker','unknown_observation','unconfirmed_action','request_truncated','wrong_case','wrong_session','failed_trace',
+ 'changed_manual','changed_data','missing_preview'])test(`blocked snapshot fallback rejects ${change} before model dispatch`,async()=>{
+ const f=blockedLaterSectionFixture();
+ if(change==='observed_packet')delete f.packet.authoring_only;
+ if(change==='unblocked_packet')f.packet.live_validation.status='observed';
+ if(change==='missing_snapshot')delete f.packet.current_page_snapshot;
+ if(change==='failed_snapshot')f.packet.current_page_snapshot.result.isError=true;
+ if(change==='truncated_snapshot')f.packet.current_page_snapshot.result.text_truncated=true;
+ if(change==='empty_snapshot')f.packet.current_page_snapshot.result.content=[];
+ if(change==='failed_final')f.packet.final_observation={tool:'browser_click',result:{isError:true}};
+ if(change==='unknown_packet')f.packet.outcome_unknown=true;
+ if(change==='unknown_blocker')f.packet.live_validation.reconciliation_required=true;
+ if(change==='unknown_observation')f.packet.observations=[{tool:'browser_click',outcome_unknown:true}];
+ if(change==='unconfirmed_action')f.packet.observations=[{tool:'browser_click',result:{failure:{status:'unconfirmed'}}}];
+ if(change==='request_truncated')f.trace.capture.request_truncated=true;
+ if(change==='wrong_case')f.trace.capture.test_case_id='other';
+ if(change==='wrong_session')f.trace.session_id='other';
+ if(change==='failed_trace')f.trace.status='failed';
+ if(change==='changed_manual')f.manifest.manual_specification[0].specification_sha256='a'.repeat(64);
+ if(change==='changed_data')f.data.parameter_values['r.first_name']='DifferentOldSample';
+ if(change==='missing_preview')delete f.evidence.metadata.step_progress[0].preview_artifact_id;
+ f.syncPacket();
+ await assert.rejects(previewRetainedSource(f.request,f.ports),{code:'AUTOMATION_SOURCE_PROPOSAL_UNAVAILABLE'});
+ assert.equal(f.calls.length,0);
+});
 
 test('source and mapping use the builder model allowance inside one cancellable proposal deadline',async()=>{
  const f=fixture(),controller=new AbortController();f.request.signal=controller.signal;

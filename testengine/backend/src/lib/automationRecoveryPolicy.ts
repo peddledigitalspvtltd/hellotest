@@ -7,7 +7,7 @@ const MAX_RECOVERY_DELAY_MS = 5_000;
 const locatorMethods = new Set(["locator", "getByRole", "getByLabel", "getByPlaceholder", "getByText", "getByTestId", "getByTitle", "getByAltText"]);
 const locatorIndices = new Set(["first", "last", "nth"]);
 const readMethods = new Set(["textContent", "innerText", "inputValue", "getAttribute", "count", "isVisible", "isHidden", "isEnabled", "isDisabled", "isChecked"]);
-const matchers = new Set(["toBeVisible", "toBeHidden", "toBeEnabled", "toBeDisabled", "toBeEditable", "toBeChecked", "toBeAttached", "toHaveText", "toContainText", "toHaveURL", "toHaveTitle", "toHaveAttribute", "toHaveCount", "toHaveValue", "toHaveValues", "toHaveClass", "toHaveCSS", "toHaveJSProperty", "toBe", "toEqual", "toContain", "toMatch"]);
+const matchers = new Set(["toBeVisible", "toBeHidden", "toBeEnabled", "toBeDisabled", "toBeEditable", "toBeChecked", "toBeAttached", "toBeEmpty", "toBeFocused", "toBeInViewport", "toHaveText", "toContainText", "toContainClass", "toHaveURL", "toHaveTitle", "toHaveAttribute", "toHaveCount", "toHaveValue", "toHaveValues", "toHaveClass", "toHaveCSS", "toHaveJSProperty", "toHaveAccessibleDescription", "toHaveAccessibleErrorMessage", "toHaveAccessibleName", "toHaveId", "toHaveRole", "toBe", "toEqual", "toContain", "toMatch"]);
 const member = (node: any): string | undefined => node?.type === "MemberExpression" && !node.computed && !node.optional ? node.property.name : undefined;
 
 type ReadOnlyProgram = { assertion_count: number; maximum_wait_ms: number };

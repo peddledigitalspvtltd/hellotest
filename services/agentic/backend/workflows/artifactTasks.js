@@ -7,6 +7,7 @@ const assurance = require('@hellotest/ai/backend/services/artifactAssurance.serv
 const apps = require('@hellotest/platform/backend/public/applicationAccess');
 const { storyAiSnapshot } = require('@hellotest/platform/backend/src/utils/aiArtifactContext');
 const { normalizeParameterLayer } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
+const { resolveAutomationDraftSteps } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 const { referenceKey, parameterReference, createBrowserParameterResolver } = require('@hellotest/automation/backend/lib/automationBrowserParameters');
 const { UPSTREAM_BUILD_ENGINE } = require('@hellotest/automation/backend/lib/automationBuildPipelineOptions');
 const { fail } = require('./connections');
@@ -29,6 +30,13 @@ const fingerprint = value => createHash('sha256').update(JSON.stringify(canonica
 const revision = story => fingerprint({ revision: story.revision, updated_at: story.updated_at, snapshot: storyAiSnapshot(story) });
 const metrics = () => import('@hellotest/ai/shared/artifactAssurance');
 const list = value => Array.isArray(value) ? value : [];
+// Workflow previews publish a complete draft only after generation succeeds.
+// The standalone builder has a section-persistence callback; these previews do
+// not, so its shared failure message cannot imply that source was saved.
+function previewProgressMessage(event) {
+  const message = typeof event?.message === 'string' ? event.message : 'Generating automation.';
+  return message.replace('Previously saved sections remain in Plan.', 'The manual case and test data are unchanged. Automation generation did not finish.');
+}
 // Behavioral guidance belongs to the saved node. Domain authorization, source
 // lineage and executable-source validation remain enforced by their services.
 function taskGuidance(node) {
@@ -371,17 +379,31 @@ async function executeCaseScoped({ run, node, user, signal, onProgress, context,
     test_data: testDataResult ? { source: testDataResult.source, test_data_set_id: testDataResult.test_data_set_id,
       parameter_sources: testDataResult.parameter_sources, private_parameter_names: testDataResult.private_parameter_names,
       missing_parameters: testDataResult.missing_parameters } : null })].filter(Boolean).join('\n\n');
-  const interactive = inputs.browserMode === 'perform_steps' && supplied.draft.steps.some(step => step.step_type === 'web');
+  const app = await apps.getAppType(run.app_type_id);
+  const nativeSteps = resolveAutomationDraftSteps(supplied.draft, supplied.draft.steps, { appTypeKind: app.kind || app.type || 'web' }).steps;
+  const interactive = inputs.browserMode === 'perform_steps'
+    && nativeSteps.some(step => step.step_type === 'web');
+  let completedSections = null, activeStepOrder = null, progressPercent = 0;
   const reportProgress = async event => {
+    const details = event?.details && typeof event.details === 'object' ? event.details : {};
+    const stepId = details.active_step_id || details.step_id;
+    const activeStep = stepId ? nativeSteps.find(step => step.id === stepId)
+      : nativeSteps.find(step => Number.isInteger(details.step_order) && step.step_order === details.step_order);
+    if (activeStep) activeStepOrder = activeStep.step_order;
+    if (Number.isInteger(details.completed_sections)) {
+      completedSections = Math.max(completedSections || 0, Math.min(nativeSteps.length, Math.max(0, details.completed_sections)));
+    }
+    if (completedSections != null) progressPercent = Math.min(99, Math.round(completedSections * 100 / Math.max(1, nativeSteps.length)));
+    else if (Number.isFinite(event?.percent)) progressPercent = Math.max(0, Math.min(99, Math.round(event.percent)));
     const row = caseScopedRow(packet, draft, caseIndex, { automation_progress: { processed: 0, total: 1,
       active_case_index: caseIndex, active_phase: String(event?.phase || 'automation.agent.started').slice(0, 120),
-      active_message: String(event?.message || 'Generating automation.').slice(0, 500),
-      ...(Number.isInteger(event?.details?.step_order) ? { active_step_order: event.details.step_order } : {}) } });
-    await onProgress({ percent: Math.max(0, Math.min(99, Math.round(Number(event?.percent) || 0))), current_item: 1, total_items: 1,
+      active_message: previewProgressMessage(event).slice(0, 500),
+      ...(activeStepOrder != null ? { active_step_order: activeStepOrder } : {}),
+      ...(completedSections != null ? { completed_sections: completedSections } : {}), total_sections: nativeSteps.length } });
+    await onProgress({ percent: progressPercent, current_item: 1, total_items: 1,
       current_case: caseIndex + 1, total_cases: packet.cases.length, completed_items: [row], automation_progress: row.automation_progress });
   };
   const generate = async () => {
-    const app = await apps.getAppType(run.app_type_id);
     try { return supplied.project(await require('@hellotest/automation/backend/services/aiAutomationBuilder.service').previewAutomationDraft({
       draft: supplied.draft, runtime_parameter_values: supplied.runtimeValues, test_environment_id: inputs.testEnvironmentId || undefined,
       test_data_set_id: testDataResult?.test_data_set_id || undefined,
@@ -392,7 +414,7 @@ async function executeCaseScoped({ run, node, user, signal, onProgress, context,
   };
   let automation;
   try {
-    await reportProgress({ phase: 'automation.agent.case.started', percent: 0, message: `Starting automation for case ${caseIndex + 1} of ${packet.cases.length}.`, details: { step_order: steps[0]?.step_order } });
+    await reportProgress({ phase: 'automation.agent.case.started', percent: 0, message: `Starting automation for case ${caseIndex + 1} of ${packet.cases.length}.`, details: { step_order: nativeSteps[0]?.step_order } });
     automation = interactive
       ? await require('./operationJournal').invoke({ run: { ...run, iteration_path: [...(run.iteration_path || []), 'automation', story.id, caseIndex] }, node, user,
         input: { story_id: story.id, story_revision: revision(story), case_fingerprint: fingerprint(draft), browser_mode: inputs.browserMode }, maxResponseBytes: 2 * 1024 * 1024 }, generate)
@@ -503,11 +525,12 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
   if (task === 'test-data-generator') testData.validateNodeOptions(node.data);
   const readinessPolicy = node.data.readinessPolicy ?? TASK_DEFAULTS['automation-engineer'].readinessPolicy ?? 'verify-inputs';
   if (task === 'automation-engineer' && !['verify-inputs','require-ready'].includes(readinessPolicy)) throw fail('Choose verify-inputs or require-ready for automation readiness.');
-  if (['test-case-assurance', 'test-data-generator'].includes(task) && caseLoopItem(run, context)) {
-    return executeCaseScoped({ run, node, user, signal, onProgress, context, task });
+  if (['test-case-assurance', 'test-data-generator', 'automation-engineer'].includes(task) && caseLoopItem(run, context)) {
+    try { return await executeCaseScoped({ run, node, user, signal, onProgress, context, task }); }
+    catch (failure) { throw withArtifact(failure, { artifact_task: task, story_id: context.input?.[0]?.story_id,
+      case_index: run.iteration_index, case_client_id: context.item.client_id }); }
   }
   if (task === 'test-data-generator') throw fail('Place Test Data Generator inside the For each Test Case loop so each result stays bound to one assessed case.', 422);
-  if (task === 'automation-engineer' && caseLoopItem(run, context)) return executeCaseScoped({ run, node, user, signal, onProgress, context, task });
   const packets = context.input;
   if (!Array.isArray(packets) || packets.length > MAX_STORIES) throw fail('Connect For each Story output; native artifact tasks accept up to 100 Story packets.');
   const app = await apps.getAppType(run.app_type_id);
@@ -548,7 +571,7 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
       : activeStepIndex >= 0 ? Number(steps[activeStepIndex].step_order) : null;
     const completedSections = Number.isInteger(details.completed_sections) ? details.completed_sections : null;
     const totalSections = Number.isInteger(details.total_sections) ? details.total_sections : steps.length;
-    const activeMessage = typeof event?.message === 'string' ? event.message.slice(0, 600) : 'Generating automation.';
+    const activeMessage = previewProgressMessage(event).slice(0, 600);
     const stepFraction = completedSections != null ? completedSections / Math.max(1, totalSections)
       : activeStepIndex >= 0 ? (activeStepIndex + 0.5) / Math.max(1, steps.length) : 0;
     const processed = [...results, packet];
@@ -735,7 +758,8 @@ async function execute({ run, node, sources, user, signal, onProgress, context }
         try {
           // Browser visibility and action authority are separate. Existing
           // workflows retain read-only behavior until their saved mode changes.
-          const interactive = inputs.browserMode === 'perform_steps' && automationDraft.steps.some(step => step.step_type === 'web');
+          const interactive = inputs.browserMode === 'perform_steps'
+            && resolveAutomationDraftSteps(automationDraft, automationDraft.steps, { appTypeKind: app.kind || app.type || 'web' }).steps.some(step => step.step_type === 'web');
           const generate = async (reportProgress = async () => {}) => {
             try { return supplied.project(await require('@hellotest/automation/backend/services/aiAutomationBuilder.service').previewAutomationDraft({ draft: automationDraft, runtime_parameter_values:supplied.runtimeValues, test_environment_id: inputs.testEnvironmentId || undefined, app_type_kind: app.kind || app.type || 'web', additional_context: automationContext, integration_id: integrationId, project_id: run.project_id, app_type_id: app.id, user_id: user.id,
               inspect_browser: inputs.browserMode !== 'offline', allow_browser_actions: interactive, signal, onProgress: reportProgress })); }

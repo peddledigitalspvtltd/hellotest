@@ -44,6 +44,13 @@ async function verifySavedBuild(input, ports) {
     message: 'Instructions are saved; a separate run has not been requested.'
   };
   if (options.verification_mode === 'generate_only') return summary;
+  if (input.liveValidation?.status === 'blocked') {
+    input.signal?.throwIfAborted();
+    await ports.assertAccess();
+    input.signal?.throwIfAborted();
+    return {...summary,status:'blocked',error_code:'AUTOMATION_LIVE_VALIDATION_BLOCKED',
+      message:'The draft is saved and remains unverified. Live validation reported an application or input blocker; no automatic verification run was dispatched.'};
+  }
 
   const now = ports.now || Date.now;
   const startedAt = now();

@@ -1,4 +1,5 @@
 const { sanitizeAiText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
+const { sanitizeInternalErrorText } = require("@hellotest/platform/backend/src/utils/serviceErrors");
 const safeMessage = (value, fallback = "This node failed. Review its configuration and connection.") =>
   sanitizeAiText(typeof value === "string" && value ? value : fallback).text.slice(0, 2000);
 const canRetry = (kind, data = {}) => ["agent", "llmAgent", "customAI"].includes(kind)
@@ -59,20 +60,25 @@ function failureInfo(input) {
  ]);
  const providerCode = /^LLM_[A-Z0-9_]{1,90}$/.test(failure.provider_failure_code || '') ? failure.provider_failure_code : null;
  const classification = providerCode || code;
- const category = failure.outcome_unknown ? 'outcome_unknown' : classification === 'WORKFLOW_CANCELLED' ? 'cancelled'
+ const failureCategory = classification === 'WORKFLOW_CANCELLED' ? 'cancelled'
    : /TIMEOUT|DEADLINE/.test(classification) ? 'timeout' : /AUTHENTICATION|UNAUTHORIZED|ACCESS_DENIED|FORBIDDEN|(?:HOST|ORIGIN)_DENIED/.test(classification) ? 'authorization'
      : /QUOTA/.test(classification) ? 'provider_quota' : /RATE_LIMIT/.test(classification) ? 'provider_capacity'
        : /^LLM_|^MODEL_/.test(classification)||classification==='AI_PROVIDER_REFUSAL' ? 'provider_request'
          : outputContractFailures.has(classification)||failure.statusCode === 422 || /INVALID|VALIDATION|INPUT/.test(classification) ? 'validation' : 'execution';
- const fallback = category === 'provider_request' ? 'The selected model rejected or could not complete this node request. Review its model connection and output configuration.'
-   : category === 'provider_quota' ? 'The selected model provider has exhausted its quota. Check the integration usage and billing settings.'
-     : category === 'provider_capacity' ? 'The selected model provider is limiting requests. Review capacity before starting a new execution.'
-       : category === 'authorization' ? 'This node no longer has the required access. Check its current permissions or connection.'
-         : category === 'timeout' ? 'This node reached its execution deadline. Completed results are preserved.'
-           : category === 'cancelled' ? 'This node was cancelled. Completed results are preserved.'
-             : category === 'validation' ? 'This node could not validate its input or generated output. Review its configuration and validation details.' : undefined;
+ // Uncertain browser effects still block retry, independently of why the node
+ // stopped. Keep the original validation/provider classification visible too.
+ const category = failure.outcome_unknown ? 'outcome_unknown' : failureCategory;
+ const fallback = failureCategory === 'provider_request' ? 'The selected model rejected or could not complete this node request. Review its model connection and output configuration.'
+   : failureCategory === 'provider_quota' ? 'The selected model provider has exhausted its quota. Check the integration usage and billing settings.'
+     : failureCategory === 'provider_capacity' ? 'The selected model provider is limiting requests. Review capacity before starting a new execution.'
+       : failureCategory === 'authorization' ? 'This node no longer has the required access. Check its current permissions or connection.'
+         : failureCategory === 'timeout' ? 'This node reached its execution deadline. Completed results are preserved.'
+           : failureCategory === 'cancelled' ? 'This node was cancelled. Completed results are preserved.'
+             : failureCategory === 'validation' ? 'This node could not validate its input or generated output. Review its configuration and validation details.' : undefined;
+ const diagnosticText = value => safeMessage(sanitizeInternalErrorText(value));
  return {
   code, category,
+  ...(failure.outcome_unknown && failureCategory !== 'execution' ? {failure_category:failureCategory} : {}),
   ...(providerCode ? {provider_failure_code:providerCode}:{}),
   ...(Number.isInteger(failure.statusCode) ? { status_code: failure.statusCode } : {}),
   ...(Number.isInteger(failure.upstreamStatusCode || failure.upstreamStatus) ? { upstream_status_code: failure.upstreamStatusCode || failure.upstreamStatus } : {}),
@@ -85,21 +91,22 @@ function failureInfo(input) {
   }} : {}),
   ...(identifier(failure.operation_id) ? { operation_id: failure.operation_id } : {}),
   ...(failure.outcome_unknown ? { outcome_unknown: true, reconciliation_required: true } : {}),
+  ...(Number.isInteger(failure.section_order) && failure.section_order > 0 && failure.section_order <= 200 ? {section_order:failure.section_order} : {}),
   ...(failure.generation_received ? { generation_received:true } : {}),
   ...(Object.keys(modelExecution).length?{model_execution:modelExecution}:{}),
   ...(failure.effect_dispatched===false&&!failure.outcome_unknown?{effect_dispatched:false}:{}),
-  ...(identifier(artifact.story_id)&&['story-assurance','test-case-generation','test-case-assurance','automation-engineer'].includes(artifact.artifact_task)?{
+  ...(identifier(artifact.story_id)&&['story-assurance','test-case-generation','test-case-assurance','test-data-generator','automation-engineer'].includes(artifact.artifact_task)?{
     artifact:{artifact_task:artifact.artifact_task,story_id:artifact.story_id,
       ...(Number.isInteger(artifact.case_index)&&artifact.case_index>=0&&artifact.case_index<100?{case_index:artifact.case_index}:{}),
       ...(identifier(artifact.case_client_id)?{case_client_id:artifact.case_client_id}:{})}
   }:{}),
   ...(Number.isFinite(failure.retryAfterMs) && failure.retryAfterMs >= 0 ? {retry_after_ms:Math.min(failure.retryAfterMs,86400000)} : {}),
   ...(Array.isArray(failure.validation_errors) ? { validation_errors:failure.validation_errors.slice(0,8).filter(item=>item&&typeof item==='object').map(item=>({
-    ...(typeof item.path==='string'?{path:safeMessage(item.path).slice(0,200)}:{}),
+    ...(typeof item.path==='string'?{path:diagnosticText(item.path).slice(0,200)}:{}),
     ...(typeof item.keyword==='string'&&/^[A-Za-z][A-Za-z0-9_$-]{0,63}$/.test(item.keyword)&&identifier(item.keyword)?{keyword:item.keyword}:{}),
     ...(typeof item.required_property==='string'&&/^[A-Za-z_][A-Za-z0-9_.-]{0,99}$/.test(item.required_property)&&identifier(item.required_property)?{required_property:item.required_property}:{}),
-    ...(typeof item.issue==='string'?{issue:safeMessage(item.issue).slice(0,500)}:{}),
-    ...(typeof item.message==='string'?{message:safeMessage(item.message).slice(0,500)}:{})
+    ...(typeof item.issue==='string'?{issue:diagnosticText(item.issue).slice(0,500)}:{}),
+    ...(typeof item.message==='string'?{message:diagnosticText(item.message).slice(0,500)}:{})
   })).filter(item=>Object.keys(item).length) } : {}),
   ...(failure.code === "AUTOMATION_BUILD_INCOMPLETE" ? {
     ...Object.fromEntries(["completed_sections", "total_sections"].filter(key => Number.isInteger(failure[key]) && failure[key] >= 0 && failure[key] <= 200).map(key => [key, failure[key]])),
@@ -107,7 +114,7 @@ function failureInfo(input) {
       .filter(item => item && typeof item.message === "string").map(item => ({
         ...(typeof item.step_id === "string" && /^[\w:-]{1,255}$/.test(item.step_id) ? { step_id: item.step_id } : {}),
         ...(typeof item.code === "string" && /^[A-Z][A-Z0-9_]{0,79}$/.test(item.code) ? { code: item.code } : {}),
-        message: safeMessage(item.message).slice(0, 500),
+        message: diagnosticText(item.message).slice(0, 500),
       })),
   } : {}),
   message: safeMessage(failure.publicMessage, fallback), retryable: retryable(failure),

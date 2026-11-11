@@ -190,6 +190,7 @@ When the stack is up, the Test Engine host serves:
 
 - `GET /health/live` (process liveness only)
 - `GET /health/ready` (shared-secret and queue-worker readiness)
+- `GET /health/transport` (initialized browser transport and authentication, independent of queue polling; use for the MCP gateway backend)
 - `GET /health` (legacy compatibility status)
 - `GET /api/v1/capabilities`
 - `GET /api/v1/events`
@@ -197,6 +198,34 @@ When the stack is up, the Test Engine host serves:
 - `GET /api/v1/ops-telemetry/services`
 - `DELETE /api/v1/events/projects/:projectId`
 - `GET /ops-telemetry`
+
+The local source and image stacks route Playwright MCP through a dedicated
+HAProxy backend checked with `/health/transport`; ordinary job routes keep
+`/health/ready`. A temporary queue/API polling failure therefore does not
+withdraw an existing browser session. Authentication, runtime initialization
+and shutdown still make transport readiness fail. Browser capacity is handled
+by MCP initialization without withdrawing active sessions.
+
+Automation Build and Run both pin Playwright `1.65.0-alpha-2026-10-30`, matching
+`@playwright/mcp` `0.0.84`. Use the installed package's browser setup command;
+the Docker build and downloaded local installer install its matching browser
+revisions. The older Playwright Docker tag supplies the operating-system base,
+not the browser revision used by this runtime. Build always selects the pinned
+upstream Chromium executable; a Run-only custom executable or attached browser
+is an explicit administrator override. Standalone exports name the exact
+`@playwright/test` dependency and reject another runner version before navigation.
+
+New tab-selection receipts use `hellotest.tab-identity.v1`: record query values
+and SPA fragments remain part of tab identity. Known marketing parameters and
+Amazon navigation tracking such as `qid` are excluded; unknown parameters are
+retained. Replay waits for a unique owned tab matching that identity rather than
+depending on popup order. Duplicate semantic identities require a uniquely
+identified target before the builder can issue a selection receipt.
+
+The Kubernetes base manifest still uses queue readiness for pod admission. An
+installation exposing stateful MCP through that Service needs separate session
+transport routing before it can provide the same queue-outage isolation. Do not
+replace its readiness probe without also preserving normal job admission.
 
 Every `/api/v1/runs` read, create, and retry route requires the Test Engine
 shared secret as `X-HelloTest-TestEngine-Secret`, `X-TestEngine-Secret`, or a

@@ -1,12 +1,15 @@
 import type { AgenticWorkflowRun, AiArtifactAssuranceAnalysis, AiArtifactAssuranceReview } from "@hellotest/platform/frontend/src/types";
 
 export type SprintDraft = { client_id?: string; title: string; description?: string; authoring_mode?: string; gherkin_document?: string; parameter_values?: Record<string, string>; steps?: Array<Record<string, unknown>> };
-type Assessment = { client_id?: string; case_index?: number; analysis: AiArtifactAssuranceAnalysis; assurance_review?: AiArtifactAssuranceReview };
-export type SprintAutomation = { client_id?: string; case_index?: number; title?: string; steps?: Array<Record<string, unknown>>; instructions?: Array<{step_order: number; action: string; expected_result: string; runtime: string}>; executable?: {filename: string; language: string; framework: string; code: string} | null; validation?: {status: string}; verification_status?: string };
-export type SprintTestData = { status: string; source: "synthetic" | "dataset"; test_data_set_id?: string; test_data_set_name?: string; parameter_values?: Record<string, string>; parameter_sources?: Record<string, {source: string; test_data_set_id?: string}>; private_parameter_names?: string[]; missing_parameters?: string[]; deterministic_fallbacks?: Array<{parameter: string; reason: string}>; message?: string };
-export type SprintPacket = { story_id: string; story_revision?: string; story?: {title: string}; story_assurance?: {analysis?: AiArtifactAssuranceAnalysis; failure?: {message?: string}}; test_case_generation?: {failure?: {message?: string}; verification?: {status?: string; limitations?: string[]}}; cases: SprintDraft[]; case_assurance?: Assessment[]; test_data?: Array<SprintTestData | null>; automation?: Array<SprintAutomation | null>; automation_input_required?: Array<{ case_index: number; message: string; required_context?: string[]; required_parameters?: string[]; blocked_steps?: Array<{ reason?: string; required_context?: string[]; required_parameters?: string[] }> } | null>; automation_failures?: Array<{case_index: number; client_id?: string; code?: string; message: string; validation_feedback?: unknown; completed_sections?: number; total_sections?: number} | null>; automation_progress?: {completed: number; failed: number; needs_input: number; processed: number; total: number; active_case_index?: number; active_phase?: string; active_message?: string; active_step_order?: number; completed_sections?: number; total_sections?: number} };
+type CaseFailure = { case_index: number; client_id?: string; code?: string; message: string };
+type Assessment = { client_id?: string; case_index?: number; analysis: AiArtifactAssuranceAnalysis; assurance_review?: AiArtifactAssuranceReview; verification?: {status?: string; limitations?: string[]}; failure?: {code?: string; message?: string} };
+export type SprintLiveValidation = { status: "blocked" | "observed" | "not_run"; reason?: string; stopped_at_step_id?: string; stopped_at_step_order?: number };
+export type SprintAutomation = { client_id?: string; case_index?: number; title?: string; steps?: Array<Record<string, unknown>>; instructions?: Array<{step_order: number; action: string; expected_result: string; runtime: string}>; executable?: {filename: string; language: string; framework: string; code: string} | null; validation?: {status: string}; verification_status?: string; live_validation?: SprintLiveValidation };
+export type SprintTestData = { status: string; source: "synthetic" | "dataset"; test_data_set_id?: string; test_data_set_name?: string; parameter_values?: Record<string, string>; parameter_sources?: Record<string, {source: string; test_data_set_id?: string}>; private_parameter_names?: string[]; existing_parameter_count?: number; model_calls_attempted?: number; missing_parameters?: string[]; deterministic_fallbacks?: Array<{parameter: string; reason: string}>; message?: string };
+export type SprintPacket = { story_id: string; story_revision?: string; story?: {title: string}; story_assurance?: {analysis?: AiArtifactAssuranceAnalysis; failure?: {message?: string}}; test_case_generation?: {failure?: {message?: string}; verification?: {status?: string; limitations?: string[]}}; cases: SprintDraft[]; case_assurance?: Array<Assessment | null>; case_assurance_failures?: Array<CaseFailure | null>; test_data?: Array<SprintTestData | null>; automation?: Array<SprintAutomation | null>; automation_input_required?: Array<{ case_index: number; message: string; required_context?: string[]; required_parameters?: string[]; blocked_steps?: Array<{ reason?: string; required_context?: string[]; required_parameters?: string[] }> } | null>; automation_failures?: Array<{case_index: number; client_id?: string; code?: string; message: string; validation_feedback?: unknown; completed_sections?: number; total_sections?: number; outcome_unknown?: boolean; reconciliation_required?: boolean} | null>; automation_progress?: {completed: number; failed: number; needs_input: number; processed: number; total: number; active_case_index?: number; active_phase?: string; active_message?: string; active_step_order?: number; completed_sections?: number; total_sections?: number} };
+type StageRow = Omit<Partial<SprintPacket>, "case_assurance" | "test_data"> & {case_index?: number; client_id?: string; case_assurance?: Assessment | Array<Assessment | null>; test_data?: SprintTestData | Array<SprintTestData | null>};
 type Target = { nodeId: string; storyIndex: number; iterationPath?: Array<string | number> };
-export type SprintDraftResult = { packet: SprintPacket; manualTarget?: Target; automationTarget?: Target };
+export type SprintDraftResult = { packet: SprintPacket; manualTargets: Array<Target | undefined>; automationTargets: Array<Target | undefined> };
 
 function mergeIndexed<T>(previous: Array<T | null> | undefined, incoming: Array<T | null>, fallbackIndex?: number): Array<T | null> {
   const merged = [...(previous || [])];
@@ -73,15 +76,15 @@ export function collectSprintDrafts(run: AgenticWorkflowRun): SprintDraftResult[
     // Public progress contains whole-case results only. Private recovery
     // checkpoints and partial step code are never a review presentation source.
     const rows = result.status === "completed"
-      ? (result.output as {data?: Partial<SprintPacket>[]} | undefined)?.data
-      : (result.progress as {completed_items?: Partial<SprintPacket>[]} | undefined)?.completed_items;
+      ? (result.output as {data?: StageRow[]} | undefined)?.data
+      : (result.progress as {completed_items?: StageRow[]} | undefined)?.completed_items;
     if (!Array.isArray(rows)) continue;
     rows.forEach((row, storyIndex) => {
       const target: Target = { nodeId, storyIndex, ...(Array.isArray(result.iteration_path) ? { iterationPath: result.iteration_path as Array<string | number> } : {}) };
       if (typeof row.story_id !== "string" || !row.story_id) return;
       const key = `${row.story_id}:${row.story_revision || "legacy"}`;
       let entry = stories.get(key);
-      if (!entry) { entry = {packet: {story_id: row.story_id, story_revision: row.story_revision, cases: []}}; stories.set(key, entry); }
+      if (!entry) { entry = {packet: {story_id: row.story_id, story_revision: row.story_revision, cases: []}, manualTargets: [], automationTargets: []}; stories.set(key, entry); }
       const packet = entry.packet;
       if (row.story) packet.story = row.story;
       if (row.story_assurance) packet.story_assurance = row.story_assurance;
@@ -89,28 +92,75 @@ export function collectSprintDrafts(run: AgenticWorkflowRun): SprintDraftResult[
       if (Array.isArray(row.cases)) {
         // A regenerated set invalidates the UI's earlier assessments and targets.
         if (JSON.stringify(row.cases) !== JSON.stringify(packet.cases)) {
-          packet.case_assurance = undefined; packet.test_data = undefined; packet.automation = undefined; packet.automation_input_required = undefined; packet.automation_failures = undefined; packet.automation_progress = undefined;
-          entry.manualTarget = undefined; entry.automationTarget = undefined;
+          packet.case_assurance = undefined; packet.case_assurance_failures = undefined; packet.test_data = undefined; packet.automation = undefined; packet.automation_input_required = undefined; packet.automation_failures = undefined; packet.automation_progress = undefined;
+          entry.manualTargets = []; entry.automationTargets = [];
         }
         packet.cases = row.cases;
       }
-      const matches = (items: Array<{client_id?: string; case_index?: number} | null>) => items.every((item, index) => !item
-        || Boolean(packet.cases[item.case_index ?? index]) && (!item.client_id || item.client_id === packet.cases[item.case_index ?? index].client_id));
-      if (Array.isArray(row.case_assurance) && matches(row.case_assurance)) {
-        packet.case_assurance = row.case_assurance;
-        entry.manualTarget = target;
+      const caseIndex = row.case_index;
+      const scoped = Number.isInteger(caseIndex);
+      // A case-level row must still refer to the exact currently generated case.
+      if (scoped && (!packet.cases[caseIndex!] || !row.client_id || row.client_id !== packet.cases[caseIndex!].client_id)) return;
+      const matches = (items: Array<{client_id?: string; case_index?: number} | null>) => items.every((item, index) => {
+        const itemIndex = item?.case_index ?? (scoped && items.length === 1 ? caseIndex! : index);
+        return !item || Boolean(packet.cases[itemIndex]) && (!item.client_id || item.client_id === packet.cases[itemIndex].client_id);
+      });
+      const reviews = Array.isArray(row.case_assurance) ? row.case_assurance : scoped && row.case_assurance ? [row.case_assurance] : null;
+      if (reviews && matches(reviews)) {
+        packet.case_assurance = mergeIndexed(packet.case_assurance, reviews, caseIndex);
+        reviews.forEach((review, index) => {
+          if (!review) return;
+          const reviewIndex = review.case_index ?? (scoped && reviews.length === 1 ? caseIndex! : index);
+          if (result.status === "completed") entry.manualTargets[reviewIndex] = target;
+          if (review.failure || review.verification?.status && review.verification.status !== "passed") {
+            packet.case_assurance_failures = mergeIndexed(packet.case_assurance_failures, [{case_index: reviewIndex, client_id: packet.cases[reviewIndex].client_id,
+              code: review.failure?.code, message: review.failure?.message || review.verification?.limitations?.[0] || "Test Case assurance needs another review."}]);
+          } else if (review.verification?.status === "passed" && packet.case_assurance_failures) packet.case_assurance_failures[reviewIndex] = null;
+        });
+      }
+      if (Array.isArray(row.case_assurance_failures) && matches(row.case_assurance_failures)) {
+        packet.case_assurance_failures = scoped
+          ? mergeIndexed(packet.case_assurance_failures, row.case_assurance_failures.length ? row.case_assurance_failures : [null], caseIndex)
+          : mergeIndexed(undefined, row.case_assurance_failures);
+      }
+      if (row.test_data) {
+        if (Array.isArray(row.test_data)) packet.test_data = row.test_data;
+        else if (scoped) packet.test_data = mergeIndexed(packet.test_data, [row.test_data], caseIndex);
       }
       if (Array.isArray(row.automation) && matches(row.automation)) {
-        const caseIndex = (row as Partial<SprintPacket> & {case_index?: number}).case_index;
         packet.automation = mergeIndexed(packet.automation, row.automation, caseIndex);
-        packet.automation_input_required = mergeIndexed(packet.automation_input_required, row.automation_input_required || [], caseIndex);
-        packet.automation_failures = mergeIndexed(packet.automation_failures, Array.isArray(row.automation_failures) && matches(row.automation_failures) ? row.automation_failures : [], caseIndex);
-        const caseData = (row as Partial<SprintPacket> & {test_data?: SprintTestData}).test_data;
-        if (caseData && Number.isInteger(caseIndex)) { const testData = [...(packet.test_data || [])]; testData[caseIndex!] = caseData; packet.test_data = testData; }
+        if (Array.isArray(row.automation_input_required) && matches(row.automation_input_required)) packet.automation_input_required = mergeIndexed(packet.automation_input_required, scoped && !row.automation_input_required.length ? [null] : row.automation_input_required, caseIndex);
+        else packet.automation_input_required ||= [];
+        if (Array.isArray(row.automation_failures) && matches(row.automation_failures)) packet.automation_failures = mergeIndexed(packet.automation_failures, scoped && !row.automation_failures.length ? [null] : row.automation_failures, caseIndex);
+        else packet.automation_failures ||= [];
         packet.automation_progress = row.automation_progress;
-        if (result.status === "completed") entry.automationTarget = target;
-        // This node's private lineage also owns the assessed manual drafts.
-        if (packet.case_assurance?.length && entry.automationTarget) entry.manualTarget = entry.automationTarget;
+        if (result.status === "completed") row.automation.forEach((automation, index) => {
+          const targetIndex = automation?.case_index ?? (scoped && row.automation!.length === 1 ? caseIndex! : index);
+          entry.automationTargets[targetIndex] = automation ? target : undefined;
+          // A nested case checkpoint owns only this case's assessment and build.
+          if (packet.case_assurance?.[targetIndex]) entry.manualTargets[targetIndex] = target;
+        });
+      }
+      const hasCaseOutcome = scoped && [row.automation, row.automation_input_required, row.automation_failures].some(items =>
+        Array.isArray(items) && matches(items) && items.some((item, index) => item
+          && (item.case_index ?? (items.length === 1 ? caseIndex! : index)) === caseIndex));
+      if (scoped && !hasCaseOutcome && row.automation_progress && result.status === "failed" && typeof result.error === "string" && result.error.trim()) {
+        // Terminal transport/budget failures can stop before the stage emits a
+        // case outcome. Its last public progress row still owns the exact case.
+        // Later publication failures remain node diagnostics, not build outcomes.
+        const diagnostic = Array.isArray(result.logs) ? [...result.logs].reverse().find(log => log?.event === "node_failed"
+          && log.origin?.node_id === nodeId && log.message === result.error
+          && (!Array.isArray(result.iteration_path) || JSON.stringify(log.origin?.iteration_path) === JSON.stringify(result.iteration_path))) : undefined;
+        packet.automation_failures = mergeIndexed(packet.automation_failures, [{ case_index: caseIndex!, client_id: row.client_id, message: result.error,
+          ...(typeof diagnostic?.code === "string" ? { code: diagnostic.code } : {}),
+          ...(typeof diagnostic?.outcome_unknown === "boolean" ? { outcome_unknown: diagnostic.outcome_unknown } : {}),
+          ...(typeof diagnostic?.reconciliation_required === "boolean" ? { reconciliation_required: diagnostic.reconciliation_required } : {}) }]);
+      }
+      if (scoped && (row.automation_progress || Array.isArray(row.automation))) {
+        const completed = packet.automation?.filter(Boolean).length || 0, failed = packet.automation_failures?.filter(Boolean).length || 0,
+          needsInput = packet.automation_input_required?.filter(Boolean).length || 0;
+        packet.automation_progress = { ...row.automation_progress, completed, failed, needs_input: needsInput,
+          processed: completed + failed + needsInput, total: packet.cases.length };
       }
     });
   }

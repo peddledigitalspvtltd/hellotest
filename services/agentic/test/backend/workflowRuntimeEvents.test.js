@@ -112,3 +112,32 @@ test('terminal model-call diagnostics retain only bounded native execution count
  assert.equal(failureInfo({model_execution:{model_calls:0,format_repair_attempted:false}}).model_execution.format_repair_attempted,false);
  assert.doesNotMatch(JSON.stringify(failureInfo({model_execution})),/PRIVATE/);
 });
+
+test('source validation diagnostics remain actionable without changing uncertain browser effects or retry policy',()=>{
+ const failure={code:'AUTOMATION_UPSTREAM_SOURCE_INVALID',statusCode:422,nonRetryable:true,outcome_unknown:true,
+  operation_id:'op-native-source',section_order:5,
+  message:'PRIVATE_INTERNAL_ERROR',publicMessage:'Automation section 5 failed executable source validation. Review its validation details.',
+  validation_errors:Array.from({length:12},()=>({path:'/automation_code',keyword:'native_source_validation',
+   message:'Step 5: the expected result needs an executable assertion. password=PRIVATE_PASSWORD https://app.example/?token=PRIVATE_GRANT',
+   source:'PRIVATE_SOURCE',candidate:'PRIVATE_CANDIDATE',provider_response:'PRIVATE_PROVIDER'})),
+  response_payload:'PRIVATE_PROVIDER',automation_code:'PRIVATE_SOURCE',cause:new Error('PRIVATE_CAUSE')};
+ const projected=failureInfo(withNode(failure,{loop_owner:'each-test-case',iteration_index:0,iteration_path:['each-story',0,'each-test-case',0]},
+  {id:'automation-engineer',data:{label:'AI Automation Engineer'}}));
+ assert.equal(projected.code,'AUTOMATION_UPSTREAM_SOURCE_INVALID');assert.equal(projected.category,'outcome_unknown');assert.equal(projected.failure_category,'validation');
+ assert.equal(projected.outcome_unknown,true);assert.equal(projected.reconciliation_required,true);assert.equal(projected.retryable,false);
+ assert.equal(projected.operation_id,'op-native-source');assert.equal(projected.section_order,5);
+ assert.match(projected.message,/section 5 failed executable source validation/);assert.doesNotMatch(projected.message,/connection/);
+ assert.equal(projected.validation_errors.length,8);assert.equal(projected.validation_errors[0].path,'/automation_code');
+ assert.equal(projected.validation_errors[0].keyword,'native_source_validation');assert.match(projected.validation_errors[0].message,/expected result needs an executable assertion/);
+ assert.doesNotMatch(JSON.stringify(projected),/PRIVATE/);
+ for(const section_order of [0,-1,201,Infinity,'5'])assert.equal(failureInfo({section_order}).section_order,undefined);
+});
+
+test('uncertain validation errors use a validation fallback while unexpected errors keep private internal messages hidden',()=>{
+ const known=failureInfo({code:'AUTOMATION_UPSTREAM_SOURCE_INVALID',statusCode:422,outcome_unknown:true,message:'PRIVATE_SOURCE'});
+ assert.equal(known.category,'outcome_unknown');assert.equal(known.failure_category,'validation');assert.match(known.message,/could not validate/);
+ assert.equal(known.reconciliation_required,true);assert.equal(known.retryable,false);assert.doesNotMatch(known.message,/PRIVATE_SOURCE|connection/);
+ const unexpected=failureInfo({statusCode:500,outcome_unknown:true,message:'PRIVATE_PROVIDER_SOURCE',response_payload:'PRIVATE_PROVIDER_RESPONSE'});
+ assert.equal(unexpected.category,'outcome_unknown');assert.equal(unexpected.failure_category,undefined);assert.equal(unexpected.reconciliation_required,true);
+ assert.match(unexpected.message,/This node failed/);assert.doesNotMatch(JSON.stringify(unexpected),/PRIVATE/);
+});

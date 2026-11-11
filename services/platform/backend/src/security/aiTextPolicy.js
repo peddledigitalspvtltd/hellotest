@@ -17,9 +17,58 @@ const fingerprint = (value) => crypto.createHash("sha256").update(String(value |
 
 const countMatches = (text, expression) => (String(text || "").match(expression) || []).length;
 const PHONE_PATTERN = /(?<![A-Za-z0-9])(?<![A-Fa-f0-9]-)(?!(?:\d{4}-\d{2}-\d{2})(?:\b|T))(?:\+?\d[\d .()-]{7,}\d)(?![A-Za-z0-9])/g;
+// Public catalog identifiers can look exactly like telephone/card numbers.
+// Learn only explicit domain labels within this document, never a global list.
+const PUBLIC_IDENTIFIER_LABEL = '(?:product[ _-]*(?:code|id|number|no\\.?)|model[ _-]*(?:code|id|number|no\\.?)|sku|gtin(?:[ _-]*1[234])?|ean|upc|isbn(?:[ _-]*1[03])?|asin|catalog(?:ue)?[ _-]*(?:code|id|number)|part[ _-]*(?:code|id|number|no\\.?))';
+const PRIVATE_IDENTIFIER_WORD = /\b(?:phone|mobile|telephone|tel|fax|whatsapp|contact|call|sms|password|passwd|secret|token|authorization|bearer|signature|credential|card|bank|account|passport|aadhaar|aadhar|ssn|social|security|national|tax|government|session|pin|otp|auth|verification|api|access|customer|employee|user|person|email|address)\b/i;
+const PRIVATE_IDENTIFIER_LABEL = /\b(?:phone|mobile|telephone|tel\.?|fax|whatsapp|contact|call|sms|password|passwd|secret|token|authorization|bearer|signature|credential|card|bank|account|passport|aadhaar|aadhar|ssn|social|national|tax|government|session|pin|otp|auth|verification|api|access)(?:[\s.-]+(?:phone|mobile|account|security|number|numbers|no\.?|value|is|equals|on|at|confirmation|confirm|id|identifier|code|key|primary|secondary|alternate|home|work|business|office|personal|emergency))*[\s"'`\\:=#.-]*$/i;
+const identifierLabelText = value => String(value || '').replace(/\bwhatsapp\b/gi, 'whatsapp')
+  .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z\d])([A-Z])/g, '$1 $2').replace(/[_()\-]/g, ' ');
 
-const redactSensitiveData = (value) => {
-  let text = normalizeText(value);
+function publicTechnicalIdentifiers(value) {
+  const text = normalizeText(value).replace(/<[^>]*>/g, ' ').replace(/&(?:nbsp|#160);/gi, ' '), identifiers = new Set();
+  const patterns = [new RegExp(`\\b${PUBLIC_IDENTIFIER_LABEL}["']?\\s*(?:(?:is|equals)\\b|[:=#])?\\s*["'\x60]?(\\d[\\d-]{4,24}\\d)\\b`, 'gi'),
+    /\bmodel\s+["']?(\d[\d-]{4,24}\d)\b/gi];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const digits = match[1].replace(/-/g, '');
+      if (digits.length >= 6 && digits.length <= 19) identifiers.add(match[1]);
+      if (identifiers.size >= 100) break;
+    }
+    if (identifiers.size >= 100) break;
+  }
+  return identifiers;
+}
+
+function protectPublicIdentifiers(text, context = {}) {
+  const identifiers = new Set([...publicTechnicalIdentifiers(text),
+    ...publicTechnicalIdentifiers(context.field ? `${context.field}: ${text}` : ''), ...(context.publicTechnicalIdentifiers || [])]);
+  const protectedValues = new Map(), tokensByIdentifier = new Map();
+  if (!identifiers.size || PRIVATE_IDENTIFIER_WORD.test(identifierLabelText(context.field))) return { text, protectedValues };
+  const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(?<![A-Za-z0-9])(?:${[...identifiers].slice(0, 100).map(escape).join('|')})(?![A-Za-z0-9])`, 'g');
+  let occurrences = 0;
+  text = text.replace(pattern, (value, offset) => {
+    const prefix = text.slice(Math.max(0, offset - 100), offset);
+    // Explicit contact/credential contexts retain the privacy rule, including
+    // when the same digits were also declared as a public product identifier.
+    const label = identifierLabelText(prefix);
+    if (PRIVATE_IDENTIFIER_LABEL.test(label)
+      || PRIVATE_IDENTIFIER_LABEL.test(label.replace(/(?:\+\d{1,3}|\b\d{1,3})[\s(-]+$/, ''))
+      || /\+\d{1,3}[\s(-]*$/.test(prefix) || ++occurrences > 10_000) return value;
+    let token = tokensByIdentifier.get(value);
+    if (!token) {
+      token = `PUBLICIDENTIFIER${crypto.randomUUID().replace(/-/g, '')}END`;
+      protectedValues.set(token, value); tokensByIdentifier.set(value, token);
+    }
+    return token;
+  });
+  return { text, protectedValues };
+}
+
+const redactSensitiveData = (value, context) => {
+  const protectedText = protectPublicIdentifiers(normalizeText(value), context);
+  let text = protectedText.text;
   const privateKeyPattern = /-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----[\s\S]*?-----END(?: [A-Z0-9]+)? PRIVATE KEY-----/gi;
   const jwtPattern = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g;
   const cloudKeyPattern = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g;
@@ -63,6 +112,7 @@ const redactSensitiveData = (value) => {
     .replace(/\b(?:\d[ -]*?){13,19}\b/g, "[REDACTED_NUMBER]")
     .replace(PHONE_PATTERN, "[REDACTED_PHONE]")
     .replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[REDACTED_ID]");
+  if (protectedText.protectedValues.size) text = text.replace(/PUBLICIDENTIFIER[a-f0-9]{32}END/g, token => protectedText.protectedValues.get(token) || token);
 
   return {
     text,
@@ -94,9 +144,9 @@ const neutralizePromptInjection = (value) => {
   return { text, risk_flags: [...new Set(riskFlags)] };
 };
 
-const sanitizeAiText = (value) => {
+const sanitizeAiText = (value, context) => {
   const controlCharacterCount = (String(value || "").match(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g) || []).length;
-  const redacted = redactSensitiveData(value);
+  const redacted = redactSensitiveData(value, context);
   const neutralized = neutralizePromptInjection(redacted.text);
   return {
     text: neutralized.text,
@@ -132,4 +182,4 @@ function sanitizeAiEvidence(value) {
   return result;
 }
 
-module.exports = { MAX_EXTRACTED_TEXT_CHARS, normalizeText, fingerprint, redactSensitiveData, neutralizePromptInjection, sanitizeAiText, sanitizeAiEvidence };
+module.exports = { MAX_EXTRACTED_TEXT_CHARS, normalizeText, fingerprint, redactSensitiveData, neutralizePromptInjection, sanitizeAiText, sanitizeAiEvidence, publicTechnicalIdentifiers };

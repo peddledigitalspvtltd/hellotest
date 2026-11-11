@@ -61,7 +61,51 @@ test('private destinations and malformed native secret configuration fail before
   assert.equal(malformed.json().error.message, 'Invalid native secret configuration');
   const invalidPreview = await invoke(app, 'initialize', initialize('https://example.com', { capture_preview: 'true' }));
   assert.equal(invalidPreview.json().error.message, 'Invalid browser preview configuration');
+  const invalidModelImages = await invoke(app, 'initialize', initialize('https://example.com', { capture_model_images: 'true' }));
+  assert.equal(invalidModelImages.json().error.message, 'Invalid browser model image configuration');
   assert.equal(launches, 0);
+});
+
+test('explicit model screenshots use bounded masked pixels with UI previews disabled and preserve native results', { timeout: 45000 }, async t => {
+  const previous = process.env.RECORDER_ALLOWED_PRIVATE_HOSTS, previousExecutable = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
+  process.env.RECORDER_ALLOWED_PRIVATE_HOSTS = [previous, '127.0.0.1'].filter(Boolean).join(',');
+  process.env.PLAYWRIGHT_EXECUTABLE_PATH = '/unsupported/older-browser';
+  const server = http.createServer((_request, reply) => { reply.setHeader('content-type', 'text/html'); reply.end('<!doctype html><title>Masked model</title><div data-sensitive style="position:absolute;left:0;top:0;width:200px;height:100px;background:red">Private</div><div style="position:absolute;left:0;top:120px;width:200px;height:100px;background:red">Public</div>'); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}/`, app = Fastify();
+  const require = createRequire(import.meta.url), upstream = createRequire(require.resolve('@playwright/mcp/package.json'))('playwright');
+  let browser, launchOptions;
+  await registerAutomationPlaywrightMcp(app, guard(), { launchBrowser: async options => { launchOptions = options; return browser = await upstream.chromium.launch(options); } });
+  t.after(async () => { await app.close(); await new Promise(resolve => server.close(resolve));
+    if (previous === undefined) delete process.env.RECORDER_ALLOWED_PRIVATE_HOSTS; else process.env.RECORDER_ALLOWED_PRIVATE_HOSTS = previous;
+    if (previousExecutable === undefined) delete process.env.PLAYWRIGHT_EXECUTABLE_PATH; else process.env.PLAYWRIGHT_EXECUTABLE_PATH = previousExecutable;
+  });
+  const sid = (await invoke(app, 'initialize', initialize(url, { capture_preview: false, capture_model_images: true }))).headers['mcp-session-id'];
+  const call = async (name, args = {}) => (await invoke(app, 'tools/call', { name, arguments: args }, sid)).json();
+  const opened = await call('browser_navigate', { url });
+  assert.equal(opened._meta?.hellotest?.model_image, undefined);
+  assert.equal(launchOptions.executablePath, upstream.chromium.executablePath(), 'Build ignores an unsupported global Run executable override');
+  assert.match(browser.version(), /^157\./, 'The real browser matches this pinned upstream runtime');
+  await call('browser_tabs', { action: 'new', url });
+  await call('browser_tabs', { action: 'select', index: 0 });
+  await call('browser_snapshot');
+  const response = await call('browser_take_screenshot', { type: 'png' });
+  assert.notEqual(response.result.isError, true);
+  assert.ok(response.result.content.some(block => block.type === 'image' && block.mimeType === 'image/png'), 'the original native screenshot result is retained');
+  assert.equal(response._meta?.hellotest?.browser_preview, undefined);
+  const image = response._meta?.hellotest?.model_image;
+  assert.equal(image?.schema, 'hellotest.masked-browser-image.v1');
+  assert.equal(image.tool, 'browser_take_screenshot');
+  assert.ok(Buffer.from(image.content[0].data, 'base64').length <= 128 * 1024);
+  const page = browser.contexts()[0].pages()[0];
+  const pixels = await page.evaluate(async data => { const image = new Image(); image.src = `data:image/jpeg;base64,${data}`; await image.decode(); const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height; const context = canvas.getContext('2d'); context.drawImage(image, 0, 0); return [40, 160].map(y => [...context.getImageData(50, y, 1, 1).data].slice(0, 3)); }, image.content[0].data);
+  assert.ok(pixels[0].every(value => value >= 10 && value <= 25), 'the model image masks sensitive pixels');
+  assert.ok(pixels[1][0] > 200 && pixels[1][1] < 40, 'public visual evidence remains useful');
+  const screenshot = page.screenshot.bind(page);
+  t.mock.method(page, 'screenshot', options => options.mask ? Promise.reject(Error('Mask capture unavailable')) : screenshot(options));
+  const failedCapture = await call('browser_take_screenshot', { type: 'png' });
+  assert.notEqual(failedCapture.result.isError, true);
+  assert.equal(failedCapture._meta?.hellotest?.model_image, undefined, 'mask failure never falls back to raw native pixels');
 });
 
 test('case preview captures only the actual upstream browser and masks private pixels across frames without changing native tool content', { skip: !existsSync(fixtureBrowser), timeout: 90_000 }, async t => {
@@ -129,7 +173,8 @@ test('case preview captures only the actual upstream browser and masks private p
   t.mock.method(page, 'screenshot', async () => { throw Error('Preview capture unavailable'); });
   const withoutImage = (await invoke(app, 'tools/call', { name: 'browser_snapshot', arguments: {} }, sid)).json();
   assert.notEqual(withoutImage.result.isError, true, 'optional display failure cannot fail a confirmed native read');
-  assert.equal(withoutImage._meta, undefined, 'failed capture never emits unmasked or stale pixels');
+  assert.equal(withoutImage._meta?.hellotest?.browser_preview, undefined, 'failed capture never emits unmasked or stale pixels');
+  assert.equal(withoutImage._meta?.hellotest?.browser_context?.initial_storage_empty, true, 'optional pixel capture does not revoke independent initial lifecycle evidence');
   assert.equal(launches, 1, 'capture failure never creates a replacement browser or replays navigation');
 });
 

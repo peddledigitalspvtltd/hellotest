@@ -1,11 +1,11 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {connectUpstreamPlaywright}=require('../../backend/lib/automationUpstreamMcpClient');
+const {connectUpstreamPlaywright,trustedBrowserContextEvidence}=require('../../backend/lib/automationUpstreamMcpClient');
 const tools=[{name:'browser_fill_form',description:'Fill native form fields',annotations:{readOnlyHint:false},inputSchema:{type:'object',properties:{fields:{type:'array',items:{type:'object',properties:{ref:{type:'string'},value:{type:'string'}}}}},required:['fields'],additionalProperties:false}}];
 const nativeResult={content:[{type:'text',text:'### Result\nFilled the form\n### Ran Playwright code\n```js\nawait page.getByRole(\'textbox\', { name: \'Name\' }).fill(\'Ada\');\n```'},{type:'image',mimeType:'image/png',data:'aW1hZ2U='}],isError:false,_meta:{native:'untouched'}};
 const integration={base_url:'https://engine.test/',config:{shared_secret:'upstream-testengine-fixture-secret'}};
 const initialized=rpc=>({protocolVersion:'2025-03-26',capabilities:{tools:{listChanged:true}},serverInfo:{name:'api',version:'native'},_meta:{hellotest:{provider:'playwright_mcp_upstream',upstream_package:'@playwright/mcp',upstream_version:'0.0.84',assertion_timeout_ms:rpc.params._meta.hellotest.assertion_timeout_ms??10000,navigation_timeout_ms:rpc.params._meta.hellotest.navigation_timeout_ms??30000}}});
-function engine(t,{reject,initial=initialized,toolResult=nativeResult,preview}={}){
+function engine(t,{reject,initial=initialized,toolResult=nativeResult,preview,contextReceipt,catalog=tools}={}){
   const calls=[];
   const transport=async(endpoint,init)=>{
     const rpc=init.body?JSON.parse(init.body):null;
@@ -13,11 +13,78 @@ function engine(t,{reject,initial=initialized,toolResult=nativeResult,preview}={
     if(init.method==='DELETE')return new Response(null,{status:204});
     const rejected=await reject?.(rpc,init);if(rejected)return rejected;
     if(rpc.method==='notifications/initialized')return new Response(null,{status:202});
-    return Response.json({jsonrpc:'2.0',id:rpc.id,result:rpc.method==='initialize'?initial(rpc):rpc.method==='tools/list'?{tools}:toolResult,...(preview?{_meta:{hellotest:{browser_preview:preview}}}:{})},{headers:{'mcp-session-id':'native-session','set-cookie':'OTHER=hidden; Path=/, HELLOTEST_ENGINE=worker-1; HttpOnly; Path=/'}});
+    const lifecycle=typeof contextReceipt==='function'?contextReceipt(rpc):contextReceipt;
+    return Response.json({jsonrpc:'2.0',id:rpc.id,result:rpc.method==='initialize'?initial(rpc):rpc.method==='tools/list'?{tools:catalog}:typeof toolResult==='function'?toolResult(rpc):toolResult,...(preview||lifecycle?{_meta:{hellotest:{...(preview?{browser_preview:preview}:{}),...(lifecycle?{browser_context:lifecycle}:{})}}}:{})},{headers:{'mcp-session-id':'native-session','set-cookie':'OTHER=hidden; Path=/, HELLOTEST_ENGINE=worker-1; HttpOnly; Path=/'}});
   };
   t.mock.method(globalThis,'fetch',transport);
   return {calls,transport};
 }
+
+const freshContext={schema:'hellotest.browser-context.v1',owned:true,context_mode:'fresh_isolated',initial_storage_empty:true,storage_state_loaded:false,created_before_navigation:true};
+
+test('trusted initial context evidence is accepted only from completed host tool responses and is not forgeable through browser/tool properties',async t=>{
+  engine(t,{contextReceipt:freshContext});
+  const browser=await connectUpstreamPlaywright({integration,startUrl:'https://application.test/'});
+  assert.equal(trustedBrowserContextEvidence(browser),undefined,'Lazy initialize metadata cannot claim that context creation already occurred.');
+  assert.deepEqual(await browser.call('browser_fill_form',{}),nativeResult,'Native tool content stays unchanged.');
+  assert.deepEqual(trustedBrowserContextEvidence(browser),{...freshContext,source:'authenticated_native_transport'});
+  assert.equal(trustedBrowserContextEvidence({...browser}),undefined);
+  assert.equal(trustedBrowserContextEvidence({provider:{browser_context:freshContext}}),undefined);
+  await browser.close();assert.equal(trustedBrowserContextEvidence(browser),undefined);
+});
+
+test('unknown, attached, preauthenticated or nonempty lifecycle claims never grant a fresh-context receipt',async t=>{
+  for(const receipt of [{...freshContext,schema:'external'},{...freshContext,owned:false},{...freshContext,context_mode:'preauthenticated'},
+    {...freshContext,initial_storage_empty:false},{...freshContext,storage_state_loaded:true},{...freshContext,created_before_navigation:false}])await t.test(JSON.stringify(receipt),async t=>{
+    engine(t,{contextReceipt:receipt});const browser=await connectUpstreamPlaywright({integration,startUrl:'https://application.test/'});
+    await browser.call('browser_fill_form',{});assert.equal(trustedBrowserContextEvidence(browser),undefined);await browser.close();
+  });
+  engine(t,{toolResult:{...nativeResult,_meta:{hellotest:{browser_context:freshContext}}}});
+  const browser=await connectUpstreamPlaywright({integration,startUrl:'https://application.test/'});
+  await browser.call('browser_fill_form',{});assert.equal(trustedBrowserContextEvidence(browser),undefined,'Native page/tool metadata cannot impersonate host transport provenance.');await browser.close();
+});
+
+test('a measured initial fresh fixture plus native guest UI grounds the first section without new tabs, but never satisfies a later reset',async t=>{
+  const {buildWithUpstreamPlaywright}=require('../../backend/lib/automationUpstreamEngineer');
+  const {inspectExecutablePlan}=require('../../backend/services/automationReadiness.service');
+  const startUrl='https://application.test/',goto=`await page.goto(${JSON.stringify(startUrl)});`;
+  const guest='await expect(page.getByRole("link",{name:"Hello, sign in",exact:true})).toBeVisible();';
+  const native=code=>({content:[{type:'text',text:`### Ran Playwright code\n\x60\x60\x60js\n${code}\n\x60\x60\x60\n### Snapshot\n- link "Hello, sign in" [ref=e1]`}],isError:false});
+  const catalog=[{name:'browser_navigate',inputSchema:{type:'object',properties:{url:{type:'string'}},required:['url']}},
+    {name:'browser_verify_element_visible',inputSchema:{type:'object',properties:{role:{type:'string'},accessibleName:{type:'string'}},required:['role','accessibleName']}},
+    {name:'browser_snapshot',inputSchema:{type:'object',properties:{}}},
+    {name:'browser_tabs',inputSchema:{type:'object',properties:{action:{type:'string'}}}}];
+  for(const laterReset of [false,true])await t.test(laterReset?'later reset remains unsupported':'initial fixture is proven',async t=>{
+    const f=engine(t,{catalog,contextReceipt:freshContext,toolResult:rpc=>native(rpc.params.name==='browser_navigate'?goto:rpc.params.name==='browser_verify_element_visible'?guest:'')});
+    const browser=await connectUpstreamPlaywright({integration,startUrl}),saved=[];let firstTurns=0,sourceCalls=0;
+    const initial={id:'initial',step_order:1,step_type:'web',action:'Open a fresh private guest session.',expected_result:'A fresh session starts without prior Amazon sign-in.'};
+    const steps=[initial,...(laterReset?[{id:'reset',step_order:2,step_type:'web',action:'Open another private context after the preceding work.',expected_result:'A second fresh session starts.'}]:[])];
+    const pending=buildWithUpstreamPlaywright({steps,startUrl,browser,interactive:true,validate:inspectExecutablePlan,onSection:async update=>saved.push(update),complete:async request=>{
+      const packet=JSON.parse(request.prompt);
+      if(request.phase==='upstream_browser_actor'){
+        assert.match(packet.browser_context_contract,/INITIAL/);assert.match(packet.browser_context_contract,/does not prove current guest/);
+        assert.equal(packet.context.browser_context.initial_storage_empty,true);
+        if(packet.current_section.id==='reset'){
+          assert.equal(packet.context.browser_context.applies_to_current_section_setup,false);
+          return {blocked_reason:'A later new private context cannot be created by these tools; the initial receipt does not establish a later reset.'};
+        }
+        assert.equal(packet.context.browser_context.applies_to_current_section_setup,true);
+        if(++firstTurns===1)return {tool:{name:'browser_verify_element_visible',arguments:{role:'link',accessibleName:'Hello, sign in'}}};
+        assert.equal(packet.latest_observation.tool,'browser_verify_element_visible');return {done:true};
+      }
+      sourceCalls++;
+      if(request.step.id==='reset'){assert.equal(packet.authoring_only,true);return {input_required:{reason:'The runtime cannot create a later private context.',required_context:['Supported later-context fixture'],required_parameters:[]}};}
+      assert.equal(packet.task_context.browser_context.applies_to_current_section_setup,true);
+      assert.match(packet.task,/never assert cookies remain empty after loading/);
+      return {automation_code:goto+'\n'+guest};
+    }});
+    if(laterReset)await assert.rejects(pending,error=>error.code==='AUTOMATION_DEPENDENCY_MISSING'&&error.saved_sections===1);
+    else{const result=await pending;assert.equal(result.browser_evidence.context_lifecycle.initial_storage_empty,true);}
+    assert.equal(saved.length,1);assert.equal(firstTurns,2);assert.equal(sourceCalls,laterReset?2:1);
+    assert.equal(f.calls.filter(call=>call.rpc?.method==='tools/call'&&call.rpc.params.name==='browser_tabs').length,0);
+    assert.match(saved[0].automation_code,/Hello, sign in/);assert.doesNotMatch(saved[0].automation_code,/expect\(true\)|newContext|clearCookies/);
+  });
+});
 
 test('upstream client keeps exact native tool schemas and results, protected initialization, session affinity and cleanup',async t=>{
   const f=engine(t),secrets={password:'PRIVATE-wire-only-value'};
@@ -140,6 +207,35 @@ test('cancellation, elapsed build deadlines and bounded transport timeouts canno
   try{await assert.rejects(bounded.call('browser_fill_form',{}, {deadlineMs:Date.now()+5}),{code:'BROWSER_TRANSPORT_TIMEOUT',nonRetryable:true,retry_safe:false});}
   finally{clearTimeout(keepAlive);await bounded.close();}
   assert.equal(timed.calls.filter(call=>call.rpc?.method==='tools/call').length,1);
+});
+
+test('browser transport failures preserve actual HTTP versus absent or interrupted response without exposing causes or replaying tools',async t=>{
+  const {failureInfo}=require('../../../agentic/backend/workflows/runtimeEvents');
+  for(const kind of ['http503','network','unknown-network','partial-response','protocol'])await t.test(kind,async t=>{
+    const privateError=new TypeError('fetch failed https://private-host.test/?token=PRIVATE_TOKEN',{cause:Object.assign(new Error('PRIVATE_SOCKET_DETAILS'),{code:kind==='unknown-network'?'PRIVATE_UNRECOGNIZED_CODE':'ECONNRESET'})});
+    const f=engine(t,{reject:rpc=>{
+      if(rpc.method!=='tools/call')return null;
+      if(kind==='http503')return new Response('PRIVATE_GATEWAY_BODY',{status:503});
+      if(kind==='protocol')return new Response('PRIVATE_INVALID_JSON',{status:200});
+      if(kind==='partial-response')return new Response(new ReadableStream({start(controller){controller.error(privateError);}}));
+      throw privateError;
+    }});
+    const browser=await connectUpstreamPlaywright({integration,startUrl:'https://application.test/'});
+    try{await assert.rejects(browser.call('browser_fill_form',{}),error=>{
+      assert.equal(error.nonRetryable,true);assert.equal(error.retry_safe,false);
+      assert.equal(error.upstreamStatusCode,kind==='http503'?503:undefined);
+      assert.equal(error.statusCode,kind==='protocol'?502:503);
+      assert.equal(error.transport_error_code,['network','partial-response'].includes(kind)?'ECONNRESET':undefined);
+      const view=failureInfo(Object.assign(error,{outcome_unknown:true,operation_id:'op-browser-failure'}));
+      assert.equal(view.category,'outcome_unknown');assert.equal(view.retryable,false);assert.equal(view.reconciliation_required,true);
+      assert.match(view.message,/browser connection|incompatible browser response/);
+      const details=JSON.stringify(view.validation_errors);
+      assert.match(details,kind==='http503'?/returned HTTP 503/:kind==='protocol'?/invalid MCP response.*HTTP 200/:kind==='partial-response'?/HTTP 200 response was interrupted/:/No HTTP response was received/);
+      assert.doesNotMatch(JSON.stringify({error,view}),/PRIVATE|private-host|https:\/\/|Plan sections/);
+      return true;
+    });}finally{await browser.close();}
+    assert.equal(f.calls.filter(call=>call.rpc?.method==='tools/call').length,1);
+  });
 });
 
 test('transport deadlines honor configured native navigation/assertion bounds and paired transport uses the same provider',async t=>{

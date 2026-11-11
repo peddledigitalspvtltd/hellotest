@@ -16,7 +16,7 @@ test("the downloaded runtime imports and serves pairing status with only install
   await writeFile(join(directory, "package.json"), JSON.stringify({ type: "module", dependencies: runtimeDependencies }));
   await mkdir(join(directory, "node_modules"));
   for (const name of Object.keys(runtimeDependencies)) {
-    assert.match(runtimeDependencies[name], /^\d+\.\d+\.\d+$/);
+    assert.match(runtimeDependencies[name], /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/);
     await mkdir(dirname(join(directory, "node_modules", name)), { recursive: true });
     await symlink(fileURLToPath(new URL(`../node_modules/${name}`, import.meta.url)), join(directory, "node_modules", name), "junction");
   }

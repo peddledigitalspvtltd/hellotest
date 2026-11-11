@@ -174,7 +174,7 @@ test('unknown operation outcomes stop before an Error handler or downstream acti
   assert.doesNotMatch(JSON.stringify(saved),/PRIVATE_REMOTE_BODY/);
 });
 
-test('nested loops share the total batch budget instead of multiplying independent per-loop limits', async t => {
+test('known nested input exceeding the shared batch budget stops before any body work', async t => {
   setup(t);
   const definition = graph([node('request', 'trigger'),
     node('outer', 'loop', { loopAction: 'workflow', loopSourceKey: 'input.items', loopMaxIterations: 10, loopBatchSize: 1 }),
@@ -185,7 +185,9 @@ test('nested loops share the total batch budget instead of multiplying independe
   const saved = await execute(definition, { items: Array.from({ length: 10 }, (_, id) => ({ id, items: Array.from({ length: 10 }, (_, index) => index) })) });
   assert.equal(saved.status, 'failed');
   assert.match(result(saved, 'outer').error, /100 total batches/);
-  assert.equal(result(saved, 'worker').iterations.length, 90);
+  assert.equal(result(saved, 'outer').error_details.code, 'WORKFLOW_LOOP_BUDGET_EXCEEDED');
+  assert.equal(result(saved, 'worker').iterations?.length || 0, 0);
+  assert.equal(result(saved, 'group').iterations?.length || 0, 0);
   assert.equal(result(saved, 'finish').status, 'skipped');
 });
 

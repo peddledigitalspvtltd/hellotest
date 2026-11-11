@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 const require=createRequire(new URL('../../../../testengine/backend/package.json',import.meta.url));
 const {chromium}=require('playwright');
 const {expect}=require('playwright/test');
+const {failureInfo}=createRequire(import.meta.url)('../../backend/workflows/runtimeEvents');
 const root=new URL('../../../platform/frontend/',import.meta.url);
 const fixture=`
 import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
@@ -40,6 +41,15 @@ test('workflow error details explain the exact case, model repair and validation
   }
   await page.evaluate(()=>window.showWorkflowFailure({code:'AI_OUTPUT_SCHEMA_VIOLATION',model_execution:{model_calls:0,max_model_calls:2,format_repair_attempted:false},artifact:{case_index:0},validation_errors:[{keyword:'required',required_property:'summary'}]}));
   await expect(read('Model calls')).toHaveText('0 / 2');await expect(read('Format repair')).toHaveText('Not attempted');await expect(issues.getByText('(root)',{exact:true})).toBeVisible();
+  const sourceFailure=failureInfo({code:'AUTOMATION_UPSTREAM_SOURCE_INVALID',statusCode:422,outcome_unknown:true,section_order:5,
+   publicMessage:'Automation section 5 failed executable source validation. Review its validation details.',
+   validation_errors:[{path:'/automation_code',keyword:'native_source_validation',message:'Step 5 requires an executable focus assertion. password=PRIVATE_VALIDATOR_PASSWORD',source:'PRIVATE_SOURCE'}],
+   model_candidate:'PRIVATE_CANDIDATE',response_payload:'PRIVATE_PROVIDER_BODY'});
+  await page.evaluate(value=>window.showWorkflowFailure(value),sourceFailure);
+  await expect(read('Category')).toHaveText('outcome unknown');await expect(read('Failure category')).toHaveText('validation');await expect(read('Automation section')).toHaveText('5');
+  await expect(issues.getByText('/automation_code',{exact:true})).toBeVisible();assert.match(await issues.innerText(),/executable focus assertion/);
+  assert.match(await disclosure.innerText(),/unknown outcome/);assert.doesNotMatch(await disclosure.innerText(),/PRIVATE/);
+  const sourceDetails=JSON.parse(await json.inputValue());assert.equal(sourceDetails.failure_category,'validation');assert.equal(sourceDetails.section_order,5);assert.equal(sourceDetails.reconciliation_required,true);
   await summary.focus();await summary.press('Enter');await expect(issues).toBeHidden();await summary.press('Enter');await expect(issues).toBeVisible();assert.deepEqual(errors,[]);
  }finally{await browser?.close();await Promise.all([rm(html,{force:true}),rm(tsx,{force:true})]);}
 });

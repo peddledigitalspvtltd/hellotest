@@ -6,7 +6,10 @@ const playwrightModules=new Set(['@playwright/test','playwright/test']);
 const suiteMethods=new Set(['describe','use','beforeEach','afterEach','beforeAll','afterAll','extend','only','skip','fixme']);
 const webBindings=['page','web','expect','params','capture','playwrightPage','driver','bindings'];
 const browserAsyncMethods=new Set(['goto','click','dblclick','fill','check','uncheck','press','selectOption','hover','waitFor','waitForURL','waitForTimeout','waitForLoadState','waitForSelector','waitForFunction','setInputFiles','scrollIntoViewIfNeeded','screenshot','textContent','innerText','inputValue','title']);
-const locatorMatchers=new Set(['toBeVisible','toBeHidden','toBeEnabled','toBeDisabled','toBeEditable','toBeChecked','toBeAttached','toHaveText','toContainText','toHaveURL','toHaveTitle','toHaveAttribute','toHaveCount','toHaveValue','toHaveValues','toHaveClass','toHaveCSS','toHaveJSProperty']);
+// Native Playwright assertions that do not require the Playwright Test runner's
+// snapshot/testInfo state. Keep promise ownership and readiness on the same
+// supported contract, including focus, viewport and accessibility outcomes.
+const locatorMatchers=new Set(['toBeVisible','toBeHidden','toBeEnabled','toBeDisabled','toBeEditable','toBeChecked','toBeAttached','toBeEmpty','toBeFocused','toBeInViewport','toHaveText','toContainText','toContainClass','toHaveURL','toHaveTitle','toHaveAttribute','toHaveCount','toHaveValue','toHaveValues','toHaveClass','toHaveCSS','toHaveJSProperty','toHaveAccessibleDescription','toHaveAccessibleErrorMessage','toHaveAccessibleName','toHaveId','toHaveRole']);
 const testRunnerMatchers=new Set(['toMatchAriaSnapshot','toHaveScreenshot','toMatchSnapshot']);
 const member=node=>node?.type==='MemberExpression'?(node.computed?node.property?.value:node.property?.name):null;
 const isFunction=node=>['FunctionDeclaration','FunctionExpression','ArrowFunctionExpression'].includes(node?.type);

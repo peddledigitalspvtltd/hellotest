@@ -5,6 +5,21 @@ const {aiInstructionBlock}=require('../src/utils/aiInstructionBlocks');
 function load(file,overrides){const local=createRequire(file),module={exports:{}};new Function('require','module','exports',fs.readFileSync(file,'utf8'))(id=>Object.hasOwn(overrides,id)?overrides[id]:local(id),module,module.exports);return module.exports;}
 const runtime=(configs={},overrides={})=>load(require.resolve('../src/utils/aiFeatureRuntime'),{'../../services/metricGovernance.service':{resolveForFeature:async()=>({instruction:'',metrics:[]})},'../../services/aiConfiguration.service':{...configuration,resolve:async id=>{const item=configuration.catalog.find(item=>item.id===id);assert.ok(item,id);const config={...structuredClone(item.defaults),...configs[id]};return {...item,config,published_version:3,fingerprint:configuration.hash(config)};}},...overrides});
 const request=(messages,extras={})=>({body:JSON.stringify({model:'provider-model',messages,...extras})});
+test('native case contracts preserve explicit UI constraints without inventing tab or panel behavior under custom node guidance',async()=>{
+ const execution=require('../src/utils/aiExecutionConfiguration');
+ for(const id of ['ai.test_case.design','ai.case_authoring.full_case']) {
+  const task={stories:[{title:'Inspect the selected product',description:'Open the matching product and inspect its Model Number row; require 9000017248, price353 and discount12%.',acceptance_criteria:['The product identity and supplied offer values match.']}],
+   explicit_user_constraint:'When a source explicitly requires the same tab, retain that constraint.'};
+  const result=await execution.run({source:'workflow_node',id:'generator',feature_id:id,config:{prompt:'Our reviewed case-authoring guidance.'}},()=>runtime().apply(
+   request([{role:'user',content:JSON.stringify(task)}]),{featureKey:id}));
+  const body=JSON.parse(result.init.body),trusted=body.messages.filter(message=>['system','developer'].includes(message.role)).map(message=>message.content).join('\n');
+  assert.match(trusted,/do not invent UI structure or navigation topology/);
+  assert.match(trusted,/same tab or a new tab/);assert.match(trusted,/static heading or table/);
+  assert.match(trusted,/Preserve explicit Story and user constraints/);
+  assert.match(trusted,/business state, named-record identity and supplied values/);
+  assert.deepEqual(JSON.parse(body.messages.find(message=>message.role==='user').content),task,'Host guidance cannot rewrite explicit source requirements.');
+ }
+});
 for (const source of ['legacy','published']) test(`Test Case generation replaces a persisted ${source} NFR-only prompt after publishing the current default`,async()=>{
  const id='ai.test_case.design',item=configuration.catalog.find(feature=>feature.id===id);
  const nfrPrompt='You are a Senior QA Architect specializing in Non-Functional Testing. Testing mode: NFR_ONLY. Generate ONLY NFR test cases. If no sufficiently evidenced NFR exists, return {"applicable_domain":"general","testCases":[]}.';
@@ -115,6 +130,21 @@ test('GPT-5 Defect drafting uses minimal reasoning to leave the configured compl
  assert.equal(payload.max_completion_tokens,4096);
  const thirdParty=prepareChatRequest(request([{role:'user',content:'Draft the Defect.'}],{model:'gpt-5'}),{operation:'bug-draft.generate',providerUrl:'https://provider.example/v1/chat/completions'}).payload;
  assert.equal(Object.hasOwn(thirdParty,'reasoning_effort'),false,'Do not send OpenAI-specific reasoning controls to third-party compatible endpoints.');
+});
+test('GPT-5 assurance uses bounded reasoning without overriding explicit choices or compatible endpoints', () => {
+ const {prepareChatRequest}=require('../src/utils/llmRequestPolicy');
+ for(const operation of ['quality-assurance.story','quality-assurance.story.repair','quality-assurance.test-case','quality-assurance.test-case.repair']) {
+  for(const model of ['gpt-5','gpt-5-mini','gpt-5-2025-08-07']) {
+   const payload=prepareChatRequest(request([{role:'user',content:'Assess the supplied evidence.'}],{model}),{operation,providerUrl:'https://api.openai.com/v1/chat/completions'}).payload;
+   assert.equal(payload.reasoning_effort,'low');assert.equal(payload.model,model);
+  }
+  const explicit=prepareChatRequest(request([{role:'user',content:'Assess the supplied evidence.'}],{model:'gpt-5',reasoning_effort:'high'}),{operation,providerUrl:'https://api.openai.com/v1/chat/completions'}).payload;
+  assert.equal(explicit.reasoning_effort,'high');
+  for(const [model,providerUrl] of [['gpt-4.1','https://api.openai.com/v1/chat/completions'],['gpt-5','https://provider.example/v1/chat/completions']]) {
+   const payload=prepareChatRequest(request([{role:'user',content:'Assess the supplied evidence.'}],{model}),{operation,providerUrl}).payload;
+   assert.equal(Object.hasOwn(payload,'reasoning_effort'),false);
+  }
+ }
 });
 test('retrieval queries use artifact data before managed instructions consume the query budget',async()=>{
  const id='ai.requirement.optimization',base=configuration.catalog.find(item=>item.id===id).defaults,key=Object.keys(base.instruction_blocks)[0];

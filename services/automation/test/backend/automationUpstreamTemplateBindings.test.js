@@ -30,15 +30,15 @@ test('URL references inside JavaScript concatenation become params before source
  const proposal=goto+'\nawait expect(page).toHaveURL("@r.orangehrm_url"+"client/#/dashboard");';
  const expected='// @hellotest-parameter-bindings expressions-v1\nawait page.goto(params["r.orangehrm_url"]);\nawait expect(page).toHaveURL(params["r.orangehrm_url"]+"client/#/dashboard");';
  const step={id:'dashboard',step_order:1,step_type:'web',action:'Verify the Dashboard path of @r.orangehrm_url',expected_result:'The Dashboard URL is current',parameter_references:['r.orangehrm_url']};
- let calls=0,mappedHash,saved;
+ let calls=0,mappingCalls=0,saved;
  await buildWithUpstreamPlaywright({steps:[step],startUrl,interactive:true,validate:inspectExecutablePlan,parameterBindings:{parameterValues:{'r.orangehrm_url':startUrl}},
   browser:{tools:[],call:async()=>{calls++;return {content:[{type:'text',text:'### Ran Playwright code\n```js\n'+goto+'\n```'}]};},close:async()=>{}},
   complete:async request=>{
    if(request.phase==='upstream_browser_actor')return {done:true};
    if(request.phase==='upstream_source')return {automation_code:proposal};
-   const packet=JSON.parse(request.prompt.slice(request.prompt.indexOf('{"task":'))),mapped=packet.steps[0];mappedHash=mapped.source_sha256;
+   mappingCalls++;const packet=JSON.parse(request.prompt.slice(request.prompt.indexOf('{"task":'))),mapped=packet.steps[0];
    return {schema:'hellotest.playwrightInstructionMapping.v1',steps:[{step_id:step.id,source_sha256:mapped.source_sha256,instructions:mapped.operations.map(op=>({operation_id:op.operation_id,kind:op.kind,depth:op.depth,label:'Verify Dashboard path',args:[]}))}]};
   },onSection:async update=>{saved=update;}});
  assert.equal(calls,1);assert.equal(saved.automation_code,expected);assert.doesNotMatch(saved.automation_code,/@r\./);
- assert.equal(mappedHash,createHash('sha256').update(expected).digest('hex'));assert.ok(validSavedInstructionMapping(saved.automation_instructions,{source:expected,stepId:step.id}));
+ assert.equal(mappingCalls,0);assert.equal(saved.automation_instructions.source_sha256,createHash('sha256').update(expected).digest('hex'));assert.ok(validSavedInstructionMapping(saved.automation_instructions,{source:expected,stepId:step.id}));
 });

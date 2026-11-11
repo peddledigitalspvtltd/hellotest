@@ -9,6 +9,7 @@ const verify='await expect(page.getByRole("status")).toHaveText("Saved");';
 const fill=(label,value)=>`await page.getByLabel(${JSON.stringify(label)}).fill(${JSON.stringify(value)});`;
 const native=code=>({content:[{type:'text',text:'### Ran Playwright code\n```js\n'+code+'\n```\n- textbox "First" [ref=e16]\n- textbox "Second" [ref=e17]'}]});
 const parseFailure={isError:true,content:[{type:'text',text:'### Error\nError: locator.fill: Unknown engine "ref" while parsing selector ref=e17'}]};
+const staleFailure={isError:true,content:[{type:'text',text:'### Error\nError: Ref f4e278 not found in the current page snapshot. Try capturing new snapshot.'}]};
 const type=(ref,text)=>({name:'browser_type',arguments:{ref,text}});
 const tools=[
  {name:'browser_type',inputSchema:{type:'object',properties:{ref:{type:'string'},text:{type:'string'}},required:['ref','text'],additionalProperties:false}},
@@ -40,6 +41,33 @@ test('bare native ref correction is a new model decision and never a host rewrit
  const result=await f.run();
  assert.deepEqual(f.calls.filter(call=>call.name==='browser_type').map(call=>call.args.ref),['ref=e16','e16']);
  assert.equal(result.side_effects.browser_actions,1);assert.equal(f.actors,3);assert.equal(f.saved.length,1);assert.equal(f.closed,1);
+});
+
+test('an exact pinned pre-action stale-ref failure permits a fresh read and one newly planned click',async()=>{
+ const click='await page.getByRole("link",{name:"Product",exact:true}).click();';
+ const f=fixture({actor:(request,count)=>{
+  if(count===1)return {tool:{name:'browser_click',arguments:{ref:'f4e278'}}};
+  if(count===2){assert.match(request.prompt,/Ref f4e278 not found/);return {tool:{name:'browser_snapshot',arguments:{}}};}
+  if(count===3){assert.match(request.prompt,/f4e300/);return {tool:{name:'browser_click',arguments:{ref:'f4e300'}}};}
+  return {done:true};
+ },call:async(name,args)=>name==='browser_snapshot'?{content:[{type:'text',text:'### Snapshot\n- link "Product" [ref=f4e300]'}]}:args.ref==='f4e278'?staleFailure:native(click),source:[goto,click,verify].join('\n')});
+ const result=await f.run();
+ assert.deepEqual(f.calls.map(call=>[call.name,call.args.ref]),[['browser_navigate',undefined],['browser_click','f4e278'],['browser_snapshot',undefined],['browser_click','f4e300']]);
+ assert.equal(result.side_effects.browser_actions,1);assert.equal(f.saved.length,1);
+ assert.equal((f.saved[0].automation_code.match(/\.click\(/g)||[]).length,1);
+});
+
+test('stale-ref recovery excludes partial tools, emitted actions, timeouts and quoted page content',()=>{
+ for(const name of ['browser_click','browser_type','browser_select_option','browser_hover'])assert.equal(preActionSelectorError(name,staleFailure),true,name);
+ for(const name of ['browser_fill_form','browser_drag','browser_press_key'])assert.equal(preActionSelectorError(name,staleFailure),false,name);
+ const errors=[
+  {...staleFailure,content:[...staleFailure.content,...native('await page.getByRole("link").click();').content]},
+  {isError:true,content:[{type:'text',text:staleFailure.content[0].text+'\nCall log: locator.click timed out after dispatch'}]},
+  {isError:true,content:[{type:'text',text:'### Error\nTimeoutError: locator.click timed out\n### Snapshot\n- paragraph "'+staleFailure.content[0].text+'"'}]},
+  {isError:true,content:[{type:'text',text:'Ref f4e278 not found in the current page snapshot. Try capturing new snapshot.'}]}
+ ];
+ for(const result of errors)assert.equal(preActionSelectorError('browser_click',result),false,JSON.stringify(result));
+ assert.equal(preActionSelectorError('browser_click',{...staleFailure,isError:false}),false);
 });
 
 test('three native read-only verifications share one actor decision and keep their exact sequential results',async()=>{
@@ -139,7 +167,7 @@ test('done with native tool calls executes the calls and requests a new decision
  },call:async()=>native(checked),source:[goto,checked].join('\n')});
  await f.run();
  assert.deepEqual(f.calls.map(item=>item.name),['browser_navigate','browser_verify_text_visible']);
- assert.deepEqual(f.requests.map(item=>item.phase),['upstream_browser_actor','upstream_browser_actor','upstream_source','upstream_instruction_mapping']);
+ assert.deepEqual(f.requests.map(item=>item.phase),['upstream_browser_actor','upstream_browser_actor','upstream_source']);
  assert.equal(f.saved.length,1);assert.equal(f.closed,1);
 });
 
@@ -177,14 +205,13 @@ test('invalid wrapper and invalid arguments preserve the last native observation
  assert.equal(f.closed,1);
 });
 
-test('a blocked decision never dispatches speculative mutations and stops after two native snapshot attempts',async()=>{
+test('ambiguous blocked responses never dispatch speculative mutations or force a successful authoring result',async()=>{
  const f=fixture({catalog:targetTools,actor:(request,count)=>{
-  if(count>1){const payload=JSON.parse(request.prompt);assert.equal(payload.latest_observation.tool,'browser_snapshot');assert.match(payload.latest_observation.result.content[0].text,/\[ref=e16\]/);assert.match(payload.host_feedback.message,/native snapshot/);}
+  if(count>1){const payload=JSON.parse(request.prompt);assert.equal(payload.host_feedback.code,'AUTOMATION_UPSTREAM_TOOL_INVALID');assert.match(payload.host_feedback.message,/never both/);}
   return {blocked_reason:'Need the actual native ref before typing.',done:false,tool_calls:[{name:'browser_type',arguments:{target:'e2',text:'Ada'}},{name:'browser_click',arguments:{target:'e3'}}]};
- },call:async name=>{assert.equal(name,'browser_snapshot');return inlineSnapshot;}});
+ }});
  await assert.rejects(f.run(),{code:'AUTOMATION_UPSTREAM_BUILD_INCOMPLETE'});
- assert.equal(f.actors,3);
- assert.deepEqual(f.calls.map(item=>item.name),['browser_navigate','browser_snapshot','browser_snapshot']);
+ assert.equal(f.actors,3);assert.deepEqual(f.calls.map(item=>item.name),['browser_navigate']);
  assert.equal(f.saved.length,0);assert.equal(f.requests.some(item=>item.phase==='upstream_source'),false);assert.equal(f.closed,1);
 });
 

@@ -49,14 +49,14 @@ function setup(t, fetch) {
   () => complete({integration, featureKey, prompt: 'Return JSON for this frozen authored section.', timeoutMs: 5000, ...options}));
 }
 
-test('real buffered model HTTP pipeline recovers one reset into a native function response and dispatches each browser action once', async t => {
+test('real buffered model HTTP pipeline recovers two resets into one validated native function response and dispatches each browser action once', async t => {
   const startUrl = 'https://app.test/start', goto = `await page.goto(${JSON.stringify(startUrl)});`;
   const click = 'await page.getByRole("button", {name:"Save",exact:true}).click();';
   const assertion = 'await expect(page.getByRole("status")).toHaveText("Saved");';
   const requests = [], browserCalls = []; let actorResponses = 0, accessChecks = 0;
   const complete = setup(t, async (_url, init) => {
     requests.push({body: init.body, signal: init.signal});
-    if (requests.length === 1) throw connectionReset();
+    if (requests.length <= 2) throw connectionReset();
     const payload = JSON.parse(init.body), prompt = payload.messages.filter(message => message.role === 'user').at(-1).content;
     if (payload.tools) {
       if (++actorResponses === 1) return accepted(null, {finish_reason: 'tool_calls', message: {content: null,
@@ -75,19 +75,19 @@ test('real buffered model HTTP pipeline recovers one reset into a native functio
       text: `### Ran Playwright code\n\x60\x60\x60js\n${name === 'browser_navigate' ? goto : click}\n\x60\x60\x60\nCurrent page`} ]};}, close: async () => {}},
     complete: ({phase, prompt, nativeTools}) => complete({upstreamPhase: phase, prompt, browserActor: phase === 'upstream_browser_actor',
       nativeTools, beforeDispatch: async () => {accessChecks++;}})});
-  assert.equal(requests.length, 5); assert.equal(requests[0].body, requests[1].body);
+  assert.equal(requests.length, 5); assert.equal(requests[0].body, requests[1].body); assert.equal(requests[1].body, requests[2].body);
   assert.deepEqual(browserCalls.map(call => call.name), ['browser_navigate', 'browser_click']);
   assert.equal(result.updates[0].automation_code, '// @hellotest-parameter-bindings expressions-v1\n' + [goto, click, assertion].join('\n'));
   assert.ok(accessChecks >= requests.length, 'actual shared transport attempts recheck current authorization');
 });
 
-test('only trusted upstream buffered phases enable at most two transport attempts', async t => {
+test('only trusted upstream buffered phases enable at most three transport attempts', async t => {
   let calls = 0;
-  const complete = setup(t, async () => {if (++calls % 2 === 1) throw connectionReset(); return accepted();});
+  const complete = setup(t, async () => {if (++calls % 3 !== 0) throw connectionReset(); return accepted();});
   for (const upstreamPhase of ['upstream_browser_actor', 'upstream_source', 'upstream_instruction_mapping', 'upstream_api_source']) {
     assert.equal(await complete({upstreamPhase, maxAttempts: 4}), '{"done":true}');
   }
-  assert.equal(calls, 8);
+  assert.equal(calls, 12);
 });
 
 test('legacy/default calls, unsupported phases and verification repair keep their single transport attempt', async t => {
@@ -99,16 +99,43 @@ test('legacy/default calls, unsupported phases and verification repair keep thei
   assert.equal(calls, 5);
 });
 
-test('upstream transport retry is bounded at two and never ignores no-replay generation/error markers', async t => {
+test('upstream transport retry never makes a fourth attempt or ignores no-replay generation/error markers', async t => {
   let calls = 0, error = connectionReset();
   const complete = setup(t, async () => {calls++; throw error;});
   await assert.rejects(complete({upstreamPhase: 'upstream_source'}), {code: 'DEPENDENCY_NETWORK_ERROR'});
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   for (const marker of [{nonRetryable: true}, {generation_received: true}, {retryable: false}]) {
     resetServiceResilienceState(); calls = 0; error = connectionReset(marker);
     await assert.rejects(complete({upstreamPhase: 'upstream_source'}), value => value.retryable === false && value.nonRetryable === true);
     assert.equal(calls, 1);
   }
+});
+
+test('explicit and configured lower transport budgets remain authoritative for buffered proposals', async t => {
+  let calls=0;const complete=setup(t,async()=>{calls++;throw connectionReset();});
+  const previous=process.env.LLM_MAX_ATTEMPTS;
+  t.after(()=>{if(previous===undefined)delete process.env.LLM_MAX_ATTEMPTS;else process.env.LLM_MAX_ATTEMPTS=previous;});
+  for(const limit of [1,2]){
+    resetServiceResilienceState();calls=0;
+    await assert.rejects(complete({upstreamPhase:'upstream_source',maxAttempts:limit}),{code:'DEPENDENCY_NETWORK_ERROR'});
+    assert.equal(calls,limit);
+    resetServiceResilienceState();calls=0;process.env.LLM_MAX_ATTEMPTS=String(limit);
+    await assert.rejects(complete({upstreamPhase:'upstream_source'}),{code:'DEPENDENCY_NETWORK_ERROR'});
+    assert.equal(calls,limit);
+  }
+});
+
+test('bounded proposal retries retain exponential jitter and log only reviewed transport codes',async t=>{
+  const events=[];let calls=0;
+  const complete=setup(t,async()=>{calls++;throw Object.assign(connectionReset(),{message:'PRIVATE_PROVIDER_MESSAGE token=PRIVATE_CREDENTIAL'});});
+  t.mock.method(Math,'random',()=>0.5);
+  t.mock.method(console,'warn',event=>events.push(JSON.parse(event)));
+  await assert.rejects(complete({upstreamPhase:'upstream_source',maxAttempts:4}),{code:'DEPENDENCY_NETWORK_ERROR'});
+  assert.equal(calls,3);
+  const retries=events.filter(event=>event.event==='dependency.request_retry');
+  assert.deepEqual(retries.map(event=>event.delay_ms),[100,200]);
+  assert.deepEqual(retries.map(event=>event.transport_error_code),['ECONNRESET','ECONNRESET']);
+  assert.doesNotMatch(JSON.stringify(events),/PRIVATE_|token=/);
 });
 
 test('accepted truncated, refused, malformed and partially received generations are terminal without transport regeneration', async t => {
@@ -151,4 +178,48 @@ test('transport attempts share the original total deadline instead of starting a
   t.mock.method(Date, 'now', () => now);
   await assert.rejects(complete({upstreamPhase: 'upstream_source', timeoutMs: 5000}));
   assert.equal(calls, 1, 'an expired total deadline prevents another dispatch');
+});
+
+test('the actual configured source HTTP request fits 96KB after twenty native calls without losing the Story, guidance or iframe facts',async t=>{
+ const startUrl='https://app.test/product',goto=`await page.goto(${JSON.stringify(startUrl)});`;
+ const nativeAssertion='await expect(page.getByText("Product information")).toBeVisible();';
+ const authored={id:'product',step_order:1,step_type:'web',action:'Inspect the product information',expected_result:'Model Number equals @r.product_code.'};
+ const finalSource=[goto,'await expect(page.frameLocator("#product").getByRole("cell",{name:params["r.product_code"],exact:true})).toHaveText(params["r.product_code"]);'].join('\n');
+ const selectedStory={ref:'requirement:product',content:{title:'Exact product model',description:'The required Model Number is 9000017248.',acceptance_criteria:['Preserve the exact model oracle.']}};
+ const brief=JSON.stringify({workflow_scope:{story_id:'product'},selected_story:selectedStory,supplied_context:'Retain the exact model expectation. PRIVATE_BINDING',
+  content_provenance:{scope_owner:'workflow_runtime'},story_assurance:{summary:'Repeated model analysis. '.repeat(1000)}});
+ const nativeSnapshot='### Snapshot\n- document [ref=e1]:\n'+Array.from({length:2000},(_,index)=>`  - link "Unrelated catalog recommendation ${index} ${'商品説明'.repeat(5)}" [ref=e${index+2}]`).join('\n')+
+  '\n  - iframe "Product information" [ref=f1e1]:\n    - table "Product details" [ref=f1e2]:\n      - row "Model Number 9000017248" [ref=f1e3]:\n        - cell "9000017248" [ref=f1e4]';
+ const native=(code,text)=>({content:[{type:'text',text:`### Ran Playwright code\n\x60\x60\x60js\n${code}\n\x60\x60\x60\n${text}`} ]});
+ const nativeTools=[tools[0],{name:'browser_verify_text_visible',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text'],additionalProperties:false}}];
+ const browserCalls=[],requests=[];let actorTurns=0,sourcePayload;
+ const complete=setup(t,async(_url,init)=>{
+  const payload=JSON.parse(init.body);requests.push(payload);
+  require('@hellotest/platform/backend/src/utils/llmRequestPolicy').assertInputBudget(payload);
+  const packet=JSON.parse(payload.messages.filter(message=>message.role==='user').at(-1).content);
+  if(payload.tools){
+   actorTurns++;
+   assert.equal(packet.planner_budget.section_tool_calls.used,actorTurns);
+   assert.equal(packet.planner_budget.section_tool_calls.remaining,20-actorTurns);
+   if(actorTurns===20)return accepted({done:true});
+   return accepted(null,{finish_reason:'tool_calls',message:{content:null,tool_calls:[{id:`verify-${actorTurns}`,type:'function',function:{name:'browser_verify_text_visible',arguments:'{"text":"Product information"}'}}]}});
+  }
+  sourcePayload=payload;
+  assert.deepEqual(JSON.parse(packet.brief).selected_story,selectedStory);
+  assert.match(JSON.parse(packet.brief).supplied_context,/Retain the exact model expectation/);
+  assert.doesNotMatch(packet.brief,/PRIVATE_BINDING/);
+  assert.match(JSON.stringify(packet.current_page_snapshot),/iframe.*Product information/);
+  assert.match(JSON.stringify(packet.current_page_snapshot),/Model Number 9000017248/);
+  assert.ok(packet.observations.every(item=>!Object.hasOwn(item,'code')));
+  assert.ok(packet.observations.filter(item=>item.tool==='browser_verify_text_visible').every(item=>!item.result.content));
+  assert.equal(packet.native_emitted_code.split(nativeAssertion).length-1,19);
+  assert.doesNotMatch(JSON.stringify(packet.current_page_snapshot),/Ran Playwright code/);
+  return accepted({automation_code:finalSource});
+ });
+ const built=await buildWithUpstreamPlaywright({steps:[authored],startUrl,brief,interactive:true,validate:inspectExecutablePlan,
+  parameterBindings:{parameterValues:{'r.product_code':'9000017248'}},redact:value=>value.replaceAll('PRIVATE_BINDING','[configured private binding]'),
+  browser:{tools:nativeTools,call:async name=>{browserCalls.push(name);return name==='browser_navigate'?native(goto,nativeSnapshot):native(nativeAssertion,'### Result\nDone\n'+ 'Repeated successful verifier detail. '.repeat(120));},close:async()=>{}},
+  complete:({phase,prompt,nativeTools:catalog})=>complete({upstreamPhase:phase,prompt,browserActor:phase==='upstream_browser_actor',nativeTools:catalog})});
+ assert.equal(built.updates.length,1);assert.equal(browserCalls.length,20);assert.equal(actorTurns,20);assert.equal(requests.length,21);
+ assert.ok(Buffer.byteLength(JSON.stringify(sourcePayload))<96000,'Measure the actual configured HTTP request, including trusted instructions and JSON escaping.');
 });

@@ -4,7 +4,7 @@ import ts from 'typescript';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {buildPlaywrightArtifact} from '../../shared/playwrightArtifact.mjs';
+import {buildPlaywrightArtifact,PLAYWRIGHT_ARTIFACT_RUNTIME_VERSION} from '../../shared/playwrightArtifact.mjs';
 import {markExpressionParameterBindings} from '../../shared/automationParameterMode.mjs';
 import {assertTypeScriptExportCompiles} from '../browser/playwrightExportFixture.mjs';
 
@@ -27,7 +27,8 @@ test('the real standalone runtime resolves marked params once per section and ke
  const page={goto:async url=>calls.push(['goto',url]),locator,getByRole:(role,options)=>{calls.push(['role',role,options.name]);return locator(options.name);},isClosed:()=>false};
  const expect=actual=>({toHaveValue:async expected=>assert.equal(await actual.inputValue(),expected),toBe:expected=>assert.equal(actual,expected)});
  expect.configure=()=>expect;
- const runner=(_title,fn)=>runs.push(fn({page,request:{fetch:async(url,options)=>{calls.push(['api',url,options.params.message]);return {text:async()=>'{"ok":true}',status:()=>200,headers:()=>({})};}},context:{},browser:{},browserName:'chromium'},{attach:async()=>{}}));
+ let runnerVersion=PLAYWRIGHT_ARTIFACT_RUNTIME_VERSION;
+ const runner=(_title,fn)=>runs.push(fn({page,request:{fetch:async(url,options)=>{calls.push(['api',url,options.params.message]);return {text:async()=>'{"ok":true}',status:()=>200,headers:()=>({})};}},context:{},browser:{},browserName:'chromium'},{config:{version:runnerVersion},attach:async()=>{}}));
  runner.use=()=>{};runner.setTimeout=()=>{};runner.step=async(_name,fn)=>fn();
  const compiled=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
  new Function('require','exports','process',compiled)(name=>{assert.equal(name,'@playwright/test');return {test:runner,expect};},{},{env:{}});
@@ -38,6 +39,10 @@ test('the real standalone runtime resolves marked params once per section and ke
  assert.ok(calls.some(call=>JSON.stringify(call)===JSON.stringify(['fill','reader@r.other.test','@r.other'])));
  assert.ok(calls.some(call=>JSON.stringify(call)===JSON.stringify(['fill','#legacy','EXPANDED'])));
  assert.ok(calls.some(call=>JSON.stringify(call)===JSON.stringify(['api','/api','EXPANDED'])));
+ runs.length=0;calls.length=0;runnerVersion='1.59.1';
+ new Function('require','exports','process',compiled)(name=>{assert.equal(name,'@playwright/test');return {test:runner,expect};},{},{env:{}});
+ await assert.rejects(Promise.all(runs),/requires @playwright\/test@/);
+ assert.equal(calls.length,0,'an incompatible standalone runtime cannot dispatch navigation or API work');
  const directory=await mkdtemp(path.join(tmpdir(),'qaira-expression-export-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  const file=path.join(directory,'automation.spec.ts');await writeFile(file,source);assertTypeScriptExportCompiles([file]);
 });

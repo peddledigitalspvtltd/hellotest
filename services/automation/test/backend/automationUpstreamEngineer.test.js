@@ -10,6 +10,7 @@ const step={id:'save',step_order:1,step_type:'web',action:'Save the form',expect
 const goto=`await page.goto(${JSON.stringify(startUrl)});`;
 const click='await page.getByRole("button", {name:"Save",exact:true}).click();';
 const assertion='await expect(page.getByRole("status")).toHaveText("Saved",{timeout:4500});';
+const modelMappedRead='const observedTitle = await page.title();';
 const native=(code,other='Observed current page')=>({content:[{type:'text',text:`### Ran Playwright code\n\x60\x60\x60js\n${code}\n\x60\x60\x60\n${other}`}]});
 const tools=[
   {name:'browser_navigate',inputSchema:{type:'object',required:['url'],properties:{url:{type:'string'}},additionalProperties:false}},
@@ -36,7 +37,10 @@ function fixture({actor,source,mapping,call,parameterBindings,redact}={}){
       const count=(actorCounts.get(request.step.id)||0)+1;actorCounts.set(request.step.id,count);
       return actor?actor(request,count):count===1?{tool:{name:'browser_click',arguments:{ref:'save-button'}}}:{done:true};
     }
-    if(request.phase==='upstream_source')return source?source(request,requests.filter(item=>item.phase==='upstream_source').length):{automation_code:[goto,click,assertion].join('\n')};
+    if(request.phase==='upstream_source'){
+      const result=source?await source(request,requests.filter(item=>item.phase==='upstream_source').length):{automation_code:[goto,click,assertion].join('\n')};
+      return mapping?{...result,automation_code:result.automation_code+'\n'+modelMappedRead}:result;
+    }
     if(request.phase==='upstream_instruction_mapping')return mapping?mapping(request,requests.filter(item=>item.phase==='upstream_instruction_mapping').length):instructionResponse(request);
     throw new Error('Unexpected model phase');
   };
@@ -44,11 +48,11 @@ function fixture({actor,source,mapping,call,parameterBindings,redact}={}){
   return {run,dispatched,requests,saved,progress,get closes(){return closes;},get checks(){return checks;}};
 }
 
-test('configured model uses native MCP first, then preserves source and maps display instructions in a separate call before saving',async()=>{
+test('configured model uses native MCP first, then preserves source and maps complete native display instructions without another model call',async()=>{
   const state=fixture();
   const result=await state.run();
   assert.deepEqual(state.dispatched.map(item=>item.name),['browser_navigate','browser_click']);
-  assert.deepEqual(state.requests.map(item=>item.phase),['upstream_browser_actor','upstream_browser_actor','upstream_source','upstream_instruction_mapping']);
+  assert.deepEqual(state.requests.map(item=>item.phase),['upstream_browser_actor','upstream_browser_actor','upstream_source']);
   assert.equal(state.saved.length,1);assert.equal(result.updates[0],state.saved[0]);
   assert.equal(result.updates[0].automation_code,expressionProgram([goto,click,assertion].join('\n')));
   assert.ok(validSavedInstructionMapping(result.updates[0].automation_instructions,{source:result.updates[0].automation_code,stepId:step.id}));
@@ -81,6 +85,29 @@ test('source correction retries the model without replaying an accepted browser 
   assert.equal(state.dispatched.filter(item=>item.name==='browser_click').length,1);
   assert.equal(state.requests.filter(item=>item.phase==='upstream_source').length,2);
   assert.equal(result.updates[0].automation_code,expressionProgram([goto,click,assertion].join('\n')));
+});
+
+test('a native focus outcome is admitted on its first source proposal without repeating the successful click',async()=>{
+  const focused='await expect(page.getByRole("button", {name:"Save",exact:true})).toBeFocused();';
+  const state=fixture({source:()=>({automation_code:[goto,click,focused].join('\n')})});
+  const result=await state.run({steps:[{...step,action:'Click Save to focus it',expected_result:'The Save button has active focus.'}]});
+  assert.equal(state.requests.filter(item=>item.phase==='upstream_source').length,1);
+  assert.equal(state.dispatched.filter(item=>item.name==='browser_click').length,1);
+  assert.equal(result.updates[0].automation_code,expressionProgram([goto,click,focused].join('\n')));
+});
+
+test('a source validator failure retains bounded actionable diagnostics without adding provider or source payloads',()=>{
+  const {validateSectionSource}=require('../../backend/lib/automationUpstreamEngineer');
+  const issues=Array.from({length:20},(_,index)=>`Step 5: application validator issue ${index}. ${'x'.repeat(1000)}`);
+  assert.throws(()=>validateSectionSource(click,{...step,step_order:5},()=>issues),error=>{
+    assert.equal(error.code,'AUTOMATION_UPSTREAM_SOURCE_INVALID');
+    assert.equal(error.section_order,5);
+    assert.match(error.publicMessage,/section 5 failed executable source validation/);
+    assert.equal(error.validation_errors.length,8);
+    assert.ok(error.validation_errors.every(issue=>issue.path==='/automation_code'&&issue.keyword==='native_source_validation'&&issue.message.length===500));
+    assert.equal(error.automation_code,undefined);assert.equal(error.response_payload,undefined);
+    return true;
+  });
 });
 
 test('source generation separates a grounded SPA route wait from exact assertions without changing accepted actions or authored timeouts',async()=>{
@@ -143,7 +170,7 @@ test('a display mapping retry receives exact validation feedback and can repair 
   }});
   const result=await state.run();
   assert.equal(state.requests.filter(item=>item.phase==='upstream_instruction_mapping').length,2);assert.equal(state.saved.length,1);
-  assert.equal(result.updates[0].automation_code,expressionProgram([goto,click,assertion].join('\n')));
+  assert.equal(result.updates[0].automation_code,expressionProgram([goto,click,assertion,modelMappedRead].join('\n')));
   assert.ok(validSavedInstructionMapping(result.updates[0].automation_instructions,{source:result.updates[0].automation_code,stepId:'save'}));
   assert.deepEqual(result.warnings,[]);assert.deepEqual(state.dispatched.map(item=>item.name),['browser_navigate','browser_click']);
 });
@@ -164,7 +191,7 @@ test('two invalid display mappings retain validated source once with parser fall
     }});
   const result=await state.run({steps,onSection:async(update,evidence)=>{state.saved.push(update);previews.push(sectionPreview({testCaseId:'case',step:update.step,update,evidence,attempt:1}));}});
   assert.equal(state.saved.length,2);assert.deepEqual(result.updates.map(update=>update.step.id),['save','verify']);
-  assert.equal(result.updates[0].automation_code,expressionProgram([goto,click,assertion].join('\n')));assert.equal(result.updates[0].automation_instructions,undefined);
+  assert.equal(result.updates[0].automation_code,expressionProgram([goto,click,assertion,modelMappedRead].join('\n')));assert.equal(result.updates[0].automation_instructions,undefined);
   assert.equal(previews[0].automation_instructions,undefined);assert.equal(previews[0].evidence.instruction_mapping.display_mode,'source_parser');
   assert.equal(previews[0].evidence.instruction_mapping.attempts,2);assert.equal(result.updates[0].instruction_mapping_warning.error_code,'AUTOMATION_INSTRUCTION_MAPPING_INVALID');
   assert.ok(result.updates[1].automation_instructions);assert.equal(result.warnings.length,1);
@@ -230,7 +257,7 @@ test('each completed section is mapped and saved before developing the next sect
   const result=await state.run({steps});
   assert.deepEqual(state.saved.map(item=>item.step.id),['save','check']);
   assert.equal(result.updates[1].automation_code,expressionProgram(assertion));
-  assert.equal(state.dispatched.filter(item=>item.name==='browser_click').length,1);assert.equal(state.requests.filter(item=>item.phase==='upstream_instruction_mapping').length,2);
+  assert.equal(state.dispatched.filter(item=>item.name==='browser_click').length,1);assert.equal(state.requests.filter(item=>item.phase==='upstream_instruction_mapping').length,0);
 });
 
 test('native action authority binds public data and exact secret env references without accepting changed locators or parameter scopes',()=>{

@@ -4,6 +4,7 @@ import { parseApiRequestSource } from "./apiRequestSource.mjs";
 import { buildApiValidationAssertionCode, apiAssertionParameterExpression } from "./apiValidation.mjs";
 import { hasConfiguredCaseExecutionHooks } from "./automationCaseExecutionHooks.mjs";
 import { usesExpressionParameterBindings } from "./automationParameterMode.mjs";
+export const PLAYWRIGHT_ARTIFACT_RUNTIME_VERSION = "1.65.0-alpha-2026-10-30";
 // The export is deliberately independent of the application's injected runtime.
 const runtime = String.raw `
 // RuntimeValue is the compatibility boundary for saved JavaScript instructions and API JSON.
@@ -160,14 +161,63 @@ function runtimeFor(page: Page, request: APIRequestContext, context: BrowserCont
   });
   const expect = wrapExpect(playwrightExpect.configure({timeout:executionOptions.assertionTimeout}));
   const activate = (next: Page) => { page=next; onPageChange(wrapPage(next)); };
+  // hellotest.tab-identity.v1: unknown query data and SPA routes are retained.
+  const canonicalAutomationTabUrl = (value: string): string | undefined => {
+    if (typeof value !== 'string' || value.length > 16384) return;
+    let url: URL; try { url=new URL(value); } catch { return; }
+    if (!['http:','https:'].includes(url.protocol) || url.username || url.password) return;
+    const amazon=/(?:^|\.)amazon\.(?:com|ca|in|de|fr|it|es|nl|se|pl|sg|ae|sa|ie|co\.uk|co\.jp|com\.au|com\.br|com\.mx|com\.tr|com\.be|co\.za)$/.test(url.hostname);
+    const marketing=new Set(['gclid','dclid','fbclid','msclkid','mc_cid','mc_eid','_ga','_gl']);
+    const amazonTracking=new Set(['qid','ref','ref_','sr','sprefix','crid','dib','dib_tag','tag','linkcode','linkid','camp','creative','creativeasin','ascsubtag']);
+    const normalize=(query: URLSearchParams): string => {
+      for (const key of new Set(query.keys())) {
+        const normalized=key.toLowerCase();
+        if (normalized.startsWith('utm_') || marketing.has(normalized) || amazon && (amazonTracking.has(normalized) || /^(?:pd|pf)_rd_/.test(normalized))) query.delete(key);
+      }
+      query.sort(); return query.toString();
+    };
+    url.search=normalize(url.searchParams);
+    const hashQuery=url.hash.indexOf('?');
+    if (/^#!?\//.test(url.hash) && hashQuery>=0) {
+      const query=normalize(new URLSearchParams(url.hash.slice(hashQuery+1)));
+      url.hash=url.hash.slice(0,hashQuery)+(query ? '?'+query : '');
+    }
+    return url.href;
+  };
   const findTab = async (target: RuntimeValue): Promise<Page> => {
-    const pages=context.pages(); if (target === 'current' || target?.current) return page;
+    if (target && typeof target === 'object' && target.identity !== undefined) {
+      const expected=target.identity?.schema==='hellotest.tab-identity.v1' && canonicalAutomationTabUrl(text(target.identity.url));
+      if (!expected) throw new Error('Unsupported or invalid browser tab identity. No tab selection was performed.');
+      const matching=(): Page[] => context.pages().filter(candidate=>!candidate.isClosed() && canonicalAutomationTabUrl(candidate.url())===expected);
+      try { await playwrightExpect.poll(()=>matching().length,{timeout:executionOptions.navigationTimeout}).toBeGreaterThan(0); }
+      catch { throw new Error('No browser tab reached its reviewed semantic identity. No tab selection was performed.'); }
+      const matches=matching();
+      if (matches.length!==1 || target.url && canonicalAutomationTabUrl(text(target.url))!==expected
+        || target.title && !(await matches[0].title()).includes(text(target.title)))
+        throw new Error('No unique browser tab matches its reviewed semantic identity. No tab selection was performed.');
+      return matches[0];
+    }
+    const matchesUrl = (actual: string, expected: string): boolean => {
+      if (!/^https?:\/\//i.test(expected)) return actual.includes(expected);
+      try { const value=new URL(actual),reviewed=new URL(expected);return value.origin===reviewed.origin && value.pathname===reviewed.pathname
+        && (!reviewed.search || value.search===reviewed.search) && (!reviewed.hash || value.hash===reviewed.hash); } catch { return false; }
+    };
+    let pages=context.pages(); if (target === 'current' || target?.current) return page;
+    if (typeof target === 'object' && Number.isSafeInteger(target.index) && target.index === pages.length && target.url) {
+      await context.waitForEvent('page',{timeout:executionOptions.navigationTimeout}); pages=context.pages();
+    }
     if (target === undefined || target === null || target === 'latest' || target?.latest) { const latest=pages.at(-1); if (!latest) throw new Error('No browser tab is open'); return latest; }
     let found;if (typeof target === 'number' || /^\d+$/.test(String(target))) found=pages[Number(target)];
     else if (typeof target === 'object' && target.index !== undefined) found=pages[target.index];
     else if (target === 'first') found=pages[0];
     else { for (const candidate of pages) { if (typeof target === 'object' ? target.title ? (await candidate.title()).includes(text(target.title)) : target.url && candidate.url().includes(text(target.url)) : candidate.url().includes(text(target))) { found=candidate;break; } } }
-    if (!found) throw new Error('Requested browser tab was not found'); return found;
+    if (!found) throw new Error('Requested browser tab was not found');
+    if (typeof target === 'object' && target.index !== undefined && target.url && found.url() === 'about:blank')
+      await found.waitForURL(url => matchesUrl(url.href,text(target.url)),{waitUntil:'commit',timeout:executionOptions.navigationTimeout});
+    if (typeof target === 'object' && target.index !== undefined
+      && (target.url && !matchesUrl(found.url(),text(target.url)) || target.title && !(await found.title()).includes(text(target.title))))
+      throw new Error('Requested browser tab does not match its reviewed URL or title. No tab selection was performed.');
+    return found;
   };
   const web = {
     step: (name: unknown, fn: () => Promise<unknown>) => test.step(text(name), fn),
@@ -322,5 +372,5 @@ export function buildPlaywrightArtifact({ testCase, steps, rows: data = [{}], se
     });
     const schemaSupport = usesSchema ? "import Ajv from 'ajv';\nconst ajv = new Ajv();\nconst validateJsonSchema = (body: unknown, schema: object) => ({valid: Boolean(schema && typeof schema === 'object' && !Array.isArray(schema) && Object.keys(schema).length && ajv.validate(schema,body))});\n" : "";
     const exportNotes = [...new Set(dependencies)].filter(module => !module.startsWith("node:")).map(module => /^\.{0,2}\//.test(module) ? `// External helper file required: ${module.replace(/[\r\n]/g, " ")} — copy it to the matching path beside this spec; its source was not included in the saved section.` : `// External dependency: ${module.replace(/[\r\n]/g, " ")} — install this package before running the spec.`).concat([...issues, ...Object.values(repositoryIssues)].map(issue => `// Export limitation: ${issue.replace(/[\r\n]/g, " ")}`)).join("\n");
-    return `// Save as automation.spec.ts. Install: npm i -D @playwright/test typescript @types/node${usesSchema ? " ajv" : ""}${usesJsonPath ? " jsonpath-plus" : ""}\n// Browser setup: npx playwright install chromium\n// Type check: npx tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext --moduleResolution Bundler automation.spec.ts\n// Run: npx playwright test automation.spec.ts\n// Override missing/private values with QAIRA_DATA_JSON='{"t.secret":"..."}'.\n${exportNotes}\nimport { test, expect as playwrightExpect, type Page, type Locator, type APIRequestContext, type BrowserContext } from '@playwright/test';\n${[...new Set(extraImports)].join('\n')}\n${usesJsonPath ? "import { JSONPath } from 'jsonpath-plus';\n" : ""}${schemaSupport}${runtimeUsage.api ? "const parseApiExpected = (value: unknown): unknown => { const input = String(value ?? ''); try { return JSON.parse(input); } catch { return input; } };\n" : ""}const queryJsonPath: ((body: RuntimeValue,path: string) => RuntimeValue) | undefined = ${usesJsonPath ? "(body,path) => JSONPath({path,json:body,eval:false,wrap:true})[0]" : "undefined"};\nconst executionOptions = ${JSON.stringify(executionOptions, null, 2)} as const;\ntest.use({actionTimeout:executionOptions.actionTimeout,navigationTimeout:executionOptions.navigationTimeout,video:executionOptions.video,trace:executionOptions.trace,screenshot:'off'});\ntest.setTimeout(executionOptions.timeout);\n\n// #region Test data\nconst rows: DataValues[] = ${JSON.stringify(data, null, 2)};\nconst sectionRows: DataValues[][] = ${JSON.stringify(sectionRows, null, 2)};\n// #endregion\n\n// #region Repository and Playwright bindings\nconst repository: Record<string,string> = ${JSON.stringify(objects, null, 2)};\nconst repositoryIssues: Record<string,string> = ${JSON.stringify(repositoryIssues, null, 2)};\n${artifactRuntime}\n// #endregion\n\nfor (const [iteration, defaults] of rows.entries()) {\n test(${JSON.stringify(testCase.title)} + ' [row ' + (iteration + 1) + ']', async ({page,request,context,browser,browserName},testInfo) => {\n  const overrides = JSON.parse(process.env.QAIRA_DATA_JSON || '{}');\n  const captured: DataValues = {};\n  const params: DataValues = {...defaults,...overrides};\n${hookIssue ? `  throw new Error(${JSON.stringify(hookIssue)});\n` : ''}  const baseURL = process.env.QAIRA_BASE_URL || ${JSON.stringify(baseURL)};\n  if (baseURL) await page.goto(baseURL);\n  let playwrightPage = page;\n  const driver = undefined;\n  const {web,api,capture,readJsonPath,locator,text,expect,wrapPage,setParameterBindingsMode} = runtimeFor(page,request,context,params,repository,baseURL,captured,next => { page=next; playwrightPage=next; });\n  page=wrapPage(page);\n  playwrightPage=page;\n  const bindings = {get page(){return page;},web,api,expect,params,capture,get playwrightPage(){return playwrightPage;},driver,test,request,context,browser,browserName,testInfo};\n  const attachScreenshot = async (name: string) => {\n    try {\n      if (!page.isClosed()) await testInfo.attach(name,{body:await page.screenshot({type:'jpeg',quality:55,fullPage:false,scale:'css'}),contentType:'image/jpeg'});\n    } catch (error) { console.warn('Screenshot capture unavailable',error instanceof Error ? error.message : String(error)); }\n  };\n${lines.length ? lines.join("\n") : '  throw new Error("This automation case has no executable sections. Build or author its sections before running the exported test.");'}\n });\n}\n`;
+    return `// Save as automation.spec.ts. Install: npm i -D @playwright/test@${PLAYWRIGHT_ARTIFACT_RUNTIME_VERSION} typescript @types/node${usesSchema ? " ajv" : ""}${usesJsonPath ? " jsonpath-plus" : ""}\n// Browser setup: npx playwright install chromium\n// Type check: npx tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext --moduleResolution Bundler automation.spec.ts\n// Run: npx playwright test automation.spec.ts\n// Override missing/private values with QAIRA_DATA_JSON='{"t.secret":"..."}'.\n${exportNotes}\nimport { test, expect as playwrightExpect, type Page, type Locator, type APIRequestContext, type BrowserContext } from '@playwright/test';\n${[...new Set(extraImports)].join('\n')}\n${usesJsonPath ? "import { JSONPath } from 'jsonpath-plus';\n" : ""}${schemaSupport}${runtimeUsage.api ? "const parseApiExpected = (value: unknown): unknown => { const input = String(value ?? ''); try { return JSON.parse(input); } catch { return input; } };\n" : ""}const queryJsonPath: ((body: RuntimeValue,path: string) => RuntimeValue) | undefined = ${usesJsonPath ? "(body,path) => JSONPath({path,json:body,eval:false,wrap:true})[0]" : "undefined"};\nconst playwrightRuntime = ${JSON.stringify({ package: "@playwright/test", version: PLAYWRIGHT_ARTIFACT_RUNTIME_VERSION })} as const;\nconst executionOptions = ${JSON.stringify(executionOptions, null, 2)} as const;\ntest.use({actionTimeout:executionOptions.actionTimeout,navigationTimeout:executionOptions.navigationTimeout,video:executionOptions.video,trace:executionOptions.trace,screenshot:'off'});\ntest.setTimeout(executionOptions.timeout);\n\n// #region Test data\nconst rows: DataValues[] = ${JSON.stringify(data, null, 2)};\nconst sectionRows: DataValues[][] = ${JSON.stringify(sectionRows, null, 2)};\n// #endregion\n\n// #region Repository and Playwright bindings\nconst repository: Record<string,string> = ${JSON.stringify(objects, null, 2)};\nconst repositoryIssues: Record<string,string> = ${JSON.stringify(repositoryIssues, null, 2)};\n${artifactRuntime}\n// #endregion\n\nfor (const [iteration, defaults] of rows.entries()) {\n test(${JSON.stringify(testCase.title)} + ' [row ' + (iteration + 1) + ']', async ({page,request,context,browser,browserName},testInfo) => {\n  if (testInfo.config.version !== playwrightRuntime.version) throw new Error("This artifact requires @playwright/test@" + playwrightRuntime.version + ". Install the pinned dependency before running.");\n  const overrides = JSON.parse(process.env.QAIRA_DATA_JSON || '{}');\n  const captured: DataValues = {};\n  const params: DataValues = {...defaults,...overrides};\n${hookIssue ? `  throw new Error(${JSON.stringify(hookIssue)});\n` : ''}  const baseURL = process.env.QAIRA_BASE_URL || ${JSON.stringify(baseURL)};\n  if (baseURL) await page.goto(baseURL);\n  let playwrightPage = page;\n  const driver = undefined;\n  const {web,api,capture,readJsonPath,locator,text,expect,wrapPage,setParameterBindingsMode} = runtimeFor(page,request,context,params,repository,baseURL,captured,next => { page=next; playwrightPage=next; });\n  page=wrapPage(page);\n  playwrightPage=page;\n  const bindings = {get page(){return page;},web,api,expect,params,capture,get playwrightPage(){return playwrightPage;},driver,test,request,context,browser,browserName,testInfo};\n  const attachScreenshot = async (name: string) => {\n    try {\n      if (!page.isClosed()) await testInfo.attach(name,{body:await page.screenshot({type:'jpeg',quality:55,fullPage:false,scale:'css'}),contentType:'image/jpeg'});\n    } catch (error) { console.warn('Screenshot capture unavailable',error instanceof Error ? error.message : String(error)); }\n  };\n${lines.length ? lines.join("\n") : '  throw new Error("This automation case has no executable sections. Build or author its sections before running the exported test.");'}\n });\n}\n`;
 }

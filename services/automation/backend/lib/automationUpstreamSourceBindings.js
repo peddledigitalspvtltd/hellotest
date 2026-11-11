@@ -111,6 +111,12 @@ function bindUpstreamSourceParameters({source,parameterValues={},privateNames=[]
   const markCall=node=>{
     const method=member(node.callee),args=node.arguments;if(!method)return;
     const owner=node.callee.object;
+    if(owner?.name==='web'&&method==='switchTab'){
+      properties(args[0],['url','title']);
+      if(args[0]?.type==='ObjectExpression')for(const property of args[0].properties)
+        if(property.type==='Property'&&!property.computed&&(property.key.name??property.key.value)==='identity')properties(property.value,['url']);
+      return;
+    }
     if(root(node.callee)!=='expect'&&!playwrightNames.has(root(node.callee)))return;
     if(['fill','type','pressSequentially','insertText',...(parameterExpressions?['press']:[])].includes(method)){
       // page.fill(selector, value) and locator.fill(value, options) have

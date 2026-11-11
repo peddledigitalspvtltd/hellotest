@@ -22,8 +22,8 @@ const readMethods = new Set(['inputValue', 'textContent', 'innerText', 'getAttri
 const expectationMethods = new Set(['soft', 'objectContaining', 'stringContaining', 'stringMatching', 'arrayContaining', 'any', 'anything', 'closeTo',
   'toBe', 'toEqual', 'toStrictEqual', 'toBeTruthy', 'toBeFalsy', 'toBeNull', 'toBeUndefined', 'toBeDefined', 'toBeNaN', 'toBeInstanceOf',
   'toBeGreaterThan', 'toBeGreaterThanOrEqual', 'toBeLessThan', 'toBeLessThanOrEqual', 'toBeCloseTo', 'toContain', 'toContainEqual', 'toMatch', 'toMatchObject',
-  'toHaveLength', 'toHaveProperty', 'toThrow', 'toThrowError', 'toBeVisible', 'toBeHidden', 'toBeEnabled', 'toBeDisabled', 'toBeEditable', 'toBeChecked', 'toBeAttached',
-  'toHaveText', 'toContainText', 'toHaveURL', 'toHaveTitle', 'toHaveAttribute', 'toHaveCount', 'toHaveValue', 'toHaveValues', 'toHaveClass', 'toHaveCSS', 'toHaveJSProperty']);
+  'toHaveLength', 'toHaveProperty', 'toThrow', 'toThrowError', 'toBeVisible', 'toBeHidden', 'toBeEnabled', 'toBeDisabled', 'toBeEditable', 'toBeChecked', 'toBeAttached', 'toBeEmpty', 'toBeFocused', 'toBeInViewport',
+  'toHaveText', 'toContainText', 'toContainClass', 'toHaveURL', 'toHaveTitle', 'toHaveAttribute', 'toHaveCount', 'toHaveValue', 'toHaveValues', 'toHaveClass', 'toHaveCSS', 'toHaveJSProperty', 'toHaveAccessibleDescription', 'toHaveAccessibleErrorMessage', 'toHaveAccessibleName', 'toHaveId', 'toHaveRole']);
 const member = node => node?.type === 'MemberExpression' && !node.computed ? node.property.name : null;
 const string = node => node?.type === 'Literal' && typeof node.value === 'string' ? node.value
   : node?.type === 'TemplateLiteral' && node.expressions.length === 0 ? node.quasis[0].value.cooked : null;

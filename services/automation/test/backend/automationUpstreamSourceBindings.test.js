@@ -3,6 +3,17 @@ const assert=require('node:assert/strict');
 const {parse}=require('acorn');
 const {bindUpstreamSourceParameters:bind,validateUpstreamSourceBoundary:boundary,selectUpstreamSourceParameterValues:selectValues}=require('../../backend/lib/automationUpstreamSourceBindings');
 
+test('versioned tab URLs bind public record data while schema and native index remain exact',async()=>{
+  const source='await web.switchTab({index:1,identity:{schema:"hellotest.tab-identity.v1",url:"https://app.test/record?id=Alice"}});';
+  const output=bind({source,parameterValues:{'r.record':'Alice'},parameterExpressions:true}).source;
+  assert.match(output,/params\["r.record"\]/);
+  assert.match(output,/schema:"hellotest.tab-identity.v1"/);
+  assert.match(output,/index:1/);
+  let selected;
+  await new Function('web','params',`return (async()=>{${output}})();`)({switchTab:value=>{selected=value;}},{'r.record':'Bob'});
+  assert.equal(selected.identity.url,'https://app.test/record?id=Bob');
+});
+
 test('later assertions bind unique public samples while authored references select equal scoped values and private data remains section-scoped',()=>{
   const parameterValues={'r.first':'GeneratedName','t.user':'admin','r.user':'admin','r.password':'opaque-private-input','r.empty':''};
   const unique=selectValues({parameterValues,parameterReferences:[],privateNames:['r.password']});

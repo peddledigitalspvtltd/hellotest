@@ -10,11 +10,13 @@ import { createInspectionProxy } from "./inspectionProxy.js";
 import { resolveRemoteInspectionEndpoint } from "./inspectionSecurity.js";
 import { normalizeAutomationAssertionTimeoutMs, validAutomationAssertionTimeoutMs } from "./automationAssertionPolicy.js";
 import { normalizeAutomationNavigationTimeoutMs, validAutomationNavigationTimeoutMs } from "./automationNavigationPolicy.js";
+import { installAutomationNavigationGuard, reserveAutomationDebuggingPort } from "./automationNavigationGuard.js";
 
 export const PLAYWRIGHT_MCP_ENDPOINT = "/api/v1/automation/playwright-mcp";
+export const AUTOMATION_PLAYWRIGHT_VERSION = "1.65.0-alpha-2026-10-30";
 export const PLAYWRIGHT_MCP_RUNTIME = Object.freeze({
   provider: "@playwright/mcp", version: "0.0.84", endpoint: PLAYWRIGHT_MCP_ENDPOINT,
-  transport: "streamable-http-json", codegen: "typescript"
+  transport: "streamable-http-json", codegen: "typescript", playwright_version: AUTOMATION_PLAYWRIGHT_VERSION
 });
 
 type NativeConfig = NonNullable<Parameters<typeof createConnection>[0]>;
@@ -81,16 +83,20 @@ type Session = {
   server: NativeServer; transport: NativeTransport; proxy: Awaited<ReturnType<typeof createInspectionProxy>>;
   outputDir: string; browser?: NativeBrowser; starting?: Promise<NativeContext>;
   busy: boolean; closed: boolean; expires: number; toolTimeout: number;
-  capturePreview: boolean; secrets: string[]; context?: NativeContext;
+  capturePreview: boolean; captureModelImages: boolean; secrets: string[]; context?: NativeContext;
+  selectedPage?: ReturnType<NativeContext["pages"]>[number];
+  navigationGuard?: Awaited<ReturnType<typeof installAutomationNavigationGuard>>;
+  browserContextReceipt?: { schema: "hellotest.browser-context.v1"; owned: true; context_mode: "fresh_isolated";
+    initial_storage_empty: boolean; storage_state_loaded: false; created_before_navigation: true };
 };
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const rpcError = (id: Rpc["id"], code: number, message: string) => ({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });
 
-/** An optional UI capture of the owned native session, outside MCP tool results.
- * Pixel privacy fails closed: a failed mask/capture produces no preview. The
- * configured model never receives this transport metadata. */
+/** One masked capture for UI previews and explicitly requested model images.
+ * Pixel privacy fails closed; raw upstream screenshots are never substituted. */
 async function browserPreview(session: Session, message: Rpc, response: Rpc | undefined) {
-  if (!session.capturePreview || !session.context || session.closed || message.method !== "tools/call"
+  const modelImage = session.captureModelImages && message.params?.name === "browser_take_screenshot";
+  if (!session.context || session.closed || message.method !== "tools/call"
     || !record(response?.result) || response.result.isError === true) return;
   const pages = session.context.pages().filter(page => !page.isClosed());
   const content = Array.isArray(response.result.content) ? response.result.content : [];
@@ -101,7 +107,9 @@ async function browserPreview(session: Session, message: Rpc, response: Rpc | un
     ? nativeText.match(/(?:^|\n)### Result\r?\n([\s\S]*?)(?=\r?\n### |$)/)?.[1]
     : nativeText.match(/(?:^|\n)### Open tabs\r?\n([\s\S]*?)(?=\r?\n### |$)/)?.[1]) || "";
   const current = tabs.match(/(?:^|\n)- (\d+): \(current\) /);
-  const page = current ? pages[Number(current[1])] : pages.length === 1 ? pages[0] : undefined;
+  if (current) session.selectedPage = pages[Number(current[1])];
+  const page = session.selectedPage && pages.includes(session.selectedPage) ? session.selectedPage : pages.length === 1 ? pages[0] : undefined;
+  if (!(session.capturePreview || modelImage)) return;
   if (!page) return;
   const masks = page.frames().flatMap(frame => [
     frame.locator('input, textarea, [contenteditable], [data-sensitive]'),
@@ -117,12 +125,20 @@ async function browserPreview(session: Session, message: Rpc, response: Rpc | un
     content: [{ type: "image", mimeType: "image/jpeg", data: bytes.toString("base64") }] };
 }
 
-// Resolve from the pinned upstream package, never the existing Run engine's
-// deliberately independent Playwright version. Its public contextGetter hook
+// Resolve from the pinned upstream package and require Run to use the same
+// version. Its public contextGetter hook
 // lets us own teardown; createConnection alone does not close its browser.
 const upstreamRequire = createRequire(createRequire(import.meta.url).resolve("@playwright/mcp/package.json"));
+export function assertAutomationPlaywrightVersions(runVersion: string, upstreamVersion: string) {
+  if (runVersion !== AUTOMATION_PLAYWRIGHT_VERSION || upstreamVersion !== AUTOMATION_PLAYWRIGHT_VERSION) {
+    throw new Error(`Automation Build and Run require Playwright ${AUTOMATION_PLAYWRIGHT_VERSION}. Reinstall the pinned TestEngine dependencies and browsers.`);
+  }
+}
+const upstreamPlaywright = upstreamRequire("playwright") as { chromium: {
+  executablePath(): string; launch: NonNullable<PlaywrightMcpDependencies["launchBrowser"]>
+} };
 const launchUpstreamBrowser: NonNullable<PlaywrightMcpDependencies["launchBrowser"]> = options =>
-  (upstreamRequire("playwright") as { chromium: { launch: NonNullable<PlaywrightMcpDependencies["launchBrowser"]> } }).chromium.launch(options);
+  upstreamPlaywright.chromium.launch(options);
 
 const navigationOrigins = (entry: string) => {
   const allowed = new Set([new URL(entry).origin]);
@@ -148,6 +164,7 @@ export async function registerAutomationPlaywrightMcp(app: FastifyInstance, guar
     sessions.delete(id);
     session.closed = true;
     await Promise.allSettled([session.server.close(), session.browser?.close()]);
+    await session.navigationGuard?.close();
     // A browser that finishes launching after cancellation closes in its getter.
     await session.proxy.close().catch(() => undefined);
     await rm(session.outputDir, { recursive: true, force: true }).catch(() => undefined);
@@ -182,6 +199,7 @@ export async function registerAutomationPlaywrightMcp(app: FastifyInstance, guar
         if (context.assertion_timeout_ms !== undefined && !validAutomationAssertionTimeoutMs(context.assertion_timeout_ms)) throw new Error("Invalid assertion timeout");
         if (context.navigation_timeout_ms !== undefined && !validAutomationNavigationTimeoutMs(context.navigation_timeout_ms)) throw new Error("Invalid navigation timeout");
         if (context.capture_preview !== undefined && typeof context.capture_preview !== "boolean") throw new Error("Invalid browser preview configuration");
+        if (context.capture_model_images !== undefined && typeof context.capture_model_images !== "boolean") throw new Error("Invalid browser model image configuration");
         if (context.secrets !== undefined && (!record(context.secrets) || Object.keys(context.secrets).length > 256
           || Object.entries(context.secrets).some(([key, value]) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || typeof value !== "string" || value.length > 16_384))) throw new Error("Invalid native secret configuration");
         const pairedPrivateOrigin = dependencies.pairedLocal || process.env.HELLOTEST_INSPECTOR_TOKEN ? new URL(context.start_url).origin : undefined;
@@ -191,13 +209,15 @@ export async function registerAutomationPlaywrightMcp(app: FastifyInstance, guar
         const navigation = normalizeAutomationNavigationTimeoutMs(context.navigation_timeout_ms);
         const assertion = normalizeAutomationAssertionTimeoutMs(context.assertion_timeout_ms);
         const allowedOrigins = navigationOrigins(context.start_url);
-        // Use the browser installed for the pinned Run runtime. The upstream
-        // client stays independent; Docker and paired setup need no alpha browser download.
-        const installedBrowser = (createRequire(import.meta.url)("playwright") as { chromium: { executablePath(): string } }).chromium.executablePath();
-        const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH || (existsSync(installedBrowser) ? installedBrowser : undefined);
+        assertAutomationPlaywrightVersions(createRequire(import.meta.url)("playwright/package.json").version,
+          upstreamRequire("playwright/package.json").version);
+        // Never drive Run's older/custom executable with the upstream client.
+        // Docker and paired setup install this exact package's browser revision.
+        const executablePath = upstreamPlaywright.chromium.executablePath();
+        if (!existsSync(executablePath)) throw new Error(`The pinned Playwright ${AUTOMATION_PLAYWRIGHT_VERSION} Chromium is not installed. Run the TestEngine browser setup before building automation.`);
         const launchOptions: NonNullable<NativeConfig["browser"]>["launchOptions"] = {
           headless: dependencies.headless ?? process.env.RECORDER_HEADLESS !== "false", timeout: 30_000, proxy: { server: proxy.server, bypass: "<-loopback>" },
-          ...(executablePath ? { executablePath } : {})
+          executablePath
         };
         const nativeConfig: NativeConfig = {
           browser: { browserName: "chromium", isolated: false, launchOptions,
@@ -212,11 +232,29 @@ export async function registerAutomationPlaywrightMcp(app: FastifyInstance, guar
         const getContext = async (): Promise<NativeContext> => {
           if (session.closed) throw new Error("Playwright MCP session closed");
           session.starting ??= (async () => {
-            const browser = await (dependencies.launchBrowser ?? launchUpstreamBrowser)(launchOptions);
+            const debuggingPort = await reserveAutomationDebuggingPort();
+            const browser = await (dependencies.launchBrowser ?? launchUpstreamBrowser)({ ...launchOptions,
+              args: [...(launchOptions?.args || []), `--remote-debugging-port=${debuggingPort}`, '--remote-debugging-address=127.0.0.1'] });
             if (session.closed) { await browser.close(); throw new Error("Playwright MCP session closed"); }
             session.browser = browser;
             const browserContext = await browser.newContext(nativeConfig.browser?.contextOptions);
             if (session.closed) { await browser.close(); throw new Error("Playwright MCP session closed"); }
+            // This is initial lifecycle evidence, not an assertion about the
+            // site's current cookies or signed-in state after navigation.
+            const contextOptions = nativeConfig.browser?.contextOptions;
+            if (!Object.hasOwn(contextOptions || {}, "storageState") && !Object.hasOwn(contextOptions || {}, "httpCredentials") && browserContext.pages().length === 0) {
+              let initialStorageEmpty = false;
+              try {
+                const state = await browserContext.storageState({ indexedDB: true });
+                initialStorageEmpty = Array.isArray(state.cookies) && state.cookies.length === 0
+                  && Array.isArray(state.origins) && state.origins.length === 0;
+              } catch { /* Unknown initial state must not establish an empty-storage claim. */ }
+              if (browserContext.pages().length === 0) session.browserContextReceipt = Object.freeze({ schema: "hellotest.browser-context.v1",
+                owned: true, context_mode: "fresh_isolated", initial_storage_empty: initialStorageEmpty,
+                storage_state_loaded: false, created_before_navigation: true });
+            }
+            session.navigationGuard = await installAutomationNavigationGuard(browser, allowedOrigins, debuggingPort);
+            if (session.closed) { await session.navigationGuard.close(); await browser.close(); throw new Error("Playwright MCP session closed"); }
             // Playwright route() skips later URLs in a redirect chain. A
             // Chromium Fetch interception sees every document hop, preserving
             // the browser's native redirects/status bodies without preflight,
@@ -251,14 +289,13 @@ export async function registerAutomationPlaywrightMcp(app: FastifyInstance, guar
                 const target = route.request();
                 if (target.isNavigationRequest()) {
                   if (!allowedOrigins.has(new URL(target.url()).origin)) return await route.abort("blockedbyclient");
-                  // A popup's initial document can precede its page event and
-                  // therefore the CDP policy. Fail closed during that gap;
-                  // once the native tab is visible, navigation is protected.
-                  let owner: Page;
-                  try { owner = target.frame().page(); } catch { return await route.abort("blockedbyclient"); }
-                  const ready = protectedPages.get(owner);
-                  if (!ready) return await route.abort("blockedbyclient");
-                  await ready;
+                  // New page targets are paused and protected by the owned
+                  // browser guard before their first document. Once Playwright
+                  // exposes the page, its additional frame guard is awaited too.
+                  let owner: Page | undefined;
+                  try { owner = target.frame().page(); } catch { /* The paused target already has its browser-level policy. */ }
+                  if (!owner && !session.navigationGuard?.isActive()) return await route.abort("blockedbyclient");
+                  if (owner) await protect(owner);
                 }
                 await route.continue();
               } catch { await route.abort("blockedbyclient").catch(() => undefined); }
@@ -272,7 +309,8 @@ export async function registerAutomationPlaywrightMcp(app: FastifyInstance, guar
         const transport = new NativeTransport();
         await server.connect(transport);
         session = { server, transport, proxy, outputDir, busy: false, closed: false,
-          capturePreview: context.capture_preview === true, secrets: [...new Set(Object.values(context.secrets as Record<string, string> || {}).filter(Boolean))],
+          capturePreview: context.capture_preview === true, captureModelImages: context.capture_model_images === true,
+          secrets: [...new Set(Object.values(context.secrets as Record<string, string> || {}).filter(Boolean))],
           expires: Date.now() + ttl, toolTimeout: dependencies.toolTimeoutMs ?? Math.max(60_000, navigation + 10_000, assertion + 10_000) };
         id = randomUUID();
         sessions.set(id, session);
@@ -326,8 +364,16 @@ export async function registerAutomationPlaywrightMcp(app: FastifyInstance, guar
       // confirmed native result into a tool failure or cause action replay.
       try {
         const preview = await browserPreview(session, message, response);
-        if (preview && response) response._meta = { ...response._meta, hellotest: { browser_preview: preview } };
+        if (preview && response) response._meta = { ...response._meta, hellotest: {
+          ...(record(response._meta?.hellotest) ? response._meta.hellotest : {}),
+          ...(session.capturePreview ? { browser_preview: preview } : {}),
+          ...(session.captureModelImages && message.params?.name === "browser_take_screenshot"
+            ? { model_image: { schema: "hellotest.masked-browser-image.v1", ...preview } } : {}) } };
       } catch { /* Keep the native result; do not emit unmasked pixels. */ }
+      if (response && message.method === "tools/call" && session.context && session.browserContextReceipt && !session.closed) {
+        response._meta = { ...response._meta, hellotest: {
+          ...(record(response._meta?.hellotest) ? response._meta.hellotest : {}), browser_context: session.browserContextReceipt } };
+      }
       // Preserve the official result, including native Playwright code. The
       // trusted host extracts code before creating its own redacted diagnostics.
       return response;

@@ -82,3 +82,20 @@ test('other native tasks never inherit Automation Engineer browser action settin
   assert.equal(Object.hasOwn(hydrated,'automationBrowserMode'),false);
  }
 });
+
+test('new assurance profiles preserve explicit decisions while saved guidance and accepted definitions remain unchanged',()=>{
+ const defaults=native.nativeTaskDefaults('test-case-assurance');
+ assert.match(defaults.instructions,/including @r and @t/);
+ assert.match(defaults.instructions,/Preserve fixed expected values/);
+ assert.match(defaults.guardrails,/optional environmental risks advisory/);
+ assert.match(defaults.guardrails,/UI topology and expansion requirements supported only by the generated case/);
+ assert.match(defaults.guardrails,/Do not require the case to embed Playwright code, browser fixture declarations, fixed sleeps or capture tooling/);
+ assert.match(defaults.guardrails,/Preserve explicit infrastructure constraints and genuine unresolved custom capability or external fixture dependencies/);
+ assert.match(native.nativeTaskDefaults('test-case-generation').guardrails,/without inventing same-tab\/new-tab rules/);
+ const saved={kind:'artifactTask',artifactTask:'test-case-assurance',instructions:'Our accepted review instructions.',guardrails:'Reviewed guardrails.',
+  llmIntegrationId:'saved-model',readinessPolicy:'require-ready',timeoutMs:'45000'};
+ const original=structuredClone(saved),hydrated=native.withNativeTaskDefaults(Object.freeze(saved));
+ assert.deepEqual(saved,original);
+ assert.equal(hydrated.instructions,saved.instructions);assert.equal(hydrated.guardrails,saved.guardrails);
+ assert.equal(hydrated.llmIntegrationId,saved.llmIntegrationId);assert.equal(hydrated.timeoutMs,saved.timeoutMs);
+});

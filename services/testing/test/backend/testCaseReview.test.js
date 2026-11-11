@@ -13,7 +13,7 @@ const initialCase = overrides => ({
 });
 
 function fixture(overrides = {}) {
-  const state = { row: initialCase(overrides), steps: [], sharedGroupSyncs: [], revision: 1, versions: [], deletes: 0, notifications: [], beforeTransaction: null };
+  const state = { row: initialCase(overrides), steps: [], foreignSteps: [], stepDeletes: [], sharedGroupSyncs: [], revision: 1, versions: [], deletes: 0, notifications: [], beforeTransaction: null };
   let queue = Promise.resolve();
   let transactionActive = false;
   const db = {
@@ -38,15 +38,20 @@ function fixture(overrides = {}) {
       return {
         get: async id => {
           if (/FOR UPDATE/.test(sql)) assert.equal(transactionActive, true, 'Review row locks must be inside a transaction');
-          if (/FROM app_types/.test(sql)) return { id: 'app', project_id: 'project' };
-          if (/FROM users/.test(sql)) return { id, name: id };
-          if (/FROM project_members/.test(sql)) return { user_id: id };
+          // The case query contains an app_types subquery for its runtime.
           if (/FROM test_cases/.test(sql)) return state.row
             ? { ...clone(state.row), ...(/AS revision/.test(sql) ? { revision: state.revision } : {}) }
             : null;
+          if (/FROM app_types/.test(sql)) return { id: 'app', project_id: 'project' };
+          if (/FROM users/.test(sql)) return { id, name: id };
+          if (/FROM project_members/.test(sql)) return { user_id: id };
           return null;
         },
-        all: async () => /FROM test_steps/.test(sql) ? clone(state.steps) : [],
+        all: async (...args) => {
+          if (/FROM test_steps WHERE id IN/.test(sql)) return clone([...state.steps, ...state.foreignSteps].filter(step => JSON.parse(args[0]).includes(step.id)));
+          if (/FOR UPDATE/.test(sql)) assert.equal(transactionActive, true, 'Step row locks must be inside the version transaction');
+          return /FROM test_steps/.test(sql) ? clone(state.steps) : [];
+        },
         run: async (...args) => {
           if (/^INSERT INTO test_cases \(/.test(sql)) {
             const columns = sql.match(/^INSERT INTO test_cases \(([^)]+)\)/)[1].split(',').map(x => x.trim());
@@ -57,7 +62,14 @@ function fixture(overrides = {}) {
             fields.forEach((field, i) => { state.row[field] = clone(args[i]); });
             if (/updated_at = CURRENT_TIMESTAMP/.test(sql)) state.row.updated_at = new Date(new Date(state.row.updated_at).getTime() + 1000).toISOString();
           } else if (/^DELETE FROM test_steps WHERE/.test(sql)) {
-            state.steps = [];
+            if (/AND id = \?/.test(sql)) {
+              state.stepDeletes.push(args[1]); state.steps = state.steps.filter(step => step.id !== args[1]);
+            } else state.steps = [];
+          } else if (/^UPDATE test_steps SET/.test(sql)) {
+            const fields = sql.match(/ SET (.+) WHERE id = \? AND test_case_id = \?/)[1].split(',').map(field => field.split('=')[0].trim());
+            const step = state.steps.find(step => step.id === args.at(-2) && step.test_case_id === args.at(-1));
+            assert.ok(step, 'An update retains only the exact owned database row');
+            fields.forEach((field, index) => { step[field] = clone(args[index]); });
           } else if (/^INSERT INTO test_steps \(/.test(sql)) {
             const columns = sql.match(/^INSERT INTO test_steps \(([^)]+)\)/)[1].split(',').map(x => x.trim());
             state.steps.push(Object.fromEntries(columns.map((column, i) => [column, clone(args[i])])));
@@ -157,6 +169,67 @@ test('suite-only saves return the committed revision and preserve authoring cont
   assert.equal((await service.getTestCase('case')).revision, edited.revision);
   assert.equal(state.row.title, 'Unsaved title now submitted');
   assert.equal(state.row.gherkin_document, document);
+});
+
+test('whole-case saves retain owned step identities, exact hidden source and group metadata while adding, ordering and deleting intentionally', async () => {
+  const { service, state } = fixture({ authoring_mode: 'gherkin', gherkin_document: 'Feature: Product\nScenario: Open details' });
+  const source = ' // @hellotest-parameter-bindings expressions-v1\nawait web.switchTab({index:1,url:params["r.product_url"]});\n';
+  state.steps = [
+    { id: 'product', test_case_id: 'case', step_order: 1, action: 'Open product details', expected_result: 'Details open in same tab', step_type: 'web', automation_code: source,
+      api_request: null, group_id: 'setup', group_name: 'Product setup', group_kind: 'local', reusable_group_id: null, retained_metadata: { evidence: 'original' } },
+    { id: 'removed', test_case_id: 'case', step_order: 2, action: 'Removed action', expected_result: 'Old behavior', step_type: 'web' },
+    { id: 'api', test_case_id: 'case', step_order: 3, action: 'GET /products', expected_result: 'Product exists', step_type: 'api', api_request: { method: 'GET', url: '/products', validations: [{ kind: 'status', expected: '200' }] }, automation_code: null }
+  ];
+  const originalApi = clone(state.steps[2].api_request);
+  const result = await service.updateTestCase('case', { expected_revision: 1, updated_by: 'creator', steps: [
+    { id: 'api', step_order: 1, expected_result: 'The configured product exists' },
+    { id: 'product', step_order: 2, expected_result: 'Selected product details are displayed' },
+    { id: 'temporary-client-id', step_order: 3, action: 'Read product name', expected_result: 'Authored name is present' }
+  ] });
+  assert.equal(result.revision, 2);
+  const product = state.steps.find(step => step.id === 'product'), api = state.steps.find(step => step.id === 'api');
+  assert.equal(product.automation_code, source, 'A client without source fields cannot normalize or erase hidden source bytes');
+  assert.equal(product.action, 'Open product details');
+  assert.equal(product.expected_result, 'Selected product details are displayed');
+  assert.deepEqual([product.group_id, product.group_name, product.group_kind], ['setup', 'Product setup', 'local']);
+  assert.deepEqual(product.retained_metadata, { evidence: 'original' }, 'Updating retained rows preserves database fields outside the editor contract');
+  assert.equal(product.step_order, 2);
+  assert.equal(api.step_order, 1); assert.equal(api.step_type, 'api'); assert.deepEqual(api.api_request, originalApi);
+  assert.deepEqual(state.stepDeletes, ['removed']);
+  const created = state.steps.find(step => !['product', 'api'].includes(step.id));
+  assert.match(created.id, /^[a-f0-9-]{36}$/); assert.notEqual(created.id, 'temporary-client-id');
+  assert.equal(created.step_order, 3);
+  assert.equal(state.versions.length, 1); assert.equal(state.row.authoring_mode, 'gherkin');
+  assert.equal(state.versions[0].nextSnapshot.steps.some(step => Object.hasOwn(step, 'id')), false, 'Version change summaries compare content independently of durable IDs');
+});
+
+test('owned IDs never authorize cross-case or duplicate step replacement, and rejection leaves the version and content unchanged', async () => {
+  for (const steps of [[{ id: 'foreign', action: 'Do not import another case row' }], [{ id: 'owned' }, { id: 'owned' }], [{ id: 'owned', test_case_id: 'another-case' }]]) {
+    const { service, state } = fixture();
+    state.steps = [{ id: 'owned', test_case_id: 'case', step_order: 1, action: 'Retain', expected_result: 'Retained', step_type: 'web', automation_code: 'await web.wait(1);' }];
+    state.foreignSteps = [{ id: 'foreign', test_case_id: 'another-case', action: 'Private other case' }];
+    const before = clone(state);
+    await assert.rejects(service.updateTestCase('case', { title: 'Must not commit', steps, expected_revision: 1, updated_by: 'creator' }), error => [400, 409].includes(error.statusCode));
+    assert.deepEqual(clone(state), before);
+  }
+});
+
+test('omitted automation remains intact, explicit clears remain possible, and blank retained rows are not silently deleted', async () => {
+  const { service, state } = fixture();
+  state.steps = [{ id: 'owned', test_case_id: 'case', step_order: 1, action: 'Open', expected_result: 'Ready', step_type: 'web', automation_code: 'await web.wait(1);',
+    api_request: null, group_id: 'group', group_name: 'Setup', group_kind: 'local', reusable_group_id: null }];
+  await service.updateTestCase('case', { expected_revision: 1, steps: [{ id: 'owned', action: '', expected_result: '', automation_code: '', group_id: null, group_name: null, group_kind: null }] });
+  assert.equal(state.steps.length, 1); assert.equal(state.steps[0].id, 'owned');
+  assert.equal(state.steps[0].automation_code, null); assert.equal(state.steps[0].group_id, null); assert.equal(state.steps[0].action, null);
+  assert.deepEqual(state.stepDeletes, []);
+});
+
+test('a step removed after editor preflight cannot be silently recreated under a new identity', async () => {
+  const { service, state } = fixture();
+  state.steps = [{ id: 'owned', test_case_id: 'case', step_order: 1, action: 'Open', expected_result: 'Ready', step_type: 'web' }];
+  state.beforeTransaction = async () => { state.steps = []; };
+  await assert.rejects(service.updateTestCase('case', { expected_revision: 1, steps: [{ id: 'owned', expected_result: 'Changed text' }] }), { code: 'TEST_STEP_SCOPE_CHANGED', statusCode: 409 });
+  assert.equal(state.steps.length, 0); assert.equal(state.versions.length, 0); assert.equal(state.revision, 1);
 });
 
 test('saving reusable steps synchronizes each shared group instance once by default', async () => {

@@ -636,7 +636,9 @@ export const reviewDefinitionKey = (
     status,
     trigger,
     settings,
-  });
+  }, (_key, value: unknown) => value && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))
+    : value);
 
 export function runMatchesDraft(
   run: AgenticWorkflowRun,
