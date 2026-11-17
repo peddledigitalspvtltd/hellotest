@@ -755,6 +755,9 @@ const statements = [
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS build TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS jira_bug_key TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_run_id TEXT`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_execution_result_id TEXT`,
+  `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_step_id TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_feedback_linked_test_run_id ON feedback(linked_test_run_id) WHERE linked_test_run_id IS NOT NULL`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS project_id TEXT`,
   `
     UPDATE feedback
@@ -798,30 +801,8 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_issue_history_issue_created ON issue_history (issue_id, created_at DESC, id DESC)`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS bug_type TEXT`,
   `ALTER TABLE feedback ADD COLUMN IF NOT EXISTS regression BOOLEAN NOT NULL DEFAULT FALSE`,
-  `
-    CREATE TABLE IF NOT EXISTS auth_verification_codes (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL,
-      purpose TEXT NOT NULL,
-      code_hash TEXT NOT NULL,
-      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-      attempt_count INTEGER NOT NULL DEFAULT 0,
-      expires_at TIMESTAMPTZ NOT NULL,
-      consumed_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-    )
-  `,
-  `ALTER TABLE auth_verification_codes ADD COLUMN IF NOT EXISTS email TEXT`,
-  `ALTER TABLE auth_verification_codes ADD COLUMN IF NOT EXISTS purpose TEXT`,
-  `ALTER TABLE auth_verification_codes ADD COLUMN IF NOT EXISTS code_hash TEXT`,
-  `ALTER TABLE auth_verification_codes ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb`,
-  `ALTER TABLE auth_verification_codes ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0`,
-  `ALTER TABLE auth_verification_codes ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ`,
-  `ALTER TABLE auth_verification_codes ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ`,
-  `ALTER TABLE auth_verification_codes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
-  `ALTER TABLE auth_verification_codes DROP CONSTRAINT IF EXISTS auth_verification_codes_purpose_check`,
-  `ALTER TABLE auth_verification_codes ADD CONSTRAINT auth_verification_codes_purpose_check CHECK (purpose IN ('signup', 'password_reset'))`,
-  `CREATE INDEX IF NOT EXISTS idx_auth_verification_codes_lookup ON auth_verification_codes (email, purpose, created_at DESC)`,
+  ...require('./authVerificationSchema'),
+  ...require('./authLoginProtectionSchema'),
   `
     CREATE TABLE IF NOT EXISTS test_environments (
       id TEXT PRIMARY KEY,
@@ -1247,6 +1228,8 @@ const statements = [
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parallel_enabled BOOLEAN`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parallel_count INTEGER`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS module_ids JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS module_membership TEXT NOT NULL DEFAULT 'snapshot'`,
   `UPDATE test_suites SET parameter_values = '{}'::jsonb WHERE parameter_values IS NULL`,
   `UPDATE test_suites SET labels = '[]'::jsonb WHERE labels IS NULL`,
   `ALTER TABLE test_suites ALTER COLUMN parameter_values SET DEFAULT '{}'::jsonb`,
@@ -2521,36 +2504,7 @@ const statements = [
     )
   `,
   `CREATE INDEX IF NOT EXISTS idx_quality_dashboards_project ON quality_dashboards (project_id, updated_at DESC)`,
-  `
-    CREATE TABLE IF NOT EXISTS ai_requirement_generation_jobs (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      status TEXT NOT NULL DEFAULT 'queued',
-      input_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-      result_payload JSONB,
-      last_error TEXT,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      lease_owner TEXT,
-      lease_expires_at TIMESTAMPTZ,
-      heartbeat_at TIMESTAMPTZ,
-      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      started_at TIMESTAMPTZ,
-      completed_at TIMESTAMPTZ,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )
-  `,
-  `ALTER TABLE ai_requirement_generation_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0`,
-  `ALTER TABLE ai_requirement_generation_jobs ADD COLUMN IF NOT EXISTS lease_owner TEXT`,
-  `ALTER TABLE ai_requirement_generation_jobs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`,
-  `ALTER TABLE ai_requirement_generation_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ`,
-  `UPDATE ai_requirement_generation_jobs SET attempts = 0 WHERE attempts IS NULL`,
-  `ALTER TABLE ai_requirement_generation_jobs ALTER COLUMN attempts SET DEFAULT 0`,
-  `ALTER TABLE ai_requirement_generation_jobs ALTER COLUMN attempts SET NOT NULL`,
-  `ALTER TABLE ai_requirement_generation_jobs DROP CONSTRAINT IF EXISTS ai_requirement_generation_jobs_status_check`,
-  `ALTER TABLE ai_requirement_generation_jobs ADD CONSTRAINT ai_requirement_generation_jobs_status_check CHECK (status IN ('queued', 'running', 'completed', 'failed'))`,
-  `CREATE INDEX IF NOT EXISTS idx_ai_requirement_generation_jobs_project ON ai_requirement_generation_jobs (project_id, created_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_ai_requirement_generation_jobs_queue ON ai_requirement_generation_jobs (status, lease_expires_at, created_at ASC)`,
+  ...require("./authoringGenerationJobsSchema"),
   `ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS step_defects JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS case_defects JSONB`,
   `
@@ -2601,6 +2555,8 @@ const statements = [
   ...require('./automationCaseDeletionSchema'),
   ...require('./automationStartUrlSchema'),
   ...require('./executionCaseOwnershipSchema'),
+  ...require('./suiteModuleMembershipSchema'),
+  ...require('./executionStorySnapshotsSchema'),
   ...require('@hellotest/agentic/backend/agents/activityOutboxSchema')
 ];
 

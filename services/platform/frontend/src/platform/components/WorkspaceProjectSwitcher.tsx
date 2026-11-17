@@ -224,7 +224,7 @@ export function WorkspaceProjectSwitcher({ projects, projectId, accessKey, isCol
         disabled={kind === "application" && !canLoadApplications} aria-disabled={switching || undefined}
         onClick={() => openMenu(kind)} onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); openMenu(kind); } }}>
         <span className="workspace-scope-trigger__icon"><Icon size={17} stroke={1.8} aria-hidden="true" /></span>
-        {!isCollapsed && <span className="workspace-scope-trigger__copy"><span>{copy(kind)}</span><strong>{name}</strong></span>}
+        {!isCollapsed && <span className="workspace-scope-trigger__copy"><span>{copy(kind)}: </span><strong>{name}</strong></span>}
         {!isCollapsed && <IconChevronDown className="workspace-scope-trigger__chevron" size={14} aria-hidden="true" />}
       </button>;
     })}

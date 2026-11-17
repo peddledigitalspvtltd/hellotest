@@ -194,7 +194,7 @@ const renderRepositoryConfiguration = () => selectedRepositoryEntry && isReposit
 	              <div className="repository-field-detail">
 	
                 {fieldDetailTab === "healing" ? (<div className="repository-healing-panel">
-	                <AiAssurancePanel compact gaps={selectedLocatorReviewReadiness.gaps} provenance="Saved locator strategies, stability metadata, validation history, DOM/accessibility evidence, and captured images" reviewState="review-required" score={selectedLocatorReviewReadiness.score} scoreLabel={selectedLocatorReviewReadiness.scoreLabel} signals={selectedLocatorReviewReadiness.signals} summary={selectedLocatorReviewReadiness.summary} title="Locator healing readiness"/>
+	                <AiAssurancePanel criteriaKey="metric.automation.locator_stability" compact gaps={selectedLocatorReviewReadiness.gaps} provenance="Saved locator strategies, stability metadata, validation history, DOM/accessibility evidence, and captured images" reviewState="review-required" score={selectedLocatorReviewReadiness.score} scoreLabel={selectedLocatorReviewReadiness.scoreLabel} signals={selectedLocatorReviewReadiness.signals} summary={selectedLocatorReviewReadiness.summary} title="Locator healing readiness"/>
 	                {locatorImprovementPreview ? (<section className="locator-improvement-review" aria-label="Locator improvement review">
 	                    <div className="locator-improvement-review-head">
 	                      <div>

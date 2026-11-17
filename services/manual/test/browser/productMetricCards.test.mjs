@@ -64,7 +64,7 @@ api.requirementReleases.listReadiness=async()=>releases.map((release,index)=>({r
 const router=createMemoryRouter([{path:'/',element:mode==='releases'?<ReleasesPage/>:<RequirementsPage workspaceMode={mode}/>}],{initialEntries:['/']});
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><AuthProvider><LocalizationProvider userId="reviewer"><main style={{height:'100vh',overflowY:'auto',padding:24}}><RouterProvider router={router}/></main></LocalizationProvider></AuthProvider></QueryClientProvider>);
 `;
-const metricValue=(page,label)=>page.getByRole('group',{name:'Story health metrics'}).getByRole('button',{name:'View evidence for '+label.replace(/(^|\s)\w/g,word=>word.toUpperCase()),exact:true}).locator('strong');
+const metricValue=(page,label)=>page.getByRole('group',{name:'Story health metrics'}).getByTitle('View evidence for '+label.replace(/(^|\s)\w/g,word=>word.toUpperCase()),{exact:true}).locator('strong');
 
 test('Stories Dev Completion matches QA scope and shows its evidence, loading and empty states', {timeout:60000}, async()=>{
  const name='dev-completion-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);
@@ -80,14 +80,14 @@ test('Stories Dev Completion matches QA scope and shows its evidence, loading an
   const group=page.getByRole('group',{name:'Story health metrics'});
   await metricValue(page,'Dev Completion').waitFor();
   assert.equal(await metricValue(page,'Dev Completion').innerText(),'—');
-  assert.equal(await group.getByRole('button',{name:'View evidence for Release Scope',exact:true}).count(),0);
+  assert.equal(await group.getByTitle('View evidence for Release Scope',{exact:true}).count(),0);
   await page.waitForFunction(()=>typeof window.releaseMetrics==='function');
   await page.evaluate(()=>window.releaseMetrics());
-  await page.waitForFunction(()=>document.querySelector('[aria-label="View evidence for Dev Completion"] strong')?.textContent==='80%');
+  await page.waitForFunction(()=>document.querySelector('[title="View evidence for Dev Completion"] strong')?.textContent==='80%');
   assert.equal(await metricValue(page,'QA Completion').innerText(),'50%');
   await page.waitForFunction(()=>document.querySelectorAll('.requirement-catalog-card').length===25);
   assert.equal(await metricValue(page,'Dev Completion').innerText(),'80%','Complete server metrics include Stories beyond the visible page');
-  await group.getByRole('button',{name:'View evidence for Dev Completion',exact:true}).click();
+  await group.getByTitle('View evidence for Dev Completion',{exact:true}).click();
   const evidence=group.getByRole('list',{name:'Dev Completion evidence',exact:true});
   await evidence.waitFor();
   const detail=await evidence.innerText();
@@ -98,7 +98,7 @@ test('Stories Dev Completion matches QA scope and shows its evidence, loading an
   await mkdir('/tmp/qaira-dev-completion',{recursive:true});
   await page.screenshot({path:'/tmp/qaira-dev-completion/stories.png'});
   await page.goto(url+'&empty=1');
-  await page.waitForFunction(()=>document.querySelector('[aria-label="View evidence for Backlog Inventory"] strong')?.textContent==='30');
+  await page.waitForFunction(()=>document.querySelector('[title="View evidence for Backlog Inventory"] strong')?.textContent==='30');
   assert.equal(await metricValue(page,'Dev Completion').innerText(),'—','No Sprint Stories is unavailable completion, not 0%');
   assert.equal(await metricValue(page,'QA Completion').innerText(),'—');
   assert.deepEqual(errors,[]);
@@ -174,7 +174,7 @@ test('Product Management cards use complete record evidence and accurate scope d
   assert.equal(await portfolio.locator('article').count(),4);
   const evidenceCopy=[];
   for(const [label,value] of Object.entries({'Total Releases':'3','Release Ready':'1','At Risk':'1','Overdue':'1'})){
-   const front=portfolio.getByRole('button',{name:'View evidence for '+label.replace(/(^|\s)\w/g,word=>word.toUpperCase()),exact:true});
+   const front=portfolio.getByTitle('View evidence for '+label.replace(/(^|\s)\w/g,word=>word.toUpperCase()),{exact:true});
    assert.equal(await front.locator('strong').innerText(),value,label);
    await front.click();
    const evidence=portfolio.getByRole('list',{name:label+' evidence',exact:true});
@@ -185,7 +185,7 @@ test('Product Management cards use complete record evidence and accurate scope d
   }
   assert.equal(new Set(evidenceCopy).size,4,'Each card shows its own scope and calculation evidence');
   await releasePage.getByRole('textbox',{name:'Search releases',exact:true}).fill('Future launch');
-  assert.equal(await portfolio.getByRole('button',{name:'View evidence for Total Releases'}).locator('strong').innerText(),'3','Search only filters the plan below');
+  assert.equal(await portfolio.getByTitle('View evidence for Total Releases').locator('strong').innerText(),'3','Search only filters the plan below');
   await releasePage.getByRole('textbox',{name:'Search releases',exact:true}).fill('');
   await releasePage.getByRole('button',{name:'Expand release Overdue launch',exact:true}).click().catch(async error=>{console.log(JSON.stringify({releaseErrors,text:(await releasePage.locator('body').innerText()).slice(-5000)}));throw error});
   const releaseStory=releasePage.locator('.release-story-tile').filter({has:releasePage.getByText('Metric Story 0',{exact:true})});

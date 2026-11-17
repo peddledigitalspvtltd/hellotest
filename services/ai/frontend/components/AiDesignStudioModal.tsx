@@ -1,3 +1,5 @@
+import { AiFailureNotice, useAiFailureCooldown, type AiGenerationFailure } from "./AiFailureNotice";
+import type { AgenticProcessingSnapshot } from "@hellotest/ai/agent-experience";
 import { AiTestCaseDraftFields } from "./AiTestCaseDraftFields";
 import { AiTestCaseStepTable } from "./AiTestCaseStepTable";
 import { useAiOutputSizing } from "../lib/useAiOutputSizing";
@@ -85,6 +87,8 @@ type AiDesignStudioModalProps = {
   onTogglePreviewRequirement?: (clientId: string, requirementId: string) => void;
   previewMessage: string;
   previewTone: "success" | "error";
+  processing?: AgenticProcessingSnapshot;
+  failure?: AiGenerationFailure | null;
   onPreviewMessageDismiss: () => void;
   isPreviewing: boolean;
   isAccepting: boolean;
@@ -144,13 +148,14 @@ function DraftParameterPreview({ values, source }: { values?: Record<string, str
 
 export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
   const domainMetadata=useDomainMetadata();
+  const retrySeconds = useAiFailureCooldown(props.failure);
   const {
     requirementLabel, requirementHelpText, requirements, selectedRequirementIds, allowMultipleRequirements,
     onRequirementSelectionChange, integrations, integrationId, onIntegrationIdChange, maxCases, onMaxCasesChange,
     additionalContext, onAdditionalContextChange, externalLinksText, onExternalLinksTextChange, referenceImages,
     onAddImages, onRemoveImage, appTypeName, existingCases, existingCasesTitle, existingCasesSubtitle,
     onViewExistingCase, previewCases, onPreviewCaseChange, onPreviewCasesReorder, onRemovePreviewCase, onTogglePreviewRequirement,
-    previewMessage, previewTone, onPreviewMessageDismiss, isPreviewing, isAccepting, onPreview, onSchedule,
+    previewMessage, previewTone, processing, failure, onPreviewMessageDismiss, isPreviewing, isAccepting, onPreview, onSchedule,
     onAuthoringModeChange, onAccept, onClose, onCancel, disablePreview, disableSchedule = true, disableAccept,
     isScheduling = false, closeDisabled = false, acceptLabel, dialogClassName,
     onParallelRequirementCountChange, scheduleHelperText, promptTemplateProjectId, promptTemplateAppTypeId,
@@ -281,7 +286,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
 
 
           <main className="ai-test-generator-workspace">
-            <AiIntentCanvas value={additionalContext} onChange={onAdditionalContextChange} onSubmit={() => onPreview(authoringMode)} disabled={busy} submitDisabled={disablePreview || integrationUnavailable} hasOutput={Boolean(previewCases.length)}
+            <AiIntentCanvas value={additionalContext} onChange={onAdditionalContextChange} onSubmit={() => onPreview(authoringMode)} disabled={busy} submitDisabled={disablePreview || integrationUnavailable || retrySeconds > 0} hasOutput={Boolean(previewCases.length)}
               title={sourceCase ? "What should improve?" : "What should we cover?"}
               placeholder={sourceCase ? "Describe what to clarify, preserve, or add to this Test Case." : "Describe the risks, user journeys, and acceptance boundaries to cover."}
               chips={[
@@ -300,11 +305,12 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
               </div>
             </div>
             <div className={`ai-test-generator-toast${previewMessage ? " has-message" : ""}`}>
+              {failure ? <AiFailureNotice failure={failure} /> : null}
               {previewMessage ? <ToastMessage message={previewMessage} onDismiss={onPreviewMessageDismiss} tone={previewTone} /> : null}
             </div>
 
             <div className={`ai-test-generator-drafts is-${viewMode}`} ref={outputRef} aria-busy={isPreviewing}>
-              {isPreviewing ? <AiGenerationProgress modelLabel={integrationLabel} onCancel={onCancel} /> : null}
+              {isPreviewing ? <AiGenerationProgress modelLabel={integrationLabel} onCancel={onCancel} processing={processing} /> : null}
               {!previewCases.length && !isPreviewing ? <div className="ai-test-generator-empty"><h3>{selectedStories.length ? "Your proposal will appear here" : "Your proposal will appear here"}</h3><p>{selectedStories.length ? "Generate a proposal, then refine and save the drafts you choose." : requirementHelpText}</p></div> : null}
               {visibleDrafts.length ? <div className="ai-artifact-workspace">
                 <nav aria-label="Proposal outline" className="ai-artifact-outline" ref={outlineRef}>
@@ -355,7 +361,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
 
 
         </div>
-            <footer className="ai-test-generator-footer"><strong>{previewCases.length ? `${selectedCount} selected of ${previewCases.length}` : "Draft first. Save after review."}</strong><div>{previewCases.length ? <button disabled={busy} onClick={() => previewCases.forEach((draft) => onRemovePreviewCase(draft.client_id))} type="button">Decline all</button> : null}{onSchedule ? <span><button disabled={disableSchedule || busy || integrationUnavailable} onClick={() => onSchedule(authoringMode)} type="button"><IconCalendarTime size={17} />{isScheduling ? "Scheduling…" : "Schedule"}</button><InfoTooltip content={scheduleHelperText || "Queue generation for the selected Stories. Generated cases return as reviewable drafts."} label="Scheduled generation information" /></span> : null}<button disabled={disablePreview || busy || integrationUnavailable} onClick={() => onPreview(authoringMode)} className={!previewCases.length ? "primary-button" : undefined} type="button"><IconSparkles size={17} />{isPreviewing ? "Generating…" : previewTone === "error" && previewMessage ? "Retry" : previewCases.length ? "Regenerate" : "Generate drafts"}</button>{previewCases.length ? <button className="primary-button" disabled={disableAccept || !selectedCount || invalidSelectedDraft || busy} onClick={() => onAccept(previewCases.filter(item => selectedIds.includes(item.client_id)).map(item => item.client_id))} title={invalidSelectedDraft ? "Complete the selected draft title and required test content before accepting." : undefined} type="button"><IconLibraryPlus size={17} />{isAccepting ? "Accepting…" : `${acceptLabel} (${selectedCount})`}</button> : null}</div></footer>
+            <footer className="ai-test-generator-footer"><strong>{previewCases.length ? `${selectedCount} selected of ${previewCases.length}` : "Draft first. Save after review."}</strong><div>{previewCases.length ? <button disabled={busy} onClick={() => previewCases.forEach((draft) => onRemovePreviewCase(draft.client_id))} type="button">Decline all</button> : null}{onSchedule ? <span><button disabled={disableSchedule || busy || integrationUnavailable} onClick={() => onSchedule(authoringMode)} type="button"><IconCalendarTime size={17} />{isScheduling ? "Scheduling…" : "Schedule"}</button><InfoTooltip content={scheduleHelperText || "Queue generation for the selected Stories. Generated cases return as reviewable drafts."} label="Scheduled generation information" /></span> : null}<button disabled={disablePreview || busy || integrationUnavailable || retrySeconds > 0} onClick={() => onPreview(authoringMode)} className={!previewCases.length ? "primary-button" : undefined} type="button"><IconSparkles size={17} />{isPreviewing ? "Generating…" : previewTone === "error" && previewMessage ? "Retry" : previewCases.length ? "Regenerate" : "Generate drafts"}</button>{previewCases.length ? <button className="primary-button" disabled={disableAccept || !selectedCount || invalidSelectedDraft || busy} onClick={() => onAccept(previewCases.filter(item => selectedIds.includes(item.client_id)).map(item => item.client_id))} title={invalidSelectedDraft ? "Complete the selected draft title and required test content before accepting." : undefined} type="button"><IconLibraryPlus size={17} />{isAccepting ? "Accepting…" : (acceptLabel === "Save cases" || acceptLabel.startsWith("Accept And Move") ? `Save ${selectedCount} ${selectedCount === 1 ? "case" : "cases"}` : `${acceptLabel} (${selectedCount})`)}</button> : null}</div></footer>
         <footer className="ai-test-generator-status-footer">
           <span>{isPreviewing ? "Waiting for the model" : isAccepting ? "Saving reviewed drafts…" : previewCases.length ? "Proposal ready for review" : "Ready to generate"}</span>
           <div>

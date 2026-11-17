@@ -28,7 +28,7 @@ const normalizeDate = (value) => {
 
 const COMPLETED_STORY_STATUSES = ["qa_done", "qa done", "done", "closed", "resolved", "accepted", "complete", "completed"];
 const isCompletedStoryStatus = (value) => COMPLETED_STORY_STATUSES.includes(String(value || "").trim().toLowerCase().replace(/[ _-]+/g, "_"));
-const isOpenReleaseBug = (status) => !["closed", "done", "resolved", "accepted", "complete", "completed", "fixed", "verified"].includes(String(status || "").trim().toLowerCase());
+const isOpenReleaseBug = status => !require("@hellotest/platform/backend/src/utils/defectStatus").isClosedDefect(status);
 const isAutomatedReleaseCase = (row) => String(row.automated || "").trim().toLowerCase() === "yes"
   || ["ready", "automated", "yes", "covered"].includes(String(row.automation_status || "").trim().toLowerCase());
 

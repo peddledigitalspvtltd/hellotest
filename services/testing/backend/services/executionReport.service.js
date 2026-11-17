@@ -15,6 +15,7 @@ const AI_ANALYSIS_TIMEOUT_MS = Number.isFinite(configuredAiAnalysisTimeoutMs)
 const AI_ANALYSIS_FAILED_CASE_LIMIT = 20;
 
 const normalizeText = (value) => {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : "";
   if (typeof value !== "string") {
     return "";
   }
@@ -73,11 +74,12 @@ const formatDuration = (value) => {
   return `${hours}h ${remainingMinutes}m`;
 };
 
-const { buildExecutionReportModel } = require("./executionReportModel");
+const { buildExecutionReportModel, scopeReportToCase } = require("./executionReportModel");
 const { renderDetailedExecutionHtml, REPORT_CSP } = require("./executionReportHtml");
 
-const buildReportModel = async (executionId) => {
-  const execution = await executionService.getExecution(executionId);
+const buildReportModel = async (executionId, {user} = {}) => {
+  const raw = await executionService.getExecution(executionId);
+  const execution = user && executionService.projectExecutionForUser ? await executionService.projectExecutionForUser(raw,user) : raw;
   const results = await executionResultService.getExecutionResults({ execution_id: executionId });
   return buildExecutionReportModel(execution, results);
 };
@@ -282,7 +284,7 @@ const generateAiAnalysis = async (report, { userId } = {}) => {
       prompt: buildAiAnalysisPrompt(report)
     });
 
-    return normalizeAiAnalysis(extractJsonPayload(content));
+    return {...normalizeAiAnalysis(extractJsonPayload(content)),provenance:{source:"explicit_report_request",integration_id:integration.id,model:integration.model}};
   } catch (error) {
     return createUnavailableAiAnalysis(
       `AI analysis could not be generated. ${error instanceof Error ? error.message : "The report export continued without AI output."}`
@@ -290,13 +292,6 @@ const generateAiAnalysis = async (report, { userId } = {}) => {
   }
 };
 
-const buildReportWithAiAnalysis = async (executionId, { userId } = {}) => {
-  const report = await buildReportModel(executionId);
-  return {
-    ...report,
-    ai_analysis: await generateAiAnalysis(report, { userId })
-  };
-};
 
 const STATUS_META = {
   passed: { label: "Passed", bg: "#e4f7ed", fg: "#126c48", border: "#28a66d" },
@@ -369,7 +364,8 @@ const renderInlineList = (items = []) =>
     : `<p style="margin:8px 0 0;color:#647084;font-size:13px;">No specific items were returned.</p>`;
 
 const renderAiAnalysisHtml = (analysis) => {
-  const resolved = analysis || createUnavailableAiAnalysis();
+  if (!analysis) return "";
+  const resolved = analysis;
   const isUnavailable = resolved.status !== "generated";
 
   return `
@@ -534,7 +530,6 @@ const renderReportHtml = (report, { mode = "email" } = {}) => {
 </html>`;
 };
 
-const pdfEscape = (value) => String(value ?? "").replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 
 const wrapLine = (line, max = 92) => {
   const words = String(line || "").split(/\s+/).filter(Boolean);
@@ -598,7 +593,7 @@ const buildReportLines = (report, { detailed = false } = {}) => {
     ""
   ];
 
-  lines.push(...buildAiAnalysisLines(report.ai_analysis));
+  if(report.ai_analysis) lines.push(...buildAiAnalysisLines(report.ai_analysis));
 
   lines.push("Suite outcomes:");
   report.suites.forEach((suite) => {
@@ -634,467 +629,10 @@ const buildReportLines = (report, { detailed = false } = {}) => {
   return lines.flatMap((line) => wrapLine(line));
 };
 
-const pdfNumber = (value) => {
-  const normalized = Number(value || 0);
-  return Number.isFinite(normalized) ? normalized.toFixed(2).replace(/\.?0+$/, "") : "0";
-};
-
-const hexToRgb = (hex) => {
-  const normalized = String(hex || "#000000").replace("#", "");
-  const value = normalized.length === 3
-    ? normalized.split("").map((entry) => `${entry}${entry}`).join("")
-    : normalized.padEnd(6, "0").slice(0, 6);
-
-  return [
-    Number.parseInt(value.slice(0, 2), 16) / 255,
-    Number.parseInt(value.slice(2, 4), 16) / 255,
-    Number.parseInt(value.slice(4, 6), 16) / 255
-  ].map(pdfNumber);
-};
-
-const pdfColor = (hex, operator = "rg") => `${hexToRgb(hex).join(" ")} ${operator}`;
-
-const wrapPdfText = (value, width, fontSize) => {
-  const maxChars = Math.max(10, Math.floor(width / Math.max(fontSize * 0.5, 1)));
-  return String(value || "").split(/\n+/).flatMap((line) => wrapLine(line, maxChars));
-};
-
-const parseJpegEvidence = (evidence) => {
-  const dataUrl = normalizeText(evidence?.dataUrl || evidence?.data_url);
-
-  if (!dataUrl) {
-    return null;
-  }
-
-  const match = dataUrl.match(/^data:image\/(?:jpeg|jpg);base64,([A-Za-z0-9+/=\s]+)$/i);
-
-  if (!match) {
-    return null;
-  }
-
-  const data = Buffer.from(match[1].replace(/\s+/g, ""), "base64");
-  const size = readJpegSize(data);
-
-  if (!size) {
-    return null;
-  }
-
-  return {
-    data,
-    width: size.width,
-    height: size.height,
-    fileName: normalizeText(evidence?.fileName || evidence?.file_name) || "evidence.jpg"
-  };
-};
-
-const readJpegSize = (data) => {
-  if (!Buffer.isBuffer(data) || data.length < 4 || data[0] !== 0xff || data[1] !== 0xd8) {
-    return null;
-  }
-
-  let offset = 2;
-
-  while (offset + 9 < data.length) {
-    if (data[offset] !== 0xff) {
-      offset += 1;
-      continue;
-    }
-
-    const marker = data[offset + 1];
-    offset += 2;
-
-    if (marker === 0xd9 || marker === 0xda) {
-      break;
-    }
-
-    if (offset + 2 > data.length) {
-      break;
-    }
-
-    const length = data.readUInt16BE(offset);
-
-    if (length < 2 || offset + length > data.length) {
-      break;
-    }
-
-    const isStartOfFrame = marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker);
-
-    if (isStartOfFrame && offset + 7 < data.length) {
-      return {
-        height: data.readUInt16BE(offset + 3),
-        width: data.readUInt16BE(offset + 5)
-      };
-    }
-
-    offset += length;
-  }
-
-  return null;
-};
-
-const renderReportPdf = (report) => {
-  const pageWidth = 612;
-  const pageHeight = 842;
-  const margin = 36;
-  const usableWidth = pageWidth - margin * 2;
-  const bottomLimit = pageHeight - margin;
-  const pages = [];
-  const images = [];
-  let ops = [];
-  let cursorY = margin;
-
-  const toPdfY = (topY, height = 0) => pageHeight - topY - height;
-  const addPage = (continued = false) => {
-    ops = [];
-    pages.push(ops);
-    cursorY = margin;
-
-    if (continued) {
-      ops.push(`${pdfColor("#edf3f8")} 0 ${pdfNumber(pageHeight - 28)} ${pageWidth} 28 re f`);
-      ops.push(`BT ${pdfColor("#5b6472")} /F2 9 Tf ${margin} ${pdfNumber(pageHeight - 18)} Td (${pdfEscape(report.execution.name || "HelloTest Run Report")}) Tj ET`);
-      cursorY = 52;
-    }
-  };
-  const ensure = (height) => {
-    if (cursorY + height > bottomLimit) {
-      addPage(true);
-    }
-  };
-  const rect = (x, y, width, height, fill, stroke) => {
-    const commands = ["q"];
-    if (fill) {
-      commands.push(pdfColor(fill));
-    }
-    if (stroke) {
-      commands.push(pdfColor(stroke, "RG"));
-    }
-    commands.push(`${pdfNumber(x)} ${pdfNumber(toPdfY(y, height))} ${pdfNumber(width)} ${pdfNumber(height)} re`);
-    commands.push(fill && stroke ? "B" : fill ? "f" : "S");
-    commands.push("Q");
-    ops.push(commands.join("\n"));
-  };
-  const text = (value, x, y, size = 10, options = {}) => {
-    const font = options.bold ? "F2" : "F1";
-    const color = options.color || "#111827";
-    ops.push(`BT ${pdfColor(color)} /${font} ${pdfNumber(size)} Tf ${pdfNumber(x)} ${pdfNumber(pageHeight - y)} Td (${pdfEscape(value)}) Tj ET`);
-  };
-  const wrappedText = (value, x, y, width, size = 10, options = {}) => {
-    const lineHeight = options.lineHeight || size + 4;
-    const lines = wrapPdfText(value, width, size);
-
-    lines.forEach((line, index) => {
-      text(line, x, y + index * lineHeight, size, options);
-    });
-
-    return lines.length * lineHeight;
-  };
-  const statusPill = (status, x, y) => {
-    const meta = getStatusMeta(status);
-    const label = meta.label.toUpperCase();
-    const width = Math.max(48, label.length * 5.5 + 16);
-    rect(x, y - 10, width, 17, meta.bg, meta.border);
-    text(label, x + 8, y + 2, 7, { bold: true, color: meta.fg });
-    return width;
-  };
-  const addImageResource = (evidence) => {
-    const parsed = parseJpegEvidence(evidence);
-
-    if (!parsed) {
-      return null;
-    }
-
-    const existing = images.find((image) => image.fileName === parsed.fileName && image.data.equals(parsed.data));
-
-    if (existing) {
-      return existing;
-    }
-
-    const image = {
-      ...parsed,
-      name: `Im${images.length + 1}`
-    };
-
-    images.push(image);
-    return image;
-  };
-  const drawImage = (image, x, y, width, height) => {
-    ops.push(`q ${pdfNumber(width)} 0 0 ${pdfNumber(height)} ${pdfNumber(x)} ${pdfNumber(toPdfY(y, height))} cm /${image.name} Do Q`);
-  };
-  const sectionTitle = (label) => {
-    ensure(30);
-    text(label, margin, cursorY, 14, { bold: true, color: "#122033" });
-    cursorY += 22;
-  };
-  const signalLabel = (step) => [
-    step.has_evidence ? "image" : null,
-    step.console_count ? `${step.console_count} console` : null,
-    step.network_count ? `${step.network_count} network` : null
-  ].filter(Boolean).join(" | ") || "no artifacts";
-
-  addPage(false);
-
-  rect(margin, cursorY, usableWidth, 92, "#122033", "#122033");
-  text("HelloTest Run Report", margin + 18, cursorY + 25, 11, { bold: true, color: "#9fb5cf" });
-  wrappedText(report.execution.name || "Execution run report", margin + 18, cursorY + 48, usableWidth - 36, 20, {
-    bold: true,
-    color: "#ffffff",
-    lineHeight: 23
-  });
-  text(`Generated ${formatDate(report.generated_at)} | Started ${formatDate(report.execution.started_at)} | Ended ${formatDate(report.execution.ended_at)}`, margin + 18, cursorY + 78, 8, {
-    color: "#d7e2ef"
-  });
-  cursorY += 112;
-
-  const cardGap = 8;
-  const cardWidth = (usableWidth - cardGap * 4) / 5;
-  [
-    ["Pass rate", `${report.summary.pass_rate}%`, "#28a66d"],
-    ["Total cases", report.summary.total, "#5271d8"],
-    ["Passed", report.summary.passed, "#28a66d"],
-    ["Failed", report.summary.failed, "#d94b6a"],
-    ["Duration", formatDuration(report.summary.duration_ms), "#5b6472"]
-  ].forEach(([label, value, color], index) => {
-    const x = margin + index * (cardWidth + cardGap);
-    rect(x, cursorY, cardWidth, 54, "#ffffff", "#dfe7f1");
-    rect(x, cursorY, 4, 54, color, color);
-    text(String(value), x + 12, cursorY + 23, 17, { bold: true, color: "#111827" });
-    text(label, x + 12, cursorY + 41, 8, { color: "#647084" });
-  });
-  cursorY += 78;
-
-  sectionTitle("AI execution analysis");
-  buildAiAnalysisLines(report.ai_analysis)
-    .filter(Boolean)
-    .slice(1)
-    .forEach((line, index) => {
-      const isHeading = line.endsWith(":");
-      const size = index === 0 ? 10 : 8;
-      const height = wrapPdfText(line, usableWidth, size).length * (size + 4);
-
-      ensure(height + 4);
-      wrappedText(line, margin, cursorY, usableWidth, size, {
-        bold: index === 0 || isHeading,
-        color: isHeading ? "#122033" : "#334155",
-        lineHeight: size + 4
-      });
-      cursorY += height + 3;
-    });
-  cursorY += 14;
-
-  sectionTitle("Run and suite outcomes");
-  const tableColumns = [
-    ["Scope", 52],
-    ["Name", 188],
-    ["Cases", 46],
-    ["Passed", 52],
-    ["Failed", 48],
-    ["Blocked", 54],
-    ["Running", 54],
-    ["Duration", 58]
-  ];
-  const tableRows = [
-    {
-      scope: "Run",
-      name: report.execution.name || report.execution.id,
-      total: report.summary.total,
-      passed: report.summary.passed,
-      failed: report.summary.failed,
-      blocked: report.summary.blocked,
-      running: report.summary.running,
-      duration: formatDuration(report.summary.duration_ms)
-    },
-    ...report.suites.map((suite) => ({
-      scope: "Suite",
-      name: suite.name,
-      total: suite.total,
-      passed: suite.passed,
-      failed: suite.failed,
-      blocked: suite.blocked,
-      running: suite.running,
-      duration: formatDuration(suite.duration_ms)
-    }))
-  ];
-
-  ensure(24 + tableRows.length * 22);
-  rect(margin, cursorY - 4, usableWidth, 24, "#f6f9fc", "#dfe7f1");
-  let x = margin + 8;
-  tableColumns.forEach(([label, width]) => {
-    text(label, x, cursorY + 11, 8, { bold: true, color: "#647084" });
-    x += width;
-  });
-  cursorY += 25;
-  tableRows.forEach((row, rowIndex) => {
-    ensure(24);
-    rect(margin, cursorY - 4, usableWidth, 24, rowIndex % 2 ? "#ffffff" : "#fbfdff", "#edf2f7");
-    x = margin + 8;
-    [
-      row.scope,
-      row.name,
-      row.total,
-      row.passed,
-      row.failed,
-      row.blocked,
-      row.running,
-      row.duration
-    ].forEach((value, index) => {
-      const color = index === 3 ? "#126c48" : index === 4 ? "#a32647" : "#111827";
-      text(String(value), x, cursorY + 11, 8, { bold: rowIndex === 0 || index === 1, color });
-      x += tableColumns[index][1];
-    });
-    cursorY += 24;
-  });
-  cursorY += 22;
-
-  report.suites.forEach((suite) => {
-    sectionTitle(`${suite.name} | ${formatDuration(suite.duration_ms)} | ${suite.total} case${suite.total === 1 ? "" : "s"}`);
-
-    suite.cases.forEach((testCase) => {
-      const titleLines = wrapPdfText(reportCaseTitle(testCase), usableWidth - 120, 11);
-      const caseHeaderHeight = Math.max(38, titleLines.length * 15 + 18);
-      ensure(caseHeaderHeight);
-      rect(margin, cursorY - 4, usableWidth, caseHeaderHeight, "#ffffff", "#dfe7f1");
-      wrappedText(reportCaseTitle(testCase), margin + 12, cursorY + 14, usableWidth - 130, 11, {
-        bold: true,
-        color: "#111827",
-        lineHeight: 14
-      });
-      statusPill(testCase.status, pageWidth - margin - 76, cursorY + 15);
-      text(formatDuration(testCase.duration_ms), margin + 12, cursorY + caseHeaderHeight - 9, 8, { color: "#647084" });
-      cursorY += caseHeaderHeight + 8;
-
-      if (testCase.error) {
-        const errorLines = wrapPdfText(`Error: ${testCase.error}`, usableWidth - 36, 8);
-        const errorHeight = errorLines.length * 11 + 12;
-        rect(margin + 8, cursorY - 4, usableWidth - 16, errorHeight, "#fff5f7", "#ffd4de");
-        wrappedText(`Error: ${testCase.error}`, margin + 18, cursorY + 10, usableWidth - 36, 8, {
-          color: "#a32647",
-          lineHeight: 11
-        });
-        cursorY += errorHeight + 6;
-      }
-
-      testCase.steps.forEach((step) => {
-        const action = step.action || "No action recorded";
-        const actionHeight = wrapPdfText(action, usableWidth - 120, 9).length * 12;
-        const expectedHeight = step.expected_result ? wrapPdfText(`Expected: ${step.expected_result}`, usableWidth - 120, 8).length * 10 : 0;
-        const noteHeight = step.note ? wrapPdfText(step.note.replace(/\n+/g, " "), usableWidth - 120, 8).length * 10 : 0;
-        const urlHeight = step.page_url ? wrapPdfText(`URL: ${step.page_url}`, usableWidth - 120, 7).length * 9 : 0;
-        const evidenceImage = addImageResource(step.evidence);
-        const imageWidth = evidenceImage ? Math.min(220, usableWidth - 140, evidenceImage.width) : 0;
-        const imageHeight = evidenceImage ? Math.max(44, Math.min(140, (imageWidth / evidenceImage.width) * evidenceImage.height)) : 0;
-        const imageBlockHeight = evidenceImage ? imageHeight + 24 : 0;
-        const rowHeight = Math.max(42, actionHeight + expectedHeight + noteHeight + urlHeight + imageBlockHeight + 18);
-
-        ensure(rowHeight + 8);
-        rect(margin + 8, cursorY - 3, usableWidth - 16, rowHeight, "#fbfdff", "#e7edf5");
-        text(`Step ${step.order}`, margin + 18, cursorY + 15, 8, { bold: true, color: "#647084" });
-        statusPill(step.status, margin + 18, cursorY + 33);
-        let detailY = cursorY + 14;
-        detailY += wrappedText(action, margin + 92, detailY, usableWidth - 120, 9, {
-          bold: true,
-          color: "#111827",
-          lineHeight: 12
-        });
-        if (step.expected_result) {
-          detailY += wrappedText(`Expected: ${step.expected_result}`, margin + 92, detailY, usableWidth - 120, 8, {
-            color: "#647084",
-            lineHeight: 10
-          });
-        }
-        if (step.note) {
-          detailY += wrappedText(step.note.replace(/\n+/g, " "), margin + 92, detailY, usableWidth - 120, 8, {
-            color: "#475569",
-            lineHeight: 10
-          });
-        }
-        if (step.page_url) {
-          detailY += wrappedText(`URL: ${step.page_url}`, margin + 92, detailY, usableWidth - 120, 7, {
-            color: "#647084",
-            lineHeight: 9
-          });
-        }
-        if (evidenceImage) {
-          text("Evidence image", margin + 92, detailY + 10, 7, { bold: true, color: "#647084" });
-          drawImage(evidenceImage, margin + 92, detailY + 16, imageWidth, imageHeight);
-        }
-        text(signalLabel(step), pageWidth - margin - 118, cursorY + rowHeight - 9, 7, { color: "#647084" });
-        cursorY += rowHeight + 8;
-      });
-
-      cursorY += 6;
-    });
-  });
-
-  const objects = [];
-  const addObject = (content) => {
-    objects.push(content);
-    return objects.length;
-  };
-  const catalogId = addObject("<< /Type /Catalog /Pages 2 0 R >>");
-  const pagesId = addObject("");
-  const regularFontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-  const boldFontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
-  const imageObjectRefs = images.map((image) => {
-    const header = Buffer.from(
-      [
-        `<< /Type /XObject`,
-        `/Subtype /Image`,
-        `/Width ${image.width}`,
-        `/Height ${image.height}`,
-        `/ColorSpace /DeviceRGB`,
-        `/BitsPerComponent 8`,
-        `/Filter /DCTDecode`,
-        `/Length ${image.data.length}`,
-        `>>`,
-        `stream\n`
-      ].join(" "),
-      "binary"
-    );
-    const footer = Buffer.from("\nendstream", "binary");
-
-    return {
-      name: image.name,
-      id: addObject(Buffer.concat([header, image.data, footer]))
-    };
-  });
-  const xObjectResources = imageObjectRefs.length
-    ? `/XObject << ${imageObjectRefs.map((image) => `/${image.name} ${image.id} 0 R`).join(" ")} >>`
-    : "";
-  const pageIds = [];
-
-  pages.forEach((pageOps) => {
-    const stream = pageOps.join("\n");
-    const contentId = addObject(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);
-    const pageId = addObject(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${regularFontId} 0 R /F2 ${boldFontId} 0 R >> ${xObjectResources} >> /Contents ${contentId} 0 R >>`);
-    pageIds.push(pageId);
-  });
-
-  objects[pagesId - 1] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`;
-
-  const chunks = [Buffer.from("%PDF-1.4\n", "binary")];
-  const offsets = [0];
-  const lengthSoFar = () => chunks.reduce((total, chunk) => total + chunk.length, 0);
-  const pushChunk = (chunk) => {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "binary"));
-  };
-
-  objects.forEach((object, index) => {
-    offsets.push(lengthSoFar());
-    pushChunk(`${index + 1} 0 obj\n`);
-    pushChunk(object);
-    pushChunk("\nendobj\n");
-  });
-
-  const xrefOffset = lengthSoFar();
-  pushChunk(`xref\n0 ${objects.length + 1}\n`);
-  pushChunk("0000000000 65535 f \n");
-  offsets.slice(1).forEach((offset) => {
-    pushChunk(`${String(offset).padStart(10, "0")} 00000 n \n`);
-  });
-  pushChunk(`trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`);
-
-  return Buffer.concat(chunks);
-};
+const { renderExecutionReportPdf } = require("./executionReportPdf");
+const renderReportPdf = report => renderExecutionReportPdf(report, {
+  formatDate, formatDuration, reportCaseTitle, getStatusMeta, buildAiAnalysisLines
+});
 
 const normalizeRecipients = (value) => {
   const entries = Array.isArray(value) ? value : String(value || "").split(/[,\n;]/);
@@ -1104,7 +642,7 @@ const normalizeRecipients = (value) => {
 exports.buildReport = buildReportModel;
 
 exports.renderReportHtml = async (executionId, { user, include_attachments = false } = {}) => {
-  const report = await buildReportModel(executionId);
+  const report = await buildReportModel(executionId,{user});
   if (user && include_attachments) {
     await require("./executionReportEvidence").attachReportEvidence(report, { user });
   }
@@ -1112,29 +650,19 @@ exports.renderReportHtml = async (executionId, { user, include_attachments = fal
 };
 exports.REPORT_CSP = REPORT_CSP;
 
-exports.renderReportPdf = async (executionId, { user_id } = {}) => renderReportPdf(await buildReportWithAiAnalysis(executionId, { userId: user_id }));
-
-const scopeReportToCase = (report, testCaseId) => {
-  const cases = report.cases.filter((item) => String(item.id) === String(testCaseId));
-  if (!cases.length) throw Object.assign(new Error("The selected test case is not part of this run snapshot"), { statusCode: 404 });
-  const scoped = buildExecutionReportModel(
-    { ...report.execution, case_snapshots: (report.execution.case_snapshots || []).filter(item => String(item.test_case_id) === String(testCaseId)) },
-    report.results.filter(item => String(item.test_case_id) === String(testCaseId)),
-    new Date(report.generated_at).getTime()
-  );
-  return {
-    ...scoped,
-    execution: { ...report.execution, name: `${report.execution.name || "HelloTest run"} · ${cases[0].title}` },
-    ai_analysis: createUnavailableAiAnalysis("AI summary is omitted from a single-case evidence export; review the recorded case and step evidence directly.")
-  };
+exports.renderReportPdf = async (executionId, {user, user_id, include_ai = false} = {}) => {
+  const report=await buildReportModel(executionId,{user});
+  if(include_ai) report.ai_analysis=await generateAiAnalysis(report,{userId:user?.id||user_id});
+  return renderReportPdf(report);
 };
 
-exports.renderCaseReportPdf = async (executionId, testCaseId) => renderReportPdf(scopeReportToCase(await buildReportModel(executionId), testCaseId));
 
-exports.emailCaseReport = async ({ execution_id, test_case_id, recipients, requested_by } = {}) => {
+exports.renderCaseReportPdf = async (executionId, testCaseId, {user}={}) => renderReportPdf(scopeReportToCase(await buildReportModel(executionId,{user}), testCaseId));
+
+exports.emailCaseReport = async ({ execution_id, test_case_id, recipients, requested_by, user } = {}) => {
   const normalizedRecipients = normalizeRecipients(recipients);
   if (!normalizedRecipients.length) throw new Error("At least one report recipient is required");
-  const report = scopeReportToCase(await buildReportModel(execution_id), test_case_id);
+  const report = scopeReportToCase(await buildReportModel(execution_id,{user}), test_case_id);
   const testCase = report.cases[0];
   await emailService.sendMail({
     to: normalizedRecipients,
@@ -1151,14 +679,14 @@ exports.emailCaseReport = async ({ execution_id, test_case_id, recipients, reque
   return { sent: true, recipients: normalizedRecipients.length };
 };
 
-exports.emailReport = async ({ execution_id, recipients, requested_by } = {}) => {
+exports.emailReport = async ({ execution_id, recipients, requested_by, user } = {}) => {
   const normalizedRecipients = normalizeRecipients(recipients);
 
   if (!normalizedRecipients.length) {
     throw new Error("At least one report recipient is required");
   }
 
-  const report = await buildReportWithAiAnalysis(execution_id, { userId: requested_by });
+  const report = await buildReportModel(execution_id, { user });
   const title = report.execution.name || "HelloTest execution run";
   const html = renderReportHtml(report);
   const text = buildReportLines(report).join("\n");

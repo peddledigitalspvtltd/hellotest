@@ -1,3 +1,4 @@
+const lifecycle = require("./generationLifecycle");
 const { normalizeReferenceImages } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const db = require("@hellotest/platform/backend/src/db");
 const { createHash, randomUUID: uuid } = require("crypto");
@@ -71,6 +72,7 @@ const claimQueuedJobs = db.transaction(async (workerId, limit, leaseMs) => db.pr
   UPDATE ai_test_case_generation_jobs AS jobs
   SET status = 'running',
       attempts = jobs.attempts + 1,
+      error_code = NULL, failure_payload = NULL,
       error = CASE
         WHEN jobs.status = 'running' THEN 'Recovered after the previous worker lease expired.'
         ELSE NULL
@@ -158,6 +160,13 @@ const finishJob = db.prepare(`
       updated_at = CURRENT_TIMESTAMP
   WHERE id = ? AND status = 'running' AND lease_owner = ?
 `);
+
+const recordJobProcessing = (id, owner, snapshot) => db.prepare(`UPDATE ai_test_case_generation_jobs SET processing_payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'running' AND lease_owner = ?`).run(snapshot, id, owner);
+const recordJobFailure = (id, owner, error, stage = "intake") => {
+  const failure = error.authoring_failure || lifecycle.classifiedFailure(error, stage);
+  const processing = lifecycle.processing({ status: "failed", stage: failure.stage_id, profile: "case-generation", detail: failure.message });
+  return db.prepare(`UPDATE ai_test_case_generation_jobs SET error_code = ?, failure_payload = ?, processing_payload = ? WHERE id = ? AND status = 'running' AND lease_owner = ?`).run(failure.code, failure, processing, id, owner);
+};
 
 const normalizeText = (value) => {
   if (typeof value !== "string") {
@@ -300,6 +309,18 @@ const resolveRetryDelayMs = (error, attempt) => {
   return Math.min(exponentialDelay + jitter, MAX_RETRY_DELAY_MS);
 };
 
+const safeErrorMessage = error => (error.authoring_failure || lifecycle.classifiedFailure(error, "intake")).message;
+function jobProcessing(job) {
+  const base = { profile: "case-generation", outputCount: Number(job.generated_cases_count || 0) };
+  if (job.status === "queued") return lifecycle.processing({ ...base, status: "queued" });
+  if (job.status === "completed") return lifecycle.processing({ ...base, status: "completed", stage: "review" });
+  const recorded = parseJsonValue(job.processing_payload, null);
+  if (recorded?.schema_version === 1) return { ...recorded, output_count: Number(job.generated_cases_count || 0) };
+  return { ...lifecycle.processing(base), active_stage_id: undefined, completed_stage_count: 0,
+    status_label: "This legacy job did not record its current stage.", progress_mode: "indeterminate",
+    stages: lifecycle.STAGES.map(id => ({ id, status: "queued", detail: "Stage was not recorded." })) };
+}
+
 async function hydrateJob(job) {
   if (!job) {
     return job;
@@ -316,6 +337,8 @@ async function hydrateJob(job) {
 
   return {
     ...publicJob,
+    failure: job.processing_payload ? parseJsonValue(job.failure_payload, null) : (() => { const previous = parseJsonValue(job.failure_payload, null); return previous ? { ...previous, stage_id: undefined } : null; })(),
+    processing: jobProcessing(job),
     requirement_ids: parseJsonValue(job.requirement_ids, []),
     external_links: parseJsonValue(job.external_links, []),
     images: parseJsonValue(job.images, []),
@@ -332,7 +355,8 @@ async function hydrateJob(job) {
 }
 
 async function requeueAiJobAfterCapacityError({ job, jobId, workerId, linkedTransaction, error }) {
-  const message = error instanceof Error ? error.message : "AI provider capacity is temporarily unavailable";
+  await recordJobFailure(jobId, workerId, error, job.processing?.active_stage_id || "intake");
+  const message = safeErrorMessage(error);
   const nextAttempt = Number(job.attempts || 0);
   const maxAttempts = Number(job.max_attempts || MAX_JOB_ATTEMPTS);
 
@@ -413,10 +437,12 @@ async function generateCasesForRequirement({
   job,
   requirement,
   appType,
-  assertLease
+  assertLease,
+  onProgress
 }) {
   assertLease?.();
   const preview = await requirementDesignService.previewRequirementTestCases({
+    onProgress,
     requirement,
     appType,
     integration_id: job.integration_id || undefined,
@@ -429,6 +455,7 @@ async function generateCasesForRequirement({
   });
 
   let createdCount = 0;
+  await onProgress?.("evaluation", "Saving validated native drafts and their source evidence for author review.");
   try {
   for (const [candidateIndex, candidate] of (preview.cases || []).entries()) {
     assertLease?.();
@@ -470,14 +497,14 @@ async function generateCasesForRequirement({
   return createdCount;
 }
 
-async function generateCasesForRequirementWithRetry({ job, requirement, appType, assertLease, onRetry }) {
+async function generateCasesForRequirementWithRetry({ job, requirement, appType, assertLease, onRetry, onProgress }) {
   let attempt = 0;
 
   while (attempt < MAX_LLM_RETRY_ATTEMPTS) {
     attempt += 1;
 
     try {
-      return await generateCasesForRequirement({ job, requirement, appType, assertLease });
+      return await generateCasesForRequirement({ job, requirement, appType, assertLease, onProgress });
     } catch (error) {
       // Capacity recovery belongs to the durable queue. Never keep this worker
       // and its lease occupied for an hour while unrelated jobs are waiting.
@@ -506,6 +533,14 @@ async function runJob(claimedJob, workerId) {
 
   processingJobIds.add(jobId);
   const heartbeat = startJobHeartbeat(jobId, workerId);
+  let stage = "intake";
+  const onProgress = async (next, detail) => {
+    stage = next === "review" ? "evaluation" : next;
+    heartbeat.assertOwned();
+    require("@hellotest/platform/backend/src/utils/llmTraceContext").update({ generation_job_id: jobId, authoring_profile: "case-generation", authoring_stage: stage, authoring_schema_version: 1 });
+    require("@hellotest/platform/agent-metrics").event("authoring", { phase: stage, details: { code: "STAGE_STARTED" } });
+    assertLeaseMutation(await recordJobProcessing(jobId, workerId, lifecycle.processing({ stage, profile: "case-generation", detail: next === "review" ? "Validated proposal; saving native drafts before author review." : detail })), jobId);
+  };
 
   try {
     const queuedJob = await hydrateJob(claimedJob);
@@ -518,9 +553,17 @@ async function runJob(claimedJob, workerId) {
       return queuedJob;
     }
 
+    const previous = parseJsonValue(claimedJob.processing_payload, null);
+    if (Number(claimedJob.attempts) > 1 && previous?.status === "running" && ["specialist", "outcome", "evaluation"].includes(previous.active_stage_id)) {
+      stage = previous.active_stage_id;
+      throw Object.assign(new Error("The previous worker stopped during a provider request. Review retained drafts before starting another job."), { code: "AI_JOB_INTERRUPTED", statusCode: 409, retryable: false });
+    }
+    await onProgress("intake", "Validating the saved job and worker ownership.");
+    await onProgress("context", "Loading the selected application and Story scope.");
     const appType = await selectAppType.get(queuedJob.app_type_id);
 
     if (!appType) {
+      await recordJobFailure(jobId, workerId, Object.assign(new Error("Selected app type no longer exists."), { statusCode: 404 }), stage);
       assertLeaseMutation(
         await finishJob.run("failed", 0, 0, "Selected app type no longer exists.", jobId, workerId),
         jobId
@@ -635,6 +678,7 @@ async function runJob(claimedJob, workerId) {
                 requirement,
                 appType,
                 assertLease: () => heartbeat.assertOwned(),
+                onProgress,
                 onRetry: linkedTransaction
                   ? async ({ attempt, delayMs, error }) => {
                       await workspaceTransactionService.appendTransactionEvent(linkedTransaction.id, {
@@ -646,7 +690,7 @@ async function runJob(claimedJob, workerId) {
                           requirement_title: requirement.title,
                           attempt,
                           retry_after_ms: delayMs,
-                          error: error instanceof Error ? error.message : "Temporary LLM failure"
+                          error: safeErrorMessage(error)
                         }
                       });
                     }
@@ -666,12 +710,13 @@ async function runJob(claimedJob, workerId) {
                 });
               }
             } catch (error) {
+              await recordJobFailure(jobId, workerId, error, stage);
               generatedCasesCount += Math.max(0,Number(error?.created_cases_count)||0);
               if (!retryableJobError && isRetryableLlmError(error)) {
                 retryableJobError = error;
               }
               errors.push(
-                `${requirement.title}: ${error instanceof Error ? error.message : "Unable to generate test cases"}`
+                `${requirement.title}: ${safeErrorMessage(error)}`
               );
               if (linkedTransaction) {
                 await workspaceTransactionService.appendTransactionEvent(linkedTransaction.id, {
@@ -681,7 +726,7 @@ async function runJob(claimedJob, workerId) {
                   details: {
                     requirement_id: requirement.id,
                     requirement_title: requirement.title,
-                    error: error instanceof Error ? error.message : "Unable to generate test cases"
+                    error: safeErrorMessage(error)
                   }
                 });
               }
@@ -812,6 +857,7 @@ async function runJob(claimedJob, workerId) {
     if (error?.code === "JOB_LEASE_LOST") {
       return exports.getJob(jobId);
     }
+    await recordJobFailure(jobId, workerId, error, stage);
     const failedJob = await exports.getJob(jobId);
     const linkedTransaction = await workspaceTransactionService.findTransactionByRelated({
       related_kind: "ai_test_case_generation_job",
@@ -837,7 +883,7 @@ async function runJob(claimedJob, workerId) {
         "failed",
         Number(failedJob?.processed_requirements || 0),
         Number(failedJob?.generated_cases_count || 0),
-        error instanceof Error ? error.message : "Unable to process AI generation job",
+        safeErrorMessage(error),
         jobId,
         workerId
       ),
@@ -847,18 +893,18 @@ async function runJob(claimedJob, workerId) {
     if (linkedTransaction) {
       await workspaceTransactionService.updateTransaction(linkedTransaction.id, {
         status: "failed",
-        description: error instanceof Error ? error.message : "Unable to process AI generation job",
+        description: safeErrorMessage(error),
         metadata: {
-          error: error instanceof Error ? error.message : "Unable to process AI generation job"
+          error: safeErrorMessage(error)
         },
         completed_at: new Date().toISOString()
       });
       await workspaceTransactionService.appendTransactionEvent(linkedTransaction.id, {
         level: "error",
         phase: "complete",
-        message: error instanceof Error ? error.message : "Unable to process AI generation job",
+        message: safeErrorMessage(error),
         details: {
-          error: error instanceof Error ? error.message : "Unable to process AI generation job"
+          error: safeErrorMessage(error)
         }
       });
     }
@@ -1056,7 +1102,7 @@ exports.processQueuedJobs = async () => {
     const queuedJobs = await claimQueuedJobs(WORKER_ID, QUEUED_AI_JOB_LIMIT, JOB_LEASE_MS);
 
     for (const row of queuedJobs) {
-      await runJob(row, WORKER_ID);
+      await require("@hellotest/platform/backend/src/utils/llmTraceContext").run({ project_id: row.project_id, actor_id: row.created_by, generation_job_id: row.id, authoring_profile: "case-generation", authoring_schema_version: 1 }, () => runJob(row, WORKER_ID));
     }
     return queuedJobs.length;
   } finally {

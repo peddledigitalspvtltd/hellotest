@@ -19,7 +19,7 @@ const overdue = (field) => `(${field} AT TIME ZONE 'UTC')::date < (CURRENT_TIMES
 const SLIPPED = `((${overdue('r.dev_completion_target_date')} AND ${STATUS_RANK} < 3) OR (${overdue('r.qa_completion_target_date')} AND ${STATUS_RANK} < 6))`;
 const CASE_LINKED = `(EXISTS (SELECT 1 FROM requirement_test_cases links JOIN test_cases tc ON tc.id = links.test_case_id LEFT JOIN app_types app ON app.id = tc.app_type_id WHERE links.requirement_id = r.id AND (tc.app_type_id IS NULL OR app.project_id = r.project_id)) OR EXISTS (SELECT 1 FROM test_cases tc LEFT JOIN app_types app ON app.id = tc.app_type_id WHERE tc.requirement_id = r.id AND (tc.app_type_id IS NULL OR app.project_id = r.project_id)))`;
 const AUTOMATED = `(LOWER(TRIM(tc.automated)) = 'yes' OR LOWER(TRIM(tc.automation_status)) IN ('ready', 'automated', 'yes', 'covered'))`;
-const BUG_CLOSED = `LOWER(TRIM(COALESCE(bug.status, ''))) IN ('closed', 'resolved', 'done', 'accepted', 'complete', 'completed', 'fixed', 'verified')`;
+const BUG_CLOSED = require('@hellotest/platform/backend/src/utils/defectStatus').closedDefectSql('bug.status');
 const RELEASE_MEMBERSHIP = releaseStoryMembershipSql();
 const RELEASE_SCOPED = `(NULLIF(TRIM(r.fix_version), '') IS NOT NULL OR NULLIF(TRIM(r.release), '') IS NOT NULL
   OR EXISTS (SELECT 1 FROM requirement_releases rel WHERE rel.project_id = r.project_id AND ${RELEASE_MEMBERSHIP}))`;
@@ -212,7 +212,7 @@ exports.getMetrics = async (query = {}) => {
       SELECT s.key, COUNT(DISTINCT c.test_case_id)::INTEGER AS linked_cases,
         COUNT(DISTINCT latest.test_case_id)::INTEGER AS executed_linked_cases,
         COUNT(DISTINCT latest.test_case_id) FILTER (WHERE latest.status = 'passed')::INTEGER AS passed_cases
-      FROM scoped s JOIN linked_cases c ON c.requirement_id = s.id LEFT JOIN latest_finalized latest ON latest.test_case_id = c.test_case_id GROUP BY s.key
+      FROM scoped s JOIN linked_cases c ON c.requirement_id = s.id LEFT JOIN scoped_finalized latest ON latest.test_case_id = c.test_case_id AND latest.requirement_id = c.requirement_id GROUP BY s.key
     ), bug_totals AS (
       SELECT s.key, COUNT(DISTINCT bug.issue_id)::INTEGER AS total_bugs,
         COUNT(DISTINCT bug.issue_id) FILTER (WHERE NOT bug.closed AND bug.high_priority)::INTEGER AS open_p1_p2_bugs

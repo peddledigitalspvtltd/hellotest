@@ -9,7 +9,7 @@ const CASE_COLUMNS = [
   "suite_id", "suite_name", "module_id", "module_name", "priority", "status", "parameter_values",
   "parameter_template_values", "test_data_options", "execution_hooks", "suite_parameter_values", "suite_parameter_template_values",
   "test_data_set_id", "test_data_set_name", "test_data_set_snapshot", "data_set_source", "sort_order",
-  "assigned_to", "assigned_to_ids", "assignment_source"
+  "assigned_to", "assigned_to_ids", "assignment_source", "requirement_snapshots"
 ];
 const STEP_COLUMNS = [
   "execution_id", "test_case_id", "snapshot_step_id", "step_order", "action", "expected_result",
@@ -33,7 +33,8 @@ const caseValues = (snapshot) => {
     data_set_source: snapshot.data_set_source || null,
     assigned_to: snapshot.assigned_to || null,
     assigned_to_ids: snapshot.assigned_to_ids || (snapshot.assigned_to ? [snapshot.assigned_to] : []),
-    assignment_source: snapshot.assignment_source || null
+    assignment_source: snapshot.assignment_source || null,
+    requirement_snapshots: snapshot.requirement_snapshots ?? null
   };
   return CASE_COLUMNS.map(column => normalized[column]);
 };
@@ -49,7 +50,25 @@ async function insertRows(table, columns, rows, valuesFor) {
   }
 }
 
+async function freezeStoryLinks(caseSnapshots) {
+  const fresh=caseSnapshots.filter(snapshot=>!Object.hasOwn(snapshot,'requirement_snapshots'));
+  const byRun=groupRows(fresh,'execution_id');
+  for(const [executionId,snapshots] of byRun){
+    const ids=snapshots.map(snapshot=>snapshot.test_case_id);
+    const links=await db.prepare(`WITH linked AS (
+      SELECT mapping.test_case_id,mapping.requirement_id FROM requirement_test_cases mapping
+      WHERE mapping.test_case_id IN (SELECT jsonb_array_elements_text(?::jsonb))
+      UNION SELECT id,requirement_id FROM test_cases WHERE id IN (SELECT jsonb_array_elements_text(?::jsonb)) AND requirement_id IS NOT NULL
+    ) SELECT linked.test_case_id,story.id,story.display_id,story.title FROM linked
+      JOIN requirements story ON story.id=linked.requirement_id JOIN executions run ON run.id=? AND run.project_id=story.project_id
+      ORDER BY linked.test_case_id,story.id`).all(ids,ids,executionId);
+    const byCase=groupRows(links,'test_case_id');
+    for(const snapshot of snapshots)snapshot.requirement_snapshots=(byCase.get(snapshot.test_case_id)||[]).map(({id,display_id,title})=>({id,display_id,title}));
+  }
+  return caseSnapshots;
+}
 async function persist({ caseSnapshots = [], stepSnapshots = [] }) {
+  await freezeStoryLinks(caseSnapshots);
   await insertRows("execution_case_snapshots", CASE_COLUMNS, caseSnapshots, caseValues);
   await insertRows("execution_step_snapshots", STEP_COLUMNS, stepSnapshots, snapshot => STEP_COLUMNS.map(column => snapshot[column] ?? (column === "shared_parameter_sensitive_names" ? [] : column.startsWith("shared_parameter_") ? {} : null)));
 }

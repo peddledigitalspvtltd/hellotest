@@ -14,6 +14,38 @@ function fixture(runtime,overrides={}) {
   const client = load(require.resolve('../src/utils/llmHttpClient'), { './llmTraceCapture': capture, ...(runtime?{'./aiFeatureRuntime':runtime}:{}),...overrides });
   return { writes, capture, client };
 }
+test('deferred native validation still records truncated or empty HTTP200 completions as invalid without replaying', async t => {
+  for (const [finish_reason, content, expected] of [['length', '', 'AI_OUTPUT_TRUNCATED'], ['stop', '', 'AI_EMPTY_RESPONSE']]) {
+    const f = fixture({ apply: async (init, options) => ({ init, options }), validateResponse: async () => {} }, { '@hellotest/mcp/backend/gateway': { enrichChatRequest: async init => init } });
+    let calls = 0;
+    t.mock.method(globalThis, 'fetch', async () => { calls++; return Response.json({ choices: [{ finish_reason, message: { content } }], usage: { prompt_tokens: 100, completion_tokens: 768, total_tokens: 868 } }); });
+    await context.run({ project_id: 'project', actor_id: 'author' }, async () => {
+      const response = await f.client.fetchLlmWithRetry('https://deferred-trace.test/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'fixture', messages: [{ role: 'user', content: 'PRIVATE_PLANNING_CONTEXT' }] }) }, { operation: 'knowledge.assistant.plan-intent', validateResponse: false, maxAttempts: 1 });
+      assert.equal(response.status, 200, 'Native MODEL_* decoding/fallback remains the caller boundary');
+    });
+    assert.equal(calls, 1);
+    const saved = f.writes.at(-1).values;
+    assert.equal(saved[1], 'invalid'); assert.equal(saved[3], 200); assert.equal(saved[9], expected);
+    assert.equal(saved[6].completion_tokens, 768);
+    t.mock.restoreAll();
+  }
+});
+test('synchronous authoring profiles and confirmed stages survive persisted provider trace capture', async () => {
+  for (const authoring_profile of ['story-create', 'story-complete', 'case-authoring', 'case-design', 'grooming', 'defect']) {
+    const f = fixture(), events = [];
+    await context.run({ project_id: 'project', actor_id: 'author', authoring_profile, authoring_stage: 'specialist', authoring_schema_version: 1,
+      on_llm_trace: record => events.push(record) }, async () => {
+      const trace = await f.capture.begin({ url: 'https://llm.test', init: { body: '{"messages":[{"role":"user","content":"PRIVATE_AUTHORING_CONTEXT"}]}' }, options: {} });
+      await f.capture.finish(trace, { response: Response.json({ choices: [{ message: { content: 'Reviewed output' } }] }) });
+    });
+    for (const metadata of [f.writes[0].values[17], f.writes[1].values[8], ...events]) {
+      assert.equal(metadata.authoring_profile, authoring_profile);
+      assert.equal(metadata.authoring_stage, 'specialist');
+      assert.equal(metadata.authoring_schema_version, 1);
+      assert.doesNotMatch(JSON.stringify(metadata), /PRIVATE_AUTHORING_CONTEXT/);
+    }
+  }
+});
 test('trace sanitizer redacts secrets and hidden reasoning and bounds payloads without losing JSON structure', () => {
   const f = fixture();
   const result = f.capture.sanitize({ api_key: 'secret', prompt: 'Bearer abcdefghijklmnop', choices:[{message:{reasoning_content:'hidden', content:'Observed result'}}], tool:'{"password":"secret"}', huge:'x'.repeat(150000) });

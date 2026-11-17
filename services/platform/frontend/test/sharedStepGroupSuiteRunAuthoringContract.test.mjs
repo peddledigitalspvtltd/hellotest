@@ -1,9 +1,10 @@
+import { readTestingWorkspaceSource as readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = (relativePath) => readSourceFile(new URL(relativePath, import.meta.url), "utf8");
 
 test("Shared Step Groups preserve Structured and step-group Gherkin authoring without breaking reusable steps", async () => {
   const [page, gherkinGroupEditor, stepField, api, types, styles] = await Promise.all([
@@ -104,7 +105,7 @@ test("approved Suite, Module, and AI Agent artwork is centralized and reused", a
     readSource("../src/platform/components/AppIcons.tsx"),
     readSource("../src/shared/components/TileCardPrimitives.tsx"),
     readSource("../src/platform/components/AppShell.tsx"),
-    readSource("../../../testing/frontend/pages/TestCasesPage.tsx"),
+    Promise.all([readSource("../../../testing/frontend/pages/TestCasesPage.tsx"), readSource("../../../testing/frontend/components/TestCaseModuleAuthoring.tsx")]).then(parts => parts.join("\n")),
     readSource("../../../agentic/frontend/agents/AgentDirectory.tsx")
   ]);
 

@@ -1,3 +1,4 @@
+import { readTestingWorkspaceSource } from "../../../../scripts/checks/helpers/read-source.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -114,7 +115,7 @@ test("Defect reproduction parsing handles rich text, bullets, inline numbering, 
 test("Defect conversion creation persists all links and links the created Test Case back to its source Defect", async () => {
   const [issues, testCases] = await Promise.all([
     readFile(new URL("../../frontend/pages/IssuesPage.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../../frontend/pages/TestCasesPage.tsx", import.meta.url), "utf8")
+    readTestingWorkspaceSource(new URL("../../frontend/pages/TestCasesPage.tsx", import.meta.url), "utf8")
   ]);
 
   assert.match(issues, /buildBugToTestCaseDraft\(selectedItem\)/);

@@ -6,7 +6,7 @@ test('schema verification uses only reads and requires a committed compatible re
   for (const [present, version, valid] of [[false, null, false], [true, null, false], [true, 0, false], [true, "invalid", false], [true, 1, false], [true, 2, false], [true, 3, false], [true, 4, false], [true, 5, false], [true, 6, false], [true, 7, false], [true, 8, false], [true, 9, false], [true, 10, false], [true, 11, false], [true, REQUIRED_SCHEMA_VERSION - 1, false], [true, REQUIRED_SCHEMA_VERSION, true], [true, REQUIRED_SCHEMA_VERSION + 1, true]]) {
     const db = { prepare: sql => {
       assert.match(sql, /^SELECT /);
-      return { get: async () => sql.includes('to_regclass') ? { name: present ? 'runtime_schema_receipts' : null } : version === null ? undefined : { version } };
+      return { get: async () => sql.includes('missing_columns') ? {missing_columns:0} : sql.includes('to_regclass') ? { name: present ? 'runtime_schema_receipts' : null } : version === null ? undefined : { version } };
     } };
     if (valid) await verifySchema(db, 'main');
     else await assert.rejects(verifySchema(db, 'main'), { code: 'SCHEMA_MIGRATION_REQUIRED', statusCode: 503 });
@@ -21,4 +21,9 @@ test('schema mode defaults to compatible local startup and rejects mistyped depl
   assert.equal(schemaMode(), 'verify');
   process.env.HELLOTEST_SCHEMA_MODE = 'verfy';
   assert.throws(schemaMode, /must be migrate or verify/);
+});
+
+test('a current receipt cannot hide missing authentication, frozen-scope or generation columns',async()=>{
+ const db={prepare:sql=>({get:async()=>sql.includes('to_regclass')?{name:'runtime_schema_receipts'}:sql.includes('missing_columns')?{missing_columns:1}:{version:REQUIRED_SCHEMA_VERSION}})};
+ await assert.rejects(verifySchema(db,'main'),{code:'SCHEMA_MIGRATION_REQUIRED',statusCode:503});
 });

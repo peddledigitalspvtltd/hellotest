@@ -4,6 +4,7 @@ const userService = require("../services/user.service");
 const featureFlagService = require("../services/featureFlag.service");
 const integrationService = require("@hellotest/integration/backend/services/integration.service");
 const dropdownCatalogService = require("../services/dropdownCatalog.service");
+const { policy } = require("../services/authPolicy.service");
 const { INTEGRATION_TYPE_OPTIONS } = require("../src/domain/catalog");
 
 const clientIp = (req) => req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip || null;
@@ -111,7 +112,7 @@ module.exports = async function (fastify) {
   fastify.post("/admin-portal/users", { preHandler: [fastify.requireAdmin] }, async (req) => {
     fastify.validate({
       email: { required: true, type: "string", minLength: 3, maxLength: 320 },
-      password: { required: true, type: "string", minLength: 6, maxLength: 128 },
+      password: { required: true, type: "string", minLength: policy.newPasswordMinLength, maxLength: policy.passwordMaxLength },
       name: { required: true, type: "string", minLength: 2, maxLength: 120 },
       role_id: { required: true, type: "string" }
     }, req.body);
@@ -164,7 +165,7 @@ module.exports = async function (fastify) {
   fastify.put("/admin-portal/security/password", { preHandler: [fastify.requireAdmin] }, async (req) => {
     fastify.validate({
       current_password: { required: true, type: "string", minLength: 1, maxLength: 128 },
-      new_password: { required: true, type: "string", minLength: 8, maxLength: 128 }
+      new_password: { required: true, type: "string", minLength: policy.newPasswordMinLength, maxLength: policy.passwordMaxLength }
     }, req.body);
     const result = await userService.changeOwnPassword({ id: req.user.id, ...req.body });
     await adminPortalService.recordAudit({ actorId: req.user.id, action: "security.password", targetType: "user", targetId: req.user.id, summary: "Replaced the administrator account password.", ipAddress: clientIp(req) });

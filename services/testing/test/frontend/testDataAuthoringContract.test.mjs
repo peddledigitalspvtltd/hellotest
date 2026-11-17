@@ -1,9 +1,10 @@
+import { readTestingWorkspaceSource as readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { readApiSources } from "../../../platform/frontend/test/helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (path) => readFile(new URL(path, import.meta.url), "utf8");
+const readSource = (path) => readSourceFile(new URL(path, import.meta.url), "utf8");
 
 test("Test Case author is selectable and defaults to the signed-in user", async () => {
   const [page, api] = await Promise.all([
@@ -41,15 +42,15 @@ test("Test Data creation uses compact name-sized columns and grouped utilities",
 
 test("Test Case tiles keep every detail while progress bars lead modern metric cards", async () => {
   const [page, modalStyles] = await Promise.all([
-    readSource("../../frontend/pages/TestCasesPage.tsx"),
+    readSource("../../frontend/components/CaseLibraryCard.tsx"),
     readSource("../../../platform/frontend/src/modal-system.css")
   ]);
   const cardStart = page.indexOf('"record-card tile-card test-case-card test-case-catalog-card"');
-  const cardEnd = page.indexOf("isLastCaseInModule", cardStart);
+  const cardEnd = page.length;
   const card = page.slice(cardStart, cardEnd);
 
   assert.ok(cardStart >= 0 && cardEnd > cardStart);
-  for (const detail of ["Story", "Steps", "Defect density", "Test Quality", "Failed", "Automation readiness", "Stability", "test-case-ai-note"]) {
+  for (const detail of ["Story", "Steps", "Defect density", "Test Quality", "Failed", "Automation candidate", "Stability", "test-case-ai-note"]) {
     assert.match(card, new RegExp(detail));
   }
   assert.ok(card.indexOf("test-case-readiness-grid") < card.indexOf("test-case-tile-metrics"));

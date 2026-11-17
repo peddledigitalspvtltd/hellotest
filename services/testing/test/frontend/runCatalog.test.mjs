@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
+import { fileURLToPath } from "node:url";
+import { loadTsModule } from "../../../platform/frontend/test/helpers/loadTsModule.mjs";
 import { isRunFinished, normalizeRunCatalogView, runCatalogBucket, runStoryCounts } from "../../frontend/lib/runCatalog.ts";
 import { assessRunEvidenceReadiness } from "../../../ai/frontend/lib/aiAssurance.ts";
+const { assessExecutionRunEvidence } = loadTsModule(fileURLToPath(new URL("../../frontend/lib/executionFailureEvidence.ts", import.meta.url)));
 
 function selectedRunReadiness(selectedExecution, totalRequirements) {
   const page = ts.createSourceFile("ExecutionsPage.tsx", readFileSync(new URL("../../frontend/pages/ExecutionsPage.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -15,14 +18,14 @@ function selectedRunReadiness(selectedExecution, totalRequirements) {
   find(page);
   assert.ok(binding, "use the actual run detail readiness binding");
   const dependencies = {
-    useMemo: factory => factory(), assessRunEvidenceReadiness, runStoryCounts, selectedExecution,
+    useMemo: factory => factory(), assessRunEvidenceReadiness, assessExecutionRunEvidence, runStoryCounts, selectedExecution,
     selectedExecutionImpactSummary: { failedRequirementCount: 0, totalRequirements },
     executionProgress: { totalCases: 1, completedCases: 1 },
     executionStatusCounts: { failed: 0, blocked: 0 },
     runReferenceStats: { referenceCount: 0, defectCount: 0 }
   };
   const javascript = ts.transpileModule(`return (${binding.getText(page)});`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
-  return new Function(...Object.keys(dependencies), javascript)(...Object.values(dependencies));
+  return JSON.parse(JSON.stringify(new Function(...Object.keys(dependencies), javascript)(...Object.values(dependencies))));
 }
 
 test("suite and independent case runs share one catalog without changing run scope", () => {
@@ -81,4 +84,25 @@ test("readiness preserves an authoritative zero Story count over stale cached li
 test("readiness retains computed trace fallback when saved Story metrics are unavailable", () => {
   assert.equal(selectedRunReadiness({}, 1).score, 85);
   assert.equal(selectedRunReadiness(null, 0).score, 65);
+});
+
+test("the actual completeness card preserves unavailable and partial evidence labels", () => {
+  const detail = ts.createSourceFile("ExecutionRunDetail.tsx", readFileSync(new URL("../../frontend/pages/execution-workspace/ExecutionRunDetail.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let expression;
+  const find = node => {
+    if (ts.isJsxAttribute(node) && node.name.getText(detail) === "value" && node.initializer && ts.isJsxExpression(node.initializer)
+      && node.initializer.expression?.getText(detail).includes("selectedRunEvidenceReadiness.score")) expression = node.initializer.expression;
+    ts.forEachChild(node, find);
+  };
+  find(detail);
+  assert.ok(expression, "execute the actual card value expression");
+  const javascript = ts.transpileModule(`return (${expression.getText(detail)});`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+  const cardValue = new Function("selectedRunEvidenceReadiness", javascript);
+  const fallback = { totalCaseCount: 1, touchedCaseCount: 1, linkedRequirementCount: 1, failedCount: 1, blockedCount: 0 };
+  for (const [availability, expected] of [["available", "85%"], ["partial", "Partial evidence"], ["unavailable", "Unavailable"]]) {
+    const assessment = assessExecutionRunEvidence({ failure_evidence: { availability, known_reference_count: 0 } }, fallback);
+    assert.equal(assessment.score, 85, "the governed formula remains unchanged");
+    assert.equal(cardValue(assessment), expected);
+    if (availability !== "available") assert.doesNotMatch(assessment.signals.find(signal => signal.label === "Failure references").value, /0 captured/);
+  }
 });

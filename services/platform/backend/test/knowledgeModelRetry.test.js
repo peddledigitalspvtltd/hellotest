@@ -148,7 +148,7 @@ test("an accepted generation with a failed buffered body is not replayed or expo
 
 });
 
-test("a connection failure before provider acceptance retries and publishes one complete SSE result", async t => {
+test("a connection failure after dispatch without a response never replays uncertain paid generation", async t => {
   resetServiceResilienceState();
   const payloads=[];
   t.mock.method(global,"fetch",async(_url,init)=>{
@@ -160,9 +160,9 @@ test("a connection failure before provider acceptance retries and publishes one 
   Object.assign(raw,{writableLength:0,writeHead(){},write:value=>writes.push(value),end:()=>{raw.writableEnded=true;}});
   await streamKnowledge({}, {raw,hijack(){},getHeaders:()=>({})},({signal,onProgress})=>execution.run({signal,onProgress},()=>assistant._internals.requestJsonCompletion(input("pre-response-retry"))));
   const output=writes.join("");
-  assert.equal(payloads.length,2);assert.equal(payloads[0],payloads[1],"Retry preserves the exact request.");
-  assert.equal((output.match(/event: result/g)||[]).length,1);assert.equal((output.match(/event: error/g)||[]).length,0);
-  assert.match(output,/"model_attempt":2/);assert.doesNotMatch(output,/connection reset before response/);
+  assert.equal(payloads.length,1);
+  assert.equal((output.match(/event: result/g)||[]).length,0);assert.equal((output.match(/event: error/g)||[]).length,1);
+  assert.doesNotMatch(output,/"model_attempt":2|connection reset before response/);
 });
 
 test("embedding retries recover before indexing switches to local fallback", async (t) => {

@@ -1,3 +1,6 @@
+import { useQuery } from "@tanstack/react-query";
+import { testingApi } from "../api.client";
+import { SuiteModulePicker } from "./SuiteModulePicker";
 import type { TestDataOptions } from "@hellotest/platform/frontend/src/types";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { TagIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
@@ -21,6 +24,8 @@ export type SuiteCreateInput = {
   description: string;
   labels: string[];
   selectedIds: string[];
+  module_ids?: string[];
+  module_membership?: "snapshot" | "live";
   test_data_set_id?: string;
   test_data_options?: TestDataOptions;
   parallel_enabled?: boolean;
@@ -181,6 +186,9 @@ export function SuiteCreateModal({
   const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSaving, onClose });
 
   const [dataSetValid, setDataSetValid] = useState(true);
+  const [modulesValid, setModulesValid] = useState(mode !== "edit");
+  const [moduleIds, setModuleIds] = useState<string[]>((suite as (TestSuite & { module_ids?: string[] }) | null)?.module_ids || []);
+  const [moduleMembership, setModuleMembership] = useState<"snapshot" | "live">((suite as (TestSuite & { module_membership?: "snapshot" | "live" }) | null)?.module_membership || "snapshot");
   const [dataOptions, setDataOptions] = useState<TestDataOptions>(suite?.test_data_options || {});
   const [dataSetId, setDataSetId] = useState(suite?.test_data_set_id || "");
   const [name, setName] = useState(() => (mode === "edit" && suite ? suite.name : ""));
@@ -190,6 +198,16 @@ export function SuiteCreateModal({
   const [parallelCount, setParallelCount] = useState(() => Math.max(1, Number(mode === "edit" ? suite?.parallel_count || 1 : 1)));
   const [localSelectedIds, setLocalSelectedIds] = useState<string[]>(() => [...new Set(selectedCaseIds)]);
   const [resolvedSelectedItems, setResolvedSelectedItems] = useState<TestCase[]>([]);
+  const [explicitCaseIds, setExplicitCaseIds] = useState<string[]>(() => [...new Set(selectedCaseIds)]);
+  const [moduleCaseIds, setModuleCaseIds] = useState<string[]>([]);
+  const membershipDetail = useQuery({ queryKey: ["suite-membership-detail", suite?.id], queryFn: () => testingApi.testSuites.get(suite!.id), enabled: mode === "edit" && Boolean(suite?.id), retry: false });
+  useEffect(() => {
+    if (!membershipDetail.data) return;
+    setExplicitCaseIds(membershipDetail.data.explicit_test_case_ids || []);
+    setModuleIds(membershipDetail.data.module_ids || []);
+    setModuleMembership(membershipDetail.data.module_membership || "snapshot");
+    setModulesValid(true);
+  }, [membershipDetail.dataUpdatedAt]);
   const selectedCases = useMemo(() => {
     const byId = new Map([...appTypeCases, ...resolvedSelectedItems].map(item => [item.id, item]));
     return localSelectedIds.map(id => byId.get(id) || ({ id, title: id } as TestCase));
@@ -229,7 +247,7 @@ export function SuiteCreateModal({
           className="form-grid suite-modal-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (isSaving || !dataSetValid || !name.trim()) return;
+            if (isSaving || !dataSetValid || !modulesValid || !name.trim()) return;
             onSubmit({
               name: name.trim(),
               description,
@@ -237,7 +255,7 @@ export function SuiteCreateModal({
               parallel_enabled: canConfigureParallelAutomation && parallelEnabled,
               parallel_count: canConfigureParallelAutomation && parallelEnabled ? parallelCount : 1,
               test_data_options: dataOptions, test_data_set_id: dataSetId,
-              selectedIds: localSelectedIds
+              selectedIds: moduleMembership === "live" ? explicitCaseIds : localSelectedIds, module_ids: moduleIds, module_membership: moduleMembership
             });
           }}
         >
@@ -302,6 +320,9 @@ export function SuiteCreateModal({
             </section>
 
             <div className="suite-modal-picker-shell">
+              {mode === "edit" && membershipDetail.isPending ? <p role="status">Loading saved explicit and module membership…</p> : null}
+              {membershipDetail.isError ? <p role="alert">Suite membership could not be loaded. <button type="button" onClick={() => void membershipDetail.refetch()}>Retry membership</button></p> : null}
+              <SuiteModulePicker projectId={projectId} appTypeId={appTypeId} selectedModuleIds={moduleIds} selectedCaseIds={explicitCaseIds} resolvedCaseCount={localSelectedIds.length} membership={moduleMembership} disabled={isSaving || mode === "edit" && !membershipDetail.isSuccess} onMembershipChange={setModuleMembership} onValidityChange={setModulesValid} onChange={(ids, caseIds, cases) => { setModuleIds(ids); setModuleCaseIds(cases.map(item => item.id)); setLocalSelectedIds(caseIds); setResolvedSelectedItems(current => [...current, ...cases]); }} />
               <TestCasePicker
                 projectId={projectId}
                 appTypeId={appTypeId}
@@ -312,7 +333,7 @@ export function SuiteCreateModal({
                 heading="Choose test cases"
                 presentation="inline"
                 selectionContext="suite"
-                onChange={setLocalSelectedIds}
+                onChange={ids => { setLocalSelectedIds(ids); setExplicitCaseIds(ids.filter(id => !moduleCaseIds.includes(id))); }}
                 onItemsResolved={setResolvedSelectedItems}
                 selectedIds={localSelectedIds}
               />
@@ -326,7 +347,7 @@ export function SuiteCreateModal({
               <small>HelloTest Test Studio</small>
             </div>
             <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">Cancel</button>
-            <button className="primary-button" disabled={isSaving || !name.trim() || !dataSetValid} type="submit">
+            <button className="primary-button" disabled={isSaving || !name.trim() || !dataSetValid || !modulesValid} type="submit">
               {isSaving ? "Saving…" : (
                 <>
                   <TileCardSuiteIcon />

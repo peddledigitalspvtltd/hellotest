@@ -211,3 +211,15 @@ test('source API journeys persist one case with ordered canonical requests and p
  assert.deepEqual(calls.created[0].test_data_options.private_parameter_names,['t.password','t.token']);
  assert.equal(calls.created[0].parameter_values.password,'');assert.equal(receipt.mode,'blank');
 });
+
+
+test("an API twin retains exact manual Story and module lineage while excluding browser source steps", async () => {
+  const { calls, mutation } = fixture({ overrides: {
+    automationCreateMetadata: {automationCaseType:"api",title:"Login API twin",description:"API boundary",priority:"2",status:"draft",requirementIds:["story"],moduleIds:["module"],suiteIds:[],dataSetId:""},
+    automationCreateManualCaseIds:["manual-1"], automationCreationMode:"blank", automationCreateStartUrlRequired:false, automationCreateStartUrl:"",
+    automationCreateSteps:[{id:"api",action:"Reject invalid credentials",expected_result:"401",step_type:"api",precondition:false,api_request:{method:"POST",url:"@r.api_base_url/auth/login",validations:[{kind:"status",expected:"401"}]}}]
+  }});
+  await mutation();
+  const payload=calls.created[0];assert.equal(payload.automation_case_type,"api");assert.deepEqual(payload.manual_test_case_ids,["manual-1"]);assert.deepEqual(payload.requirement_ids,["story"]);assert.deepEqual(calls.modules,[["module",["created"],true]]);
+  assert.equal(payload.steps.length,1);assert.equal(payload.steps[0].step_type,"api");assert.equal(payload.steps[0].api_request.url,"@r.api_base_url/auth/login");assert.equal(calls.queued.length,0);
+});

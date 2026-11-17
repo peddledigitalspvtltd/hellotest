@@ -56,11 +56,11 @@ test('Sprint Health uses complete server evidence, refreshes in place and keeps 
     assert.doesNotMatch(await ribbon.innerText(),/Pass Rate|Defect Density|Linked Test Cases/);
     await trigger.click();const dialog=page.getByRole('dialog',{name:'Checkout Delivery',exact:true});await dialog.waitFor();
     assert.equal(await dialog.locator('.evidence-flip-card').count(),11);
-    const card=label=>dialog.locator('.evidence-flip-card').filter({has:page.getByRole('button',{name:`View evidence for ${label}`,exact:true,includeHidden:true})});
+    const card=label=>dialog.locator('.evidence-flip-card').filter({has:page.getByTitle(`View evidence for ${label}`,{exact:true})});
     assert.equal(await card('Stories').locator('.evidence-flip-card-front strong').textContent(),'40');
     assert.equal(await card('Pass Rate').locator('.evidence-flip-card-front strong').innerText(),'75%');
     assert.equal(await card('Defect Density').locator('.evidence-flip-card-front strong').innerText(),'0.20');
-    await dialog.getByRole('button',{name:'View evidence for Stories',exact:true}).click();
+    await dialog.getByTitle('View evidence for Stories',{exact:true}).click();
     await dialog.getByRole('list',{name:'Stories evidence'}).getByText('40 distinct Stories in the current Sprint scope.',{exact:true}).waitFor();
     await page.evaluate(()=>{window.health.completed_stories=20;window.health.completed_percent=50;window.health.observed.completed_stories=20;});
     const previous=await page.evaluate(()=>window.metricRequests);await dialog.getByRole('button',{name:'Refresh Metrics',exact:true}).click();

@@ -12,6 +12,9 @@ const hostIdentity = (path, key) => IDENTITY_KEYS.has(key) && (
 );
 const keyOf = value => String(value || '').replace(/^@+/, '').toLowerCase();
 const baseKey = value => keyOf(value).replace(/^[trs]\./, '');
+// These describe privacy; their public flags/names are not credential values.
+const PRIVACY_METADATA_KEYS = new Set(['is_secret', 'private_parameter_names', 'private_parameter_scope']);
+const secretField = key => !PRIVACY_METADATA_KEYS.has(keyOf(key)) && SECRET_KEY.test(key);
 
 /** Frozen execution/envelope sources and actual captures only. No generator,
  * mutable case lookup or private-data retrieval is authorized by redaction. */
@@ -28,10 +31,10 @@ function createExecutionDiagnosticRedactor(...sources) {
   }, source);
   const add = value => {
     if (typeof value === 'string' && value) secrets.add(value);
-    else if (typeof value === 'number' || typeof value === 'boolean') secrets.add(String(value));
+    else if (typeof value === 'number') secrets.add(String(value));
   };
   for (const source of sources) scan(value => {
-    for (const [key, entry] of Object.entries(value)) if (SECRET_KEY.test(key) || names.has(baseKey(key))) add(entry);
+    for (const [key, entry] of Object.entries(value)) if (secretField(key) || names.has(baseKey(key))) add(entry);
     if (value.is_secret === true || SECRET_KEY.test(String(value.key || value.name || '')) || names.has(baseKey(value.key || value.name))) add(value.value);
   }, source);
   const variants = new Set();
@@ -71,7 +74,7 @@ function createExecutionDiagnosticRedactor(...sources) {
           outputKeys.add(publicKey);
           return [publicKey,
           !application && (hostIdentity(path, key) || /^(?:case_result\.logs\.)?stepStatuses$/.test(path)) ? entry
-            : HEADER_KEY.test(key) || SECRET_KEY.test(key) || captures && names.has(baseKey(key)) || secretEntry && key === 'value' ? '[REDACTED]'
+            : HEADER_KEY.test(key) || secretField(key) || captures && names.has(baseKey(key)) || secretEntry && key === 'value' ? '[REDACTED]'
               : visit(entry, depth + 1, captures || ['captures', 'stepCaptures', 'captured_values'].includes(key),
                 application || APPLICATION_KEYS.has(key), path ? `${path}.${key}` : key)];
         }));

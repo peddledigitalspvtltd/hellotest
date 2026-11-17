@@ -83,11 +83,13 @@ export function RunDataSetup({ parameterValues, onValidityChange, dataOptions = 
   const caseCount = scopeVerified ? scopePlan.data.case_count : null;
   const rows = selectedData ? selectedData.mode === "key_value" ? 1 : selectedData.rows.length : null;
   const required = scopePlan.data?.parameters || [];
+  const datasetRequired = (scopePlan.data?.data_set_validation as { required_parameters?: string[] } | undefined)?.required_parameters;
+  const overrideRequired = datasetRequired ? required.filter(item => datasetRequired.includes(item.name)) : required;
   const selectedMissing = scopePlan.data?.data_set_validation?.missing_parameters
     || (selectedData ? missingDataSetParameters(selectedData, required) : []);
-  const draftMissing = draft ? missingDataSetParameters({ ...draft, mode: "table" }, required) : [];
+  const draftMissing = draft ? missingDataSetParameters({ ...draft, mode: "table" }, overrideRequired) : [];
   const selectedValid = !dataSetId || !canView || (scopeVerified && scopePlan.data?.data_set_validation?.valid !== false && !selectedMissing.length);
-  useEffect(() => { onValidityChange?.(selectedValid && !checkingId); }, [onValidityChange, selectedValid, checkingId]);
+  useEffect(() => { onValidityChange?.(selectedValid && !checkingId && !failed); }, [onValidityChange, selectedValid, checkingId, failed]);
   const selectDataSet = async (id: string) => {
     if (!canView || !canInspectPlan || disabled || busy) return;
     const version = ++validationVersion.current;
@@ -180,10 +182,12 @@ export function RunDataSetup({ parameterValues, onValidityChange, dataOptions = 
       <div className="run-data-actions"><button className="primary-button" type="button" disabled={busy || disabled || !name.trim() || !scopeVerified || Boolean(draftMissing.length)} onClick={() => void save()}>{busy ? "Saving…" : "Save and select data"}</button><button className="ghost-button" type="button" disabled={busy} onClick={() => setDraft(null)}>Cancel import</button></div></div> : null}
     {dataSetId ? <p className="run-data-instance-summary">{caseCount !== null ? <IconCheck size={16} aria-hidden="true" /> : null}<span>{caseCount !== null ? <><strong>{executionId || rows === null || scopePlan.data?.expected_instance_count !== caseCount * rows ? `${scopePlan.data?.expected_instance_count} execution instances across ${caseCount} cases` : `${caseCount} cases × ${rows} ${rows === 1 ? "row" : "rows"} = ${scopePlan.data?.expected_instance_count} execution instances`}</strong> · Includes child suites</> : scopePlan.isError ? "Execution instance count is unavailable. Retry the scope check below." : !cases.length && !suites.length ? "Select cases or suites to calculate execution instances." : "Calculating execution instances…"}</span></p> : <p className="run-data-inheritance">{scopeVerified ? <strong>{scopePlan.data.expected_instance_count} execution instances across {scopePlan.data.case_count} cases. </strong> : null}No {suiteMode ? "suite" : "run"} data override. Each case uses its nearest suite data set, then its case data, or executes once.</p>}
     {dataSetId && scopeVerified && !selectedValid ? <p role="alert">{selectedMissing.length ? `The linked data set is missing required parameters: ${selectedMissing.join(", ")}.` : "The linked data set has no usable data rows."} Update it or choose a matching data set before saving.</p> : null}
+    {canInspectPlan ? <details open><summary>Effective parameter plan</summary><p>Environment and configuration bindings satisfy matching parameters. Data sets supply explicit overrides; an empty cell intentionally overrides with an empty value.</p>{scopeVerified ? <table><thead><tr><th>Parameter</th><th>Resolved source</th></tr></thead><tbody>{required.map(item => <tr key={item.name}><td><code>{item.token || item.name}</code></td><td>{scopePlan.data?.parameter_bindings?.find(binding => binding.name === item.name)?.source || "Unresolved"}</td></tr>)}</tbody></table> : <p role="status">{scopePlan.isError ? "Parameter plan unavailable" : "Resolving selected case parameters…"}</p>}</details> : null}
     <details><summary>How Data Inheritance Works</summary><p>Matching parameters use Run → Suite → Test Case → Shared Group priority when the corresponding override is enabled. Missing columns retain lower-level values; empty cells supply an empty string.</p><p>Keep <code>t.</code>, <code>s.</code>, and <code>r.</code> prefixes in CSV headers. Shared groups use one row. The highest linked execution scope supplies iterations; inherited rows must have one row or a matching count. Run data and steps are saved as a snapshot.</p></details>
     {scopePlan.isError ? <p role="alert">{scopePlan.error instanceof Error ? scopePlan.error.message : "The selected case scope could not be verified."} <button type="button" className="ghost-button" onClick={() => void scopePlan.refetch()}>Retry scope</button></p> : null}
     {dataQuery.isError ? <p role="alert">Test data could not be loaded. <button type="button" className="ghost-button" onClick={() => void dataQuery.refetch()}>Retry</button></p> : null}
     {feedback ? <p role={failed ? "alert" : "status"}>{feedback}</p> : null}
+    {failed ? <button className="ghost-button" type="button" onClick={() => { setFailed(false); setFeedback("Rejected data selection discarded. Current inherited data is retained."); }}>Discard rejected selection and keep current data</button> : null}
     </div>
   </section>;
 }

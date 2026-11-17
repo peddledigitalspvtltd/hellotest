@@ -11,6 +11,7 @@ import { getPostAuthRoute } from "../src/platform/lib/routeHistory";
 import type { AuthSetupPayload } from "../src/types";
 import { AuthFeatureCarousel } from "../src/platform/components/AuthFeatureCarousel";
 import "./AuthPage.css";
+import {isValidEmail as validateEmail, policy} from '../src/shared/lib/authPolicy';
 
 declare global {
   interface Window {
@@ -97,16 +98,11 @@ function getFieldsForMode(mode: FormMode): FieldName[] {
   return ["email", "password"];
 }
 
-function validateEmail(email: string) {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
-}
-
-function validatePassword(password: string) {
-  if (password.length < 6) {
-    return "Password must be at least 6 characters long.";
+function validatePassword(password: string, minimum = policy.newPasswordMinLength) {
+  if (password.length < minimum) {
+    return `Password must be at least ${minimum} characters long.`;
   }
-
+  if (minimum === policy.newPasswordMinLength && password.length > policy.passwordMaxLength) return `Password must be no more than ${policy.passwordMaxLength} characters.`;
   return "";
 }
 
@@ -128,7 +124,7 @@ function getFieldError(fieldName: FieldName, value: string, mode: FormMode) {
       return "Password is required.";
     }
 
-    return validatePassword(trimmedValue);
+    return validatePassword(trimmedValue, mode === 'login' ? policy.legacyLoginMinLength : policy.newPasswordMinLength);
   }
 
   if (fieldName === "newPassword" && mode === "forgot") {
@@ -300,6 +296,15 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [pendingVerification, setPendingVerification] = useState<PendingVerification | null>(null);
+  const [loginPause, setLoginPause] = useState({email: '', until: 0});
+  const [retryClock, setRetryClock] = useState(Date.now());
+  const loginRetrySeconds = mode === 'login' && formValues.email.trim().toLowerCase() === loginPause.email
+    ? Math.max(0, Math.ceil((loginPause.until - retryClock) / 1000)) : 0;
+  useEffect(() => {
+    if (loginPause.until <= Date.now()) return;
+    const timer = window.setInterval(() => setRetryClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [loginPause]);
 
   const isSuccessMode = mode === "signup-success" || mode === "reset-success";
   const isCodeMode = mode === "signup-code" || mode === "forgot-code";
@@ -547,7 +552,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
     setTouchedFields(getTouchedState(mode));
     setError("");
 
-    if (Object.keys(nextErrors).length > 0) {
+    if (Object.keys(nextErrors).length > 0 || loginRetrySeconds > 0) {
       return;
     }
 
@@ -572,7 +577,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
           name: normalizedValues.name || undefined
         });
         moveToVerificationMode("signup-code", normalizedValues.email);
-        setInfoMessage(`A 6-digit verification code has been sent to ${normalizedValues.email}.`);
+        setInfoMessage(policy.signupAcknowledgement);
       } else if (mode === "signup-code") {
         const verificationEmail = pendingVerification?.email || normalizedValues.email;
 
@@ -598,6 +603,11 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
         resetFormState("reset-success");
       }
     } catch (nextError) {
+      const failure = nextError as {code?: string; retryAfterSeconds?: number};
+      if (mode === 'login' && failure?.code === 'AUTH_LOGIN_LOCKED') {
+        setRetryClock(Date.now());
+        setLoginPause({email: normalizedValues.email.toLowerCase(), until: Date.now() + Math.max(1, Number(failure.retryAfterSeconds) || 900) * 1000});
+      }
       setError(
         nextError instanceof Error
           ? nextError.message
@@ -623,7 +633,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
           password: formValues.password,
           name: formValues.name.trim() || undefined
         });
-        setInfoMessage(`A fresh signup code has been sent to ${pendingVerification.email}.`);
+        setInfoMessage(policy.signupAcknowledgement);
       } else {
         await requestPasswordResetCode({
           email: pendingVerification.email,
@@ -796,7 +806,8 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                   <FormField
                     composite
                     error={fieldErrors.password}
-                    hint="Minimum 6 characters. Press Alt+V to show or hide."
+                    hint={`Minimum ${mode === 'signup' ? policy.newPasswordMinLength : policy.legacyLoginMinLength} characters. Press Alt+V to show or hide.`}
+                    hintVisible={mode === 'signup'}
                     inputId="password-input"
                     label="Password"
                     required
@@ -835,7 +846,8 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                   <FormField
                     composite
                     error={fieldErrors.newPassword}
-                    hint="Minimum 6 characters. Press Alt+V to show or hide."
+                    hint={`Minimum ${policy.newPasswordMinLength} characters. Press Alt+V to show or hide.`}
+                    hintVisible
                     inputId="new-password-input"
                     label="New password"
                     required
@@ -914,10 +926,11 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                   </div>
                 ) : null}
 
+                {loginRetrySeconds > 0 ? <p role="timer" aria-label="Time before another sign-in attempt">Try again in {loginRetrySeconds} seconds, or use Forgot password to recover access.</p> : null}
                 <button
                   className="primary-button auth-submit"
                   disabled={
-                    isBusy ||
+                    isBusy || loginRetrySeconds > 0 ||
                     ((mode === "signup" || mode === "forgot") && !isEmailVerificationReady)
                   }
                   type="submit"

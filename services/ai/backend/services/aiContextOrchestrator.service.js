@@ -11,6 +11,7 @@ const MAX_LIVE_EVIDENCE_CHARS = 9_000;
 const normalizeText = (value, max = 12_000) => String(value || "").trim().slice(0, max);
 const unique = (items) => [...new Set(items.filter(Boolean))];
 const fingerprint = (value) => crypto.createHash("sha256").update(String(value || "")).digest("hex").slice(0, 20);
+const { isClosedDefect, closedDefectSql } = require("@hellotest/platform/backend/src/utils/defectStatus");
 const asArray = (value) => Array.isArray(value) ? value : [];
 
 const safeRows = async (sql, params = []) => {
@@ -522,7 +523,18 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
     execution.emit("READING_RUNS", "started", { message: "Reading Test Runs and their permitted result outcomes." });
     const canViewResults = await canView("result.view");
     const resultScope = scoped.predicate('test_case', 'scope_result_case', { story_id: evidenceScope.story_id, test_case_id: evidenceScope.test_case_id });
-    const resultJoin = canViewResults ? `LEFT JOIN execution_results ON execution_results.execution_id = executions.id${resultScope.sql ? ` AND EXISTS (SELECT 1 FROM test_cases scope_result_case WHERE scope_result_case.id = execution_results.test_case_id ${resultScope.sql})` : ''}` : '';
+    // A retry is another historical receipt, not another executed case/data-row
+    // instance. Derived lineage counts only when its manual origin is frozen in
+    // this run; this is the same population used by portable run reports.
+    const resultJoin = canViewResults ? `LEFT JOIN LATERAL (
+      SELECT DISTINCT ON (result.test_case_id, COALESCE(result.data_set_iteration_index,-1)) result.id, result.test_case_id, result.status
+      FROM test_case_effective_results result
+      WHERE result.execution_id=executions.id AND (
+        EXISTS (SELECT 1 FROM execution_case_snapshots frozen WHERE frozen.execution_id=result.execution_id AND frozen.test_case_id=result.test_case_id)
+        OR (NOT result.derived AND NOT EXISTS (SELECT 1 FROM execution_case_snapshots frozen_run WHERE frozen_run.execution_id=result.execution_id))
+      )
+      ORDER BY result.test_case_id,COALESCE(result.data_set_iteration_index,-1),result.created_at DESC,result.id DESC
+    ) execution_results ON TRUE${resultScope.sql ? ` AND EXISTS (SELECT 1 FROM test_cases scope_result_case WHERE scope_result_case.id = execution_results.test_case_id ${resultScope.sql})` : ''}` : '';
     const params = [...(canViewResults ? resultScope.params : []), ...(appTypeId ? [projectId, appTypeId] : [projectId]), ...runScope.params];
     const appClause = (appTypeId ? "AND executions.app_type_id = ?" : "") + runScope.sql;
     const runs = await safeRows(`
@@ -744,14 +756,14 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
         linked_requirement_ids, labels, created_at, updated_at
       FROM feedback WHERE project_id = ? ${bugScope.sql}
       ORDER BY
-        CASE WHEN LOWER(COALESCE(status, 'open')) NOT IN ('closed', 'resolved', 'done', 'accepted') THEN 0 ELSE 1 END,
+        CASE WHEN NOT ${closedDefectSql("status")} THEN 0 ELSE 1 END,
         CASE WHEN LOWER(COALESCE(severity, priority, '')) IN ('critical', 'highest', 'high') THEN 0 ELSE 1 END,
         updated_at DESC NULLS LAST, created_at DESC NULLS LAST
       LIMIT 100
     `, [projectId, ...bugScope.params]);
     const bugTotals = await safeRow(`
       SELECT COUNT(*)::INTEGER AS total,
-        COUNT(*) FILTER (WHERE LOWER(COALESCE(status, 'open')) NOT IN ('closed', 'resolved', 'done', 'accepted'))::INTEGER AS open_records,
+        COUNT(*) FILTER (WHERE NOT ${closedDefectSql("status")})::INTEGER AS open_records,
         COUNT(*) FILTER (WHERE LOWER(COALESCE(severity, priority, '')) IN ('critical', 'highest', 'high'))::INTEGER AS critical_or_high
       FROM feedback WHERE project_id = ? ${bugScope.sql}
     `, [projectId, ...bugScope.params]);
@@ -773,7 +785,7 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
     });
     const selected = rankRecords(bugs, prompt, ["display_id", "title", "status", "severity", "priority", "environment", "build", "release", "sprint"]).slice(0, 12).map(compactBug);
     const openHighRisk = rankRecords(bugs.filter((bug) => (
-      !["closed", "resolved", "done", "accepted"].includes(String(bug.status || "open").toLowerCase())
+      !isClosedDefect(bug.status)
       && ["critical", "highest", "high"].includes(String(bug.severity || bug.priority || "").toLowerCase())
     )), prompt, ["display_id", "title", "status", "severity", "priority", "environment", "build", "release", "sprint"]).slice(0, 16).map(compactBug);
     hits.push(makeLiveHit({

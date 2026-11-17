@@ -5,7 +5,7 @@ import ts from 'typescript';
 import {casePrivateParameterNames,collectPrivateParameterNames,caseParameterSaveOptions} from '../../../platform/frontend/src/shared/lib/parameterPrivacy.ts';
 import {excludeSensitiveStepParameterValues,parseStepParameterName,normalizeStepParameterValues} from '../../../platform/frontend/src/shared/lib/stepParameters.ts';
 
-const source=ts.createSourceFile('TestCasesPage.tsx',readFileSync(new URL('../../frontend/pages/TestCasesPage.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+const source=ts.createSourceFile('TestCasesPage.tsx',readFileSync(new URL('../../frontend/workspaces/test-cases/useCaseAuthoringSave.ts',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
 const nodes=[];
 const visit=node=>{nodes.push(node);ts.forEachChild(node,visit);};visit(source);
 const property=(node,name)=>node.properties.find(item=>ts.isPropertyAssignment(item)&&item.name.getText(source)===name);
@@ -44,7 +44,7 @@ test('ordinary case saves preserve own opaque private values and policy while pu
 test('manual private and run-scoped edits save case-owned values, while suite edits retain their separate owner',()=>{
   let own={'t.password':'untouched own secret'},suite={},preview={'r.opaque':'old preview'};
   const sourceDefaults={'r.opaque':'inherited secret'};
-  const handler=pageBinding('../../frontend/pages/TestCasesPage.tsx','handleScopedParameterValueChange',{
+  const handler=pageBinding('../../frontend/workspaces/test-cases/useCaseParameters.ts','handleScopedParameterValueChange',{
     parseStepParameterName,linkedDataSetSensitiveParameterNames:new Set(['r.opaque']),caseParameterPrivacyScope:'case:manual',
     caseParameterOverrideDraftRef:{current:{scope:'',names:new Set()}},
     resolveScopedParameterInputState:()=>({}),setPrivateCaseParameterDraft:()=>{},

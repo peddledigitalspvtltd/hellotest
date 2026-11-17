@@ -1,3 +1,4 @@
+const lifecycle = require("@hellotest/ai/services/generationLifecycle");
 const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const dropdownCatalog = require('@hellotest/platform/backend/services/dropdownCatalog.service');
 const { splitGenerationContext, generationRetrievalQuery } = require('@hellotest/platform/backend/src/utils/aiGenerationContext');
@@ -328,7 +329,8 @@ const requestGeneratedCases = async ({
   authoringMode,
   testCaseTypes,
   contextState,
-  signal
+  signal,
+  onProgress
 }) => {
   const prompt = buildPrompt({
     requirements,
@@ -351,6 +353,7 @@ const requestGeneratedCases = async ({
     externalLinks: [], images: [], knowledge: null, authoringMode, testCaseTypes
   });
   try {
+    await onProgress?.("specialist", "The configured model is drafting bounded Test Case proposals.");
     const content = images.length
       ? await requestChatCompletion({
           integration,
@@ -370,6 +373,7 @@ const requestGeneratedCases = async ({
         })
       : await requestChatCompletion({ integration, content: prompt, fallbackContent, contextState, authoringMode, testCaseTypes, signal });
 
+    await onProgress?.("outcome", "Checking returned Test Cases against the native output contract.");
     const parsed = extractJsonPayload(content);
     validateNativeArtifactOutput('ai.test_case.design', parsed, { testCaseTypes });
     return normalizeGeneratedCases(parsed, maxCases, requirements, authoringMode);
@@ -402,7 +406,8 @@ const normalizeAcceptedCases = (cases = [], requirements = []) => {
   }));
 };
 
-exports.previewRequirementsTestCases = async ({
+exports.previewRequirementsTestCases = lifecycle.withLifecycle("case-design", async ({
+  onProgress,
   requirements,
   appType,
   integration_id,
@@ -430,8 +435,10 @@ exports.previewRequirementsTestCases = async ({
   const externalLinks = boundedList(external_links, 10, 500);
   const normalizedImages = normalizeImageAssets(images);
   const authoringMode = normalizeAuthoringMode(authoring_mode);
+  await onProgress("context", "Preparing scoped Stories, reviewed inputs and active Case types.");
   const typeField = await dropdownCatalog.getField('test_cases.types');
   const testCaseTypes = typeField.options.filter(option=>option.active!==false).map(option=>option.value);
+  await onProgress("guardrails", "Checking authoring intent and configured provider boundaries.");
   const integration = await resolveIntegration(integration_id, {
     userId: user_id,
     projectId: appType.project_id || scopedRequirements[0]?.project_id,
@@ -467,8 +474,10 @@ exports.previewRequirementsTestCases = async ({
     authoringMode,
     testCaseTypes,
     contextState,
-    signal
+    signal,
+    onProgress
   });
+  await onProgress("evaluation", "Validating Case mappings, configured types, steps and parameters.");
   for (const candidate of generatedCases) {
     if (!testCaseTypes.includes(candidate.test_case_type)) throw Object.assign(new Error('Generated Test Case uses an unavailable type configured by the administrator.'),{statusCode:502,code:'AI_NATIVE_CONTRACT_INVALID'});
   }
@@ -490,6 +499,7 @@ exports.previewRequirementsTestCases = async ({
     },
     context_reduced: contextState.reduced,
     context_reduction_reason: contextState.reduced ? "The provider rejected the full context size. Drafts used bounded Story excerpts and user guidance; review them against the full acceptance criteria and omitted evidence." : null,
+    processing: lifecycle.processing({ status: "completed", stage: "review", profile: "case-design", outputCount: generatedCases.length }),
     generated: generatedCases.length,
     cases: generatedCases.map((candidate, index) => ({
       ...candidate,
@@ -499,9 +509,10 @@ exports.previewRequirementsTestCases = async ({
       parameter_count: Object.keys(candidate.parameter_values).length
     }))
   };
-};
+});
 
 exports.previewRequirementTestCases = async ({
+  onProgress,
   requirement,
   appType,
   integration_id,
@@ -513,6 +524,7 @@ exports.previewRequirementTestCases = async ({
   authoring_mode
 }) => {
   const preview = await exports.previewRequirementsTestCases({
+    onProgress,
     requirements: [requirement],
     appType,
     integration_id,

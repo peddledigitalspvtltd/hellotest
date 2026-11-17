@@ -1,3 +1,5 @@
+import { getAiFailureProcessing } from "@hellotest/ai/frontend/components/AiFailureNotice";
+import { ImpactCheckboxPicker, type ImpactPickerOption } from "../components/DefectImpactPicker";
 import { CatalogCardDescription } from "@hellotest/platform/frontend/src/shared/components/CatalogCardDescription";
 import { truncateAtWordBoundary } from "@hellotest/platform/frontend/src/shared/lib/catalogDescriptionSummary";
 import { takeAgentProposal } from "@hellotest/platform/frontend/src/lib/agentProposalDraft";
@@ -86,16 +88,15 @@ const BULK_BUG_DELETE_BATCH_SIZE = 20;
 const BUG_EXPORT_BATCH_SIZE = 100;
 
 const AI_BUG_DRAFT_PENDING_PROCESSING: AiProcessingSnapshot = {
-  active_stage_id: "context",
-  completed_stage_count: 1,
-  total_stage_count: 4,
-  status_label: "Validating selected evidence",
-  stages: [
-    { id: "intake", status: "complete", detail: "Incident brief submitted.", evidence: "The reporter's requested Defect boundary was accepted." },
-    { id: "context", status: "running", detail: "Validating project records and reporter evidence.", evidence: "Only bounded, project-scoped sources will be admitted." },
-    { id: "specialist", status: "queued", detail: "Drafting starts after evidence validation." },
-    { id: "review", status: "queued", detail: "Human review opens after contract validation." }
-  ]
+  active_stage_id: "intake",
+  completed_stage_count: 0,
+  total_stage_count: 7,
+  progress_mode: "indeterminate",
+  status_label: "Request sent; awaiting server-reported stages",
+  stages: (["intake", "context", "guardrails", "specialist", "outcome", "evaluation", "review"] as const).map(id => ({
+    id, status: id === "intake" ? "running" as const : "queued" as const,
+    detail: id === "intake" ? "Request sent; awaiting server-reported stages." : "Awaiting a confirmed server stage receipt."
+  }))
 };
 
 
@@ -111,7 +112,7 @@ type IssueDraft = {
   environment: string;
   build: string;
   jira_bug_key: string;
-  linked_test_run_id: string;
+  linked_test_run_id: string; linked_execution_result_id?: string; linked_step_id?: string;
   linked_test_case_ids: string[];
   linked_test_suite_ids: string[];
   linked_module_ids: string[];
@@ -201,7 +202,7 @@ const createIssueDraftFromItem = (item: Issue, defaultStatus: string): IssueDraf
   environment: item.environment || "",
   build: item.build || "",
   jira_bug_key: item.jira_bug_key || "",
-  linked_test_run_id: item.linked_test_run_id || "",
+  linked_test_run_id: item.linked_test_run_id || "", linked_execution_result_id: (item as Issue & {linked_execution_result_id?: string}).linked_execution_result_id, linked_step_id: (item as Issue & {linked_step_id?: string}).linked_step_id,
   linked_test_case_ids: item.linked_test_case_ids || [],
   linked_test_suite_ids: item.linked_test_suite_ids || [],
   linked_module_ids: item.linked_module_ids || [],
@@ -296,7 +297,7 @@ const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus:
     environment: searchParams.get("environment") || "",
     build: searchParams.get("build") || "",
     jira_bug_key: searchParams.get("jira") || searchParams.get("jiraBugKey") || "",
-    linked_test_run_id: runId,
+    linked_test_run_id: runId, linked_execution_result_id: runId ? searchParams.get("executionResult") || undefined : undefined, linked_step_id: runId ? searchParams.get("step") || undefined : undefined,
     linked_test_case_ids: linkedTestCaseIds,
     linked_test_suite_ids: linkedTestSuiteIds,
     linked_module_ids: linkedModuleIds,
@@ -340,7 +341,7 @@ const buildIssuePayload = (draft: IssueDraft, userId: string, projectId: string,
   environment: optionalDraftValue(draft.environment),
   build: optionalDraftValue(draft.build),
   jira_bug_key: optionalDraftValue(draft.jira_bug_key),
-  ...(can("run.view") ? { linked_test_run_id: optionalDraftValue(draft.linked_test_run_id) } : {}),
+  ...(can("run.view") ? { linked_test_run_id: optionalDraftValue(draft.linked_test_run_id), linked_execution_result_id: optionalDraftValue(draft.linked_execution_result_id || ""), linked_step_id: optionalDraftValue(draft.linked_step_id || "") } : {}),
   ...(can("testcase.view") ? { linked_test_case_ids: draft.linked_test_case_ids } : {}),
   ...(can("suite.view") ? { linked_test_suite_ids: draft.linked_test_suite_ids } : {}),
   ...(can("testcase.view") ? { linked_module_ids: draft.linked_module_ids } : {}),
@@ -357,119 +358,6 @@ const buildIssuePayload = (draft: IssueDraft, userId: string, projectId: string,
   ...(can("requirement_iteration.view") ? { release: optionalDraftValue(draft.release) } : {}),
   additional_fields: draft.additional_fields
 });
-
-type ImpactPickerOption = {
-  id: string;
-  displayId?: string | null;
-  title: string;
-  meta?: string;
-};
-
-function ImpactCheckboxPicker({
-  disabled,
-  emptyText,
-  items,
-  label,
-  onChange,
-  placeholder,
-  selectedIds
-}: {
-  disabled?: boolean;
-  emptyText: string;
-  items: ImpactPickerOption[];
-  label: string;
-  onChange: (ids: string[]) => void;
-  placeholder: string;
-  selectedIds: string[];
-}) {
-  const [search, setSearch] = useState("");
-  const labelId = useId().replace(/:/g, "");
-  const normalizedSearch = search.trim().toLowerCase();
-  const visibleItems = useMemo(
-    () =>
-      items.filter((item) =>
-        !normalizedSearch ||
-        [item.id, item.displayId || "", item.title, item.meta || ""]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedSearch)
-      ),
-    [items, normalizedSearch]
-  );
-  const visibleIds = visibleItems.map((item) => item.id);
-  const areAllVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
-  const toggleItem = (id: string, checked: boolean) => {
-    onChange(checked ? [...new Set([...selectedIds, id])] : selectedIds.filter((selectedId) => selectedId !== id));
-  };
-
-  return (
-    <details className="form-field impact-checkbox-field impact-select-dropdown">
-      <summary className="impact-select-summary">
-        <span className="form-field-label" id={labelId}>{label}</span>
-        <span>{selectedIds.length ? `${selectedIds.length} selected` : "Select…"}</span>
-      </summary>
-      <div className="impact-select-popover">
-      <div className="impact-checkbox-heading">
-        <span>{selectedIds.length} selected</span>
-        <div className="impact-checkbox-actions">
-          <button
-            className="impact-checkbox-action"
-            disabled={disabled || !visibleIds.length || areAllVisibleSelected}
-            onClick={() => onChange([...new Set([...selectedIds, ...visibleIds])])}
-            type="button"
-          >
-            <SelectionToggleIcon checked />
-            Select all
-          </button>
-          <span aria-hidden="true">|</span>
-          <button
-            className="impact-checkbox-action"
-            disabled={disabled}
-            onClick={() => onChange([])}
-            type="button"
-          >
-            <SelectionToggleIcon checked={false} />
-            Clear
-          </button>
-        </div>
-      </div>
-      <div className="impact-checkbox-picker">
-        <label className="impact-checkbox-search">
-          <SearchIcon />
-          <input
-            aria-label={`Search ${label.toLowerCase()}`}
-            disabled={disabled}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={placeholder}
-            value={search}
-          />
-        </label>
-        <div aria-labelledby={labelId} className="impact-checkbox-list" role="group">
-          {visibleItems.map((item) => {
-            const isChecked = selectedIds.includes(item.id);
-
-            return (
-              <label className={isChecked ? "impact-checkbox-option is-selected" : "impact-checkbox-option"} key={item.id}>
-                <input
-                  checked={isChecked}
-                  disabled={disabled}
-                  onChange={(event) => toggleItem(item.id, event.target.checked)}
-                  type="checkbox"
-                />
-                <span>
-                  <strong>{item.title}</strong>
-                  <small>{[item.displayId || item.id, item.meta].filter(Boolean).join(" · ")}</small>
-                </span>
-              </label>
-            );
-          })}
-          {!visibleItems.length ? <div className="empty-state compact">{items.length ? "No records match this search." : emptyText}</div> : null}
-        </div>
-      </div>
-      </div>
-    </details>
-  );
-}
 
 function IssueEditorSurface({
   actions,
@@ -1827,7 +1715,7 @@ export function IssuesPage() {
       jira_bug_key: "",
       status: defaultIssueStatus,
       additional_fields: {},
-      linked_test_run_id: candidate.linked_test_run_id,
+      linked_test_run_id: candidate.linked_test_run_id, linked_execution_result_id: candidate.linked_test_run_id === searchParams.get("run") ? searchParams.get("executionResult") || undefined : undefined, linked_step_id: candidate.linked_test_run_id === searchParams.get("run") ? searchParams.get("step") || undefined : undefined,
       linked_test_case_ids: isHierarchyScopedContext ? [] : candidate.linked_test_case_ids,
       linked_test_suite_ids: parseQueryIdList(searchParams.get("linked_test_suite_ids"), searchParams.get("suite")),
       linked_module_ids: parseQueryIdList(searchParams.get("linked_module_ids"), searchParams.get("module")),
@@ -2138,6 +2026,7 @@ export function IssuesPage() {
             tabIndex={-1}
           >
             <StoryAiStudioShell
+              failure={previewAiBugDraft.error || undefined}
               mode={aiBugMode}
               entityLabel="Defect"
               studioTitle={aiBugMode === "improve" ? "AI Defect Improve" : "Report Defect using AI"}
@@ -2152,7 +2041,7 @@ export function IssuesPage() {
               processProfile="bug-create"
               agentName="Defect Reporter"
               agentStatus={isAiBugDraftBusy ? "running" : aiDraftPreview ? "completed" : aiDraftMessage && aiDraftMessageTone === "error" ? "failed" : "idle"}
-              processing={aiDraftPreview?.processing || (isAiBugDraftBusy ? AI_BUG_DRAFT_PENDING_PROCESSING : undefined)}
+              processing={aiDraftPreview?.processing || getAiFailureProcessing(previewAiBugDraft.error) || (isAiBugDraftBusy ? AI_BUG_DRAFT_PENDING_PROCESSING : undefined)}
               hasProposal={Boolean(aiDraftPreview)}
               contextLabel={`${aiBugEvidenceSourceCount} evidence sources · ${aiBugContextSource}`}
               integrationId={aiBugIntegrationId}
@@ -2693,9 +2582,9 @@ export function IssuesPage() {
                             { key: "uncovered", label: "Missing evidence fields", count: evidenceFields.length - completedEvidenceFields }
                           ] }}
                           displayValue={`${evidencePercent}%`}
-                          label="Evidence completeness"
+                          criteriaKey="metric.defect.authored_field_completeness" population="selected_defect_authored_fields" unit="percent" label="Evidence completeness"
                           title={`${completedEvidenceFields} of ${evidenceFields.length} evidence fields completed`}
-                          tone={evidencePercent === 100 ? "success" : evidencePercent >= 50 ? "warning" : "danger"}
+                          tone="neutral"
                           value={evidencePercent}
                         />
                         <TileCardProgress
@@ -2841,10 +2730,11 @@ export function IssuesPage() {
                       },
                       {
                         label: "Evidence completeness",
+                        criteriaKey: "metric.defect.authored_field_completeness", population: "selected_defect_authored_fields", unit: "percent",
                         value: `${selectedBugMetrics.evidencePercent}%`,
                         detail: `${selectedBugMetrics.completedEvidenceFields} of 4 core fields`,
                         progress: selectedBugMetrics.evidencePercent,
-                        tone: selectedBugMetrics.evidencePercent === 100 ? "success" : "info"
+                        tone: "neutral"
                       },
                       {
                         label: "Linked test cases",
@@ -2991,7 +2881,7 @@ export function IssuesPage() {
                       <input disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} placeholder="2026.07.02" value={draft.build} onChange={(event) => setDraft((current) => ({ ...current, build: event.target.value }))} />
                     </FormField>
                     <FormField className="bug-field-linked-run" label="Linked Test Run">
-                      <select disabled={!canEditBugFields || !canViewRuns} value={draft.linked_test_run_id} onChange={(event) => setDraft((current) => ({ ...current, linked_test_run_id: event.target.value }))}>
+                      <select disabled={!canEditBugFields || !canViewRuns} value={draft.linked_test_run_id} onChange={(event) => setDraft((current) => ({ ...current, linked_test_run_id: event.target.value, linked_execution_result_id: undefined, linked_step_id: undefined }))}>
                         <option value="">No linked run</option>
                         {draft.linked_test_run_id && !executionById.has(draft.linked_test_run_id) ? (
                           <option value={draft.linked_test_run_id}>{draft.linked_test_run_id}</option>

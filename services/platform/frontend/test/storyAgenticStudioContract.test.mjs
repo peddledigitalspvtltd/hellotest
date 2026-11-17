@@ -2,6 +2,7 @@ import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
 
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
@@ -17,8 +18,22 @@ test("Story creation and completion use the shared focused agent process with ba
   assert.match(shell, /Proposal ready · review required/);
   assert.match(shell, /Processing complete · no proposal/);
 
-  assert.match(page, /const storyAiProcessing = storyAiEnvelope\?\.processing/);
-  assert.match(page, /processing=\{storyAiProcessing\}/);
+  const ast = ts.createSourceFile("RequirementsPage.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let processingExpression;
+  const visit = node => {
+    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && node.tagName.getText(ast) === "StoryAiStudioShell") {
+      processingExpression = node.attributes.properties.find(item => item.name?.getText(ast) === "processing")?.initializer?.expression?.getText(ast);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  assert.ok(processingExpression, "The Story shell must receive the server processing receipt");
+  const resolveProcessing = new Function("storyAiEnvelope", "requirementAiMode", "previewRequirementOptimization", "getAiFailureProcessing", `return (${processingExpression});`);
+  const success = { active_stage_id: "review" }, stopped = { active_stage_id: "specialist" };
+  const error = { processing: stopped }, readFailure = value => value?.processing;
+  assert.equal(resolveProcessing({ processing: success }, "improve", { error }, readFailure), success);
+  assert.equal(resolveProcessing(null, "improve", { error }, readFailure), stopped);
+  assert.equal(resolveProcessing(null, "create", { error }, readFailure), undefined);
   assert.match(page, /reviewStatus=\{storyAiReviewStatus\}/);
   assert.match(page, /contextState=\{storyAiContextState\}/);
   assert.match(page, /agentStatus=\{storyAiAgentStatus\}/);

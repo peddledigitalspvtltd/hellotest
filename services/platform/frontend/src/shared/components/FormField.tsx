@@ -30,8 +30,9 @@ export function FormField({
 }) {
   const generatedId = useId().replace(/:/g, "");
   // An existing control id is authoritative: clicking its label must focus it.
-  const control = !composite && Children.count(children) === 1 && isValidElement(children)
-    ? children as ReactElement<Record<string, unknown>>
+  const controls = Children.toArray(children);
+  const control = !composite && controls.length === 1 && isValidElement(controls[0])
+    ? controls[0] as ReactElement<Record<string, unknown>>
     : null;
   const id = (control?.props.id as string | undefined) || inputId || `field-${label.toLowerCase().replace(/\s+/g, "-")}-${generatedId}`;
   const errorId = `${id}-error`;
@@ -39,19 +40,20 @@ export function FormField({
   const describedBy = mergeAriaDescribedBy(error ? errorId : undefined, hint ? hintId : undefined);
 
   const fieldControl =
-    !composite && Children.count(children) === 1 && isValidElement(children)
-      ? cloneElement(children as ReactElement<Record<string, unknown>>, {
-          id: (children as ReactElement<Record<string, unknown>>).props.id || id,
+    control
+      ? cloneElement(control, {
+          id: control.props.id || id,
+          "aria-labelledby": control.props["aria-labelledby"] || (control.props["aria-label"] ? undefined : `${id}-label`),
           "aria-describedby": mergeAriaDescribedBy(
-            (children as ReactElement<Record<string, unknown>>).props["aria-describedby"] as string | undefined,
+            control.props["aria-describedby"] as string | undefined,
             describedBy
           ),
           "aria-invalid":
-            (children as ReactElement<Record<string, unknown>>).props["aria-invalid"] ||
+            control.props["aria-invalid"] ||
             Boolean(error) ||
             undefined,
           "aria-required":
-            (children as ReactElement<Record<string, unknown>>).props["aria-required"] ||
+            control.props["aria-required"] ||
             required ||
             undefined
         })
@@ -59,7 +61,7 @@ export function FormField({
 
   return (
     <div className={["form-field", className].filter(Boolean).join(" ")}>
-      <label className="form-field-label" htmlFor={id}>
+      <label className="form-field-label" htmlFor={id} id={`${id}-label`} onClick={() => document.getElementById(id)?.focus()}>
         {labelIcon ? <span aria-hidden="true" className="form-field-label-icon">{labelIcon}</span> : null}
         <span>{label}</span>
         {required ? <span aria-hidden="true" className="form-field-required-marker"> *</span> : null}

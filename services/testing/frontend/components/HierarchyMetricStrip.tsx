@@ -1,10 +1,12 @@
 import { metricTitle } from "@hellotest/platform/frontend/src/shared/lib/metricTitle";
 import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAiPromptRegistry";
-import { findAiMetricCriteriaByLabel } from "@hellotest/integration/frontend/lib/aiPromptRegistry";
+import { resolveMetricIdentity } from "@hellotest/integration/frontend/lib/aiPromptRegistry";
 import { InfoTooltip } from "@hellotest/platform/frontend/src/shared/components/InfoTooltip";
 
 export type HierarchyMetric = {
   criteriaKey?: string;
+  population?: string;
+  unit?: string;
   label: string;
   methodology?: string;
   value: string | number;
@@ -35,12 +37,10 @@ export function HierarchyMetricStrip({
         <small>{metricTitle(resolvedCountLabel)}</small>
       </span>
       {metrics.map((metric) => {
-        const governedMetric = metric.criteriaKey
-          ? findAiMetricCriteriaByLabel(metric.criteriaKey)
-          : findAiMetricCriteriaByLabel(metric.label);
-        const methodology = metric.methodology || metric.title || (governedMetric
-          ? `${governedMetric.formula} Organization criteria: ${getMetricCriteria(governedMetric.key)}`
-          : "");
+        const governedMetric = resolveMetricIdentity(metric);
+        const methodology = metric.methodology || (governedMetric
+          ? `${governedMetric.key} · ${governedMetric.population} · ${governedMetric.unit}. ${governedMetric.formula} Organization criteria: ${getMetricCriteria(governedMetric.key)}`
+          : metric.title || "Methodology unavailable for this metric identity and population.");
         return (
           <span
             className={`hierarchy-metric tone-${metric.tone || "neutral"}`}

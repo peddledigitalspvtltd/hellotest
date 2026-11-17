@@ -1,4 +1,4 @@
-import { LoadingState } from "../../shared/components/LoadingState";
+import { InlineLoadingState as LoadingState } from "../../shared/components/LoadingSkeleton";
 import { IconChevronRight, IconFolder, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconSearch } from "@tabler/icons-react";
 import { useDialogFocus } from "../../shared/hooks/useDialogFocus";
 import { WorkspaceProjectSwitcher } from "./WorkspaceProjectSwitcher";
@@ -223,7 +223,7 @@ function ReadyAppShell() {
   ]);
   const projectsQuery = useQuery({
     queryKey: [...queryKeys.projects(), "workspace-scopes", projectAccessKey],
-    queryFn: api.metadata.workspaceScopes,
+    queryFn: ({signal}) => api.metadata.workspaceScopes({signal, fresh: true}),
     retry: 1,
     staleTime: 60 * 1000
   });
@@ -529,7 +529,7 @@ function ReadyAppShell() {
       <aside ref={mobileSidebarRef} className={sidebarClassName} id="app-sidebar" role={isMobileViewport && isMobileSidebarOpen ? "dialog" : undefined} aria-modal={isMobileViewport && isMobileSidebarOpen ? true : undefined} aria-label={t("shell.navigation", "Navigation")} tabIndex={-1}>
         <div className="sidebar-top">
           <div className="sidebar-brand-row">
-            <NavLink className="sidebar-brand-lockup" to="/" aria-label="Go to dashboard">
+            <NavLink className="sidebar-brand-lockup" to="/" aria-label="HelloTest dashboard">
               <BrandWordmark className="sidebar-brand-mark" variant={shouldCollapseSidebar ? "mark" : "wordmark"} />
             </NavLink>
             {isMobileViewport ? (
@@ -609,7 +609,7 @@ function ReadyAppShell() {
                         className={isActive ? "nav-link is-active" : "nav-link"}
                         end={item.to === "/"}
                         title={shouldCollapseSidebar ? resolveNavLabel(item) : undefined}
-                        aria-label={resolveNavLabel(item)}
+                        aria-label={shouldCollapseSidebar ? `${resolveNavLabel(item)}${typeof badgeCount === "number" && badgeCount > 0 ? ` ${badgeCount > 99 ? "99+" : badgeCount}` : ""}` : undefined}
                         onFocus={() => prefetchNavigationTarget(navigationTarget, isDisabled)}
                         onMouseEnter={() => prefetchNavigationTarget(navigationTarget, isDisabled)}
                         onClick={(e) => {
@@ -625,7 +625,7 @@ function ReadyAppShell() {
                       >
                         <span className="nav-link-icon" aria-hidden="true">
                           <Icon />
-                          {item.id === "notifications" && totalNotificationUnreadCount > 0 ? (
+                          {shouldCollapseSidebar && item.id === "notifications" && totalNotificationUnreadCount > 0 ? (
                             <span className="nav-link-icon-badge">{totalNotificationUnreadCount > 99 ? "99+" : totalNotificationUnreadCount}</span>
                           ) : null}
                         </span>
@@ -701,11 +701,11 @@ function ReadyAppShell() {
             </div>
           </div>
           <div className="workspace-context-actions">
-            <button className="workspace-search-trigger" type="button" onClick={() => setIsNavigatorOpen(true)} aria-keyshortcuts="Control+k Meta+k" aria-label={t("shell.find", "Find a capability")}><IconSearch size={17} aria-hidden="true"/><span>{t("shell.find", "Find a capability")}</span><kbd>{searchShortcut}</kbd></button>
+            <button className="workspace-search-trigger" type="button" onClick={() => setIsNavigatorOpen(true)} aria-keyshortcuts="Control+k Meta+k" aria-label={`${t("shell.find", "Find a capability")} ${searchShortcut}`}><IconSearch size={17} aria-hidden="true"/><span>{t("shell.find", "Find a capability")}</span><kbd>{searchShortcut}</kbd></button>
             <WorkspacePreferencesMenu theme={theme} refreshing={isRefreshing} onThemeChange={() => setTheme(current => current === "light" ? "dark" : "light")} onRegionalPreferences={() => setIsRegionalDialogOpen(true)} onRefresh={() => void refreshCurrentScreen()} />
-            <button className="workspace-profile-button" type="button" aria-haspopup="dialog" aria-expanded={isProfileDialogOpen} aria-label={t("shell.profile", "Open your profile")} onClick={() => setIsProfileDialogOpen(true)}>
+            <button className="workspace-profile-button" type="button" aria-haspopup="dialog" aria-expanded={isProfileDialogOpen} onClick={() => setIsProfileDialogOpen(true)}>
               <span className="workspace-profile-avatar" aria-hidden="true">{session?.user.avatar_data_url ? <img src={session.user.avatar_data_url} alt=""/> : (session?.user.name || session?.user.email || "QA").split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase()}</span>
-              <span className="workspace-profile-copy"><strong>{session?.user.name || t("shell.user", "Workspace user")}</strong><small>{t(session?.user.role === "admin" ? "shell.admin" : "shell.member", session?.user.role === "admin" ? "Workspace admin" : "Workspace member")}</small></span>
+              <span className="workspace-profile-copy"><strong>{session?.user.name || t("shell.user", "Workspace user")}</strong><small>{t(session?.user.role === "admin" ? "shell.admin" : "shell.member", session?.user.role === "admin" ? "Workspace admin" : "Workspace member")}</small></span><span className="sr-only">{t("shell.profile", "Open your profile")}</span>
             </button>
           </div>
         </header>

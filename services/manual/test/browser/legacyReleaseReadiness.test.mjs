@@ -37,9 +37,9 @@ try {
   await page.waitForFunction(()=>typeof window.finishReleaseLoad==='function');
   assert.equal(await page.locator('.release-portfolio-health').count(),0,'Pending catalogs do not display false zero metrics');
   await page.evaluate(()=>window.finishReleaseLoad());
-  await page.getByRole('button',{name:'View evidence for Total Releases',exact:true}).waitFor();
+  await page.getByTitle('View evidence for Total Releases',{exact:true}).waitFor();
   assert.equal(await page.getByRole('group',{name:'Release portfolio health'}).locator('article').count(),4);
-  assert.equal(await page.getByRole('button',{name:'View evidence for Total Releases',exact:true}).locator('strong').innerText(),'2');
+  assert.equal(await page.getByTitle('View evidence for Total Releases',{exact:true}).locator('strong').innerText(),'2');
   const developmentRelease = page.locator('.release-iteration-header').filter({has:page.getByText('Checkout 1.3',{exact:true})});
   const dev = developmentRelease.locator('.hierarchy-quick-insight').filter({has:page.getByText('Dev Story Completion',{exact:true})});
   const qa = developmentRelease.locator('.hierarchy-quick-insight').filter({has:page.getByText('QA Story Completion',{exact:true})});
@@ -50,20 +50,20 @@ try {
   const portfolio=page.getByRole('group',{name:'Release portfolio health'});
   const backCopies=[];
   for(const label of ['Total Releases','Release Ready','At Risk','Overdue']) {
-    await portfolio.getByRole('button',{name:'View evidence for '+label,exact:true}).click();
+    await portfolio.getByTitle('View evidence for '+label,{exact:true}).click();
     const evidence=portfolio.getByRole('list',{name:label+' evidence',exact:true});await evidence.waitFor();
     backCopies.push(await evidence.innerText());
-    assert.equal(await portfolio.getByRole('button',{name:'View evidence for '+label,exact:true}).count(),0);
+    assert.equal(await portfolio.getByTitle('View evidence for '+label,{exact:true}).count(),0);
     await portfolio.getByRole('button',{name:'Back to '+label+' metric',exact:true}).click();
   }
   assert.equal(new Set(backCopies).size,4,'Each card exposes distinct population and policy evidence');
   await page.getByRole('textbox',{name:'Search releases',exact:true}).fill('Checkout 1.3');
-  assert.equal(await portfolio.getByRole('button',{name:'View evidence for Total Releases'}).locator('strong').innerText(),'2','List search does not change full-project metrics');
+  assert.equal(await portfolio.getByTitle('View evidence for Total Releases').locator('strong').innerText(),'2','List search does not change full-project metrics');
   await page.getByRole('textbox',{name:'Search releases',exact:true}).fill('');
   await page.goto(`${base}?scenario=failure`);
   await page.getByText('Release evidence unavailable.', { exact: true }).waitFor();
-  assert.equal(await page.getByRole('button',{name:'View evidence for Release Ready',exact:true}).locator('strong').innerText(), '—');
-  assert.equal(await page.getByRole('button',{name:'View evidence for At Risk',exact:true}).locator('strong').innerText(), '—');
+  assert.equal(await page.getByTitle('View evidence for Release Ready',{exact:true}).locator('strong').innerText(), '—');
+  assert.equal(await page.getByTitle('View evidence for At Risk',{exact:true}).locator('strong').innerText(), '—');
   assert.ok((await page.locator('.hierarchy-quick-insight strong').allTextContents()).includes('Unavailable'));
   await page.evaluate(() => { window.releaseFail = false; });
   await page.getByRole('button', { name: 'Retry evidence', exact: true }).click();
@@ -90,7 +90,7 @@ try {
   assert.equal(await page.locator('.release-story-tile').getByText(/^(20|50)%$/).count(),0);
   await page.evaluate(async () => { window.releaseNoRuns = false; window.releaseMissing=true; await window.refreshReleaseEvidence(); });
   await page.getByText('Release evidence unavailable.', { exact: true }).waitFor();
-  assert.equal(await page.getByRole('button',{name:'View evidence for Release Ready',exact:true}).locator('strong').innerText(),'—','Missing release evidence is not a partial ready count');
+  assert.equal(await page.getByTitle('View evidence for Release Ready',{exact:true}).locator('strong').innerText(),'—','Missing release evidence is not a partial ready count');
   await page.evaluate(async () => { window.releaseMissing = false; await window.refreshReleaseEvidence(); });
   await page.evaluate(async () => { window.releasePartial = true; await window.refreshReleaseEvidence(); });
   await page.locator('.release-story-tile .tile-card-metric').filter({has:page.getByText(/^Linked [Cc]ases$/)}).getByText('—',{exact:true}).waitFor();
@@ -103,7 +103,7 @@ try {
   for(const theme of ['light','dark']) for(const width of [1440,768,390]) {
     await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
     await page.setViewportSize({width,height:1000});
-    await portfolio.getByRole('button',{name:'View evidence for Overdue',exact:true}).click();
+    await portfolio.getByTitle('View evidence for Overdue',{exact:true}).click();
     const back=portfolio.getByRole('list',{name:'Overdue evidence',exact:true});await back.waitFor();
     assert.match(await back.innerText(),/current schedule status/);
     assert.equal(await portfolio.locator('article').evaluateAll(cards=>cards.every(card=>card.scrollWidth<=card.clientWidth+1)),true,`${theme} cards contain their evidence at ${width}px`);

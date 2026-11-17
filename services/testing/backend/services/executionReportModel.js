@@ -1,3 +1,4 @@
+const { reportText } = require('./reportText');
 const runtime = require("@hellotest/platform/backend/src/domain/executionStepEvidence");
 const { getExecutionResultDurationMs } = require("@hellotest/platform/backend/src/utils/executionCaseLifecycle");
 
@@ -17,8 +18,8 @@ const deriveSteps = (snapshots, logs) => snapshots.map(step => {
   const api = logs.stepApiDetails[id] || {};
   const evidence = logs.stepEvidence[id] || null;
   return {
-    id, order: step.step_order, type: step.step_type || "web", action: step.action || "",
-    expected_result: step.expected_result || "", status: statusOf(logs.stepStatuses[id]),
+    id, order: step.step_order, type: step.step_type || "web", action: reportText(step.action),
+    expected_result: reportText(step.expected_result), status: statusOf(logs.stepStatuses[id]),
     note: logs.stepNotes[id] || "", evidence, has_evidence: Boolean(evidence?.dataUrl || evidence?.attachmentId),
     captures: logs.stepCaptures[id] || api.captures || {}, console_count: array(web.console).length,
     network_count: array(web.network).length, page_url: web.url || "", web_details: web, api_details: api
@@ -26,7 +27,9 @@ const deriveSteps = (snapshots, logs) => snapshots.map(step => {
 });
 
 function buildExecutionReportModel(execution, results = [], now = Date.now()) {
-  const validResults = results.filter(result => !result.execution_id || String(result.execution_id) === String(execution.id));
+  const frozenIds = new Set(array(execution.case_snapshots).map(snapshot=>String(snapshot.test_case_id)));
+  const validResults = results.filter(result => (!result.execution_id || String(result.execution_id) === String(execution.id))
+    && (!frozenIds.size || frozenIds.has(String(result.test_case_id))));
   const snapshots = new Map(array(execution.case_snapshots).map(snapshot => [String(snapshot.test_case_id), snapshot]));
   // Preserve legacy result-only runs without reading today's mutable test-case content.
   for (const result of validResults) if (!snapshots.has(String(result.test_case_id))) snapshots.set(String(result.test_case_id), {
@@ -80,7 +83,7 @@ function buildExecutionReportModel(execution, results = [], now = Date.now()) {
       });
       cases.push({
         id: snapshot.test_case_id, instance_id: `case-${cases.length + 1}`, instance_key: instanceKey,
-        title: snapshot.test_case_title || "Unnamed test case", description: snapshot.test_case_description || "",
+        title: snapshot.test_case_title || "Unnamed test case", description: reportText(snapshot.test_case_description),
         suite_id: snapshot.suite_id || result?.suite_id || null, suite_name: snapshot.suite_name || result?.suite_name || null,
         module_id: snapshot.module_id || null, module_name: snapshot.module_name || null, priority: snapshot.priority || null,
         status: statusOf(result?.status), duration_ms: attempts.reduce((sum, attempt) => sum + attempt.duration_ms, 0),
@@ -88,7 +91,10 @@ function buildExecutionReportModel(execution, results = [], now = Date.now()) {
         data_set_iteration_index: index, data_set_iteration_key: result?.data_set_iteration_key || null,
         test_data_set_name: result?.test_data_set_name || dataName || "", test_data_set_id: result?.test_data_set_id || dataId || null,
         data_set_row: row, data_iteration_ambiguous: Boolean(instanceKey === "single" && data && rows.length > 1 && data.mode !== "key_value"), data_set_source: snapshot.data_set_source || (data ? "run" : null), parameter_values: parse(snapshot.parameter_values), suite_parameter_values: parse(snapshot.suite_parameter_values),
-        defects: [...array(result?.case_defects), ...array(result?.defects)], legacy: Boolean(snapshot.legacy)
+        defects: execution.defects_available === false ? [] : execution.linked_defects
+          ? execution.linked_defects.filter(defect => defect.test_case_ids.includes(snapshot.test_case_id)
+            && defect.provenance.some(origin => origin.source === 'run' && !origin.result_id || origin.result_id === result?.id)).map(defect=>defect.display_id||defect.id)
+          : [...array(result?.case_defects), ...array(result?.defects)], legacy: Boolean(snapshot.legacy)
       });
     }
   }
@@ -98,6 +104,7 @@ function buildExecutionReportModel(execution, results = [], now = Date.now()) {
   summary.conclusive_pass_rate = summary.conclusive_total ? Math.round(100 * summary.passed / summary.conclusive_total) : null;
   summary.duration_ms = cases.reduce((total, item) => total + item.duration_ms, 0);
   summary.distinct_cases = snapshots.size;
+  summary.defect_count = execution.defects_available === false ? null : execution.linked_defects?.length ?? new Set(cases.flatMap(item=>item.defects)).size;
   summary.attempts = validResults.length;
   summary.evidence_steps = cases.reduce((total, item) => total + item.steps.filter(step => step.has_evidence).length, 0);
   const suites = new Map();
@@ -106,7 +113,22 @@ function buildExecutionReportModel(execution, results = [], now = Date.now()) {
     if (!suites.has(key)) suites.set(key, { id: item.suite_id, name: item.suite_name || "Direct cases", cases: [] });
     suites.get(key).cases.push(item);
   }
-  return { execution, results: validResults, generated_at: new Date(now).toISOString(), summary, cases,
+  return { execution:{...execution,run_mode:execution.run_mode || (execution.trigger === "manual" ? "manual" : execution.trigger === "local" || execution.execution_mode === "local" ? "local" : execution.execution_mode || "remote")}, results: validResults, generated_at: new Date(now).toISOString(), summary, cases,
     suites: [...suites.values()].map(suite => ({ ...suite, ...counts(suite.cases), duration_ms: suite.cases.reduce((total, item) => total + item.duration_ms, 0), step_count: suite.cases.reduce((total, item) => total + item.steps.length, 0) })) };
 }
-module.exports = { buildExecutionReportModel };
+const scopeReportToCase = (report, testCaseId) => {
+  const cases = report.cases.filter((item) => String(item.id) === String(testCaseId));
+  if (!cases.length) throw Object.assign(new Error("The selected test case is not part of this run snapshot"), { statusCode: 404 });
+  const scoped = buildExecutionReportModel(
+    { ...report.execution, case_snapshots: (report.execution.case_snapshots || []).filter(item => String(item.test_case_id) === String(testCaseId)) },
+    report.results.filter(item => String(item.test_case_id) === String(testCaseId)),
+    new Date(report.generated_at).getTime()
+  );
+  return {
+    ...scoped,
+    execution: { ...report.execution, name: `${report.execution.name || "HelloTest run"} · ${cases[0].title}` },
+    ai_analysis: undefined
+  };
+};
+
+module.exports = { buildExecutionReportModel, scopeReportToCase };

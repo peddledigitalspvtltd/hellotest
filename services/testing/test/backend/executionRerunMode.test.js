@@ -20,6 +20,7 @@ function insertedRows(statements, table) {
 function fixture(context, {mode, trigger, execution_mode}) {
   const cases = ['failed-case', 'passed-case'].map(test_case_id => ({test_case_id, test_case_title: test_case_id,
     automated: 'yes', suite_id: 'frozen-suite', suite_name: 'Frozen suite',
+    ...(test_case_id==='passed-case'?{requirement_snapshots:[{id:'historical-story',display_id:'Req_1',title:'Frozen Story title'}]}:{}),
     parameter_values: {'r.name': 'old case sample', 'r.private': 'fixture-frozen-private'},
     parameter_template_values: {'r.name': '{{randomString:16}}', 'r.private': 'fixture-frozen-private'},
     suite_parameter_values: {'s.reference': 'old suite sample'}, suite_parameter_template_values: {'s.reference': '{{randomString:16}}'},
@@ -73,6 +74,7 @@ for (const parent of [
   assert.deepEqual(cases.map(row => row.test_case_id), expectedIds); assert.deepEqual(steps.map(row => row.test_case_id), expectedIds);
   for (const row of cases) {
     assert.equal(row.execution_id, created.id); assert.equal(row.parameter_template_values['r.name'], '{{randomString:16}}');
+    assert.deepEqual(row.requirement_snapshots,row.test_case_id==='passed-case'?[{id:'historical-story',display_id:'Req_1',title:'Frozen Story title'}]:null,'Reruns preserve frozen Stories and retain missing legacy associations as NULL.');
     assert.notEqual(row.parameter_values['r.name'], 'old case sample'); assert.equal(row.parameter_values['r.private'], 'fixture-frozen-private');
     assert.equal(row.test_data_options.private_parameter_names[0], 'r.private');
     assert.notEqual(row.suite_parameter_values['s.reference'], 'old suite sample');

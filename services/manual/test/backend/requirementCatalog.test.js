@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 
 function loadService(db = {}) {
-  const context = { exports: {}, require: (name) => { if (name === '@hellotest/platform/backend/src/utils/deliveryScopeSql') return require('../../../platform/backend/src/utils/deliveryScopeSql'); if (name === '@hellotest/platform/backend/src/utils/storyReadiness') return require('../../../platform/backend/src/utils/storyReadiness'); if (name === 'crypto') return require('crypto'); if (name === '@hellotest/platform/backend/src/utils/finalizedCaseMetrics') return require('../../../platform/backend/src/utils/finalizedCaseMetrics'); assert.equal(name, '@hellotest/platform/backend/src/db'); return db; }, Buffer, Date };
+  const context = { exports: {}, require: (name) => { if (name === '@hellotest/platform/backend/src/utils/defectStatus') return require('../../../platform/backend/src/utils/defectStatus'); if (name === '@hellotest/platform/backend/src/utils/deliveryScopeSql') return require('../../../platform/backend/src/utils/deliveryScopeSql'); if (name === '@hellotest/platform/backend/src/utils/storyReadiness') return require('../../../platform/backend/src/utils/storyReadiness'); if (name === 'crypto') return require('crypto'); if (name === '@hellotest/platform/backend/src/utils/finalizedCaseMetrics') return require('../../../platform/backend/src/utils/finalizedCaseMetrics'); assert.equal(name, '@hellotest/platform/backend/src/db'); return db; }, Buffer, Date };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../backend/services/requirementCatalog.service.js'), 'utf8'), context);
   return context.exports;
 }

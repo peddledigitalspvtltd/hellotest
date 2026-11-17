@@ -1,3 +1,4 @@
+import { assertAccessibleControls } from "../../../platform/frontend/test/browser/axeControls.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { writeFile, unlink } from "node:fs/promises";
@@ -52,7 +53,7 @@ const makeRun = (id, name, status, suites = [], trigger = "manual", day = 1) => 
   test_environment: { id: environment.id, name: environment.name, snapshot: environment }, test_configuration: { id: configuration.id, name: configuration.name, snapshot: configuration }, test_data_set: { id: data.id, name: data.name, snapshot: data },
   metrics: { total_cases: 6, passed_cases: status === "queued" ? 0 : 2, failed_cases: status === "queued" ? 0 : status === "running" ? 1 : 3, blocked_cases: status === "queued" ? 0 : 1, running_cases: status === "running" ? 1 : 0, pending_cases: status === "queued" ? 6 : status === "running" ? 1 : 0, defect_count: status === "queued" ? 0 : 2, story_count: 3, failed_story_count: status === "queued" ? 0 : 2 },
   case_snapshots: cases.map((item, i) => ({ execution_id: id, test_case_id: item.id, test_case_title: item.title, test_case_description: item.description, priority: item.priority, status: item.status, sort_order: i, requirement_ids: item.requirement_ids, suite_id: suites[0] || null, suite_name: suites.length ? "Checkout suite" : null, module_id: item.module_id, module_name: item.module_name, external_references: [], parameter_values: {}, assigned_to: "qa", assigned_to_ids: ["qa"], assigned_users: [assignees[0]], assignment_source: "run" })),
-  step_snapshots: cases.map(item => ({ execution_id: id, test_case_id: item.id, snapshot_step_id: "step-" + item.id, step_order: 1, action: "Given checkout is ready", expected_result: "Checkout succeeds", step_type: "web" })),
+  step_snapshots: cases.map(item => ({ execution_id: id, test_case_id: item.id, snapshot_step_id: "step-" + item.id, step_order: 1, action: "Given checkout is ready", expected_result: "Checkout succeeds", step_type: "web", group_id: new URLSearchParams(location.search).has("groupedSteps") ? "checkout-preparation" : null, group_name: "Checkout preparation", group_kind: "local" })),
   suite_snapshots: suites.map(id => ({ id, name: "Checkout suite", test_case_count: cases.length })), module_snapshots: modules.map(module => ({ ...module, test_case_count: 3 })), requirement_snapshots: stories
 });
 const runs = [makeRun("direct", "Direct checkout run", "failed", [], "manual", 9), makeRun("suite", "Suite checkout run", "queued", ["suite"], "manual", 8), makeRun("running", "Active checkout run", "running", ["suite"], "manual", 7), makeRun("aborted", "Aborted checkout run", "aborted", [], "manual", 6), makeRun("completed", "Completed checkout run", "completed", [], "manual", 5), makeRun("local", "Local checkout run", "queued", [], "local", 4)];
@@ -117,20 +118,29 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog selection
     const errors = [];
     page.on("pageerror", error => { errors.push(error.message); void writeFile("/tmp/qaira-run-catalog-error.txt", String(error.stack)); });
     const url = `${process.env.VITE_TEST_URL || "http://127.0.0.1:5173"}/${name}.html`;
-    const assertNoOverflow = async label => {
+    const assertNoOverflow = async (label, currentPage = page) => {
+      const page = currentPage;
       const overflow = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth, main: document.querySelector(".workspace-main")?.getBoundingClientRect().toJSON(), content: document.querySelector(".page-content")?.getBoundingClientRect().toJSON() }));
       assert.ok(overflow.document <= overflow.viewport + 1, `${label}: ${JSON.stringify(overflow)}`);
       assert.ok(overflow.content.right <= overflow.viewport + 1 && overflow.content.width > 200, `${label}: ${JSON.stringify(overflow)}`);
     };
     const assertWheelScrollsPage = async target => {
+      const page = target.page();
       await target.scrollIntoViewIfNeeded();
       await target.hover();
-      const { top, remaining } = await page.locator(".workspace-main").evaluate(element => ({ top: element.scrollTop, remaining: element.scrollHeight - element.clientHeight - element.scrollTop }));
+      // Keep adjacent synthetic wheel gestures separate after locating a control.
+      await page.waitForTimeout(300);
+      const { top, remaining } = await page.locator(".page-content--execution-command-center").evaluate(element => ({ top: element.scrollTop, remaining: element.scrollHeight - element.clientHeight - element.scrollTop }));
       const delta = remaining > 60 ? 240 : -240;
       await page.mouse.wheel(0, delta);
-      await page.waitForFunction(({ top, delta }) => delta > 0
-        ? document.querySelector(".workspace-main").scrollTop > top + 10
-        : document.querySelector(".workspace-main").scrollTop < top - 10, { top, delta }, { timeout: 2000 });
+      try {
+        await page.waitForFunction(({ top, delta }) => delta > 0
+          ? document.querySelector(".page-content--execution-command-center").scrollTop > top + 10
+          : document.querySelector(".page-content--execution-command-center").scrollTop < top - 10, { top, delta }, { timeout: 2000 });
+      } catch (error) {
+        const after = await page.locator(".page-content--execution-command-center").evaluate(element => ({ top: element.scrollTop, height: element.scrollHeight, client: element.clientHeight }));
+        throw new Error(`Wheel did not move the run page: ${JSON.stringify({ before: top, delta, viewport: page.viewportSize(), after })}`, { cause: error });
+      }
     };
     const assertDialogFitsAndTrapsFocus = async (dialog, width) => {
       await dialog.waitFor();
@@ -154,7 +164,9 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog selection
     assert.equal(await page.getByRole("article", { name: "Open run Local checkout run", exact: true }).count(), 1);
     assert.doesNotMatch(await direct.innerText(), /RUN-HIDDEN-|HIDDEN-RELEASE|HIDDEN-SPRINT|HIDDEN-BUILD/);
     assert.equal(await direct.locator(".tile-card-title-group").evaluate(element => getComputedStyle(element, "::before").content), "none", "run title has one visible field label");
-    assert.equal(await direct.locator('.tile-card-metric').filter({ hasText: "Defects" }).innerText().then(value => value.replace(/\s+/g, " ").trim()), "2 Defects");
+    const defectMetric = direct.locator(".tile-card-metric").filter({ hasText: "Defects" });
+    assert.equal(await defectMetric.locator(":scope > strong").innerText(), "2");
+    assert.equal(await defectMetric.locator(":scope > span").evaluate(element => element.firstChild.textContent.trim()), "Defects");
     assert.match(await direct.innerText(), /2\/3/);
     const segmentTitles = tile => tile.locator(".metric-status-segment").evaluateAll(elements => elements.map(element => element.title));
     assert.deepEqual(await segmentTitles(direct.locator(".tile-card-progress").nth(0)), ["Passed: 2", "Failed: 3", "Blocked: 1"]);
@@ -197,21 +209,22 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog selection
     await direct.locator(".tile-card-open-button").click();
     await page.getByRole("heading", { name: "Direct checkout run", exact: true }).waitFor();
     assert.equal(await page.locator(".execution-command-actions").getByRole("button", { name: "Edit run", exact: true }).count(), 0);
-    assert.equal(await page.getByRole("button", { name: "View evidence for Run Results", exact: true }).locator(":scope > strong").innerText(), "33%", "Run pass rate uses finalized instances");
-    assert.match(await page.getByRole("button", { name: "View evidence for Defects", exact: true }).innerText(), /2/);
-    assert.match(await page.getByRole("button", { name: "View evidence for Run Impacted Stories", exact: true }).innerText(), /2\/3/);
-    assert.match(await page.getByRole("button", { name: "View evidence for Evidence Readiness", exact: true }).innerText(), /100%/);
+    assert.equal(await page.getByTitle("View evidence for Run Results",{exact: true}).locator(":scope > strong").innerText(), "33%", "Run pass rate uses finalized instances");
+    assert.match(await page.getByTitle("View evidence for Defects",{exact: true}).innerText(), /2/);
+    assert.match(await page.getByTitle("View evidence for Run Impacted Stories",{exact: true}).innerText(), /2\/3/);
+    assert.match(await page.getByTitle("View evidence for Evidence Completeness",{exact: true}).innerText(), /100%/);
     assert.equal(await page.locator(".execution-command-analysis > .agent-process-rail, .execution-command-analysis .execution-command-readiness").count(), 0, "The side panel has no duplicate readiness card or always-visible workflow");
     assert.equal(await page.locator("details > summary").filter({ hasText: /^Evidence analysis$/i }).count(), 0, "Evidence analysis is not duplicated below the page");
     assert.equal(await page.getByRole("dialog").count(), 0, "Review and workflow dialogs open only on request");
     for (const width of [1440, 1024, 768, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
       await assertNoOverflow(`details ${width}`);
+      await assertAccessibleControls(page);
       const actionPosition = await page.locator(".execution-run-command-center").evaluate(root => ({ heading: root.querySelector(".execution-command-header").getBoundingClientRect().bottom, actions: root.querySelector(".execution-command-actions").getBoundingClientRect().top }));
       assert.ok(actionPosition.actions >= actionPosition.heading - 1, JSON.stringify({ width, actionPosition }));
       const health = page.locator('[aria-label="Execution health"]');
       for (const label of ["Run Results", "Execution Progress", "Total Duration", "Defects"]) {
-        const front = health.getByRole("button", { name: `View evidence for ${label}`, exact: true });
+        const front = health.getByTitle(`View evidence for ${label}`,{exact: true});
         await front.click();
         const evidence = health.getByRole("list", { name: `${label} evidence`, exact: true });
         await evidence.waitFor();
@@ -235,18 +248,18 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog selection
       });
       assert.deepEqual(clippedComposerControls, [], `Failure Analyst controls fit at ${width}px`);
       if (process.env.BROWSER_SCREENSHOT_DIR && [1440, 390].includes(width)) {
-        await page.locator(".workspace-main").evaluate(element => element.scrollTop = 0);
+        await page.locator(".page-content--execution-command-center").evaluate(element => element.scrollTop = 0);
         await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, `run-details-${width}.png`), animations: "disabled" });
       }
     }
 
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.getByRole("button", { name: "View evidence for Run Impacted Stories", exact: true }).click();
+    await page.getByTitle("View evidence for Run Impacted Stories",{exact: true}).click();
     await page.getByRole("list", { name: "Run Impacted Stories evidence", exact: true }).waitFor();
     assert.match(await page.getByRole("list", { name: "Run Impacted Stories evidence", exact: true }).innerText(), /Checkout story/);
     await page.getByRole("button", { name: "Inspect failed cases", exact: true }).click();
     assert.equal(await page.locator(".execution-command-case-inspect").count(), 3);
-    await page.getByRole("button", { name: "View evidence for Evidence Readiness", exact: true }).click();
+    await page.getByTitle("View evidence for Evidence Completeness",{exact: true}).click();
     for (const width of [1440, 1024, 768, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
       const evidenceTrigger = page.getByRole("button", { name: "Open evidence", exact: true });
@@ -276,7 +289,7 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog selection
       await page.waitForFunction(() => document.activeElement?.textContent.trim() === "Workflow");
     }
     await page.setViewportSize({ width: 1440, height: 900 });
-    for (const [label, title] of [["Environment", "Environment"], ["Test data", "Test data"], ["Configuration", "Configuration"]]) {
+    for (const [label, title] of [["Environment", "Environment"], ["Run override", "Test data"], ["Configuration", "Configuration"]]) {
       await page.locator(".execution-run-config-links").getByRole("button", { name: new RegExp(`^${label} `) }).click();
       const dialog = page.getByRole("dialog", { name: title, exact: true });
       await dialog.getByText("Saved with this run", { exact: true }).waitFor();
@@ -302,7 +315,7 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog selection
     await page.goto(`${url}?route=${encodeURIComponent("/executions?view=suite-runs&execution=suite")}`);
     await page.getByRole("heading", { name: "Suite checkout run", exact: true }).waitFor();
     for (const [label, value] of [["Run Results", "—"], ["Execution Progress", "0%"], ["Defects", "0"]]) {
-      assert.equal(await page.getByRole("button", { name: `View evidence for ${label}`, exact: true }).locator(":scope > strong").innerText(), value, `Queued ${label} distinguishes missing results from zero progress or defects`);
+      assert.equal(await page.getByTitle(`View evidence for ${label}`,{exact: true}).locator(":scope > strong").innerText(), value, `Queued ${label} distinguishes missing results from zero progress or defects`);
     }
     await page.getByRole("button", { name: "Workflow", exact: true }).click();
     const queuedWorkflow = page.getByRole("dialog", { name: "Failure Analyst workflow", exact: true });
@@ -310,20 +323,20 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog selection
     await page.keyboard.press("Escape");
     await page.goto(`${url}?route=${encodeURIComponent("/executions?view=suite-runs&execution=running")}`);
     await page.getByRole("heading", { name: "Active checkout run", exact: true }).waitFor();
-    const durationMetric = page.locator('button[aria-label="View evidence for Total Duration"] > strong');
+    const durationMetric = page.locator('button[title="View evidence for Total Duration"] > strong');
     const durationBeforeTick = await durationMetric.innerText();
-    await page.getByRole("button", { name: "View evidence for Total Duration", exact: true }).click();
-    await page.waitForFunction(previous => document.querySelector('button[aria-label="View evidence for Total Duration"] > strong').textContent !== previous, durationBeforeTick, { timeout: 3000 });
+    await page.getByTitle("View evidence for Total Duration",{exact: true}).click();
+    await page.waitForFunction(previous => document.querySelector('button[title="View evidence for Total Duration"] > strong').textContent !== previous, durationBeforeTick, { timeout: 3000 });
     assert.equal(await page.getByRole("button", { name: "Back to Total Duration metric", exact: true }).isVisible(), true, "Live duration updates preserve the evidence face");
     await page.getByRole("button", { name: "Back to Total Duration metric", exact: true }).click();
-    const runRoot = page.getByRole("button", { name: "Run: Active checkout run", exact: true });
+    const runRoot = page.getByRole("button", { name: /Run Name Active checkout run/ });
     assert.equal(await runRoot.locator(".execution-hierarchy-completion").innerText(), "67%");
     assert.equal(await page.locator(".execution-command-case-inspect").count(), 6, "The run root starts with every case in scope");
-    const suite = page.getByRole("button", { name: "Suite: Checkout suite", exact: true });
+    const suite = page.getByRole("button", { name: /Suite Checkout suite/ });
     const expandSuite = page.getByRole("button", { name: "Expand Checkout suite", exact: true });
     if (await expandSuite.isVisible()) await expandSuite.click();
-    const payments = page.getByRole("button", { name: "Module: Payment methods", exact: true });
-    const retries = page.getByRole("button", { name: "Module: Retry handling", exact: true });
+    const payments = page.getByRole("button", { name: /Module Payment methods/ });
+    const retries = page.getByRole("button", { name: /Module Retry handling/ });
     assert.equal(await suite.locator(".execution-hierarchy-completion").innerText(), "67%");
     assert.equal(await payments.locator(".execution-hierarchy-completion").innerText(), "100%");
     assert.equal(await retries.locator(".execution-hierarchy-completion").innerText(), "33%");
@@ -344,25 +357,39 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog selection
     assert.equal(await moduleAssignees.getByRole("button", { name: "Select assignees", exact: true }).isEnabled(), true);
     assert.equal(await page.locator(".execution-command-case-inspect").count(), 3, "Selecting a module narrows the case scope");
     for (const width of [1440, 1024, 768, 390, 320]) {
-      await page.setViewportSize({ width, height: 900 });
-      await assertNoOverflow(`module hierarchy ${width}`);
-      const expandedWidth = await page.locator(".execution-command-cases").evaluate(element => element.clientWidth);
-      const collapse = page.getByRole("button", { name: "Collapse test hierarchy", exact: true });
-      assert.equal(await collapse.getAttribute("aria-expanded"), "true");
-      await collapse.click();
-      const expand = page.getByRole("button", { name: "Expand test hierarchy", exact: true });
-      assert.equal(await expand.getAttribute("aria-expanded"), "false");
-      assert.equal(await page.locator("#execution-hierarchy-content").isVisible(), false);
-      if (width >= 1024) assert.ok(await page.locator(".execution-command-cases").evaluate(element => element.clientWidth) > expandedWidth, `Collapsing the hierarchy returns space to cases at ${width}px`);
-      await assertNoOverflow(`collapsed hierarchy ${width}`);
-      await expand.click();
-      await retries.waitFor();
-      await assertWheelScrollsPage(retries);
-      await assertWheelScrollsPage(moduleAssignees.getByRole("button", { name: "Select assignees", exact: true }));
-      if (process.env.BROWSER_SCREENSHOT_DIR && [1440, 390].includes(width)) {
-        await page.locator(".execution-command-hierarchy").scrollIntoViewIfNeeded();
-        await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, `run-hierarchy-${width}.png`), animations: "disabled" });
-      }
+      // Each viewport gets its own native widget. Reusing one tab after the
+      // dialog/resize matrix leaves Chromium's edge input bounds stale even
+      // when its DOM and CDP layout metrics report the new viewport correctly.
+      const scopedPage = await browser.newPage({ viewport: { width, height: 900 } });
+      scopedPage.on("pageerror", error => errors.push(error.message));
+      try {
+        await scopedPage.goto(`${url}?route=${encodeURIComponent("/executions?view=suite-runs&execution=running")}`);
+        await scopedPage.getByRole("heading", { name: "Active checkout run", exact: true }).waitFor();
+        const expandSuite = scopedPage.getByRole("button", { name: "Expand Checkout suite", exact: true });
+        if (await expandSuite.isVisible()) await expandSuite.click();
+        const scopedRetries = scopedPage.getByRole("button", { name: /Module Retry handling/ });
+        await scopedRetries.click();
+        const scopedAssignees = scopedPage.getByRole("group", { name: "Module assignees", exact: true });
+        await assertNoOverflow(`module hierarchy ${width}`, scopedPage);
+        await assertAccessibleControls(scopedPage);
+        const expandedWidth = await scopedPage.locator(".execution-command-cases").evaluate(element => element.clientWidth);
+        const collapse = scopedPage.getByRole("button", { name: "Collapse test hierarchy", exact: true });
+        assert.equal(await collapse.getAttribute("aria-expanded"), "true");
+        await collapse.click();
+        const expand = scopedPage.getByRole("button", { name: "Expand test hierarchy", exact: true });
+        assert.equal(await expand.getAttribute("aria-expanded"), "false");
+        assert.equal(await scopedPage.locator("#execution-hierarchy-content").isVisible(), false);
+        if (width >= 1024) assert.ok(await scopedPage.locator(".execution-command-cases").evaluate(element => element.clientWidth) > expandedWidth, `Collapsing the hierarchy returns space to cases at ${width}px`);
+        await assertNoOverflow(`collapsed hierarchy ${width}`, scopedPage);
+        await expand.click();
+        await scopedRetries.waitFor();
+        await assertWheelScrollsPage(scopedRetries);
+        await assertWheelScrollsPage(scopedAssignees.getByRole("button", { name: "Select assignees", exact: true }));
+        if (process.env.BROWSER_SCREENSHOT_DIR && [1440, 390].includes(width)) {
+          await scopedPage.locator(".execution-command-hierarchy").scrollIntoViewIfNeeded();
+          await scopedPage.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, `run-hierarchy-${width}.png`), animations: "disabled" });
+        }
+      } finally { await scopedPage.close(); }
     }
     await runRoot.click();
     assert.equal(await page.locator(".execution-command-case-inspect").count(), 6, "Selecting the labeled run root restores every case");
@@ -375,30 +402,48 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog selection
     assert.match(await page.getByTestId("location").textContent(), /execution=running/);
     assert.match(await page.getByTestId("location").textContent(), /testCase=case-1/);
     await assertNoOverflow("suite module case link");
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await assertAccessibleControls(page);
+    }
+    await page.goto(`${url}?groupedSteps=1&route=${encodeURIComponent("/executions?view=suite-runs&execution=running&testCase=case-1")}`);
+    await page.getByRole("heading", { name: "Checkout scenario 1", exact: true }).waitFor();
+    const stepGroup = page.locator(".execution-step-group-button-main");
+    if (await stepGroup.getAttribute("aria-expanded") !== "true") await stepGroup.click();
+    await page.locator(".execution-step-card[role=listitem]").waitFor();
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await assertAccessibleControls(page);
+    }
     await page.goto(`${url}?longStories=1&route=${encodeURIComponent("/executions?view=suite-runs&execution=direct")}`);
     await page.getByRole("heading", { name: "Direct checkout run", exact: true }).waitFor();
     for (const width of [1440, 390, 320]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.getByRole("button", { name: "View evidence for Run Impacted Stories", exact: true }).click();
-      const evidence = page.getByRole("list", { name: "Run Impacted Stories evidence", exact: true });
-      await evidence.waitFor();
-      const evidenceBounds = await evidence.evaluate(element => ({ height: element.clientHeight, scrollHeight: element.scrollHeight, width: element.clientWidth, scrollWidth: element.scrollWidth, overscrollY: getComputedStyle(element).overscrollBehaviorY }));
-      assert.ok(evidenceBounds.scrollHeight <= evidenceBounds.height + 1 && evidenceBounds.scrollWidth <= evidenceBounds.width + 1, JSON.stringify({ width, evidenceBounds }));
-      assert.equal(evidenceBounds.overscrollY, "auto", "global flip-card styles must not contain the run page wheel");
-      await evidence.scrollIntoViewIfNeeded();
-      await evidence.hover();
-      const previous = await page.locator(".workspace-main").evaluate(element => element.scrollTop);
-      await page.mouse.wheel(0, 240);
-      await page.waitForFunction(previous => document.querySelector(".workspace-main").scrollTop > previous + 10, previous, { timeout: 2000 });
-      assert.equal(await evidence.evaluate(element => element.scrollTop), 0, "long evidence uses the page scrollbar");
-      await assertNoOverflow(`long flipped evidence ${width}`);
-      if (process.env.BROWSER_SCREENSHOT_DIR) await evidence.locator("xpath=ancestor::article[1]").screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, `run-story-evidence-${width}.png`), animations: "disabled" });
-      await page.getByRole("button", { name: "Back to Run Impacted Stories metric", exact: true }).click();
+      const evidencePage = await browser.newPage({ viewport: { width, height: 900 } });
+      evidencePage.on("pageerror", error => errors.push(error.message));
+      try {
+        await evidencePage.goto(`${url}?longStories=1&route=${encodeURIComponent("/executions?view=suite-runs&execution=direct")}`);
+        await evidencePage.getByRole("heading", { name: "Direct checkout run", exact: true }).waitFor();
+        await evidencePage.getByTitle("View evidence for Run Impacted Stories",{exact: true}).click();
+        const evidence = evidencePage.getByRole("list", { name: "Run Impacted Stories evidence", exact: true });
+        await evidence.waitFor();
+        const evidenceBounds = await evidence.evaluate(element => ({ height: element.clientHeight, scrollHeight: element.scrollHeight, width: element.clientWidth, scrollWidth: element.scrollWidth, overscrollY: getComputedStyle(element).overscrollBehaviorY }));
+        assert.ok(evidenceBounds.scrollHeight <= evidenceBounds.height + 1 && evidenceBounds.scrollWidth <= evidenceBounds.width + 1, JSON.stringify({ width, evidenceBounds }));
+        assert.equal(evidenceBounds.overscrollY, "auto", "global flip-card styles must not contain the run page wheel");
+        await evidence.scrollIntoViewIfNeeded();
+        await evidence.hover();
+        const previous = await evidencePage.locator(".page-content--execution-command-center").evaluate(element => element.scrollTop);
+        await evidencePage.mouse.wheel(0, 240);
+        await evidencePage.waitForFunction(previous => document.querySelector(".page-content--execution-command-center").scrollTop > previous + 10, previous, { timeout: 2000 });
+        assert.equal(await evidence.evaluate(element => element.scrollTop), 0, "long evidence uses the page scrollbar");
+        await assertNoOverflow(`long flipped evidence ${width}`, evidencePage);
+        if (process.env.BROWSER_SCREENSHOT_DIR) await evidence.locator("xpath=ancestor::article[1]").screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, `run-story-evidence-${width}.png`), animations: "disabled" });
+        await evidencePage.getByRole("button", { name: "Back to Run Impacted Stories metric", exact: true }).click();
+      } finally { await evidencePage.close(); }
     }
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`${url}?delayedResults=1&route=${encodeURIComponent("/executions?view=suite-runs&execution=direct")}`);
     await page.getByRole("heading", { name: "Direct checkout run", exact: true }).waitFor();
-    await page.getByRole("button", { name: "View evidence for Evidence Readiness", exact: true }).click();
+    await page.getByTitle("View evidence for Evidence Completeness",{exact: true}).click();
     await page.getByRole("button", { name: "Open evidence", exact: true }).click();
     const delayedAnalysis = page.getByRole("dialog", { name: "Evidence Analysis", exact: true });
     const summary = delayedAnalysis.getByRole("textbox", { name: "Edit run analysis summary", exact: true });
@@ -438,7 +483,7 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog selection
       await page.getByRole("button", { name: "Back to run library", exact: true }).click();
       await page.getByRole("article", { name: `Open run ${name}`, exact: true }).locator(".tile-card-open-button").click();
       await page.getByRole("heading", { name, exact: true }).waitFor();
-      await page.getByRole("button", { name: "View evidence for Evidence Readiness", exact: true }).click();
+      await page.getByTitle("View evidence for Evidence Completeness",{exact: true}).click();
       await page.getByRole("button", { name: "Open evidence", exact: true }).click();
     };
     await switchRun("Completed checkout run");
@@ -508,4 +553,36 @@ test("Scheduled Run tile bars show readiness and context counts with their own t
     await browser?.close();
     await Promise.allSettled([unlink(htmlPath), unlink(sourcePath)]);
   }
+});
+
+test("run detail and runner pass full control and list accessibility on desktop and mobile", { timeout: 90000 }, async () => {
+  const name = `run-accessibility-qa-${randomUUID()}`;
+  const htmlPath = new URL(`${name}.html`, frontendRoot), sourcePath = new URL(`${name}.tsx`, frontendRoot);
+  let browser;
+  try {
+    await writeFile(htmlPath, `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    await writeFile(sourcePath, fixtureSource);
+    browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
+    const page = await browser.newPage({ viewport: { width: 390, height: 900 } });
+    const errors = []; page.on("pageerror", error => errors.push(error.message));
+    const url = `${process.env.VITE_TEST_URL || "http://127.0.0.1:5173"}/${name}.html`;
+    await page.goto(`${url}?route=${encodeURIComponent("/executions?view=suite-runs&execution=running")}`);
+    await page.getByRole("heading", { name: "Active checkout run", exact: true }).waitFor();
+    const expand = page.getByRole("button", { name: "Expand Checkout suite", exact: true });
+    if (await expand.isVisible()) await expand.click();
+    await page.getByRole("button", { name: /Module Retry handling/ }).click();
+    for (const width of [1440, 390]) { await page.setViewportSize({ width, height: 900 }); await assertAccessibleControls(page); }
+    for (const grouped of [false, true]) {
+      await page.goto(`${url}?${grouped ? "groupedSteps=1&" : ""}route=${encodeURIComponent("/executions?view=suite-runs&execution=running&testCase=case-1")}`);
+      await page.getByRole("heading", { name: "Checkout scenario 1", exact: true }).waitFor();
+      if (grouped) {
+        const group = page.locator(".execution-step-group-button-main");
+        if (await group.getAttribute("aria-expanded") !== "true") await group.click();
+      }
+      await page.locator(".execution-step-card[role=listitem]").waitFor();
+      for (const width of [1440, 390]) { await page.setViewportSize({ width, height: 900 }); await assertAccessibleControls(page); }
+    }
+    console.log("14-rule axe passed: detail, ungrouped runner, expanded grouped runner at1440 and390");
+    assert.deepEqual(errors, []);
+  } finally { await browser?.close(); await Promise.all([unlink(htmlPath).catch(() => {}), unlink(sourcePath).catch(() => {})]); }
 });

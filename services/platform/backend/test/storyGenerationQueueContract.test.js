@@ -68,9 +68,9 @@ test("expired Story generation leases recover and a conditional claim has one wi
 
 test("Story queue SQL, background registration, and accepted-job HTTP contract stay aligned", async () => {
   const [service, backgroundTasks, bootstrap, schema, routes, openapi] = await Promise.all([
-    readSource("../../../manual/backend/services/requirementWorkspace.service.js"),
+    readSource("../../../manual/backend/services/requirementGenerationJobs.service.js"),
     readSource("../../../ai/backend/workers.js"),
-    readSource("../src/db/bootstrap.js"),
+    Promise.all([readSource("../src/db/bootstrap.js"), readSource("../src/db/authoringGenerationJobsSchema.js")]).then(parts => parts.join("\n")),
     readSource("../instance-setup-data/schema-setup/schema.sql"),
     readSource("../../../manual/backend/routes/requirements.routes.js"),
     readSource("../../../../openapi.yaml")
@@ -132,7 +132,7 @@ test("public Story generation job responses do not expose worker lease internals
 
 test("canonical schema includes every runtime bootstrap-only AI and API-key table", async () => {
   const [bootstrap, schema] = await Promise.all([
-    readSource("../src/db/bootstrap.js"),
+    Promise.all([readSource("../src/db/bootstrap.js"), readSource("../src/db/authoringGenerationJobsSchema.js")]).then(parts => parts.join("\n")),
     readSource("../instance-setup-data/schema-setup/schema.sql")
   ]);
   const tables = [

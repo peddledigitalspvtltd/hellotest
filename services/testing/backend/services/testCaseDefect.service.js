@@ -20,7 +20,7 @@ exports.getDefectIdsForTestCase = async (testCaseId) => {
 
 exports.getDefectsForTestCase = async (testCaseId) => {
   return db.prepare(`
-    SELECT feedback.id, feedback.title, feedback.status, feedback.created_at, test_case_defects.link_source
+    SELECT feedback.id, feedback.display_id, feedback.title, feedback.status, feedback.created_at, test_case_defects.link_source
     FROM test_case_defects
     JOIN feedback ON feedback.id = test_case_defects.issue_id
     WHERE test_case_defects.test_case_id = ?
@@ -96,12 +96,16 @@ exports.syncAutomaticDefectsForTestCase = async (testCaseId, defectRefs = []) =>
   // Always reconcile from persisted result evidence so unlinking the last
   // occurrence removes stale automatic traceability while manual links remain.
   const evidence = await db.prepare(`
-    SELECT DISTINCT feedback.id
-    FROM execution_results
-    CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(execution_results.defects, '[]'::jsonb)) AS defect_ref(value)
-    JOIN feedback ON feedback.id = defect_ref.value
-    WHERE execution_results.test_case_id = ?
-    ORDER BY feedback.id
+    WITH scoped_results AS (
+      SELECT result.*,run.project_id FROM execution_results result JOIN executions run ON run.id=result.execution_id WHERE result.test_case_id=?
+    ), refs AS (
+      SELECT result.project_id,ref.value FROM scoped_results result
+      CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(result.defects,'[]'::jsonb)||COALESCE(result.case_defects,'[]'::jsonb)) ref(value)
+      UNION ALL
+      SELECT result.project_id,ref.value FROM scoped_results result
+      CROSS JOIN LATERAL jsonb_each(COALESCE(result.step_defects,'{}'::jsonb)) step
+      CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(step.value)='array' THEN step.value ELSE '[]'::jsonb END) ref(value)
+    ) SELECT DISTINCT feedback.id FROM refs JOIN feedback ON (feedback.id=refs.value OR feedback.display_id=refs.value) AND feedback.project_id=refs.project_id ORDER BY feedback.id
   `).all(testCaseId);
   const issueIds = evidence.map((row) => row.id);
 

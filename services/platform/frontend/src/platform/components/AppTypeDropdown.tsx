@@ -384,7 +384,7 @@ export function AppTypeDropdown({
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-invalid={ariaInvalid}
-        aria-label={ariaLabel}
+        aria-label={ariaLabel ? `${ariaLabel}: ${triggerLabel}` : triggerLabel}
         className={["app-type-dropdown-trigger", isPlaceholder ? "is-placeholder" : ""].filter(Boolean).join(" ")}
         disabled={disabled || !options.length}
         id={id || triggerId}

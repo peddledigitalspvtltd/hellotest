@@ -1,3 +1,4 @@
+const lifecycle = require("@hellotest/ai/services/generationLifecycle");
 const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const { aiInstructionBlock } = require('@hellotest/platform/backend/src/utils/aiInstructionBlocks');
 const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
@@ -115,23 +116,6 @@ const normalizeStoryEvidenceRefs = (value, allowedRefs, limit = 12) => [...new S
 const storyKnowledgeCitation=item=>item.metadata?.citation?Object.fromEntries(['id','source_id','source_kind','source_ref_id','document_id','chunk_id','source_version','version_hash','chunk_hash'].filter(key=>item.metadata.citation[key]!=null).map(key=>[key,item.metadata.citation[key]])):null;
 const storyKnowledgeRef=item=>item.metadata?.citation?.id?`knowledge:${item.metadata.citation.id}`:item.id?`knowledge:${item.id}`:storyEvidenceRef('knowledge',`${item.title}:${item.content}`);
 
-const buildStoryProcessingSnapshot = ({ profile, sourceCount, outputCount, fallbackUsed = false, limitationCount = 0 }) => ({
-  profile,
-  active_stage_id: "review",
-  completed_stage_count: 6,
-  total_stage_count: STORY_AI_PROCESS_STAGE_IDS.length,
-  status_label: fallbackUsed ? "Fallback result awaiting review" : "Awaiting human review",
-  review_status: "awaiting_review",
-  stages: [
-    { id: "intake", status: "complete", detail: profile === "story-create" ? "The requested Story outcome and output count were bounded." : "The saved Story revision was captured before proposing changes.", evidence: "The request was normalized without changing saved Story data.", item_count: 1 },
-    { id: "context", status: "complete", detail: `${sourceCount} bounded evidence source${sourceCount === 1 ? " was" : "s were"} prepared.`, evidence: `${sourceCount} source${sourceCount === 1 ? "" : "s"} remained inside the visible Story AI evidence catalog.`, item_count: sourceCount },
-    { id: "guardrails", status: "complete", detail: "Source limits, pointer-only links, and the human approval boundary were checked.", evidence: `${limitationCount} evidence limitation${limitationCount === 1 ? " was" : "s were"} recorded for review.`, item_count: limitationCount },
-    { id: "specialist", status: "complete", detail: fallbackUsed ? "The configured provider was unavailable, so only the evidence-preserving fallback was used." : "The Story Architect returned a bounded JSON proposal.", evidence: fallbackUsed ? "No unavailable source content was converted into generated product behavior." : "The configured Story AI usage produced the proposal.", item_count: outputCount },
-    { id: "outcome", status: "complete", detail: `${outputCount} editable proposal${outputCount === 1 ? " was" : "s were"} normalized.`, evidence: "Unknown evidence references were removed before the response was returned.", item_count: outputCount },
-    { id: "evaluation", status: "complete", detail: "Grounding, completeness, and testability were evaluated from normalized fields.", evidence: "Scores come from deterministic field checks, not model self-assessment.", item_count: outputCount },
-    { id: "review", status: "current", detail: "Processing is complete; a person must accept, edit, or discard the proposal.", evidence: "No Story is created or updated by this preview response.", item_count: outputCount }
-  ]
-});
 
 const buildStoryCreationEvidence = ({ additionalContext, externalLinks, images, knowledge }) => {
   const evidence = [];
@@ -278,7 +262,6 @@ const evaluateStoryCandidate = (candidate) => {
     testability: acceptanceCount ? "criteria-present" : "criteria-missing"
   };
 };
-
 
 const normalizeRequirementAiReferenceImages = images => normalizeReferenceImages(images);
 
@@ -800,13 +783,14 @@ const buildRequirementCreationPrompt = ({ additionalContext, externalLinks, imag
   additionalContext?.slice(0, 12000) || aiInstructionBlock("ai.requirement.creation", imageNames.length ? "requirement.imageOnlyContext" : "requirement.missingProductContext")
 ].join("\n");
 
-const requestRequirementCreation = async ({ integration, prompt, images, fallbackContent, contextState }) => {
+const requestRequirementCreation = async ({ integration, prompt, images, fallbackContent, contextState, signal }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/+$/, "");
   const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
   const safeImages = normalizeReferenceImages(images, {max_images:4});
   const userContent = imageUserContent(prompt, safeImages);
   const response = await fetchLlmWithRetry(url, {
     method: "POST",
+    signal,
     headers: {
       "Content-Type": "application/json",
       ...(integration.api_key ? { Authorization: `Bearer ${integration.api_key}` } : {})
@@ -823,7 +807,7 @@ const requestRequirementCreation = async ({ integration, prompt, images, fallbac
         { role: "user", content: userContent }
       ]
     })
-  }, { integration, operation: "requirement.generate", mcpContextHandled:contextState?.mcpContextHandled, contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
+  }, { integration, maxAttempts: 1, operation: "requirement.generate", mcpContextHandled:contextState?.mcpContextHandled, contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
 
   if (!response.ok) {
     const raw = await response.text();
@@ -1723,9 +1707,9 @@ exports.updateRequirement = async (id, data) => {
   return transaction();
 };
 
-exports.previewRequirementOptimization = async ({ id, integration_id, user_id, user, requirement_context, prompt_guidance, additional_context, external_links, images } = {}) => {
-  const requestId = uuid();
-  const promptGuidance = normalizeStoryPromptGuidance(prompt_guidance);
+exports.previewRequirementOptimization = lifecycle.withLifecycle("story-complete", async ({ onProgress, id, integration_id, user_id, user, requirement_context, prompt_guidance, additional_context, external_links, images } = {}) => {
+  const requestId = uuid(), promptGuidance = normalizeStoryPromptGuidance(prompt_guidance);
+  await onProgress("context", "Loading the current Story draft and permission-scoped evidence.");
   const savedRequirement = await exports.getRequirement(id, { includeLinkedRecords: false });
   const currentDraft = aiObject(requirement_context);
   if ((currentDraft.id && currentDraft.id !== id) || (currentDraft.project_id && currentDraft.project_id !== savedRequirement.project_id)) {
@@ -1758,6 +1742,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
     externalLinks,
     images: safeImages
   });
+  await onProgress("guardrails", "Checking provider configuration and Story evidence boundaries.");
   const integration = await resolveLlmIntegration(integration_id, requirement.project_id, {
     userId: user_id || user?.id,
     usageKey: "ai.requirement.optimization"
@@ -1781,6 +1766,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
   const contextState = { reduced: false,mcpContextHandled:knowledge?.retrieval?.context_transport==='mcp'?{evidence_count:knowledge.knowledge.filter(item=>item.metadata?.citation?.source_id).length,status:knowledge.retrieval.status==='UNAVAILABLE'?'unavailable':undefined}:undefined };
 
   try {
+      await onProgress("specialist", "The configured model is completing the evidence-grounded Story.");
       const content = await requestRequirementOptimization({
         integration,
         contextState,
@@ -1802,6 +1788,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
           evidenceCatalog: evidence
         })
       });
+      await onProgress("outcome", "Validating the returned Story proposal and its native contract.");
       suggestion = extractJsonPayload(content);
       validateNativeArtifactOutput("ai.requirement.optimization", suggestion);
   } catch (error) {
@@ -1811,6 +1798,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
     throw Object.assign(new Error(message), { statusCode: 502, code: "AI_STORY_RESPONSE_INVALID", publicMessage: message,
       ...(Array.isArray(error?.validation_errors) ? { validation_errors: error.validation_errors } : {}) });
   }
+  await onProgress("evaluation", "Checking field evidence, completeness and supported changes.");
   const allowedEvidenceRefs = new Set(evidence.filter((item) => item.citation_allowed).map((item) => item.ref));
   const allEvidenceRefs = new Set(evidence.map((item) => item.ref));
   const fieldEvidenceKeys = ["title", "description", "priority", "status", "external_references", "acceptance_criteria"];
@@ -1878,11 +1866,9 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
   if (unsupportedFields.length) {
     limitations.push(`Unsupported model changes were discarded for: ${unsupportedFields.join(", ")}. The saved Story values remain unchanged for those fields.`);
   }
-  const processing = buildStoryProcessingSnapshot({
+  const processing = lifecycle.storyProcessing({
     profile: "story-complete",
-    sourceCount: evidence.length,
-    outputCount: 1,
-    limitationCount: limitations.length
+    sourceCount: evidence.length, outputCount: 1, limitationCount: limitations.length
   });
 
   return {
@@ -1929,9 +1915,9 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
       generated_at: new Date().toISOString()
     }
   };
-};
+});
 
-exports.previewRequirementCreation = async ({
+exports.previewRequirementCreation = lifecycle.withLifecycle("story-create", async ({
   project_id,
   integration_id,
   user_id,
@@ -1941,8 +1927,11 @@ exports.previewRequirementCreation = async ({
   images,
   max_requirements,
   priority,
-  status
+  status,
+  onProgress,
+  signal
 } = {}) => {
+  require("@hellotest/ai/services/generationLifecycle").assertStoryBrief({ additional_context, images });
   const requestId = uuid();
   const promptGuidance = normalizeStoryPromptGuidance(prompt_guidance);
   if (max_requirements != null && (!Number.isInteger(Number(max_requirements)) || Number(max_requirements) < 1 || Number(max_requirements) > 6)) throw Object.assign(new Error("Generate between one and six Stories per request."), { statusCode: 400 });
@@ -1962,6 +1951,7 @@ exports.previewRequirementCreation = async ({
       : 'The model did not return a complete Story with a title, description and observable acceptance criteria supported by the supplied product context. Add the intended behavior and expected outcome, or select another configured model.';
     return Object.assign(new Error(message), { statusCode:422, code:'AI_STORY_EVIDENCE_REQUIRED', publicMessage:message });
   };
+  await onProgress?.("context", "Retrieving permission-scoped evidence for the Story brief.");
   const knowledgePackage = additionalContext
     ? await aiKnowledgeService.buildKnowledgeContextPackage(project_id, {
         feature_key:'ai.requirement.creation',
@@ -1978,6 +1968,7 @@ exports.previewRequirementCreation = async ({
     userId: user_id,
     usageKey: "ai.requirement.creation"
   });
+  await onProgress?.("guardrails", "Provider and evidence boundaries have been checked.");
   requireAiAssessment({ integration });
   const inputFingerprint = storyRequestFingerprint({
     capability: "requirement-creation-preview",
@@ -1996,7 +1987,9 @@ exports.previewRequirementCreation = async ({
   const contextState = { reduced: false,mcpContextHandled:knowledge?.retrieval?.context_transport==='mcp'?{evidence_count:knowledge.knowledge.filter(item=>item.metadata?.citation?.source_id).length,status:knowledge.retrieval.status==='UNAVAILABLE'?'unavailable':undefined}:undefined };
 
   try {
+      await onProgress?.("specialist", "The configured model is generating the requested Story proposal.");
       const result = await requestRequirementCreation({
+        signal,
         integration,
         contextState,
         fallbackContent: buildRequirementCreationPrompt({
@@ -2018,6 +2011,7 @@ exports.previewRequirementCreation = async ({
           evidenceCatalog: evidence
         })
       });
+      await onProgress?.("outcome", "Checking the returned Story proposal against its contract.");
       if (!Array.isArray(result?.requirements)) throw new Error('Missing Story draft array');
       validateNativeArtifactOutput("ai.requirement.creation", result);
       rawCandidates = result.requirements;
@@ -2034,6 +2028,7 @@ exports.previewRequirementCreation = async ({
     throw Object.assign(new Error(message), { statusCode:502, code:'AI_STORY_RESPONSE_INVALID', publicMessage:message,
       ...(Array.isArray(error?.validation_errors) ? { validation_errors: error.validation_errors } : {}) });
   }
+  await onProgress?.("evaluation", "Validating completeness and evidence references.");
   const allowedEvidenceRefs = new Set(evidence.filter((item) => item.citation_allowed).map((item) => item.ref));
 
   const normalizeCandidates = (candidates) => candidates
@@ -2051,7 +2046,7 @@ exports.previewRequirementCreation = async ({
   validateNativeArtifactOutput("ai.requirement.creation", { requirements });
 
   const limitations = storyEvidenceLimitations(evidence);
-  const processing = buildStoryProcessingSnapshot({
+  const processing = lifecycle.storyProcessing({
     profile: "story-create",
     sourceCount: evidence.length,
     outputCount: requirements.length,
@@ -2094,7 +2089,7 @@ exports.previewRequirementCreation = async ({
       generated_at: new Date().toISOString()
     }
   };
-};
+});
 
 exports.deleteRequirement = async (id) => {
   await exports.getRequirement(id);
@@ -2123,7 +2118,7 @@ if (process.env.NODE_ENV === "test") {
       buildDeterministicRequirementCreation,
       buildDeterministicRequirementOptimization,
       buildStoryCreationEvidence,
-      buildStoryProcessingSnapshot,
+      buildStoryProcessingSnapshot: lifecycle.storyProcessing,
       evaluateStoryCandidate,
       normalizeRequirementCreationCandidate,
       normalizeStoryEvidenceRefs,

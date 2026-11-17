@@ -1,3 +1,4 @@
+import { readTestingWorkspaceSource as readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -11,7 +12,7 @@ import {
 } from "../../../platform/frontend/src/shared/lib/stepParameters.ts";
 import { selectLatestExecutionResultInstances } from "../../frontend/lib/executionResultMetrics.ts";
 
-const readSource = (path) => readFile(new URL(path, import.meta.url), "utf8");
+const readSource = (path) => readSourceFile(new URL(path, import.meta.url), "utf8");
 
 const deepFreeze = (value) => {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {

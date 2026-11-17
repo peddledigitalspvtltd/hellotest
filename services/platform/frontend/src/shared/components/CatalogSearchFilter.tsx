@@ -234,7 +234,7 @@ export function CatalogSearchFilter({
           aria-controls={popoverId}
           aria-expanded={isOpen}
           aria-haspopup="dialog"
-          aria-label={activeFilterCount ? `Open filters (${activeFilterCount} active)` : "Open filters"}
+          aria-label={activeFilterCount ? `Open filters, ${activeFilterCount} active` : "Open filters"}
           className={activeFilterCount ? "catalog-filter-button is-active" : "catalog-filter-button"}
           disabled={disabled}
           onClick={() => setIsOpen((current) => !current)}

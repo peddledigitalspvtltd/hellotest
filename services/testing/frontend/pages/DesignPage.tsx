@@ -1421,7 +1421,7 @@ export function DesignPage() {
           name: input.name,
           description: input.description,
           labels: input.labels,
-          ...(can("testcase.view") ? { test_case_ids: input.selectedIds } : {}),
+          ...(can("testcase.view") ? { test_case_ids: input.selectedIds, module_ids: input.module_ids, module_membership: input.module_membership } : {}),
           ...(can("data.view") ? { test_data_options: input.test_data_options, test_data_set_id: input.test_data_set_id || "" } : {}),
           parallel_enabled: canConfigureParallelAutomation ? input.parallel_enabled : false,
           parallel_count: canConfigureParallelAutomation && input.parallel_enabled ? input.parallel_count : 1
@@ -1434,7 +1434,7 @@ export function DesignPage() {
             name: input.name,
             description: input.description,
             labels: input.labels,
-          ...(can("testcase.view") ? { test_case_ids: input.selectedIds } : {}),
+          ...(can("testcase.view") ? { test_case_ids: input.selectedIds, module_ids: input.module_ids, module_membership: input.module_membership } : {}),
             ...(can("data.view") ? { test_data_options: input.test_data_options, test_data_set_id: input.test_data_set_id || "" } : {}),
             ...(canConfigureParallelAutomation ? {
               parallel_enabled: input.parallel_enabled,

@@ -44,6 +44,11 @@ async function errorHandlerPlugin(fastify) {
       traceId,
       retryable: classified.retryable
     };
+    if (error.authoring_failure && error.authoring_processing?.schema_version === 1
+      && ["intake", "context", "guardrails", "specialist", "outcome", "evaluation", "review"].includes(error.authoring_failure.stage_id)) {
+      payload.failure = error.authoring_failure;
+      payload.processing = error.authoring_processing;
+    }
     if (classified.statusCode < 500 && Number.isSafeInteger(error.current_revision)) {
       payload.current_revision = error.current_revision;
     }

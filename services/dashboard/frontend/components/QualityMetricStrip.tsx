@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAiPromptRegistry";
-import { findAiMetricCriteriaByLabel } from "@hellotest/integration/frontend/lib/aiPromptRegistry";
+import { resolveMetricIdentity } from "@hellotest/integration/frontend/lib/aiPromptRegistry";
 import { EvidenceFlipCard } from "@hellotest/platform/frontend/src/shared/components/EvidenceFlipCard";
 
 export type QualityMetricTone = "neutral" | "info" | "success" | "warning" | "danger";
@@ -9,6 +9,8 @@ export type QualityMetric = {
   actionLabel?: string;
   badge?: ReactNode;
   criteriaKey?: string;
+  population?: string;
+  unit?: string;
   detail?: ReactNode;
   disabled?: boolean;
   frontAccessory?: ReactNode;
@@ -50,16 +52,16 @@ export function QualityMetricStrip({
       {metrics.map((metric) => {
         const progress = typeof metric.progress === "number" ? clampPercent(metric.progress) : null;
         const tone = metric.tone || "neutral";
-        const governedMetric = metric.criteriaKey
-          ? findAiMetricCriteriaByLabel(metric.criteriaKey) || null
-          : findAiMetricCriteriaByLabel(metric.label);
-        const methodology = metric.methodology || metric.title || (governedMetric ? (
+        const governedMetric = resolveMetricIdentity(metric);
+        const methodology = metric.methodology || (governedMetric ? (
           <span className="metric-methodology-copy">
+            <span><strong>Identity:</strong> {governedMetric.key} · {governedMetric.population} · {governedMetric.unit}</span>
             <span><strong>Formula:</strong> {governedMetric.formula}</span>
             <span><strong>Organization criteria:</strong> {getMetricCriteria(governedMetric.key)}</span>
           </span>
-        ) : null);
-        const evidence = [metric.detail, methodology]
+        ) : metric.title || "Methodology unavailable: no matching metric identity and population were supplied.");
+        const identityEvidence = governedMetric ? `${governedMetric.key} · population: ${governedMetric.population} · unit: ${governedMetric.unit}` : `Methodology unavailable for ${metric.criteriaKey || "unmapped identity"} · population: ${metric.population || "unspecified"} · unit: ${metric.unit || "unspecified"}`;
+        const evidence = [metric.detail, identityEvidence, methodology]
           .filter((item, index, items): item is ReactNode => Boolean(item) && items.indexOf(item) === index);
         const caption = progress !== null
           ? `${progress}% measured`

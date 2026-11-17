@@ -79,7 +79,7 @@ export function ContextSelect({ label, icon, children, className = "", ...props 
     </select>
     <button aria-controls={open ? listId : undefined} aria-expanded={open} aria-haspopup="listbox" aria-label={`${label}: ${selected?.label || "Not set"}`} aria-describedby={props["aria-describedby"]} aria-invalid={props["aria-invalid"]} className="context-select-trigger" data-dialog-popover-owner={triggerId} disabled={disabled} id={triggerId} onClick={() => open ? close() : show()} onKeyDown={event => { if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); close(true); } else if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); show(); } }} ref={triggerRef} type="button">
       {icon ? <span aria-hidden="true" className="context-select-icon">{icon}</span> : null}
-      <span className="context-select-label">{label}</span><span className="context-select-value">{selected?.label || "Not set"}</span><IconChevronDown aria-hidden="true" size={13} />
+      <span className="context-select-label">{label}: </span><span className="context-select-value">{selected?.label || "Not set"}</span><IconChevronDown aria-hidden="true" size={13} />
     </button>
     {open && typeof document !== "undefined" ? createPortal(<div className="context-select-popover" data-dialog-popover-owner={triggerId} ref={popoverRef} style={position} onKeyDown={event => {
       if (event.key === "Escape" || event.key === "Tab") { event.preventDefault(); event.stopPropagation(); close(true); return; }

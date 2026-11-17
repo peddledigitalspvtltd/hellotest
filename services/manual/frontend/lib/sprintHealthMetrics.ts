@@ -2,7 +2,7 @@ import type { RequirementIterationHealth } from "@hellotest/platform/frontend/sr
 import type { QualityMetric } from "@hellotest/dashboard/frontend/components/QualityMetricStrip";
 
 export function sprintHealthMetrics(health?: RequirementIterationHealth, unavailable = "Sprint health is unavailable.") {
-  const labels = ["Stories", "QA Story Completion", "At Risk", "Test Coverage", "Pass Rate", "Slippage", "Defect Density", "Open Critical/High Defects", "Linked Test Cases", "Executed Test Cases", "Total Defects"];
+  const labels = ["Stories", "QA Story Completion", "At Risk", "Test Coverage", "Scoped catalog case pass", "Slippage", "Defect Density", "Open Critical/High Defects", "Linked Test Cases", "Executed Test Cases", "Total Defects"];
   if (!health) return {
     count: "—" as number | string,
     countLabel: "Stories",
@@ -31,16 +31,16 @@ export function sprintHealthMetrics(health?: RequirementIterationHealth, unavail
     { label: "Stories", value: count("total_stories", health.total_stories, observed.stories_scanned),
       detail: evidence(stories !== null, `${stories} distinct Stories in the current Sprint scope.`, `${observed.stories_scanned} Stories observed.`),
       methodology: "Counts the complete filtered server scope, independently of loaded Story pages." },
-    { label: "QA Story Completion", value: ratio("completed_percent", health.completed_percent, stories), tone: stories ? "info" : "neutral",
+    { label: "QA Story Completion", criteriaKey: "metric.sprint.qa_completion", population: "sprint_stories", unit: "percent", value: ratio("completed_percent", health.completed_percent, stories), tone: stories ? "info" : "neutral",
       detail: evidence(exact.has("completed_percent"), `${health.completed_stories} of ${health.total_stories} Stories have reached QA Done or Done.`, `${observed.completed_stories} completed Stories observed among ${observed.stories_scanned} scanned Stories.`),
       methodology: "QA-completed Stories ÷ total Sprint Stories × 100. An empty Sprint has no completion percentage." },
-    { label: "At Risk", value: count("at_risk_stories", health.at_risk_stories, observed.at_risk_stories), tone: risk === null ? "neutral" : risk ? "danger" : "success",
+    { label: "At Risk", criteriaKey: "metric.sprint.at_risk", population: "sprint_stories", unit: "stories", value: count("at_risk_stories", health.at_risk_stories, observed.at_risk_stories), tone: risk === null ? "neutral" : risk ? "danger" : "success",
       detail: evidence(risk !== null, `${risk} distinct Stories meet the current Sprint risk policy.`, `${observed.at_risk_stories} at-risk Stories observed.`),
-      methodology: "Stories that slipped, have a blocked workflow status, or are Critical/High priority without linked test coverage. Each Story counts once." },
+      methodology: "Stories that slipped, have a blocked workflow status, or are Critical/High priority without linked test coverage. Each Story counts once. Failed test outcomes and open Defects are shown separately and do not automatically change Story workflow." },
     { label: "Test Coverage", value: ratio("coverage_percent", health.coverage_percent, stories),
       detail: evidence(exact.has("coverage_percent"), `${health.covered_stories} of ${health.total_stories} Stories have a directly linked visible Test Case.`, `${observed.covered_stories} covered Stories observed among ${observed.stories_scanned} scanned Stories.`),
       methodology: "Stories with linked Test Cases ÷ total Sprint Stories × 100." },
-    { label: "Pass Rate", value: ratio("pass_percent", health.pass_percent, executed, "No Runs"),
+    { label: "Scoped catalog case pass", criteriaKey: "metric.sprint.catalog_case_pass", population: "sprint_linked_catalog_cases", unit: "percent", value: ratio("pass_percent", health.pass_percent, executed, "No Runs"),
       detail: evidence(exact.has("pass_percent"), `${health.passed_cases} of ${health.executed_linked_cases} distinct linked Test Cases have a latest terminal outcome of passed.`, typeof observed.passed_cases === "number" && typeof observed.executed_linked_cases === "number" ? `${observed.passed_cases} passed cases observed among ${observed.executed_linked_cases} executed cases.` : "Complete execution evidence is unavailable."),
       methodology: "Passed cases ÷ executed linked cases × 100. No execution evidence produces no pass rate." },
     { label: "Slippage", value: count("slippage_stories", health.slippage_stories, observed.slippage_stories), tone: slipped === null ? "neutral" : slipped ? "danger" : "success",

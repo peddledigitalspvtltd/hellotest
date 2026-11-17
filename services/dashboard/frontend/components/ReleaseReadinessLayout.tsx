@@ -448,12 +448,13 @@ export function ReleaseReadinessLayout(props: Props) {
           <details className="rr-layout-method">
             <summary>
               <IconChevronDown size={14} />
-              {copy("methodology", "Release readiness methodology")}
+              {copy("methodology", "Release decision score methodology")}
             </summary>
             <p>
               <strong>{copy("calculation", "Calculation:")}</strong>{" "}
               {text("index.help")}
             </p>
+            <p>Release health readiness uses a separate 30% coverage, 50% pass rate and 20% Defect-health formula. <a href="/releases">Compare Release health readiness</a>.</p>
             <div className="rr-index-components">
               {readinessIndex.components.map((component) => (
                 <div key={component.id}>

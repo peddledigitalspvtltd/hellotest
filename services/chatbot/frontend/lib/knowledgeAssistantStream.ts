@@ -201,7 +201,8 @@ export function knowledgeModelFailureMessage(code?: string) {
   if (code === "MODEL_RATE_LIMITED") return "The answer model is handling too many requests. Try again shortly or choose another model. Your retrieved sources are still available.";
   if (code === "MODEL_PROVIDER_LIMITED") return "The answer provider is limiting requests or its available quota is exhausted. Review the selected connection's rate limits, usage and billing, or choose another model. Your retrieved sources are still available.";
   if (code === "MODEL_TIMEOUT") return "The answer model did not finish in time. Your retrieved sources are available below; you can also try another model.";
-  if (["MODEL_EMPTY_RESPONSE", "MODEL_OUTPUT_TRUNCATED", "MODEL_INVALID_RESPONSE"].includes(code || "")) return "The model did not return a complete, usable answer. Review the available evidence below, then retry or choose another model.";
+  if (code === "MODEL_OUTPUT_TRUNCATED") return "The answer reached the model's output limit. Review the available sources, narrow the requested answer or choose another configured model.";
+  if (["MODEL_EMPTY_RESPONSE", "MODEL_INVALID_RESPONSE"].includes(code || "")) return "The model did not return a complete, usable answer. Review the available evidence below, then retry or choose another model.";
   if (code === "MODEL_REQUEST_REJECTED") return "The selected model rejected this request. Check its configuration or choose another model. Your retrieved sources are still available.";
   if (code === "MODEL_CONTEXT_LIMIT") return "The evidence exceeds this model connection's request limit. Narrow the selected sources or choose a model with a larger limit. Your retrieved sources are still available.";
   return "The search returned evidence, but the model could not finish an answer. Review the available sources below.";
@@ -264,9 +265,14 @@ function knowledgeRetryAttempt(event?: KnowledgeRetrievalEvent) {
 
 export function knowledgeProgressLabel(event?: KnowledgeRetrievalEvent, opening = false) {
   if (!event) return opening ? "Opening your conversation" : "Waiting for the evidence search";
-  if (["FAILED", "UNAVAILABLE"].includes(String(event.status).toUpperCase()) && (/GENERATION/i.test(event.stage) || event.error_code?.startsWith("MODEL_"))) return "The answer model is unavailable";
+  if (["FAILED", "UNAVAILABLE"].includes(String(event.status).toUpperCase()) && (/GENERATION/i.test(event.stage) || event.error_code?.startsWith("MODEL_"))) {
+    if (event.error_code === "MODEL_OUTPUT_TRUNCATED") return "The answer reached its output limit";
+    if (["MODEL_EMPTY_RESPONSE", "MODEL_INVALID_RESPONSE"].includes(event.error_code || "")) return "The answer could not be validated";
+    return "The answer model is unavailable";
+  }
   const retry = knowledgeRetryAttempt(event);
   if (retry) {
+    if (["MODEL_EMPTY_RESPONSE", "MODEL_OUTPUT_TRUNCATED", "MODEL_INVALID_RESPONSE"].includes(event.error_code || "")) return `Repairing answer output · attempt ${retry.attempt} of ${retry.maximum}`;
     const operation = /GENERATION/i.test(event.stage) ? "answer model" : /PLANNING/i.test(event.stage) ? "search planning" : "related-evidence search";
     return `Retrying ${operation} · attempt ${retry.attempt} of ${retry.maximum}`;
   }
@@ -275,6 +281,10 @@ export function knowledgeProgressLabel(event?: KnowledgeRetrievalEvent, opening 
 
 export function knowledgeProgressDescription(event?: KnowledgeRetrievalEvent) {
   if (!knowledgeRetryAttempt(event)) return event?.message || "";
+  if (["MODEL_EMPTY_RESPONSE", "MODEL_OUTPUT_TRUNCATED", "MODEL_INVALID_RESPONSE"].includes(event?.error_code || "")) {
+    const reason = event?.error_code === "MODEL_OUTPUT_TRUNCATED" ? "The previous answer reached its output limit." : "The previous answer did not satisfy the output contract.";
+    return `${reason} One compact correction uses the same authorized evidence within this request's time limit.`;
+  }
   const reason = event?.error_code === "MODEL_RATE_LIMITED" ? "The provider is limiting requests."
     : event?.error_code === "MODEL_TIMEOUT" ? "The previous model attempt took too long."
       : "The provider had a temporary problem.";

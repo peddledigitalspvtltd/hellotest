@@ -57,6 +57,10 @@ const origin = url => { try { return new URL(url).origin; } catch { return null;
 function generationCorrelation(scope) {
   const bounded = value => typeof value === 'string' && value.length > 0 && value.length <= 200 ? value : null;
   const result = {};
+  if (bounded(scope.generation_job_id)) result.generation_job_id = scope.generation_job_id;
+  if (["story", "story-create", "story-complete", "grooming", "case-design", "case-authoring", "case-generation", "defect"].includes(scope.authoring_profile)) result.authoring_profile = scope.authoring_profile;
+  if (["intake", "context", "guardrails", "specialist", "outcome", "evaluation", "review"].includes(scope.authoring_stage)) result.authoring_stage = scope.authoring_stage;
+  if (scope.authoring_schema_version === 1) result.authoring_schema_version = 1;
   if (bounded(scope.test_case_id)) result.test_case_id = scope.test_case_id;
   if (Number.isSafeInteger(scope.completion_attempt) && scope.completion_attempt > 0 && scope.completion_attempt <= 100) result.completion_attempt = scope.completion_attempt;
   const sectionScopes=['section_attempt','section_semantic_review','section_prerequisite_review','upstream_browser_actor','upstream_source','upstream_instruction_mapping','upstream_api_source'];
@@ -128,9 +132,16 @@ async function finish(trace, { response, error, invalid = false, attempts = 1 } 
   // the caller's response. Hidden provider reasoning is never exposed in logs.
   if (response) { try { raw = parse(await response.clone().text()); } catch { /* failed body */ } }
   const result = sanitize(raw);
-  const code = error?.code || error?.name || (response && !response.ok ? `HTTP_${response.status}` : null);
+  // Native adapters may defer schema decoding until after the HTTP boundary.
+  // A standardized truncated/empty completion is still not a successful model
+  // result, even when transport returned 200 and schema validation is deferred.
+  const choice = response?.ok && raw?.choices?.[0];
+  const completionFailure = choice?.finish_reason === 'length' ? 'AI_OUTPUT_TRUNCATED'
+    : choice?.message && !choice.message.tool_calls?.length && !choice.message.function_call
+      && !require('./llmResponse').getCompletionContent(raw).trim() ? 'AI_EMPTY_RESPONSE' : null;
+  const code = error?.code || error?.name || completionFailure || (response && !response.ok ? `HTTP_${response.status}` : null);
   const transportCode = networkFailureCode(error);
-  const status = invalid ? 'invalid' : error ? (/ABORT|CANCEL/i.test(code) ? 'cancelled' : 'failed') : response?.ok ? 'succeeded' : 'failed';
+  const status = invalid || completionFailure ? 'invalid' : error ? (/ABORT|CANCEL/i.test(code) ? 'cancelled' : 'failed') : response?.ok ? 'succeeded' : 'failed';
   let usage = raw?.usage && typeof raw.usage === 'object' ? Object.fromEntries(['prompt_tokens', 'completion_tokens', 'total_tokens', 'input_tokens', 'output_tokens'].filter(key => Number.isSafeInteger(raw.usage[key]) && raw.usage[key]>=0).map(key => [key, raw.usage[key]])) : null;
   if(usage){
     const input=usage.prompt_tokens??usage.input_tokens;

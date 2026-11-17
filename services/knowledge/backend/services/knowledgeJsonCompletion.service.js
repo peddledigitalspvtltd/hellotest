@@ -82,6 +82,13 @@ const openAiJsonCompletion = async ({ integration, messages, operation, signal, 
     maxAttempts: 1,
     bufferResponse: true,
     maxResponseBytes: 1024 * 1024
+    }).catch(error => {
+      // Once dispatch admission completed, a missing response does not prove
+      // that generation was rejected. Preserve the failure without paying for
+      // an identical replay. Explicit HTTP parameter/capacity rejections below
+      // retain their existing bounded compatibility/recovery behavior.
+      if (dispatches > 0) { error.retryable = false; error.nonRetryable = true; error.generation_dispatched = true; }
+      throw error;
     });
   };
 

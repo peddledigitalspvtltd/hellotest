@@ -1,3 +1,4 @@
+import { readTestingWorkspaceSource as readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { automationWorkspaceSource } from "../../../automation/test/frontend/helpers/automationWorkspaceSources.mjs";
 import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
@@ -5,7 +6,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = (relativePath) => readSourceFile(new URL(relativePath, import.meta.url), "utf8");
 const readBinary = (relativePath) => readFile(new URL(relativePath, import.meta.url));
 
 test("release notes ribbon uses the supplied document-and-rocket artwork exactly", async () => {
@@ -175,7 +176,7 @@ test("Product Management workspaces expose delivery governance without using aut
   assert.match(releases, /Release plan date/);
   assert.match(releases, /Release notes/);
   assert.match(releases, /generateReleaseNotes/);
-  assert.match(releases, /Open release readiness board/);
+  assert.match(releases, /Open decision score and evidence policy on the release readiness board/);
   assert.match(releases, /<ReleaseReadinessIcon size=\{26\}/);
   assert.match(readiness, /deriveReleaseReadiness/);
   assert.match(readiness, /searchParams\.get\("release_id"\)/);
@@ -361,10 +362,7 @@ test("project portfolio analytics are all-project, configurable, prioritized, fl
   assert.match(page, /item\.bugCount/);
   assert.match(page, /downloadPortfolioAttentionPdf/);
   assert.match(page, /captureProjectAttentionSnapshot/);
-  const snapshotCapture = page.slice(
-    page.indexOf("async function captureProjectAttentionSnapshot"),
-    page.indexOf("const formatProjectTimeAgo")
-  );
+  const snapshotCapture = await readSource("../src/platform/lib/projectAttentionExport.ts");
   assert.match(snapshotCapture, /is-exporting-snapshot/);
   assert.match(snapshotCapture, /rendered_snapshot_pages_data_urls/);
   assert.match(snapshotCapture, /\.project-risk-project-card/);

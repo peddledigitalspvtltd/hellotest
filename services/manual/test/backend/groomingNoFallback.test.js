@@ -33,6 +33,43 @@ test('Grooming preserves empty unknown sections and empty review arrays without 
  assert.deepEqual(result.grooming.open_questions, []); assert.deepEqual(result.grooming.risks, []);
  assert.equal(f.calls.length, 1); assert.equal(result.model_execution.contract_repaired, false);
 });
+test('Grooming canonicalizes blank optional text items without inventing actors or weakening citations', async () => {
+ const candidate = groomingCandidate();
+ candidate.walkthrough.user_journey.actors = ['', '  \t'];
+ candidate.scope.in_scope = ['']; candidate.assumptions = [' '];
+ candidate.open_questions = ['']; candidate.risks = [''];
+ const f = fixture([candidate]), result = await f.run();
+ assert.deepEqual(result.grooming.walkthrough.user_journey.actors, []);
+ assert.deepEqual(result.grooming.scope.in_scope, []);
+ assert.deepEqual(result.grooming.assumptions, []); assert.deepEqual(result.grooming.open_questions, []); assert.deepEqual(result.grooming.risks, []);
+ assert.equal(result.fallback_used, false); assert.equal(f.calls.length, 1);
+ const mixed = groomingCandidate();
+ mixed.walkthrough.user_journey.actors = ['', 'The documented customer', ' '];
+ mixed.walkthrough.user_journey.evidence_refs = ['requirement:story'];
+ const reviewed = await fixture([mixed]).run();
+ assert.deepEqual(reviewed.grooming.walkthrough.user_journey.actors, ['The documented customer']);
+});
+test('Grooming still rejects actor objects/null and blank evidence references', async () => {
+ for (const actor of [{ name: 'Unstructured actor' }, null]) {
+  const candidate = groomingCandidate(); candidate.walkthrough.user_journey.actors = ['', actor];
+  await assert.rejects(fixture([candidate]).run(), error => error.validation_errors.some(item => item.path === 'walkthrough.user_journey.actors' && item.issue === 'required_text_array_empty_when_unknown'));
+ }
+ const candidate = groomingCandidate(); candidate.walkthrough.purpose.evidence_refs = [''];
+ await assert.rejects(fixture([candidate]).run(), error => error.validation_errors.some(item => item.path === 'walkthrough.purpose.evidence_refs'));
+});
+test('Grooming terminal diagnostics contain final correction issues rather than stale first-response failures', async () => {
+ const first = groomingCandidate(); first.walkthrough.purpose.evidence_refs = ['forged:PRIVATE_FIRST_RESPONSE'];
+ const second = groomingCandidate(); second.walkthrough.user_journey.actors = [{ name: 'Invalid object' }];
+ const f = fixture([first, second]);
+ await assert.rejects(f.run(), error => {
+  assert.equal(error.code, 'AI_GROOMING_OUTPUT_INVALID'); assert.equal(error.model_calls, 2);
+  assert.ok(error.validation_errors.some(item => item.path === 'walkthrough.user_journey.actors'));
+  assert.ok(!error.validation_errors.some(item => item.path === 'walkthrough.purpose.evidence_refs'));
+  assert.doesNotMatch(error.message, /PRIVATE_FIRST_RESPONSE/); return true;
+ });
+ assert.equal(f.calls.length, 2);
+ assert.match(f.calls[1].body.messages[2].content, /walkthrough.purpose.evidence_refs/);
+});
 test('Grooming keeps model checks beside explicit server measured readiness adjustments', async () => {
  const candidate = groomingCandidate();
  const item = candidate.readiness.checks.find(check => check.id === 'implementation-approach');
@@ -52,7 +89,7 @@ for (const invalid of [{ layman: {} }, '{PRIVATE_INVALID_MODEL_JSON']) {
   assert.equal(f.calls[0].body.messages[1].content, f.calls[1].body.messages[1].content);
   const correction = f.calls[1].body.messages[2].content;
   assert.match(correction, /validation_errors/); assert.match(correction, /required_|invalid_json_object/);
-  assert.ok(f.calls.every(call => call.policy.maxAttempts === 1 && call.policy.compatibility === false && call.policy.contextFallback === false));
+  assert.ok(f.calls.every(call => call.policy.maxAttempts === 1 && call.policy.compatibility !== false && call.policy.contextFallback === false));
   assert.ok(f.calls[1].policy.timeoutMs <= f.calls[0].policy.timeoutMs);
  });
 }
@@ -76,6 +113,6 @@ test('Grooming explains invalid readiness enum paths and never accepts linked co
 });
 test('Grooming does not retry provider failures or return a local review without an active model', async () => {
  const f = fixture([new Error('PRIVATE_PROVIDER_RESPONSE')]);
- await assert.rejects(f.run(), { code: 'AI_ASSESSMENT_FAILED' }); assert.equal(f.calls.length, 1);
+ await assert.rejects(f.run(), { code: 'DEPENDENCY_UNAVAILABLE' }); assert.equal(f.calls.length, 1);
  const missing = fixture([], { model: null }); await assert.rejects(missing.run(), { code: 'AI_MODEL_REQUIRED' }); assert.equal(missing.calls.length, 0);
 });

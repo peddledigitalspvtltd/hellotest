@@ -8,7 +8,7 @@ const permissions = require("../services/permission.service");
 
 test("1,000 case and 5,000 step snapshots use 25 bounded inserts preserving every value", async t => {
   const statements = [];
-  t.mock.method(db, "prepare", sql => ({ run: async (...values) => { statements.push({ sql, values }); } }));
+  t.mock.method(db, "prepare", sql => ({ all: async () => [], run: async (...values) => { statements.push({ sql, values }); } }));
   const caseSnapshots = Array.from({ length: 1000 }, (_, index) => ({ execution_id: "run", test_case_id: `case-${index}`,
     test_case_title: `Case ${index}`, automated: index % 2 ? 'yes' : 'no', sort_order: index + 1, parameter_values: { answer: index }, assigned_to: "actor" }));
   const stepSnapshots = Array.from({ length: 5000 }, (_, index) => ({ execution_id: "run", test_case_id: `case-${Math.floor(index / 5)}`,

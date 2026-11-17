@@ -479,14 +479,14 @@ module.exports = async function (fastify) {
       throw error;
     }
 
-    return service.getExecutions({ project_id: scopedProjectId, app_type_id, status });
+    return service.getExecutions({ project_id: scopedProjectId, app_type_id, status, user:req.user });
   });
 
 
   // GET ONE EXECUTION
   fastify.get("/executions/:id", async (req) => {
     await fastify.authenticate(req);
-    return ensureExecutionPermission(fastify, req, "run.view");
+    return service.projectExecutionForUser(await ensureExecutionPermission(fastify, req, "run.view"),req.user);
   });
 
   fastify.put("/executions/:id", async (req) => {
@@ -641,7 +641,8 @@ module.exports = async function (fastify) {
     const execution = await service.getExecution(req.params.id);
     await ensureExecutionPermission(fastify, req, "run.report.export", execution);
 
-    const pdf = await executionReportService.renderReportPdf(req.params.id, { user_id: req.user.id });
+    if(req.query?.include_ai === "true") await fastify.requirePermission("run.ai",{projectId:execution.project_id})(req);
+    const pdf = await executionReportService.renderReportPdf(req.params.id, { user: req.user, include_ai: req.query?.include_ai === "true" });
     const safeName = String(execution.name || execution.id || "hellotest-run-report")
       .replace(/[^A-Za-z0-9._-]+/g, "-")
       .replace(/^-+|-+$/g, "")
@@ -704,7 +705,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const execution = await service.getExecution(req.params.id);
     await ensureExecutionPermission(fastify, req, "run.report.export", execution);
-    const pdf = await executionReportService.renderCaseReportPdf(req.params.id, req.params.testCaseId);
+    const pdf = await executionReportService.renderCaseReportPdf(req.params.id, req.params.testCaseId, {user:req.user});
     const safeName = `${String(execution.name || execution.id).replace(/[^A-Za-z0-9._-]+/g, "-")}-${String(req.params.testCaseId).replace(/[^A-Za-z0-9._-]+/g, "-")}`;
     reply.header("Content-Type", "application/pdf").header("Content-Disposition", `attachment; filename="${safeName}.pdf"`);
     return reply.send(pdf);
@@ -745,7 +746,7 @@ module.exports = async function (fastify) {
     return executionReportService.emailReport({
       execution_id: req.params.id,
       recipients: req.body.recipients,
-      requested_by: req.user.id
+      requested_by: req.user.id, user: req.user
     });
   });
 
@@ -754,7 +755,7 @@ module.exports = async function (fastify) {
     fastify.validate({ recipients: { required: true, type: "array", items: "string" } }, req.body || {});
     const execution = await service.getExecution(req.params.id);
     await ensureExecutionPermission(fastify, req, "run.report.share", execution);
-    return executionReportService.emailCaseReport({ execution_id: req.params.id, test_case_id: req.params.testCaseId, recipients: req.body.recipients, requested_by: req.user.id });
+    return executionReportService.emailCaseReport({ execution_id: req.params.id, test_case_id: req.params.testCaseId, recipients: req.body.recipients, requested_by: req.user.id, user:req.user });
   });
 
 

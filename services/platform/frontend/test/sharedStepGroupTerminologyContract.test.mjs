@@ -1,10 +1,11 @@
+import { readTestingWorkspaceSource } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { automationWorkspaceSource } from "../../../automation/test/frontend/helpers/automationWorkspaceSources.mjs";
 import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = (relativePath) => readTestingWorkspaceSource(new URL(relativePath, import.meta.url), "utf8");
 
 test("Shared Step Group product copy is canonical across primary UI surfaces", async () => {
   const [sections, localization, sharedStepsPage, testCasesPage, automationPage, designPage, executionsPage, settingsPage] = await Promise.all([

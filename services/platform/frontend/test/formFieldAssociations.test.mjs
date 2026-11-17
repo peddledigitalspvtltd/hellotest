@@ -32,3 +32,14 @@ test('a direct control retains its existing ID and receives uniquely matching hi
   assert.match(html, /id="code-error"/);
   assert.doesNotMatch(html, /fallback-(?:error|hint)/);
 });
+
+test('a singleton array from an AI context transform keeps its named control and validation associations', () => {
+  const html = render({ label: 'Sprint', hint: 'Choose a Sprint', error: 'Sprint is required', required: true },
+    [createElement('select', { key: 'sprint' }, createElement('option', { value: '' }, 'Select Sprint'))]);
+  const labelId = /<label[^>]+for="([^"]+)"/.exec(html)?.[1];
+  assert.ok(labelId);
+  assert.match(html, new RegExp(`<select[^>]+id="${labelId}"`));
+  assert.ok(html.includes(`aria-describedby="${labelId}-error ${labelId}-hint"`));
+  assert.match(html, /aria-invalid="true"/);
+  assert.match(html, /aria-required="true"/);
+});

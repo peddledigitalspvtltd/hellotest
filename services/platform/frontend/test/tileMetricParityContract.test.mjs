@@ -1,9 +1,10 @@
+import { readTestingWorkspaceSource as readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = (relativePath) => readSourceFile(new URL(relativePath, import.meta.url), "utf8");
 
 const sliceBetween = (source, startMarker, endMarker) => {
   const start = source.indexOf(startMarker);
@@ -123,9 +124,9 @@ test("Release Story tiles reuse Story delivery progress and the four canonical h
 
 test("Test Run tiles use finalized results with concise defect and story metrics", async () => {
   const page = await readSource("../../../testing/frontend/pages/ExecutionsPage.tsx");
-  const card = sliceBetween(page, "function ExecutionListCard", "function ExecutionScheduleCard");
+  const card = await readSource("../../../testing/frontend/components/ExecutionRunListCard.tsx");
 
-  assertProgressFirstMetricCard(card);
+  assertProgressFirstMetricCard(card, "", "TileCardValue");
   assert.match(card, /const finalizedTotal = summary\.passed \+ summary\.failed \+ summary\.blocked/);
   assert.match(card, /totalScopedCases \* executionDataIterationCount\(execution\)/);
   assert.match(card, /completedTotal \/ resolvedOutcomeCount/);
@@ -179,18 +180,20 @@ test("Test Run summaries deduplicate Data Set iterations and keep pass rate term
     readSource("../../../testing/frontend/pages/ExecutionsPage.tsx"),
     readSource("../../../testing/frontend/lib/executionResultMetrics.ts")
   ]);
-  const summary = sliceBetween(page, "const executionSummaryById = useMemo", "const executionImpactSummaryById");
-  const segments = sliceBetween(page, "function buildRunOutcomeBreakdown", "const executionDateTimeFormatter");
+  const summary = await readSource("../../../testing/frontend/pages/execution-workspace/useExecutionCatalogData.tsx");
+  const segments = await readSource("../../../testing/frontend/components/ExecutionRunListCard.tsx");
+  const canonical = await readSource("../../../testing/frontend/lib/executionRunSummary.ts");
 
   assert.match(metrics, /executionResultInstanceKey/);
   assert.match(metrics, /data_set_iteration_key/);
   assert.match(metrics, /data_set_iteration_index/);
   assert.match(metrics, /latestResultByInstance/);
   assert.match(metrics, /candidateTimestamp === currentTimestamp/);
-  assert.match(summary, /selectLatestExecutionResultInstances\(allExecutionResults\)/);
-  assert.match(summary, /item\.caseCount = caseIdsByExecutionId\[executionId\]\?\.size \|\| 0/);
-  assert.match(summary, /const finalizedCount = item\.passed \+ item\.failed \+ item\.blocked/);
-  assert.match(summary, /item\.passed \/ finalizedCount/);
+  assert.match(summary, /canonicalRunSummary\(execution, allExecutionResults\)/);
+  assert.match(canonical, /if \(execution\.instance_summary\) return execution\.instance_summary/);
+  assert.match(summary, /caseCount: receipt\.distinct_cases/);
+  assert.match(canonical, /passed \+ failed \+ blocked/);
+  assert.match(canonical, /passed \/ \(passed \+ failed \+ blocked\)/);
   assert.match(segments, /key: "pending", label: "Pending"/);
   assert.match(segments, /key: "blocked", label: "Blocked", count: blockedCount/);
   assert.match(segments, /key: "running", label: "Running"/);
@@ -198,17 +201,15 @@ test("Test Run summaries deduplicate Data Set iterations and keep pass rate term
   assert.match(segments, /key: "aborted", label: "Aborted"/);
 });
 
-test("nested Run Suite tiles reuse count segments and retain their case-instance completion denominator", async () => {
-  const page = await readSource("../../../testing/frontend/pages/ExecutionsPage.tsx");
-  const card = sliceBetween(page, '"record-card tile-card execution-suite-card"', "{!filteredExecutionSuites.length ? (");
-  assert.match(card, /<TileCardProgress/);
-  assert.doesNotMatch(card, /<ProgressMeter/);
-  assert.match(card, /label="Suite completion"/);
-  assert.match(card, /breakdown=\{buildRunOutcomeBreakdown\(/);
-  for (const field of ["passedCount", "failedCount", "blockedCount", "count", "skippedCount", "abortedCount", "runningCount", "pausedCount"]) {
-    assert.ok(card.includes(`suiteMetric?.${field}`), field);
-  }
-  assert.match(card, /value=\{suiteMetric\?\.count \? suiteMetric\.percent : null\}/);
+test("Run hierarchy completion keeps the frozen instance denominator for suites and modules", async () => {
+  const detail = await readSource("../../../testing/frontend/pages/execution-workspace/ExecutionRunDetail.tsx");
+  assert.match(detail, /scopeCompletion = \(cases: ExecutionCaseView\[\]\) => summarizeRunScopeCompletion/);
+  assert.match(detail, /cases\.flatMap\(testCase => testCase\.data_set_instances\.map\(instanceDerivedStatus\)\)/);
+  assert.match(detail, /const suiteCases = displayCasesBySuiteId\[suite\.id\] \|\| \[\]/);
+  assert.match(detail, /const suiteCompletion = scopeCompletion\(suiteCases\)/);
+  assert.match(detail, /title=\{suiteCompletion\.description\}/);
+  assert.match(detail, /\{suiteCompletion\.percent\}%/);
+  assert.match(detail, /scopeCompletion\(module\.cases\)/);
 });
 
 test("Bug tiles show evidence and triage health above their four summary metrics", async () => {

@@ -41,7 +41,7 @@ const buildScope = (query = {}) => {
   for (const [field, expression] of [
     ['app_type_id', 'tc.app_type_id = ?'],
     ['project_id', 'tc.app_type_id IN (SELECT id FROM app_types WHERE project_id = ?)'],
-    ['suite_id', '(tc.suite_id = ? OR EXISTS (SELECT 1 FROM suite_test_cases m WHERE m.test_case_id = tc.id AND m.suite_id = ?))'],
+    ['suite_id', '(tc.suite_id = ? OR EXISTS (SELECT 1 FROM suite_effective_test_cases m WHERE m.test_case_id = tc.id AND m.suite_id = ?))'],
     ['requirement_id', '(tc.requirement_id = ? OR EXISTS (SELECT 1 FROM requirement_test_cases m WHERE m.test_case_id = tc.id AND m.requirement_id = ?))'],
     ['module_id', 'EXISTS (SELECT 1 FROM test_case_effective_module_cases m WHERE m.test_case_id = tc.id AND m.module_id = ?)'],
     ['status', 'tc.status = ?'],
@@ -59,7 +59,7 @@ const buildScope = (query = {}) => {
     if (!ids.length) { where.push('false'); continue; }
     const placeholders = ids.map(() => '?').join(',');
     where.push(field === 'ids' ? `tc.id IN (${placeholders})`
-      : `(tc.suite_id IN (${placeholders}) OR EXISTS (SELECT 1 FROM suite_test_cases m WHERE m.test_case_id = tc.id AND m.suite_id IN (${placeholders})))`);
+      : `(tc.suite_id IN (${placeholders}) OR EXISTS (SELECT 1 FROM suite_effective_test_cases m WHERE m.test_case_id = tc.id AND m.suite_id IN (${placeholders})))`);
     params.push(...ids, ...(field === 'suite_ids' ? ids : []));
   }
   if (query.automated !== undefined && query.automated !== '' && query.automated !== 'all') {
@@ -91,7 +91,7 @@ const buildScope = (query = {}) => {
       OR EXISTS (SELECT 1 FROM test_case_effective_module_cases m JOIN test_case_modules mo ON mo.id = m.module_id WHERE m.test_case_id = tc.id AND mo.name ILIKE ? ESCAPE '\\')
       OR EXISTS (SELECT 1 FROM requirement_test_cases m JOIN requirements r ON r.id = m.requirement_id WHERE m.test_case_id = tc.id AND concat_ws(' ', r.id, r.display_id, r.title) ILIKE ? ESCAPE '\\')
       OR EXISTS (SELECT 1 FROM requirements r WHERE r.id = tc.requirement_id AND concat_ws(' ', r.id, r.display_id, r.title) ILIKE ? ESCAPE '\\')
-      OR EXISTS (SELECT 1 FROM test_suites suite WHERE suite.app_type_id = tc.app_type_id AND (suite.id = tc.suite_id OR EXISTS (SELECT 1 FROM suite_test_cases m WHERE m.test_case_id = tc.id AND m.suite_id = suite.id)) AND concat_ws(' ', suite.id, suite.display_id, suite.name) ILIKE ? ESCAPE '\\')
+      OR EXISTS (SELECT 1 FROM test_suites suite WHERE suite.app_type_id = tc.app_type_id AND (suite.id = tc.suite_id OR EXISTS (SELECT 1 FROM suite_effective_test_cases m WHERE m.test_case_id = tc.id AND m.suite_id = suite.id)) AND concat_ws(' ', suite.id, suite.display_id, suite.name) ILIKE ? ESCAPE '\\')
       OR EXISTS (SELECT 1 FROM test_steps step JOIN shared_step_groups shared ON shared.id = step.reusable_group_id AND shared.app_type_id = tc.app_type_id WHERE step.test_case_id = tc.id AND concat_ws(' ', shared.id, shared.display_id, shared.name) ILIKE ? ESCAPE '\\')
       OR EXISTS (SELECT 1 FROM users u WHERE u.id = tc.reviewer_id AND concat_ws(' ', u.name, u.email) ILIKE ? ESCAPE '\\'))`);
     params.push(...Array(7).fill(pattern));
@@ -159,7 +159,7 @@ exports.listPage = async (query = {}) => {
   const order = membership && query.module_id
     ? `(SELECT sort_order FROM test_case_effective_module_cases m WHERE m.test_case_id = tc.id AND m.module_id = ?) ASC, tc.title ASC, tc.id ASC`
     : membership && query.suite_id
-      ? `(SELECT sort_order FROM suite_test_cases m WHERE m.test_case_id = tc.id AND m.suite_id = ?) ASC, tc.title ASC, tc.id ASC`
+      ? `(SELECT sort_order FROM suite_effective_test_cases m WHERE m.test_case_id = tc.id AND m.suite_id = ?) ASC, tc.title ASC, tc.id ASC`
       : 'COALESCE(tc.updated_at, tc.created_at) DESC NULLS LAST, tc.id DESC';
   // A compact cursor carries an offset for explicitly ordered membership lists,
   // and an activity/id key for the main catalog to stay stable on concurrent inserts.
@@ -203,7 +203,9 @@ exports.listPage = async (query = {}) => {
       COALESCE((SELECT jsonb_agg(manual.id) FROM automation_case_links link JOIN test_cases manual ON manual.id=link.manual_test_case_id WHERE link.automation_test_case_id=tc.id AND manual.app_type_id=tc.app_type_id AND COALESCE(manual.automated,'no')='no'),'[]') AS manual_test_case_ids,
       COALESCE((SELECT jsonb_agg(automation.id) FROM automation_case_links link JOIN test_cases automation ON automation.id=link.automation_test_case_id WHERE link.manual_test_case_id=tc.id AND automation.app_type_id=tc.app_type_id AND automation.automated='yes'),'[]') AS automation_test_case_ids,
       ${yes(query.include_execution) ? `(SELECT COUNT(*)::int FROM test_case_effective_results er WHERE er.test_case_id = tc.id)` : 'NULL'} AS run_count,
-      ${yes(query.include_execution) ? `COALESCE((SELECT jsonb_agg(r) FROM (SELECT id, execution_id, test_case_id, app_type_id, status, duration_ms, created_at,effective_at,result_origin,derived,source_result_id,source_test_case_id,source_display_id,covers_entire_case,source_results,source_duration_ms FROM test_case_effective_results er WHERE er.test_case_id = tc.id ORDER BY effective_at DESC,derived DESC,id DESC LIMIT 10) r), '[]')` : "'[]'::jsonb"} AS recent_results
+      ${yes(query.include_execution) ? `COALESCE((SELECT jsonb_agg(r) FROM (SELECT id, execution_id, test_case_id, app_type_id, status, duration_ms, created_at,effective_at,result_origin,derived,source_result_id,source_test_case_id,source_display_id,covers_entire_case,source_results,source_duration_ms FROM test_case_effective_results er WHERE er.test_case_id = tc.id ORDER BY effective_at DESC,derived DESC,id DESC LIMIT 10) r), '[]')` : "'[]'::jsonb"} AS recent_results,
+      ${yes(query.include_execution) ? `(SELECT to_jsonb(r) FROM (SELECT id, execution_id, test_case_id, app_type_id, status, duration_ms, created_at,effective_at,result_origin,derived,source_result_id,source_test_case_id,source_display_id,covers_entire_case,source_results,source_duration_ms FROM test_case_effective_results er WHERE er.test_case_id=tc.id AND NOT er.derived AND COALESCE(tc.automated,'no')<>'yes' ORDER BY er.effective_at DESC,er.id DESC LIMIT 1) r)` : 'NULL::jsonb'} AS latest_manual_result,
+      ${yes(query.include_execution) ? `(SELECT to_jsonb(r) FROM (SELECT id, execution_id, test_case_id, app_type_id, status, duration_ms, created_at,effective_at,result_origin,derived,source_result_id,source_test_case_id,source_display_id,covers_entire_case,source_results,source_duration_ms FROM test_case_effective_results er WHERE er.test_case_id=tc.id AND (er.derived OR tc.automated='yes') ORDER BY er.effective_at DESC,er.id DESC LIMIT 1) r)` : 'NULL::jsonb'} AS latest_automation_result
       FROM test_cases tc WHERE tc.id IN (${ids.map(() => '?').join(',')})`).all(...ids);
   }
   const byId = new Map(summaries.map((row) => [row.id, row]));
@@ -212,7 +214,7 @@ exports.listPage = async (query = {}) => {
     const summary = byId.get(row.id) || {};
     const result = { ...row, ...summary, external_references: normalizeStoredReferenceList(row.external_references), labels: normalizeStoredReferenceList(row.labels), detail_complete: false, summary_complete: true };
     if (yes(query.include_execution)) {
-      const latestLinked=(summary.recent_results||[]).find(item=>item.derived);
+      const latestLinked=summary.latest_automation_result || (summary.recent_results||[]).find(item=>item.derived);
       result.automation_coverage={linked_case_count:(summary.automation_test_case_ids||[]).length,status:latestLinked?.status||null,latest_result:latestLinked||null};
       result.latest_result=summary.recent_results?.[0]||null;
     }
@@ -252,7 +254,7 @@ exports.getMetrics = async (query = {}) => {
       tc.review_status, tc.ai_generation_source, tc.ai_generation_review_status,
       ARRAY(SELECT module_id FROM test_case_effective_module_cases m WHERE m.test_case_id = tc.id) AS module_ids,
       (tc.requirement_id IS NOT NULL OR EXISTS (SELECT 1 FROM requirement_test_cases m WHERE m.test_case_id = tc.id)) AS covered,
-      EXISTS (SELECT 1 FROM suite_test_cases m WHERE m.test_case_id = tc.id) AS with_suites,
+      EXISTS (SELECT 1 FROM suite_effective_test_cases m WHERE m.test_case_id = tc.id) AS with_suites,
       EXISTS (SELECT 1 FROM test_steps s WHERE s.test_case_id = tc.id) AS executable
     FROM test_cases tc WHERE ${where}
   ), facts AS (

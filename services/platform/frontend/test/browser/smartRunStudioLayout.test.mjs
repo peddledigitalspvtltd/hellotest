@@ -1,3 +1,4 @@
+import { assertAccessibleControls } from "./axeControls.mjs";
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
@@ -12,7 +13,7 @@ test('Smart Run keeps context and run settings separate and uses the full review
   let browser;
   try {
     let fixture = await readFile(new URL('../fixtures/previews/smartRunStudioPreview.tsx', import.meta.url), 'utf8');
-    fixture = fixture.replaceAll('"../../../src/', '"/src/').replaceAll('"../../../../services/', '"/services/');
+    fixture = fixture.replaceAll('"../../../src/', '"/src/').replaceAll('"../../../../services/', '"/services/').replace('"../../../../../testing/frontend/pages/ExecutionsPage"', '"/services/testing/frontend/components/ExecutionCreateDrawer"');
     fixture = `import { AuthProvider } from '/src/auth/AuthContext';
 import { MemoryRouter } from 'react-router-dom';
 import { api, sessionStorage } from '/src/lib/api';
@@ -38,6 +39,7 @@ const queryClient =`);
     await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5191'}/${name}.html`);
     const modal = page.getByRole('dialog', { name: 'AI Smart Run', exact: true });
     await modal.waitFor();
+    await assertAccessibleControls(page, ".execution-create-drawer");
     await page.getByRole('tab', { name: 'Context', exact: true }).waitFor();
     assert.equal(await page.locator('#smart-run-settings-panel').isVisible(), false);
     assert.equal(await page.locator('#smart-run-context-panel').isVisible(), true);

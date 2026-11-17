@@ -1,6 +1,6 @@
 import { SparkIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import type { AiAssuranceSignal } from "../lib/aiAssurance";
-import { findAiMetricCriteriaByLabel } from "@hellotest/integration/frontend/lib/aiPromptRegistry";
+import { resolveMetricIdentity } from "@hellotest/integration/frontend/lib/aiPromptRegistry";
 import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAiPromptRegistry";
 import { InfoTooltip } from "@hellotest/platform/frontend/src/shared/components/InfoTooltip";
 import "./AiAssurancePanel.css";
@@ -19,6 +19,7 @@ export function AiAssurancePanel({
   summary,
   score,
   scoreLabel,
+  criteriaKey,
   showScore = true,
   provenance,
   reviewState,
@@ -30,6 +31,7 @@ export function AiAssurancePanel({
   summary: string;
   score: number;
   scoreLabel: string;
+  criteriaKey?: string;
   showScore?: boolean;
   provenance: string;
   reviewState: AiReviewState;
@@ -38,8 +40,8 @@ export function AiAssurancePanel({
   compact?: boolean;
 }) {
   const normalizedScore = Math.max(0, Math.min(100, Math.round(score)));
-  const scoreTone = normalizedScore >= 80 ? "positive" : normalizedScore >= 55 ? "neutral" : "warning";
-  const governedMetric = findAiMetricCriteriaByLabel(scoreLabel);
+  const scoreTone = criteriaKey === "metric.execution.evidence_completeness" ? "neutral" : normalizedScore >= 80 ? "positive" : normalizedScore >= 55 ? "neutral" : "warning";
+  const governedMetric = resolveMetricIdentity({ criteriaKey });
   const { getMetricCriteria } = useAiPromptRegistry();
   const organizationCriteria = governedMetric ? getMetricCriteria(governedMetric.key) : "";
 
@@ -64,7 +66,7 @@ export function AiAssurancePanel({
             className="ai-assurance-methodology-info"
             content={(
               <span className="metric-methodology-copy">
-                <span>{governedMetric?.formula || "This readiness percentage is calculated deterministically from the visible, in-scope evidence signals; it is not model confidence."}</span>
+                <span>{governedMetric ? `${governedMetric.key} · ${governedMetric.population} · ${governedMetric.unit}. ` : ""}{governedMetric?.formula || "Methodology unavailable for this metric identity and population."}</span>
                 {organizationCriteria ? <span><b>Organization criteria:</b> {organizationCriteria}</span> : null}
                 <span><b>Evidence basis:</b> {provenance}</span>
               </span>

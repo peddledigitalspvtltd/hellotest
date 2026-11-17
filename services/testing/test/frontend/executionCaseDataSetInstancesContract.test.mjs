@@ -1,9 +1,10 @@
+import { readTestingWorkspaceSource as readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { readApiSources } from "../../../platform/frontend/test/helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = async relativePath => { const source = await readSourceFile(new URL(relativePath, import.meta.url), "utf8"); return relativePath.endsWith("ExecutionsPage.tsx") ? source + await readSourceFile(new URL("../../frontend/components/ExecutionRunListCard.tsx", import.meta.url), "utf8") : source; };
 
 test("execution case snapshots expose immutable per-case Data Set context", async () => {
   const types = await readSource("../../../platform/frontend/src/types.ts");

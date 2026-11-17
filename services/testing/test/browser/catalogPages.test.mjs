@@ -116,7 +116,7 @@ test('Bugs fetch 25 records independently from complete metrics, append on scrol
     const secondTile = page.locator('.issue-catalog-card').nth(1);
     await assertCountSegments(secondTile.locator('.tile-card-progress').nth(0).locator('.metric-status-bar'),4,[{key:'covered',label:'Completed evidence fields',count:4}]);
     await assertCountSegments(secondTile.locator('.tile-card-progress').nth(1).locator('.metric-status-bar'),3,[{key:'covered',label:'Completed triage fields',count:2},{key:'uncovered',label:'Missing triage fields',count:1}]);
-    const total = page.getByRole('group',{name:'Defect catalog quality metrics'}).getByRole('button',{name:/View evidence for Total defects/i}).locator('strong');
+    const total = page.getByRole('group',{name:'Defect catalog quality metrics'}).getByTitle(/View evidence for Total defects/i).locator('strong');
     assert.equal(await total.innerText(), '60', 'Metrics cover the full catalog beyond the 25 loaded rows');
     await page.waitForTimeout(250);
     let calls = await page.evaluate(()=>window.calls);

@@ -1,6 +1,7 @@
 const service = require("../services/user.service");
 const batchProcessService = require("@hellotest/testing/backend/services/batchProcess.service");
 const permissionService = require("../services/permission.service");
+const {policy} = require('../services/authPolicy.service');
 
 module.exports = async function (fastify) {
   const createError = (message, statusCode) => {
@@ -12,7 +13,7 @@ module.exports = async function (fastify) {
   fastify.post("/users", { preHandler: [fastify.authenticate] }, async (req) => {
     fastify.validate({
       email: { required: true, type: "string", minLength: 3 },
-      password: { required: true, type: "string", minLength: 6, maxLength: 128 },
+      password: { required: true, type: "string", minLength: policy.newPasswordMinLength, maxLength: policy.passwordMaxLength },
       name: { required: false, type: "string" },
       role_id: { required: true, type: "string" }
     }, req.body);
@@ -52,7 +53,7 @@ module.exports = async function (fastify) {
     }
     fastify.validate({
       email: { required: false, type: "string", minLength: 3 },
-      password: { required: false, type: "string", minLength: 6, maxLength: 128 },
+      password: { required: false, type: "string", minLength: policy.newPasswordMinLength, maxLength: policy.passwordMaxLength },
       name: { required: false, type: "string" },
       role_id: { required: false, type: "string" },
       avatar_data_url: { required: false, type: "string" }
@@ -75,7 +76,7 @@ module.exports = async function (fastify) {
   fastify.put("/users/:id/password", { preHandler: [fastify.authenticate] }, async (req) => {
     fastify.validate({
       current_password: { required: true, type: "string", minLength: 1 },
-      new_password: { required: true, type: "string", minLength: 6, maxLength: 128 }
+      new_password: { required: true, type: "string", minLength: policy.newPasswordMinLength, maxLength: policy.passwordMaxLength }
     }, req.body);
 
     if (req.user?.id !== req.params.id) {
@@ -95,5 +96,14 @@ module.exports = async function (fastify) {
     }
 
     return service.deleteUser(req.params.id);
+  });
+
+  fastify.post('/users/:id/unlock-login', {preHandler: [fastify.authenticate]}, async req => {
+    const canManage = req.user?.role === 'admin' || await permissionService.hasPermission(req.user, 'user.manage');
+    if (!canManage) throw createError('Permission required: user.manage', 403);
+    const user = await service.getUser(req.params.id);
+    await require('../services/loginProtection.service').clear(user.email.toLowerCase().trim());
+    req.log?.info({event: 'auth.login_unlocked', actor_id: req.user.id, user_id: user.id}, 'Administrator reset login protection');
+    return {unlocked: true};
   });
 };

@@ -5,8 +5,8 @@ const status = value => String(value || '').trim().toLowerCase().replace(/[ _-]+
 const QA_DONE = new Set(['qa_done', 'done', 'closed', 'resolved', 'accepted', 'complete', 'completed']);
 const DEV_DONE = new Set([...QA_DONE, 'dev_done', 'qa_ready', 'qa_in_progress', 'qa_blocked']);
 const FINAL = new Set(['passed', 'failed', 'blocked', 'skipped', 'aborted', 'cancelled']);
-const CLOSED_DEFECT = new Set(['closed', 'resolved', 'done', 'accepted', 'complete', 'completed', 'fixed', 'verified']);
-const OPEN = value => !CLOSED_DEFECT.has(status(value));
+const {isClosedDefect}=require('@hellotest/platform/backend/src/utils/defectStatus');
+const OPEN = value => !isClosedDefect(value);
 const unique = values => [...new Set(Array.isArray(values) ? values.filter(Boolean) : [])];
 const percentage = (count, total) => total ? Math.round(count * 100 / total) : 0;
 const evidenceCache = new WeakMap();

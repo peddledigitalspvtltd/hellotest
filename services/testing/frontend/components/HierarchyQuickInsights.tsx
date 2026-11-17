@@ -1,12 +1,14 @@
 import { metricTitle } from "@hellotest/platform/frontend/src/shared/lib/metricTitle";
 import type { ReactNode } from "react";
 import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAiPromptRegistry";
-import { findAiMetricCriteriaByLabel } from "@hellotest/integration/frontend/lib/aiPromptRegistry";
+import { resolveMetricIdentity } from "@hellotest/integration/frontend/lib/aiPromptRegistry";
 import { MetricMethodologyInfo } from "@hellotest/ai/frontend/components/MetricMethodologyInfo";
 import "./HierarchyQuickInsights.css";
 
 export type HierarchyQuickInsight = {
   criteriaKey?: string;
+  population?: string;
+  unit?: string;
   icon: ReactNode;
   label: string;
   methodology?: ReactNode;
@@ -37,9 +39,7 @@ export function HierarchyQuickInsights({
           <strong>{count}</strong>
         </span>
         {metrics.map((metric) => {
-          const governedMetric = metric.criteriaKey
-            ? findAiMetricCriteriaByLabel(metric.criteriaKey)
-            : findAiMetricCriteriaByLabel(metric.label);
+          const governedMetric = resolveMetricIdentity(metric);
           const evidence = metric.methodology || metric.title;
           return (
             <span
@@ -50,13 +50,15 @@ export function HierarchyQuickInsights({
               <span className="hierarchy-quick-insight-icon">{metric.icon}</span>
               <small className="hierarchy-quick-insight-label-row">
                 <span>{metricTitle(metric.label)}</span>
-                {governedMetric ? (
+                {(
                   <MetricMethodologyInfo
-                    criteriaKey={governedMetric.key}
+                    criteriaKey={metric.criteriaKey || "unmapped"}
+                    population={metric.population}
+                    unit={metric.unit}
                     evidence={evidence}
-                    organizationCriteria={getMetricCriteria(governedMetric.key)}
+                    organizationCriteria={getMetricCriteria(governedMetric?.key || "")}
                   />
-                ) : null}
+                )}
               </small>
               <strong>{metric.value}</strong>
             </span>

@@ -103,7 +103,7 @@ const automationCreationMode = requestedCreationMode === "ai" && !canUseAutomati
 const canCreateAutomationCase = canCreateAutomationDraft
     && (automationCreationMode !== "ai" || canUseAutomationAi)
     && (automationCreationMode !== "record" || canUseRecorder);
-const importedApiPlanReady = automationCreateSteps.length > 0 && !automationCreateManualCaseIds.length && automationCreateSteps.every(step => step.step_type === "api" && Boolean(step.api_request?.url));
+const importedApiPlanReady = automationCreateSteps.length > 0 && automationCreateMetadata.automationCaseType === "api" && automationCreateSteps.every(step => step.step_type === "api" && Boolean(step.api_request?.url));
 useEffect(() => setBuildAgentSelection(automationAgentSelection()), [projectId, appTypeId, ""]);
 useEffect(() => {
     setIsExecutionContextOpen(false);
@@ -211,6 +211,7 @@ useEffect(() => {
 }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
 useEffect(() => {
     const requestedManualId = searchParams.get("manual") || "";
+    const apiTwin = searchParams.get("editor") === "api";
     if (searchParams.get("create") !== "1") {
         consumedAutomationCreateRouteRef.current = "";
         return;
@@ -220,14 +221,15 @@ useEffect(() => {
     }
     // Closing locally can render before the router removes the creation query.
     // Consume the request once so a successful save or Cancel cannot reopen it.
-    const routeKey = `${projectId}:${appTypeId}:${requestedManualId}`;
+    const routeKey = `${projectId}:${appTypeId}:${requestedManualId}:${apiTwin}`;
     if (consumedAutomationCreateRouteRef.current === routeKey)
         return;
     consumedAutomationCreateRouteRef.current = routeKey;
     const manualCase = findByRoutableId(availableManualCases, requestedManualId);
     automationCreateTouchedMetadataRef.current.clear();
+    if (apiTwin) { automationCreateTouchedMetadataRef.current.add("automationCaseType"); setAutomationCreationMode("blank"); setAutomationCreateSteps([]); }
     setAutomationCreateManualCaseIds(manualCase ? [manualCase.id] : []);
-    setAutomationCreateMetadata({ ...emptyAutomationMetadata, title: manualCase ? `${manualCase.title} · Automation` : "", manualCaseIds: manualCase ? [manualCase.id] : [] });
+    setAutomationCreateMetadata({ ...emptyAutomationMetadata, title: manualCase ? `${manualCase.title} · Automation` : "", automationCaseType: apiTwin ? "api" : "", manualCaseIds: manualCase ? [manualCase.id] : [] });
     setIsCreateAutomationOpen(true);
 }, [availableManualCases, "cases", searchParams, testCasesQuery.isLoading, isCreateAutomationOpen, projectId, appTypeId]);
 useEffect(() => {

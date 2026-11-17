@@ -1,3 +1,4 @@
+import {policy} from '../../shared/lib/authPolicy';
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
@@ -209,7 +210,7 @@ export function UserProfileDialog({
   const canChangePassword =
     user.auth_provider !== "google"
     && passwordDraft.current_password.length > 0
-    && passwordDraft.new_password.length >= 6
+    && passwordDraft.new_password.length >= policy.newPasswordMinLength
     && passwordDraft.new_password === passwordDraft.confirm_password;
 
   const handleAvatarChange = async (event: ChangeEvent<HTMLInputElement>) => {

@@ -57,6 +57,39 @@ test('only the official GPT-5 relevance check defaults to minimal reasoning with
   assert.equal(prepareChatRequest(init({model:'gpt-5'}),{...options,operation:'requirement-design.generate',maxOutputTokens:8192}).payload.max_completion_tokens,8192);
 });
 
+test('official GPT-5 grooming reserves its unchanged completion budget for visible bounded review JSON', () => {
+  const options = { operation: 'requirement.grooming', providerUrl: 'https://api.openai.com/v1/chat/completions', maxOutputTokens: 6144 };
+  for (const model of ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5-2025-08-07']) {
+    const original = init({ model }), prepared = prepareChatRequest(original, options).payload;
+    assert.equal(prepared.reasoning_effort, 'minimal');
+    assert.equal(prepared.max_completion_tokens, 6144);
+    assert.deepEqual(prepared.messages, JSON.parse(original.body).messages);
+    assert.equal(prepareChatRequest(init({ model, max_completion_tokens: 2048 }), options).payload.max_completion_tokens, 2048);
+    assert.equal(prepareChatRequest(init({ model, reasoning_effort: 'high' }), options).payload.reasoning_effort, 'high');
+  }
+  for (const model of ['gpt-5-pro', 'gpt-5.1', 'gpt-4o', 'o3', 'provider-reasoning']) {
+    assert.equal(prepareChatRequest(init({ model }), options).payload.reasoning_effort, undefined);
+  }
+  assert.equal(prepareChatRequest(init({ model: 'gpt-5' }), { ...options, providerUrl: 'https://compatible.invalid/v1/chat/completions' }).payload.reasoning_effort, undefined);
+  assert.equal(prepareChatRequest(init({ model: 'gpt-5' }), { ...options, operation: 'requirement.optimize' }).payload.reasoning_effort, undefined);
+});
+
+test('bounded chat JSON operations reserve their exact caps for visible output only on documented official GPT-5', () => {
+  for (const [operation, cap] of [['knowledge.assistant.plan-intent', 768], ['knowledge.assistant.read-tool-continuation', 640], ['knowledge.assistant.synthesize', 4000]]) {
+    const options = { operation, providerUrl: 'https://api.openai.com/v1/chat/completions', maxOutputTokens: cap };
+    for (const model of ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5-2025-08-07']) {
+      const original = init({ model }), prepared = prepareChatRequest(original, options).payload;
+      assert.equal(prepared.reasoning_effort, 'minimal'); assert.equal(prepared.max_completion_tokens, cap);
+      assert.deepEqual(prepared.messages, JSON.parse(original.body).messages);
+      assert.equal(prepareChatRequest(init({ model, max_completion_tokens: 128 }), options).payload.max_completion_tokens, 128);
+      assert.equal(prepareChatRequest(init({ model, reasoning_effort: 'high' }), options).payload.reasoning_effort, 'high');
+    }
+    assert.equal(prepareChatRequest(init({ model: 'gpt-5.1' }), options).payload.reasoning_effort, undefined);
+    assert.equal(prepareChatRequest(init({ model: 'gpt-5' }), { ...options, providerUrl: 'https://compatible.invalid/v1/chat/completions' }).payload.reasoning_effort, undefined);
+    assert.equal(prepareChatRequest(init({ model: 'gpt-5' }), { ...options, operation: 'knowledge.assistant.verify' }).payload.reasoning_effort, undefined);
+  }
+});
+
 test('JSON mode supplies a trusted output instruction independently of editable prompts and serialized schemas', () => {
   const messages=[{role:'system',content:'Generate the cases required by the supplied schema.'},
     {role:'user',content:JSON.stringify({story:{id:'story-1',title:'Checkout'},output_schema:{type:'object',properties:{testCases:{type:'array'}}}})}];

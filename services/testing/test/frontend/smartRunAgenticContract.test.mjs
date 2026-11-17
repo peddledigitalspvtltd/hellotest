@@ -1,17 +1,16 @@
+import { readTestingWorkspaceSource as readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { readApiSources } from "../../../platform/frontend/test/helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = (relativePath) => readSourceFile(new URL(relativePath, import.meta.url), "utf8");
 
 test("Smart Run uses one Test Case Generator-style context and review workspace", async () => {
   const page = await readSource("../../frontend/pages/ExecutionsPage.tsx");
-  const modalStart = page.indexOf("export function ExecutionCreateModal");
-  const modalEnd = page.indexOf("function CreateExecutionScheduleModal", modalStart);
-  const modal = page.slice(modalStart, modalEnd);
+  const modal = await readSource("../../frontend/components/ExecutionCreateDrawer.tsx");
 
-  assert.match(page, /AgenticProcessRail, AiEvidenceButton, AiEvidenceFlyout, AiFeatureComposer/);
+  for (const component of ["AgenticProcessRail", "AiFeatureComposer"]) assert.match(page, new RegExp(`<${component}\\b`));
   assert.match(modal, /Context Setup/);
   assert.match(modal, /Smart Run Drafts/);
   assert.match(modal, /label="Change intent"/);
@@ -27,9 +26,7 @@ test("Smart Run uses one Test Case Generator-style context and review workspace"
 test("Smart Run can rank deterministically without an LLM and sends governed prompt guidance when present", async () => {
   const page = await readSource("../../frontend/pages/ExecutionsPage.tsx");
   const api = await readApiSources();
-  const modalStart = page.indexOf("export function ExecutionCreateModal");
-  const modalEnd = page.indexOf("function CreateExecutionScheduleModal", modalStart);
-  const modal = page.slice(modalStart, modalEnd);
+  const modal = await readSource("../../frontend/components/ExecutionCreateDrawer.tsx");
   const generateStart = modal.indexOf("const canGenerateSmartPlan");
   const generateEnd = modal.indexOf("const libraryCaseById", generateStart);
 
@@ -45,9 +42,7 @@ test("Smart Run evidence opens in plan and case flyouts instead of expanding inl
     readSource("../../frontend/pages/ExecutionsPage.tsx"),
     readSource("../../../platform/frontend/src/execution-run-builder.css")
   ]);
-  const modalStart = page.indexOf("export function ExecutionCreateModal");
-  const modalEnd = page.indexOf("function CreateExecutionScheduleModal", modalStart);
-  const modal = page.slice(modalStart, modalEnd);
+  const modal = await readSource("../../frontend/components/ExecutionCreateDrawer.tsx");
 
   assert.match(modal, /setSmartEvidenceView\(\{ kind: "plan" \}\)/);
   assert.match(modal, /setSmartEvidenceView\(\{ kind: "case", caseId: testCase\.test_case_id \}\)/);
@@ -91,9 +86,7 @@ test("Smart Run frontend contract carries processing, provenance, fingerprints, 
 
 test("Smart Run labels direct impacted scope without inventing a Default suite", async () => {
   const page = await readSource("../../frontend/pages/ExecutionsPage.tsx");
-  const modalStart = page.indexOf("export function ExecutionCreateModal");
-  const modalEnd = page.indexOf("function CreateExecutionScheduleModal", modalStart);
-  const modal = page.slice(modalStart, modalEnd);
+  const modal = await readSource("../../frontend/components/ExecutionCreateDrawer.tsx");
 
   assert.match(modal, /Direct impacted scope/);
   assert.match(modal, /no existing suite membership is invented or changed/);

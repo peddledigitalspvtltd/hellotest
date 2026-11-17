@@ -21,7 +21,7 @@ type IssuePayload = {
   environment?: string;
   build?: string;
   jira_bug_key?: string;
-  linked_test_run_id?: string;
+  linked_test_run_id?: string; linked_execution_result_id?: string; linked_step_id?: string;
   linked_test_case_ids?: string[];
   linked_test_suite_ids?: string[];
   linked_module_ids?: string[];
@@ -261,11 +261,12 @@ testCaseModules: {
     delete: (id: string) => request<{ deleted: boolean }>(`/test-case-modules/${id}`, { method: "DELETE" })
   },
 testSuites: {
+    get: (id: string) => request<TestSuite & {explicit_test_case_ids: string[]; module_ids: string[]; module_membership: "snapshot" | "live"; resolved_case_count: number}>(`/test-suites/${encodeURIComponent(id)}`),
     list: (query?: { app_type_id?: string; project_id?: string; projection?: "picker" | "summary"; case_search?: string; module_id?: string; requirement_id?: string; label?: string; shared_step_group_id?: string }, options?: { signal?: AbortSignal }) =>
       request<TestSuite[]>(`/test-suites${toQueryString(query)}`, { signal: options?.signal }),
-    create: (input: { app_type_id: string; name: string; description?: string; labels?: string[]; parameter_values?: Record<string, string>; test_data_options?: TestDataOptions; test_data_set_id?: string | null; test_case_ids?: string[]; parallel_enabled?: boolean; parallel_count?: number }) =>
+    create: (input: { app_type_id: string; name: string; description?: string; labels?: string[]; parameter_values?: Record<string, string>; test_data_options?: TestDataOptions; test_data_set_id?: string | null; test_case_ids?: string[]; module_ids?: string[]; module_membership?: "snapshot" | "live"; parallel_enabled?: boolean; parallel_count?: number }) =>
       request<{ id: string }>("/test-suites", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ name: string; description: string; labels: string[]; parameter_values: Record<string, string>; test_data_options: TestDataOptions; test_data_set_id: string | null; test_case_ids: string[]; parallel_enabled: boolean; parallel_count: number; expected_revision: number }>) =>
+    update: (id: string, input: Partial<{ name: string; description: string; labels: string[]; parameter_values: Record<string, string>; test_data_options: TestDataOptions; test_data_set_id: string | null; test_case_ids: string[]; module_ids: string[]; module_membership: "snapshot" | "live"; parallel_enabled: boolean; parallel_count: number; expected_revision: number }>) =>
       request<{ updated: boolean; revision: number }>(`/test-suites/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     assignTestCases: (id: string, test_case_ids: string[], expected_revision?: number, append = true) =>
       request<{ updated: boolean; assigned: number; revision: number }>(`/test-suites/${id}/assign-test-cases`, {
@@ -719,7 +720,7 @@ testDataSets: {
   },
 executions: {
     parameterPlan: (input: { suite_context_id?: string; data_scope?: "suite" | "run"; parameter_values?: Record<string, string>; project_id: string; app_type_id: string; execution_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string }) =>
-      request<{ shared_group_kinds?: Array<"steps" | "sections">; expected_instance_count: number; case_count: number; suite_count: number; suite_ids: string[]; data_set_validation?: import("@hellotest/platform/frontend/src/types").DataSetValidation | null; parameters: Array<{ name: string; token: string; scope: "t" | "s" | "r"; case_count: number }> }>("/executions/parameter-plan", { method: "POST", body: JSON.stringify(input) }),
+      request<{ shared_group_kinds?: Array<"steps" | "sections">; expected_instance_count: number; case_count: number; suite_count: number; suite_ids: string[]; data_set_validation?: import("@hellotest/platform/frontend/src/types").DataSetValidation | null; parameter_bindings?: Array<{ name: string; source: string }>; parameters: Array<{ name: string; token: string; scope: "t" | "s" | "r"; case_count: number }> }>("/executions/parameter-plan", { method: "POST", body: JSON.stringify(input) }),
     list: (query?: { project_id?: string; app_type_id?: string; status?: string; test_case_id?: string; page_size?: number }, options?: { signal?: AbortSignal }) =>
       request<Execution[]>(`/executions${toQueryString(query)}`, { signal: options?.signal }),
     history: (query: { project_id: string; app_type_id?: string; requirement_id?: string; test_case_id?: string; page_size?: number }) =>

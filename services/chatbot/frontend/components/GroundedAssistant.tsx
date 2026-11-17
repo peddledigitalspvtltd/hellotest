@@ -677,7 +677,7 @@ export function GroundedAssistant() {
       <button
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        aria-label="Open HelloTest grounded assistant"
+        aria-label="Ask HelloTest"
         className="grounded-assistant-trigger"
         onClick={() => setIsOpen(true)}
         title="Ask HelloTest · Ctrl/⌘ + Shift + H"

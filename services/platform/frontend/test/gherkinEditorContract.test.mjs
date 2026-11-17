@@ -1,3 +1,4 @@
+import { readTestingWorkspaceSource as readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -23,7 +24,7 @@ import {
 } from "../src/shared/lib/stepParameters.ts";
 import { readFile } from "node:fs/promises";
 
-const readSource = (path) => readFile(new URL(path, import.meta.url), "utf8");
+const readSource = (path) => readSourceFile(new URL(path, import.meta.url), "utf8");
 
 test("Gherkin syntax recognizes section, background, scenario, example, and step keywords", () => {
   const expectedKinds = [
@@ -361,7 +362,7 @@ test("Story and Test Case surfaces share the editor without destructive format s
   assert.match(testCases, /sanitizeGherkinDocumentText\(caseDraft\.gherkin_document\)/);
   assert.doesNotMatch(testCases, /gherkin_document: caseDraft\.authoring_mode === "gherkin" \? caseDraft\.gherkin_document : null/);
   assert.match(testCases, /buildGherkinQualitySteps\(caseDraft\.gherkin_document\)/);
-  assert.match(testCases, /caseDraft\.authoring_mode === "gherkin" \? "Scenario completeness" : "Step completeness"/);
+  assert.match(await readSource("../../../testing/frontend/components/CaseAuthoringHealth.tsx"), /gherkin \? "Scenario completeness" : "Step completeness"/);
   assert.match(testCases, /authoringMode: caseDraft\.authoring_mode/);
   assert.match(testCases, /selectedTestCaseAssuranceSteps/);
   assert.match(linkedDetails, /hasGherkinDocument/);

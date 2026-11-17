@@ -1,3 +1,4 @@
+const lifecycle = require("./generationLifecycle");
 const { normalizeReferenceImages, imageUserContent } = require('@hellotest/platform/backend/src/utils/aiReferenceImages');
 const { splitGenerationContext, generationRetrievalQuery } = require('@hellotest/platform/backend/src/utils/aiGenerationContext');
 const { caseOutputSchema, stepOutputSchema, validateNativeArtifactOutput, normalizeGeneratedCaseParameterValues } = require('@hellotest/platform/backend/src/utils/aiGenerationContracts');
@@ -296,7 +297,8 @@ const normalizeStepPreview = (payload, currentStep, fallbackStepType) => {
   return step;
 };
 
-exports.previewCaseAuthoring = async ({
+exports.previewCaseAuthoring = lifecycle.withLifecycle("case-authoring", async ({
+  onProgress,
   requirement,
   appType,
   integration_id,
@@ -315,6 +317,7 @@ exports.previewCaseAuthoring = async ({
     throw Object.assign(new Error('The linked Story must belong to the application project.'), { statusCode: 403, code: 'AI_STORY_SCOPE_INVALID' });
   }
 
+  await onProgress("context", "Preparing the selected Story, current Case and reviewed evidence.");
   const fallbackStepType = DEFAULT_STEP_TYPE_BY_APP_TYPE[appType.type] || "web";
   const authoringMode = authoring_mode === "gherkin" ? "gherkin" : "structured";
   const boundedCase = testCaseAiSnapshot(test_case);
@@ -331,6 +334,7 @@ exports.previewCaseAuthoring = async ({
   const safeImages = normalizeAiReferenceImages(images);
   const typeField = await dropdownCatalog.getField('test_cases.types');
   const testCaseTypes = [...new Set([...typeField.options.filter(option=>option.active!==false).map(option=>option.value), ...(currentCase.test_case_type?[currentCase.test_case_type]:[])])];
+  await onProgress("guardrails", "Checking authoring intent, active Case types and provider configuration.");
   const integration = await resolveIntegration(integration_id, {
     userId: user_id,
     projectId: appType.project_id || requirement?.project_id,
@@ -359,13 +363,16 @@ exports.previewCaseAuthoring = async ({
     authoringMode, additionalContext,
     externalLinks: [], images: [], testCaseTypes
   });
+  await onProgress("specialist", "The configured model is drafting the Test Case proposal.");
   const content = await requestChatCompletion({ integration, prompt, authoringMode, images: safeImages, imageOnly: safeImages.length > 0 && !splitGenerationContext(additionalContext).user_request, fallbackContent, contextState, testCaseTypes });
+  await onProgress("outcome", "Checking the returned Test Case against the native output contract.");
   let parsed;
   try { parsed = extractJsonPayload(content); }
   catch {
     throw Object.assign(new Error('The model returned an invalid Test Case response. Retry or select another configured model; your existing Test Case is unchanged.'), { statusCode: 502, code: 'AI_TEST_CASE_RESPONSE_INVALID' });
   }
   validateNativeArtifactOutput('ai.case_authoring.full_case', parsed, { testCaseTypes });
+  await onProgress("evaluation", "Validating Case types, priority, steps and parameter bindings.");
   const preview = normalizePreview(parsed, fallbackStepType, authoringMode);
   preview.reference_attachment_ids = (contextState.referenceAttachments || []).map(item => item.id);
   if (!testCaseTypes.includes(preview.test_case_type)) throw Object.assign(new Error('AI authoring selected an unavailable Test Case type. Choose an active type configured by an administrator.'),{statusCode:502,code:'AI_NATIVE_CONTRACT_INVALID'});
@@ -387,7 +394,7 @@ exports.previewCaseAuthoring = async ({
     context_reduction_reason: contextState.reduced ? "The provider rejected the full context size. URL pointers were omitted; user instructions, the Story and existing authored content were preserved. Review against the original requirements before applying." : null,
     case: preview
   };
-};
+});
 
 exports.rephraseTestStep = async ({
   requirement,

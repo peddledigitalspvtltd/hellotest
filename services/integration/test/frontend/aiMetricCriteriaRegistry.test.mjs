@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findAiMetricCriteriaByLabel, normalizeAiMetricCriteriaOverrides } from '../../frontend/lib/aiPromptRegistry.ts';
+import { resolveMetricIdentity, findAiMetricCriteriaByLabel, normalizeAiMetricCriteriaOverrides } from '../../frontend/lib/aiPromptRegistry.ts';
 
 test('metric lookup requires a stable identity when display terminology is ambiguous', () => {
   assert.equal(findAiMetricCriteriaByLabel('metric.dashboard.execution_completion')?.key, 'metric.dashboard.execution_completion');
-  assert.equal(findAiMetricCriteriaByLabel('Story coverage')?.key, 'metric.story.coverage');
+  assert.equal(findAiMetricCriteriaByLabel('Story coverage'), null);
+  assert.equal(findAiMetricCriteriaByLabel('Evidence completeness'), null);
+  assert.equal(resolveMetricIdentity({criteriaKey:'metric.sprint.qa_completion',population:'frozen_run_instances',unit:'percent'}), null);
+  assert.equal(resolveMetricIdentity({criteriaKey:'metric.sprint.qa_completion',population:'sprint_stories',unit:'percent'})?.key, 'metric.sprint.qa_completion');
   assert.equal(findAiMetricCriteriaByLabel('confidence'), null);
   assert.equal(findAiMetricCriteriaByLabel(''), null);
   assert.equal(findAiMetricCriteriaByLabel('all invented project metrics'), null);

@@ -1,9 +1,19 @@
+import { resolveMetricIdentity } from "@hellotest/integration/frontend/lib/aiPromptRegistry";
+import { InfoTooltip } from "./InfoTooltip";
 import { IconFolder } from "@tabler/icons-react";
 import { metricTitle } from "../lib/metricTitle";
 import type { ReactNode } from "react";
 import { TestSuiteIcon } from "../../platform/components/AppIcons";
 import { MetricStatusBar } from "./MetricStatusBar";
 import type { MetricBreakdown } from "../lib/metricBreakdown";
+
+type TileMetricIdentityProps = { criteriaKey?: string; population?: string; unit?: string };
+
+function TileMetricMethodology({ criteriaKey, population, unit, label, evidence }: TileMetricIdentityProps & {label: string; evidence?: string}) {
+  if (!criteriaKey) return <span className="sr-only">Methodology unavailable: no governed metric identity supplied.</span>;
+  const metric = resolveMetricIdentity({criteriaKey, population, unit});
+  return <InfoTooltip label={`${label} methodology`} content={`${metric ? `${metric.key} · population: ${metric.population} · unit: ${metric.unit}. ${metric.formula}` : "Methodology unavailable: no matching identity and population supplied."} ${evidence || ""}`} />;
+}
 
 export type TileCardTone = "neutral" | "info" | "success" | "warning" | "danger";
 
@@ -82,8 +92,18 @@ export function TileCardFact({
   );
 }
 
+/** Recorded counts and durations are facts, not governed scores. */
+export function TileCardValue({label, title, tone = "neutral", value}: {
+  label: string; title: string; tone?: TileCardTone; value: ReactNode;
+}) {
+  return <span className={`tile-card-metric tone-${tone}`} title={title} data-value-kind="fact">
+    <strong>{value}</strong><span>{metricTitle(label)}</span>
+  </span>;
+}
+
 export function TileCardMetric({
   className = "",
+  criteriaKey, population, unit,
   label,
   title,
   tone = "neutral",
@@ -94,21 +114,23 @@ export function TileCardMetric({
   title?: string;
   tone?: TileCardTone;
   value: ReactNode;
-}) {
+} & TileMetricIdentityProps) {
   return (
     <span
       aria-label={title || `${metricTitle(label)}: ${String(value)}`}
       className={["tile-card-metric", `tone-${tone}`, className].filter(Boolean).join(" ")}
       title={title}
+      data-metric-id={criteriaKey || "unmapped"} data-population={population} data-unit={unit}
     >
       <strong>{value}</strong>
-      <span>{metricTitle(label)}</span>
+      <span>{metricTitle(label)} <TileMetricMethodology criteriaKey={criteriaKey} population={population} unit={unit} label={label} evidence={title} /></span>
     </span>
   );
 }
 
 export function TileCardProgress({
   breakdown,
+  criteriaKey, population, unit,
   displayValue,
   label,
   title,
@@ -121,7 +143,7 @@ export function TileCardProgress({
   title?: string;
   tone?: TileCardTone;
   value: number | null;
-}) {
+} & TileMetricIdentityProps) {
   const safeValue = value === null || !Number.isFinite(value) ? null : Math.max(0, Math.min(100, Math.round(value)));
   const resolvedDisplayValue = displayValue ?? (safeValue === null ? "No data" : `${safeValue}%`);
   const resolvedBreakdown: MetricBreakdown = breakdown || {
@@ -134,9 +156,9 @@ export function TileCardProgress({
   };
 
   return (
-    <div className={`tile-card-progress tone-${tone}`} title={title}>
+    <div className={`tile-card-progress tone-${tone}`} title={title} data-metric-id={criteriaKey || "unmapped"} data-population={population} data-unit={unit}>
       <div className="tile-card-progress-head">
-        <span>{metricTitle(label)}</span>
+        <span>{metricTitle(label)} <TileMetricMethodology criteriaKey={criteriaKey} population={population} unit={unit} label={label} evidence={title} /></span>
         <strong>{resolvedDisplayValue}</strong>
       </div>
       <MetricStatusBar

@@ -27,7 +27,7 @@ test('Story impact consolidates searchable evidence, respects unavailable source
     await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5189'}/${name}.html`);
     const metrics=page.getByRole('group',{name:'Story health metrics'});
     assert.doesNotMatch(await metrics.innerText(), /% measured|Open for evidence/);
-    await metrics.getByRole('button',{name:'View evidence for Dev Completion',exact:true}).click();
+    await metrics.getByTitle('View evidence for Dev Completion',{exact:true}).click();
     await metrics.getByText('13 of20 Stories completed.',{exact:true}).waitFor();
     const colors=await page.evaluate(()=>['.is-healthy .backlog-growth-intake','.is-healthy .backlog-growth-outflow','.is-growing .backlog-growth-intake','.is-growing .backlog-growth-outflow'].map(selector=>getComputedStyle(document.querySelector(selector)).color));
     assert.equal(colors[0],colors[3]);assert.equal(colors[1],colors[2]);assert.notEqual(colors[0],colors[1]);

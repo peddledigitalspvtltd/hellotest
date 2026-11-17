@@ -94,6 +94,8 @@ export function assessRunEvidenceReadiness(input: {
   touchedCaseCount: number;
   linkedRequirementCount: number;
   referenceCount: number;
+  referenceAvailability?: "available" | "partial" | "unavailable";
+  ambiguousReferenceCount?: number;
   failedCount: number;
   blockedCount: number;
 }): AiAssuranceAssessment {
@@ -110,7 +112,10 @@ export function assessRunEvidenceReadiness(input: {
     !total ? "Add test cases to the run before relying on an impact summary." : null,
     total && touched < total ? `${total - touched} scoped case${total - touched === 1 ? " has" : "s have"} no result evidence yet.` : null,
     !input.linkedRequirementCount ? "Link scoped cases to stories to explain release impact." : null,
-    issueCount > 0 && !input.referenceCount ? "Attach defects or external references to failing cases so the risk can be investigated." : null
+    issueCount > 0 && !input.referenceCount && (!input.referenceAvailability || input.referenceAvailability === "available") ? "Attach defects or external references to failing cases so the risk can be investigated." : null,
+    input.referenceAvailability === "unavailable" ? "Failure reference evidence is unavailable. Load the run details with result access before assessing reference coverage." : null,
+    input.referenceAvailability === "partial" ? "Defect reference evidence is unavailable with your permissions; only accessible external references are assessed." : null,
+    input.ambiguousReferenceCount ? `${input.ambiguousReferenceCount} failed or blocked instance${input.ambiguousReferenceCount === 1 ? " has" : "s have"} case-level links without an exact row or attempt origin; instance coverage is unknown.` : null
   ].filter((item): item is string => Boolean(item));
 
   return {
@@ -124,7 +129,7 @@ export function assessRunEvidenceReadiness(input: {
     signals: [
       { label: "Results recorded", value: `${touched}/${total}`, tone: total > 0 && touched === total ? "positive" : "warning" },
       { label: "Story trace", value: `${input.linkedRequirementCount} linked`, tone: input.linkedRequirementCount ? "positive" : "warning" },
-      { label: "Failure references", value: `${input.referenceCount} captured`, tone: issueCount && !input.referenceCount ? "warning" : "neutral" }
+      { label: "Failure references", value: input.referenceAvailability === "unavailable" ? "Unavailable" : input.referenceAvailability === "partial" ? input.referenceCount ? `At least ${input.referenceCount} captured; defect references unavailable` : "Defect references unavailable" : `${input.referenceCount} captured`, tone: input.referenceAvailability && input.referenceAvailability !== "available" || input.ambiguousReferenceCount || issueCount && !input.referenceCount ? "warning" : "neutral" }
     ],
     gaps
   };

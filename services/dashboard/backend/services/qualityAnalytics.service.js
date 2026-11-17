@@ -7,7 +7,7 @@ const nowIso = () => new Date().toISOString();
 const normalizeText = (value) => String(value || "").trim();
 const lowerText = (value) => normalizeText(value).toLowerCase();
 const percent = (numerator, denominator) => denominator ? Math.round((numerator / denominator) * 100) : 0;
-const isOpen = (status) => !["closed", "resolved", "done", "accepted", "complete", "completed", "fixed", "verified"].includes(lowerText(status));
+const isOpen = status => !require("@hellotest/platform/backend/src/utils/defectStatus").isClosedDefect(status);
 const FINAL_CASE_STATUSES = new Set(["passed", "failed", "blocked", "skipped", "aborted", "cancelled"]);
 const FINAL_RUN_STATUSES = new Set(["passed", "completed", "failed", "blocked", "skipped", "aborted", "cancelled", "partially_completed"]);
 const NATIVE_DASHBOARD_METRICS = new Set(["count", "releaseConfidence", "requirementCoverage", "coverageGaps", "automationCoverage", "executionCompletion", "passRate", "evidenceConfidence", "openDefects", "failedRuns", "executionCycleHours", "completedRuns30d", "testCases", "testSuites", "testRuns", "moduleCaseCount", ...Object.keys(RELATIONAL_METRICS)]);

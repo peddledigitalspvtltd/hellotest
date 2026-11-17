@@ -1,13 +1,15 @@
+import { readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { readApiSources } from "../../../platform/frontend/test/helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = (relativePath) => readSourceFile(new URL(relativePath, import.meta.url), "utf8");
+const readModuleWorkspace = () => Promise.all([readSource("../../frontend/components/TestCaseModuleAuthoring.tsx"), readSource("../../frontend/pages/TestCasesPage.tsx")]).then(parts => parts.join("\n"));
 
 test("Create Module places the Requirement picker above Test Case selection in the right column", async () => {
   const [page, styles] = await Promise.all([
-    readSource("../../frontend/pages/TestCasesPage.tsx"),
+    readModuleWorkspace(),
     readSource("../../frontend/components/create-module-modal.css")
   ]);
 
@@ -47,7 +49,7 @@ test("Create Module places the Requirement picker above Test Case selection in t
 
 test("Create Module loads project Requirements and persists their selected ids", async () => {
   const [page, api, types] = await Promise.all([
-    readSource("../../frontend/pages/TestCasesPage.tsx"),
+    readModuleWorkspace(),
     readApiSources(),
     readSource("../../../platform/frontend/src/types.ts")
   ]);
@@ -64,7 +66,7 @@ test("Create Module loads project Requirements and persists their selected ids",
 
 test("selecting Requirements auto-selects every app-scoped linked Test Case without losing manual choices", async () => {
   const [page, api, styles] = await Promise.all([
-    readSource("../../frontend/pages/TestCasesPage.tsx"),
+    readModuleWorkspace(),
     readApiSources(),
     readSource("../../frontend/components/create-module-modal.css")
   ]);

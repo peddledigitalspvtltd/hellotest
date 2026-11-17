@@ -244,7 +244,7 @@ test('Grooming rejects a failed model without leaking provider internals', async
   const provider = fixture(Object.assign(new Error('PRIVATE_PROVIDER_DETAIL'), { statusCode: 504 }));
   const service = load('requirementWorkspace.service', groomingOverrides(provider));
   await assert.rejects(service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' } }), error => {
-    assert.equal(error.code, 'AI_ASSESSMENT_FAILED');
+    assert.equal(error.code, 'DEPENDENCY_UNAVAILABLE');
     assert.doesNotMatch(error.message, /PRIVATE_PROVIDER_DETAIL/);
     return true;
   });

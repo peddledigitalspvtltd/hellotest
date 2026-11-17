@@ -1,3 +1,5 @@
+import type { AgenticProcessingSnapshot } from "@hellotest/ai/agent-experience";
+import type { AiGenerationFailure } from "./AiFailureNotice";
 import { useMemo } from "react";
 import type { AiAuthoredTestCasePreview, AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requirement, TestDataOptions, TestStep } from "@hellotest/platform/frontend/src/types";
 import { casePrivateParameterNames } from "@hellotest/platform/frontend/src/shared/lib/parameterPrivacy";
@@ -34,6 +36,8 @@ type AiCaseAuthoringModalProps = {
   preview: AiAuthoredTestCasePreview | null;
   previewMessage: string;
   previewTone: "success" | "error";
+  processing?: AgenticProcessingSnapshot;
+  failure?: AiGenerationFailure | null;
   onRequirementChange: (value: string) => void;
   onIntegrationIdChange: (value: string) => void;
   onAdditionalContextChange: (value: string) => void;
@@ -159,6 +163,8 @@ export function AiCaseAuthoringModal(props: AiCaseAuthoringModalProps) {
     onRemoveImage={onRemoveImage}
     onRemovePreviewCase={() => onPreviewChange?.(null)}
     onRequirementSelectionChange={(ids) => onRequirementChange(ids[0] || "")}
+    processing={props.processing}
+    failure={props.failure}
     previewCases={previewCases}
     previewMessage={previewMessage || warning}
     previewTone={previewMessage ? previewTone : "error"}

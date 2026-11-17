@@ -50,6 +50,7 @@
     "test:quality-agents": "node --test services/agentic/test/backend/quality*.test.js services/agentic/test/backend/browserMissionPlanner.test.js services/platform/backend/test/llmStreamingResponse.test.js",
     "test:quality-agent-engine": "npm --prefix testengine/backend run build && node --test --test-concurrency=1 testengine/backend/test/qualityAgents.test.mjs testengine/backend/test/qualityAgentDeployment.test.mjs",
     "test:quality-persistence:postgres": "node scripts/checks/test-quality-persistence-postgres.mjs",
+    "test:authoring-metrics:postgres": "node scripts/checks/test-authoring-metrics-postgres.mjs",
     "test:quality-agents:postgres": "node scripts/checks/test-quality-agents-postgres.mjs",
     "test:repository-knowledge": "node scripts/checks/test-repository-knowledge.mjs",
     "test:repository-agents": "python3 -m unittest discover -s services/agentic/backend/runtime/semantic_compiler/tests -p 'test_*.py'",

@@ -65,7 +65,7 @@ paths:
   /auth/signup/request-code:
     post:
       tags: [Auth]
-      summary: Request an email verification code for a new account
+      summary: Request private account-creation instructions
       security: []
       requestBody:
         required: true
@@ -75,12 +75,12 @@ paths:
               $ref: "#/components/schemas/SignupRequest"
       responses:
         "200":
-          description: Verification code accepted for delivery
+          description: Generic acknowledgement with the same public message and expiry for existing and new addresses
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/VerificationDispatchResponse"
-        "409":
+        "400":
           $ref: "#/components/responses/ErrorResponse"
         "503":
           $ref: "#/components/responses/ErrorResponse"
@@ -108,14 +108,13 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         "401":
           $ref: "#/components/responses/ErrorResponse"
-        "409":
-          $ref: "#/components/responses/ErrorResponse"
         "429":
           $ref: "#/components/responses/ErrorResponse"
   /auth/login:
     post:
       tags: [Auth]
       summary: Login and return a signed session token
+      description: Existing credentials remain valid from six characters. Five failed attempts within fifteen minutes lock the address for fifteen minutes; locked requests do not extend that deadline. Reset the password or ask a user manager to unlock access.
       security: []
       requestBody:
         required: true
@@ -130,6 +129,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SessionResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthErrorResponse" }
+        "403":
+          description: Suspended account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthErrorResponse" }
+        "429":
+          description: AUTH_LOGIN_LOCKED; no session token is issued
+          headers:
+            Retry-After:
+              description: Seconds remaining before another password attempt is allowed
+              schema: { type: integer, minimum: 1, maximum: 900 }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthErrorResponse" }
         "500":
           $ref: "#/components/responses/ErrorResponse"
   /auth/login/google:
@@ -162,7 +182,7 @@ paths:
     post:
       tags: [Auth]
       summary: Request an email code for a password reset
-      description: Returns a successful response for unknown email addresses to avoid account enumeration.
+      description: Returns identical generic acknowledgement, message and expiry fields for registered and unknown addresses. Email-delivery setup is validated for both before account lookup; reset instructions are sent only to the owner.
       security: []
       requestBody:
         required: true
@@ -177,6 +197,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/VerificationDispatchResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
         "503":
           $ref: "#/components/responses/ErrorResponse"
   /auth/forgot-password/verify:
@@ -3348,6 +3370,59 @@ paths:
                 additional_context: { type: string, maxLength: 12000, description: User-reviewed supporting evidence }
       responses:
         "200": { description: "Grooming summary, risks, questions, evidence, provenance, and review requirement" }
+  /requirements/{id}/ai-groom-jobs:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Requirements]
+      summary: Persist a staged and cancellable evidence-grounded grooming review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string, maxLength: 255 }
+                integration_id: { type: string, maxLength: 255 }
+                prompt_guidance: { type: string, maxLength: 4000 }
+                additional_context: { type: string, maxLength: 12000 }
+                proposed_change: { type: object, additionalProperties: true }
+      responses:
+        "202":
+          description: Saved job; poll its project-scoped job URL for the real review
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DurableAuthoringJob" }
+  /requirements/{id}/design-test-cases-jobs:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Requirements]
+      summary: Persist case proposals incrementally for explicit review and saving
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, app_type_id]
+              properties:
+                project_id: { type: string, maxLength: 255 }
+                app_type_id: { type: string, maxLength: 255 }
+                integration_id: { type: string, maxLength: 255 }
+                max_cases: { type: integer, minimum: 1, maximum: 10, default: 1 }
+                authoring_mode: { type: string, enum: [structured, gherkin] }
+                additional_context: { type: string, maxLength: 18000 }
+                external_links: { type: array, maxItems: 10, items: { type: string } }
+                images: { type: array, maxItems: 4, items: { type: object } }
+      responses:
+        "202":
+          description: Saved job; each completed case proposal is retained in result_payload.cases
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DurableAuthoringJob" }
   /requirements/ai-description-rephrase:
     post:
       tags: [Requirements]
@@ -3431,6 +3506,27 @@ paths:
         - $ref: "#/components/parameters/ProjectIdQuery"
       responses:
         "200": { description: "Generation job status, drafts, provenance, and failure details" }
+  /requirements/ai-create-jobs/{jobId}/cancel:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Requirements]
+      summary: Stop queued or running authoring work while retaining completed proposals
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string, maxLength: 255 }
+      responses:
+        "200":
+          description: Cancelled or already terminal job; cancellation cannot overwrite a completed result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DurableAuthoringJob" }
   /requirement-iterations/health:
     get:
       tags: [Requirements]
@@ -7196,14 +7292,47 @@ paths:
       summary: Update test steps reorder
       responses:
         "200": { description: Successful response }
+  /users/{id}/unlock-login:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Users]
+      summary: Clear a user's failed-login lock
+      description: Requires user.manage or workspace administrator access. Clears the target's failed-attempt count and lock; credentials remain unchanged.
+      responses:
+        "200":
+          description: Login protection reset
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [unlocked]
+                properties:
+                  unlocked: { type: boolean, enum: [true] }
+        "401": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
   /users/{id}/password:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
     put:
       tags: [Users]
-      summary: Update users password
+      summary: Change the signed-in user's password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string, minLength: 1 }
+                new_password: { type: string, minLength: 10, maxLength: 128 }
       responses:
-        "200": { description: Successful response }
+        "200": { description: Password changed }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "401": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
   /ops-telemetry/llm-traces:
     get:
       summary: List project LLM calls and aggregate performance
@@ -10731,6 +10860,33 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    DurableAuthoringJob:
+      type: object
+      required: [id, project_id, status, job_kind]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        job_kind: { type: string, enum: [story, grooming, case-design] }
+        status: { type: string, enum: [queued, running, completed, failed, cancelled] }
+        error_code: { type: string, nullable: true }
+        failure:
+          type: object
+          nullable: true
+          properties:
+            code: { type: string }
+            message: { type: string }
+            stage_id: { type: string }
+            retry_after_seconds: { type: integer, minimum: 0 }
+            retry_at: { type: string, nullable: true, format: date-time }
+            support_reference: { type: string }
+        processing:
+          type: object
+          properties:
+            schema_version: { type: integer, enum: [1] }
+            active_stage_id: { type: string, enum: [intake, context, guardrails, specialist, outcome, evaluation, review] }
+            output_count: { type: integer, minimum: 0 }
+            stages: { type: array, items: { type: object, additionalProperties: true } }
+        result_payload: { type: object, additionalProperties: true }
     QualityJourneyStep:
       type: object
       required: [action]
@@ -12333,6 +12489,8 @@ components:
           additionalProperties:
             type: array
             items: { type: string }
+        login_failed_attempts: { type: integer, minimum: 0, description: Visible in the authorized Users management API. }
+        login_locked_until: { type: string, format: date-time, nullable: true }
         created_at: { type: string, format: date-time }
     SessionResponse:
       type: object
@@ -12537,10 +12695,35 @@ components:
         requestId: { type: string }
         traceId: { type: string, nullable: true }
         retryable: { type: boolean }
+    AuthErrorResponse:
+      type: object
+      required: [success, code, message, requestId, traceId, retryable]
+      properties:
+        success: { type: boolean, enum: [false] }
+        code: { type: string, example: AUTH_LOGIN_LOCKED }
+        message: { type: string }
+        requestId: { type: string }
+        traceId: { type: string, nullable: true }
+        retryable: { type: boolean }
+    AuthPolicy:
+      type: object
+      required: [version, newPasswordMinLength, passwordMaxLength, legacyLoginMinLength, emailPattern, loginFailureLimit, loginFailureWindowMinutes, loginLockMinutes, signupAcknowledgement, passwordResetAcknowledgement]
+      properties:
+        version: { type: integer }
+        newPasswordMinLength: { type: integer, enum: [10] }
+        passwordMaxLength: { type: integer, enum: [128] }
+        legacyLoginMinLength: { type: integer, enum: [6] }
+        emailPattern: { type: string }
+        loginFailureLimit: { type: integer, enum: [5] }
+        loginFailureWindowMinutes: { type: integer, enum: [15] }
+        loginLockMinutes: { type: integer, enum: [15] }
+        signupAcknowledgement: { type: string }
+        passwordResetAcknowledgement: { type: string }
     AuthSetupResponse:
       type: object
-      required: [google, emailVerification]
+      required: [google, emailVerification, policy]
       properties:
+        policy: { $ref: "#/components/schemas/AuthPolicy" }
         google:
           type: object
           required: [enabled, clientId]
@@ -12564,7 +12747,7 @@ components:
       required: [email, newPassword]
       properties:
         email: { type: string, format: email }
-        newPassword: { type: string, minLength: 6, maxLength: 128 }
+        newPassword: { type: string, minLength: 10, maxLength: 128 }
     VerificationCodeRequest:
       type: object
       required: [email, code]
@@ -12573,9 +12756,10 @@ components:
         code: { type: string, minLength: 6, maxLength: 6, pattern: "^[0-9]{6}$" }
     VerificationDispatchResponse:
       type: object
-      required: [success]
+      required: [success, message, expiresAt]
       properties:
         success: { type: boolean }
+        message: { type: string, description: Generic public acknowledgement; account existence is not disclosed. }
         expiresAt: { type: string, format: date-time }
     SuccessResponse:
       type: object
@@ -12641,7 +12825,7 @@ components:
       required: [email, password]
       properties:
         email: { type: string, format: email }
-        password: { type: string, minLength: 6, maxLength: 128 }
+        password: { type: string, minLength: 10, maxLength: 128 }
         name: { type: string }
     LoginRequest:
       type: object
@@ -12654,14 +12838,14 @@ components:
       required: [email, password, role_id]
       properties:
         email: { type: string, format: email }
-        password: { type: string, minLength: 6, maxLength: 128 }
+        password: { type: string, minLength: 10, maxLength: 128 }
         name: { type: string }
         role_id: { type: string }
     UpdateUserRequest:
       type: object
       properties:
         email: { type: string, format: email }
-        password: { type: string, minLength: 6, maxLength: 128 }
+        password: { type: string, minLength: 10, maxLength: 128 }
         name: { type: string }
         role_id: { type: string }
         avatar_data_url: { type: string, nullable: true }

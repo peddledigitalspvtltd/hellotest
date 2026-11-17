@@ -1,7 +1,7 @@
 import { ClientRequestCache } from "./clientRequestCache";
 import { consumeApiResponse } from "./clientRequestTransport";
 import { getRequestTimeout } from "../platform/lib/requestTimeout";
-import type { ApiError, Requirement, SessionPayload, TestCase, TestStep } from "../types";
+import type { ApiError, AiProcessingSnapshot, Requirement, SessionPayload, TestCase, TestStep } from "../types";
 import { resolveServiceBase } from "../platform/lib/serviceEndpoints";
 import { appendCurrentProjectScope } from "../platform/lib/currentScope";
 
@@ -102,7 +102,10 @@ export const isSessionAuthFailure = (path: string, message: string) => {
 };
 
 export class HelloTestApiError extends Error {
+  readonly processing?: AiProcessingSnapshot;
+  readonly failure?: { code?: string; message?: string; stage_id?: string; retry_after_seconds?: number; retry_at?: string | null };
   readonly status: number;
+  retryAfterSeconds?: number;
   readonly code?: string;
   readonly currentRevision?: number;
   readonly requestId?: string;
@@ -114,6 +117,8 @@ export class HelloTestApiError extends Error {
     this.name = "HelloTestApiError";
     this.status = status;
     this.code = payload.code;
+    const authoring = payload as ApiError & { processing?: AiProcessingSnapshot; failure?: HelloTestApiError["failure"] };
+    this.processing = authoring.processing; this.failure = authoring.failure;
     this.currentRevision = payload.current_revision;
     this.details = payload.details;
     this.requestId = diagnostics.requestId;
@@ -133,7 +138,11 @@ export async function parseApiError(response: Response) {
   const diagnosticSuffix = traceId || requestId
     ? ` (support reference: ${traceId || requestId})`
     : "";
-  return new HelloTestApiError(`${message}${diagnosticSuffix}`, response.status, error, { requestId, traceId });
+  const result = new HelloTestApiError(`${message}${diagnosticSuffix}`, response.status, error, { requestId, traceId });
+  const retryHeader = response.headers.get("retry-after");
+  const retryValue = retryHeader && /^\d+(?:\.\d+)?$/.test(retryHeader) ? Number(retryHeader) : retryHeader ? Math.max(0, (Date.parse(retryHeader) - Date.now()) / 1000) : Number((error.details as Record<string, unknown> | undefined)?.retry_after_seconds || 0);
+  if (Number.isFinite(retryValue) && retryValue > 0) result.retryAfterSeconds = Math.ceil(retryValue);
+  return result;
 }
 
 export async function request<T>(path: string, init?: RequestInit, timeoutMs = getRequestTimeout(path, init?.method)): Promise<T> {

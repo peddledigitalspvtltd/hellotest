@@ -11,7 +11,7 @@ const ensureSuitePermission = async (fastify, req, permissionCode) => {
 };
 
 const ensureSuiteCaseAssignmentPermission = async (fastify, req, suite, testCaseIds = []) => {
-  if (!Array.isArray(req.body?.test_case_ids)) return;
+  if (!Array.isArray(req.body?.test_case_ids) && !Array.isArray(req.body?.module_ids)) return;
   const appType = await appTypeService.getAppType(suite.app_type_id);
   await fastify.requirePermission("testcase.update", { projectId: appType.project_id })(req);
 };
@@ -30,6 +30,8 @@ module.exports = async function (fastify) {
       test_data_set_id: { required: false, type: "string" },
       test_data_options: { required: false, type: "object" },
       test_case_ids: { required: false, type: "array", items: "string", maxItems: 5000 },
+      module_ids: { required: false, type: "array", items: "string", maxItems: 1000 },
+      module_membership: { required: false, type: "string", enum: ["snapshot","live"] },
       parallel_enabled: { required: false, type: "boolean" },
       parallel_count: { required: false, type: "number" },
       expected_revision: { required: false, type: "number" }
@@ -41,7 +43,7 @@ module.exports = async function (fastify) {
     await fastify.requirePermission("suite.create", { projectId: appType.project_id })(req);
 
     if (req.body.test_data_set_id) await fastify.requirePermission("data.view", { projectId: appType.project_id })(req);
-    if (req.body.test_case_ids?.length) await fastify.requirePermission("testcase.update", { projectId: appType.project_id })(req);
+    if (req.body.test_case_ids?.length || req.body.module_ids?.length) await fastify.requirePermission("testcase.update", { projectId: appType.project_id })(req);
 
     return service.createTestSuite({
       ...req.body,
@@ -92,6 +94,8 @@ module.exports = async function (fastify) {
       test_data_set_id: { required: false, type: "string" },
       test_data_options: { required: false, type: "object" },
       test_case_ids: { required: false, type: "array", items: "string", maxItems: 5000 },
+      module_ids: { required: false, type: "array", items: "string", maxItems: 1000 },
+      module_membership: { required: false, type: "string", enum: ["snapshot","live"] },
       parallel_enabled: { required: false, type: "boolean" },
       parallel_count: { required: false, type: "number" }
     }, req.body);

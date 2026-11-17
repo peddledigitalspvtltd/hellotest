@@ -1,3 +1,4 @@
+import { readSourceFile } from "../../../../../scripts/checks/helpers/read-source.mjs";
 // Run with a local Playwright installation, without a backend or user data:
 // PLAYWRIGHT_MODULE_PATH=/path/to/playwright-core/index.mjs BROWSER_EXECUTABLE_PATH=/path/to/chrome node --test test/browser/workspaceLayout.test.mjs
 import assert from "node:assert/strict";
@@ -23,7 +24,7 @@ const componentModule = { exports: {} };
 new Function("require", "module", "exports", outputText)(require, componentModule, componentModule.exports);
 const { WorkspaceMasterDetail } = componentModule.exports;
 const cssFiles = ["styles.css", "dark-theme.css", "catalog-list.css", "modal-system.css", "execution-run-builder.css", "workspace-layout.css", "pages/ExecutionsPage.case-run.css"];
-const css = (await Promise.all(cssFiles.map(file => readFile(new URL(file, sourceRoot), "utf8")))).join("\n");
+const css = (await Promise.all(cssFiles.map(file => readSourceFile(new URL(file, sourceRoot), "utf8")))).join("\n");
 let browser;
 before(async () => {
   const executablePath = process.env.BROWSER_EXECUTABLE_PATH || process.env.CHROME_EXECUTABLE;

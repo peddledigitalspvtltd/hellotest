@@ -74,7 +74,11 @@
     "./services/structuredReview": "./backend/services/structuredReview.service.js",
     "./services/qualityRecordSchema": "./backend/services/qualityRecordSchema.js",
     "./services/qualityGraphChanges": "./backend/services/qualityGraphChanges.js",
-    "./services/artifactAssurance": "./backend/services/artifactAssurance.service.js"
+    "./services/artifactAssurance": "./backend/services/artifactAssurance.service.js",
+    "./services/generationLifecycle": "./backend/services/generationLifecycle.js",
+    "./shared/generationFailure": "./shared/generationFailure.mjs",
+    "./frontend/components/AiFailureNotice": "./frontend/components/AiFailureNotice.tsx",
+    "./frontend/lib/authoringLifecycle": "./frontend/lib/authoringLifecycle.ts"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs ai",

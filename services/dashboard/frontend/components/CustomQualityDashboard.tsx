@@ -12,7 +12,7 @@ import { OpenIcon, RefreshIcon, SparkIcon } from "@hellotest/platform/frontend/s
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { useDeleteConfirmation } from "@hellotest/platform/frontend/src/shared/components/DeleteConfirmationDialog";
 import { FormField } from "@hellotest/platform/frontend/src/shared/components/FormField";
-import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
+import {InlineLoadingState as LoadingState, LoadingSkeleton} from "@hellotest/platform/frontend/src/shared/components/LoadingSkeleton";
 import { ToastMessage } from "@hellotest/platform/frontend/src/shared/components/ToastMessage";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
 import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAiPromptRegistry";
@@ -701,7 +701,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
           {selected.gadgets.map(gadget => {
             const evaluated = evaluatedWidget(gadget);
             return <div className={`quality-gadget-shell kind-${gadget.type}`} key={gadget.id}>
-              {dashboardResults.isLoading || !evaluated && !dashboardResults.isError ? <LoadingState label={`Loading project evidence for ${gadget.title}`} /> : null}
+              {dashboardResults.isLoading || !evaluated && !dashboardResults.isError ? <LoadingSkeleton label={`Loading project evidence for ${gadget.title}`} count={1} /> : null}
               {evaluated?.result ? <QualityGadget isRefreshing={isGadgetRefreshPending(gadget.id)} onDrilldown={groupLabel => handleGadgetDrilldown(evaluated.result!, groupLabel)} onRefresh={() => void refreshGadget(gadget)} onRowDrilldown={row => handleGadgetDrilldown(evaluated.result!, undefined, row)} result={evaluated.result} /> : null}
               {evaluated?.error ? <div className="dashboard-gadget-error" role="alert"><strong>{gadget.title}</strong><span>{evaluated.error.message}</span><button className="ghost-button compact" disabled={isGadgetRefreshPending(gadget.id)} onClick={() => void refreshGadget(gadget)} type="button">{isGadgetRefreshPending(gadget.id) ? "Refreshing…" : "Retry widget"}</button></div> : null}
             </div>;
@@ -754,7 +754,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
               </div> : null}
               {editorTab === "preview" ? <section id="dashboard-preview-panel" role="tabpanel" aria-label="Preview data"><div className="dashboard-builder-section-head"><div><h4>{draft.name || "Dashboard preview"}</h4><span>Current project evidence in your selected layout.</span></div></div>{dashboardResults.isError ? <div className="dashboard-gadget-error" role="alert"><strong>Preview could not be loaded</strong><span>{dashboardResults.error instanceof Error ? dashboardResults.error.message : "Try again."}</span><button type="button" className="ghost-button" onClick={() => void dashboardResults.refetch()}>Retry preview</button></div> : null}<div className={`quality-gadget-grid layout-${draft.layout}`}>{draft.gadgets.map(gadget => {
                 const evaluated = evaluatedWidget(gadget);
-                return <div className={`quality-gadget-shell kind-${gadget.type}`} key={gadget.id}>{dashboardResults.isLoading ? <LoadingState label={`Loading project evidence for ${gadget.title}`} /> : null}{evaluated?.result ? <QualityGadget result={evaluated.result} onRowDrilldown={row => handleGadgetDrilldown(evaluated.result!, undefined, row)} onDrilldown={groupLabel => handleGadgetDrilldown(evaluated.result!, groupLabel)} /> : null}{evaluated?.error ? <div className="dashboard-gadget-error" role="alert"><strong>{gadget.title}</strong><span>{evaluated.error.message}</span></div> : null}</div>;
+                return <div className={`quality-gadget-shell kind-${gadget.type}`} key={gadget.id}>{dashboardResults.isLoading ? <LoadingSkeleton label={`Loading project evidence for ${gadget.title}`} count={1} /> : null}{evaluated?.result ? <QualityGadget result={evaluated.result} onRowDrilldown={row => handleGadgetDrilldown(evaluated.result!, undefined, row)} onDrilldown={groupLabel => handleGadgetDrilldown(evaluated.result!, groupLabel)} /> : null}{evaluated?.error ? <div className="dashboard-gadget-error" role="alert"><strong>{gadget.title}</strong><span>{evaluated.error.message}</span></div> : null}</div>;
               })}</div></section> : null}
               {editorTab === "configure" ? <section id="dashboard-configure-panel" className="dashboard-configure-panel" role="tabpanel" aria-label="Configure widget"><div className="dashboard-builder-section-head"><div><h4>{editingGadgetId ? "Configure widget" : "Create a custom widget"}</h4><span>Choose a signal and presentation, then apply it to your layout.</span></div></div>
                   <div className="custom-gadget-builder">

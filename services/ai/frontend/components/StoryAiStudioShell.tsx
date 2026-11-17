@@ -1,3 +1,4 @@
+import { AiFailureNotice, useAiFailureCooldown, type AiGenerationFailure } from "./AiFailureNotice";
 import { Children, cloneElement, isValidElement, useState, type ReactElement, type ReactNode } from "react";
 import { IconAdjustmentsHorizontal, IconBraces, IconLayoutGrid, IconListDetails, IconRefresh, IconSearch, IconSparkles, IconX } from "@tabler/icons-react";
 import { type AgenticFeatureProfileId, type AgenticProcessStageId, type AgenticProcessStatus, type AgenticProcessingSnapshot } from "@hellotest/ai/agent-experience";
@@ -56,6 +57,7 @@ export type StoryAiStudioShellProps = {
   contextState?: "ready" | "attention" | "neutral";
   reviewStatus?: "awaiting_review" | "accepted" | "discarded" | string;
   hasProposal?: boolean;
+  failure?: AiGenerationFailure | null;
 };
 
 export function StoryAiSettingsGroup({
@@ -86,8 +88,9 @@ export function StoryAiStudioShell({
   studioTitle, studioDescription, entityLabel = "Story", settingsAriaLabel, inspectorAriaLabel,
   agentName = "Story Architect", agentStatus = "idle", contextLabel = "Review context", mission = "", onMissionChange, missionPlaceholder,
   integrationId = "", integrations = [], outputLabel, approvalLabel = "Explicit review before any saved change", stageEvidence = {}, processing,
-  reviewStatus = "awaiting_review", hasProposal = true
+  reviewStatus = "awaiting_review", hasProposal = true, failure
 }: StoryAiStudioShellProps) {
+  const retrySeconds = useAiFailureCooldown(failure);
   const [contextOpen, setContextOpen] = useState(false);
   const [draftSearch, setDraftSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -100,7 +103,7 @@ export function StoryAiStudioShell({
   const hasVisibleDraft = Boolean(queue?.props.drafts?.some(draft => `${draft.title} ${draft.description}`.toLowerCase().includes(draftSearch.toLowerCase().trim())));
   const selectedCount = mode === "create" ? queue?.props.selectedDraftIds?.length || 0 : 0;
   const statusContent = isValidElement(inspectorContent) ? (inspectorContent.props as { statusContent?: ReactNode }).statusContent : null;
-  const generateAction = <button className="story-studio-primary-action" disabled={primaryGenerateDisabled} onClick={onPrimaryGenerate} type="button"><IconRefresh size={17} />{primaryGenerateLabel}</button>;
+  const generateAction = <button className="story-studio-primary-action" disabled={primaryGenerateDisabled || retrySeconds > 0} onClick={onPrimaryGenerate} type="button"><IconRefresh size={17} />{primaryGenerateLabel}</button>;
   const providerLabel = integrationId ? integrations.find(integration => integration.id === integrationId)?.name || `${integrationId} (unavailable)` : "Configured LLM";
   const inspector = isValidElement(inspectorContent)
     ? cloneElement(inspectorContent as ReactElement<{ outputFormat?: string; statusContent?: ReactNode; evidencePlacement?: string; emptyAction?: ReactNode }>, { outputFormat, statusContent: null, evidencePlacement: "inspector", emptyAction: generateAction }) : inspectorContent;
@@ -129,7 +132,7 @@ export function StoryAiStudioShell({
       <div className={`story-studio-workbench ai-test-generator-layout is-intelligence-collapsed${contextOpen ? "" : " is-context-collapsed"}`}>
 
         <main aria-label={inspectorAriaLabel || `${entityLabel} AI draft workspace`} className="story-studio-main-pane ai-test-generator-workspace">
-          {onMissionChange ? <AiIntentCanvas value={mission} onChange={onMissionChange} onSubmit={onPrimaryGenerate} disabled={agentStatus === "running" || closeDisabled} submitDisabled={primaryGenerateDisabled} hasOutput={Boolean(draftCount)} label={`Instructions for ${agentName}`} title={entityLabel === "Defect" ? mode === "improve" ? "What should improve?" : "What happened?" : mode === "create" ? "What should we build?" : "What should improve?"} placeholder={missionPlaceholder}
+          {onMissionChange ? <AiIntentCanvas value={mission} onChange={onMissionChange} onSubmit={onPrimaryGenerate} disabled={agentStatus === "running" || closeDisabled} submitDisabled={primaryGenerateDisabled || retrySeconds > 0} hasOutput={Boolean(draftCount)} label={`Instructions for ${agentName}`} title={entityLabel === "Defect" ? mode === "improve" ? "What should improve?" : "What happened?" : mode === "create" ? "What should we build?" : "What should improve?"} placeholder={missionPlaceholder}
             chips={[{ id: "context", label: contextLabel, onClick: () => setContextOpen(true) }, { id: "options", label: "Evidence & options", onClick: () => setContextOpen(true) }]}
             /> : <button className="ai-context-chip" onClick={() => setContextOpen(true)} type="button">Add instructions and evidence</button>}
 
@@ -146,6 +149,7 @@ export function StoryAiStudioShell({
           </div>
           <div className={`ai-test-generator-toast${statusContent ? " has-message" : ""}`}>{statusContent}</div>
           <div className="story-studio-output-workspace" aria-busy={agentStatus === "running"}>
+            {failure ? <AiFailureNotice failure={failure} /> : null}
             {agentStatus === "running" ? <AiGenerationProgress modelLabel={providerLabel} onCancel={onCancel} processing={processing} /> : null}
             {queue ? cloneElement(queue, { activeContent: inspector, searchQuery: draftSearch, viewMode }) : inspector}
           </div>

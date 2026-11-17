@@ -4,7 +4,7 @@ const VERSION = 'quality-evidence/1';
 const list = value => Array.isArray(value) ? value : [];
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const ref = (kind, row) => `${kind}:${row.id}`;
-const closed = value => /^(closed|done|resolved|accepted|complete|completed|fixed|verified)$/i.test(String(value || ''));
+const closed = require("@hellotest/platform/backend/src/utils/defectStatus").isClosedDefect;
 const unique = values => [...new Set(values)];
 const coverageRules = require('./qualityCoverageRules');
 

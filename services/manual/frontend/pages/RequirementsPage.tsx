@@ -1,3 +1,6 @@
+import { getAiFailureProcessing } from "@hellotest/ai/frontend/components/AiFailureNotice";
+import { storyStatusRank, isStoryAssignedToSprint, deriveStoryDeliveryRisk } from "../lib/storyDeliveryRisk";
+import { useDurableAuthoringJob } from "../lib/useDurableAuthoringJob";
 import { takeAgentProposal } from "@hellotest/platform/frontend/src/lib/agentProposalDraft";
 import { platformApi } from '@hellotest/platform/frontend/api.client';
 import { uploadStoryPromptFiles, validateStoryPromptFiles, type PendingStoryAttachments } from '../lib/storyPromptAttachments';
@@ -286,36 +289,6 @@ const createEmptyRequirementDraft = (defaultStatus = "To Do"): RequirementDraft 
   additionalFields: {}
 });
 
-const STORY_STATUS_RANK: Record<string, number> = {
-  open: 0,
-  in_progress: 2,
-  ready: 4,
-  blocked: 2,
-  dev_ready: 1,
-  dev_in_progress: 2,
-  dev_blocked: 2,
-  dev_done: 3,
-  qa_ready: 4,
-  qa_in_progress: 5,
-  qa_blocked: 5,
-  qa_done: 6,
-  done: 7
-};
-
-const storyStatusRank = (value?: string | null) => (isDeliveryStatusComplete(value) ? 7 : STORY_STATUS_RANK[String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_")] ?? 0);
-const isStoryAssignedToSprint = (story?: Requirement | null) => Boolean(
-  story?.iteration_id || story?.sprint_id || String(story?.sprint || "").trim()
-);
-const deriveStoryDeliveryRisk = (story: Requirement, now = Date.now()) => {
-  const today = new Date(now).toISOString().slice(0, 10);
-  const missed = (value?: string | null) => {
-    const time = value ? Date.parse(value) : Number.NaN;
-    return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) < today;
-  };
-  const devSlipped = missed(story.dev_completion_target_date) && storyStatusRank(story.status) < storyStatusRank("dev_done");
-  const qaSlipped = missed(story.qa_completion_target_date) && storyStatusRank(story.status) < storyStatusRank("qa_done");
-  return { isRisk: story.catalog_metrics?.slipped ?? (devSlipped || qaSlipped), devSlipped, qaSlipped };
-};
 
 const toDateInputValue = (date: Date) => {
   const year = date.getFullYear();
@@ -685,6 +658,11 @@ function getKnownSprintRequirementCount(iteration: RequirementIteration) {
   return Number(count);
 }
 
+// How many Story drafts the AI studio asks for unless the person chooses otherwise. A batch must come back complete for every
+// draft, so asking for three failed about two runs in three and took 2-4 minutes, where a single draft completed in about a
+// minute. A person can still ask for up to six. One constant, because the studio resets to it each time it opens.
+const DEFAULT_STORY_AI_DRAFT_COUNT = 1;
+
 export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?: "stories" | "backlog" | "sprints" }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -882,7 +860,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const requirementAiSidebarResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
   const [requirementAiMode, setRequirementAiMode] = useState<RequirementAiMode>("improve");
   const [storyAiStudioNav, setStoryAiStudioNav] = useState<StoryAiStudioNavKey>("drafts");
-  const [requirementAiDraftCount, setRequirementAiDraftCount] = useState(3);
+  const [requirementAiDraftCount, setRequirementAiDraftCount] = useState(DEFAULT_STORY_AI_DRAFT_COUNT);
   const [optimizeRequirementIds, setOptimizeRequirementIds] = useState<string[]>([]);
   const [optimizeContext, setOptimizeContext] = useState("");
   const [optimizeExternalLinksText, setOptimizeExternalLinksText] = useState("");
@@ -1414,9 +1392,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setIsAiDesignPreparingFiles(false);
     return () => { aiDesignControllerRef.current?.abort(); aiDesignControllerRef.current = null; };
   }, [projectId, appTypeId]);
+  const groomingJob = useDurableAuthoringJob(projectId);
+  const caseDesignJob = useDurableAuthoringJob(projectId, job => { if (job.cases?.length) setPreviewCases(job.cases); });
   const previewDesignedCases = useMutation({
     mutationFn: ({ requirementId, input, signal }: { requirementId: string; input: Parameters<typeof api.requirements.previewDesignedTestCases>[1]; signal: AbortSignal }) =>
-      api.requirements.previewDesignedTestCases(requirementId, input, { signal })
+      caseDesignJob.run<Awaited<ReturnType<typeof api.requirements.previewDesignedTestCases>>>(() => api.requirements.createCaseDesignJob(requirementId, { ...input, project_id: projectId }))
   });
   const acceptDesignedCases = useMutation({
     mutationFn: ({ requirementId, input }: { requirementId: string; input: Parameters<typeof api.requirements.acceptDesignedTestCases>[1] }) =>
@@ -1439,7 +1419,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   });
   const previewStoryGrooming = useMutation({
     mutationFn: ({ requirementId, input }: { requirementId: string; input: Parameters<typeof api.requirements.previewGrooming>[1] }) =>
-      api.requirements.previewGrooming(requirementId, input),
+      groomingJob.run<Awaited<ReturnType<typeof api.requirements.previewGrooming>>>(() => api.requirements.createGroomingJob(requirementId, input)),
     onSuccess: (response, variables) => {
       setStoryGroomingReviewedInputsByRequirementId(current => ({ ...current, [response.requirement.id]: JSON.stringify(variables.input) }));
       setStoryGroomingByRequirementId((current) => ({ ...current, [response.requirement.id]: response }));
@@ -1739,10 +1719,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       return;
     }
 
-    if (status === "failed") {
+    if (["failed", "cancelled"].includes(status)) {
       request.busy = false;
       setPreviewTone("error");
-      setPreviewMessage(requirementCreationJob.last_error || "AI Story generation failed. Reduce the prompt or attachments and try again.");
+      setPreviewMessage(requirementCreationJob.last_error || (status === "cancelled" ? "Story generation stopped. Your saved drafts remain available." : "AI Story generation failed. Reduce the prompt or attachments and try again."));
       return;
     }
 
@@ -4715,7 +4695,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setRequirementCreationJobId("");
     gherkinGenerationKeyRef.current = "";
     hydratedRequirementCreationJobKeyRef.current = "";
-    setRequirementAiDraftCount(3);
+    setRequirementAiDraftCount(DEFAULT_STORY_AI_DRAFT_COUNT);
     setIncludeGherkin(true);
     setOptimizationFields({ title: true, description: true, external_references: true, priority: true, status: true, gherkin: true });
     setPreviewMessage("");
@@ -5358,7 +5338,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const storyAiEvidence = storyAiEnvelope?.evidence || [];
   const storyAiKnowledgeSourceCount = storyAiEvidence.filter((item) => item.type === "knowledge").length;
   const storyAiLimitations = storyAiEnvelope?.limitations || [];
-  const storyAiProcessing = storyAiEnvelope?.processing;
   const storyAiReviewStatus = storyAiEnvelope?.review_status || "awaiting_review";
   const storyAiGenerationMode = storyAiEnvelope?.generation_mode || (storyAiEnvelope?.fallback_used ? "deterministic" : storyAiEnvelope ? "llm" : undefined);
   const storyAiRequestId = storyAiEnvelope?.request_id;
@@ -5682,14 +5661,14 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             </button>
             {renderSprintIdentity(iteration)}
             <div className="action-row hierarchy-parent-actions">
-              {canCreateRequirements ? (<button className="ghost-button compact" disabled={!canCreateRequirements || deriveSprintLifecycleState(iteration) === "closed"} onClick={() => openCreateRequirementModal(iteration)} title={deriveSprintLifecycleState(iteration) === "closed" ? "Completed Sprints are read-only" : "Create Story in this Sprint"} type="button"><AddIcon size={15} /></button>) : null}
+              {canCreateRequirements ? (<button className="ghost-button compact" disabled={!canCreateRequirements || deriveSprintLifecycleState(iteration) === "closed"} onClick={() => openCreateRequirementModal(iteration)} title={deriveSprintLifecycleState(iteration) === "closed" ? "Completed Sprints are read-only" : "Create Story in this Sprint"} type="button"><AddIcon size={15} /><span>Add Story</span></button>) : null}
               {deriveSprintLifecycleState(iteration) === "future" || deriveSprintLifecycleState(iteration) === "overdue" ? (
-                (canUpdateRequirementIterations ? (<button aria-label={`Start sprint ${iteration.name}`} className="ghost-button compact sprint-start-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending} onClick={() => void changeSprintLifecycle(iteration, "active")} title="Start Sprint" type="button"><IconPlayerPlay size={16} /></button>) : null)
+                (canUpdateRequirementIterations ? (<button aria-label={`Start sprint ${iteration.name}`} className="ghost-button compact sprint-start-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending} onClick={() => void changeSprintLifecycle(iteration, "active")} title="Start Sprint" type="button"><IconPlayerPlay size={16} /><span>Start</span></button>) : null)
               ) : null}
               {deriveSprintLifecycleState(iteration) === "active" || deriveSprintLifecycleState(iteration) === "overdue" ? (
-                (canUpdateRequirementIterations ? (<button aria-label={`Complete sprint ${iteration.name}`} className="ghost-button compact sprint-complete-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending || completionCheckSprintId === iteration.id} onClick={() => void changeSprintLifecycle(iteration, "closed")} title="Complete Sprint" type="button"><IconFlagCheck size={16} /></button>) : null)
+                (canUpdateRequirementIterations ? (<button aria-label={`Complete sprint ${iteration.name}`} className="ghost-button compact sprint-complete-button" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending || completionCheckSprintId === iteration.id} onClick={() => void changeSprintLifecycle(iteration, "closed")} title="Complete Sprint" type="button"><IconFlagCheck size={16} /><span>Complete</span></button>) : null)
               ) : null}
-              <button aria-label={`Open retrospective for ${iteration.name}`} className="ghost-button compact sprint-retrospective-button" onClick={() => setRetrospectiveIteration(iteration)} title="Open Sprint retrospective" type="button"><IconHistoryToggle size={17} stroke={2} /></button>
+              <button aria-label={`Open retrospective for ${iteration.name}`} className="ghost-button compact sprint-retrospective-button" onClick={() => setRetrospectiveIteration(iteration)} title="Open Sprint retrospective" type="button"><IconHistoryToggle size={17} stroke={2} /><span>Retrospective</span></button>
               {canUpdateRequirementIterations ? (<button
                 aria-label={`Edit ${iteration.name}`}
                 className="ghost-button compact sprint-edit-button"
@@ -5821,9 +5800,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
               { label: "Backlog inventory", value: metrics.backlog, progress: metrics.total ? (metrics.backlog / metrics.total) * 100 : null, detail: `${metrics.backlog} of ${metrics.total} Stories remain available for Product Owner refinement and Sprint planning.`, tone: "info" },
               { label: "Sprint commitment", value: metrics.sprintCommitted, progress: metrics.total ? (metrics.sprintCommitted / metrics.total) * 100 : null, detail: `${metrics.sprintCommitted} Stories have active delivery context across planned, active, or completed Sprints.`, tone: "success" },
               { label: "Dev Completion", methodology: "Sprint Stories at Dev Done or a later QA/Done status ÷ all Sprint Stories × 100; Backlog is excluded.", value: metrics.devTotal ? `${metrics.devCompletionPercent}%` : "—", progress: metrics.devTotal ? metrics.devCompletionPercent : null, detail: `${metrics.devCompleted} of ${metrics.devTotal} Sprint ${metrics.devTotal === 1 ? "Story has" : "Stories have"} reached Dev Done. Stories that progressed into QA or Done remain included. Backlog Stories are excluded.`, tone: "success" },
-              { label: "QA completion", methodology: "Completed Sprint Stories ÷ all Sprint Stories × 100; Backlog is excluded.", value: metrics.qaTotal ? `${metrics.completionPercent}%` : "—", progress: metrics.qaTotal ? metrics.completionPercent : null, detail: `${metrics.completed} of ${metrics.qaTotal} Sprint ${metrics.qaTotal === 1 ? "Story has" : "Stories have"} reached QA Done. Backlog Stories are excluded.`, tone: "success" }
+              { label: "QA completion", criteriaKey: "metric.sprint.qa_completion", population: "sprint_stories", unit: "percent", methodology: "Completed Sprint Stories ÷ all Sprint Stories × 100; Backlog is excluded.", value: metrics.qaTotal ? `${metrics.completionPercent}%` : "—", progress: metrics.qaTotal ? metrics.completionPercent : null, detail: `${metrics.completed} of ${metrics.qaTotal} Sprint ${metrics.qaTotal === 1 ? "Story has" : "Stories have"} reached QA Done. Backlog Stories are excluded.`, tone: "success" }
             ] : [
-              { label: "Completion Status", value: metrics.total ? `${metrics.completionPercent}%` : "—", progress: metrics.total ? metrics.completionPercent : null, detail: `${metrics.completed} of ${metrics.total} ${metrics.total === 1 ? "Story" : "Stories"} reached QA Done.`, tone: "info" },
+              { label: "QA completion", criteriaKey: "metric.sprint.qa_completion", population: "sprint_stories", unit: "percent", value: metrics.total ? `${metrics.completionPercent}%` : "—", progress: metrics.total ? metrics.completionPercent : null, detail: `${metrics.completed} of ${metrics.total} ${metrics.total === 1 ? "Story" : "Stories"} reached QA Done.`, tone: "info" },
               { label: "Test Coverage", value: metrics.total ? `${metrics.coveragePercent}%` : "—", progress: metrics.total ? metrics.coveragePercent : null, detail: `${metrics.mapped} ${metrics.mapped === 1 ? "Story" : "Stories"} linked to at least one test case.`, tone: "success" },
               { label: "Defect Density", methodology: "Distinct linked Defects ÷ all matching Sprint Stories.", value: metrics.total ? metrics.defectDensity.toFixed(2) : "—", progress: metrics.total ? Math.min(100, metrics.defectDensity * 25) : null, detail: `${metrics.totalDefects} linked defect${metrics.totalDefects === 1 ? "" : "s"} across ${metrics.total || 0} ${metrics.total === 1 ? "Story" : "Stories"}.`, tone: metrics.totalDefects ? "danger" : "success" },
               { label: "Slippage", value: metrics.slipped, progress: metrics.total ? (metrics.slipped / metrics.total) * 100 : null, detail: `${metrics.onCourse} of ${metrics.total} Sprint Stories are on course or complete.`, tone: metrics.slipped ? "danger" : "success" }
@@ -5981,7 +5960,16 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   </button>
                 </div>
               </div>
-              <div className="catalog-toolbar-actions requirement-toolbar-actions" aria-label="Story actions">
+              <div className="catalog-toolbar-actions" role="group" aria-label="Sprint actions">{workspaceMode === "sprints" ? (canCreateRequirementIterations ? (<button
+                className="ghost-button catalog-selection-button"
+                disabled={!canCreateRequirementIterations || !projectId}
+                onClick={() => openCreateIteration(deleteSelectedRequirementIds)}
+                type="button"
+              >
+                <SprintIcon size={16} />
+                <span>Create sprint</span>
+              </button>) : null) : null}</div>
+              <div className="catalog-toolbar-actions requirement-toolbar-actions" role="group" aria-label="Story actions">
                 <label className="catalog-hierarchy-move-control">
                   <span className="sr-only">Move selected Stories to Sprint</span>
                   <select
@@ -6013,19 +6001,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       })}
                   </select>
                 </label>
-              {workspaceMode === "sprints" ? (canCreateRequirementIterations ? (<button
-                className="ghost-button catalog-selection-button"
-                disabled={!canCreateRequirementIterations || !projectId}
-                onClick={() => openCreateIteration(deleteSelectedRequirementIds)}
-                type="button"
-              >
-                <SprintIcon size={16} />
-                <span>Create sprint</span>
-              </button>) : null) : null}
               {canCreateRequirements ? (<button className="primary-button catalog-selection-button requirement-create-story-button" disabled={!canCreateRequirements || !projectId} onClick={() => openCreateRequirementModal()} type="button">
                 <AddIcon size={16} />
                 <span>Create Story</span>
               </button>) : null}
+              {canUseRequirementAi && deleteSelectedRequirementIds.length !== 1 ? <small role="status">Select one Story to enable AI completion and case generation.</small> : null}
               {canUseRequirementAi ? ((canUseRequirementAi && canUpdateRequirements ? (<button
                 className="primary-button catalog-selection-button requirement-ai-action-button requirement-ai-complete-button"
                 disabled={!canUseRequirementAi || !canUpdateRequirements || deleteSelectedRequirementIds.length !== 1}
@@ -6317,7 +6297,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 
                     return (
                       <article
-                        aria-label={`Open Story ${item.display_id || item.id}: ${item.title}`}
                         draggable={canUpdateRequirementIterations && !isDeletingSelectedRequirements}
                         key={item.id}
                         className={[
@@ -6333,23 +6312,12 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                           startDraggingRequirements(item.id, event.dataTransfer);
                         }}
                         onClick={() => openRequirementWorkspace(item.id)}
-                        onKeyDown={(event) => {
-                          if (event.target !== event.currentTarget) {
-                            return;
-                          }
-
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            openRequirementWorkspace(item.id);
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
                       >
                         <div className="tile-card-main">
                           <div className="tile-card-select-row requirement-tile-top-row">
                             <label className="checkbox-field requirement-delete-checkbox" onClick={(event) => event.stopPropagation()}>
 		                              <input
+		                                aria-label={`Select Story ${item.display_id || item.id}: ${item.title}`}
 		                                checked={isSelectedForDelete}
 	                                onChange={(event) =>
 	                                  setDeleteSelectedRequirementIds((current) =>
@@ -6370,7 +6338,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 	                          </div>
 		                          <div className="tile-card-header requirement-tile-header">
 		                            <div className="tile-card-title-group">
-		                              <strong>{item.title}</strong>
+		                              <button className="tile-card-open-button" aria-label={`Open Story ${item.display_id || item.id}: ${item.title}`} onClick={event => { event.stopPropagation(); openRequirementWorkspace(item.id); }} type="button"><strong>{item.title}</strong></button>
 		                            </div>
 	                          </div>
                           <CatalogCardDescription
@@ -6836,6 +6804,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       providerControl={<AiReviewControls key={`story-grooming-${projectId}-${selectedRequirement.id}`} usageKey="ai.requirement.grooming" projectId={projectId} appTypeId={appTypeId} integrations={integrations} integrationId={storyGroomingIntegrationId} onIntegrationIdChange={setStoryGroomingIntegrationId} promptGuidance={storyGroomingPromptGuidance} onPromptGuidanceChange={setStoryGroomingPromptGuidance} additionalContext={storyGroomingContext} onAdditionalContextChange={setStoryGroomingContext} artifactIds={[selectedRequirement.id]} artifactContext={JSON.stringify(selectedRequirementAssuranceProposedChange)} disabled={previewStoryGrooming.isPending} onBusyChange={setStoryGroomingContextBusy} />}
                       disabled={!canUseRequirementAi || !projectId || previewStoryGrooming.isPending || storyGroomingContextBusy}
                       error={previewStoryGrooming.error instanceof Error && storyGroomingMutationMatchesSelection ? previewStoryGrooming.error.message : null}
+                      failure={storyGroomingMutationMatchesSelection ? groomingJob.failure || (previewStoryGrooming.error instanceof Error ? previewStoryGrooming.error : null) : null}
+                      processing={groomingJob.processing}
+                      onCancel={() => void groomingJob.cancel()}
                       isLoading={previewStoryGrooming.isPending && storyGroomingMutationMatchesSelection}
                       onGenerate={runStoryGrooming}
                       response={selectedStoryGrooming ?? null}
@@ -7755,7 +7726,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
               includeGherkin={includeGherkin}
               includeGherkinDisabled={isStoryAiGenerateBusy}
               hasProposal={requirementAiMode === "create" ? requirementCreationDrafts.length > 0 : Boolean(optimizationSuggestion)}
-              processing={storyAiProcessing}
+              processing={storyAiEnvelope?.processing || (requirementAiMode === "improve" ? getAiFailureProcessing(previewRequirementOptimization.error) : undefined)}
+              failure={requirementAiMode === "improve" ? previewRequirementOptimization.error : requirementCreationJob?.failure || (createRequirementGenerationJob.error instanceof Error ? createRequirementGenerationJob.error : null)}
+              onCancel={() => { if (requirementCreationJobId) void api.requirements.cancelGenerationJob(requirementCreationJobId, projectId).then(() => requirementCreationJobQuery.refetch()); }}
               reviewStatus={storyAiReviewStatus}
               inspectorContent={(
                 <StoryAiDraftInspector
@@ -7997,7 +7970,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                           <select
                             disabled={isStoryAiGenerateBusy}
                             onChange={(event) => {
-                              setRequirementAiDraftCount(Number(event.target.value) || 3);
+                              setRequirementAiDraftCount(Number(event.target.value) || DEFAULT_STORY_AI_DRAFT_COUNT);
                               invalidateRequirementAiDraft();
                             }}
                             value={requirementAiDraftCount}
@@ -8152,7 +8125,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                           <select
                             disabled={isStoryAiGenerateBusy}
                             onChange={(event) => {
-                              setRequirementAiDraftCount(Number(event.target.value) || 3);
+                              setRequirementAiDraftCount(Number(event.target.value) || DEFAULT_STORY_AI_DRAFT_COUNT);
                               invalidateRequirementAiDraft();
                             }}
                             value={requirementAiDraftCount}
@@ -8642,7 +8615,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       {isAiStudioOpen && canUseRequirementAi ? (
         <AiDesignStudioModal
           imageLimit={AI_REFERENCE_IMAGE_LIMITS.testCaseGeneration}
-          acceptLabel="Accept And Move To Test Cases"
+          acceptLabel="Save cases"
           additionalContext={aiAdditionalContext}
           allowMultipleRequirements={false}
           appTypeName={currentAppTypeName}
@@ -8698,12 +8671,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             setPreviewMessage("");
           }}
           onCancel={() => {
+            void caseDesignJob.cancel();
             aiDesignControllerRef.current?.abort();
             aiDesignControllerRef.current = null;
             setIsAiDesignPreparingFiles(false);
             previewDesignedCases.reset();
             setPreviewTone("success");
-            setPreviewMessage("Stopped waiting. Existing drafts are unchanged.");
+            setPreviewMessage("Generation stopped. Saved proposals remain available for review.");
           }}
           onPreview={(authoringMode) => void handlePreviewDesignedCases(authoringMode)}
           onPreviewCaseChange={(clientId, next) => setPreviewCases((current) => current.map((candidate) => candidate.client_id === clientId ? { ...next, reference_attachment_ids: candidate.reference_attachment_ids } : candidate))}
@@ -8732,6 +8706,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             setPreviewMessage("");
           }}
           previewCases={previewCases}
+          processing={caseDesignJob.processing}
+          failure={caseDesignJob.failure || (previewDesignedCases.error instanceof Error ? previewDesignedCases.error : null)}
           previewMessage={previewMessage}
           promptTemplateAppTypeId={appTypeId}
           promptTemplateProjectId={projectId}

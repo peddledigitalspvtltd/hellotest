@@ -1,5 +1,5 @@
 import { LoadingState } from "../../shared/components/LoadingState";
-import { createElement, type CSSProperties, type ElementType, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createElement, type AriaAttributes, type CSSProperties, type ElementType, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconPaperclip, IconPhoto } from "@tabler/icons-react";
 import { useAuth } from "../../auth/AuthContext";
@@ -40,8 +40,7 @@ type RichTextEditorProps = {
     requirementId?: string;
     moduleId?: string;
   };
-  "aria-label"?: string;
-};
+} & Pick<AriaAttributes, "aria-label" | "aria-labelledby" | "aria-describedby" | "aria-invalid" | "aria-required">;
 
 type RichTextContentProps = {
   value?: string | null;
@@ -426,7 +425,11 @@ export function RichTextEditor({
   onAttachmentRequest,
   aiRephraseTitle = "Rephrase description with AI",
   aiRephraseContext,
-  "aria-label": ariaLabel
+  "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
+  "aria-required": ariaRequired
 }: RichTextEditorProps) {
   const { session } = useAuth();
   const [projectId] = useCurrentProject();
@@ -853,8 +856,11 @@ export function RichTextEditor({
       <div
         {...(hasParameterSupport ? autocomplete.inputProps : {})}
         aria-label={ariaLabel}
-        aria-multiline="true"
-        aria-required={required || undefined}
+        aria-labelledby={ariaLabelledBy}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
+        aria-multiline={hasParameterSupport ? undefined : true}
+        aria-required={required || ariaRequired || undefined}
         className="rich-text-editor-surface"
         contentEditable={!disabled}
         data-empty={isEmpty ? "true" : "false"}

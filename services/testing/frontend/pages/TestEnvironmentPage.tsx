@@ -241,8 +241,7 @@ const normalizeTableRows = (rows: TestDataSetRow[], columns: string[]) =>
         accumulator[column] = sanitizeDataSetText(row[column] ?? "");
         return accumulator;
       }, {})
-    )
-    .filter((row) => Object.values(row).some((value) => value.trim()));
+    );
 
 export const environmentToDraft = (environment: Pick<TestEnvironment, "name" | "description" | "base_url" | "variables">): EnvironmentDraft => ({
   name: environment.name,
@@ -2666,7 +2665,7 @@ function KeyValueEditor({
             {entries.map((entry, index) => (
               <tr key={entry.id || `key-value-row-${index}`}>
                 <td>
-                  <input
+                  <input aria-label={`Variable key row ${index + 1}`}
                     ref={(node) => {
                       if (node && entry.id) keyInputRefs.current.set(entry.id, node);
                       else if (entry.id) keyInputRefs.current.delete(entry.id);
@@ -2710,7 +2709,7 @@ function KeyValueEditor({
                       value={entry.value}
                     />
                   ) : multilineValue && !entry.is_secret ? (
-                    <textarea
+                    <textarea aria-label={`Value for ${entry.key || `row ${index + 1}`}`}
                       rows={Math.min(Math.max(String(entry.value || "").split("\n").length, 1), 3)}
                       value={entry.value}
                       onChange={(event) =>
@@ -2722,7 +2721,7 @@ function KeyValueEditor({
                       }
                     />
                   ) : (
-                    <input
+                    <input aria-label={`Value for ${entry.key || `row ${index + 1}`}`}
                       autoComplete={entry.is_secret ? "new-password" : "off"}
                       placeholder={entry.is_secret && entry.has_stored_value && !entry.value ? "Stored secret. Enter a new value to replace it." : ""}
                       type={entry.is_secret ? "password" : "text"}

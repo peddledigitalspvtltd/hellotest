@@ -1,3 +1,4 @@
+const authoringLifecycle = require("@hellotest/ai/services/generationLifecycle");
 const service = require("../services/testCase.service");
 const catalogService = require("../services/testCaseCatalog.service");
 const appTypeService = require("@hellotest/platform/backend/public/applicationAccess");
@@ -26,7 +27,6 @@ const {
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
 const { AUTOMATION_CASE_TYPES, normalizeAutomationCaseType } = require('@hellotest/platform/backend/src/utils/automationCaseType');
 const OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE = 200;
-
 const resolveTestCaseListProjectId = testCaseScopeService.resolveListProjectId;
 
 const resolveScopedRequirements = async (requirementIds = [], projectId, allowEmpty = false) => {
@@ -1383,7 +1383,7 @@ module.exports = async function (fastify) {
     });
   });
 
-  fastify.post("/test-cases/design-test-cases-preview", async (req) => {
+  fastify.post("/test-cases/design-test-cases-preview", async (req) => authoringLifecycle.run("case-design", async () => {
     await fastify.authenticate(req);
 
     fastify.validate({
@@ -1416,9 +1416,9 @@ module.exports = async function (fastify) {
       external_links: req.body.external_links,
       images: req.body.images
     });
-  });
+  }));
 
-  fastify.post("/test-cases/ai-authoring-preview", async (req) => {
+  fastify.post("/test-cases/ai-authoring-preview", async (req) => authoringLifecycle.run("case-authoring", async () => {
     await fastify.authenticate(req);
 
     fastify.validate({
@@ -1447,7 +1447,7 @@ module.exports = async function (fastify) {
       images: req.body.images,
       test_case: req.body.test_case
     });
-  });
+  }));
 
   fastify.post("/test-cases/ai-step-rephrase", async (req) => {
     await fastify.authenticate(req);

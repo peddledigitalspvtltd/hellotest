@@ -989,7 +989,7 @@ function ApiValidationRowsEditor({
         return (
           <div className="automation-validation-row-shell" key={`validation-${index}`}>
             <div className="automation-validation-row">
-              <select
+              <select aria-label={`Assertion kind ${index + 1}`}
                 value={validation.kind}
                 onChange={(event) => {
                   const updated = nextValidations.map((item, itemIndex) =>
@@ -1028,7 +1028,7 @@ function ApiValidationRowsEditor({
                 {unsupportedOperator ? <option disabled value={validation.operator}>{`Unsupported: ${validation.operator}`}</option> : null}
                 {operators.length ? operators.map((option) => <option key={option.value} value={option.value}>{option.label}</option>) : <option value="">{validation.kind === "body_contains" ? "Contains" : validation.kind === "body_not_contains" ? "Excludes" : validation.kind === "header_present" ? "Exists" : validation.kind === "json_schema" ? "Matches schema" : "Equals"}</option>}
               </select>
-              <input
+              <input aria-label={`Assertion target ${index + 1}`}
                 placeholder={validation.kind === "status" ? "Status code" : validation.kind === "json_path" ? "JSON path" : validation.kind === "header" ? "Header name" : "Search text"}
                 title={showResolvedPreview && resolvedTarget ? `Resolved target: ${resolvedTarget}` : undefined}
                 value={validation.target || ""}
@@ -1082,7 +1082,7 @@ function ApiValidationRowsEditor({
       })}
       <button
         className="ghost-button inline-button"
-        onClick={() => onChange([...nextValidations, { kind: "status" as const, operator: "eq" as const, target: "", expected: "200" }] as StepApiValidation[])}
+        onClick={() => onChange([...nextValidations, { kind: "status" as const, target: "", expected: "200" }] as StepApiValidation[])}
         type="button"
       >
         Add validation

@@ -8,6 +8,9 @@ const { DEFAULT_ROLE_PERMISSIONS } = require("../src/security/permissions.catalo
 const { WORKSPACE_ONLY_PERMISSION_CODES } = require("./permission.service");
 const { hashPasswordAsync, passwordNeedsRehash, verifyPasswordAsync, createToken, verifyToken } = require("../src/utils/token");
 const { resolveSecret } = require("../src/security/runtimeSecrets");
+const { policy, validateEmail, validateNewPassword } = require('./authPolicy.service');
+const loginProtection = require('./loginProtection.service');
+const { lockedError } = loginProtection;
 
 const VERIFICATION_CODE_TTL_MINUTES = 15;
 const VERIFICATION_MAX_ATTEMPTS = 5;
@@ -169,8 +172,8 @@ const createVerificationEmail = ({ code, purpose, senderName, expiresInMinutes }
   return { subject, text, html };
 };
 
-const sendVerificationCode = async ({ email, purpose, payload }) => {
-  const senderProfile = await getEmailSenderProfile();
+const sendVerificationCode = async ({ email, purpose, payload, senderProfile: suppliedProfile, expiresAt: suppliedExpiry }) => {
+  const senderProfile = suppliedProfile || await getEmailSenderProfile();
 
   if (!senderProfile.enabled) {
     throw createError(
@@ -180,7 +183,7 @@ const sendVerificationCode = async ({ email, purpose, payload }) => {
   }
 
   const code = generateVerificationCode();
-  const expiresAt = new Date(Date.now() + VERIFICATION_CODE_TTL_MINUTES * 60 * 1000).toISOString();
+  const expiresAt = suppliedExpiry || new Date(Date.now() + VERIFICATION_CODE_TTL_MINUTES * 60 * 1000).toISOString();
 
   await clearPendingVerification({ email, purpose });
 
@@ -326,7 +329,8 @@ exports.getAuthSetup = async () => {
 
   return {
     google,
-    emailVerification
+    emailVerification,
+    policy
   };
 };
 
@@ -335,11 +339,10 @@ exports.requestSignupCode = async ({ email, password, name }) => {
     throw createError("Email and password are required", 400);
   }
 
-  if (password.length < 6) {
-    throw createError("Password must be at least 6 characters", 400);
-  }
-
-  const normalizedEmail = normalizeEmail(email);
+  const normalizedEmail = validateEmail(email);
+  validateNewPassword(password);
+  const senderProfile = await getEmailSenderProfile();
+  if (!senderProfile.enabled) throw createError('Email verification is not configured yet. Ask an administrator to configure the Email Sender integration.', 503);
   const existing = await db.prepare(`
     SELECT id
     FROM users
@@ -347,17 +350,29 @@ exports.requestSignupCode = async ({ email, password, name }) => {
   `).get(normalizedEmail);
 
   if (existing) {
-    throw createError("An account already exists for that email. Sign in or use forgot password instead.", 409);
+    await hashPasswordAsync(password);
+    // The public response never reveals account existence. Guidance is delivered
+    // only to the owner, with a durable resend window to prevent notification spam.
+    const claimedAt = await loginProtection.claimAccountNotice(normalizedEmail, existing.id);
+    if (claimedAt) {
+      try {
+        await sendMail({to: normalizedEmail, subject: 'Continue with your HelloTest account',
+          text: 'You already have a HelloTest account. Open HelloTest and choose Sign in, or Forgot password to recover access. If you did not request this, you can ignore this email.'});
+      } catch (error) { await loginProtection.releaseAccountNotice(normalizedEmail, claimedAt); throw error; }
+    }
+    return {success: true, message: policy.signupAcknowledgement, expiresAt: new Date(Date.now() + VERIFICATION_CODE_TTL_MINUTES * 60_000).toISOString()};
   }
 
-  return sendVerificationCode({
+  const result = await sendVerificationCode({
     email: normalizedEmail,
     purpose: "signup",
+    senderProfile,
     payload: {
       name: normalizeName(name),
       password_hash: await hashPasswordAsync(password)
     }
   });
+  return {...result, message: policy.signupAcknowledgement};
 };
 
 exports.verifySignupCode = verificationTransaction(async ({ email, code }) => {
@@ -365,7 +380,7 @@ exports.verifySignupCode = verificationTransaction(async ({ email, code }) => {
     throw createError("Email and verification code are required", 400);
   }
 
-  const normalizedEmail = normalizeEmail(email);
+  const normalizedEmail = validateEmail(email);
   const verificationPayload = await consumeVerificationPayload({
     email: normalizedEmail,
     purpose: "signup",
@@ -380,7 +395,7 @@ exports.verifySignupCode = verificationTransaction(async ({ email, code }) => {
   `).get(normalizedEmail);
 
   if (existing) {
-    throw createError("An account already exists for that email. Sign in instead.", 409);
+    throw createError('Unable to verify these details. Request new instructions or use Sign in.', 400);
   }
 
   if (!verificationPayload.password_hash) {
@@ -409,7 +424,8 @@ exports.login = async ({ email, password }) => {
     throw createError("Missing required fields", 400);
   }
 
-  const normalizedEmail = normalizeEmail(email);
+  const normalizedEmail = validateEmail(email);
+  await loginProtection.assertAllowed(normalizedEmail);
 
   const user = await db.prepare(`
     SELECT id, email, name, password_hash, status, created_at
@@ -418,18 +434,21 @@ exports.login = async ({ email, password }) => {
   `).get(normalizedEmail);
 
   if (!user) {
+    // Match password work for unknown identities without keeping a dummy account.
+    await hashPasswordAsync(password);
+    const failed = await loginProtection.recordFailure(normalizedEmail);
+    if (failed.locked_until) throw lockedError(failed);
     throw createError("Invalid credentials", 401);
-  }
-
-  if (user.status === "suspended") {
-    throw createError("This account is suspended. Contact a workspace administrator.", 403);
   }
 
   const isPasswordValid = await verifyPasswordAsync(password, user.password_hash);
 
   if (!isPasswordValid) {
+    const failed = await loginProtection.recordFailure(normalizedEmail, user.id);
+    if (failed.locked_until) throw lockedError(failed);
     throw createError("Invalid credentials", 401);
   }
+  if (user.status === "suspended") throw createError("This account is suspended. Contact a workspace administrator.", 403);
 
   // Expensive password work finishes before acquiring a connection or row lock.
   const upgradedHash = passwordNeedsRehash(user.password_hash) ? await hashPasswordAsync(password) : null;
@@ -443,6 +462,9 @@ exports.login = async ({ email, password }) => {
       ? await db.prepare("UPDATE users SET password_hash = ?, last_login_at = CURRENT_TIMESTAMP WHERE id = ? AND password_hash = ? AND status IS DISTINCT FROM 'suspended'").run(upgradedHash, user.id, user.password_hash)
       : await db.prepare("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ? AND password_hash = ? AND status IS DISTINCT FROM 'suspended'").run(user.id, user.password_hash);
     if (!loginUpdate.changes) throw createError("Invalid credentials", 401);
+    // Use the same user -> protection lock order as password reset. A lock that
+    // committed during password verification must still prevent token issuance.
+    await loginProtection.assertAndClear(normalizedEmail, user.id);
 
     // The first-login timestamp and project grant commit together. A failed
     // assignment remains retryable, and parallel logins cannot see a completed
@@ -535,28 +557,17 @@ exports.requestPasswordResetCode = async ({ email, newPassword }) => {
     throw createError("Email and new password are required", 400);
   }
 
-  if (newPassword.length < 6) {
-    throw createError("Password must be at least 6 characters", 400);
-  }
-
-  const normalizedEmail = normalizeEmail(email);
-  const user = await db.prepare(`
-    SELECT id
-    FROM users
-    WHERE LOWER(email) = ?
-  `).get(normalizedEmail);
-
-  if (!user) {
-    return { success: true };
-  }
-
-  return sendVerificationCode({
-    email: normalizedEmail,
-    purpose: "password_reset",
-    payload: {
-      password_hash: await hashPasswordAsync(newPassword)
-    }
-  });
+  const normalizedEmail = validateEmail(email);
+  validateNewPassword(newPassword);
+  const senderProfile = await getEmailSenderProfile();
+  if (!senderProfile.enabled) throw createError('Email verification is not configured yet. Ask an administrator to configure the Email Sender integration.', 503);
+  // Both identities pay the same password work and receive the same public
+  // acknowledgement; delivery details remain in the account owner's inbox.
+  const passwordHash = await hashPasswordAsync(newPassword);
+  const expiresAt = new Date(Date.now() + VERIFICATION_CODE_TTL_MINUTES * 60_000).toISOString();
+  const user = await db.prepare(`SELECT id FROM users WHERE LOWER(email) = ?`).get(normalizedEmail);
+  if (user) await sendVerificationCode({email: normalizedEmail,purpose: "password_reset",senderProfile,expiresAt,payload: {password_hash: passwordHash}});
+  return {success: true,message: policy.passwordResetAcknowledgement,expiresAt};
 };
 
 exports.verifyPasswordResetCode = verificationTransaction(async ({ email, code }) => {
@@ -590,6 +601,7 @@ exports.verifyPasswordResetCode = verificationTransaction(async ({ email, code }
     SET password_hash = ?, email_verified = TRUE
     WHERE id = ?
   `).run(verificationPayload.password_hash, user.id);
+  await loginProtection.clear(normalizedEmail);
 
   await db.prepare(`
     DELETE FROM password_reset_tokens

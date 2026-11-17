@@ -5,7 +5,7 @@ const { summarizeLatestRunCases } = require("@hellotest/platform/backend/src/uti
 
 const METRIC_FORMULA_VALUES_KEY = "ai_metric_formula_values";
 const TERMINAL_RESULT_STATUSES = new Set(["passed", "failed", "blocked"]);
-const CLOSED_BUG_STATUSES = new Set(["closed", "resolved", "done", "accepted"]);
+const {isClosedDefect}=require("@hellotest/platform/backend/src/utils/defectStatus");
 
 const { DEFAULT_FORMULA_VALUES, normalizeFormulaValues } = require("@hellotest/platform/shared/metricFormulaValues");
 
@@ -271,7 +271,7 @@ const buildPortfolioAnalytics = async (userId) => {
     const automatedCases = projectCases.filter((testCase) => testCase.automated === "yes").length;
     const latestFinalizedResults = [...latestResultByCase.values()];
     const passedCases = latestFinalizedResults.filter((result) => String(result.status).toLowerCase() === "passed").length;
-    const resolvedBugs = projectBugs.filter((bug) => CLOSED_BUG_STATUSES.has(String(bug.status || "").trim().toLowerCase())).length;
+    const resolvedBugs = projectBugs.filter((bug) => isClosedDefect(bug.status)).length;
     const storyCoverage = percent(coveredStories, projectRequirements.length);
     const automationCoverage = percent(automatedCases, projectCases.length);
     const passConfidenceMetric = calculatePassConfidence({
@@ -288,7 +288,7 @@ const buildPortfolioAnalytics = async (userId) => {
     const evidenceCoverage = percent(evidencedLatestResults, latestExecutionResults.length);
     const assessable = Boolean(projectRequirements.length || projectCases.length || projectBugs.length);
     const evidenceViolation = Boolean(evidenceThreshold > 0 && assessable && (latestExecutionResults.length === 0 || evidenceCoverage < evidenceThreshold));
-    const openBugs = projectBugs.filter((bug) => !CLOSED_BUG_STATUSES.has(String(bug.status || "").trim().toLowerCase()));
+    const openBugs = projectBugs.filter((bug) => !isClosedDefect(bug.status));
     const openBugViolation = Boolean(openBugThreshold > 0 && openBugs.length >= openBugThreshold);
     const readinessScore = Math.max(0, Math.min(100, Math.round(
       (storyCoverage * weights.story_weight / 100)
@@ -353,6 +353,8 @@ const buildPortfolioAnalytics = async (userId) => {
         stories: projectRequirements.length,
         modules: projectModules.length,
         cases: projectCases.length,
+        manual_cases: projectCases.filter(testCase => testCase.automated !== "yes").length,
+        automation_cases: projectCases.filter(testCase => testCase.automated === "yes").length,
         suites: suiteCountByProject.get(project.id) || 0,
         bugs: projectBugs.length,
         open_bugs: openBugs.length

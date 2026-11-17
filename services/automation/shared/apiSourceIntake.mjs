@@ -52,8 +52,13 @@ function context() {
     return protectPrivateValue(normalized,key);
   };
   const protectPrivateValue = (value,key) => {
-    if(/^@t\.[A-Za-z][A-Za-z0-9_-]*$/.test(value)||/^(?:Bearer|Basic)\s+@t\.[A-Za-z][A-Za-z0-9_-]*$/i.test(value)){
-      for(const match of value.matchAll(/@t\.([A-Za-z][A-Za-z0-9_-]*)/g)){privateParameters.add(`t.${match[1]}`);parameters[match[1]]='';}
+    // A reviewed scoped reference names an existing binding; it is not a
+    // credential value and must retain its original scope and spelling.
+    if (/^(?:(?:Bearer|Basic)\s+)?@[tsr]\.[A-Za-z][A-Za-z0-9_-]*$/i.test(value)) {
+      for (const match of value.matchAll(/@t\.([A-Za-z][A-Za-z0-9_-]*)/g)) if (Object.hasOwn(parameters, match[1])) {
+        privateParameters.add(`t.${match[1]}`); parameters[match[1]] = '';
+        warnings.add('Credential values were removed. Set the listed private Test parameters before running this case.');
+      }
       return value;
     }
     return reference(`imported_${key}`,'',true);
@@ -135,7 +140,7 @@ function postmanAuth(auth, headers, ctx, defaults) {
   else fail(`Postman ${value.type} authentication cannot be imported faithfully. Configure a private request header or query parameter before importing.`);
 }
 function postmanChecks(events,ctx,defaults) {
-  const statuses=new Set(),captures=new Map();let unsupported=false,hasStatusChecks=false;
+  const statuses=new Set(),captures=new Map(),jsonValidations=[];let unsupported=false,hasStatusChecks=false;
   const memberPath=node=>node?.type==='Identifier'?node.name:node?.type==='MemberExpression'&&!node.optional
     ? `${memberPath(node.object)}.${node.computed?node.property?.value:node.property?.name}` : '';
   for(const event of list(events)){
@@ -150,7 +155,7 @@ function postmanChecks(events,ctx,defaults) {
       return Object.values(node).some(value=>Array.isArray(value)?value.some(forbidden):value&&typeof value==='object'&&forbidden(value));
     };
     if(forbidden(tree)){unsupported=true;continue;}
-    const scriptStatuses=new Set(),scriptCaptures=new Map();let scriptUnsupported=false;
+    const scriptStatuses=new Set(),scriptCaptures=new Map(),scriptJsonValidations=[];let scriptUnsupported=false;
     const aliases=new Map();
     const responsePath=node=>{
       if(node?.type==='CallExpression'&&memberPath(node.callee)==='pm.response.json'&&node.arguments.length===0)return '$';
@@ -170,6 +175,20 @@ function postmanChecks(events,ctx,defaults) {
       }
       return null;
     };
+    const jsonEquality = node => {
+      if (node.callee?.type !== 'MemberExpression' || !['eql','equal','equals'].includes(node.callee.property?.name) || node.arguments.length !== 1) return null;
+      let subject = node.callee.object;
+      while (subject?.type === 'MemberExpression') {
+        if (subject.computed || !['to','be','deep'].includes(subject.property?.name)) return null;
+        subject = subject.object;
+      }
+      if (subject?.type !== 'CallExpression' || memberPath(subject.callee) !== 'pm.expect' || subject.arguments.length !== 1) return null;
+      const path = responsePath(subject.arguments[0]), expected = node.arguments[0];
+      if (!path || expected?.type !== 'Literal' || expected.regex || !['string','number','boolean'].includes(typeof expected.value) && expected.value !== null) return null;
+      const field = path.split(/[.\[\]$]/).filter(Boolean).at(-1) || '';
+      const value = typeof expected.value === 'string' && privateName(field) && !/^(?:is_secret|has_stored_value)$/i.test(field) ? ctx.protectPrivateValue(expected.value, field) : typeof expected.value === 'string' ? expected.value : JSON.stringify(expected.value);
+      return { kind: 'json_path', target: path, operator: 'eq', expected: value };
+    };
     const walk=node=>{
       if(!node)return;
       if(node.type==='Program'||node.type==='BlockStatement'){node.body.forEach(walk);return;}
@@ -181,6 +200,7 @@ function postmanChecks(events,ctx,defaults) {
       if(node.type!=='CallExpression'){scriptUnsupported=true;return;}
       const name=memberPath(node.callee),status=statusValue(node);
       if(status!=null){if(Number.isInteger(status)&&status>=100&&status<=599)scriptStatuses.add(String(status));else scriptUnsupported=true;return;}
+      const jsonCheck=jsonEquality(node); if(jsonCheck){scriptJsonValidations.push(jsonCheck);return;}
       if(name==='pm.test'){
         const callback=node.arguments[1];if(callback&&['FunctionExpression','ArrowFunctionExpression'].includes(callback.type)&&callback.params.length===0)walk(callback.body);else scriptUnsupported=true;return;
       }
@@ -194,13 +214,14 @@ function postmanChecks(events,ctx,defaults) {
     };
     walk(tree);
     if(scriptUnsupported){unsupported=true;continue;}
+    jsonValidations.push(...scriptJsonValidations);
     for(const status of scriptStatuses)statuses.add(status);
     hasStatusChecks ||= scriptStatuses.size>0;
     for(const [name,capture] of scriptCaptures)captures.set(name,capture);
   }
   if(statuses.size>1){statuses.clear();ctx.warnings.add('Postman tests declare conflicting response statuses. Review their conditions and choose an explicit assertion.');}
-  if(unsupported)ctx.warnings.add('Only direct Postman status checks and JSON response-variable captures were translated. Review other scripts, conditions and pre-request behavior manually; scripts are never executed.');
-  return {validations:[...statuses].map(expected=>({kind:'status',expected})),captures:[...captures.values()],hasStatusChecks};
+  if(unsupported)ctx.warnings.add('Only unconditional Postman status checks, literal JSON equality assertions and JSON response-variable captures were translated. Review other scripts, conditions and pre-request behavior manually; scripts are never executed.');
+  return {validations:[...[...statuses].map(expected=>({kind:'status',expected})),...jsonValidations],captures:[...captures.values()],hasStatusChecks};
 }
 function fromPostman(document,ctx) {
   const steps=[];
@@ -224,7 +245,7 @@ function fromPostman(document,ctx) {
       const statuses=[...new Set(list(item.response).map(row=>Number(row.code)).filter(code=>code>=100&&code<=599))];
       if(statuses.length>1)ctx.warnings.add('A Postman request has multiple example statuses. No single expected status was chosen for it.');
       const checks=postmanChecks(events,ctx,local);
-      addStep(steps,ctx,{method:request.method,url,headers,body_mode,body,captures:checks.captures,validations:checks.hasStatusChecks?checks.validations:statuses.length===1?[{kind:'status',expected:String(statuses[0])}]:[]},item.name,undefined,local);
+      addStep(steps,ctx,{method:request.method,url,headers,body_mode,body,captures:checks.captures,validations:checks.validations.length?checks.validations:statuses.length===1?[{kind:'status',expected:String(statuses[0])}]:[]},item.name,undefined,local);
     }
   };
   visit(document.item,defaults(document.variable),document.auth,list(document.event));

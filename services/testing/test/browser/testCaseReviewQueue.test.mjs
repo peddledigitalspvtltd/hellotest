@@ -84,7 +84,7 @@ test('Review Cases owns complete pending queue across filters, modules, paginati
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`);
   const review=page.getByRole('button',{name:/^Review Cases/});
   await review.waitFor();await page.waitForFunction(()=>document.querySelector('.test-case-review-count')?.textContent==='37');
-  const overall=page.getByRole('group',{name:'Test case library quality metrics'}).getByRole('button',{name:'View evidence for Pending Review',exact:true}).locator('strong');
+  const overall=page.getByRole('group',{name:'Test case library quality metrics'}).getByTitle('View evidence for Pending Review',{exact:true}).locator('strong');
   assert.equal(await overall.innerText(),'39','Overall card includes every reviewer, personal action remains 37');
   await page.getByRole('textbox',{name:'Search test cases'}).fill('Ordinary catalog');
   await page.waitForFunction(()=>window.calls.catalog.some(item=>item.search==='Ordinary catalog'));
@@ -210,7 +210,7 @@ test('Review Cases owns complete pending queue across filters, modules, paginati
   await page.waitForFunction(()=>window.calls.catalog.at(-1)?.app_type_id==='case-app');
   assert.equal(await review.isDisabled(),true,'view-only users cannot decide reviews');
   await page.evaluate(()=>window.client.invalidateQueries({queryKey:['test-case-review-summary']}));
-  await page.waitForFunction(()=>document.querySelector('[aria-label="View evidence for Pending Review"] strong')?.textContent===String(window.cases.filter(item=>item.project_id==='case-project'&&item.app_type_id==='case-app'&&(item.review_status==='pending'||(item.ai_generation_source&&item.ai_generation_review_status==='pending'&&!['accepted','changes_requested'].includes(item.review_status)))).length));
+  await page.waitForFunction(()=>document.querySelector('[title="View evidence for Pending Review"] strong')?.textContent===String(window.cases.filter(item=>item.project_id==='case-project'&&item.app_type_id==='case-app'&&(item.review_status==='pending'||(item.ai_generation_source&&item.ai_generation_review_status==='pending'&&!['accepted','changes_requested'].includes(item.review_status)))).length));
   assert.notEqual(await overall.innerText(),'—','View-only users can see overall pending count');
   assert.equal(await page.locator('.test-case-review-actions button').count(),0);
   assert.deepEqual(errors,[]);

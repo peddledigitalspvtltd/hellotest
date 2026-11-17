@@ -1,7 +1,7 @@
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
 const AiInsightPreviewDialog = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiInsightPreviewDialog")["AiInsightPreviewDialog"]> & {}>("ai", "AiInsightPreviewDialog", () => import("@hellotest/ai/frontend/components/AiInsightPreviewDialog"), "ai");
 import { metricTitle } from "@hellotest/platform/frontend/src/shared/lib/metricTitle";
-import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
+import {LoadingSkeleton} from "@hellotest/platform/frontend/src/shared/components/LoadingSkeleton";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -204,18 +204,18 @@ export function QualityAnalyticsDashboard() {
     <button
       className={`qa-metric qa-tone-${tone}`}
       onClick={() => setDialog("method")}
-      aria-label={`${metricTitle(tr(key))}: ${value}. ${detail}. ${tr("metricHelp", { metric: tr(key) })}`}
+      title={tr("metricHelp", { metric: tr(key) })}
     >
       <span className="qa-metric-label">
         {metricTitle(tr(key))}
         <IconInfoCircle size={15} />
       </span>
       <strong>{value}</strong>
-      <span>{detail}</span>
+      <span>{detail}</span><span className="sr-only">{tr("metricHelp", { metric: tr(key) })}</span>
     </button>
   );
   const loading = (
-    <LoadingState label={tr("loading")} />
+    <LoadingSkeleton label={tr("loading")} count={6} />
   );
   const error = (
     <div className="qa-empty" role="alert">

@@ -1,4 +1,5 @@
 const service = require("../services/auth.service");
+const {policy} = require('../services/authPolicy.service');
 
 const getBearerToken = (headers) => {
   const match = /^Bearer\s+(.+)$/i.exec(headers.authorization || "");
@@ -16,7 +17,7 @@ module.exports = async function (fastify) {
   fastify.post("/auth/signup/request-code", async (req) => {
     fastify.validate({
       email: { required: true, type: "string", minLength: 3 },
-      password: { required: true, type: "string", minLength: 6 },
+      password: { required: true, type: "string", minLength: policy.newPasswordMinLength, maxLength: policy.passwordMaxLength },
       name: { required: false, type: "string" }
     }, req.body);
 
@@ -52,7 +53,7 @@ module.exports = async function (fastify) {
   fastify.post("/auth/forgot-password/request-code", async (req) => {
     fastify.validate({
       email: { required: true, type: "string", minLength: 3 },
-      newPassword: { required: true, type: "string", minLength: 6 }
+      newPassword: { required: true, type: "string", minLength: policy.newPasswordMinLength, maxLength: policy.passwordMaxLength }
     }, req.body);
 
     return service.requestPasswordResetCode(req.body);

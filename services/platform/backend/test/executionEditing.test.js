@@ -103,7 +103,7 @@ test("run membership validates app scope and preserves cases with recorded histo
     if (/FROM test_suites\s+WHERE id/.test(sql)) return [{ id: "suite-2", name: "Selected", app_type_id: wrongApp ? "other-app" : "app-1" }];
     if (/FROM execution_case_snapshots/.test(sql)) return [{ test_case_id: "case-1", suite_id: "suite-1", test_case_title: "Keep history" }];
     if (/FROM execution_suites/.test(sql)) return [{ suite_id: "suite-1", suite_name: "Previous" }];
-    if (/FROM suite_test_cases\s+JOIN test_cases/.test(sql)) return [{ test_case_id: "case-2", test_case_title: "New case" }];
+    if (/FROM suite_effective_test_cases suite_test_cases\s+JOIN test_cases/.test(sql)) return [{ test_case_id: "case-2", test_case_title: "New case" }];
     if (/SELECT test_case_id FROM execution_results/.test(sql)) return [{ test_case_id: "case-1" }];
     return [];
   });
@@ -121,7 +121,7 @@ test("adding a suite snapshots only new cases and retains existing case and step
     if (/FROM test_suites\s+WHERE id/.test(sql)) return [{ id: values[0], name: values[0], app_type_id: "app-1" }];
     if (/FROM execution_case_snapshots/.test(sql)) return [{ test_case_id: "case-1", suite_id: "suite-1", test_case_title: "Original title" }];
     if (/FROM execution_suites/.test(sql)) return [{ suite_id: "suite-1", suite_name: "Original suite" }];
-    if (/FROM suite_test_cases\s+JOIN test_cases/.test(sql)) return [{ test_case_id: values[0] === "suite-1" ? "case-1" : "case-2", test_case_title: "Current authoring title" }];
+    if (/FROM suite_effective_test_cases suite_test_cases\s+JOIN test_cases/.test(sql)) return [{ test_case_id: values[0] === "suite-1" ? "case-1" : "case-2", test_case_title: "Current authoring title" }];
     return [];
   });
   await execution.updateExecution(run.id, { suite_ids: ["suite-1", "suite-2"], test_case_ids: [] });
@@ -148,7 +148,7 @@ test("adding an unrelated case preserves deleted saved selections and changed au
       assert.equal(values[0], "new-case", "Existing independent pins retain their snapshot even after authoring deletion.");
       return [{ test_case_id: "new-case", test_case_title: "New case", app_type_id: "app-1" }];
     }
-    if (/FROM suite_test_cases\s+JOIN test_cases/.test(sql)) return [{ test_case_id: "later-authoring-addition", test_case_title: "Added after run creation" }];
+    if (/FROM suite_effective_test_cases suite_test_cases\s+JOIN test_cases/.test(sql)) return [{ test_case_id: "later-authoring-addition", test_case_title: "Added after run creation" }];
     // The original case is no longer in current authoring membership.
     return [];
   });
@@ -168,7 +168,7 @@ test("an explicitly pinned case overlapping a suite survives suite removal and r
     if (/FROM execution_case_snapshots/.test(sql)) return [snapshot];
     if (/FROM execution_suites/.test(sql) && !/DELETE /.test(sql)) return suites;
     if (/FROM test_cases\s+LEFT JOIN LATERAL/.test(sql)) return [{ ...snapshot, app_type_id: "app-1" }];
-    if (/FROM suite_test_cases\s+JOIN test_suites/.test(sql)) return [{ suite_id: "suite-1", suite_name: "Suite" }];
+    if (/FROM suite_effective_test_cases suite_test_cases\s+JOIN test_suites/.test(sql)) return [{ suite_id: "suite-1", suite_name: "Suite" }];
     if (/DELETE FROM execution_suites/.test(sql)) suites = [];
     if (/UPDATE executions\s+SET direct_test_case_ids/.test(sql)) stored.direct_test_case_ids = values[0];
     return [];

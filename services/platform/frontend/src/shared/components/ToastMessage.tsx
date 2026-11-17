@@ -14,13 +14,14 @@ export function ToastMessage({
   const closeTimeoutRef = useRef<number | null>(null);
   const onDismissRef = useRef(onDismiss);
   const [isLeaving, setIsLeaving] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
     onDismissRef.current = onDismiss;
   }, [onDismiss]);
 
   useEffect(() => {
-    if (!message) {
+    if (!message || isPaused) {
       setIsLeaving(false);
       return undefined;
     }
@@ -45,7 +46,7 @@ export function ToastMessage({
         closeTimeoutRef.current = null;
       }
     };
-  }, [message, tone]);
+  }, [message, tone, isPaused]);
 
   if (!message) {
     return null;
@@ -73,6 +74,10 @@ export function ToastMessage({
       aria-atomic="true"
       aria-live={tone === "error" ? "assertive" : "polite"}
       className={isLeaving ? `toast-message is-${tone} is-leaving` : `toast-message is-${tone}`}
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+      onFocusCapture={() => setIsPaused(true)}
+      onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsPaused(false); }}
       role={tone === "error" ? "alert" : "status"}
     >
       <p>{message}</p>

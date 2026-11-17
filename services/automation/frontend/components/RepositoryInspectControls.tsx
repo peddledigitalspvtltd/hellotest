@@ -13,7 +13,7 @@ type AgentConnection = ReturnType<typeof useRepositoryInspectAgent>;
 
 export function RepositoryAgentStatus({ connection }: { connection: AgentConnection }) {
   const label = connection.state === "connected" ? "Connected" : connection.state === "checking" ? "Checking…" : connection.state === "unchecked" ? "Not checked" : "Not connected";
-  return <button className={`ghost-button repository-agent-status ${connection.state === "connected" ? "is-connected" : ""}`} onClick={connection.openSetup} type="button" aria-label={`Local agent: ${label}. Setup and connection status`}>
+  return <button className={`ghost-button repository-agent-status ${connection.state === "connected" ? "is-connected" : ""}`} onClick={connection.openSetup} type="button" title="Setup and connection status">
     <IconPlugConnected size={16} /><span>Local agent</span><span className="repository-agent-status-dot" aria-hidden="true" /><small>{connection.state === "connected" ? connection.agent?.localExecution ? "Ready on this computer" : "Browser paired · update for runs" : label}</small>
   </button>;
 }

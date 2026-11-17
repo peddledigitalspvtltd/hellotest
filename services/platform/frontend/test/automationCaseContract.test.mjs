@@ -1,10 +1,11 @@
+import { readTestingWorkspaceSource as readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { automationWorkspaceSource } from "../../../automation/test/frontend/helpers/automationWorkspaceSources.mjs";
 import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = (relativePath) => readSourceFile(new URL(relativePath, import.meta.url), "utf8");
 
 test("automation authoring is a dedicated case workflow with complete build surfaces", async () => {
   const page = await Promise.resolve(automationWorkspaceSource());
@@ -44,7 +45,7 @@ test("manual cases expose linked automation without merging the records", async 
   assert.match(page, /testCase\.manual_test_case_ids\?\.includes\(selectedTestCaseId\)/);
   assert.match(page, /label: "Automation Cases"/);
   assert.match(page, /`\/automation\?case=\$\{encodeURIComponent\(automationCase\.display_id \|\| automationCase\.id\)\}`/);
-  assert.match(page, /`\/automation\?create=1&manual=\$\{encodeURIComponent\(manualCase\.id\)\}`/);
+  assert.match(page, /`\/automation\?create=1&manual=\$\{encodeURIComponent\(manualCase\.id\)\}&editor=api`/);
   assert.doesNotMatch(page, /AI map existing automation/);
   assert.doesNotMatch(page, /Schedule AI automation/);
   assert.match(page, /showAutomationTools=\{false\}/);

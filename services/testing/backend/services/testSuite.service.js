@@ -52,6 +52,8 @@ const normalizeParallelCount = (value, fallback = 1) => {
 };
 
 const shapeSuite = (suite) => ({
+  module_ids: normalizeStoredReferenceList(suite.module_ids),
+  module_membership: suite.module_membership || "snapshot",
   ...suite,
   test_data_options: normalizeDataOptions(suite.test_data_options),
   labels: normalizeStoredReferenceList(suite.labels),
@@ -107,7 +109,7 @@ const validateSuiteSelectionData = async ({ suite, testCaseIds, testDataSetId, t
   });
 };
 
-exports.createTestSuite = async ({ app_type_id, name, description, parent_id, labels, parameter_values, test_data_set_id, test_data_options, test_case_ids, parallel_enabled, parallel_count, created_by }) => {
+exports.createTestSuite = async ({ app_type_id, name, description, parent_id, labels, parameter_values, test_data_set_id, test_data_options, test_case_ids, module_ids = [], module_membership = "snapshot", parallel_enabled, parallel_count, created_by }) => {
   if (!app_type_id || !name) {
     throw new Error("Missing required fields");
   }
@@ -129,6 +131,8 @@ exports.createTestSuite = async ({ app_type_id, name, description, parent_id, la
     }
   }
 
+  const moduleSelection=await require('./suiteModuleMembership.service').resolve({appTypeId:app_type_id,moduleIds:module_ids,testCaseIds:test_case_ids||[],membership:module_membership});
+  test_case_ids=moduleSelection.test_case_ids;
   normalizeDataOptions(test_data_options);
   const dataSetId = await validateSuiteDataSet(app_type_id, test_data_set_id);
   await validateSuiteSelectionData({ suite: { app_type_id }, testCaseIds: test_case_ids || [], testDataSetId: dataSetId,
@@ -157,16 +161,17 @@ exports.createTestSuite = async ({ app_type_id, name, description, parent_id, la
     );
 
     await db.prepare("UPDATE test_suites SET test_data_options = ? WHERE id = ?").run(normalizeDataOptions(test_data_options), id);
+    await db.prepare('UPDATE test_suites SET module_ids=?,module_membership=? WHERE id=?').run(moduleSelection.module_ids,moduleSelection.module_membership,id);
     if (test_case_ids !== undefined) await suiteTestCaseService.replaceMappingsForSuite(id, test_case_ids);
-    return { id };
+    return { id, module_ids:moduleSelection.module_ids,module_membership:moduleSelection.module_membership,resolved_case_count:moduleSelection.resolved_case_count };
   })();
 };
 
 exports.getTestSuites = async ({ project_id, app_type_id, parent_id, projection, case_search, module_id, requirement_id, label, shared_step_group_id } = {}) => {
   const picker = projection === 'picker';
   const summary = projection === 'summary';
-  const membership = `(tc.suite_id = test_suites.id OR EXISTS (SELECT 1 FROM suite_test_cases link WHERE link.suite_id = test_suites.id AND link.test_case_id = tc.id))`;
-  let query = `SELECT ${picker ? 'id, display_id, app_type_id, name, parent_id, labels, parallel_enabled, parallel_count, created_at, updated_at' : 'test_suites.*'} FROM test_suites WHERE 1=1`;
+  const membership = `(tc.suite_id = test_suites.id OR EXISTS (SELECT 1 FROM suite_effective_test_cases link WHERE link.suite_id = test_suites.id AND link.test_case_id = tc.id))`;
+  let query = `SELECT ${picker ? 'id, display_id, app_type_id, name, parent_id, labels, parallel_enabled, parallel_count, created_at, updated_at, module_ids, module_membership' : 'test_suites.*'} FROM test_suites WHERE 1=1`;
   const params = [];
 
   if (app_type_id) {
@@ -205,7 +210,7 @@ exports.getTestSuites = async ({ project_id, app_type_id, parent_id, projection,
     // application's entire case catalog separately for each Suite and metric.
     query = `WITH scoped_suites AS MATERIALIZED (${query}), members AS MATERIALIZED (
       SELECT suite.id AS suite_id, tc.id AS test_case_id, tc.app_type_id, tc.automated, tc.requirement_id
-      FROM scoped_suites suite JOIN suite_test_cases link ON link.suite_id = suite.id
+      FROM scoped_suites suite JOIN suite_effective_test_cases link ON link.suite_id = suite.id
       JOIN test_cases tc ON tc.id = link.test_case_id AND tc.app_type_id = suite.app_type_id
       UNION
       SELECT suite.id, tc.id, tc.app_type_id, tc.automated, tc.requirement_id
@@ -245,7 +250,9 @@ exports.getTestSuites = async ({ project_id, app_type_id, parent_id, projection,
 
 exports.getTestSuite = async (id) => {
   const suite = await db.prepare(`
-    SELECT * FROM test_suites WHERE id = ?
+    SELECT suite.*, (SELECT COUNT(*)::integer FROM suite_effective_test_cases membership WHERE membership.suite_id=suite.id) AS resolved_case_count,
+      COALESCE((SELECT jsonb_agg(mapping.test_case_id ORDER BY mapping.sort_order,mapping.test_case_id) FROM suite_test_cases mapping WHERE mapping.suite_id=suite.id),'[]'::jsonb) AS explicit_test_case_ids
+    FROM test_suites suite WHERE suite.id = ?
   `).get(id);
 
   if (!suite) throw new Error("Test suite not found");
@@ -266,6 +273,12 @@ exports.updateTestSuite = async (id, data) => {
     const existing = await db.prepare(`SELECT * FROM test_suites WHERE id = ? FOR UPDATE`).get(id);
     if (!existing) throw new Error("Test suite not found");
     const currentRevision = assertExpectedRevision(existing.revision, data.expected_revision, "Test suite");
+    if(['module_ids','module_membership','test_case_ids'].some(key=>data[key]!==undefined)){
+      const explicit=data.test_case_ids??(await db.prepare('SELECT test_case_id FROM suite_test_cases WHERE suite_id=? ORDER BY sort_order,test_case_id').all(id)).map(row=>row.test_case_id);
+      const selection=await require('./suiteModuleMembership.service').resolve({appTypeId:existing.app_type_id,moduleIds:data.module_ids??existing.module_ids??[],testCaseIds:explicit,membership:data.module_membership??existing.module_membership??'snapshot'});
+      data={...data,test_case_ids:selection.test_case_ids};
+      await db.prepare('UPDATE test_suites SET module_ids=?,module_membership=? WHERE id=?').run(selection.module_ids,selection.module_membership,id);
+    }
 
     const dataSetId = data.test_data_set_id !== undefined ? await validateSuiteDataSet(existing.app_type_id, data.test_data_set_id) : existing.test_data_set_id;
     if (dataSetId && ["test_data_set_id", "test_data_options", "test_case_ids", "parameter_values"].some(key => data[key] !== undefined)) {

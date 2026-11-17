@@ -82,7 +82,7 @@ export function normalizeApiRequest(value?: StepApiRequest | null): StepApiReque
     ? value.validations
         .map((validation) => ({
           kind: normalizeValidationKind(validation?.kind),
-          operator: normalizeValidationOperator(validation?.operator),
+          ...(validation?.operator ? { operator: normalizeValidationOperator(validation.operator) } : {}),
           target: normalizeRichText(validation?.target),
           expected: normalizeRichText(validation?.expected)
         }))

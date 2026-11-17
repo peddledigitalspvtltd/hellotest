@@ -351,7 +351,7 @@ return (<div className={`page-content page-content--automation${""}`}>
                       </section>
                     </div>
                     <div className="automation-create-plan-panel">
-                      <div><strong>Behavior plan</strong><p className="muted">Linked cases include their preconditions, steps and Shared Section Groups.</p></div>
+                      <div><strong>Behavior plan</strong><p className="muted">Linked manual cases retain origin, Story and module context. API twins start with request steps you author below; other case types include the source behavior plan.</p></div>
                       {automationCreateManualCaseIds.length && createSourcesQuery.isPending ? <LoadingState label="Loading source Test Case plans"/> : null}
                       {automationCreateManualCaseIds.length && createSourcesQuery.isError ? <div className="empty-state compact" role="alert"><span>Source steps could not be loaded.</span><button className="ghost-button compact" onClick={() => void createSourcesQuery.refetch()} type="button">Retry source plans</button></div> : null}
                       {automationCreateManualCaseIds.map((sourceId) => {

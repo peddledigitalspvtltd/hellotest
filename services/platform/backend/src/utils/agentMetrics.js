@@ -1,5 +1,5 @@
 // Bounded labels: no project, principal, run, tool arguments or model text.
-const SYSTEMS=new Set(['workflow','repository','quality','automation']);
+const SYSTEMS=new Set(['workflow','repository','quality','automation','authoring']);
 const KINDS=new Set(['stage','model_call','tool_call','budget_exhausted','failure']);
 const counts=new Map(),latencies=new Map();
 function observe({system,kind='stage',code='none',duration_ms=0}){
@@ -19,6 +19,7 @@ function family(scope={}){
   if(/^ai\.agentic\.(?:browser\.|quality_)/.test(feature))return 'quality';
   if(scope.automation_case_generation===true||/automation[-_.]/.test(feature)||/^ai\.automation/.test(feature))return 'automation';
   if(/^ai\.agentic\./.test(feature))return 'workflow';
+  if(/^ai\.(?:requirement\.|test_case\.|case_authoring\.|bug\.draft)/.test(feature))return 'authoring';
   return null;
 }
 function provider(scope,record={}){

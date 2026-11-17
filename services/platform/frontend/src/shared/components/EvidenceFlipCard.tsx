@@ -99,9 +99,8 @@ export function EvidenceFlipCard({
           {frontAccessory && !isFlipped ? <span className="evidence-flip-card-front-accessory">{frontAccessory}</span> : null}
           <button
             aria-controls={evidenceId}
-            aria-describedby={`${evidenceId}-value${caption ? ` ${evidenceId}-caption` : ""}`}
             aria-expanded={isFlipped}
-            aria-label={`View evidence for ${metricTitle(label)}`}
+            title={`View evidence for ${metricTitle(label)}`}
             className="project-stat-card-trigger metric-evidence-trigger"
             onClick={() => showFace(true)}
             ref={frontButtonRef}

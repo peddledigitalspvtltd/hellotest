@@ -3,6 +3,7 @@ const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/r
 const { getCompletionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
 const { createHash, randomUUID: uuid } = require("crypto");
 const db = require("@hellotest/platform/backend/src/db");
+const lifecycle = require("@hellotest/ai/services/generationLifecycle");
 const requirementService = require("./requirement.service");
 const workspaceTransactionService = require("@hellotest/platform/backend/services/workspaceTransaction.service");
 const aiLlmSelectionService = require("@hellotest/integration/backend/services/aiLlmSelection.service");
@@ -17,6 +18,7 @@ const hash = (input) => createHash("sha256").update(JSON.stringify(input || {}))
 const REQUIREMENT_EXPORT_LIMIT = 500;
 const GROOMING_USAGE_KEY = "ai.requirement.grooming";
 const GROOMING_LIST_LIMIT = 8;
+const GROOMING_JOB_BUDGET_MS = Math.max(30000, Math.min(150000, Number(process.env.AI_GROOMING_JOB_BUDGET_MS) || 150000));
 const CHECK_STATUSES = new Set(["met", "partial", "missing"]);
 const CHECK_STATUS_RANK = { missing: 0, partial: 1, met: 2 };
 const READINESS_ACTIONS = {
@@ -358,7 +360,7 @@ const buildDeterministicGrooming = ({ requirement, comments = [], linkedCases = 
         : [];
   const hasIntent = Boolean(purposeSummary);
   const externalReferences = normalizeTextList(requirement.external_references, 10, 2000);
-  const openDefects = defects.filter((item) => !["closed", "done", "resolved", "fixed"].includes(String(item.status || "").toLowerCase()));
+  const openDefects = defects.filter((item) => !require("@hellotest/platform/backend/src/utils/defectStatus").isClosedDefect(item.status));
   const linkedCaseRefs = linkedCases.map((item) => `test-case:${item.id}`);
   const openDefectRefs = openDefects.map((item) => `issue:${item.id}`);
   const explicitQuestions = normalizeTextList([...sections.open_questions, ...sections.decisions_needed]);
@@ -542,7 +544,9 @@ const normalizeSection = ({ candidate, textFields = [], listFields = [], allowed
     return null;
   }
   for (const field of textFields) if (typeof candidate[field] !== "string") groomingIssue(issues, `${path}.${field}`, "required_string_empty_when_unknown");
-  for (const field of listFields) if (!Array.isArray(candidate[field]) || candidate[field].some(item => typeof item !== "string" || !item.trim())) groomingIssue(issues, `${path}.${field}`, "required_text_array_empty_when_unknown");
+  // Blank text items carry no claim and canonicalize to an honest empty list.
+  // Objects/null remain invalid; citation arrays retain their stricter checks.
+  for (const field of listFields) if (!Array.isArray(candidate[field]) || candidate[field].some(item => typeof item !== "string")) groomingIssue(issues, `${path}.${field}`, "required_text_array_empty_when_unknown");
   const evidenceRefs = normalizeGroomingRefs(candidate.evidence_refs, allowedRefs, `${path}.evidence_refs`, issues);
   const normalized = {
     ...Object.fromEntries(textFields.map(field => [field, normalizeText(candidate[field], ["explanation", "overview", "context"].includes(field) ? 2400 : 900)])),
@@ -630,7 +634,7 @@ const normalizeGroomingCandidate = (candidate, measured, sources) => {
   const scope = normalizeSection({ candidate: raw.scope, listFields: ["in_scope", "out_of_scope"], allowedRefs, issues, path: "scope" });
   const reviewEvidenceRefs = normalizeGroomingRefs(raw.review_evidence_refs, allowedRefs, "review_evidence_refs", issues);
   const review = Object.fromEntries(["assumptions", "open_questions", "risks"].map(field => {
-    if (!Array.isArray(raw[field]) || raw[field].some(item => typeof item !== "string" || !item.trim())) groomingIssue(issues, field, "required_text_array_empty_when_unknown");
+    if (!Array.isArray(raw[field]) || raw[field].some(item => typeof item !== "string")) groomingIssue(issues, field, "required_text_array_empty_when_unknown");
     const values = normalizeTextList(raw[field]);
     if (values.length && !reviewEvidenceRefs.length) groomingIssue(issues, "review_evidence_refs", `required_for_${field}`);
     return [field, values];
@@ -686,13 +690,14 @@ const extractJson = (value) => {
   return JSON.parse(text.slice(start, end + 1));
 };
 
-const requestGrooming = async ({ integration, prompt, correction, timeoutMs }) => {
+const requestGrooming = async ({ integration, prompt, correction, timeoutMs, signal }) => {
   const baseUrl = String(integration.base_url || "https://api.openai.com/v1").replace(/\/+$/, "");
   const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
   const headers = { "Content-Type": "application/json" };
   if (integration.api_key) headers.Authorization = `Bearer ${integration.api_key}`;
   const response = await fetchLlmWithRetry(url, {
     method: "POST",
+    signal,
     headers,
     body: JSON.stringify({
       model: integration.model,
@@ -705,7 +710,7 @@ const requestGrooming = async ({ integration, prompt, correction, timeoutMs }) =
       ]
     })
   }, { integration, operation: "requirement.grooming", featureKey: GROOMING_USAGE_KEY, contextFallback: false,
-    timeoutMs, maxAttempts: 1, compatibility: false });
+    timeoutMs, maxAttempts: 1, maxOutputTokens: 6144 });
   if (!response.ok) {
     const raw = await response.text();
     throw createLlmProviderError({ status: response.status, headers: response.headers, detail: raw });
@@ -732,9 +737,10 @@ const assisted = ({ capability, input, evidence, confidence, payload, integratio
   return { ...payload, integration: providerBacked ? { id: integration.id, name: integration.name, type: integration.type, model: integration.model, generation_mode: generationMode, direct_model_invocation: true } : { id: "hellotest-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: generationMode, direct_model_invocation: Boolean(directModelInvocation) }, provenance, generation_mode: generationMode, generated_at: generatedAt, request_id: requestId, input_fingerprint: provenance.input_fingerprint, confidence, fallback_used: fallbackUsed, fallback_reason: fallbackReason, fallback_sections: normalizedFallbackSections, requires_human_review: true, preview_only: true };
 };
 
-exports.previewGrooming = async ({ requirement, project, userId, integrationId, user, integration_id, promptGuidance, prompt_guidance, additionalContext, proposedChange } = {}) => {
+exports.previewGrooming = lifecycle.withLifecycle("grooming", async ({ requirement, project, userId, integrationId, user, integration_id, promptGuidance, prompt_guidance, additionalContext, proposedChange, signal, onProgress, durable = false } = {}) => {
   // Review the current editor draft without allowing proposed fields to move
   // identity, project scope, permissions, or persisted evidence relationships.
+  await onProgress?.("context", "Loading the current Story and permission-scoped evidence.");
   const draftFields = object(proposedChange);
   const editableFields = ["title", "description", "acceptance_criteria", "gherkin_scenarios", "specification_format", "specification_content", "priority", "status", "external_references", "labels", "sprint", "fix_version", "release", "iteration_id", "dev_completion_target_date", "qa_completion_target_date", "scrum_team"];
   requirement = {
@@ -804,6 +810,7 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
   const evidenceRefs = sources.map((item) => item.ref);
   const boundedRequirement = { ...requirement, description, external_references: externalReferencePointers };
   const measured = buildDeterministicGrooming({ requirement: boundedRequirement, comments: boundedComments, linkedCases, defects });
+  await onProgress?.("guardrails", "Evidence limits and provider configuration are being checked.");
   const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
     integrationId: integrationId || integration_id, userId: userId || user?.id,
     usageKey: GROOMING_USAGE_KEY, projectId: project.id, fallback: "project-then-global", allowMissing: true
@@ -811,14 +818,16 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
   requireAiAssessment({ integration });
   const prompt = buildGroomingPrompt({ requirement: boundedRequirement, project, sources,
     promptGuidance: normalizedPromptGuidance, unavailableSources: restrictedSources });
-  const deadline = Date.now() + 60000;
+  const deadline = Date.now() + (durable ? GROOMING_JOB_BUDGET_MS : 60000);
   let grooming, correction, validationErrors = [], modelCalls = 0;
   for (; modelCalls < 2; modelCalls++) {
     const remaining = deadline - Date.now();
     if (remaining < 1000) break;
     let content;
     try {
-      content = await requestGrooming({ integration, prompt, correction, timeoutMs: remaining });
+      await onProgress?.("specialist", correction ? "Correcting the returned review once against the evidence contract." : "The configured model is preparing the grounded review.");
+      content = await requestGrooming({ integration, prompt, correction, timeoutMs: remaining, signal });
+      await onProgress?.("outcome", "Validating the returned review and its evidence references.");
       const normalized = normalizeGroomingCandidate(extractJson(content), measured, sources);
       grooming = normalized.grooming;
       modelCalls++;
@@ -832,7 +841,7 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
       }
       if (typeof error?.publicMessage === "string" && error.publicMessage.trim()) throw error;
       if (["LLM_AUTHENTICATION_FAILED", "LLM_QUOTA_EXCEEDED", "LLM_RATE_LIMITED", "LLM_RATE_LIMIT_REQUEST_TOO_LARGE", "LLM_REQUEST_TOO_LARGE"].includes(error?.code)) throw error;
-      requireAiAssessment({ integration, failed: true });
+      throw require("@hellotest/platform/backend/src/utils/serviceErrors").classifyServiceFailure(error, { dependency: "llm-provider", operation: "requirement.grooming" });
     }
   }
   if (!grooming) {
@@ -840,6 +849,7 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
     throw Object.assign(new Error(message), { code: "AI_GROOMING_OUTPUT_INVALID", statusCode: 502,
       publicMessage: message, validation_errors: validationErrors, model_calls: modelCalls });
   }
+  await onProgress?.("evaluation", "Checking readiness measurements and preparing the review.");
   const readinessChecks = grooming.readiness.checks;
   const groundedChecks = readinessChecks.filter((item) => item.status === "met").length;
   const partialChecks = readinessChecks.filter((item) => item.status === "partial").length;
@@ -861,13 +871,14 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
     fallbackUsed: false, fallbackReason: null, fallbackSections: [],
     directModelInvocation: true, generationMode: "llm",
     payload: {
+      processing: lifecycle.processing({ status: "completed", stage: "review", profile: "grooming", outputCount: 1 }),
       model_execution: { model_calls: modelCalls, max_model_calls: 2, contract_repaired: modelCalls > 1 },
       requirement: { id: requirement.id, display_id: requirement.display_id || requirement.id, title: requirement.title, status: requirement.status, priority: requirement.priority },
       grooming,
       context: { scope: { project_id: project.id, project_key: project.display_id || project.id }, bounded: true, limits: { comments: 20, attachments: 20, attachment_text_files: 0, attachment_text_bytes: 0, attachment_text_chars: 0, linked_tickets: 50, related_project_records: 50, external_references: 10, comment_chars: 500, description_chars: 4000, reviewed_context_chars: 12000 }, included: { reviewed_context: reviewedContext ? 1 : 0, comments: comments.length, attachments: attachments.length, attachment_text_files: 0, linked_tickets: defects.length, related_project_records: linkedCases.length, external_references: externalReferencePointers.length }, omitted, partial_sources: partialSources, unavailable_sources: [...restrictedSources, ...(totals.attachments ? ["attachment-text-extraction"] : [])], sources }
     }
   });
-};
+});
 
 exports.previewGherkin = (input) => require("@hellotest/ai/services/storyGherkin").preview(input);
 
@@ -902,280 +913,12 @@ exports.exportRequirements = async ({ projectId, requirementIds = [], userId, fo
   return { id: transaction.id, transaction_id: transaction.id, queued: false, status: "completed", count: selected.length, skipped, requirement_records: selected };
 };
 
-const STORY_GENERATION_LEASE_SECONDS = Math.max(30, Math.min(15 * 60, Number.parseInt(process.env.STORY_GENERATION_LEASE_SECONDS || "180", 10) || 180));
-const STORY_GENERATION_QUEUE_LIMIT = Math.max(1, Math.min(10, Number.parseInt(process.env.STORY_GENERATION_QUEUE_LIMIT || "1", 10) || 1));
-const STORY_GENERATION_WORKER_ID = `story-generation-${process.pid}-${uuid()}`;
-let storyGenerationQueueRun = null;
-
-const parseGenerationJobPayload = (value) => {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value;
-  if (typeof value !== "string") return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-};
-
-// Deliberately project a public job shape. Lease owner/expiry/heartbeat are
-// worker coordination details and must never be disclosed through polling.
-const shapeJob = (row) => {
-  const resultPayload = parseGenerationJobPayload(row?.result_payload);
-  const publicResultPayload = { ...resultPayload };
-  delete publicResultPayload.lease_owner;
-  delete publicResultPayload.lease_expires_at;
-  delete publicResultPayload.heartbeat_at;
-  return {
-    ...publicResultPayload,
-    id: row.id,
-    job_id: row.id,
-    project_id: row.project_id,
-    status: row.status,
-    queued: row.status === "queued",
-    input_payload: parseGenerationJobPayload(row.input_payload),
-    result_payload: publicResultPayload,
-    last_error: row.last_error || null,
-    attempts: Number(row.attempts || 0),
-    created_by: row.created_by || null,
-    created_at: row.created_at,
-    started_at: row.started_at || null,
-    completed_at: row.completed_at || null,
-    updated_at: row.updated_at
-  };
-};
-
-const storyGenerationJobProcessing = (status, errorMessage = null) => {
-  const stageIds = ["intake", "context", "guardrails", "specialist", "outcome", "evaluation", "review"];
-  const isQueued = status === "queued";
-  const isFailed = status === "failed";
-  return {
-    active_stage_id: "intake",
-    completed_stage_count: 0,
-    total_stage_count: stageIds.length,
-    status_label: isQueued ? "Queued for backend processing" : isFailed ? "Story generation failed" : "Story generation request in progress",
-    stages: stageIds.map((id, index) => ({
-      id,
-      status: index === 0 ? isQueued ? "queued" : isFailed ? "failed" : "running" : "queued",
-      detail: index === 0
-        ? isQueued
-          ? "The request is persisted and waiting for the backend runner."
-          : isFailed
-            ? errorMessage || "The backend runner could not complete this request."
-            : "The backend runner is processing the persisted Story request."
-        : "This stage has not reported completion yet."
-    }))
-  };
-};
-
-const storyGenerationJobPayload = (status, errorMessage = null) => ({
-  processing: storyGenerationJobProcessing(status, errorMessage),
-  review_status: status === "failed" ? "not_available" : "processing",
-  requires_human_review: true,
-  preview_only: true
-});
-
-const claimGenerationJob = ({ workerId, leaseSeconds }) => db.transaction(async () => {
-  const candidate = await db.prepare(`
-    SELECT id
-    FROM ai_requirement_generation_jobs
-    WHERE status = 'queued'
-       OR (
-         status = 'running'
-         AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
-       )
-    ORDER BY
-      CASE WHEN status = 'running' THEN 0 ELSE 1 END,
-      created_at ASC,
-      id ASC
-    LIMIT 1
-    FOR UPDATE SKIP LOCKED
-  `).get();
-  if (!candidate) return null;
-
-  return db.prepare(`
-    UPDATE ai_requirement_generation_jobs
-    SET status = 'running',
-        result_payload = ?,
-        last_error = NULL,
-        attempts = attempts + 1,
-        lease_owner = ?,
-        lease_expires_at = CURRENT_TIMESTAMP + (?::INTEGER * INTERVAL '1 second'),
-        heartbeat_at = CURRENT_TIMESTAMP,
-        started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
-        completed_at = NULL,
-        updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-      AND (
-        status = 'queued'
-        OR (
-          status = 'running'
-          AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
-        )
-      )
-    RETURNING *
-  `).get(storyGenerationJobPayload("running"), workerId, leaseSeconds, candidate.id);
-})();
-
-const renewGenerationJobLease = (id, workerId, leaseSeconds) => db.prepare(`
-  UPDATE ai_requirement_generation_jobs
-  SET lease_expires_at = CURRENT_TIMESTAMP + (?::INTEGER * INTERVAL '1 second'),
-      heartbeat_at = CURRENT_TIMESTAMP,
-      updated_at = CURRENT_TIMESTAMP
-  WHERE id = ?
-    AND status = 'running'
-    AND lease_owner = ?
-    AND lease_expires_at > CURRENT_TIMESTAMP
-`).run(leaseSeconds, id, workerId);
-
-const completeGenerationJob = (id, workerId, result) => db.prepare(`
-  UPDATE ai_requirement_generation_jobs
-  SET status = 'completed',
-      result_payload = ?,
-      lease_owner = NULL,
-      lease_expires_at = NULL,
-      heartbeat_at = NULL,
-      completed_at = CURRENT_TIMESTAMP,
-      updated_at = CURRENT_TIMESTAMP
-  WHERE id = ?
-    AND status = 'running'
-    AND lease_owner = ?
-    AND lease_expires_at > CURRENT_TIMESTAMP
-  RETURNING *
-`).get(result, id, workerId);
-
-const failGenerationJob = (id, workerId, message) => db.prepare(`
-  UPDATE ai_requirement_generation_jobs
-  SET status = 'failed',
-      result_payload = ?,
-      last_error = ?,
-      lease_owner = NULL,
-      lease_expires_at = NULL,
-      heartbeat_at = NULL,
-      completed_at = CURRENT_TIMESTAMP,
-      updated_at = CURRENT_TIMESTAMP
-  WHERE id = ?
-    AND status = 'running'
-    AND lease_owner = ?
-    AND lease_expires_at > CURRENT_TIMESTAMP
-  RETURNING *
-`).get(storyGenerationJobPayload("failed", message), message, id, workerId);
-
-const runClaimedGenerationJob = async ({ job, workerId, leaseSeconds }) => {
-  const heartbeatIntervalMs = Math.max(5_000, Math.floor(leaseSeconds * 1000 / 3));
-  let heartbeatInFlight = false;
-  let leaseLost = false;
-  const heartbeat = setInterval(() => {
-    if (heartbeatInFlight || leaseLost) return;
-    heartbeatInFlight = true;
-    void renewGenerationJobLease(job.id, workerId, leaseSeconds)
-      .then((renewed) => {
-        if (!renewed.changes) leaseLost = true;
-      })
-      .catch(() => {
-        leaseLost = true;
-      })
-      .finally(() => {
-        heartbeatInFlight = false;
-      });
-  }, heartbeatIntervalMs);
-  heartbeat.unref?.();
-
-  try {
-    if (!job.created_by) throw new Error("The Story generation job creator is no longer available.");
-    const storedInput = parseGenerationJobPayload(job.input_payload);
-    const result = await requirementService.previewRequirementCreation({
-      ...storedInput,
-      project_id: job.project_id,
-      user_id: job.created_by
-    });
-    const completed = await completeGenerationJob(job.id, workerId, result);
-    return { id: job.id, status: completed ? "completed" : "ownership_lost" };
-  } catch (error) {
-    const message = excerpt(error instanceof Error ? error.message : "Story generation failed", 1_000) || "Story generation failed";
-    const failed = await failGenerationJob(job.id, workerId, message);
-    return { id: job.id, status: failed ? "failed" : "ownership_lost" };
-  } finally {
-    clearInterval(heartbeat);
-  }
-};
-
-const drainGenerationQueue = async ({
-  limit = STORY_GENERATION_QUEUE_LIMIT,
-  workerId = STORY_GENERATION_WORKER_ID,
-  leaseSeconds = STORY_GENERATION_LEASE_SECONDS
-} = {}) => {
-  const normalizedLimit = Math.max(1, Math.min(10, Number.parseInt(String(limit), 10) || STORY_GENERATION_QUEUE_LIMIT));
-  const normalizedLeaseSeconds = Math.max(30, Math.min(15 * 60, Number.parseInt(String(leaseSeconds), 10) || STORY_GENERATION_LEASE_SECONDS));
-  const outcomes = [];
-  for (let index = 0; index < normalizedLimit; index += 1) {
-    const job = await claimGenerationJob({ workerId, leaseSeconds: normalizedLeaseSeconds });
-    if (!job) break;
-    outcomes.push(await runClaimedGenerationJob({ job, workerId, leaseSeconds: normalizedLeaseSeconds }));
-  }
-  return outcomes;
-};
-
-exports.processQueuedGenerationJobs = (options = {}) => {
-  if (storyGenerationQueueRun) return storyGenerationQueueRun;
-  storyGenerationQueueRun = drainGenerationQueue(options).finally(() => {
-    storyGenerationQueueRun = null;
-  });
-  return storyGenerationQueueRun;
-};
-
-const scheduleGenerationJob = (task) => {
-  setImmediate(() => {
-    void Promise.resolve().then(task).catch(() => undefined);
-  });
-};
-
-exports.createGenerationJob = async ({ input, userId, schedule = scheduleGenerationJob }) => {
-  const id = uuid();
-  const queuedPayload = storyGenerationJobPayload("queued");
-  const row = await db.prepare(`INSERT INTO ai_requirement_generation_jobs (id, project_id, status, input_payload, result_payload, created_by) VALUES (?, ?, 'queued', ?, ?, ?) RETURNING *`).get(id, input.project_id, input, queuedPayload, userId);
-  // This trigger only lowers latency. The recurring worker is the durable path,
-  // and always reloads the input and creator from PostgreSQL.
-  try {
-    schedule(() => exports.processQueuedGenerationJobs({ limit: 1 }));
-  } catch {
-    // The row is already durable; the recurring background worker will claim it.
-  }
-  return shapeJob(row);
-};
-
-exports.getGenerationJob = async (id, projectId) => {
-  const row = await db.prepare(`SELECT * FROM ai_requirement_generation_jobs WHERE id = ? AND project_id = ?`).get(id, projectId);
-  if (!row) throw Object.assign(new Error("Story generation job not found"), { statusCode: 404 });
-  return shapeJob(row);
-};
-
-exports.listGenerationJobs = async (projectId, status, limit = 10) => {
-  const parsedLimit = Math.max(1, Math.min(50, Number.parseInt(String(limit), 10) || 10));
-  const rows = status
-    ? await db.prepare(`SELECT * FROM ai_requirement_generation_jobs WHERE project_id = ? AND status = ? ORDER BY created_at DESC LIMIT ?`).all(projectId, status, parsedLimit)
-    : await db.prepare(`SELECT * FROM ai_requirement_generation_jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`).all(projectId, parsedLimit);
-  return rows.map(shapeJob);
-};
+Object.assign(exports, require("./requirementGenerationJobs.service"));
 
 if (process.env.NODE_ENV === "test") {
   Object.defineProperty(exports, "__groomingInternals", {
     enumerable: false,
     value: { parseUserStory, descriptionSections, buildEvidenceSections, buildDeterministicGrooming, normalizeReadiness, normalizeGroomingCandidate, buildGroomingPrompt, assisted }
   });
-  Object.defineProperty(exports, "__storyGenerationJobInternals", {
-    enumerable: false,
-    value: {
-      claimGenerationJob,
-      renewGenerationJobLease,
-      completeGenerationJob,
-      failGenerationJob,
-      runClaimedGenerationJob,
-      drainGenerationQueue,
-      parseGenerationJobPayload,
-      shapeJob,
-      storyGenerationJobPayload,
-      storyGenerationJobProcessing
-    }
-  });
+  Object.defineProperty(exports, "__storyGenerationJobInternals", { value: require("./requirementGenerationJobs.service").__storyGenerationJobInternals });
 }

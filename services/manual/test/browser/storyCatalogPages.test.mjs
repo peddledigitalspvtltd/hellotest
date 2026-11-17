@@ -126,7 +126,7 @@ test('Stories and Backlog load independent metrics and scroll pages without stal
       await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5173'}/${name}.html?mode=${mode}`);
       await page.waitForFunction(()=>document.querySelectorAll('.requirement-catalog-card').length===25);
       const metricLabel = mode === 'stories' ? 'Backlog inventory' : 'Specification ready';
-      const metric = page.getByRole('group',{name:'Story health metrics'}).getByRole('button',{name:'View evidence for '+metricLabel}).locator('strong');
+      const metric = page.getByRole('group',{name:'Story health metrics'}).getByTitle('View evidence for '+metricLabel).locator('strong');
       assert.equal(await metric.innerText(),'60',mode+': metrics cover the full catalog');
       await page.waitForTimeout(250);
       let calls = await page.evaluate(()=>window.calls);
@@ -156,7 +156,7 @@ test('Stories and Backlog load independent metrics and scroll pages without stal
       await page.waitForFunction(()=>document.querySelectorAll('.requirement-catalog-card').length===50);
       const afterAppend=await scrollRoot.evaluate(node=>node.scrollTop);
       assert.ok(Math.abs(afterAppend-beforeAppend)<=1,mode+': appending preserves scroll position');
-      assert.equal(await page.locator('.requirement-catalog-card').first().getAttribute('aria-label'),'Open Story ST-1: Checkout Story 01');
+      assert.equal(await page.locator('.requirement-catalog-card').first().getByRole('button',{name:'Open Story ST-1: Checkout Story 01',exact:true}).getAttribute('aria-label'),'Open Story ST-1: Checkout Story 01');
       await page.waitForTimeout(150);
       calls=await page.evaluate(()=>window.calls);
       assert.equal(calls.catalog.length,2,'Appending a page does not drain all remaining pages');
@@ -229,7 +229,7 @@ test('Story creation and filter overlays escape transformed and elevated page co
       await page.screenshot({path:`${artifacts}/story-filters-${width}.png`});
       await page.keyboard.press('Escape');
       assert.equal(await filters.count(),0);
-      assert.equal(await page.getByRole('button',{name:'Open filters (1 active)',exact:true}).evaluate(node=>document.activeElement===node),true,'Escape returns focus to the filter trigger');
+      assert.equal(await page.getByRole('button',{name:'Open filters, 1 active',exact:true}).evaluate(node=>document.activeElement===node),true,'Escape returns focus to the filter trigger');
       assert.deepEqual(errors,[]);await context.close();
     }
   } finally {await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)]);}

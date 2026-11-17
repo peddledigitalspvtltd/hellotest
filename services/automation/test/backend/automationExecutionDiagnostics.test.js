@@ -27,3 +27,18 @@ test('private application object keys are collision-safe while host step-map key
  assert.equal(out.stepStatuses.FROZEN_CUSTOM_VALUE,'passed');assert.equal(JSON.stringify(out.response).includes('FROZEN_CUSTOM_VALUE'),false);
  assert.equal(Object.keys(out.response.body).length,3);assert.deepEqual(Object.values(out.response.body).sort(),['one','public','two']);
 });
+
+test('public privacy metadata never contaminates unrelated boolean diagnostics', () => {
+ const redact = createExecutionDiagnosticRedactor({variables:[{key:'r.api_base_url',value:'http://api:3000',is_secret:false}]});
+ const input = {request:{follow_redirects:false},response:{json:{success:false,retryable:false},body_truncated:false},variables:[{key:'r.api_base_url',is_secret:false}]};
+ assert.deepEqual(redact(input),input);
+});
+
+test('private boolean entries and captures remain private without masking unrelated false values', () => {
+ const redact = createExecutionDiagnosticRedactor({variables:[{key:'r.custom',value:false,is_secret:true}],private_parameter_names:['t.choice']});
+ const out = redact({variables:[{key:'r.custom',value:false,is_secret:true}],captures:{'t.choice':false},response:{json:{success:false,retryable:false}}});
+ assert.equal(out.variables[0].value,'[REDACTED]');
+ assert.equal(out.variables[0].is_secret,true);
+ assert.equal(out.captures['t.choice'],'[REDACTED]');
+ assert.deepEqual(out.response.json,{success:false,retryable:false});
+});

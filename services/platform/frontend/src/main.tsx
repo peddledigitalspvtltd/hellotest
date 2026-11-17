@@ -14,9 +14,11 @@ import "./styles.css";
 import "./dark-theme.css";
 import "./catalog-list.css";
 import "./modal-system.css";
+import "./overlay-layers.css";
 import "./execution-run-builder.css";
 import "./workspace-layout.css";
 import "./product-experience.css";
+import "./walkthrough-overrides.css";
 
 installCapabilityHost();
 

@@ -158,6 +158,7 @@ export function ExecutionContextSelector({
         {canViewEnvironments ? <ExecutionContextField
           disabled={!canViewEnvironments}
           items={environments}
+          loading={environmentsQuery.isPending}
           label="Test environment"
           onChange={onEnvironmentChange}
           placeholder="No test environment"
@@ -166,6 +167,7 @@ export function ExecutionContextSelector({
         {canViewConfigurations ? <ExecutionContextField
           disabled={!canViewConfigurations}
           items={configurations}
+          loading={configurationsQuery.isPending}
           label="Test configuration"
           onChange={onConfigurationChange}
           placeholder="No test configuration"
@@ -175,6 +177,7 @@ export function ExecutionContextSelector({
           disabled={!canViewTestData}
           labelIcon={<TestDataIcon size={16} />}
           items={dataSets}
+          loading={dataSetsQuery.isPending}
           label="Test data"
           onChange={onDataSetChange}
           placeholder="No test data"
@@ -191,6 +194,7 @@ export function ExecutionContextSelector({
 
 function ExecutionContextField<T extends TestEnvironment | TestConfiguration | TestDataSet>({
   disabled,
+  loading = false,
   label,
   labelIcon,
   items,
@@ -199,6 +203,7 @@ function ExecutionContextField<T extends TestEnvironment | TestConfiguration | T
   onChange
 }: {
   disabled?: boolean;
+  loading?: boolean;
   label: string;
   labelIcon?: ReactNode;
   items: T[];
@@ -208,9 +213,9 @@ function ExecutionContextField<T extends TestEnvironment | TestConfiguration | T
 }) {
   return (
     <FormField label={label} labelIcon={labelIcon}>
-      <select disabled={disabled} value={selectedId} onChange={(event) => onChange(event.target.value)}>
-        <option value="">{placeholder}</option>
-        {selectedId && !items.some((item) => item.id === selectedId) ? <option value={selectedId}>Current attachment · unavailable in this list</option> : null}
+      <select aria-busy={loading || undefined} disabled={disabled || loading} value={selectedId} onChange={(event) => onChange(event.target.value)}>
+        <option value="">{loading ? `Loading ${label.toLowerCase()}…` : placeholder}</option>
+        {selectedId && !items.some((item) => item.id === selectedId) ? <option value={selectedId}>{loading ? "Loading current attachment…" : "Current attachment · unavailable in this list"}</option> : null}
         {items.map((item) => (
           <option key={item.id} value={item.id}>
             {item.name} {item.app_type_id ? "· Scoped" : "· Shared"}

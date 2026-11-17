@@ -551,8 +551,9 @@ const loadEvidence = async ({ user, projectId, runId, resultId, testCaseIds, sui
   if (run && canReadRunCases) {
     const caseIds = requestedCaseIds.length ? boundedCaseIds : unique(failures.map(item => item.test_case_id)).slice(0, MAX_TEST_CASES);
     const frozenCases = caseIds.length ? await optionalRead('frozen_cases', () => db.prepare(`SELECT snapshot.test_case_id AS id,
-      snapshot.test_case_title AS title, snapshot.test_case_description AS description, snapshot.status, snapshot.priority
+      snapshot.test_case_title AS title, snapshot.test_case_description AS description, snapshot.status, snapshot.priority, catalog.display_id
       FROM execution_case_snapshots snapshot JOIN executions owner ON owner.id = snapshot.execution_id
+      LEFT JOIN test_cases catalog ON catalog.id = snapshot.test_case_id
       WHERE owner.id = ? AND owner.project_id = ? AND snapshot.test_case_id IN (${placeholders(caseIds)})
       ORDER BY snapshot.sort_order, snapshot.test_case_id LIMIT ${MAX_TEST_CASES}`).all(run.id, projectId, ...caseIds)) : [];
     const frozenByCase = new Map(frozenCases.map(item => [item.id, item]));
@@ -571,7 +572,7 @@ const loadEvidence = async ({ user, projectId, runId, resultId, testCaseIds, sui
       if (!frozen && !packet && !failure) return [];
       const steps = packet?.steps?.map(step => ({ id: step.id, step_order: step.order, action: step.action, expected_result: step.expected_result,
         total_case_steps: packet.coverage?.total_steps })) || frozenSteps.filter(step => step.test_case_id === id);
-      return [{ ...defectReproductionService.summarizeCase({ id, title: frozen?.title || packet?.title || failure?.test_case_title || '',
+      return [{ ...defectReproductionService.summarizeCase({ id, display_id: frozen?.display_id || packet?.display_id || null, title: frozen?.title || packet?.title || failure?.test_case_title || '',
         description: frozen?.description || packet?.description || '', status: frozen?.status, priority: frozen?.priority }, steps),
         source: frozen || steps.length ? 'execution_snapshot' : 'execution_result', execution_result_id: packet?.result_id || failure?.id || null }];
     });
@@ -652,8 +653,8 @@ const buildEvidenceSources = ({ input, context, imageAssets }) => {
   input.external_links.forEach((url) => add({ ref: `external-link:${shortHash(url)}`, type: "external-link-pointer", id: shortHash(url), title: url, excerpt: "Pointer only; linked content was not fetched.", url, trust: "pointer-only" }));
   imageAssets.forEach((image) => add({ ref: `reference-image:${image.content_hash}`, type: "reference-image", id: image.content_hash, title: image.name, excerpt: "Reporter-provided image admitted to the bounded evidence pack.", trust: "user-provided" }));
   if (context.run) add({ ref: evidenceRef("run", context.run.id), type: "test-run", id: context.run.id, title: context.run.name || context.run.display_id || context.run.id, excerpt: stripMarkup([context.run.status, context.run.build, context.run.release].filter(Boolean).join(" · ")), status: context.run.status || null, trust: "workspace" });
-  context.cases.forEach((item) => add({ ref: evidenceRef("test-case", item.id), type: "test-case", id: item.id, title: item.title || item.display_id || item.id, excerpt: stripMarkup([item.description, ...(item.reproduction_steps || []), item.expected_result].filter(Boolean).join("\n")), status: item.status || null, trust: "workspace" }));
-  context.requirements.forEach((item) => add({ ref: evidenceRef("requirement", item.id), type: "requirement", id: item.id, title: item.title || item.display_id || item.id, excerpt: stripMarkup(storyExpectedBehavior(item) || item.description), status: item.status || null, trust: "workspace" }));
+  context.cases.forEach((item) => add({ ref: evidenceRef("test-case", item.id), type: "test-case", id: item.display_id || item.id, title: [item.display_id, item.title].filter(Boolean).join(" · ") || item.id, excerpt: stripMarkup([item.description, ...(item.reproduction_steps || []), item.expected_result].filter(Boolean).join("\n")), status: item.status || null, trust: "workspace" }));
+  context.requirements.forEach((item) => add({ ref: evidenceRef("requirement", item.id), type: "requirement", id: item.display_id || item.id, title: [item.display_id, item.title].filter(Boolean).join(" · ") || item.id, excerpt: stripMarkup(storyExpectedBehavior(item) || item.description), status: item.status || null, trust: "workspace" }));
   context.failures.forEach((item) => add({ ref: evidenceRef("execution-result", item.id), type: "execution-result", id: item.id, title: `${item.status || "failed"} result`, excerpt: stripMarkup(failureObservationText(item)), status: item.status || null, related_id: item.test_case_id || null, trust: "workspace" }));
   (context.execution_images || []).forEach((image) => add({ ref: `execution-image:${image.content_hash}`, type: "execution-screenshot", id: image.content_hash, title: image.name, excerpt: "Screenshot captured or attached to the selected execution and sent to the vision model.", trust: "workspace" }));
   return sources;
@@ -836,17 +837,19 @@ const requestLlmDraft = async (integration, input, context, evidenceSources, ima
   });
 };
 
-const buildProcessingSnapshot = ({ evidenceSources, generationMode, gaps, fallbackFields, partialSources }) => ({
-  active_stage_id: "review",
-  completed_stage_count: 3,
-  total_stage_count: 4,
-  status_label: "Awaiting human review",
-  stages: [
-    { id: "intake", status: "complete", detail: "Incident brief and requested Defect boundary were validated.", evidence: "Reporter intent is retained as evidence, not treated as executable instruction.", item_count: 1 },
-    { id: "context", status: "complete", detail: `${evidenceSources.length} bounded evidence source${evidenceSources.length === 1 ? "" : "s"} assembled${partialSources ? " with disclosed omissions" : ""}.`, evidence: "Only validated project records, reporter inputs, image assets, and pointer-only links were included.", item_count: evidenceSources.length },
-    { id: "specialist", status: "complete", detail: `${generationMode === "llm" ? "Model-assisted" : generationMode === "hybrid" ? "Hybrid" : "Deterministic"} Defect proposal validated against the output contract.`, evidence: `${fallbackFields.length} field${fallbackFields.length === 1 ? "" : "s"} used deterministic fallback; ${gaps.length} evidence gap${gaps.length === 1 ? "" : "s"} remain explicit.`, item_count: DRAFT_FIELDS.length },
-    { id: "review", status: "current", detail: "Proposal is ready for field-by-field human review.", evidence: "Nothing has been created or written back. Accepting only moves the proposal into the manual Defect form." }
-  ]
-});
+const buildProcessingSnapshot = ({ evidenceSources, generationMode, gaps, fallbackFields, partialSources }) => {
+  const snapshot = require("./generationLifecycle").processing({ status: "completed", stage: "review", profile: "defect", outputCount: 1 });
+  const details = {
+    intake: "Incident brief and requested Defect boundary were validated.",
+    context: `${evidenceSources.length} bounded evidence sources assembled${partialSources ? " with disclosed omissions" : ""}.`,
+    guardrails: "Project access, evidence limits and human approval boundary were checked.",
+    specialist: `${generationMode} Defect proposal returned.`,
+    outcome: `${fallbackFields.length} evidence-bound field replacements disclosed.`,
+    evaluation: `${gaps.length} evidence gaps remain explicit after contract validation.`,
+    review: "Nothing has been created. Review and accept the fields before saving a Defect."
+  };
+  snapshot.stages.forEach(stage => { stage.detail = details[stage.id]; });
+  return snapshot;
+};
 
 module.exports = {BUG_DRAFT_USAGE_KEY,DRAFT_FIELDS,normalizeText,normalizeImageAssets,normalizeExternalLinks,unique,loadEvidence,buildEvidenceSources,buildPromptContextSnapshot,deterministicDraft,normalizeCandidate,requestLlmDraft,hasWrittenIncident,buildProcessingSnapshot,fingerprint,extractLabeledSection,extractHeadedSection,BUG_DRAFT_CONTEXT_LIMITS};

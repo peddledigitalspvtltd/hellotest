@@ -385,6 +385,7 @@ const ROUTE_PERMISSION_RULES = [
   ["GET", "/users/:id", "user.view"],
   ["POST", "/users", "user.manage"],
   ["POST", "/users/import", "user.import"],
+  ["POST", "/users/:id/unlock-login", "user.manage"],
   ["PUT", "/users/:id", "user.manage"],
   ["DELETE", "/users/:id", "user.manage"],
   ["GET", "/roles", "role.view"],

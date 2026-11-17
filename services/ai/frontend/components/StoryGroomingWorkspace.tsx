@@ -1,3 +1,6 @@
+import { AiGenerationProgress } from "./AiGenerationProgress";
+import { AiFailureNotice, type AiGenerationFailure } from "./AiFailureNotice";
+import type { AgenticProcessingSnapshot } from "@hellotest/ai/agent-experience";
 import {
   IconAlertTriangle,
   IconArrowRight,
@@ -21,7 +24,6 @@ import type {
   StoryGroomingReadiness,
   StoryGroomingReadinessCheck
 } from "@hellotest/platform/frontend/src/types";
-import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
 import "./StoryGroomingWorkspace.css";
 
 type StoryGroomingWorkspaceProps = {
@@ -31,6 +33,9 @@ type StoryGroomingWorkspaceProps = {
   supportingContextChanged?: boolean;
   isLoading: boolean;
   error?: string | null;
+  failure?: AiGenerationFailure | null;
+  processing?: AgenticProcessingSnapshot;
+  onCancel?: () => void;
   disabled?: boolean;
   onGenerate: () => void;
   providerControl?: ReactNode;
@@ -260,7 +265,7 @@ export function StoryGroomingWorkspace({
   storyUpdatedAt,
   supportingContextChanged = false,
   isLoading,
-  error,
+  error, failure, processing, onCancel,
   disabled = false,
   onGenerate,
   providerControl
@@ -271,7 +276,7 @@ export function StoryGroomingWorkspace({
   if (isLoading) {
     return (
       <GroomingContainer>
-        <LoadingState label="Building an evidence-backed readiness brief" description="Reviewing the Story, comments, linked work, Defects, and available attachment metadata. No Story fields are changed." />
+        <AiGenerationProgress processing={processing} onCancel={onCancel} />
       </GroomingContainer>
     );
   }
@@ -288,9 +293,9 @@ export function StoryGroomingWorkspace({
               Review “{storyTitle}” across plain-language intent, business value, delivery behavior, acceptance,
               dependencies, risks, and planning readiness—using only bounded Story evidence.
             </p>
-            {error ? <p className="story-grooming-error" role="alert">Grooming could not be completed. {error}</p> : null}
+            {error || failure ? <AiFailureNotice failure={failure} error={error ? { message: error } : null} onRetry={onGenerate} /> : null}
             {providerControl}
-            <button className="story-grooming-primary" disabled={disabled} onClick={onGenerate} type="button">
+            <button className="story-grooming-primary" hidden={Boolean(error || failure)} disabled={disabled} onClick={onGenerate} type="button">
               <IconSparkles />
               <span>{error ? "Try again" : "Generate refinement"}</span>
             </button>
@@ -493,7 +498,7 @@ export function StoryGroomingWorkspace({
         <div className="story-grooming-hero-actions">
           {providerControl}
           <span className="story-grooming-preview-badge"><IconShieldCheck /> Preview · Human review</span>
-          <button className="story-grooming-refresh" disabled={disabled} onClick={onGenerate} type="button">
+          <button className="story-grooming-refresh" hidden={Boolean(error || failure)} disabled={disabled} onClick={onGenerate} type="button">
             <IconRefresh /> Refresh brief
           </button>
         </div>
@@ -504,7 +509,7 @@ export function StoryGroomingWorkspace({
           <IconAlertTriangle /> This Story or its supporting evidence changed after the brief was generated. Refresh before using the readiness outcome.
         </p>
       ) : null}
-      {error ? <p className="story-grooming-error" role="alert">The latest refresh failed; the previous brief remains visible. {error}</p> : null}
+      {error || failure ? <AiFailureNotice failure={failure} error={error ? { message: error } : null} onRetry={onGenerate} /> : null}
       {fallbackReason ? <p className="story-grooming-fallback-note" role="status"><IconAlertTriangle /> {fallbackReason}</p> : null}
 
       <section aria-label="Reviewed context" className="story-grooming-context-strip">

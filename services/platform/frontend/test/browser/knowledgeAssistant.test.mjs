@@ -86,7 +86,7 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     page.on("console", message => { if (message.type() === "error") browserErrors.push(message.text()); });
     await page.route("**/api/**", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Unexpected fixture API request" }) }));
     await page.goto(`${process.env.VITE_TEST_URL || "http://127.0.0.1:5173"}/${name}.html`);
-    await page.getByRole("button", { name: "Open HelloTest grounded assistant", exact: true }).click();
+    await page.getByRole("button", { name: "Ask HelloTest", exact: true }).click();
     const input = page.getByRole("textbox", { name: "Ask about this HelloTest project" });
     await page.waitForFunction(() => document.activeElement?.id === "grounded-assistant-input");
     if (process.env.BROWSER_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, "knowledge-assistant-focused.png"), animations: "disabled" });
@@ -260,7 +260,7 @@ api.knowledgeRepo.assistant.streamMessage = async (...args) => { const reply = a
     page.on("pageerror", error => errors.push(error.message));
     await page.route("**/api/**", route => route.fulfill({ status: 503, contentType: "application/json", body: '{"message":"Unexpected fixture request"}' }));
     await page.goto(`${process.env.VITE_TEST_URL || "http://127.0.0.1:5173"}/${name}.html`);
-    await page.getByRole("button", { name: "Open HelloTest grounded assistant", exact: true }).click();
+    await page.getByRole("button", { name: "Ask HelloTest", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "HelloTest grounded project assistant" });
     await panel.waitFor();
     assert.equal(await panel.evaluate(node => node.classList.contains("is-focus-mode")), true);

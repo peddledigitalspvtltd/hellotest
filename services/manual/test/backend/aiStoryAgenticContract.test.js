@@ -181,6 +181,11 @@ test("Story creation jobs execute from persisted input and complete through an o
   const originalPrepare = db.prepare;
   const originalTransaction = db.transaction;
   const originalPreview = requirementService.previewRequirementCreation;
+  const projectAccess = require("../../../platform/backend/public/projectAccess");
+  const evidenceAccess = require("../../../platform/backend/services/optionalEvidenceAccess.service");
+  const originalProject = projectAccess.getProject, originalAccess = evidenceAccess.getOptionalEvidenceAccess;
+  projectAccess.getProject = async id => ({ id });
+  evidenceAccess.getOptionalEvidenceAccess = async () => ({ "requirement.ai": true });
   const rows = new Map();
   let scheduledTask;
   let resolvePreview;
@@ -235,12 +240,15 @@ test("Story creation jobs execute from persisted input and complete through an o
       }
     };
     if (sql.includes("SET status = 'failed'")) return {
-      get: async (resultPayload, lastError, id, leaseOwner) => {
+      get: async (resultPayload, lastError, errorCode, failurePayload, id, leaseOwner) => {
         const row = rows.get(id);
         if (!row || row.status !== "running" || row.lease_owner !== leaseOwner || Date.parse(row.lease_expires_at) <= Date.now()) return undefined;
-        Object.assign(row, { status: "failed", result_payload: resultPayload, last_error: lastError, lease_owner: null, lease_expires_at: null, heartbeat_at: null });
+        Object.assign(row, { status: "failed", result_payload: resultPayload, last_error: lastError, error_code: errorCode, failure_payload: failurePayload, lease_owner: null, lease_expires_at: null, heartbeat_at: null });
         return { ...row };
       }
+    };
+    if (sql.includes("SET result_payload")) return {
+      run: async (payload, id, owner) => { const row = rows.get(id); if (row?.status !== "running" || row.lease_owner !== owner) return { changes: 0 }; row.result_payload = payload; return { changes: 1 }; }
     };
     if (sql.includes("SELECT * FROM ai_requirement_generation_jobs WHERE id")) return {
       get: async (id, projectId) => rows.get(id)?.project_id === projectId ? { ...rows.get(id) } : undefined
@@ -254,7 +262,7 @@ test("Story creation jobs execute from persisted input and complete through an o
 
   try {
     const queued = await requirementWorkspaceService.createGenerationJob({
-      input: { project_id: "project-1", additional_context: "Grounded context" },
+      input: { project_id: "project-1", additional_context: "As a finance reviewer I want to approve reviewed invoices so payment can proceed." },
       userId: "user-1",
       schedule: (task) => { scheduledTask = task; }
     });
@@ -270,7 +278,7 @@ test("Story creation jobs execute from persisted input and complete through an o
     await new Promise((resolve) => setImmediate(resolve));
     const running = await requirementWorkspaceService.getGenerationJob(queued.id, "project-1");
     assert.equal(running.status, "running");
-    assert.equal(running.processing.status_label, "Story generation request in progress");
+    assert.equal(running.processing.status_label, "The saved request has been loaded by its worker.");
     assert.equal(running.processing.stages[0].status, "running");
     assert.equal(previewInput.additional_context, "Persisted grounded context");
     assert.equal(previewInput.project_id, "project-1", "the persisted row scope must override nested input scope");
@@ -287,7 +295,7 @@ test("Story creation jobs execute from persisted input and complete through an o
     let failedTask;
     requirementService.previewRequirementCreation = async () => { throw new Error("provider selection failed"); };
     const secondQueued = await requirementWorkspaceService.createGenerationJob({
-      input: { project_id: "project-1", additional_context: "Another grounded request" },
+      input: { project_id: "project-1", additional_context: "As a finance reviewer I want to reject an invoice with a reason so mistakes are corrected." },
       userId: "user-1",
       schedule: (task) => { failedTask = task; }
     });
@@ -301,5 +309,6 @@ test("Story creation jobs execute from persisted input and complete through an o
     db.prepare = originalPrepare;
     db.transaction = originalTransaction;
     requirementService.previewRequirementCreation = originalPreview;
+    projectAccess.getProject = originalProject; evidenceAccess.getOptionalEvidenceAccess = originalAccess;
   }
 });

@@ -19,7 +19,7 @@ test('a frozen parameter plan retains saved membership without reading current s
       if (/FROM execution_step_snapshots/.test(sql)) return [{ test_case_id: 'case', step_order: 1, action: 'Open @t.account', expected_result: 'Ready' }];
       if (/FROM execution_suites/.test(sql)) return [{ suite_id: 'suite' }];
       if (/FROM test_cases c/.test(sql)) { assert.deepEqual(args.slice(1), [[], []]); return []; }
-      if (/FROM test_steps|FROM suite_test_cases|FROM test_case_data_sets/.test(sql)) return [];
+      if (/FROM test_steps|FROM suite_effective_test_cases|FROM test_case_data_sets/.test(sql)) return [];
       assert.fail('Unexpected authoring read: ' + sql);
     }
   }));

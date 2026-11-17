@@ -1,3 +1,5 @@
+import {policy, validatePasswordPair} from '../src/shared/lib/authPolicy';
+import {UserLoginProtection} from '../src/platform/components/UserLoginProtection';
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearchParams } from "react-router-dom";
@@ -464,13 +466,6 @@ export function PeoplePage({
     },
     onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to delete user", "error")
   });
-
-  const validatePasswordPair = (draft: Pick<UserDraft, "password" | "confirmPassword">, required: boolean) => {
-    if (required && draft.password.length < 6) return "Password must be at least 6 characters.";
-    if (!required && draft.password && draft.password.length < 6) return "New password must be at least 6 characters.";
-    if (draft.password !== draft.confirmPassword) return "Passwords do not match.";
-    return "";
-  };
 
   const handleUserCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1039,6 +1034,7 @@ export function PeoplePage({
                     <span>{visibleUserEmail(selectedUser.email)}</span>
                     <span>{displayUserRoleName(selectedUser)} · {selectedUser.auth_provider === "google" ? "Google Sign-In" : "Password sign-in"}</span>
                   </div>
+                  <UserLoginProtection user={selectedUser} canManage={canManageUsers} />
                   {canManageUsers ? (
                     <form className="form-grid people-user-details-form" onSubmit={handleUserUpdate}>
                       <div className="record-grid">
@@ -1084,10 +1080,10 @@ export function PeoplePage({
                               <input
                                 autoComplete="new-password"
                                 maxLength={128}
-                                minLength={6}
+                                minLength={policy.newPasswordMinLength}
                                 name="password"
                                 onChange={(event) => setUserDraft((current) => ({ ...current, password: event.target.value }))}
-                                placeholder="At least 6 characters"
+                                placeholder="At least 10 characters"
                                 type="password"
                                 value={userDraft.password}
                               />
@@ -1096,7 +1092,7 @@ export function PeoplePage({
                               <input
                                 autoComplete="new-password"
                                 maxLength={128}
-                                minLength={6}
+                                minLength={policy.newPasswordMinLength}
                                 name="confirm_password"
                                 onChange={(event) => setUserDraft((current) => ({ ...current, confirmPassword: event.target.value }))}
                                 type="password"
@@ -1413,10 +1409,10 @@ export function PeoplePage({
                     <input
                       autoComplete="new-password"
                       maxLength={128}
-                      minLength={6}
+                      minLength={policy.newPasswordMinLength}
                       name="password"
                       onChange={(event) => setCreateUserDraft((current) => ({ ...current, password: event.target.value }))}
-                      placeholder="At least 6 characters"
+                      placeholder="At least 10 characters"
                       required
                       type="password"
                       value={createUserDraft.password}
@@ -1426,7 +1422,7 @@ export function PeoplePage({
                     <input
                       autoComplete="new-password"
                       maxLength={128}
-                      minLength={6}
+                      minLength={policy.newPasswordMinLength}
                       name="confirm_password"
                       onChange={(event) => setCreateUserDraft((current) => ({ ...current, confirmPassword: event.target.value }))}
                       required
@@ -1440,7 +1436,7 @@ export function PeoplePage({
                 <button className="ghost-button" disabled={createUser.isPending} onClick={closeCreateUserModal} type="button">Cancel</button>
                 <button
                   className="primary-button"
-                  disabled={createUser.isPending || !createUserDraft.email.trim() || !createUserDraft.role_id || createUserDraft.password.length < 6 || createUserDraft.password !== createUserDraft.confirmPassword}
+                  disabled={createUser.isPending || !createUserDraft.email.trim() || !createUserDraft.role_id || createUserDraft.password.length < policy.newPasswordMinLength || createUserDraft.password !== createUserDraft.confirmPassword}
                   type="submit"
                 >
                   {createUser.isPending ? "Creating…" : "Create user"}

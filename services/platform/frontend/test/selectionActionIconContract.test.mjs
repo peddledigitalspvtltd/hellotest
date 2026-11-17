@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = async relativePath => {
+  const source = await readFile(new URL(relativePath, import.meta.url), "utf8");
+  const owner = relativePath.endsWith("ExecutionsPage.tsx") ? "../../../testing/frontend/components/ExecutionCreateDrawer.tsx" : relativePath.endsWith("IssuesPage.tsx") ? "../../../testing/frontend/components/DefectImpactPicker.tsx" : null;
+  return owner ? source + await readFile(new URL(owner, import.meta.url), "utf8") : source;
+};
 
 test("bulk selection uses one checked-or-empty icon language across application workflows", async () => {
   const [icons, controls, suitePicker, cases, requirements, executions, knowledge, smartContext, projects, issues] = await Promise.all([

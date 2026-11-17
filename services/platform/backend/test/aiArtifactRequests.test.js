@@ -118,7 +118,7 @@ test("Story create and completion accept provider text blocks without falling ba
   const createDraft = { title: "Approve an invoice", description: "Reviewers approve submitted invoices.", priority: 3, acceptance_criteria: ["A reviewer can approve a submitted invoice."], field_evidence: { title: ["user-guidance:story-brief"], description: ["user-guidance:story-brief"], acceptance_criteria: ["user-guidance:story-brief"] } };
   const creation = providerFixture({ requirements: [createDraft] }, { contentBlocks: true });
   const create = load("requirement.service", { ...creation.overrides, "../db": { prepare: () => ({}) }, "./aiKnowledge.service": { buildKnowledgeContextPackage: async () => ({ knowledge: [] }) } });
-  const created = await create.previewRequirementCreation({ project_id: "project", additional_context: "Reviewers approve submitted invoices.", max_requirements: 1 });
+  const created = await create.previewRequirementCreation({ project_id: "project", additional_context: "Finance reviewers approve submitted invoices so approved invoices can proceed to payment.", max_requirements: 1 });
   assert.equal(created.fallback_used, false);
   assert.equal(created.requirements[0].title, createDraft.title);
   assert.equal(creation.calls[0].options.signal, undefined, "Story creation must not abort before the shared provider deadline");
@@ -286,7 +286,7 @@ test("Story creation sends the brief once and suppresses duplicate drafts", asyn
   assert.doesNotMatch(JSON.stringify(result.evidence), /CREATION_TEMPLATE_SENTINEL/);
   assert.match(fixture.calls[0].body.messages[1].content, /between 1 and 2 requirements/);
   assert.equal(fixture.calls[0].policy.operation, "requirement.generate");
-  await assert.rejects(service.previewRequirementCreation({ project_id: "project", max_requirements: 8 }), error => error.statusCode === 400);
+  await assert.rejects(service.previewRequirementCreation({ project_id: "project", additional_context: "Finance reviewers approve submitted invoices so approved invoices can proceed to payment.", max_requirements: 8 }), error => error.statusCode === 400);
   assert.equal(fixture.calls.length, 1);
 });
 
@@ -598,7 +598,7 @@ test('authoring prefetch retains chunk identity and avoids a second wider MCP co
  const draft={title:'Approve an invoice',description:'Reviewers approve submitted invoices.',priority:3,acceptance_criteria:['A reviewer can approve a submitted invoice.'],field_evidence:{title:['user-guidance:story-brief'],description:['user-guidance:story-brief'],acceptance_criteria:['user-guidance:story-brief']}};
  const creation=providerFixture({requirements:[draft]}),prefetch=[];
  const create=load('requirement.service',{...creation.overrides,'../db':{prepare:()=>({})},'./aiKnowledge.service':{buildKnowledgeContextPackage:async(_project,options)=>{prefetch.push(options);return knowledge;}}});
- await create.previewRequirementCreation({project_id:'project',additional_context:'Reviewers approve submitted invoices.',max_requirements:1});
+ await create.previewRequirementCreation({project_id:'project',additional_context:'Finance reviewers approve submitted invoices so approved invoices can proceed to payment.',max_requirements:1});
  assert.equal(prefetch[0].feature_key,'ai.requirement.creation');
  const prompt=creation.calls[0].body.messages[1].content;
  assert.match(prompt,/knowledge:K-chunk-1/);assert.match(prompt,/knowledge:K-chunk-2/);assert.match(prompt,/version-3/);assert.match(prompt,/immutable/);

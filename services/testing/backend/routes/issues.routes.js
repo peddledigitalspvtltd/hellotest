@@ -167,6 +167,8 @@ function registerFeedbackRoutes(fastify, basePath) {
       reference_photos: { required: false, type: "array", maxItems: 6 },
       linked_test_run_id: { required: false, type: "string" },
       linked_execution_result_id: { required: false, type: "string" },
+      linked_step_id: { required: false, type: "string" },
+      linked_execution_result_id: { required: false, type: "string" },
       linked_test_case_ids: { required: false, type: "array", items: "string" },
       linked_test_suite_ids: { required: false, type: "array", items: "string" },
       linked_module_ids: { required: false, type: "array", items: "string" },
@@ -211,6 +213,8 @@ function registerFeedbackRoutes(fastify, basePath) {
       build: { required: false, type: "string" },
       jira_bug_key: { required: false, type: "string" },
 	      linked_test_run_id: { required: false, type: "string" },
+      linked_execution_result_id: { required: false, type: "string" },
+      linked_step_id: { required: false, type: "string" },
 	      linked_test_case_ids: { required: false, type: "array", items: "string" },
 	      linked_test_suite_ids: { required: false, type: "array", items: "string" },
 	      linked_module_ids: { required: false, type: "array", items: "string" },
@@ -228,6 +232,10 @@ function registerFeedbackRoutes(fastify, basePath) {
     if (req.body.project_id) {
       await projectService.getProject(req.body.project_id, req.user.id);
       await fastify.requirePermission("feedback.create", { projectId: req.body.project_id })(req);
+    }
+    if(req.body.linked_test_run_id || req.body.linked_execution_result_id || req.body.linked_step_id){
+      await fastify.requirePermission("run.view",{projectId:req.body.project_id})(req);
+      await fastify.requirePermission("result.view",{projectId:req.body.project_id})(req);
     }
     await validateReporter(req, req.body.project_id);
     return service.createIssue({ ...req.body, user_id: req.body.user_id || req.user.id }, { actorId: req.user.id });
@@ -286,6 +294,8 @@ function registerFeedbackRoutes(fastify, basePath) {
       build: { required: false, type: "string" },
       jira_bug_key: { required: false, type: "string" },
 	      linked_test_run_id: { required: false, type: "string" },
+      linked_execution_result_id: { required: false, type: "string" },
+      linked_step_id: { required: false, type: "string" },
 	      linked_test_case_ids: { required: false, type: "array", items: "string" },
 	      linked_test_suite_ids: { required: false, type: "array", items: "string" },
 	      linked_module_ids: { required: false, type: "array", items: "string" },
@@ -305,6 +315,10 @@ function registerFeedbackRoutes(fastify, basePath) {
     if (req.body.project_id && req.body.project_id !== item.project_id) {
       await projectService.getProject(req.body.project_id, req.user.id);
       await fastify.requirePermission("feedback.manage", { projectId: req.body.project_id })(req);
+    }
+    if(['linked_test_run_id','linked_execution_result_id','linked_step_id'].some(key=>req.body[key])){
+      await fastify.requirePermission("run.view",{projectId:req.body.project_id||item.project_id})(req);
+      await fastify.requirePermission("result.view",{projectId:req.body.project_id||item.project_id})(req);
     }
     await validateReporter(req, req.body.project_id || item.project_id, item.user_id);
     return service.updateIssue(req.params.id, req.body, { actorId: req.user.id });

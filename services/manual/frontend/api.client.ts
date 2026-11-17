@@ -60,7 +60,7 @@ type AiRequirementCreationPreviewResponse = {
   status?: string;
 };
 
-type AiRequirementGenerationJobResponse = Partial<AiRequirementCreationPreviewResponse> & {
+export type AiRequirementGenerationJobResponse = Partial<AiRequirementCreationPreviewResponse> & {
   id: string;
   job_id?: string;
   queued?: boolean;
@@ -68,6 +68,10 @@ type AiRequirementGenerationJobResponse = Partial<AiRequirementCreationPreviewRe
   status: "queued" | "running" | "completed" | "failed" | string;
   input_payload?: Record<string, unknown>;
   last_error?: string | null;
+  error_code?: string | null;
+  failure?: { code?: string; message?: string; retry_after_seconds?: number; retry_at?: string | null; support_reference?: string };
+  result_payload?: Record<string, unknown>;
+  cases?: AiDesignPreviewResponse["cases"];
   created_at?: string;
   started_at?: string | null;
   completed_at?: string | null;
@@ -98,6 +102,12 @@ requirements: {
         method: "POST",
         body: JSON.stringify(input)
       }),
+    createGroomingJob: (id: string, input: { project_id: string; integration_id?: string; prompt_guidance?: string; additional_context?: string; proposed_change?: Record<string, unknown> }) =>
+      request<AiRequirementGenerationJobResponse>(`/requirements/${id}/ai-groom-jobs`, { method: "POST", body: JSON.stringify(input) }),
+    createCaseDesignJob: (id: string, input: { project_id: string; app_type_id: string; integration_id?: string; max_cases?: number; authoring_mode?: "structured" | "gherkin"; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }) =>
+      request<AiRequirementGenerationJobResponse>(`/requirements/${id}/design-test-cases-jobs`, { method: "POST", body: JSON.stringify(input) }),
+    cancelGenerationJob: (id: string, projectId: string) =>
+      request<AiRequirementGenerationJobResponse>(`/requirements/ai-create-jobs/${id}/cancel`, { method: "POST", body: JSON.stringify({ project_id: projectId }) }),
     previewImpact: (id: string, input: AiArtifactAssuranceInput) =>
       request<RequirementImpactPreviewResponse>(`/requirements/${id}/ai-impact-preview`, {
         method: "POST",

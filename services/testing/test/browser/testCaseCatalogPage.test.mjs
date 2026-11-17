@@ -102,7 +102,7 @@ test('Test Case tile bars show outcome counts, score units, and no-data states',
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5189'}/${name}.html`);
   const cards=page.locator('.test-case-library-scroll .test-case-catalog-card');
   await cards.nth(1).waitFor();
-  const failedCases=page.getByRole('button',{name:/^View evidence for Failed or Blocked Cases$/i});
+  const failedCases=page.getByTitle(/^View evidence for Failed or Blocked Cases$/i);
   assert.equal(await failedCases.locator('strong').innerText(),'3','Failed/blocked metric uses complete catalog counts, not loaded page results');
   await failedCases.click();
   assert.match(await page.getByRole('list',{name:/^Failed or Blocked Cases evidence$/i}).innerText(),/1 blocked · 2 failed · latest finalized outcome per case/);
@@ -150,7 +150,7 @@ const artifacts=process.env.BROWSER_SCREENSHOT_DIR||'/tmp/qaira-test-case-catalo
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`);
   const cards=page.locator('.test-case-library-scroll .test-case-catalog-card'),scroll=page.locator('.test-case-library-scroll>.tile-browser-pane-scroll');
   await page.waitForFunction(()=>document.querySelectorAll('.test-case-library-scroll .test-case-catalog-card').length===25);
-  const total=page.getByRole('group',{name:'Test case library quality metrics'}).getByRole('button',{name:'View evidence for Total Cases'}).locator('strong');
+  const total=page.getByRole('group',{name:'Test case library quality metrics'}).getByTitle('View evidence for Total Cases').locator('strong');
   assert.equal(await total.innerText(),'95');await page.waitForTimeout(180);
   let calls=await page.evaluate(()=>window.calls);
   assert.equal(calls.catalog.length,1);assert.equal(calls.catalog[0].page_size,25);assert.equal(calls.catalog[0].include_total,false);assert.equal(calls.catalog[0].unassigned_module,true);
@@ -173,9 +173,9 @@ const artifacts=process.env.BROWSER_SCREENSHOT_DIR||'/tmp/qaira-test-case-catalo
   await collapsedModule.getByRole('button',{name:'Module Health: Payments module'}).click();
   const moduleHealth=page.getByRole('dialog',{name:'Payments module',exact:true});
   await moduleHealth.waitFor();
-  assert.equal(await moduleHealth.getByRole('button',{name:'View evidence for Test Cases',exact:true}).locator('strong').innerText(),'35','Health covers the entire collapsed module, without loading its cases');
+  assert.equal(await moduleHealth.getByTitle('View evidence for Test Cases',{exact:true}).locator('strong').innerText(),'35','Health covers the entire collapsed module, without loading its cases');
   assert.equal(await page.evaluate(()=>window.calls.moduleChildren.length),0,'Health reuses exact aggregate evidence; no module child fan-out');
-  await moduleHealth.getByRole('button',{name:'View evidence for Pending Review',exact:true}).click();
+  await moduleHealth.getByTitle('View evidence for Pending Review',{exact:true}).click();
   assert.match(await moduleHealth.getByRole('list',{name:'Pending Review evidence'}).innerText(),/0\/35 Test Cases await review/);
   await page.waitForTimeout(320);
   await page.screenshot({path:artifacts+'/module-health.png'});

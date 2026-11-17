@@ -9,11 +9,13 @@ const cases=[1,2,3].map(index=>({id:'case'+index,display_id:'TC-'+index,app_type
 const suite={id:'suite',display_id:'SUITE-1',app_type_id:'app',name:'Checkout Regression',description:'Saved description',labels:['smoke'],parameter_values:{'s.customer':'Alex'},test_data_set_id:'existing',test_data_options:{},test_case_ids:['case1','case2'],test_case_count:2,total_step_count:2,revision:1,parent_id:null};const child={id:'child',display_id:'SUITE-2',app_type_id:'app',parent_id:'suite',name:'Child Checkout',test_case_ids:['child-case'],test_case_count:1,parameter_values:{'s.child':'yes'}};const suites=[suite,child];
 const columns=['s.customer','t.email','r.group_token','s.child'];const data=[{id:'existing',project_id:'project',app_type_id:'app',name:'Saved Personas',mode:'table',columns,rows:['Alex','Priya'].map(name=>({'s.customer':name,'t.email':name+'@example.test','r.group_token':'group token','s.child':'child input'}))},{id:'incomplete',project_id:'project',app_type_id:'app',name:'Customer Only',mode:'table',columns:['s.customer'],rows:[{'s.customer':'Alex'}]}];window.suiteData={plans:[],submissions:[],creates:[],updates:[]};
 api.projects.list=async()=>[{id:'project',name:'Project'}];api.metadata.workspaceScopes=async()=>({projects:[{id:'project',name:'Project'}]});api.appTypes.list=async()=>[{id:'app',project_id:'project',name:'Web',type:'web'}];api.testSuites.list=async()=>structuredClone(suites);api.testCases.list=async()=>cases;api.testCases.listPage=async input=>({items:cases.filter(item=>(!input.ids||input.ids.split(',').includes(item.id))&&(!input.suite_id||item.suite_ids.includes(input.suite_id))),next_cursor:null,is_last:true});api.testCases.listPicker=api.testCases.listPage;api.suiteTestCases.list=async()=>['case1','case2'].map((id,index)=>({id:'mapping'+index,suite_id:'suite',test_case_id:id,sort_order:index+1}));api.testSteps.list=async()=>cases.map(item=>({id:item.id+'-step',test_case_id:item.id,step_order:1,action:'Use @s.customer',expected_result:'Welcome',step_type:'web'}));
+api.testSuites.get=async()=>({...suite,module_ids:[],module_membership:"snapshot",explicit_test_case_ids:["case1","case2"],resolved_case_count:2});
+api.testCaseModules.list=async()=>[{id:"login",name:"Login",test_case_count:2},{id:"signup",name:"Signup",test_case_count:2}];api.testCaseModules.listCases=async id=>({items:id==="login"?cases.slice(0,2):cases.slice(1),is_last:true,next_cursor:null});
 api.testSuites.update=async(id,input)=>{window.suiteData.updates.push({id,input:structuredClone(input)});Object.assign(suites.find(item=>item.id===id),input);return structuredClone(suites.find(item=>item.id===id))};
 api.testDataSets.list=async()=>structuredClone(data);api.testDataSets.create=async input=>{window.suiteData.creates.push(structuredClone(input));const row={...input,id:'created-data'};data.push(row);return row};
-api.executions.parameterPlan=async input=>{window.suiteData.plans.push(structuredClone(input));const count=input.test_case_ids.length+(input.suite_ids.includes('child')?1:input.suite_ids.includes('suite')?3:0);const caseOverride=input.test_data_options?.override_test_case_data??(input.test_data_options?.override_lower_scopes!==false);const names=['s.customer',...(caseOverride?['t.email']:[]),...(input.test_data_options?.override_shared_steps===false?[]:['r.group_token']),...(input.suite_ids.length?['s.child']:[])];const parameters=names.map(name=>({name,token:'@'+name,scope:name[0],case_count:count}));const selected=data.find(item=>item.id===input.test_data_set_id);const missing=selected?names.filter(name=>!selected.columns.includes(name)):[];return {case_count:count,suite_count:input.suite_ids.length,expected_instance_count:count*(selected?selected.rows.length:1),parameters,data_set_validation:selected?{valid:!missing.length,data_set_id:selected.id,missing_parameters:missing,required_parameters:names,available_parameters:selected.columns,iteration_count:selected.rows.length}:null}};
+api.executions.parameterPlan=async input=>{window.suiteData.plans.push(structuredClone(input));const count=input.test_case_ids.length+(input.suite_ids.includes('child')?1:input.suite_ids.includes('suite')?3:0);const caseOverride=input.test_data_options?.override_test_case_data??(input.test_data_options?.override_lower_scopes!==false);const names=['s.customer',...(caseOverride?['t.email']:[]),...(input.test_data_options?.override_shared_steps===false?[]:['r.group_token']),...(input.suite_ids.length?['s.child']:[])];const parameters=names.map(name=>({name,token:'@'+name,scope:name[0],case_count:count}));const selected=data.find(item=>item.id===input.test_data_set_id);const missing=selected?names.filter(name=>!selected.columns.includes(name)):[];return {shared_group_kinds:["steps"],case_count:count,suite_count:input.suite_ids.length,expected_instance_count:count*(selected?selected.rows.length:1),parameters,data_set_validation:selected?{valid:!missing.length,data_set_id:selected.id,missing_parameters:missing,required_parameters:names,available_parameters:selected.columns,iteration_count:selected.rows.length}:null}};
 const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
-createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/design?suite=suite&project=project']}><AuthProvider><LocalizationProvider userId='reader'>{mode==='design'?<DesignPage/>:<SuiteCreateModal mode={mode==='edit'?'edit':'create'} projectId='project' appTypeId='app' suite={mode==='edit'?suite:null} childSuites={mode==='edit'?[child]:[]} appTypeCases={cases} availableLabels={['smoke']} selectedCaseIds={['case1','case2']} canConfigureParallelAutomation onClose={()=>{}} onSubmit={input=>window.suiteData.submissions.push(structuredClone(input))} isSaving={false}/>}</LocalizationProvider></AuthProvider></MemoryRouter></QueryClientProvider>);`;
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/design?suite=suite&project=project']}><AuthProvider><LocalizationProvider userId='reader'>{mode==='design'?<DesignPage/>:<SuiteCreateModal mode={mode==='edit'?'edit':'create'} projectId='project' appTypeId='app' suite={mode==='edit'?suite:null} childSuites={mode==='edit'?[child]:[]} appTypeCases={cases} availableLabels={['smoke']} selectedCaseIds={mode==='modules'?[]:['case1','case2']} canConfigureParallelAutomation onClose={()=>{}} onSubmit={input=>window.suiteData.submissions.push(structuredClone(input))} isSaving={false}/>}</LocalizationProvider></AuthProvider></MemoryRouter></QueryClientProvider>);`;
 const csv=()=>['@customer,t.comment,t.email,r.group_token,s.child',...Array.from({length:25},(_,index)=>`"Customer ${index+1}","line one ${index+1}\nline two ${index+1}","customer${index+1}@example.test","group token ${index+1}","child input ${index+1}"`)].join('\r\n')+'\r\n';
 
 test('Suite editor validates datasets, preserves exact scope and imported rows, and keeps data controls in the left pane', { timeout: 120000 }, async () => {
@@ -47,7 +49,7 @@ test('Suite editor validates datasets, preserves exact scope and imported rows, 
     await toggle.click();
     assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
     const lower = dataSection.getByRole('checkbox', { name: 'Test Case Params Data', exact: true });
-    const shared = dataSection.getByRole('checkbox', { name: 'Shared Group Params Data', exact: true });
+    const shared = dataSection.getByRole('checkbox', { name: 'Override Shared Groups Test Data', exact: true });
     assert.equal(await dataSection.getByRole('checkbox').count(), 2, 'Suites have exactly two override controls');
     assert.equal(await lower.isChecked(), true);
     assert.equal(await shared.isChecked(), true);
@@ -163,9 +165,9 @@ test('Suite editor validates datasets, preserves exact scope and imported rows, 
     await dialogData.waitFor();
     await page.waitForFunction(() => window.suiteData.plans.some(input => input.suite_context_id === 'suite' && input.suite_ids.includes('suite')));
     assert.equal(await dialogData.getByRole('checkbox').count(), 2);
-    await dialogData.getByRole('checkbox', { name: 'Shared Group Params Data', exact: true }).click();
+    await dialogData.getByRole('checkbox', { name: 'Override Shared Groups Test Data', exact: true }).click();
     await page.waitForFunction(() => window.suiteData.updates.some(update => update.id === 'suite' && update.input.test_data_options?.override_shared_steps === false));
-    await page.waitForFunction(() => !Array.from(document.querySelectorAll('.run-data-options label')).find(label => label.textContent.includes('Shared Group Params Data')).querySelector('input').checked);
+    await page.waitForFunction(() => !Array.from(document.querySelectorAll('.run-data-options label')).find(label => label.textContent.includes('Override Shared Groups Test Data')).querySelector('input').checked);
     assert.match(await dialog.innerText(), /2 linked cases in this suite context/);
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1000 });
@@ -187,4 +189,28 @@ test('Suite editor validates datasets, preserves exact scope and imported rows, 
     await browser?.close();
     await Promise.allSettled([rm(entry, { force: true }), rm(doc, { force: true })]);
   }
+});
+
+
+test('module suites default to an ordered snapshot, deduplicate overlap, and disclose live future membership',{timeout:90000},async()=>{
+ const name='suite-module-flow-'+randomUUID();let browser;
+ try {
+  await writeFile(new URL(name+'.tsx',frontend),fixture);await writeFile(new URL(name+'.html',frontend),`<!doctype html><html lang="en"><head><title>Module suite fixture</title></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+  browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
+  const page=await browser.newPage({viewport:{width:1440,height:1000}});
+  await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html?mode=modules`);
+  await page.getByLabel(/Suite name/i).fill('Module sanity');
+  const membership=page.getByLabel('Module membership',{exact:true});assert.equal(await membership.inputValue(),'snapshot');
+  await page.getByRole('checkbox',{name:'Login · 2 cases',exact:true}).check();
+  await page.getByText('2 resolved unique cases',{exact:true}).waitFor();
+  await page.getByRole('checkbox',{name:'Signup · 2 cases',exact:true}).check();
+  await page.getByText('3 resolved unique cases',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Create Suite',exact:true}).click();
+  const snapshot=await page.evaluate(()=>window.suiteData.submissions.at(-1));assert.equal(snapshot.module_membership,'snapshot');assert.deepEqual(snapshot.module_ids,['login','signup']);assert.deepEqual(snapshot.selectedIds,['case1','case2','case3']);
+  await membership.selectOption('live');
+  await page.getByText('Future runs resolve current module members. Existing runs keep their frozen scope.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Create Suite',exact:true}).click();
+  const live=await page.evaluate(()=>window.suiteData.submissions.at(-1));assert.equal(live.module_membership,'live');assert.deepEqual(live.selectedIds,[],'Live members remain dynamic rather than becoming explicit case pins');
+  await page.screenshot({path:'/tmp/walkthrough-module-suite-live.png'});
+ } finally {await browser?.close();await Promise.all(['tsx','html'].map(ext=>rm(new URL(name+'.'+ext,frontend),{force:true})));}
 });

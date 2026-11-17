@@ -1,3 +1,4 @@
+import { assertAccessibleControls } from "./axeControls.mjs";
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRequire } from 'node:module';
@@ -76,6 +77,7 @@ api.issues.previewAiImprove=async(input)=>{window.calls.improve=input;const resp
       await dialog.waitFor({ state: 'hidden' });
       await page.getByLabel('Defect Title', { exact: false }).waitFor({timeout:5000}).catch(async error=>{throw new Error(error.message+'\n'+JSON.stringify(errors)+'\n'+(await page.locator('body').innerText()).slice(0,1800))});
       assert.equal(await page.getByLabel('Defect Title', { exact: false }).inputValue(), 'Reviewed checkout failure');
+      await assertAccessibleControls(page, '.workspace-master-detail-panel');
       assert.equal(await page.evaluate(() => window.calls.all.some(call => call.path === 'issues.create')), false, 'Acceptance only populates the human-reviewed form');
       await page.getByRole('button',{name:'Close Report Defect',exact:true}).click();
       await page.locator('.issue-catalog-card').first().click();

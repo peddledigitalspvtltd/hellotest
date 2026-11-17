@@ -28,6 +28,21 @@ test('authoring admission errors preserve their safe activity receipt through th
     && error.details.activity_id === 'activity' && error.details.operation === 'recording');
 });
 
+test('synchronous authoring responses retain confirmed processing and structured recovery through the real client', async () => {
+  const view = fixture();
+  const processing = { schema_version: 1, active_stage_id: 'review', completed_stage_count: 6, total_stage_count: 7, stages: [] };
+  const success = view.request('/test-cases/ai-authoring-preview', { method: 'POST', body: '{}' });
+  view.requests[0].reply({ case: { title: 'Reviewed proposal' }, processing });
+  assert.deepEqual((await success).processing, processing);
+  const failed = view.request('/test-cases/ai-authoring-preview', { method: 'POST', body: '{}' });
+  const stopped = { ...processing, active_stage_id: 'specialist', completed_stage_count: 3, status: 'failed' };
+  view.requests[1].respond(Response.json({ code: 'LLM_QUOTA_EXCEEDED', message: 'Provider quota is exhausted.',
+    processing: stopped, failure: { code: 'LLM_QUOTA_EXCEEDED', stage_id: 'specialist', retry_after_seconds: 13, retry_at: '2026-11-17T10:00:13Z' } },
+  { status: 429, headers: { 'Retry-After': '13' } }));
+  await assert.rejects(failed, error => error.code === 'LLM_QUOTA_EXCEEDED' && error.failure.stage_id === 'specialist'
+    && error.processing.active_stage_id === 'specialist' && error.failure.retry_after_seconds === 13 && error.retryAfterSeconds === 13);
+});
+
 test('reads completing before or after a mutation cannot restore stale values or pending requests', async () => {
   const view = fixture();
   const old = view.request('/items');

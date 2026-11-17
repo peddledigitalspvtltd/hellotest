@@ -3,6 +3,23 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const {createRequire}=require('node:module');
 const catalog=require('../../shared/aiFeatureCatalog.json');
+
+test('compact grooming output guidance upgrades stock defaults and preserves reviewed publications and complete schema', async () => {
+ const item=catalog.find(value=>value.id==='ai.requirement.grooming'),key='requirementWorkspace.buildGroomingPrompt.12';
+ const stock=structuredClone(item.defaults);stock.instruction_blocks[key]=item.instruction_default_migrations[key].at(-1);
+ const detail=await service({[item.id]:{revision:9,published:{version:6,config:stock},draft:{config:stock}}}).detail(item.id);
+ for(const config of [detail.config,detail.draft.config]) {
+  assert.equal(config.instruction_blocks[key],item.defaults.instruction_blocks[key]);
+  assert.match(config.instruction_blocks[key],/compact JSON/);assert.match(config.instruction_blocks[key],/all nine readiness checks/);
+  assert.match(config.instruction_blocks[key],/at most 3/);assert.match(config.instruction_blocks[key],/does not apply.*readiness checks.*evidence_refs/);
+  assert.equal(config.instruction_blocks['requirementWorkspace.buildGroomingPrompt.44'],stock.instruction_blocks['requirementWorkspace.buildGroomingPrompt.44']);
+  assert.equal(config.max_output_tokens,6144);
+ }
+ const custom=structuredClone(stock);custom.instruction_blocks[key]='Reviewed response style: retain our explicit source-grounded details.  ';
+ const reviewed=await service({[item.id]:{published:{version:7,config:custom},draft:{config:custom}}}).detail(item.id);
+ assert.equal(reviewed.config.instruction_blocks[key],custom.instruction_blocks[key]);
+ assert.equal(reviewed.draft.config.instruction_blocks[key],custom.instruction_blocks[key]);
+});
 function service(records={},extras={}) {
  const file=require.resolve('../services/aiConfiguration.service'),local=createRequire(file),module={exports:{}};
  const db={prepare:sql=>({get:async key=>({value:records[key?.replace('ai_feature_configuration:','')]}),all:async()=>sql.includes('LIKE')?Object.entries(records).map(([id,value])=>({key:'ai_feature_configuration:'+id,value})):[]})};

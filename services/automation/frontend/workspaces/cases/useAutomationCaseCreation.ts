@@ -75,7 +75,7 @@ const applyApiSourceDraft = (result: ApiAutomationSourceResult, mode: "append" |
     setAutomationCreateSteps([...retained, ...incoming]);
     setAutomationApiSourceParameters(mode === "replace" ? result.parameter_values : { ...automationApiSourceParameters, ...result.parameter_values });
     setAutomationApiSourcePrivateNames(mode === "replace" ? result.private_parameter_names : [...new Set([...automationApiSourcePrivateNames, ...result.private_parameter_names])]);
-    setAutomationCreateMetadata(current => ({ ...current, title: current.title.trim() ? current.title : result.title, description: current.description.trim() ? current.description : result.description, automationCaseType: retained.some(step => step.step_type !== "api") || automationCreateManualCaseIds.length ? "unified" : "api" }));
+    setAutomationCreateMetadata(current => ({ ...current, title: current.title.trim() ? current.title : result.title, description: current.description.trim() ? current.description : result.description, automationCaseType: retained.some(step => step.step_type !== "api") ? "unified" : "api" }));
 };
 const closeCreateAutomation = () => {
     if (createAutomationCase.isPending)
@@ -92,6 +92,7 @@ const closeCreateAutomation = () => {
         const next = new URLSearchParams(previous);
         next.delete("create");
         next.delete("manual");
+        next.delete("editor");
         return next;
     }, { replace: true });
 };
@@ -142,7 +143,7 @@ const createAutomationCase = useMutation({
         const source = sourceCases[0];
         const preconditionGroupId = `automation-preconditions-${crypto.randomUUID()}`;
         const steps = [
-            ...seedAutomationPlan(sources, () => `automation-${crypto.randomUUID()}`),
+            ...(metadata.automationCaseType === "api" ? [] : seedAutomationPlan(sources, () => `automation-${crypto.randomUUID()}`)),
             ...authoredSteps.map((step) => ({
                 action: step.action,
                 expected_result: step.expected_result,
@@ -242,6 +243,7 @@ const createAutomationCase = useMutation({
         const next = new URLSearchParams(searchParams);
         next.delete("create");
         next.delete("manual");
+        next.delete("editor");
         next.delete("repository");
         next.delete("agent_activity");
         next.set("case", id);

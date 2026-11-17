@@ -1,3 +1,4 @@
+import { effectiveDataSummary } from "../lib/executionRunSummary";
 import { IconExternalLink } from "@tabler/icons-react";
 import type { Execution, ExecutionDataSetSnapshot } from "@hellotest/platform/frontend/src/types";
 import type { RunConfigurationResource } from "./RunConfigurationDialog";
@@ -11,6 +12,7 @@ export function RunContextLinks({ execution, dataSet, dataSetName, onOpen, appTy
   appTypeKind?: string | null;
   showTarget?: boolean;
 }) {
+  const inheritedData = effectiveDataSummary(execution);
   const environment = execution.test_environment;
   const configuration = execution.test_configuration;
   const data = dataSet || execution.test_data_set?.snapshot;
@@ -22,9 +24,9 @@ export function RunContextLinks({ execution, dataSet, dataSetName, onOpen, appTy
   const isManual = execution.run_mode === "manual" || (!execution.run_mode && execution.trigger === "manual");
   return <><div className="execution-run-config-links">
     <button disabled={!environment?.snapshot && !environment?.id} onClick={() => onOpen("environment")} type="button"><span>Environment</span><strong>{environment?.snapshot?.name || environment?.name || "Not attached"}</strong><IconExternalLink size={15} /></button>
-    <button disabled={!data && !execution.test_data_set?.id} onClick={() => onOpen("data")} type="button"><span>Test data</span><strong>{dataSetName || data?.name || execution.test_data_set?.name || "Not attached"}</strong><IconExternalLink size={15} /></button>
+    <button disabled={!data && !execution.test_data_set?.id} onClick={() => onOpen("data")} type="button"><span>{dataSet ? "Case data" : "Run override"}</span><strong>{dataSetName || data?.name || execution.test_data_set?.name || "None"}</strong><IconExternalLink size={15} /></button>
     <button disabled={!configuration?.snapshot && !configuration?.id} onClick={() => onOpen("configuration")} type="button"><span>Configuration</span><strong>{configuration?.snapshot?.name || configuration?.name || "Not attached"}</strong><IconExternalLink size={15} /></button>
-  </div>{showTarget && target ? <small className="execution-case-configuration-target">
+  </div>{!dataSet && inheritedData.length ? <p className="execution-effective-data-summary"><strong>Effective data:</strong> {inheritedData.map(item => `${item.name} · ${item.rows} row${item.rows === 1 ? "" : "s"} · ${item.cases} case${item.cases === 1 ? "" : "s"}`).join("; ")} · frozen inherited case scope</p> : null}{showTarget && target ? <small className="execution-case-configuration-target">
     {isManual ? "Manual configuration reference" : "Configured automation target"}: row {targets.indexOf(target) + 1} of {targets.length} · {[target.os, target.browser, target.mobile_os, target.version].filter(Boolean).join(" · ")}
   </small> : null}</>;
 }

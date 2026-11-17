@@ -1,3 +1,4 @@
+import {formatProjectTimeAgo, formatProjectDuration} from "../src/platform/lib/projectEvidenceFormatters";
 import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { getAssignableProjectRoles, getDefaultProjectMemberRoleId } from "../src/platform/lib/projectMemberRoles";
 import type { CSSProperties, DragEvent, ReactNode } from "react";
@@ -23,7 +24,10 @@ import {
   IconX,
   IconShieldCheck
 } from "@tabler/icons-react";
-import { toJpeg } from "html-to-image";
+import {captureProjectAttentionSnapshot} from "../src/platform/lib/projectAttentionExport";
+import {activateCreatedProjectScope} from '../src/platform/lib/createdProjectScope';
+import {ProjectQualityMetrics} from '../src/platform/components/ProjectQualityMetrics';
+import {LoadingSkeleton} from '../src/shared/components/LoadingSkeleton';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AddIcon, GithubIcon, GoogleDriveIcon, OpenIcon, PlayIcon, SelectionToggleIcon, TrashIcon } from "../src/platform/components/AppIcons";
@@ -61,7 +65,7 @@ import { TileCardSkeletonGrid } from "../src/shared/components/TileCardSkeletonG
 import { ToastMessage } from "../src/shared/components/ToastMessage";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../src/platform/components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../src/shared/components/DeleteConfirmationDialog";
-import { useCurrentAppType, useCurrentProject } from "../src/platform/hooks/useCurrentProject";
+import { setCurrentScope, useCurrentAppType, useCurrentProject } from "../src/platform/hooks/useCurrentProject";
 import { useProjectDeletions } from "../src/platform/hooks/useProjectDeletions";
 import { useDomainMetadata } from "../src/platform/hooks/useDomainMetadata";
 import { useDialogFocus } from "../src/shared/hooks/useDialogFocus";
@@ -229,7 +233,7 @@ const emptyPassCoverage: ProjectPassCoverage = {
 
 const formatPassCoverageDetail = (coverage: ProjectPassCoverage) => coverage.totalCases
   ? `${coverage.testCasePassed}/${coverage.testCaseTotal} tests passed · ${coverage.bugResolved}/${coverage.bugTotal} Defects resolved`
-  : "No finalized tests or Defects available to measure pass rate";
+  : "No finalized tests or Defects available to measure quality confidence";
 
 
 
@@ -245,149 +249,6 @@ const compactImpactEvidence = (label: string, impact: ProjectPortfolioImpact) =>
   return highlighted.length
     ? `${highlighted.join(" · ")}${remaining ? ` · ${remaining} more ${label}` : ""}`
     : `${impact.total} impacted ${label}`;
-};
-
-const waitForSnapshotPaint = () => new Promise<void>((resolve) => {
-  window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
-});
-
-async function primeProjectAttentionScroll(container: HTMLElement) {
-  const originalScrollTop = container.scrollTop;
-  const maximumScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-  const viewportStep = Math.max(240, Math.floor(container.clientHeight * 0.8));
-
-  try {
-    for (let scrollTop = 0; scrollTop < maximumScrollTop; scrollTop += viewportStep) {
-      container.scrollTop = scrollTop;
-      await waitForSnapshotPaint();
-    }
-    container.scrollTop = maximumScrollTop;
-    await waitForSnapshotPaint();
-    container.scrollTop = 0;
-    await waitForSnapshotPaint();
-  } catch (error) {
-    container.scrollTop = originalScrollTop;
-    throw error;
-  }
-
-  return () => {
-    container.scrollTop = originalScrollTop;
-  };
-}
-
-async function captureProjectAttentionSnapshot(node: HTMLElement) {
-  await document.fonts?.ready;
-  const reportBody = node.querySelector<HTMLElement>(".project-risk-evidence-body");
-  const restoreScroll = reportBody ? await primeProjectAttentionScroll(reportBody) : () => undefined;
-  node.classList.add("is-exporting-snapshot");
-  try {
-    await waitForSnapshotPaint();
-    const fragmentSelectors = [
-      ".project-risk-evidence-header",
-      ".project-risk-summary-grid",
-      ".project-risk-method",
-      ".project-risk-section-heading",
-      ".project-risk-project-card",
-      ".project-risk-empty-state"
-    ];
-    const fragments = fragmentSelectors.flatMap((selector) => Array.from(node.querySelectorAll<HTMLElement>(selector)));
-    if (!fragments.length) throw new Error("Portfolio attention report has no rendered content to export.");
-    const reportWidth = Math.max(760, Math.ceil(node.getBoundingClientRect().width || node.scrollWidth));
-    const renderedPages: string[] = [];
-    for (const fragment of fragments) {
-      await waitForSnapshotPaint();
-      const height = Math.max(1, Math.ceil(fragment.scrollHeight || fragment.getBoundingClientRect().height));
-      const width = Math.max(1, reportWidth);
-      const maximumCanvasPixels = 4_000_000;
-      const captureScale = Math.min(
-        window.devicePixelRatio || 1,
-        1.35,
-        Math.sqrt(maximumCanvasPixels / Math.max(1, width * height)),
-        12_000 / width,
-        12_000 / height
-      );
-      const dataUrl = await toJpeg(fragment, {
-        backgroundColor: window.getComputedStyle(fragment).backgroundColor || "#f7f9ff",
-        cacheBust: true,
-        canvasHeight: Math.max(1, Math.floor(height * captureScale)),
-        canvasWidth: Math.max(1, Math.floor(width * captureScale)),
-        filter: (candidate) => !(candidate instanceof HTMLElement) || !candidate.matches(".dialog-close-button, .metric-methodology-info, .project-risk-open-button"),
-        height,
-        pixelRatio: 1,
-        preferredFontFormat: "woff2",
-        quality: 0.86,
-        style: { boxSizing: "border-box", height: `${height}px`, margin: "0", overflow: "visible", width: `${width}px` },
-        width
-      });
-      if (!dataUrl.startsWith("data:image/jpeg")) throw new Error("Portfolio attention report page could not be encoded.");
-      renderedPages.push(dataUrl);
-    }
-    return {
-      rendered_snapshot_pages_data_urls: renderedPages,
-      rendered_snapshot_name: "Projects needing attention",
-      rendered_snapshot_captured_at: new Date().toISOString()
-    };
-  } finally {
-    node.classList.remove("is-exporting-snapshot");
-    restoreScroll();
-  }
-}
-
-const formatProjectTimeAgo = (value?: string | null) => {
-  if (!value) {
-    return "No run yet";
-  }
-
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) {
-    return "Not recorded";
-  }
-
-  const diffMs = Date.now() - timestamp;
-  const absMs = Math.abs(diffMs);
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-
-  if (absMs < minute) {
-    return "Just now";
-  }
-
-  if (absMs < hour) {
-    const minutes = Math.round(absMs / minute);
-    return `${minutes}m ago`;
-  }
-
-  if (absMs < day) {
-    const hours = Math.round(absMs / hour);
-    return `${hours}h ago`;
-  }
-
-  const days = Math.round(absMs / day);
-  return `${days}d ago`;
-};
-
-const formatProjectDuration = (execution?: Execution | null) => {
-  if (!execution?.started_at || !execution.ended_at) {
-    return "Not recorded";
-  }
-
-  const startedAt = new Date(execution.started_at).getTime();
-  const endedAt = new Date(execution.ended_at).getTime();
-  const durationMs = endedAt - startedAt;
-
-  if (!Number.isFinite(durationMs) || durationMs <= 0) {
-    return "Not recorded";
-  }
-
-  const minutes = Math.round(durationMs / 60000);
-  if (minutes < 60) {
-    return `${minutes}m`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 };
 
 const resolveProjectHealth = ({
@@ -602,7 +463,7 @@ export function ProjectsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
-  const { session } = useAuth();
+  const { session, refreshSession } = useAuth();
   const [selectedProjectId, setSelectedProjectId] = useCurrentProject();
   const { getMetricCriteria } = useAiPromptRegistry();
   const hasJiraAdministration = session?.user.role === "admin";
@@ -1624,7 +1485,13 @@ export function ProjectsPage() {
         };
         return [...asArray(current).filter((project) => project.id !== response.id), createdProject];
       });
-      setSelectedProjectId(response.id);
+      try {
+        await refreshSession();
+        const activated = await activateCreatedProjectScope({projectId: response.id,
+          loadScopes: () => api.metadata.workspaceScopes({fresh: true}), loadApps: id => api.appTypes.list({project_id: id}),
+          cacheScopes: snapshot => queryClient.setQueriesData({predicate: query => query.queryKey.includes('workspace-scopes')}, snapshot), activate: setCurrentScope});
+        if (!activated) { setMessageTone('error'); setMessage(current => `${current} Project access is still being prepared. Open it after access is available.`); }
+      } catch { setMessageTone('error'); setMessage(current => `${current} The project was saved; workspace scope could not be refreshed. Reload before continuing.`); }
       setFocusedProjectId(response.id);
       setIsCreateModalOpen(false);
       setExpandedProjectAppTypeId("");
@@ -2842,7 +2709,7 @@ export function ProjectsPage() {
                       onClick={() => openProjectSection("applications")}
                       type="button"
                     >
-                      <strong>{selectedProjectAppTypeCount}</strong>
+                      <strong>{selectedPortfolioMetric ? selectedProjectAppTypeCount : "—"}</strong>
                       <span>Applications</span>
                       <span className="metric-evidence-hint">Open evidence</span>
                     </button>
@@ -2863,7 +2730,7 @@ export function ProjectsPage() {
                       type="button"
                     >
                       <strong>{selectedPortfolioMetric ? selectedProjectTestCaseCount : "—"}</strong>
-                      <span>Test cases</span>
+                      <span>Test cases · {selectedPortfolioMetric?.counts.manual_cases ?? "—"} manual · {selectedPortfolioMetric?.counts.automation_cases ?? "—"} automation</span>
                       <span className="metric-evidence-hint">Open evidence</span>
                     </button>
                     <button
@@ -2876,21 +2743,8 @@ export function ProjectsPage() {
                       <span>Total Defects</span>
                       <span className="metric-evidence-hint">Open evidence</span>
                     </button>
-                    <button
-                      aria-label={`Open execution results for ${focusedProject.name}`}
-                      className="mini-card project-metric-link-card metric-ribbon-card metric-evidence-trigger"
-                      onClick={() => openProjectWorkspacePage("/executions")}
-                      type="button"
-                    >
-                      <strong>{selectedPortfolioMetric ? `${selectedProjectPassCoverage.coveragePercent}%` : "—"}</strong>
-                      <span>
-                        {selectedProjectPassCoverage.totalCases
-                          ? `Pass rate · ${formatPassCoverageDetail(selectedProjectPassCoverage)}`
-                          : "Pass rate"}
-                      </span>
-                      <span className="metric-evidence-hint">Open evidence</span>
-                    </button>
                   </div>
+                  <ProjectQualityMetrics coverage={selectedProjectPassCoverage} ready={Boolean(selectedPortfolioMetric)} onInspect={() => openProjectWorkspacePage("/executions")} />
                   <div className="action-row">
                     {canSyncProjects ? (<button
                       className="ghost-button"
@@ -3059,7 +2913,7 @@ export function ProjectsPage() {
                   );
                 })}
               </div>
-              {!scopedMembers.length ? <div className="empty-state compact">No members assigned yet.</div> : null}
+              {projectMembers.isPending ? <LoadingSkeleton label="Loading project members" count={2} /> : !scopedMembers.length ? <div className="empty-state compact">No members assigned yet.</div> : null}
               </Panel>
             ) : null}
 
@@ -3120,7 +2974,7 @@ export function ProjectsPage() {
                   </article>
                 ))}
               </div>
-              {!scopedAppTypes.length ? <div className="empty-state compact">No applications defined yet.</div> : null}
+              {appTypes.isPending ? <LoadingSkeleton label="Loading project applications" count={2} /> : !scopedAppTypes.length ? <div className="empty-state compact">No applications defined yet.</div> : null}
               </Panel>
             ) : null}
           </div>
@@ -3226,7 +3080,7 @@ export function ProjectsPage() {
                 </summary>
                 <div className="project-risk-method-body">
                     <p>
-                      Readiness weights Story coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.story_weight ?? 35)}%, automation coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.automation_weight ?? 25)}%, and the combined finalized Test Case and Defect pass rate at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.pass_weight ?? 40)}%.
+                      Readiness weights Story coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.story_weight ?? 35)}%, automation coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.automation_weight ?? 25)}%, and the combined finalized Test Case and Defect quality confidence at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.pass_weight ?? 40)}%.
                       Evidence policy requires {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.execution_evidence"]?.minimum_coverage_percent ?? 80)}% latest-run evidence coverage.
                     </p>
                 <dl>
@@ -3392,12 +3246,127 @@ export function ProjectsPage() {
 
             <form className="project-create-modal-form" id="create-project-form" onSubmit={handleProjectCreate}>
               <div className="project-create-modal-body">
+                <section aria-labelledby="project-create-details-title" className="project-create-section project-create-general-section">
+                  <h3 className="project-create-step-title" id="project-create-details-title">
+                    <span aria-hidden="true" className="project-create-step-number is-primary">1</span>
+                    <span>Project Details</span>
+                  </h3>
+                  <div className="project-create-general-card">
+                    <FormField label="Project name" inputId="project-name-input" required>
+                      <input
+                        autoComplete="organization"
+                        autoFocus
+                        data-autofocus="true"
+                        id="project-name-input"
+                        onChange={(event) => updateProjectDraft({ name: event.target.value })}
+                        placeholder="e.g. Q4 Data Pipeline Refactor"
+                        value={projectDraft.name}
+                      />
+                    </FormField>
+                    <FormField label="Description" inputId="project-description-input">
+                      <RichTextEditor
+                        aria-label="Project description"
+                        appearance="canonical"
+                        id="project-description-input"
+                        onAttachmentRequest={() => projectAttachmentInputRef.current?.click()}
+                        onChange={(description) => updateProjectDraft({ description })}
+                        placeholder="Briefly describe the goals and scope of this project..."
+                        rows={3}
+                        value={projectDraft.description}
+                      />
+                    </FormField>
+                    <FormField label="Project type" inputId="project-visibility-input" required>
+                      <select
+                        id="project-visibility-input"
+                        onChange={(event) => updateProjectDraft({
+                          visibility: event.target.value as ProjectCreateDraft["visibility"],
+                          ...(event.target.value === "private" ? { memberIds: [], memberRoleIds: {} } : {})
+                        })}
+                        value={projectDraft.visibility}
+                      >
+                        <option value="private">Private — only you</option>
+                        <option value="public">Public — invite workspace users</option>
+                      </select>
+                      <span className="project-visibility-help">
+                        {projectDraft.visibility === "private"
+                          ? "Creator-only access. Choose Public when this project needs collaborators."
+                          : "Choose the workspace users who should receive project access."}
+                      </span>
+                    </FormField>
+                    <section aria-labelledby="project-create-attachments-title" className="project-create-attachments-section">
+                      <div className="project-create-attachments-heading">
+                        <div>
+                          <span className="project-create-attachments-icon"><IconPaperclip aria-hidden="true" size={16} stroke={2.1} /></span>
+                          <span>
+                            <strong id="project-create-attachments-title">Attachments</strong>
+                            <small>{projectDraft.attachments.length}/{MAX_PROJECT_ATTACHMENTS} files · gzip compressed on upload</small>
+                          </span>
+                        </div>
+                        {canCreateAttachments ? (<button
+                          className="project-create-attachment-browse"
+                          disabled={!canCreateAttachments || projectAttachmentMetaQuery.data?.enabled === false}
+                          onClick={() => projectAttachmentInputRef.current?.click()}
+                          type="button"
+                        >
+                          <IconUpload aria-hidden="true" size={15} stroke={2} />
+                          <span>Add files</span>
+                        </button>) : null}
+                      </div>
+                      <input
+                        hidden
+                        multiple
+                        onChange={(event) => event.target.files && stageProjectAttachments(event.target.files)}
+                        ref={projectAttachmentInputRef}
+                        type="file"
+                      />
+                      <div
+                        className={isProjectAttachmentDragging ? "project-create-attachment-dropzone is-dragging" : "project-create-attachment-dropzone"}
+                        onDragEnter={(event) => { event.preventDefault(); setIsProjectAttachmentDragging(true); }}
+                        onDragLeave={(event) => {
+                          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsProjectAttachmentDragging(false);
+                        }}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={handleProjectAttachmentDrop}
+                      >
+                        {projectDraft.attachments.length ? (
+                          <ul className="project-create-attachment-list">
+                            {projectDraft.attachments.map((file) => (
+                              <li key={`${file.name}:${file.size}:${file.lastModified}`}>
+                                <span className="project-create-attachment-file-icon"><IconPaperclip aria-hidden="true" size={14} stroke={2} /></span>
+                                <span className="project-create-attachment-file-copy">
+                                  <strong title={file.name}>{file.name}</strong>
+                                  <small>{formatProjectAttachmentBytes(file.size)} · ready to compress</small>
+                                </span>
+                                <button aria-label={`Remove ${file.name}`} onClick={() => removeProjectAttachment(file)} type="button">
+                                  <IconX aria-hidden="true" size={15} stroke={2} />
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          (canCreateAttachments ? (<button
+                            className="project-create-attachment-empty"
+                            disabled={!canCreateAttachments || projectAttachmentMetaQuery.data?.enabled === false}
+                            onClick={() => projectAttachmentInputRef.current?.click()}
+                            type="button"
+                          >
+                            <IconUpload aria-hidden="true" size={18} stroke={1.9} />
+                            <span>Drop project files here or browse</span>
+                          </button>) : null)
+                        )}
+                      </div>
+                      {projectAttachmentMetaQuery.error ? (
+                        <span className="project-create-attachment-error">Unable to verify attachment storage. Files can be retried from Project Details.</span>
+                      ) : null}
+                    </section>
+                  </div>
+                </section>
                 <div className="project-create-left-column">
                 <section aria-labelledby="project-app-configurations-title" className="project-create-section project-create-app-section">
                   <div className="project-create-section-head">
                     <div>
                       <h3 className="project-create-step-title" id="project-app-configurations-title">
-                        <span aria-hidden="true" className="project-create-step-number">1</span>
+                        <span aria-hidden="true" className="project-create-step-number">2</span>
                         <span>Applications</span>
                       </h3>
                       <p>Define the applications involved in this project to set up appropriate test environments.</p>
@@ -3421,7 +3390,7 @@ export function ProjectsPage() {
                             <strong>{appType.name.trim() || `App ${index + 1}`}</strong>
                             <span>{appTypeDropdownOptions.find((option) => option.value === appType.type)?.label || appType.type || "Platform"}</span>
                           </span>
-                          <span className="project-app-type-status">{appType.name.trim() ? "Added" : "Editing"}</span>
+                          <span className="project-app-type-status">{appType.name.trim() ? "Added" : "New application"}</span>
                           <button
                             aria-label={`Remove app ${index + 1}`}
                             className="project-app-type-remove-button"
@@ -3467,7 +3436,7 @@ export function ProjectsPage() {
                             onClick={() => setExpandedProjectAppTypeId("")}
                             type="button"
                           >
-                            Save Changes
+                            Add application
                           </button>
                         </div>
                         </div>
@@ -3483,7 +3452,7 @@ export function ProjectsPage() {
                 <section aria-labelledby="project-members-title" className="project-create-section project-create-members-section">
                   <div className="project-create-section-head">
                     <h3 className="project-create-step-title" id="project-members-title">
-                      <span aria-hidden="true" className="project-create-step-number">2</span>
+                      <span aria-hidden="true" className="project-create-step-number">3</span>
                       <span>Project Members</span>
                     </h3>
                   </div>
@@ -3597,121 +3566,7 @@ export function ProjectsPage() {
                 </section>
                 </div>
 
-                <section aria-labelledby="project-create-details-title" className="project-create-section project-create-general-section">
-                  <h3 className="project-create-step-title" id="project-create-details-title">
-                    <span aria-hidden="true" className="project-create-step-number is-primary">3</span>
-                    <span>Project Details</span>
-                  </h3>
-                  <div className="project-create-general-card">
-                    <FormField label="Project name" inputId="project-name-input" required>
-                      <input
-                        autoComplete="organization"
-                        autoFocus
-                        data-autofocus="true"
-                        id="project-name-input"
-                        onChange={(event) => updateProjectDraft({ name: event.target.value })}
-                        placeholder="e.g. Q4 Data Pipeline Refactor"
-                        value={projectDraft.name}
-                      />
-                    </FormField>
-                    <FormField label="Description" inputId="project-description-input">
-                      <RichTextEditor
-                        aria-label="Project description"
-                        appearance="canonical"
-                        id="project-description-input"
-                        onAttachmentRequest={() => projectAttachmentInputRef.current?.click()}
-                        onChange={(description) => updateProjectDraft({ description })}
-                        placeholder="Briefly describe the goals and scope of this project..."
-                        rows={3}
-                        value={projectDraft.description}
-                      />
-                    </FormField>
-                    <FormField label="Project type" inputId="project-visibility-input" required>
-                      <select
-                        id="project-visibility-input"
-                        onChange={(event) => updateProjectDraft({
-                          visibility: event.target.value as ProjectCreateDraft["visibility"],
-                          ...(event.target.value === "private" ? { memberIds: [], memberRoleIds: {} } : {})
-                        })}
-                        value={projectDraft.visibility}
-                      >
-                        <option value="private">Private — only you</option>
-                        <option value="public">Public — invite workspace users</option>
-                      </select>
-                      <span className="project-visibility-help">
-                        {projectDraft.visibility === "private"
-                          ? "Creator-only access. Choose Public when this project needs collaborators."
-                          : "Choose the workspace users who should receive project access."}
-                      </span>
-                    </FormField>
-                    <section aria-labelledby="project-create-attachments-title" className="project-create-attachments-section">
-                      <div className="project-create-attachments-heading">
-                        <div>
-                          <span className="project-create-attachments-icon"><IconPaperclip aria-hidden="true" size={16} stroke={2.1} /></span>
-                          <span>
-                            <strong id="project-create-attachments-title">Attachments</strong>
-                            <small>{projectDraft.attachments.length}/{MAX_PROJECT_ATTACHMENTS} files · gzip compressed on upload</small>
-                          </span>
-                        </div>
-                        {canCreateAttachments ? (<button
-                          className="project-create-attachment-browse"
-                          disabled={!canCreateAttachments || projectAttachmentMetaQuery.data?.enabled === false}
-                          onClick={() => projectAttachmentInputRef.current?.click()}
-                          type="button"
-                        >
-                          <IconUpload aria-hidden="true" size={15} stroke={2} />
-                          <span>Add files</span>
-                        </button>) : null}
-                      </div>
-                      <input
-                        hidden
-                        multiple
-                        onChange={(event) => event.target.files && stageProjectAttachments(event.target.files)}
-                        ref={projectAttachmentInputRef}
-                        type="file"
-                      />
-                      <div
-                        className={isProjectAttachmentDragging ? "project-create-attachment-dropzone is-dragging" : "project-create-attachment-dropzone"}
-                        onDragEnter={(event) => { event.preventDefault(); setIsProjectAttachmentDragging(true); }}
-                        onDragLeave={(event) => {
-                          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsProjectAttachmentDragging(false);
-                        }}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={handleProjectAttachmentDrop}
-                      >
-                        {projectDraft.attachments.length ? (
-                          <ul className="project-create-attachment-list">
-                            {projectDraft.attachments.map((file) => (
-                              <li key={`${file.name}:${file.size}:${file.lastModified}`}>
-                                <span className="project-create-attachment-file-icon"><IconPaperclip aria-hidden="true" size={14} stroke={2} /></span>
-                                <span className="project-create-attachment-file-copy">
-                                  <strong title={file.name}>{file.name}</strong>
-                                  <small>{formatProjectAttachmentBytes(file.size)} · ready to compress</small>
-                                </span>
-                                <button aria-label={`Remove ${file.name}`} onClick={() => removeProjectAttachment(file)} type="button">
-                                  <IconX aria-hidden="true" size={15} stroke={2} />
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          (canCreateAttachments ? (<button
-                            className="project-create-attachment-empty"
-                            disabled={!canCreateAttachments || projectAttachmentMetaQuery.data?.enabled === false}
-                            onClick={() => projectAttachmentInputRef.current?.click()}
-                            type="button"
-                          >
-                            <IconUpload aria-hidden="true" size={18} stroke={1.9} />
-                            <span>Drop project files here or browse</span>
-                          </button>) : null)
-                        )}
-                      </div>
-                      {projectAttachmentMetaQuery.error ? (
-                        <span className="project-create-attachment-error">Unable to verify attachment storage. Files can be retried from Project Details.</span>
-                      ) : null}
-                    </section>
-                  </div>
-                </section>
+
               </div>
             </form>
 

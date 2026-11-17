@@ -12,7 +12,9 @@ test("workspace user routes expose authenticated CRUD with plain-password setup"
   ]);
 
   assert.match(routes, /fastify\.post\("\/users", \{ preHandler: \[fastify\.authenticate\] \}/);
-  assert.match(routes, /password: \{ required: true, type: "string", minLength: 6, maxLength: 128 \}/);
+  assert.match(routes, /password: \{ required: true, type: "string", minLength: policy.newPasswordMinLength, maxLength: policy.passwordMaxLength \}/);
+  const policy=require('../services/authPolicy.service').policy;
+  assert.equal(policy.newPasswordMinLength,10);assert.equal(policy.passwordMaxLength,128);
   assert.match(routes, /fastify\.delete\("\/users\/:id", \{ preHandler: \[fastify\.authenticate\] \}/);
   assert.match(service, /password \? await hashPasswordAsync\(password\) : password_hash/);
   assert.match(service, /default_role_id/);

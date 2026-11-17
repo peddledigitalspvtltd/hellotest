@@ -31,11 +31,11 @@ test('Sprint health uses authoritative scope counts and separate QA, coverage an
   assert.equal(view.count, 120);
   assert.equal(metrics['QA Story Completion'].value, '25%');
   assert.equal(metrics['Test Coverage'].value, '75%');
-  assert.equal(metrics['Pass Rate'].value, '80%');
+  assert.equal(metrics['Scoped catalog case pass'].value, '80%');
   assert.equal(metrics['Defect Density'].value, '0.13');
   assert.equal(metrics['At Risk'].value, 6);
   assert.match(metrics['QA Story Completion'].detail, /30 of 120.*QA Done or Done/);
-  assert.match(metrics['Pass Rate'].detail, /80 of 100 distinct linked Test Cases/);
+  assert.match(metrics['Scoped catalog case pass'].detail, /80 of 100 distinct linked Test Cases/);
   assert.match(metrics['At Risk'].methodology, /slipped.*blocked.*Critical\/High priority without linked test coverage/);
   assert.match(view.summary, /current catalog filters, across all pages/);
 });
@@ -58,7 +58,7 @@ test('partial Story evidence exposes observed minimums without deriving ratios f
   const metrics = cards(view);
   assert.equal(view.count, '≥25');
   assert.equal(view.countLabel, 'Stories Seen');
-  for (const name of ['QA Story Completion', 'Test Coverage', 'Pass Rate', 'Defect Density', 'At Risk']) {
+  for (const name of ['QA Story Completion', 'Test Coverage', 'Scoped catalog case pass', 'Defect Density', 'At Risk']) {
     assert.equal(metrics[name].value, '—', name);
   }
   assert.match(metrics['Stories'].detail, /25 Stories observed/);
@@ -77,10 +77,10 @@ test('result permission restrictions keep Story totals exact while execution met
   const metrics = cards(view);
   assert.equal(view.count, 120);
   assert.equal(metrics['QA Story Completion'].value, '25%');
-  assert.equal(metrics['Pass Rate'].value, '—');
+  assert.equal(metrics['Scoped catalog case pass'].value, '—');
   assert.equal(metrics['Executed Test Cases'].value, '—');
-  assert.match(metrics['Pass Rate'].detail, /execution evidence is unavailable/);
-  assert.doesNotMatch(metrics['Pass Rate'].detail, /null|undefined|NaN/);
+  assert.match(metrics['Scoped catalog case pass'].detail, /execution evidence is unavailable/);
+  assert.doesNotMatch(metrics['Scoped catalog case pass'].detail, /null|undefined|NaN/);
 });
 
 test('empty Sprint and no-run scope distinguish absent denominators from zero performance', () => {
@@ -92,9 +92,9 @@ test('empty Sprint and no-run scope distinguish absent denominators from zero pe
   assert.equal(empty['QA Story Completion'].value, 'N/A');
   assert.equal(empty['Test Coverage'].value, 'N/A');
   assert.equal(empty['Defect Density'].value, 'N/A');
-  assert.equal(empty['Pass Rate'].value, 'No Runs');
+  assert.equal(empty['Scoped catalog case pass'].value, 'No Runs');
   assert.equal(empty['Executed Test Cases'].value, 0);
   const noRuns = cards(sprintHealthMetrics(scope({ executed_linked_cases: 0, passed_cases: 0, pass_percent: 0 })));
   assert.equal(noRuns['QA Story Completion'].value, '25%');
-  assert.equal(noRuns['Pass Rate'].value, 'No Runs');
+  assert.equal(noRuns['Scoped catalog case pass'].value, 'No Runs');
 });

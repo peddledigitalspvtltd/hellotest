@@ -1,3 +1,4 @@
+const lifecycle = require("./generationLifecycle");
 const db = require("@hellotest/platform/backend/src/db");
 const aiLlmSelectionService = require("@hellotest/integration/backend/services/aiLlmSelection.service");
 const {normalizeReferenceList} = require("@hellotest/platform/backend/src/utils/externalReferences");
@@ -5,7 +6,7 @@ const {normalizeReferenceImages} = require('@hellotest/platform/backend/src/util
 const {requireAiAssessment} = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const {BUG_DRAFT_USAGE_KEY,DRAFT_FIELDS,normalizeText,normalizeImageAssets,normalizeExternalLinks,unique,loadEvidence,buildEvidenceSources,buildPromptContextSnapshot,deterministicDraft,normalizeCandidate,requestLlmDraft,hasWrittenIncident,buildProcessingSnapshot,fingerprint,extractLabeledSection,extractHeadedSection,BUG_DRAFT_CONTEXT_LIMITS} = require('./bugDraftGrounding');
 
-exports.preview = async ({ user, project_id, intent, evidence, additional_context, external_links, reference_photos, linked_test_run_id, linked_execution_result_id, linked_test_case_ids, linked_test_suite_ids, linked_module_ids, linked_requirement_ids, integration_id, prompt_guidance, require_case_context = false } = {}) => {
+const preview = async ({ onProgress, user, project_id, intent, evidence, additional_context, external_links, reference_photos, linked_test_run_id, linked_execution_result_id, linked_test_case_ids, linked_test_suite_ids, linked_module_ids, linked_requirement_ids, integration_id, prompt_guidance, require_case_context = false } = {}) => {
   const projectId = normalizeText(project_id, 255);
   const normalizedIntent = normalizeText(intent, 4_000);
   if (!projectId) throw Object.assign(new Error("project_id is required"), { statusCode: 400 });
@@ -29,6 +30,7 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
     linked_requirement_ids: unique(normalizeReferenceList(linked_requirement_ids)),
     prompt_guidance: normalizeText(prompt_guidance, 4_000)
   };
+  await onProgress("context", "Loading permission-scoped incident and execution evidence.");
   const rawContext = await loadEvidence({
     user,
     projectId,
@@ -70,6 +72,7 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
       partial_sources: Object.values(rawContext.boundaries.omitted).some((count) => count > 0) || promptContext.partial_sources
     }
   };
+  await onProgress("guardrails", "Evidence boundaries and permitted source references were checked.");
   const deterministic = deterministicDraft({ input, context, evidenceSources });
   let normalized = { ...deterministic, fallback_fields: [...DRAFT_FIELDS] };
   let integration = null;
@@ -80,6 +83,7 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
     if (integration) {
       let candidate, restoredFields = [];
       try {
+        await onProgress("specialist", "The configured model is drafting the evidence-grounded Defect proposal.");
         candidate = await requestLlmDraft(integration, input, context, evidenceSources, admittedImages);
       } catch (error) {
         if (error?.code !== "AI_OUTPUT_TRUNCATED") throw error;
@@ -96,6 +100,7 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
           }
         }
       }
+      await onProgress("outcome", "Checking returned fields and exact evidence references.");
       normalized = normalizeCandidate(candidate, deterministic, evidenceSources);
       normalized.fallback_fields = unique([...normalized.fallback_fields, ...restoredFields]);
     }
@@ -130,6 +135,7 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
       : "The model did not identify a Defect supported by the supplied evidence. Add an observed problem or relevant failure evidence and retry. No Defect was created.";
     throw Object.assign(new Error(message), { statusCode: 422, code: "AI_DEFECT_EVIDENCE_REQUIRED", publicMessage: message });
   }
+  await onProgress("evaluation", "Validating proposal completeness and disclosed evidence gaps.");
   try {
     requireAiAssessment({ integration, failed: Boolean(providerError), accepted: normalized.fallback_fields.length < DRAFT_FIELDS.length });
   } catch (error) {
@@ -156,6 +162,7 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
     fallbackFields: normalized.fallback_fields,
     partialSources: context.boundaries.partial_sources
   });
+  await onProgress("review", "The validated proposal is ready for explicit human review.");
   const fallbackUsed = generationMode !== "llm";
   return {
     draft: {
@@ -193,6 +200,8 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
     }
   };
 };
+
+exports.preview = lifecycle.withLifecycle("defect", preview, { snapshotProgress: true });
 
 exports._private = {
   BUG_DRAFT_USAGE_KEY,

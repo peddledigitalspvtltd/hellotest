@@ -13,7 +13,9 @@
       "validation": [
         "services/automation/test/frontend/automationEditorContracts.test.mjs"
       ],
-      "max_lines": 3034
+      "max_lines": 3034,
+      "baseline_ref": "HEAD",
+      "baseline_lines": 3034
     },
     "services/automation/backend/services/testEngineDispatch.service.js": {
       "owner": "automation",
@@ -27,7 +29,9 @@
         "services/automation/test/backend/queuedExecutionLifecycle.test.js",
         "services/automation/test/backend/queuedTelemetryCommit.test.js"
       ],
-      "max_lines": 1607
+      "max_lines": 1607,
+      "baseline_ref": "HEAD",
+      "baseline_lines": 1607
     },
     "services/agentic/frontend/pages/AgenticWorkflowsPage.tsx": {
       "owner": "workflow-ui",
@@ -40,7 +44,9 @@
       "validation": [
         "services/agentic/test/browser/workflowNativeConfiguration.test.mjs"
       ],
-      "max_lines": 1465
+      "max_lines": 1465,
+      "baseline_ref": "HEAD",
+      "baseline_lines": 1465
     },
     "services/agentic/backend/services/agenticAssistant.service.js": {
       "owner": "agent-platform",
@@ -53,7 +59,343 @@
       "validation": [
         "services/agentic/test/backend/agentOutcomeContracts.test.js"
       ],
-      "max_lines": 1415
+      "max_lines": 1415,
+      "baseline_ref": "HEAD",
+      "baseline_lines": 1415
+    },
+    "services/chatbot/backend/services/knowledgeAssistant.service.js": {
+      "owner": "chatbot-backend",
+      "rationale": "Keep authorization and persisted operation boundaries stable while separating policy, projections and orchestration.",
+      "seams": [
+        "authorization and context policy",
+        "typed persistence and query projections",
+        "operation and worker orchestration"
+      ],
+      "validation": [
+        "services/chatbot/test/backend/knowledgeAssistantTurn.postgres.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 1466,
+      "max_lines": 1466
+    },
+    "services/dashboard/frontend/components/ReleaseReadinessDashboard.tsx": {
+      "owner": "dashboard-ui",
+      "rationale": "Keep route scope and draft state stable while extracting authoring, list and health presentation seams.",
+      "seams": [
+        "route scope and query controller",
+        "authoring and editor components",
+        "list, health and evidence presentation"
+      ],
+      "validation": [
+        "services/dashboard/test/backend/qualityDashboardEvaluation.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 2050,
+      "max_lines": 2050
+    },
+    "services/integration/frontend/pages/IntegrationsPage.tsx": {
+      "owner": "integration-ui",
+      "rationale": "Keep route scope and draft state stable while extracting authoring, list and health presentation seams.",
+      "seams": [
+        "route scope and query controller",
+        "authoring and editor components",
+        "list, health and evidence presentation"
+      ],
+      "validation": [
+        "services/integration/test/backend/integrationCredentialContract.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 2739,
+      "max_lines": 2739
+    },
+    "services/knowledge/backend/services/knowledgeIngestion.service.js": {
+      "owner": "knowledge-backend",
+      "rationale": "Keep authorization and persisted operation boundaries stable while separating policy, projections and orchestration.",
+      "seams": [
+        "authorization and context policy",
+        "typed persistence and query projections",
+        "operation and worker orchestration"
+      ],
+      "validation": [
+        "services/knowledge/test/backend/knowledgeIngestionOwner.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 1892,
+      "max_lines": 1892
+    },
+    "services/manual/backend/services/requirement.service.js": {
+      "owner": "manual-backend",
+      "rationale": "Keep authorization and persisted operation boundaries stable while separating policy, projections and orchestration.",
+      "seams": [
+        "authorization and context policy",
+        "typed persistence and query projections",
+        "operation and worker orchestration"
+      ],
+      "validation": [
+        "services/manual/test/backend/requirementCatalog.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 2135,
+      "max_lines": 2130
+    },
+    "services/manual/frontend/pages/RequirementsPage.tsx": {
+      "owner": "manual-ui",
+      "rationale": "Keep route scope and draft state stable while extracting authoring, list and health presentation seams.",
+      "seams": [
+        "route scope and query controller",
+        "authoring and editor components",
+        "list, health and evidence presentation"
+      ],
+      "validation": [
+        "services/manual/test/backend/aiStoryAgenticContract.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 9764,
+      "max_lines": 9752
+    },
+    "services/platform/backend/src/db/bootstrap.js": {
+      "owner": "platform-backend",
+      "rationale": "Domain migrations remain ordered while individual schemas are extracted to owned modules.",
+      "seams": [
+        "domain schema modules",
+        "migration order and version readiness"
+      ],
+      "validation": [
+        "services/platform/test/backend/adminPortalContract.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 2637,
+      "max_lines": 2615
+    },
+    "services/platform/frontend/pages/PeoplePage.tsx": {
+      "owner": "platform-ui",
+      "rationale": "Keep route scope and draft state stable while extracting authoring, list and health presentation seams.",
+      "seams": [
+        "route scope and query controller",
+        "authoring and editor components",
+        "list, health and evidence presentation"
+      ],
+      "validation": [
+        "services/platform/test/backend/adminPortalContract.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 1504,
+      "max_lines": 1500
+    },
+    "services/platform/frontend/pages/ProjectsPage.tsx": {
+      "owner": "platform-ui",
+      "rationale": "Keep route scope and draft state stable while extracting authoring, list and health presentation seams.",
+      "seams": [
+        "route scope and query controller",
+        "authoring and editor components",
+        "list, health and evidence presentation"
+      ],
+      "validation": [
+        "services/platform/test/backend/adminPortalContract.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 3737,
+      "max_lines": 3646
+    },
+    "services/platform/frontend/src/platform/pages/TestOpsPage.tsx": {
+      "owner": "platform-ui",
+      "rationale": "Keep route scope and draft state stable while extracting authoring, list and health presentation seams.",
+      "seams": [
+        "route scope and query controller",
+        "authoring and editor components",
+        "list, health and evidence presentation"
+      ],
+      "validation": [
+        "services/platform/test/backend/adminPortalContract.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 1300,
+      "max_lines": 1300
+    },
+    "services/platform/frontend/src/types.ts": {
+      "owner": "platform-ui",
+      "rationale": "Shared domain contracts remain compatible while DTO families move to typed capability modules.",
+      "seams": [
+        "capability domain DTOs",
+        "AI evidence and lifecycle contracts",
+        "execution and resource contracts"
+      ],
+      "validation": [
+        "services/platform/test/backend/adminPortalContract.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 3950,
+      "max_lines": 3928
+    },
+    "services/testing/backend/routes/testCases.routes.js": {
+      "owner": "testing-backend",
+      "rationale": "Keep authorization and persisted operation boundaries stable while separating policy, projections and orchestration.",
+      "seams": [
+        "authorization and context policy",
+        "typed persistence and query projections",
+        "operation and worker orchestration"
+      ],
+      "validation": [
+        "services/testing/test/backend/testCaseStepIdentity.postgres.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 1715,
+      "max_lines": 1715
+    },
+    "services/testing/backend/services/execution.service.js": {
+      "owner": "testing-backend",
+      "rationale": "Keep authorization and persisted operation boundaries stable while separating policy, projections and orchestration.",
+      "seams": [
+        "authorization and context policy",
+        "typed persistence and query projections",
+        "operation and worker orchestration"
+      ],
+      "validation": [
+        "services/testing/test/backend/caseExecutionHooks.postgres.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 2774,
+      "max_lines": 2772
+    },
+    "services/testing/backend/services/executionPlanning.service.js": {
+      "owner": "testing-backend",
+      "rationale": "Keep authorization and persisted operation boundaries stable while separating policy, projections and orchestration.",
+      "seams": [
+        "authorization and context policy",
+        "typed persistence and query projections",
+        "operation and worker orchestration"
+      ],
+      "validation": [
+        "services/testing/test/backend/smartExecutionPlanningContract.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 1694,
+      "max_lines": 1694
+    },
+    "services/testing/backend/services/executionReport.service.js": {
+      "owner": "testing-backend",
+      "rationale": "Keep authorization and persisted operation boundaries stable while separating policy, projections and orchestration.",
+      "seams": [
+        "authorization and context policy",
+        "typed persistence and query projections",
+        "operation and worker orchestration"
+      ],
+      "validation": [
+        "services/testing/test/backend/automationCaseLinkContract.test.js",
+        "services/testing/test/backend/executionReportPdfLayout.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 1213,
+      "max_lines": 741
+    },
+    "services/testing/backend/services/testCase.service.js": {
+      "owner": "testing-backend",
+      "rationale": "Keep authorization and persisted operation boundaries stable while separating policy, projections and orchestration.",
+      "seams": [
+        "authorization and context policy",
+        "typed persistence and query projections",
+        "operation and worker orchestration"
+      ],
+      "validation": [
+        "services/testing/test/backend/testCaseCatalog.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 2381,
+      "max_lines": 2381
+    },
+    "services/testing/frontend/pages/DesignPage.tsx": {
+      "owner": "testing-ui",
+      "rationale": "Keep route scope and draft state stable while extracting authoring, list and health presentation seams.",
+      "seams": [
+        "route scope and query controller",
+        "authoring and editor components",
+        "list, health and evidence presentation"
+      ],
+      "validation": [
+        "services/testing/test/backend/automationCaseLinkContract.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 4310,
+      "max_lines": 4310
+    },
+    "services/testing/frontend/pages/ExecutionsPage.tsx": {
+      "owner": "testing-ui",
+      "rationale": "Keep route scope and draft state stable while extracting authoring, list and health presentation seams.",
+      "seams": [
+        "route scope and query controller",
+        "authoring and editor components",
+        "list, health and evidence presentation"
+      ],
+      "validation": [
+        "services/testing/test/backend/automationCaseLinkContract.test.js",
+        "services/testing/test/frontend/executionWorkspaceControllers.test.mjs",
+        "services/platform/frontend/test/browser/executionPageScroll.test.mjs",
+        "services/platform/frontend/test/browser/caseRunHeight.test.mjs"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 14039,
+      "max_lines": 4994
+    },
+    "services/testing/frontend/pages/IssuesPage.tsx": {
+      "owner": "testing-ui",
+      "rationale": "Keep route scope and draft state stable while extracting authoring, list and health presentation seams.",
+      "seams": [
+        "route scope and query controller",
+        "authoring and editor components",
+        "list, health and evidence presentation"
+      ],
+      "validation": [
+        "services/testing/test/backend/automationCaseLinkContract.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 3281,
+      "max_lines": 3171
+    },
+    "services/testing/frontend/pages/SharedStepsPage.tsx": {
+      "owner": "testing-ui",
+      "rationale": "Keep route scope and draft state stable while extracting authoring, list and health presentation seams.",
+      "seams": [
+        "route scope and query controller",
+        "authoring and editor components",
+        "list, health and evidence presentation"
+      ],
+      "validation": [
+        "services/testing/test/backend/automationCaseLinkContract.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 2900,
+      "max_lines": 2900
+    },
+    "services/testing/frontend/pages/TestCasesPage.tsx": {
+      "owner": "testing-ui",
+      "rationale": "Keep route scope and draft state stable while extracting authoring, list and health presentation seams.",
+      "seams": [
+        "route scope and query controller",
+        "authoring and editor components",
+        "list, health and evidence presentation"
+      ],
+      "validation": [
+        "services/testing/test/backend/testCaseStepIdentity.postgres.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 15235,
+      "max_lines": 6884
+    },
+    "services/testing/frontend/pages/TestEnvironmentPage.tsx": {
+      "owner": "testing-ui",
+      "rationale": "Keep route scope and draft state stable while extracting authoring, list and health presentation seams.",
+      "seams": [
+        "route scope and query controller",
+        "authoring and editor components",
+        "list, health and evidence presentation"
+      ],
+      "validation": [
+        "services/testing/test/backend/automationCaseLinkContract.test.js"
+      ],
+      "baseline_ref": "HEAD",
+      "baseline_lines": 3110,
+      "max_lines": 3109
     }
-  }
+  },
+  "policy": "Production JS/TS/JSX/MJS/CJS/CSS in every service is covered. Ceilings never exceed the HEAD baseline and ratchet to the smaller reviewed implementation. New files should stay at or below 1,200 lines."
 }

@@ -117,3 +117,25 @@ test('unresolved refs, unsupported binary bodies, oversized and over-budget sour
   assert.throws(()=>parse(Array.from({length:201},()=> 'curl https://api.example.test').join('\n')),/200 requests/);
   assert.throws(()=>parse('openapi: 3.0.3\npaths: &paths\n  /test: *paths'),/valid JSON or YAML/);
 });
+
+
+test('existing scoped credentials and exact JSON message checks survive import without private-value duplication', () => {
+  const result=parse(JSON.stringify({item:[{name:'Login',request:{method:'POST',url:'@r.api_base_url/auth/login',header:[{key:'Authorization',value:'Bearer @s.session_token'}],body:{mode:'raw',raw:'{"password":"@r.admin_password"}',options:{raw:{language:'json'}}}},event:[{listen:'test',script:{exec:[
+    'const body=pm.response.json(); pm.test("reject",()=>{pm.response.to.have.status(401);pm.expect(body.message).to.eql("Invalid credentials");});'
+  ]}}]}]}),{format:'postman'});
+  const request=result.steps[0].api_request;
+  assert.match(request.body,/@r.admin_password/);assert.equal(request.headers[0].value,'Bearer @s.session_token');assert.equal(request.url,'@r.api_base_url/auth/login');
+  assert.deepEqual(result.parameter_values,{});assert.deepEqual(result.private_parameter_names,[]);
+  assert.deepEqual(request.validations,[{kind:'status',expected:'401'},{kind:'json_path',target:'$.message',operator:'eq',expected:'Invalid credentials'}]);
+});
+
+test('conditional JSON assertions remain omitted with an actionable review note',()=>{
+  const result=parse(JSON.stringify({item:[{request:{url:'https://example.test'},event:[{listen:'test',script:{exec:['if(pm.response.code===200){pm.expect(pm.response.json().success).to.equal(true);}']}}]}]}),{format:'postman'});
+  assert.deepEqual(result.steps[0].api_request.validations,[]);assert.ok(result.warnings.some(item=>/literal JSON equality/.test(item)));
+});
+
+
+test('literal credential assertions are redacted while public privacy-control booleans stay intact',()=>{
+ const result=parse(JSON.stringify({item:[{request:{url:'https://example.test'},event:[{listen:'test',script:{exec:['const body=pm.response.json();pm.expect(body.accessToken).to.eql("literal-private-token");pm.expect(body.is_secret).to.equal(false);']}}]}]}),{format:'postman'});
+ assert.doesNotMatch(JSON.stringify(result),/literal-private-token/);assert.match(result.steps[0].api_request.validations[0].expected,/@t\.imported_/);assert.equal(result.steps[0].api_request.validations[1].expected,'false');
+});

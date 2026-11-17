@@ -1,9 +1,10 @@
+import { readTestingWorkspaceSource as readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = (relativePath) => readSourceFile(new URL(relativePath, import.meta.url), "utf8");
 
 test("Knowledge RAG types and API keep ingestion, retrieval, collection, and assistant contracts centralized", async () => {
   const [types, api] = await Promise.all([
@@ -204,8 +205,9 @@ test("Smart Context is reviewable, project-governed, and restricted to approved 
   assert.match(storyStudio, /child\.type === AiPromptContextPanel/);
   assert.match(storyStudio, /showPromptEditor: false/);
   assert.match(promptPanel, /<SmartContextWorkbench/);
-  assert.match(executions, /label="Change intent"[\s\S]*Smart Run Drafts/);
-  assert.doesNotMatch(executions.slice(executions.indexOf("export function ExecutionCreateModal"), executions.indexOf("function CreateExecutionScheduleModal")), /agentName="Smart Run Planner"/);
+  const runDrawer = await readSource("../../../testing/frontend/components/ExecutionCreateDrawer.tsx");
+  assert.match(runDrawer, /label="Change intent"[\s\S]*Smart Run Drafts/);
+  assert.doesNotMatch(runDrawer, /agentName="Smart Run Planner"/);
   assert.doesNotMatch(sharedSteps, /<SmartContextWorkbench/);
   assert.doesNotMatch(richText, /<SmartContextWorkbench/);
   assert.doesNotMatch(testData, /<SmartContextWorkbench/);

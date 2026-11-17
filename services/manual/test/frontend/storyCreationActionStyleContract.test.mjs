@@ -1,8 +1,9 @@
+import { readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = (relativePath) => readSourceFile(new URL(relativePath, import.meta.url), "utf8");
 
 test("Story creation and submit actions reuse the Create Project action palette", async () => {
   const [page, catalogStyles, modalStyles] = await Promise.all([

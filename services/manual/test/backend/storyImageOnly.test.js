@@ -181,7 +181,10 @@ test('Story completion retains saved criteria when a proposed replacement lacks 
 test('Story completion accepts grounded criteria and never claims to update the Story', async () => {
   const criterion = 'The CSV download preserves the visible report row order.';
   const f = completionFixture(completion({ acceptance_criteria: [...savedStory.acceptance_criteria, criterion], field_evidence: { acceptance_criteria: ['story:story-1'] }, no_changes_proposed: true }));
-  const result = await f.service.previewRequirementOptimization({ id: 'story-1', user_id: 'reviewer' });
+  const stages = [];
+  const result = await f.service.previewRequirementOptimization({ id: 'story-1', user_id: 'reviewer', onProgress: stage => stages.push(stage) });
+  assert.deepEqual(stages, ['intake', 'context', 'guardrails', 'specialist', 'outcome', 'evaluation', 'review']);
+  assert.equal(result.processing.schema_version, 1);
   assert.deepEqual(result.suggestion.acceptance_criteria, [...savedStory.acceptance_criteria, criterion]);
   assert.equal(result.suggestion.no_changes_proposed, false);
   assert.equal(result.requires_human_review, true);
@@ -214,7 +217,7 @@ test('Story completion rejects ungrounded criteria when the original Story has n
 
 test('Story completion reports a missing model before attempting a generated proposal', async () => {
   const f = completionFixture(completion(), savedStory, { integration: null });
-  await assert.rejects(f.service.previewRequirementOptimization({ id: 'story-1', user_id: 'reviewer' }), { code: 'AI_MODEL_REQUIRED', statusCode: 422 });
+  await assert.rejects(f.service.previewRequirementOptimization({ id: 'story-1', user_id: 'reviewer' }), error => error.code === 'AI_MODEL_REQUIRED' && error.statusCode === 422 && error.authoring_failure.stage_id === 'guardrails');
   assert.equal(f.calls.length, 0);
 });
 
@@ -222,6 +225,8 @@ test('Story completion preserves classified provider failures', async () => {
   const f = completionFixture(new Response('{"error":{"message":"PRIVATE_PROVIDER_RESPONSE"}}', { status: 401 }));
   await assert.rejects(f.service.previewRequirementOptimization({ id: 'story-1', user_id: 'reviewer' }), error => {
     assert.equal(error.code, 'LLM_AUTHENTICATION_FAILED');
+    assert.equal(error.authoring_failure.stage_id, 'specialist');
+    assert.equal(error.authoring_processing.active_stage_id, 'specialist');
     assert.doesNotMatch(error.publicMessage || error.message, /PRIVATE_PROVIDER_RESPONSE/);
     return true;
   });

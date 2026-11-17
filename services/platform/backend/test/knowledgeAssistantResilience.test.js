@@ -12,6 +12,28 @@ function mockModelPolicy(context) {
   context.mock.method(require('../services/metricGovernance.service'),'resolveForFeature',async()=>({instruction:'',metrics:[]}));
 }
 
+test("known truncated output permits one distinct compact correction with unchanged evidence and an accurate progress cause", async () => {
+  const contracts = require('../../../knowledge/backend/services/knowledgeContracts.service');
+  const packet = contracts.buildContextPacket({ retrievalRequest: contracts.buildRetrievalRequest({ projectId: 'project', query: 'What is missing?' }), evidence: [], authorization: { enforced: true } });
+  for (const repairSucceeds of [true, false]) {
+    const calls = [], progress = [];
+    gateway.registerAdapter('bounded-output-correction', async input => {
+      calls.push(input);
+      if (calls.length === 1 || !repairSucceeds) throw Object.assign(new Error('The answer reached the output limit.'), { code: 'MODEL_OUTPUT_TRUNCATED' });
+      return { executive_summary: 'Additional evidence is needed.', findings: [], recommendations: [], evidence_gaps: ['Supply the relevant Story.'], status: 'insufficient_context', citation_ids: [], supported_claims: [] };
+    });
+    const run = () => execution.run({ modelBudget: { max_tool_calls: 2 }, onProgress: event => progress.push(event) }, () => assistant._internals.requestGroundedAnswer({ integration: { model: 'fixture', config: { protocol: 'bounded-output-correction' } }, question: 'What is missing?', contextPacket: packet }));
+    if (repairSucceeds) assert.equal((await run()).status, 'insufficient_context');
+    else await assert.rejects(run(), { code: 'MODEL_OUTPUT_TRUNCATED' });
+    assert.equal(calls.length, 2, 'At most one output correction, without another planner or retrieval call');
+    assert.equal(calls[0].messages[1].content, calls[1].messages[1].content, 'The authorized evidence is unchanged');
+    assert.notEqual(calls[0].messages[0].content, calls[1].messages[0].content, 'The paid output correction is distinct from an identical replay');
+    assert.match(calls[1].messages[0].content, /contractRepair/);
+    assert.equal(progress.at(-1).error_code, 'MODEL_OUTPUT_TRUNCATED');
+    assert.equal(progress.at(-1).metrics.model_attempt, 2);
+  }
+});
+
 test("nested retrieval work shares ordered progress and wall time with its caller", async () => {
   const events = [];
   await execution.run({ onProgress: (event) => events.push(event) }, async () => {

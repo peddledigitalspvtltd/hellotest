@@ -1,9 +1,10 @@
+import { readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = (relativePath) => readSourceFile(new URL(relativePath, import.meta.url), "utf8");
 
 test("Defect creation and triage keep feature-specific reviews and cited evidence", async () => {
   const [issues, insightDialog, triage] = await Promise.all([
@@ -97,7 +98,10 @@ test("Defect authoring controls expose checkbox semantics, stable pane focus, co
     readSource("../src/shared/hooks/useDialogFocus.ts")
   ]);
 
-  assert.match(issues, /aria-labelledby=\{labelId\} className="impact-checkbox-list" role="group"/);
+  const impactPicker = await readSource("../../../testing/frontend/components/DefectImpactPicker.tsx");
+  assert.match(impactPicker, /aria-labelledby=\{labelId\} className="impact-checkbox-list" role="group"/);
+  assert.match(impactPicker, /type="checkbox"/);
+  assert.doesNotMatch(impactPicker, /role="listbox"/);
   assert.doesNotMatch(issues, /role="listbox"/);
   assert.match(issues, /<StoryAiStudioShell/);
   assert.match(issues, /entityLabel="Defect"/);

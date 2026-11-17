@@ -1,3 +1,4 @@
+import { assertAccessibleControls } from "./axeControls.mjs";
 // Real AppShell and ExecutionsPage with isolated API fixtures; no backend writes.
 // CHROME_EXECUTABLE=/path/to/chrome VITE_TEST_URL=http://127.0.0.1:5182 node --test test/browser/caseRunHeight.test.mjs
 import assert from "node:assert/strict";
@@ -56,11 +57,12 @@ async function assertLayout(page, label) {
 }
 
 async function assertAssistantClear(page, label) {
-  const launcher = page.getByRole("button", { name: "Open HelloTest grounded assistant", exact: true });
+  const launcher = page.getByRole("button", { name: "Ask HelloTest", exact: true });
   for (const hover of [false, true]) {
     if (hover) await launcher.hover();
     else await page.mouse.move(2, 2);
     await settle(page);
+    await assertAccessibleControls(page, ".execution-case-run-workspace");
     const result = await geometry(page);
     const assistant = result.boxes[".grounded-assistant-trigger"];
     const controls = await page.locator(".execution-case-run-footer button, .execution-case-run-navigation, .execution-case-run-references input, .execution-case-run-references textarea, .execution-case-run-references button").evaluateAll(elements => {

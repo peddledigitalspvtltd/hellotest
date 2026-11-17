@@ -29,3 +29,10 @@ test("missing inputs and empty datasets fail with actionable client errors", () 
   assert.equal(validateDataSetParameters(null, ["t.password"]), null);
   assert.doesNotThrow(() => assertDataSetValidation(null));
 });
+
+test('effective context names satisfy missing dataset columns without revealing values', () => {
+  const validation = validateDataSetParameters({mode:'table',columns:['r.email'],rows:[{'r.email':''}]}, ['r.email','r.password','r.base_url'], ['r.password','r.base_url']);
+  assert.equal(validation.valid, true);
+  assert.deepEqual(validation.missing_parameters, []);
+  assert.deepEqual(validation.fallback_parameters, ['r.base_url','r.password']);
+});

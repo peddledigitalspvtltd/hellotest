@@ -57,6 +57,36 @@ module.exports = async function (fastify) {
     });
   });
 
+  for (const [path, kind] of [["ai-groom-jobs", "grooming"], ["design-test-cases-jobs", "case-design"]]) {
+    fastify.post(`/requirements/:id/${path}`, async (req, reply) => {
+      await fastify.authenticate(req);
+      fastify.validate({
+        project_id: { required: true, type: "string", maxLength: 255 },
+        app_type_id: { required: kind === "case-design", type: "string", maxLength: 255 },
+        integration_id: { required: false, type: "string", maxLength: 255 },
+        additional_context: { required: false, type: "string", maxLength: kind === "grooming" ? 12000 : 18000 },
+        prompt_guidance: { required: false, type: "string", maxLength: 4000 },
+        proposed_change: { required: false, type: "object" },
+        authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
+        max_cases: { required: false, type: "number" },
+        external_links: { required: false, type: "array", items: "string", maxItems: 10 },
+        images: { required: false, type: "array", maxItems: 4 }
+      }, req.body || {});
+      const requirement = await service.getRequirement(req.params.id, { includeLinkedRecords: false });
+      const project = await projectService.getProject(requirement.project_id, req.user.id);
+      if (req.body.project_id !== project.id) throw Object.assign(new Error("Story does not belong to the selected project"), { statusCode: 403 });
+      await fastify.requirePermission("requirement.ai", { projectId: project.id })(req);
+      if (kind === "case-design") {
+        const app = await appTypeService.getAppType(req.body.app_type_id);
+        if (app.project_id !== project.id) throw Object.assign(new Error("Application does not belong to this project"), { statusCode: 403 });
+        if (!Number.isInteger(req.body.max_cases ?? 1) || Number(req.body.max_cases ?? 1) < 1 || Number(req.body.max_cases ?? 1) > 10) throw Object.assign(new Error("Generate between one and ten cases."), { statusCode: 422 });
+      }
+      const job = await requirementWorkspaceService.createGenerationJob({ kind, userId: req.user.id, input: { ...req.body, project_id: project.id, requirement_id: requirement.id } });
+      reply.code(202).header("Location", `/requirements/ai-create-jobs/${encodeURIComponent(job.id)}?project_id=${encodeURIComponent(project.id)}`).header("Retry-After", "2");
+      return job;
+    });
+  }
+
   fastify.post("/requirements/ai-description-rephrase", async (req) => {
     await fastify.authenticate(req);
     fastify.validate({ project_id: { required: true, type: "string" }, description: { required: false, type: "string" }, description_html: { required: false, type: "string" }, additional_context: { required: false, type: "string", maxLength: 12000 }, requirement: { required: false, type: "object" } }, req.body || {});
@@ -114,9 +144,17 @@ module.exports = async function (fastify) {
     return requirementWorkspaceService.getGenerationJob(req.params.jobId, project.id);
   });
 
+  fastify.post("/requirements/ai-create-jobs/:jobId/cancel", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string", maxLength: 255 } }, req.body || {});
+    const project = await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("requirement.ai", { projectId: project.id })(req);
+    return requirementWorkspaceService.cancelGenerationJob(req.params.jobId, project.id);
+  });
+
   fastify.get("/requirements/ai-create-jobs", async (req) => {
     await fastify.authenticate(req);
-    fastify.validate({ project_id: { required: true, type: "string", maxLength: 255 }, status: { required: false, type: "string", enum: ["queued", "running", "completed", "failed"] }, limit: { required: false, type: "string", maxLength: 3 } }, req.query || {});
+    fastify.validate({ project_id: { required: true, type: "string", maxLength: 255 }, status: { required: false, type: "string", enum: ["queued", "running", "completed", "failed", "cancelled"] }, limit: { required: false, type: "string", maxLength: 3 } }, req.query || {});
     const project = await projectService.getProject(req.query.project_id, req.user.id);
     await fastify.requirePermission("requirement.ai", { projectId: project.id })(req);
     return requirementWorkspaceService.listGenerationJobs(project.id, req.query.status, req.query.limit);

@@ -14,7 +14,7 @@ const selectedIdsSql = "SELECT value FROM jsonb_array_elements_text(?::jsonb) AS
 
 const getMappingsForSuite = db.prepare(`
   SELECT suite_test_cases.suite_id, suite_test_cases.test_case_id, suite_test_cases.sort_order
-  FROM suite_test_cases
+  FROM suite_effective_test_cases suite_test_cases
   WHERE suite_test_cases.suite_id = ?
   ORDER BY suite_test_cases.sort_order ASC, suite_test_cases.test_case_id ASC
 `);
@@ -33,7 +33,7 @@ exports.getSuiteIdsForTestCase = async (testCaseId) => {
 exports.listMappings = async ({ suite_id, test_case_id }) => {
   let query = `
     SELECT suite_test_cases.suite_id, suite_test_cases.test_case_id, suite_test_cases.sort_order
-    FROM suite_test_cases
+    FROM suite_effective_test_cases suite_test_cases
     WHERE 1=1
   `;
   const params = [];
@@ -58,7 +58,7 @@ exports.replaceMappingsForSuite = async (suiteId, testCaseIds = [], { append = f
     const suite = await db.prepare(`SELECT id, app_type_id, revision FROM test_suites WHERE id = ? FOR NO KEY UPDATE`).get(suiteId);
     if (!suite) throw new Error("Test suite not found");
     const currentRevision = assertExpectedRevision(suite.revision, expectedRevision, "Test suite");
-    const existingIds = append ? (await getMappingsForSuite.all(suiteId)).map((row) => row.test_case_id) : [];
+    const existingIds = append ? (await db.prepare("SELECT test_case_id FROM suite_test_cases WHERE suite_id=? ORDER BY sort_order,test_case_id").all(suiteId)).map((row) => row.test_case_id) : [];
     const uniqueIds = [...new Set([...existingIds, ...mappingIds(testCaseIds)])];
 
     const encodedIds = JSON.stringify(uniqueIds);

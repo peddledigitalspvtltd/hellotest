@@ -33,6 +33,8 @@ export type AiMetricFormulaParameter = {
 
 export type AiMetricCriteriaRegistryItem = {
   aliases: string[];
+  population: string;
+  unit: string;
   criteria: string;
   formula: string;
   key: string;
@@ -113,19 +115,17 @@ export function resolveAiMetricCriteriaValue(key: string, overrides?: AiMetricCr
   return overrides?.[key]?.trim() || item?.criteria || "";
 }
 
-export function findAiMetricCriteriaByLabel(label: string) {
-  const normalized = label.trim().toLowerCase();
-  if (!normalized) return null;
-  const exact = AI_METRIC_CRITERIA_REGISTRY.filter((item) =>
-    item.key.toLowerCase() === normalized || item.label.toLowerCase() === normalized
-    || item.aliases.some(alias => alias.toLowerCase() === normalized));
-  if (exact.length === 1) return exact[0];
-  if (exact.length > 1) return null;
-  const candidates = AI_METRIC_CRITERIA_REGISTRY.filter(item => item.aliases.some(alias => {
-    const value = alias.toLowerCase();
-    return normalized.includes(value) || value.includes(normalized);
-  }));
-  // A generic label such as "completion" must not silently attach a Story,
-  // dashboard or execution definition with a different denominator.
-  return candidates.length === 1 ? candidates[0] : null;
+export type MetricIdentity = { criteriaKey?: string; population?: string; unit?: string };
+
+export function resolveMetricIdentity({ criteriaKey, population, unit }: MetricIdentity) {
+  if (!criteriaKey) return null;
+  const item = AI_METRIC_CRITERIA_REGISTRY.find(candidate => candidate.key === criteriaKey);
+  if (!item || (population && population !== item.population) || (unit && unit !== item.unit)) return null;
+  return item;
+}
+
+// Compatibility name: only stable registry keys are accepted. Display text is
+// never a methodology identifier, even when its current wording happens to match.
+export function findAiMetricCriteriaByLabel(key: string) {
+  return resolveMetricIdentity({ criteriaKey: key });
 }

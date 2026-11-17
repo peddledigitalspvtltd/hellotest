@@ -527,13 +527,15 @@ exports.listWorkflows = async ({ project_id, app_type_id, status, user, limit = 
       run_counts.latest_status AS latest_run_status
     FROM agentic_workflows workflows
     LEFT JOIN (
-      SELECT workflow_id,
+      SELECT workflow_id, project_id, app_type_id,
         COUNT(*) AS run_count,
         MAX(created_at) AS latest_run_at,
-        (ARRAY_AGG(status ORDER BY created_at DESC))[1] AS latest_status
+        (ARRAY_AGG(status ORDER BY created_at DESC, id DESC))[1] AS latest_status
       FROM agentic_workflow_runs
-      GROUP BY workflow_id
+      GROUP BY workflow_id, project_id, app_type_id
     ) run_counts ON run_counts.workflow_id = workflows.id
+      AND run_counts.project_id = workflows.project_id
+      AND run_counts.app_type_id IS NOT DISTINCT FROM workflows.app_type_id
     WHERE 1 = 1
   `;
   const params = [];

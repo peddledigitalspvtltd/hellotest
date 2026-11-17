@@ -509,6 +509,8 @@ CREATE TABLE feedback (
   build TEXT,
   jira_bug_key TEXT,
   linked_test_run_id TEXT,
+  linked_execution_result_id TEXT,
+  linked_step_id TEXT,
   linked_test_case_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
   linked_test_suite_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
   linked_module_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -541,6 +543,9 @@ ALTER TABLE feedback ADD COLUMN IF NOT EXISTS environment TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS build TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS jira_bug_key TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_run_id TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_execution_result_id TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_step_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_feedback_linked_test_run_id ON feedback(linked_test_run_id) WHERE linked_test_run_id IS NOT NULL;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS project_id TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_case_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS linked_test_suite_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
@@ -660,6 +665,18 @@ CREATE TABLE auth_verification_codes (
 CREATE INDEX idx_auth_verification_codes_lookup
   ON auth_verification_codes (email, purpose, created_at DESC);
 
+CREATE TABLE auth_login_protection (
+  email TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  failure_count INTEGER NOT NULL DEFAULT 0 CHECK (failure_count >= 0),
+  last_failure_at TIMESTAMPTZ,
+  locked_until TIMESTAMPTZ,
+  last_notice_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_auth_login_protection_user ON auth_login_protection(user_id);
+CREATE INDEX idx_auth_login_protection_expiry ON auth_login_protection(updated_at) WHERE user_id IS NULL;
+
 -- =========================
 -- TEST DESIGN
 -- =========================
@@ -671,6 +688,8 @@ CREATE TABLE test_suites (
   name TEXT NOT NULL,
   parent_id TEXT,
   labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+  module_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  module_membership TEXT NOT NULL DEFAULT 'snapshot',
   revision INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (app_type_id) REFERENCES app_types(id),
@@ -965,6 +984,7 @@ CREATE TABLE execution_case_snapshots (
   test_case_id TEXT NOT NULL,
   test_case_title TEXT NOT NULL,
   test_case_description TEXT,
+  requirement_snapshots JSONB,
   external_references JSONB NOT NULL DEFAULT '[]'::jsonb,
   suite_id TEXT,
   suite_name TEXT,
@@ -1643,6 +1663,9 @@ CREATE TABLE IF NOT EXISTS ai_test_case_generation_jobs (
   processed_requirements INTEGER NOT NULL DEFAULT 0,
   generated_cases_count INTEGER NOT NULL DEFAULT 0,
   error TEXT,
+  error_code TEXT,
+  failure_payload JSONB,
+  processing_payload JSONB,
   created_by TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   started_at TIMESTAMPTZ,
@@ -1657,6 +1680,7 @@ ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS request_finger
 ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS lease_owner TEXT;
 ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ;
 ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ;
+ALTER TABLE ai_test_case_generation_jobs ADD COLUMN IF NOT EXISTS processing_payload JSONB;
 UPDATE ai_test_case_generation_jobs
 SET lease_expires_at = CURRENT_TIMESTAMP
 WHERE status = 'running' AND lease_expires_at IS NULL;
@@ -1984,10 +2008,13 @@ CREATE INDEX IF NOT EXISTS idx_user_api_keys_user_active
 CREATE TABLE IF NOT EXISTS ai_requirement_generation_jobs (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
   input_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   result_payload JSONB,
   last_error TEXT,
+  job_kind TEXT NOT NULL DEFAULT 'story',
+  error_code TEXT,
+  failure_payload JSONB,
   attempts INTEGER NOT NULL DEFAULT 0,
   lease_owner TEXT,
   lease_expires_at TIMESTAMPTZ,

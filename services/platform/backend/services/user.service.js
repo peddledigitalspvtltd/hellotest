@@ -3,6 +3,7 @@ const obsDb = require("../src/obsDb");
 const { randomUUID: uuid } = require("crypto");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { hashPasswordAsync, verifyPasswordAsync } = require("../src/utils/token");
+const {validateEmail, validateNewPassword} = require('./authPolicy.service');
 
 const normalizeEmail = (email) => {
   return email.toLowerCase().trim();
@@ -198,6 +199,8 @@ const normalizeAvatarDataUrl = (value) => {
 const isAdminRole = (role) => String(role?.name || "").trim().toLowerCase() === "admin";
 
 exports.createUser = async ({ email, password, password_hash, name, role_id }) => {
+  validateEmail(email);
+  if (password) validateNewPassword(password);
   const resolvedPasswordHash = password ? await hashPasswordAsync(password) : password_hash;
 
   if (!email || !resolvedPasswordHash || !role_id) {
@@ -247,6 +250,7 @@ exports.getUsers = async () => {
   return db.prepare(`
     SELECT users.id, users.email, users.name, users.username, users.avatar_data_url, users.auth_provider,
       users.email_verified, users.status, users.must_change_password, users.last_login_at, users.created_at,
+      COALESCE(login_protection.failure_count, 0) AS login_failed_attempts, login_protection.locked_until AS login_locked_until,
       COALESCE(representative_role.id, default_role.id) AS role_id,
       COALESCE(representative_role.name, default_role.name) AS role_name,
       CASE
@@ -263,6 +267,7 @@ exports.getUsers = async () => {
       LIMIT 1
     ) representative_role ON TRUE
     LEFT JOIN roles default_role ON default_role.id = users.default_role_id
+    LEFT JOIN auth_login_protection login_protection ON login_protection.email = LOWER(users.email)
     ORDER BY created_at DESC
   `).all();
 };
@@ -271,6 +276,7 @@ exports.getUser = async (id) => {
   const user = await db.prepare(`
     SELECT users.id, users.email, users.name, users.username, users.avatar_data_url, users.auth_provider,
       users.email_verified, users.status, users.must_change_password, users.last_login_at, users.created_at,
+      COALESCE(login_protection.failure_count, 0) AS login_failed_attempts, login_protection.locked_until AS login_locked_until,
       COALESCE(representative_role.id, default_role.id) AS role_id,
       COALESCE(representative_role.name, default_role.name) AS role_name,
       CASE
@@ -287,6 +293,7 @@ exports.getUser = async (id) => {
       LIMIT 1
     ) representative_role ON TRUE
     LEFT JOIN roles default_role ON default_role.id = users.default_role_id
+    LEFT JOIN auth_login_protection login_protection ON login_protection.email = LOWER(users.email)
     WHERE users.id = ?
   `).get(id);
 
@@ -296,6 +303,8 @@ exports.getUser = async (id) => {
 };
 
 exports.updateUser = async (id, data) => {
+  if (data.email) validateEmail(data.email);
+  if (data.password) validateNewPassword(data.password);
   if (Object.hasOwn(data, "password_hash")) {
     throw Object.assign(new Error("Password hashes cannot be supplied in profile updates."), { statusCode: 400 });
   }
@@ -373,9 +382,7 @@ exports.changeOwnPassword = async ({ id, current_password, new_password }) => {
     throw new Error("Current password and new password are required");
   }
 
-  if (new_password.length < 6) {
-    throw new Error("New password must be at least 6 characters");
-  }
+  validateNewPassword(new_password);
 
   if (new_password.length > 128) {
     throw new Error("New password must be no more than 128 characters");
@@ -552,6 +559,7 @@ const resolveImportPasswordHash = (row) => {
     throw new Error("Each imported user must include a password or password hash.");
   }
 
+  validateNewPassword(password);
   return hashPasswordAsync(password);
 };
 

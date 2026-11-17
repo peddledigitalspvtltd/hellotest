@@ -45,6 +45,8 @@ const ISSUE_SELECT_COLUMNS = `
   feedback.build,
   feedback.jira_bug_key,
   feedback.linked_test_run_id,
+  feedback.linked_execution_result_id,
+  feedback.linked_step_id,
   feedback.linked_test_case_ids,
   feedback.linked_test_suite_ids,
   feedback.linked_module_ids,
@@ -202,6 +204,7 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, regr
       expected_result: normalizeText(details.expected_result) || reproduction.expected_result
     };
   }
+  await require('./executionEvidenceProjection.service').assertOrigin({projectId:project_id,runId:details.linked_test_run_id,resultId:details.linked_execution_result_id,stepId:details.linked_step_id,testCaseIds:normalizeList(linked_test_case_ids)});
   const derivedImpact = await deriveTestCaseImpactScope({ projectId: project_id, testCaseIds: linked_test_case_ids });
   const resolvedModuleIds = normalizeList([...normalizeList(linked_module_ids), ...derivedImpact.moduleIds]);
   const resolvedRequirementIds = normalizeList([...normalizeList(linked_requirement_ids), ...derivedImpact.requirementIds]);
@@ -258,6 +261,7 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, regr
       Boolean(regression)
     );
 
+    await db.prepare("UPDATE feedback SET linked_execution_result_id=?,linked_step_id=? WHERE id=?").run(normalizeText(details.linked_execution_result_id),normalizeText(details.linked_step_id),id);
     await issueLinks.replaceManualLinks({ issueId: id, projectId: project_id, testCaseIds: linked_test_case_ids, requirementIds: resolvedRequirementIds });
     await issueHistory.record({ issueId: id, actorId, after: await exports.getIssueItem(id) });
   });
@@ -369,7 +373,7 @@ exports.getIssuePage = async (filters = {}) => {
 
 exports.getIssueMetrics = async (filters = {}) => {
   const { joins, where, params } = issueCatalogScope(filters);
-  const open = "LOWER(TRIM(COALESCE(feedback.status, 'open'))) NOT IN ('closed', 'resolved', 'done', 'accepted')";
+  const open = `NOT (${require("@hellotest/platform/backend/src/utils/defectStatus").closedDefectSql("feedback.status")})`;
   const rows = await db.prepare(`SELECT COALESCE(feedback.status, 'open') AS status,
     COUNT(*)::INTEGER AS total,
     COUNT(*) FILTER (WHERE ${open})::INTEGER AS open,
@@ -424,6 +428,9 @@ exports.updateIssue = async (id, data, { actorId } = {}) => db.transaction(async
   }
   const resolvedProjectId = data.project_id ?? existing.project_id;
   const resolvedTestCaseIds = Object.prototype.hasOwnProperty.call(data, "linked_test_case_ids") ? normalizeList(data.linked_test_case_ids) : normalizeList(existing.linked_test_case_ids);
+  const origin={...existing,...data};
+  await require('./executionEvidenceProjection.service').assertOrigin({projectId:data.project_id||existing.project_id,runId:origin.linked_test_run_id,resultId:origin.linked_execution_result_id,stepId:origin.linked_step_id,testCaseIds:resolvedTestCaseIds});
+  await db.prepare('UPDATE feedback SET linked_execution_result_id=?,linked_step_id=? WHERE id=?').run(normalizeText(origin.linked_execution_result_id),normalizeText(origin.linked_step_id),id);
   const derivedImpact = await deriveTestCaseImpactScope({ projectId: resolvedProjectId, testCaseIds: resolvedTestCaseIds });
   const resolvedModuleIds = normalizeList([
     ...(Object.prototype.hasOwnProperty.call(data, "linked_module_ids") ? normalizeList(data.linked_module_ids) : normalizeList(existing.linked_module_ids)),

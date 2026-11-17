@@ -1,6 +1,7 @@
 export type BugReportContext = {
   runId?: string | null;
   executionResultId?: string | null;
+  stepId?: string | null;
   runName?: string | null;
   runStatus?: string | null;
   testCaseIds?: string[];
@@ -61,6 +62,7 @@ export function buildBugReportPath(context: BugReportContext, mode: "manual" | "
 
   if (context.runId) params.set("run", context.runId);
   if (context.runId && context.executionResultId) params.set("executionResult", context.executionResultId);
+  if (context.runId && context.executionResultId && context.stepId) params.set("step", context.stepId);
   if (context.runName) params.set("runName", context.runName);
   if (context.runStatus) params.set("status", context.runStatus);
   if (testCaseIds.length) params.set("linked_test_case_ids", testCaseIds.join(","));

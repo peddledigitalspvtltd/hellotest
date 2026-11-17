@@ -117,6 +117,19 @@ test("retry progress reports real attempts without implying a final model or ret
   assert.deepEqual(events.map((item) => item.metrics.model_attempt), [2, 3]);
 });
 
+test("bounded output correction reports its actual limit or contract cause instead of a temporary provider problem", () => {
+  for (const code of ["MODEL_OUTPUT_TRUNCATED", "MODEL_EMPTY_RESPONSE", "MODEL_INVALID_RESPONSE"]) {
+    const correction = { ...progress, stage: "GENERATION", error_code: code, metrics: { model_attempt: 2, model_max_attempts: 2 } };
+    assert.equal(knowledgeProgressLabel(correction), "Repairing answer output · attempt 2 of 2");
+    const explanation = knowledgeProgressDescription(correction);
+    assert.match(explanation, /One compact correction.*same authorized evidence/);
+    assert.doesNotMatch(explanation, /temporary problem|Retrying automatically/);
+    assert.match(explanation, code === "MODEL_OUTPUT_TRUNCATED" ? /output limit/ : /output contract/);
+    assert.equal(knowledgeProgressLabel({ ...correction, status: "FAILED" }), code === "MODEL_OUTPUT_TRUNCATED" ? "The answer reached its output limit" : "The answer could not be validated");
+  }
+  assert.match(knowledgeModelFailureMessage("MODEL_OUTPUT_TRUNCATED"), /output limit/);
+});
+
 test("provider retry progress stays in the same SSE request and resolves only the final answer", async () => {
   const retry = { ...progress, stage: "GENERATION", metrics: { model_attempt: 2, model_max_attempts: 3 } };
   const events = [];

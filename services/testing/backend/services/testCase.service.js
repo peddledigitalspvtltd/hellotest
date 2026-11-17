@@ -240,7 +240,7 @@ const deleteStepsForTestCase = db.prepare(`
 `);
 
 const selectStepsForTestCase = db.prepare(`
-  SELECT step_type
+  SELECT *
   FROM test_steps
   WHERE test_case_id = ?
 `);
@@ -705,6 +705,10 @@ const normalizeAutomated = (value, fallback = DEFAULT_AUTOMATED) => {
 
   return normalized;
 };
+
+const hasCompleteAutomation = steps => Boolean(steps?.length && steps.every(step => step.step_type === 'api'
+  ? String(normalizeApiRequest(step.api_request)?.url || '').trim()
+  : String(step.automation_code || '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*$/gm, '').trim()));
 
 const normalizeAutomationStatus = (value, automated, fallback = null, hasAutomation = false) => {
   if (automated !== "yes") {
@@ -1365,7 +1369,7 @@ const createPersistablePayload = async ({
       automation_status,
       normalizedAutomated,
       null,
-      normalizedSteps.some((step) => Boolean(step.automation_code || step.api_request))
+      hasCompleteAutomation(normalizedSteps)
     ),
     manual_test_case_id: resolvedManualTestCaseIds[0] || null,
     manual_test_case_ids: resolvedManualTestCaseIds,
@@ -1838,7 +1842,7 @@ exports.getTestCases = async ({ project_id, suite_id, requirement_id, module_id,
   const params = [];
 
   if (suite_id) {
-    joins.push(`JOIN suite_test_cases ON suite_test_cases.test_case_id = test_cases.id`);
+    joins.push(`JOIN suite_effective_test_cases suite_test_cases ON suite_test_cases.test_case_id = test_cases.id`);
     joins.push(`JOIN test_suites ON test_suites.id = suite_test_cases.suite_id`);
   }
 
@@ -2104,12 +2108,6 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
       })
     : [];
   payload.manual_test_case_id = payload.manual_test_case_ids[0] || null;
-  payload.automation_status = normalizeAutomationStatus(
-    data.automation_status,
-    payload.automated,
-    data.automated === undefined ? existing.automation_status : null,
-    Boolean(payload.steps?.some((step) => step.automation_code || step.api_request))
-  );
   if (payload.review_status === "pending" || payload.review_status === "changes_requested") {
     payload.status = "draft";
   } else if (payload.review_status === "accepted") {
@@ -2137,6 +2135,8 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
       payload.steps = refreshed.steps;
       if (payload.automated === "yes") resolveAutomationCaseSteps({ test_data_options: payload.test_data_options }, payload.steps, { appTypeKind: finalAppType?.type });
     }
+    payload.automation_status = normalizeAutomationStatus(data.automation_status, payload.automated, null,
+      hasCompleteAutomation(payload.steps !== null ? payload.steps : await selectEditableStepsForUpdate.all(id)));
     const capturedVersion = await testCaseVersionService.capture({
       testCase: existing,
       createdBy: payload.updated_by,

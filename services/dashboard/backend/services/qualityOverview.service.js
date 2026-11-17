@@ -102,7 +102,7 @@ const getOverview = async ({ projectId, project, days = 30, visibility, now = Da
       ${visible.automation ? "COUNT(*) FILTER (WHERE test_cases.automated = 'yes')" : 'NULL'} AS automated_cases
       FROM test_cases JOIN app_types ON app_types.id = test_cases.app_type_id WHERE app_types.project_id = ?`).get(projectId) : null,
     visible.suites ? db.prepare('SELECT COUNT(*) AS suites FROM test_suites JOIN app_types ON app_types.id = test_suites.app_type_id WHERE app_types.project_id = ?').get(projectId) : null,
-    visible.bugs ? db.prepare(`SELECT COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(status, ''))) NOT IN ('closed', 'resolved', 'done', 'accepted', 'cancelled', 'canceled')) AS open_defects
+    visible.bugs ? db.prepare(`SELECT COUNT(*) FILTER (WHERE NOT (${require('@hellotest/platform/backend/src/utils/defectStatus').closedDefectSql('status')})) AS open_defects
       FROM feedback WHERE project_id = ?`).get(projectId) : null,
     visible.runs ? db.prepare(RUN_SUMMARY_SQL).all(window.to, projectId, window.from, window.to) : []
   ]);

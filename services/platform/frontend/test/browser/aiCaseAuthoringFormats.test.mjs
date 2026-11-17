@@ -172,7 +172,7 @@ const client=new QueryClient`);
       await dialog.getByRole('textbox', {name:'Test case title',exact:true}).fill('Reviewed invoice amount validation');
       await dialog.getByRole('button', {name:'Finish editing draft',exact:true}).click();
       if (flow==='generate') {
-        await dialog.getByRole('button',{name:'Accept Into Test Case Library (1)',exact:true}).click();
+        await dialog.getByRole('button',{name:'Save 1 case (1)',exact:true}).click();
         await page.waitForFunction(()=>window.accepted.length===1);
         const accepted=await page.evaluate(()=>window.accepted[0]);
         assert.deepEqual(accepted.cases[0].reference_attachment_ids,['reference-1','reference-2']);
@@ -288,7 +288,7 @@ const client=new QueryClient`);
         await page.waitForFunction(()=>window.fileCopies.length===1);
         assert.deepEqual(await page.evaluate(()=>window.fileCopies),[{id:'image-source',scope:{project_id:'p',entity_type:'test_case',entity_id:'case1'}}]);
       } else {
-        await dialog.getByRole('button',{name:'Accept Into Test Case Library (1)',exact:true}).click();
+        await dialog.getByRole('button',{name:'Save 1 case (1)',exact:true}).click();
         await page.waitForFunction(()=>window.accepted.length===1);
         const accepted=await page.evaluate(()=>window.accepted[0]);
         assert.deepEqual(accepted.cases[0].reference_attachment_ids,['image-source']);

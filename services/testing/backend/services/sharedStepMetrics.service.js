@@ -76,7 +76,7 @@ const openDefectEvidenceSql = `
   ), open_defects AS MATERIALIZED (
     SELECT id, display_id, title, status, linked_test_run_id, linked_test_case_ids, created_at
     FROM feedback WHERE project_id = ?
-      AND LOWER(TRIM(COALESCE(status, 'open'))) NOT IN ('closed', 'resolved', 'done', 'accepted')
+      AND NOT (${require('@hellotest/platform/backend/src/utils/defectStatus').closedDefectSql('status')})
   ), defect_cases AS MATERIALIZED (
     SELECT f.id AS issue_id, l.test_case_id FROM open_defects f
     JOIN test_case_defects l ON l.issue_id = f.id

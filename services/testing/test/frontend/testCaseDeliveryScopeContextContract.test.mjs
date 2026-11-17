@@ -1,8 +1,9 @@
+import { readTestingWorkspaceSource } from "../../../../scripts/checks/helpers/read-source.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = (relativePath) => readTestingWorkspaceSource(new URL(relativePath, import.meta.url), "utf8");
 
 test("Test Case creation filters Story choices with populated editable Release and Sprint scope", async () => {
   const page = await readSource("../../frontend/pages/TestCasesPage.tsx");

@@ -5,7 +5,7 @@ export type ApiSourceRequest = {
   headers: Array<{ key: string; value: string }>;
   body_mode: 'none' | 'json' | 'text' | 'xml' | 'form';
   body: string | null;
-  validations: Array<{kind: 'status'; expected: string; target?: string}>;
+  validations: Array<{kind: 'status' | 'json_path'; expected: string; target?: string; operator?: 'eq'}>;
   captures: Array<{path: string; parameter: string}>;
   timeout_ms: number;
   follow_redirects: boolean;

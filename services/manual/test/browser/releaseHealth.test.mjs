@@ -84,11 +84,11 @@ test('Release Health keeps exact scoped evidence in a modal while ribbon retains
   await page.screenshot({path:artifacts+'/release-ribbon.png'});
   await ribbon.getByRole('button',{name:'Release Health: Checkout Release'}).click();
   const health=page.getByRole('dialog',{name:'Checkout Release',exact:true});await health.waitFor();
-  assert.equal(await health.getByRole('button',{name:'View evidence for Dev Story Completion',exact:true}).locator('strong').innerText(),'67%');
-  assert.equal(await health.getByRole('button',{name:'View evidence for QA Story Completion',exact:true}).locator('strong').innerText(),'33%');
-  assert.equal(await health.getByRole('button',{name:'View evidence for Test Coverage',exact:true}).locator('strong').innerText(),'67%');
+  assert.equal(await health.getByTitle('View evidence for Dev Story Completion',{exact:true}).locator('strong').innerText(),'67%');
+  assert.equal(await health.getByTitle('View evidence for QA Story Completion',{exact:true}).locator('strong').innerText(),'33%');
+  assert.equal(await health.getByTitle('View evidence for Test Coverage',{exact:true}).locator('strong').innerText(),'67%');
   assert.match(await health.locator('.entity-health-summary').innerText(),/2 linked Sprints/);
-  await health.getByRole('button',{name:'View evidence for Pass Rate',exact:true}).click();
+  await health.getByTitle('View evidence for Pass Rate',{exact:true}).click();
   assert.match(await health.getByRole('list',{name:'Pass Rate evidence'}).innerText(),/3\/4 cases with finalized Release outcomes passed/);
   assert.equal(await page.evaluate(()=>window.calls.filter(c=>c.path==='requirementReleases.listReadiness').length),1,'Opening Health reuses aggregate data');
   await page.screenshot({path:artifacts+'/release-health.png'});
@@ -113,8 +113,8 @@ test('Release Health keeps exact scoped evidence in a modal while ribbon retains
   await restrictedPage.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html?restricted`);
   await restrictedPage.getByRole('button',{name:'Release Health: Checkout Release'}).click();
   const restrictedHealth=restrictedPage.getByRole('dialog',{name:'Checkout Release',exact:true});
-  assert.equal(await restrictedHealth.getByRole('button',{name:'View evidence for Readiness',exact:true}).locator('strong').innerText(),'Unavailable');
-  assert.equal(await restrictedHealth.getByRole('button',{name:'View evidence for QA Story Completion',exact:true}).locator('strong').innerText(),'33%');
+  assert.equal(await restrictedHealth.getByTitle('View evidence for Readiness',{exact:true}).locator('strong').innerText(),'Unavailable');
+  assert.equal(await restrictedHealth.getByTitle('View evidence for QA Story Completion',{exact:true}).locator('strong').innerText(),'33%');
   assert.equal(await restrictedHealth.getByRole('button',{name:'Open Release Readiness',exact:true}).count(),0);
   assert.equal(await restrictedPage.evaluate(()=>window.calls.filter(c=>c.path==='requirementReleases.listReadiness').length),0,'Restricted users never request execution or Defect evidence');
   await restrictedContext.close();

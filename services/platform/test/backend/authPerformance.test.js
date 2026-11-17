@@ -13,6 +13,12 @@ const replacementHash = token.hashPassword("Replacement password after a reset!"
 const legacyHash = crypto.pbkdf2Sync(password, process.env.PASSWORD_SALT || "hellotest-dev-salt", 100_000, 64, "sha256").toString("hex");
 
 function sessionFixture(t, overrides = {}) {
+  // This suite isolates session/password query and event-loop contracts. Real
+  // guard persistence/concurrency is covered in authLoginProtection.postgres.
+  const protection=require('../../backend/services/loginProtection.service');
+  t.mock.method(protection,'assertAllowed',async()=>{});
+  t.mock.method(protection,'assertAndClear',async()=>{});
+  t.mock.method(protection,'recordFailure',async()=>({locked_until:null}));
   t.mock.method(require("../../backend/services/defaultProjectMembership.service"), "assign", async () => false);
   // These fixtures model SQL responses; the integration test verifies actual
   // PostgreSQL atomicity and rollback rather than imitating it in this mock.

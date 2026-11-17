@@ -1,10 +1,11 @@
+import { readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { readApiSources } from "./helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const readSource = (relativePath) =>
-  readFile(new URL(relativePath, import.meta.url), "utf8");
+  readSourceFile(new URL(relativePath, import.meta.url), "utf8");
 
 test("the workspace header profile control opens the personal profile dialog", async () => {
   const shell = await readSource("../src/platform/components/AppShell.tsx");

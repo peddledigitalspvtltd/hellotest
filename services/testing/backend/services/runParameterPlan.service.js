@@ -16,16 +16,18 @@ const dataKeys = data => !data ? [] : data.mode === "key_value" ? parsed(data.ro
 
 // Validation compares names, never parameter values. An explicitly blank cell
 // is valid input; a missing column is not. Key/value data is one iteration.
-function validateDataSetParameters(data, parameters = []) {
+function validateDataSetParameters(data, parameters = [], fallbackParameters = []) {
   if (!data) return null;
   const required = [...new Set(parameters.map(item => normalizeParameterKey(typeof item === "string" ? item : item.name)).filter(Boolean))].sort();
   const available = [...new Set(dataKeys(data).map(key => normalizeParameterKey(key)).filter(Boolean))].sort();
   const availableSet = new Set(available);
-  const missing = required.filter(name => !availableSet.has(name));
+  const fallback = [...new Set(fallbackParameters.map(name => normalizeParameterKey(name)).filter(Boolean))].sort();
+  const fallbackSet = new Set(fallback);
+  const missing = required.filter(name => !availableSet.has(name) && !fallbackSet.has(name));
   const rows = parsed(data.rows, []);
   const iterationCount = data.mode === "key_value" ? Number(rows.some(row => row?.key)) : rows.length;
   return { valid: !missing.length && iterationCount > 0, data_set_id: data.id || null,
-    required_parameters: required, available_parameters: available, missing_parameters: missing,
+    required_parameters: required, available_parameters: available, fallback_parameters: fallback, missing_parameters: missing,
     iteration_count: iterationCount, ...(!iterationCount ? { reason: "Add at least one data row before linking this data set." } : {}) };
 }
 
@@ -33,7 +35,7 @@ function assertDataSetValidation(validation) {
   if (!validation || validation.valid) return;
   const missing = validation.missing_parameters;
   const message = missing.length
-    ? `The selected data set is missing required parameters: ${missing.slice(0, 12).map(tokenFor).join(", ")}${missing.length > 12 ? ` and ${missing.length - 12} more` : ""}. Download the current template or adjust the override options.`
+    ? `The selected data set is missing required parameters: ${missing.slice(0, 12).map(tokenFor).join(", ")}${missing.length > 12 ? ` and ${missing.length - 12} more` : ""}. Bind these inputs in the environment, configuration, case defaults or data override. Secrets can stay in private environment values.`
     : validation.reason;
   throw Object.assign(new Error(message), { statusCode: 422, code: missing.length ? "TEST_DATA_MISSING_PARAMETERS" : "TEST_DATA_EMPTY",
     missing_parameters: missing, data_set_validation: validation });
@@ -74,7 +76,7 @@ async function buildRunParameterPlan(input) {
   // direct cases query current authoring, matching updateExecution's merge.
   const liveCases = await db.prepare(`SELECT DISTINCT c.* FROM test_cases c
     WHERE COALESCE(c.app_type_id, (SELECT app_type_id FROM test_suites WHERE id = c.suite_id)) = ? AND (c.id IN (SELECT jsonb_array_elements_text(?::jsonb))
-      OR c.id IN (SELECT test_case_id FROM suite_test_cases WHERE suite_id IN (SELECT jsonb_array_elements_text(?::jsonb)))) ORDER BY c.id`)
+      OR c.id IN (SELECT test_case_id FROM suite_effective_test_cases suite_test_cases WHERE suite_id IN (SELECT jsonb_array_elements_text(?::jsonb)))) ORDER BY c.id`)
     .all(app_type_id, addedDirectIds, addedSuiteIds);
   const liveCaseIds = new Set(liveCases.map(item => item.id));
   const linkedParameters=await require('./linkedManualParameters.service').resolveForCases(liveCases,{projectId:project_id});
@@ -82,7 +84,7 @@ async function buildRunParameterPlan(input) {
   const allIds = [...new Set([...existingById.keys(), ...liveCases.map(item => item.id)])];
   const [rawLiveSteps, mappings, linkedData] = await Promise.all([
     db.prepare("SELECT * FROM test_steps WHERE test_case_id IN (SELECT jsonb_array_elements_text(?::jsonb)) ORDER BY test_case_id, step_order").all(liveCases.map(item => item.id)),
-    db.prepare(`SELECT mapping.suite_id, mapping.test_case_id FROM suite_test_cases mapping JOIN test_suites suite ON suite.id = mapping.suite_id
+    db.prepare(`SELECT mapping.suite_id, mapping.test_case_id FROM suite_effective_test_cases mapping JOIN test_suites suite ON suite.id = mapping.suite_id
       WHERE mapping.test_case_id IN (SELECT jsonb_array_elements_text(?::jsonb)) AND suite.app_type_id = ? ORDER BY mapping.sort_order, suite.created_at DESC, suite.id`).all(allIds, app_type_id),
     loadEffectiveCaseDataSets({ testCaseIds: liveCases.filter(item => !existingById.has(item.id)).map(item => item.id), projectId: project_id, appTypeId: app_type_id })
   ]);
@@ -223,8 +225,34 @@ async function buildRunParameterPlan(input) {
   };
   const parameters = [...declarations].filter(([name, ids]) => allowsDeclaration(name, ids)).sort(([a], [b]) => a.localeCompare(b)).map(([name, ids]) => ({ name, token: tokenFor(name), scope: name[0], case_count: ids.size }));
   const validationData = execution?.parameter_scope_default === "t" ? canonicalLegacyData(selectedResources.test_data_set_id) : selectedResources.test_data_set_id;
+  // Validate the same layered, frozen inputs consumed by execution. A column is
+  // an override, not a declaration that every input must live in public data.
+  const { resolveParameterLayers } = require('@hellotest/platform/backend/src/utils/stepParameterResolution');
+  const environmentVariables = parsed(selectedResources.test_environment_id?.variables, []);
+  const configurationVariables = parsed(selectedResources.test_configuration_id?.variables, []);
+  const runValues = parsed(has("parameter_values") ? input.parameter_values : execution?.parameter_values);
+  const resolvedByCase = new Map(envelope.case_snapshots.map(item => [item.test_case_id,
+    Array.from({length: rowsFor(item.test_data_set_snapshot)}, (_, rowIndex) => new Set(Object.keys(resolveParameterLayers({
+      caseValues: parsed(item.parameter_values), suiteValues: parsed(item.suite_parameter_values), environmentVariables,
+      configurationVariables, runValues, dataSet: item.test_data_set_snapshot, rowIndex
+    }))))]));
+  const fallbackNames = parameters.filter(parameter => {
+    const ids = declarations.get(parameter.name);
+    const owners = ids?.size ? [...ids] : [...resolvedByCase.keys()];
+    return owners.length ? owners.every(id => (resolvedByCase.get(id) || []).every(keys => keys.has(parameter.name)))
+      : [...environmentVariables, ...configurationVariables].some(entry => normalizeParameterKey(entry.key) === parameter.name)
+        || Object.keys(runValues).some(key => normalizeParameterKey(key) === parameter.name);
+  }).map(parameter => parameter.name);
+  const namesFor = (values, scope = "r") => new Set(Object.keys(values || {}).map(key => normalizeParameterKey(key, scope)));
+  const environmentNames = new Set(environmentVariables.map(entry => normalizeParameterKey(entry.key)));
+  const configurationNames = new Set(configurationVariables.map(entry => normalizeParameterKey(entry.key)));
+  const runNames = namesFor(runValues);
+  const overrideNames = new Set(dataKeys(validationData).map(key => normalizeParameterKey(key)));
+  const parameterBindings = parameters.map(({name}) => ({ name, source: overrideNames.has(name) ? 'dataset'
+    : runNames.has(name) ? 'run' : configurationNames.has(name) ? 'configuration' : environmentNames.has(name) ? 'environment'
+    : fallbackNames.includes(name) ? 'case_or_suite' : 'unresolved' }));
   return { shared_group_kinds: [...new Set(effective.map(item => normalizeDataOptions(item.test_data_options).shared_data_kind || "steps"))], expected_instance_count: expectedInstances, case_count: effective.length, suite_count: suiteIds.length, suite_ids: suiteIds,
-    parameters, data_set_validation: validateDataSetParameters(validationData, parameters) };
+    parameters, parameter_bindings: parameterBindings, data_set_validation: validateDataSetParameters(validationData, parameters, fallbackNames) };
 }
 
 async function assertRunDataSetCompatible(input) {

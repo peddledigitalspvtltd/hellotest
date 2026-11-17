@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const analytics = require("../../../dashboard/backend/services/portfolioAnalytics.service");
-const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
+const readSource = async (relativePath) => (await import("../../../../scripts/checks/helpers/read-source.mjs")).readSourceFile(path.join(__dirname, relativePath), "utf8");
 
 test("portfolio metric formula values are bounded and readiness weights remain a normalized formula", () => {
   const values = analytics.normalizeFormulaValues({
@@ -72,9 +72,10 @@ test("portfolio analytics uses complete accessible-project evidence and preserve
 });
 
 test("project workspace exposes editable project details, the requested tabs, and project metrics", async () => {
-  const [page, styles] = await Promise.all([
+  const [page, styles, snapshotCapture] = await Promise.all([
     readSource("../../frontend/pages/ProjectsPage.tsx"),
-    readSource("../../frontend/pages/ProjectsPage.css")
+    readSource("../../frontend/pages/ProjectsPage.css"),
+    readSource("../../frontend/src/platform/lib/projectAttentionExport.ts")
   ]);
 
   assert.match(page, /value: "details", label: "Project details"[\s\S]*value: "members", label: "Members"[\s\S]*value: "applications", label: "Applications"[\s\S]*value: "attachments", label: "Attachments"[\s\S]*value: "traceability", label: "Traceability"/);
@@ -82,9 +83,9 @@ test("project workspace exposes editable project details, the requested tabs, an
   assert.match(page, /section === "applications"/);
   assert.match(page, /isProjectDetailsDirty[\s\S]*You have unsaved changes\.[\s\S]*Cancel[\s\S]*Save changes/);
   assert.match(page, /selectedProjectBugCount[\s\S]*Total Defects/);
-  assert.match(page, /primeProjectAttentionScroll[\s\S]*maximumScrollTop[\s\S]*captureProjectAttentionSnapshot/);
-  assert.match(page, /fragmentSelectors[\s\S]*for \(const fragment of fragments\)[\s\S]*canvasHeight[\s\S]*canvasWidth/);
-  assert.match(page, /rendered_snapshot_pages_data_urls: renderedPages/);
+  assert.match(snapshotCapture, /primeProjectAttentionScroll[\s\S]*maximumScrollTop[\s\S]*captureProjectAttentionSnapshot/);
+  assert.match(snapshotCapture, /fragmentSelectors[\s\S]*for \(const fragment of fragments\)[\s\S]*canvasHeight[\s\S]*canvasWidth/);
+  assert.match(snapshotCapture, /rendered_snapshot_pages_data_urls: renderedPages/);
   assert.match(styles, /is-exporting-snapshot \.evidence-flip-card-inner[\s\S]*transform: none !important/);
   assert.match(styles, /is-exporting-snapshot \.evidence-flip-card-back[\s\S]*display: none !important/);
   assert.match(page, /formatPassCoverageDetail/);

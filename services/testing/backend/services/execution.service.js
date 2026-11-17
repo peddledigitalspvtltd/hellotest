@@ -51,16 +51,25 @@ const assertExecutableDispatchPlan = plan => {
 
 // Count cases once, reducing the newest result for each data iteration before
 // reducing a case. Defect references remain actual links, never failed counts.
-const summarizeExecutionMetrics = (caseRows = [], resultRows = [], storyRows = []) => {
+const summarizeExecutionMetrics = (caseRows = [], resultRows = [], storyRows = [], linkedDefects = []) => {
   const cases = new Set(caseRows.map((row) => row.test_case_id));
   const iterations = new Map();
   const defects = new Set();
+  // A defect reported from a run carries that run on the defect itself (feedback.linked_test_run_id); the run's results only
+  // list defects linked at case or step level. Counting results alone showed "0 defects" for a run that had two. Both
+  // sources are counted once: a result may name a defect by its display key while the defect row carries the id.
+  const identity = new Map();
+  for (const row of linkedDefects) {
+    identity.set(String(row.defect_id), String(row.defect_id));
+    if (row.display_id) identity.set(String(row.display_id), String(row.defect_id));
+  }
+  const canonicalDefect = (ref) => identity.get(String(ref)) || ref;
   const covered=new Set(resultRows.filter(row=>row.derived&&row.covers_entire_case).map(row=>`${row.execution_id}:${row.test_case_id}`));
   for (const result of resultRows) {
     if(!result.derived&&result.status==="pending"&&covered.has(`${result.execution_id}:${result.test_case_id}`))continue;
     cases.add(result.test_case_id);
     for (const ref of [...normalizeStoredReferenceList(result.defects), ...normalizeStoredReferenceList(result.case_defects),
-      ...Object.values(parseJsonValue(result.step_defects, {})).flatMap(normalizeStoredReferenceList)]) defects.add(ref);
+      ...Object.values(parseJsonValue(result.step_defects, {})).flatMap(normalizeStoredReferenceList)]) defects.add(canonicalDefect(ref));
     const key = `${result.test_case_id}:${result.data_set_iteration_index ?? result.data_set_iteration_key ?? "default"}`;
     const previous = iterations.get(key);
     const timestamp = Number(new Date(result.created_at || 0));
@@ -68,6 +77,7 @@ const summarizeExecutionMetrics = (caseRows = [], resultRows = [], storyRows = [
     if (!previous || timestamp > previousTimestamp
       || timestamp === previousTimestamp && String(result.id) > String(previous.id)) iterations.set(key, result);
   }
+  for (const row of linkedDefects) defects.add(String(row.defect_id));
   const statuses = new Map();
   const iterationCounts = new Map();
   const priority = { passed: 1, skipped: 2, pending: 3, paused: 4, running: 5, aborted: 6, blocked: 7, failed: 8 };
@@ -96,37 +106,9 @@ const summarizeExecutionMetrics = (caseRows = [], resultRows = [], storyRows = [
   return summary;
 };
 
-async function loadExecutionMetrics(executionIds) {
-  if (!executionIds.length) return new Map();
-  const placeholders = placeholdersFor(executionIds);
-  const [caseRows, resultRows, storyRows] = await Promise.all([
-    db.prepare(`SELECT execution_id, test_case_id,
-      CASE WHEN test_data_set_snapshot->>'mode' = 'key_value' OR jsonb_typeof(test_data_set_snapshot->'rows') IS DISTINCT FROM 'array'
-        THEN 1 ELSE GREATEST(1, jsonb_array_length(test_data_set_snapshot->'rows')) END AS expected_iterations
-      FROM execution_case_snapshots WHERE execution_id IN (${placeholders})`).all(...executionIds),
-    db.prepare(`SELECT id, execution_id, test_case_id, status, defects, case_defects, step_defects,derived,covers_entire_case,
-      data_set_iteration_index, data_set_iteration_key, created_at, duration_ms, timer_started_at FROM test_case_effective_results result
-      WHERE execution_id IN (${placeholders}) AND (NOT derived OR EXISTS(SELECT 1 FROM execution_case_snapshots selected WHERE selected.execution_id=result.execution_id AND selected.test_case_id=result.test_case_id))`).all(...executionIds),
-    db.prepare(`WITH run_cases AS (
-        SELECT execution_id, test_case_id FROM execution_case_snapshots WHERE execution_id IN (${placeholders})
-        UNION SELECT execution_id, test_case_id FROM execution_results WHERE execution_id IN (${placeholders})
-      ), scoped_cases AS (SELECT DISTINCT test_case_id FROM run_cases), story_links AS (
-        SELECT mapping.test_case_id, mapping.requirement_id FROM requirement_test_cases mapping
-        JOIN scoped_cases ON scoped_cases.test_case_id = mapping.test_case_id
-        UNION SELECT test_cases.id AS test_case_id, test_cases.requirement_id FROM test_cases
-        JOIN scoped_cases ON scoped_cases.test_case_id = test_cases.id WHERE test_cases.requirement_id IS NOT NULL
-      ) SELECT DISTINCT run_cases.execution_id, run_cases.test_case_id, story_links.requirement_id
-      FROM run_cases JOIN executions ON executions.id = run_cases.execution_id
-      JOIN story_links ON story_links.test_case_id = run_cases.test_case_id
-      JOIN requirements ON requirements.id = story_links.requirement_id AND requirements.project_id = executions.project_id
-    `).all(...executionIds, ...executionIds)
-  ]);
-  const cases = groupRows(caseRows, "execution_id"), results = groupRows(resultRows, "execution_id"), stories = groupRows(storyRows, "execution_id");
-  return new Map(executionIds.map((id) => [id, summarizeExecutionMetrics(cases.get(id), results.get(id), stories.get(id))]));
-}
-
+const loadExecutionMetrics = ids => require('./executionMetrics.service').loadExecutionMetrics(ids,summarizeExecutionMetrics);
 const getCaseSnapshotsForExecution = db.prepare(`
-  SELECT execution_id, test_case_id, test_case_title, test_case_description, automated, external_references, suite_id, suite_name, module_id, module_name, priority, status, parameter_values, parameter_template_values, test_data_options, execution_hooks, suite_parameter_values, suite_parameter_template_values, test_data_set_id, test_data_set_name, test_data_set_snapshot, data_set_source, sort_order, assigned_to, assigned_to_ids, assignment_source
+  SELECT execution_id, test_case_id, test_case_title, test_case_description, automated, external_references, suite_id, suite_name, module_id, module_name, priority, status, parameter_values, parameter_template_values, test_data_options, execution_hooks, suite_parameter_values, suite_parameter_template_values, test_data_set_id, test_data_set_name, test_data_set_snapshot, data_set_source, sort_order, assigned_to, assigned_to_ids, assignment_source, requirement_snapshots
   FROM execution_case_snapshots
   WHERE execution_id = ?
   ORDER BY sort_order ASC, test_case_title ASC
@@ -180,7 +162,7 @@ const selectCasesForSuite = db.prepare(`
     test_cases.priority,
     test_cases.status,
     suite_test_cases.sort_order
-  FROM suite_test_cases
+  FROM suite_effective_test_cases suite_test_cases
   JOIN test_cases ON test_cases.id = suite_test_cases.test_case_id
   JOIN test_suites ON test_suites.id = suite_test_cases.suite_id
   LEFT JOIN LATERAL (
@@ -223,7 +205,7 @@ const selectPrimarySuiteForCaseExecution = db.prepare(`
     test_suites.id AS suite_id,
     test_suites.name AS suite_name,
     test_suites.parameter_values AS suite_parameter_values
-  FROM suite_test_cases
+  FROM suite_effective_test_cases suite_test_cases
   JOIN test_suites ON test_suites.id = suite_test_cases.suite_id
   WHERE suite_test_cases.test_case_id = ?
   ORDER BY suite_test_cases.sort_order ASC, test_suites.created_at DESC
@@ -723,7 +705,7 @@ async function loadExecutionRuntimeContext(execution) {
   });
 }
 
-async function hydrateExecutionScopes(executions) {
+async function hydrateExecutionScopes(executions, {light = false} = {}) {
   const executionIds = uniqueIds(executions);
   if (!executionIds.length) {
     return executions;
@@ -738,7 +720,7 @@ async function hydrateExecutionScopes(executions) {
       ...Object.values(normalizeAssignmentMap(execution.module_assignments)).flat(),
       ...Object.values(normalizeAssignmentMap(execution.case_assignments)).flat()];
   }))];
-  const [suiteRows, userRows, metrics] = await Promise.all([
+  const [suiteRows, userRows, metrics, evidence] = await Promise.all([
     db.prepare(`
       SELECT execution_id, suite_id, suite_name
       FROM execution_suites
@@ -747,12 +729,13 @@ async function hydrateExecutionScopes(executions) {
     `).all(...executionIds),
     userIds.length
       ? db.prepare(`
-          SELECT id, email, name, avatar_data_url
+          SELECT id, email, name${light ? "" : ", avatar_data_url"}
           FROM users
           WHERE id IN (${placeholdersFor(userIds)})
         `).all(...userIds)
       : Promise.resolve([]),
-    loadExecutionMetrics(executionIds)
+    loadExecutionMetrics(executionIds),
+    require("./executionEvidenceProjection.service").loadRunEvidence(executionIds)
   ]);
   const suitesByExecution = groupRows(suiteRows, "execution_id");
   const usersById = new Map(userRows.map((user) => [user.id, shapeAssignedUser(user)]));
@@ -766,7 +749,8 @@ async function hydrateExecutionScopes(executions) {
 
     return {
       ...execution,
-      metrics: metrics.get(execution.id),
+      metrics: {...metrics.get(execution.id),story_count:evidence.get(execution.id)?.frozen_scope_evidence.total_stories ?? 0,failed_story_count:evidence.get(execution.id)?.frozen_scope_evidence.impacted_stories.length ?? 0},
+      ...evidence.get(execution.id),
       duration_ms: metrics.get(execution.id)?.total_cases ? metrics.get(execution.id).duration_ms : Number(execution.duration_ms) || 0,
       run_mode: execution.trigger === "manual" ? "manual" : execution.trigger === "local" || execution.execution_mode === "local" ? "local" : "remote",
       direct_test_case_ids: execution.direct_test_case_ids == null ? undefined : normalizeTextList(parseJsonValue(execution.direct_test_case_ids, [])),
@@ -1617,7 +1601,7 @@ exports.createExecution = async ({
     : null;
 
   const dataOptions = normalizeDataOptions(test_data_options);
-  if (test_data_set_id && app_type_id) await require('./runParameterPlan.service').assertRunDataSetCompatible({ project_id, app_type_id, suite_ids: uniqueSuiteIds, test_case_ids: uniqueTestCaseIds, test_data_set_id, test_data_options: dataOptions });
+  if (test_data_set_id && app_type_id) await require('./runParameterPlan.service').assertRunDataSetCompatible({ project_id, app_type_id, suite_ids: uniqueSuiteIds, test_case_ids: uniqueTestCaseIds, test_data_set_id, test_environment_id, test_configuration_id, test_data_options: dataOptions });
   const transaction = db.transaction(async () => {
     if(expected_case_revisions!==undefined){
       await require('./executionPlanPreconditions.service').verify({projectId:project_id,appTypeId:app_type_id,caseIds:uniqueTestCaseIds,expected:expected_case_revisions,lock:true});
@@ -1802,8 +1786,20 @@ exports.preparePairedLocalExecution = async(id,options={})=>{
   executionCache.delete(id);return result;
 };
 
-exports.getExecutions = async ({ project_id, app_type_id, status }) => {
-  let query = `SELECT * FROM executions WHERE 1=1`;
+const lightExecutionRow = execution => {
+  const omitted = new Set(['test_environment_snapshot','test_configuration_snapshot','test_data_set_snapshot','test_environment','test_configuration','test_data_set',
+    'execution_hooks','suite_assignments','module_assignments','case_assignments','suite_snapshots','parameter_values','parameter_template_values',
+    'assigned_user','assigned_users','direct_test_case_ids','frozen_scope_evidence','linked_defects','failure_evidence']);
+  const row=Object.fromEntries(Object.entries(execution).filter(([key])=>!omitted.has(key)));
+  return {...row,detail_complete:false};
+};
+exports.projectExecutionForUser = require('./executionEvidenceProjection.service').forUser;
+exports.getExecutions = async ({ project_id, app_type_id, status, user }) => {
+  let query = `SELECT id, project_id, app_type_id, name, trigger, status, created_at, started_at, ended_at, duration_ms,
+    execution_mode, test_environment_id, test_environment_name, test_configuration_id, test_configuration_name,
+    test_data_set_id, test_data_set_name, release, sprint, release_id, iteration_id, build, assigned_to, assigned_to_ids,
+    parallel_enabled, parallel_count, start_date, end_date, created_by, revision
+    FROM executions WHERE 1=1`;
   const params = [];
 
   if (project_id) {
@@ -1826,14 +1822,14 @@ exports.getExecutions = async ({ project_id, app_type_id, status }) => {
 
   try {
     const rows = await db.prepare(createdAtOrderedQuery).all(...params);
-    return hydrateExecutionScopes(rows);
+    return Promise.all((await hydrateExecutionScopes(rows,{light:true})).map(async row=>lightExecutionRow(user?await exports.projectExecutionForUser(row,user):row)));
   } catch (error) {
     if (error?.code !== "42703") {
       throw error;
     }
 
     const rows = await db.prepare(legacyOrderedQuery).all(...params);
-    return hydrateExecutionScopes(rows);
+    return Promise.all((await hydrateExecutionScopes(rows,{light:true})).map(async row=>lightExecutionRow(user?await exports.projectExecutionForUser(row,user):row)));
   }
 };
 
@@ -2028,6 +2024,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
 
       return {
         ...snapshot,
+        requirement_snapshots: snapshot.requirement_snapshots ?? null,
         execution_id: nextExecutionId,
         module_id: snapshot.module_id || null,
         module_name: snapshot.module_name || null,
@@ -2649,7 +2646,7 @@ exports.updateExecution = async (id, input = {}) => {
     }
     const retainedSuiteIds = suiteIds.filter((suiteId) => oldSuiteIds.has(suiteId));
     const retainedMembership = retainedSuiteIds.length && existingCases.length ? await db.prepare(`
-      SELECT suite_id, test_case_id FROM suite_test_cases
+      SELECT suite_id, test_case_id FROM suite_effective_test_cases suite_test_cases
       WHERE suite_id IN (${placeholdersFor(retainedSuiteIds)}) AND test_case_id IN (${placeholdersFor(existingCases)})
     `).all(...retainedSuiteIds, ...existingCases.map((row) => row.test_case_id)) : [];
     const retainedCases = existingCases.filter((row) => retainedSuiteIds.includes(row.suite_id) || directIds.includes(row.test_case_id)
@@ -2761,7 +2758,8 @@ exports.deleteExecution = async (id) => {
   `).get(id);
 
   if (used) {
-    throw new Error("Cannot delete execution with results");
+    // A business rule, not a server fault: the run is evidence. Say what the person can do instead.
+    throw runError("This run has recorded results, so it cannot be deleted. Abort it to close it, or keep it as the audit trail.", "EXECUTION_HAS_RESULTS", 409);
   }
 
   await db.prepare(`DELETE FROM execution_step_snapshots WHERE execution_id = ?`).run(id);

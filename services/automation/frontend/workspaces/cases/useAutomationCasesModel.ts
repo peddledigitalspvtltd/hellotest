@@ -130,7 +130,7 @@ const automationCreateParameters = useMemo(() => buildAutomationCreateParameters
 }), [testDataSets, automationCreateMetadata.dataSetId, automationCreateMetadata.suiteIds, automationCreateManualCaseIds, createSourcesQuery.data, automationCreateSteps, automationApiSourceParameters, automationApiSourcePrivateNames, suites]);
 const selectedRuntimeType = appTypes.find((item) => item.id === appTypeId)?.type || "web";
 const automationCreatePlanSteps = [
-    ...automationCreateManualCaseIds.flatMap((id) => createSourcesQuery.data?.find((source) => source.testCase.id === id)?.steps || []),
+    ...(automationCreateMetadata.automationCaseType === "api" ? [] : automationCreateManualCaseIds.flatMap((id) => createSourcesQuery.data?.find((source) => source.testCase.id === id)?.steps || [])),
     ...automationCreateSteps.filter((step) => step.action.trim() || step.expected_result.trim())
 ];
 const automationCreateRuntimeTypes = automationCreateMetadata.automationCaseType

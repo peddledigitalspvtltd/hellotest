@@ -84,8 +84,7 @@ const normalizeRows = (mode, rows = [], columns = [], existingRows = []) => {
       });
 
       return normalizedRow;
-    })
-    .filter((row) => Object.values(row).some((value) => String(value || "").trim()));
+    });
 };
 
 const redactTestDataSetRows = (mode, rows) => parseJsonArray(rows).map((entry) =>

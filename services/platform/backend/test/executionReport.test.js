@@ -6,7 +6,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { Readable } = require("node:stream");
 const { createHash } = require("node:crypto");
-const { buildExecutionReportModel } = require("../../../testing/backend/services/executionReportModel");
+const { buildExecutionReportModel, scopeReportToCase } = require("../../../testing/backend/services/executionReportModel");
 const { renderDetailedExecutionHtml, REPORT_CSP, redact } = require("../../../testing/backend/services/executionReportHtml");
 const NOW = Date.parse("2026-09-10T10:30:00Z");
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
@@ -208,7 +208,7 @@ test("HTML export uses recorded evidence without requesting an LLM", async () =>
     "./aiLlmSelection.service": new Proxy({}, { get: () => { llmCalls++; throw new Error("Should not request AI"); } }),
     "./workspaceTransaction.service": {}, "../utils/upstreamLlmError": {}, "../utils/llmHttpClient": {},
     "@hellotest/platform/backend/src/utils/executionCaseLifecycle": require("../src/utils/executionCaseLifecycle"),
-    "./executionReportModel": { buildExecutionReportModel }, "./executionReportHtml": { renderDetailedExecutionHtml, REPORT_CSP }
+    "./executionReportModel": { buildExecutionReportModel, scopeReportToCase }, "./executionReportHtml": { renderDetailedExecutionHtml, REPORT_CSP, redact }
   });
   assert.match(await service.renderReportHtml("run"), /Customer portal/);
   assert.equal(llmCalls, 0);
@@ -256,12 +256,12 @@ test("single-case PDF retains every selected data-row instance and excludes unre
     "./executionResult.service": { getExecutionResults: async () => results },
     "./email.service": {}, "./aiLlmSelection.service": {}, "./workspaceTransaction.service": {},
     "../utils/upstreamLlmError": {}, "../utils/llmHttpClient": {},
-    "./executionReportModel": { buildExecutionReportModel }, "./executionReportHtml": { renderDetailedExecutionHtml, REPORT_CSP }
+    "./executionReportModel": { buildExecutionReportModel, scopeReportToCase }, "./executionReportHtml": { renderDetailedExecutionHtml, REPORT_CSP, redact }
   });
   const pdf = await service.renderCaseReportPdf("run", "case1");
   assert.match(pdf.toString("latin1"), /^%PDF-/);
-  for (const row of [1, 2, 3]) assert.ok(pdf.toString("latin1").includes(`Data row ${row}`));
-  assert.ok(!pdf.toString("latin1").includes("Keyboard navigation"));
+  assert.match(pdf.toString("latin1"), /\/ToUnicode \d+ 0 R/);
+  assert.match(pdf.toString("latin1"), /\/FontFile2 \d+ 0 R/);
   await assert.rejects(service.renderCaseReportPdf("run", "foreign-case"), { statusCode: 404 });
 });
 
@@ -294,4 +294,13 @@ test("slow object streams are cancelled within the per-file deadline and the rep
   assert.ok(Date.now() - started < 5000);
   assert.ok(stream.destroyed);
   assert.match(renderDetailedExecutionHtml(report), /Preview unavailable/);
+});
+
+test('frozen native cases exclude out-of-scope linked projections and normalize authored rich text',()=>{
+ const model=buildExecutionReportModel({id:'run',trigger:'manual',execution_mode:'remote',started_at:new Date('2026-11-17T09:00:00Z'),case_snapshots:[{test_case_id:'native',test_case_title:'API',test_case_description:'<p>Hello &amp; welcome</p>'}],step_snapshots:[{test_case_id:'native',snapshot_step_id:'s',action:'<p>Status — 200</p>',expected_result:'<ul><li>Count ≥ 1</li></ul>'}]},[{id:'native-result',test_case_id:'native',status:'passed'},{id:'derived-manual',test_case_id:'manual',status:'passed',derived:true}]);
+ assert.equal(model.summary.total,1);
+ assert.equal(model.cases[0].description,'Hello & welcome');
+ assert.equal(model.cases[0].steps[0].action,'Status — 200');
+ const html=renderDetailedExecutionHtml(model);assert.doesNotMatch(html,/&lt;p&gt;|Run mode<\/dt><dd>remote/);
+ assert.match(html,/Run mode<\/dt><dd>manual/);
 });

@@ -26,7 +26,7 @@ function fixture(t, frozen = false) {
       return [{ test_case_id: 'automation', test_data_set_id: 'manual-data', source_test_case_id: 'manual', mapping_source: 'linked_manual', id: 'manual-data',
         name: 'Linked data', mode: 'table', columns: ['t.name'], rows: [{ 't.name': 'Live one' }, { 't.name': 'Live two' }] }]; }
     if (/FROM test_steps/.test(sql)) return frozen ? [] : [{ test_case_id: 'automation', step_order: 1, action: 'Enter @t.name', expected_result: 'Name is retained' }];
-    if (/FROM suite_test_cases|FROM automation_case_links link/.test(sql)) return [];
+    if (/FROM suite_effective_test_cases|FROM automation_case_links link/.test(sql)) return [];
     assert.fail('Unexpected query: '+sql);
   } }));
   return { saved, get mappingReads() { return mappingReads; } };

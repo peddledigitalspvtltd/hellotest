@@ -36,9 +36,9 @@ test('Health review filters preserve values, unknowns, evidence and keyboard nav
     const dialog=page.getByRole('dialog',{name:'Checkout Delivery',exact:true});await dialog.waitFor();
     assert.equal(await dialog.locator('.evidence-flip-card').count(),6);
     assert.equal(await dialog.locator('.entity-health-meter').count(),2,'Only the two explicit percentages receive proportional bars');
-    const completion=dialog.getByRole('button',{name:'View evidence for QA Story Completion',exact:true});
+    const completion=dialog.getByTitle('View evidence for QA Story Completion',{exact:true});
     assert.equal(await completion.locator('.entity-health-meter > span').evaluate(node=>node.style.width),'50%');
-    assert.equal(await dialog.getByRole('button',{name:'View evidence for Pass Rate',exact:true}).locator('strong').innerText(),'Unavailable');
+    assert.equal(await dialog.getByTitle('View evidence for Pass Rate',{exact:true}).locator('strong').innerText(),'Unavailable');
     const originalBox=await dialog.boundingBox();
     for(const[label,expected]of[['Delivery',['Stories','QA Story Completion']],['Testing',['Test Coverage','Pass Rate']],['Risks',['At Risk','Defect Density']]]) {
       const filter=dialog.getByRole('button',{name:new RegExp('^'+label+' ')});await filter.click();

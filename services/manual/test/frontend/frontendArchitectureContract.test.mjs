@@ -1,9 +1,10 @@
+import { readSourceFile } from "../../../../scripts/checks/helpers/read-source.mjs";
 import { readApiSources } from "../../../platform/frontend/test/helpers/readApiSources.mjs";
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
-const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
+const readSource = (relativePath) => readSourceFile(new URL(relativePath, import.meta.url), "utf8");
 
 test("the application query client retries only transient reads and never retries mutations", async () => {
   const [app, queryClient] = await Promise.all([
