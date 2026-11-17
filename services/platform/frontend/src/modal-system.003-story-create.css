@@ -1,0 +1,1095 @@
+
+
+.story-create-dialog .story-create-status-field {
+  grid-column: 1 / span 6;
+  grid-row: 2;
+}
+
+.story-create-dialog .story-create-sprint-field {
+  grid-column: 7 / span 6;
+  grid-row: 2;
+}
+
+.story-create-dialog .story-create-floating-field {
+  position: relative;
+  display: block !important;
+  width: 100% !important;
+  min-width: 0;
+  max-width: none !important;
+  align-self: stretch !important;
+  justify-self: stretch !important;
+  box-sizing: border-box;
+  gap: 0 !important;
+}
+
+.story-create-dialog .form-field-required-marker {
+  display: inline;
+  color: #ba1a1a;
+}
+
+.story-create-dialog .story-create-floating-field > .form-field-label {
+  position: absolute;
+  z-index: 2;
+  top: 23px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 4px;
+  color: var(--story-create-text) !important;
+  background: var(--story-create-surface);
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 16px !important;
+  letter-spacing: 0.05em !important;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transform-origin: left center;
+  transition:
+    top 140ms ease,
+    transform 140ms ease,
+    color 140ms ease;
+}
+
+.story-create-dialog .story-create-floating-field.has-value > .form-field-label,
+.story-create-dialog .story-create-floating-field:focus-within > .form-field-label {
+  top: 0;
+  color: var(--story-create-ink) !important;
+  transform: translateY(-50%) scale(0.85);
+}
+
+.story-create-dialog .story-create-floating-field > :is(input, select) {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 46px !important;
+  min-height: 46px !important;
+  box-sizing: border-box !important;
+  padding: 11px 42px 11px 16px !important;
+  border: 1px solid var(--story-create-border) !important;
+  border-radius: 4px !important;
+  background-color: var(--story-create-surface) !important;
+  color: var(--story-create-ink) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 20px !important;
+  box-shadow: none !important;
+}
+
+.story-create-dialog .story-create-floating-field > select,
+.story-create-dialog .story-create-release-field > select {
+  appearance: none !important;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2345464d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 9 5 5 5-5'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 14px center !important;
+  background-size: 20px 20px !important;
+}
+
+.story-create-dialog .story-create-floating-field > :is(input, select):focus,
+.story-create-dialog .story-create-release-field > select:focus {
+  border-color: #000000 !important;
+  outline: 0 !important;
+  box-shadow: 0 0 0 1px #000000 !important;
+}
+
+.story-create-dialog :is(
+  .story-create-description-field,
+  .story-create-labels-field,
+  .story-create-release-field,
+  .story-create-external-references
+) {
+  display: grid !important;
+  gap: 8px !important;
+}
+
+.story-create-dialog :is(
+  .story-create-description-field,
+  .story-create-labels-field,
+  .story-create-release-field,
+  .story-create-external-references
+) > .form-field-label {
+  margin: 0 0 0 4px;
+  color: var(--story-create-text) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  line-height: 14px !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase;
+}
+
+.story-create-dialog .story-create-description-editor {
+  display: grid !important;
+  gap: 0 !important;
+  overflow: hidden;
+  border: 1px solid var(--story-create-border);
+  border-radius: 4px;
+  background: var(--story-create-surface);
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.story-create-dialog .story-create-description-editor:focus-within {
+  border-color: #000000;
+  box-shadow: 0 0 0 1px #000000;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-editor-toolbar {
+  display: flex !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 42px !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  gap: 4px !important;
+  padding: 6px 8px !important;
+  overflow-x: auto;
+  border: 0 !important;
+  border-bottom: 1px solid var(--story-create-divider) !important;
+  border-radius: 0 !important;
+  background: var(--story-create-tint) !important;
+  box-shadow: none !important;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-slot {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0 !important;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-slot:has(.rich-text-tool-button[aria-label="Bold"]) {
+  order: 1;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-slot:has(.rich-text-tool-button[aria-label="Italic"]) {
+  order: 2;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-slot:has(.rich-text-tool-button[aria-label="Underline"]) {
+  order: 3;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-slot:has(.rich-text-tool-button[aria-label="Bulleted list"]) {
+  order: 4;
+  margin-left: 5px;
+  padding-left: 9px;
+  border-left: 1px solid var(--story-create-border);
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-slot:has(.rich-text-tool-button[aria-label="Numbered list"]) {
+  order: 5;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-slot:has(.rich-text-tool-button[aria-label="Link"]) {
+  order: 6;
+  margin-left: 5px;
+  padding-left: 9px;
+  border-left: 1px solid var(--story-create-border);
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-slot:has(.rich-text-tool-button[aria-label="Strikethrough"]),
+.story-create-dialog .story-create-description-editor .rich-text-tool-slot:has(.rich-text-tool-button[aria-label="Inline code"]),
+.story-create-dialog .story-create-description-editor .rich-text-tool-slot:has(.rich-text-tool-button[aria-label="Indent list item"]) {
+  display: none !important;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-divider {
+  display: none !important;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-button {
+  width: 30px !important;
+  min-width: 30px !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: var(--story-create-text) !important;
+  box-shadow: none !important;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-button:hover:not(:disabled),
+.story-create-dialog .story-create-description-editor .rich-text-tool-button:focus-visible {
+  background: var(--story-create-tint-strong) !important;
+  color: #000000 !important;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-button:disabled {
+  opacity: 0.38;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-glyph {
+  font-size: 18px !important;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-tool-button svg {
+  width: 18px !important;
+  height: 18px !important;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-editor-surface {
+  width: 100% !important;
+  min-height: 128px !important;
+  max-height: 240px !important;
+  padding: 16px !important;
+  overflow-y: auto !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--story-create-surface) !important;
+  color: var(--story-create-ink) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 18px !important;
+  box-shadow: none !important;
+}
+
+.story-create-dialog .story-create-description-editor .rich-text-editor-surface[data-empty="true"]::before {
+  color: color-mix(in srgb, var(--story-create-text) 58%, transparent);
+}
+
+.story-create-dialog .story-create-secondary-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  align-items: start !important;
+  gap: 24px !important;
+  padding-top: 16px;
+  border-top: 1px solid var(--story-create-divider);
+}
+
+.story-create-dialog .story-create-labels-field .requirement-label-picker {
+  position: relative;
+  display: flex !important;
+  min-width: 0;
+  min-height: 46px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px !important;
+  padding: 8px;
+  border: 1px solid var(--story-create-border);
+  border-radius: 4px;
+  background: var(--story-create-surface);
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.story-create-dialog .story-create-labels-field .requirement-label-picker:focus-within {
+  border-color: #000000;
+  box-shadow: 0 0 0 1px #000000;
+}
+
+.story-create-dialog .story-create-labels-field .requirement-label-combobox {
+  order: 2;
+  flex: 1 1 100px;
+  min-width: 100px;
+}
+
+.story-create-dialog .story-create-labels-field .requirement-label-entry {
+  min-height: 28px;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.story-create-dialog .story-create-labels-field .requirement-label-entry input {
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 4px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--story-create-ink) !important;
+  font-size: 13px !important;
+  line-height: 18px !important;
+  box-shadow: none !important;
+}
+
+.story-create-dialog .story-create-labels-field .requirement-label-chip-row {
+  order: 1;
+  display: flex;
+  min-height: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow: visible;
+}
+
+.story-create-dialog .story-create-labels-field .requirement-label-chip {
+  min-height: 28px;
+  max-width: 10rem;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--story-create-chip);
+  color: var(--story-create-chip-text);
+  font-family: var(--hellotest-font-body, "Inter", sans-serif);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.story-create-dialog .story-create-labels-field .requirement-label-chip strong {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.story-create-dialog .story-create-labels-field .requirement-label-add-button {
+  min-height: 26px;
+  height: 26px;
+}
+
+.story-create-dialog .story-create-labels-field .requirement-label-menu {
+  top: calc(100% + 10px);
+  min-width: min(18rem, calc(100vw - 64px));
+  border-color: var(--story-create-border);
+  border-radius: 4px;
+  background: var(--story-create-surface);
+}
+
+.story-create-dialog .story-create-release-field > select {
+  width: 100% !important;
+  height: 46px !important;
+  min-height: 46px !important;
+  box-sizing: border-box !important;
+  padding: 11px 42px 11px 16px !important;
+  border: 1px solid var(--story-create-border) !important;
+  border-radius: 4px !important;
+  background-color: var(--story-create-surface) !important;
+  color: var(--story-create-ink) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 18px !important;
+  box-shadow: none !important;
+}
+
+.story-create-dialog .story-create-external-references {
+  padding-bottom: 16px;
+}
+
+.story-create-dialog .story-create-external-references .requirement-reference-picker {
+  display: grid !important;
+  min-width: 0;
+  gap: 0 !important;
+  overflow: hidden;
+  border: 1px solid var(--story-create-border);
+  border-radius: 4px;
+  background: var(--story-create-surface);
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.story-create-dialog .story-create-external-references .requirement-reference-picker:focus-within {
+  border-color: #000000;
+  box-shadow: 0 0 0 1px #000000;
+}
+
+.story-create-dialog .story-create-external-references .requirement-reference-entry {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px !important;
+  padding: 0 12px;
+  background: var(--story-create-tint);
+}
+
+.story-create-dialog .story-create-external-references .requirement-reference-picker:has(.requirement-reference-chip-row) .requirement-reference-entry {
+  border-bottom: 1px solid var(--story-create-divider);
+}
+
+.story-create-dialog .story-create-external-references .requirement-reference-entry input {
+  width: 100% !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--story-create-ink) !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 18px !important;
+  box-shadow: none !important;
+}
+
+.story-create-dialog .story-create-external-references .requirement-label-add-button {
+  height: auto !important;
+  min-height: 30px !important;
+  margin: 0 !important;
+  padding: 0 2px 0 10px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #000000 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.05em;
+  box-shadow: none !important;
+}
+
+.story-create-dialog .story-create-external-references .requirement-reference-chip-row {
+  display: grid !important;
+  max-height: 100px;
+  gap: 4px !important;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.story-create-dialog .story-create-external-references .requirement-reference-chip {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--story-create-chip-text);
+  font-family: var(--hellotest-font-body, "Inter", sans-serif);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.story-create-dialog .story-create-external-references .requirement-reference-chip:hover {
+  background: var(--story-create-tint-strong);
+}
+
+.story-create-dialog .story-create-external-references .requirement-reference-chip > :is(a, span) {
+  color: var(--story-create-chip-text);
+  font-weight: 400;
+}
+
+.story-create-dialog .story-create-external-references .requirement-reference-chip > button {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  background: transparent;
+  color: var(--story-create-muted);
+  opacity: 0;
+}
+
+.story-create-dialog .story-create-external-references .requirement-reference-chip:hover > button,
+.story-create-dialog .story-create-external-references .requirement-reference-chip:focus-within > button {
+  opacity: 1;
+}
+
+.story-create-dialog .requirement-create-modal-actions {
+  position: static !important;
+  display: flex !important;
+  width: 100% !important;
+  min-height: 68px;
+  align-items: center !important;
+  align-self: stretch !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  justify-content: flex-end !important;
+  box-sizing: border-box;
+  gap: 12px !important;
+  margin: 0 !important;
+  padding: 16px 24px !important;
+  border-top: 1px solid var(--story-create-divider) !important;
+  background: var(--story-create-surface) !important;
+}
+
+.story-create-dialog .requirement-create-modal-actions > button {
+  display: inline-flex;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  min-height: 40px !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 !important;
+  border-radius: 4px !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 16px !important;
+  letter-spacing: 0.05em !important;
+  white-space: nowrap !important;
+  box-shadow: none !important;
+}
+
+.story-create-dialog .requirement-create-modal-actions > button > span {
+  white-space: nowrap;
+}
+
+.story-create-dialog .story-create-cancel-button {
+  padding: 0 20px !important;
+  border: 1px solid var(--story-create-border) !important;
+  background: transparent !important;
+  color: var(--story-create-ink) !important;
+}
+
+.story-create-dialog .story-create-cancel-button:hover:not(:disabled) {
+  background: var(--story-create-tint-strong) !important;
+}
+
+.story-create-dialog .story-create-submit-button {
+  padding: 0 24px !important;
+  border: 1px solid var(--project-create-action, #0758c9) !important;
+  background: var(--project-create-action, #0758c9) !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(5, 35, 91, 0.24) !important;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease,
+    box-shadow 160ms ease, transform 100ms ease !important;
+}
+
+.story-create-dialog .story-create-submit-button:hover:not(:disabled) {
+  border-color: var(--project-create-action-hover, #0649aa) !important;
+  background: var(--project-create-action-hover, #0649aa) !important;
+  box-shadow: 0 6px 14px rgba(7, 88, 201, 0.26) !important;
+}
+
+.story-create-dialog .story-create-submit-button:not(:disabled):focus-visible,
+.requirement-import-modal-card .requirement-import-submit-button:not(:disabled):focus-visible {
+  outline: 0 !important;
+  box-shadow: 0 0 0 3px var(--project-create-action-ring, rgba(7, 88, 201, 0.24)),
+    0 4px 12px rgba(20, 38, 75, 0.16) !important;
+}
+
+.story-create-dialog .story-create-submit-button:not(:disabled):active,
+.requirement-import-modal-card .requirement-import-submit-button:not(:disabled):active {
+  transform: translateY(1px) scale(0.985) !important;
+  box-shadow: 0 1px 3px rgba(20, 38, 75, 0.2) !important;
+}
+
+.story-create-dialog .story-create-submit-icon {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+
+.story-create-dialog .story-create-submit-icon svg {
+  width: 11px;
+  height: 11px;
+}
+
+.requirement-import-modal-card .requirement-import-submit-button:not(:disabled) {
+  border-color: var(--project-create-action, #0758c9) !important;
+  background: var(--project-create-action, #0758c9) !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(5, 35, 91, 0.24) !important;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease,
+    box-shadow 160ms ease, transform 100ms ease !important;
+}
+
+.requirement-import-modal-card .requirement-import-submit-button:hover:not(:disabled) {
+  border-color: var(--project-create-action-hover, #0649aa) !important;
+  background: var(--project-create-action-hover, #0649aa) !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 14px rgba(7, 88, 201, 0.26) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .story-create-dialog .story-create-submit-button,
+  .requirement-import-modal-card .requirement-import-submit-button {
+    transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .story-create-dialog .story-create-submit-button:not(:disabled),
+  .requirement-import-modal-card .requirement-import-submit-button:not(:disabled) {
+    border-color: ButtonText !important;
+    background: ButtonFace !important;
+    color: ButtonText !important;
+    forced-color-adjust: auto;
+  }
+}
+
+.story-create-dialog :is(button, input, select):disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+:root[data-theme="dark"] .story-create-backdrop {
+  --story-create-surface: #111b2b;
+  --story-create-ink: #f1f5f9;
+  --story-create-text: #cbd5e1;
+  --story-create-muted: #9eacc0;
+  --story-create-border: rgba(148, 163, 184, 0.42);
+  --story-create-divider: rgba(148, 163, 184, 0.22);
+  --story-create-tint: #172b4d;
+  --story-create-tint-strong: #203b62;
+  --story-create-chip: #203b62;
+  --story-create-chip-text: #dbeafe;
+  background: rgba(2, 6, 23, 0.72) !important;
+}
+
+:root[data-theme="dark"] .story-create-dialog .story-create-floating-field > select,
+:root[data-theme="dark"] .story-create-dialog .story-create-release-field > select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23cbd5e1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 9 5 5 5-5'/%3E%3C/svg%3E") !important;
+}
+
+:root[data-theme="dark"] .story-create-dialog .story-create-floating-field > :is(input, select):focus,
+:root[data-theme="dark"] .story-create-dialog .story-create-release-field > select:focus,
+:root[data-theme="dark"] .story-create-dialog .story-create-description-editor:focus-within,
+:root[data-theme="dark"] .story-create-dialog .story-create-labels-field .requirement-label-picker:focus-within,
+:root[data-theme="dark"] .story-create-dialog .story-create-external-references .requirement-reference-picker:focus-within {
+  border-color: #dbeafe !important;
+  box-shadow: 0 0 0 1px #dbeafe !important;
+}
+
+:root[data-theme="dark"] .story-create-dialog .story-create-description-editor .rich-text-tool-button:hover:not(:disabled),
+:root[data-theme="dark"] .story-create-dialog .story-create-description-editor .rich-text-tool-button:focus-visible,
+:root[data-theme="dark"] .story-create-dialog .story-create-external-references .requirement-label-add-button {
+  color: var(--story-create-ink) !important;
+}
+
+:root[data-theme="dark"] .story-create-dialog .story-create-submit-button {
+  border-color: var(--project-create-action, #0758c9) !important;
+  background: var(--project-create-action, #0758c9) !important;
+  color: #ffffff !important;
+}
+
+@media (max-width: 720px) {
+  .modal-backdrop > .story-create-dialog {
+    width: 100% !important;
+    max-width: 100vw !important;
+    min-height: 100dvh !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+  }
+
+  .story-create-dialog .story-create-dialog-header {
+    min-height: 64px !important;
+    padding:
+      max(14px, env(safe-area-inset-top))
+      16px
+      14px !important;
+  }
+
+  .story-create-dialog .story-create-dialog-body {
+    padding: 20px 16px !important;
+  }
+
+  .story-create-dialog .story-create-dialog-content {
+    gap: 24px !important;
+  }
+
+  .story-create-dialog .story-create-core-grid,
+  .story-create-dialog .story-create-secondary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 18px !important;
+  }
+
+  .story-create-dialog :is(
+    .story-create-title-field,
+    .story-create-priority-field,
+    .story-create-status-field,
+    .story-create-sprint-field
+  ) {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+
+  .story-create-dialog .story-create-description-editor .rich-text-editor-surface {
+    min-height: 144px !important;
+  }
+
+  .story-create-dialog .requirement-create-modal-actions {
+    min-height: 72px;
+    padding:
+      14px
+      16px
+      max(14px, env(safe-area-inset-bottom)) !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .story-create-dialog .requirement-create-modal-actions > button {
+    flex: 0 0 auto !important;
+    padding-inline: 14px !important;
+  }
+
+  .story-create-dialog .story-create-external-references .requirement-reference-entry {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .story-create-dialog .story-create-external-references .requirement-label-add-button {
+    grid-column: 1 / -1;
+    justify-self: end;
+    min-height: 24px !important;
+    padding: 0 !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .modal-backdrop > .story-create-dialog,
+  .story-create-dialog .story-create-description-editor,
+  .story-create-dialog .story-create-labels-field .requirement-label-picker,
+  .story-create-dialog .story-create-external-references .requirement-reference-picker {
+    border: 1px solid CanvasText !important;
+    forced-color-adjust: auto;
+  }
+}
+
+/* Attached-reference Create Sprint composition. Edit Sprint keeps the existing shared dialog treatment. */
+.modal-backdrop.sprint-create-backdrop,
+body > .sprint-create-backdrop {
+  --sprint-create-surface: #ffffff;
+  --sprint-create-surface-low: #eef4ff;
+  --sprint-create-surface-bright: #f8f9ff;
+  --sprint-create-chip: #d4e4fa;
+  --sprint-create-ink: #000000;
+  --sprint-create-text: #0d1c2d;
+  --sprint-create-muted: #76777d;
+  --sprint-create-border: #e2e8f0;
+  --sprint-create-focus: #0c66e4;
+  background: #d1d5db !important;
+}
+
+.modal-backdrop > .sprint-create-dialog {
+  display: flex !important;
+  width: min(768px, calc(100vw - 32px)) !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: calc(100dvh - 32px) !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  margin: auto !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  border-radius: 2px !important;
+  background: var(--sprint-create-surface) !important;
+  color: var(--sprint-create-text) !important;
+  color-scheme: light;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  scrollbar-gutter: auto !important;
+  box-shadow:
+    0 10px 15px -3px rgba(15, 23, 42, 0.1),
+    0 4px 6px -2px rgba(15, 23, 42, 0.05) !important;
+}
+
+.sprint-create-dialog,
+.sprint-create-dialog * {
+  box-sizing: border-box;
+}
+
+.sprint-create-dialog .sprint-create-dialog-header {
+  position: relative !important;
+  z-index: 0 !important;
+  display: flex !important;
+  width: 100% !important;
+  min-height: 76px !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 24px !important;
+  margin: 0 !important;
+  padding: 24px 32px !important;
+  border: 0 !important;
+  background: var(--sprint-create-surface) !important;
+}
+
+.sprint-create-dialog .requirement-create-title {
+  display: grid !important;
+  min-width: 0;
+  gap: 4px !important;
+}
+
+.sprint-create-dialog .sprint-create-dialog-header .dialog-title {
+  margin: 0 !important;
+  color: var(--sprint-create-ink) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  line-height: 28px !important;
+  letter-spacing: 0 !important;
+}
+
+.sprint-create-dialog .sprint-create-dialog-header .requirement-create-title > p {
+  margin: 0 !important;
+  color: #44546f !important;
+  font-family: var(--hellotest-font-body, "Inter", sans-serif) !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  line-height: 18px !important;
+}
+
+.sprint-create-dialog .sprint-create-dialog-header .dialog-close-button {
+  display: inline-grid !important;
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  place-items: center !important;
+  padding: 4px !important;
+  border: 0 !important;
+  border-radius: 2px !important;
+  background: transparent !important;
+  color: var(--sprint-create-muted) !important;
+}
+
+.sprint-create-dialog .sprint-create-dialog-header .dialog-close-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.sprint-create-dialog .sprint-create-dialog-header .dialog-close-button:hover:not(:disabled) {
+  background: var(--sprint-create-surface-low) !important;
+  color: var(--sprint-create-ink) !important;
+}
+
+.sprint-create-dialog .sprint-create-dialog-body {
+  position: relative;
+  z-index: 1;
+  display: block !important;
+  width: 100%;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  padding: 0 32px 32px !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  background: var(--sprint-create-surface) !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: auto !important;
+}
+
+.sprint-create-dialog .iteration-create-layout {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 32px !important;
+  align-items: start !important;
+}
+
+.sprint-create-plan-top-row,
+.sprint-create-plan-date-row {
+  display: contents;
+}
+
+.sprint-create-dialog.requirement-sprint-modal .iteration-create-details-card.sprint-create-plan-card {
+  display: block !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.sprint-create-dialog .sprint-create-plan-card > .sprint-create-section-heading {
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--sprint-create-border);
+}
+
+.sprint-create-dialog .sprint-create-plan-grid {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  column-gap: 0 !important;
+  row-gap: 24px !important;
+  align-items: start !important;
+}
+
+.sprint-create-dialog :is(.sprint-create-plan-top-row, .sprint-create-plan-date-row) {
+  display: grid;
+  min-width: 0;
+  gap: 24px;
+}
+
+.sprint-create-dialog :is(.sprint-create-plan-top-row, .sprint-create-plan-date-row) > .form-field {
+  grid-column: auto !important;
+}
+
+.sprint-create-dialog .sprint-create-plan-top-row {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+
+.sprint-create-dialog .sprint-create-plan-date-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sprint-create-dialog .sprint-create-goal-field {
+  grid-column: 1 !important;
+}
+
+.sprint-create-dialog .sprint-create-floating-field {
+  display: grid !important;
+  min-width: 0;
+  align-content: start;
+  gap: 8px !important;
+}
+
+.sprint-create-dialog .sprint-create-floating-field > .form-field-label {
+  position: static;
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 0;
+  margin: 0 0 0 4px;
+  padding: 0;
+  background: transparent;
+  color: #44546f !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  line-height: 16px !important;
+  letter-spacing: 0 !important;
+  white-space: normal;
+}
+
+.sprint-create-dialog .sprint-create-floating-field .form-field-required-marker {
+  display: inline;
+  margin-left: 2px;
+  color: #c9372c;
+}
+
+.sprint-create-dialog .sprint-create-date-field > .form-field-label {
+  color: #44546f !important;
+  font-weight: 700 !important;
+}
+
+.sprint-create-dialog .sprint-create-floating-field > :is(input, select) {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  margin: 0 !important;
+  padding: 0 16px !important;
+  border: 1px solid var(--sprint-create-border) !important;
+  border-radius: 4px !important;
+  background-color: var(--sprint-create-surface) !important;
+  color: var(--sprint-create-text) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 20px !important;
+  box-shadow: none !important;
+}
+
+.sprint-create-dialog .sprint-create-floating-field > input::placeholder {
+  color: #667085;
+  opacity: 1;
+}
+
+.sprint-create-dialog .sprint-create-duration-field > select {
+  padding-right: 44px !important;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2376777d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 16px center !important;
+  background-size: 16px 16px !important;
+}
+
+.sprint-create-dialog .sprint-create-floating-field > :is(input, select):focus {
+  border-color: var(--sprint-create-focus) !important;
+  outline: 0 !important;
+  box-shadow: 0 0 0 1px var(--sprint-create-focus) !important;
+}
+
+.sprint-create-dialog .sprint-create-goal-field {
+  display: grid !important;
+  gap: 12px !important;
+}
+
+.sprint-create-dialog .sprint-create-goal-field > .form-field-label {
+  margin: 0;
+  color: var(--sprint-create-muted) !important;
+  font-family: var(--hellotest-font-heading, "Hanken Grotesk", "Inter", sans-serif) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  line-height: 16px !important;
+  letter-spacing: 0.05em !important;
+  text-transform: uppercase;
+}
+
+.sprint-create-dialog .sprint-goal-editor {
+  position: relative;
+  display: block !important;
+  min-width: 0;
+  gap: 0 !important;
+  overflow: hidden;
+  border: 1px solid var(--sprint-create-border);
+  border-radius: 4px;
+  background: var(--sprint-create-surface);
+}
+
+.sprint-create-dialog .sprint-goal-editor .rich-text-editor-toolbar {
+  display: flex !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-height: 44px !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  gap: 4px !important;
+  margin: 0 !important;
+  padding: 8px !important;
+  overflow-x: auto;
+  border: 0 !important;
+  border-bottom: 1px solid var(--sprint-create-border) !important;
+  border-radius: 0 !important;
+  background: var(--sprint-create-surface-low) !important;
+  box-shadow: none !important;
+}
+
+.sprint-create-dialog .sprint-goal-editor .rich-text-tool-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sprint-create-dialog .sprint-goal-editor .rich-text-tool-divider {
+  width: 1px !important;
+  height: 16px !important;
+  margin: 0 4px !important;
+  background: var(--sprint-create-border) !important;
+}
+
+.sprint-create-dialog .sprint-goal-editor .rich-text-tool-button {
+  display: inline-grid !important;
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  place-items: center !important;
+  padding: 6px !important;
+  border: 0 !important;
+  border-radius: 2px !important;
+  background: transparent !important;
+  color: #45464d !important;
+  font-size: 14px !important;
+  box-shadow: none !important;
+}
+
+.sprint-create-dialog .sprint-goal-editor .rich-text-tool-button:hover:not(:disabled),
+.sprint-create-dialog .sprint-goal-editor .rich-text-tool-button:focus-visible {
+  background: var(--sprint-create-surface-bright) !important;
+  color: var(--sprint-create-ink) !important;
+  outline: 0;
+}
+
+.sprint-create-dialog .sprint-goal-editor .rich-text-tool-button:disabled {
+  cursor: not-allowed;
+  opacity: 1 !important;
+}
+
+.sprint-create-dialog .sprint-goal-editor .rich-text-tool-glyph {
+  min-width: 0 !important;
+  color: currentColor;
+  font-size: 14px !important;
+  font-weight: 600;
+}

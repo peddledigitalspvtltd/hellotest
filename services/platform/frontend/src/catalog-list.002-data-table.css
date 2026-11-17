@@ -1,0 +1,1095 @@
+
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header > .hierarchy-parent-actions > button,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header > .module-toggle-button {
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: var(--catalog-muted) !important;
+  box-shadow: none !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header > .hierarchy-parent-actions > .danger {
+  color: var(--catalog-danger) !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric-strip {
+  gap: 4px !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-record-count,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric {
+  min-height: 24px !important;
+  padding: 4px 8px !important;
+  gap: 4px !important;
+  border: 1px solid var(--catalog-border) !important;
+  border-radius: 2px !important;
+  background: var(--catalog-surface) !important;
+  color: var(--catalog-muted) !important;
+  font-family: var(--hellotest-font-body) !important;
+  line-height: 14px !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-record-count strong,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-record-count small,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric strong,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric small {
+  color: inherit !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 14px !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric.tone-danger {
+  border-color: #fecaca !important;
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric.tone-warning {
+  border-color: #fbcfe8 !important;
+  background: #fce7f3 !important;
+  color: #be185d !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric:nth-child(3).tone-danger {
+  border-color: #fbcfe8 !important;
+  background: #fce7f3 !important;
+  color: #be185d !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric:last-child.tone-danger {
+  border-color: #fecaca !important;
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+}
+
+/* Column configuration dialog */
+.data-table-config-panel {
+  width: min(352px, calc(100vw - 24px)) !important;
+  max-width: calc(100vw - 24px) !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid var(--catalog-border) !important;
+  border-radius: 8px !important;
+  background: var(--catalog-surface) !important;
+  color: var(--catalog-text) !important;
+  box-shadow: 0 12px 32px rgba(9, 30, 66, 0.18) !important;
+  font-family: var(--hellotest-font-body) !important;
+}
+
+.data-table-config-head {
+  display: grid !important;
+  gap: 10px !important;
+  padding: 14px !important;
+  border-bottom: 1px solid var(--catalog-divider) !important;
+  background: var(--catalog-surface) !important;
+}
+
+.data-table-config-title-row {
+  display: flex !important;
+  width: 100%;
+  align-items: flex-start !important;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.data-table-config-title-row > div {
+  display: grid;
+  gap: 2px;
+}
+
+.data-table-config-title-row strong {
+  color: var(--catalog-ink) !important;
+  font-family: var(--hellotest-font-heading) !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  line-height: 20px !important;
+}
+
+.data-table-config-title-row span {
+  color: var(--catalog-muted) !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  line-height: 16px !important;
+}
+
+.data-table-config-title-row > button,
+.data-table-config-close {
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  border: 1px solid transparent !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: var(--catalog-muted) !important;
+  box-shadow: none !important;
+}
+
+.data-table-config-search {
+  display: flex !important;
+  min-height: 36px !important;
+  align-items: center;
+  gap: 8px !important;
+  padding: 0 10px !important;
+  border: 1px solid var(--catalog-border) !important;
+  border-radius: 5px !important;
+  background: var(--catalog-surface) !important;
+  color: var(--catalog-muted) !important;
+}
+
+.data-table-config-search:focus-within {
+  border-color: var(--catalog-blue) !important;
+  box-shadow: var(--catalog-focus-ring);
+}
+
+.data-table-config-search input {
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--catalog-ink) !important;
+  font-size: 12px !important;
+  line-height: 16px !important;
+  box-shadow: none !important;
+}
+
+.data-table-config-catalog-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--catalog-divider);
+  border-radius: 5px;
+  background: var(--catalog-surface-subtle);
+}
+
+.data-table-config-catalog-tabs button {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0 !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+  color: var(--catalog-muted) !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 14px !important;
+  box-shadow: none !important;
+}
+
+.data-table-config-catalog-tabs button > span {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--catalog-divider);
+  color: inherit;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.data-table-config-catalog-tabs button:hover:not(:disabled) {
+  color: var(--catalog-ink) !important;
+}
+
+.data-table-config-catalog-tabs button.is-active,
+.data-table-config-catalog-tabs button[aria-selected="true"] {
+  background: var(--catalog-surface) !important;
+  color: #0c66e4 !important;
+  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.12) !important;
+}
+
+.data-table-config-quick-actions {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  gap: 6px !important;
+}
+
+.data-table-config-quick-actions button {
+  min-height: 30px !important;
+  padding: 0 8px !important;
+  border: 1px solid var(--catalog-border) !important;
+  border-radius: 4px !important;
+  background: var(--catalog-surface) !important;
+  color: var(--catalog-muted) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 14px !important;
+  box-shadow: none !important;
+}
+
+.data-table-config-quick-actions button:hover:not(:disabled),
+.data-table-config-quick-actions button.is-active,
+.data-table-config-quick-actions button[aria-pressed="true"] {
+  border-color: #b3d4ff !important;
+  background: #e9f2ff !important;
+  color: #0c66e4 !important;
+}
+
+.data-table-config-options {
+  display: block !important;
+  max-height: min(50vh, 420px);
+  padding: 6px 8px 10px !important;
+  overflow-y: auto;
+  background: var(--catalog-surface) !important;
+}
+
+.data-table-config-group {
+  padding: 10px 8px 5px !important;
+  color: var(--catalog-subtle) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  line-height: 14px !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase;
+}
+
+.data-table-config-option-block + .data-table-config-option-block {
+  margin-top: 2px !important;
+}
+
+.data-table-config-option {
+  min-height: 48px !important;
+  gap: 8px !important;
+  padding: 6px 8px !important;
+  border: 1px solid transparent !important;
+  border-radius: 5px !important;
+  background: transparent !important;
+}
+
+.data-table-config-option:hover,
+.data-table-config-option:focus-within,
+.data-table-config-option.is-visible {
+  border-color: transparent !important;
+  background: var(--catalog-surface-subtle) !important;
+}
+
+.data-table-config-drag-handle {
+  width: 24px !important;
+  height: 24px !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: var(--catalog-subtle) !important;
+}
+
+.data-table-config-option-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 1px !important;
+}
+
+.data-table-config-option-copy strong {
+  overflow: hidden;
+  color: var(--catalog-ink) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 16px !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-table-config-option-copy span {
+  overflow: hidden;
+  color: var(--catalog-muted) !important;
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  line-height: 14px !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-table-config-toggle {
+  min-width: 28px !important;
+  min-height: 28px !important;
+}
+
+.data-table-config-toggle input {
+  width: 14px !important;
+  height: 14px !important;
+  accent-color: var(--catalog-blue);
+}
+
+.data-table-config-option-state {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 4px !important;
+  background: #e9f2ff !important;
+  color: #0c66e4 !important;
+}
+
+.data-table-config-reorder-actions {
+  display: inline-flex;
+  gap: 2px !important;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.data-table-config-option:hover .data-table-config-reorder-actions,
+.data-table-config-option:focus-within .data-table-config-reorder-actions {
+  opacity: 1;
+}
+
+.data-table-config-reorder-actions button {
+  width: 26px !important;
+  height: 26px !important;
+  padding: 0 !important;
+  border: 1px solid var(--catalog-divider) !important;
+  border-radius: 4px !important;
+  background: var(--catalog-surface) !important;
+  color: var(--catalog-muted) !important;
+  box-shadow: none !important;
+}
+
+.data-table-config-reorder-actions button:hover:not(:disabled) {
+  border-color: #b3d4ff !important;
+  background: #e9f2ff !important;
+  color: #0c66e4 !important;
+}
+
+.data-table-config-actions {
+  display: flex !important;
+  min-height: 40px;
+  align-items: center !important;
+  padding: 8px 14px !important;
+  border-top: 1px solid var(--catalog-divider) !important;
+  background: var(--catalog-surface-subtle) !important;
+  color: var(--catalog-muted) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  line-height: 14px !important;
+}
+
+.data-table-config-no-results {
+  padding: 28px 12px !important;
+  color: var(--catalog-muted) !important;
+  font-size: 12px !important;
+  line-height: 18px !important;
+  text-align: center;
+}
+
+/* Stable Story and test-case tile summaries.
+ * Rich detail remains in the workspace; cards show one narrative preview only.
+ */
+.tile-browser-grid > :is(.requirement-catalog-card, .test-case-catalog-card, .knowledge-catalog-card),
+:is(.requirement-catalog-card, .test-case-catalog-card, .knowledge-catalog-card) {
+  box-sizing: border-box !important;
+  inline-size: 100% !important;
+  min-inline-size: 0 !important;
+  max-inline-size: 100% !important;
+  overflow: hidden !important;
+  contain: inline-size;
+}
+
+:is(.requirement-catalog-card, .test-case-catalog-card, .knowledge-catalog-card) > .tile-card-main,
+:is(.requirement-catalog-card, .test-case-catalog-card) .catalog-card-description-block {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+.knowledge-catalog-card .tile-card-description {
+  display: -webkit-box;
+  min-block-size: 54px;
+  max-block-size: 54px;
+  max-inline-size: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.catalog-card-description-block {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  overflow: hidden;
+  font-family: var(--hellotest-font-body);
+}
+
+.catalog-card-field-label {
+  display: block;
+  color: var(--catalog-subtle);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.catalog-card-description-summary {
+  display: -webkit-box !important;
+  min-block-size: 54px;
+  max-block-size: 54px;
+  max-inline-size: 100%;
+  margin: 0;
+  overflow: hidden !important;
+  color: var(--catalog-muted);
+  font-family: var(--hellotest-font-body);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.requirement-story-identity,
+.test-case-identity {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: #0c66e4;
+  font-family: var(--hellotest-font-body);
+}
+
+.requirement-story-identity > svg,
+.test-case-identity > svg {
+  flex: 0 0 auto;
+}
+
+.requirement-story-identity .display-id-badge,
+.test-case-identity .display-id-badge {
+  min-width: 0;
+}
+
+.requirement-detail-entity-identity,
+.test-case-workspace-record-id,
+.test-case-detail-record-id,
+.test-case-linked-story-id {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.requirement-detail-id-row > .requirement-detail-entity-identity {
+  color: #0c66e4;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.test-case-detail-identity-card > .test-case-detail-record-id {
+  color: #0c66e4;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.requirement-related-item-id > .test-case-entity-icon,
+.requirement-related-item-id > svg {
+  flex: 0 0 auto;
+  color: #0c66e4;
+}
+
+.test-case-card-header > .test-case-identity {
+  min-width: 0;
+  margin-left: 6px;
+  overflow: hidden;
+}
+
+.requirement-catalog-card {
+  border: 1px solid var(--catalog-border) !important;
+  border-radius: 8px !important;
+  background: var(--catalog-surface) !important;
+  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.08) !important;
+  font-family: var(--hellotest-font-body) !important;
+}
+
+.requirement-catalog-card.is-risk {
+  border-left: 3px solid #dc2626 !important;
+}
+
+.requirement-catalog-card.is-warning {
+  border-left: 3px solid #d97706 !important;
+}
+
+.requirement-catalog-card.is-healthy {
+  border-left: 3px solid #22a06b !important;
+}
+
+.requirement-catalog-card:hover,
+.requirement-catalog-card:focus-visible {
+  border-color: #85b8ff !important;
+  background: var(--catalog-surface) !important;
+  box-shadow: 0 6px 18px rgba(9, 30, 66, 0.12) !important;
+  transform: translateY(-1px) !important;
+}
+
+.requirement-catalog-card .tile-card-main {
+  gap: 12px !important;
+  font-family: var(--hellotest-font-body) !important;
+}
+
+.requirement-tile-top-row {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.requirement-tile-top-row .requirement-story-identity {
+  overflow: hidden;
+}
+
+.requirement-tile-top-row .requirement-top-actions {
+  min-width: 0;
+  margin-left: 0 !important;
+}
+
+.requirement-catalog-card .display-id-badge code {
+  color: #0c66e4 !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 16px !important;
+}
+
+.requirement-tile-header {
+  display: block !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 0 !important;
+}
+
+.requirement-catalog-card .tile-card-title-group strong {
+  color: var(--catalog-ink) !important;
+  font-family: var(--hellotest-font-heading) !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  line-height: 21px !important;
+  letter-spacing: 0 !important;
+}
+
+.requirement-catalog-card .catalog-card-field-label,
+.requirement-catalog-card .requirement-progress-meter-header,
+.requirement-catalog-card .tile-card-facts {
+  font-family: var(--hellotest-font-body) !important;
+}
+
+.requirement-catalog-card .catalog-card-description-summary {
+  color: var(--catalog-muted) !important;
+  font-size: 12px !important;
+  line-height: 18px !important;
+}
+
+.tile-browser-grid > .requirement-iteration-header {
+  border: 1px solid var(--catalog-border) !important;
+  border-radius: 8px !important;
+  background: var(--catalog-group) !important;
+  box-shadow: none !important;
+  font-family: var(--hellotest-font-body) !important;
+}
+
+.tile-browser-grid > .requirement-iteration-header .requirement-sprint-heading > strong {
+  color: var(--catalog-ink) !important;
+  font-family: var(--hellotest-font-heading) !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  line-height: 22px !important;
+}
+
+.tile-browser-grid > .requirement-iteration-header .requirement-sprint-meta,
+.tile-browser-grid > .requirement-iteration-header .requirement-sprint-goal {
+  color: var(--catalog-muted) !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  line-height: 16px !important;
+}
+
+.requirement-backlog-description {
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  line-height: 16px !important;
+}
+
+/* Dark palette keeps the same hierarchy and contrast, without glass effects. */
+:root[data-theme="dark"] {
+  --catalog-ink: #f1f5f9;
+  --catalog-text: #cbd5e1;
+  --catalog-muted: #aebed2;
+  --catalog-subtle: #94a3b8;
+  --catalog-border: #465568;
+  --catalog-divider: #334155;
+  --catalog-surface: #111b2b;
+  --catalog-surface-subtle: #0d1726;
+  --catalog-row-alt: #0e1929;
+  --catalog-row-hover: #17263b;
+  --catalog-row-active: #18365b;
+  --catalog-group: #172b4d;
+  --catalog-neutral-chip: #203b62;
+  --catalog-focus-ring: 0 0 0 3px rgba(96, 165, 250, 0.25);
+}
+
+:root[data-theme="dark"] .requirement-story-identity,
+:root[data-theme="dark"] .test-case-identity {
+  color: #579dff;
+}
+
+:root[data-theme="dark"] .requirement-catalog-card .display-id-badge code {
+  color: #579dff !important;
+}
+
+:root[data-theme="dark"] .requirement-action-dropdown .run-action-option-icon {
+  background: var(--catalog-row-active) !important;
+  color: #93c5fd !important;
+}
+
+:root[data-theme="dark"] .requirement-catalog-toolbar,
+:root[data-theme="dark"] :is(
+  .design-list-toolbar:not(.requirement-catalog-toolbar),
+  .batch-process-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar
+),
+:root[data-theme="dark"] .catalog-view-toggle,
+:root[data-theme="dark"] .page-agentic-workflows .catalog-view-toggle,
+:root[data-theme="dark"] .catalog-search-filter,
+:root[data-theme="dark"] .catalog-search-field input,
+:root[data-theme="dark"] .data-table-config-panel {
+  background: var(--catalog-surface-subtle) !important;
+  border-color: var(--catalog-border) !important;
+  color: var(--catalog-text) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="dark"] .catalog-view-button,
+:root[data-theme="dark"] .page-agentic-workflows .catalog-view-button {
+  background: transparent !important;
+  border-color: var(--catalog-divider) !important;
+  color: var(--catalog-muted) !important;
+}
+
+:root[data-theme="dark"] .catalog-view-button:hover:not(:disabled),
+:root[data-theme="dark"] .page-agentic-workflows .catalog-view-button:hover:not(:disabled) {
+  background: var(--catalog-row-hover) !important;
+  color: var(--catalog-ink) !important;
+}
+
+:root[data-theme="dark"] .catalog-view-button.is-active,
+:root[data-theme="dark"] .catalog-view-button[aria-pressed="true"],
+:root[data-theme="dark"] .page-agentic-workflows .catalog-view-button.is-active,
+:root[data-theme="dark"] .page-agentic-workflows .catalog-view-button[aria-pressed="true"] {
+  background: #18365b !important;
+  border-color: var(--catalog-divider) !important;
+  color: #93c5fd !important;
+  box-shadow: inset 0 -2px 0 #60a5fa !important;
+}
+
+:root[data-theme="dark"] .catalog-search-field input,
+:root[data-theme="dark"] .catalog-search-field input:focus,
+:root[data-theme="dark"] .data-table-config-search input {
+  color: var(--catalog-ink) !important;
+}
+
+:root[data-theme="dark"] .catalog-search-field input::placeholder,
+:root[data-theme="dark"] .data-table-config-search input::placeholder {
+  color: var(--catalog-subtle) !important;
+}
+
+:root[data-theme="dark"] .requirement-toolbar-discovery > .requirement-toolbar-clear,
+:root[data-theme="dark"] .requirement-toolbar-discovery > .catalog-clear-button,
+:root[data-theme="dark"] .requirement-toolbar-discovery > .ghost-button,
+:root[data-theme="dark"] .requirement-toolbar-actions > button,
+:root[data-theme="dark"] .requirement-toolbar-actions > .catalog-selection-button,
+:root[data-theme="dark"] .requirement-toolbar-actions .compact-select {
+  border-color: var(--catalog-border) !important;
+  background: var(--catalog-surface) !important;
+  color: var(--catalog-text) !important;
+}
+
+:root[data-theme="dark"] .requirement-toolbar-discovery > .requirement-toolbar-clear,
+:root[data-theme="dark"] .requirement-toolbar-discovery > .catalog-clear-button,
+:root[data-theme="dark"] .requirement-toolbar-discovery > .ghost-button {
+  border-color: transparent !important;
+  background: transparent !important;
+}
+
+:root[data-theme="dark"] .requirement-toolbar-actions > .danger,
+:root[data-theme="dark"] .requirement-toolbar-actions > .catalog-selection-button.danger {
+  border-color: #7f1d1d !important;
+  background: #3f1d25 !important;
+  color: #fca5a5 !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap,
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table,
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > thead,
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > thead > tr,
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > thead > tr > th {
+  background: var(--catalog-surface) !important;
+  border-color: var(--catalog-border) !important;
+  color: var(--catalog-muted) !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr {
+  background: var(--catalog-surface) !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr:not(.data-table-group-row):nth-child(even) {
+  background: var(--catalog-row-alt) !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr:not(.data-table-group-row):hover {
+  background: var(--catalog-row-hover) !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr.is-active-row {
+  background: var(--catalog-row-active) !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr > td {
+  border-color: var(--catalog-divider) !important;
+  background: transparent !important;
+  color: var(--catalog-muted) !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr.data-table-group-row,
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr.data-table-group-row:hover,
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr.data-table-group-row > td.data-table-group-cell {
+  background: var(--catalog-group) !important;
+  color: var(--catalog-ink) !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-status {
+  background: var(--catalog-neutral-chip) !important;
+  color: var(--catalog-muted) !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-record-count,
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric {
+  border-color: var(--catalog-border) !important;
+  background: var(--catalog-surface) !important;
+  color: var(--catalog-muted) !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric:nth-child(3).tone-danger,
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric.tone-warning {
+  border-color: #831843 !important;
+  background: #3f172d !important;
+  color: #f9a8d4 !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .hierarchy-metric:last-child.tone-danger {
+  border-color: #7f1d1d !important;
+  background: #3f1d25 !important;
+  color: #fca5a5 !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr > td.data-table-control-cell {
+  background: var(--catalog-surface) !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr:nth-child(even) > td.data-table-control-cell {
+  background: var(--catalog-row-alt) !important;
+}
+
+:root[data-theme="dark"] .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr:hover > td.data-table-control-cell {
+  background: var(--catalog-row-hover) !important;
+}
+
+:root[data-theme="dark"] .data-table-config-head,
+:root[data-theme="dark"] .data-table-config-options,
+:root[data-theme="dark"] .data-table-config-search,
+:root[data-theme="dark"] .data-table-config-catalog-tabs,
+:root[data-theme="dark"] .data-table-config-quick-actions button,
+:root[data-theme="dark"] .data-table-config-reorder-actions button {
+  border-color: var(--catalog-border) !important;
+  background: var(--catalog-surface) !important;
+  color: var(--catalog-text) !important;
+}
+
+:root[data-theme="dark"] .data-table-config-option:hover,
+:root[data-theme="dark"] .data-table-config-option:focus-within,
+:root[data-theme="dark"] .data-table-config-option.is-visible,
+:root[data-theme="dark"] .data-table-config-actions {
+  border-color: var(--catalog-divider) !important;
+  background: var(--catalog-surface-subtle) !important;
+}
+
+:root[data-theme="dark"] .data-table-config-option-copy strong,
+:root[data-theme="dark"] .data-table-config-title-row strong {
+  color: var(--catalog-ink) !important;
+}
+
+:root[data-theme="dark"] .data-table-config-catalog-tabs button.is-active,
+:root[data-theme="dark"] .data-table-config-catalog-tabs button[aria-selected="true"] {
+  background: var(--catalog-row-active) !important;
+  color: #93c5fd !important;
+}
+
+@media (max-width: 1280px) {
+  .requirement-catalog-toolbar {
+    flex-wrap: wrap !important;
+  }
+
+  .requirement-toolbar-discovery,
+  .requirement-toolbar-actions {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .requirement-toolbar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    margin-left: 0;
+    padding-top: 0;
+    padding-left: 0;
+    overflow: visible;
+    border-top: 0;
+    border-left: 0;
+  }
+
+  .requirement-toolbar-actions .requirement-split-action-button {
+    width: auto !important;
+  }
+
+  :is(
+    .design-list-toolbar:not(.requirement-catalog-toolbar),
+    .batch-process-toolbar,
+    .projects-catalog-actions,
+    .project-list-toolbar
+  ) {
+    flex-wrap: wrap !important;
+  }
+
+  :is(
+    .design-list-toolbar:not(.requirement-catalog-toolbar),
+    .batch-process-toolbar,
+    .projects-catalog-actions,
+    .project-list-toolbar
+  ) > .catalog-search-filter {
+    flex: 1 1 calc(100% - 44px) !important;
+    max-width: none !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .catalog-view-toggle[data-mobile-grid-only="true"] {
+    display: none !important;
+  }
+
+  .catalog-search-filter {
+    flex-basis: auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .requirement-catalog-toolbar {
+    gap: 8px !important;
+    padding: 8px !important;
+  }
+
+  .requirement-toolbar-discovery {
+    width: 100%;
+    min-width: 0;
+    gap: 6px;
+  }
+
+  .requirement-toolbar-discovery > .catalog-search-filter {
+    width: auto !important;
+    min-width: 0 !important;
+  }
+
+  .requirement-toolbar-actions {
+    gap: 8px;
+    padding-top: 0;
+  }
+
+  .requirement-toolbar-actions > * {
+    flex: 1 1 10rem !important;
+    max-width: 100%;
+  }
+
+  .requirement-toolbar-actions .catalog-hierarchy-move-control,
+  .requirement-toolbar-actions .compact-select {
+    width: 100%;
+  }
+
+  .requirement-toolbar-actions .requirement-split-action-button {
+    display: flex;
+    width: auto !important;
+  }
+
+  .requirement-toolbar-actions .requirement-split-action-button .run-action-main {
+    flex: 1 1 auto;
+  }
+
+  :is(
+    .design-list-toolbar:not(.requirement-catalog-toolbar),
+    .batch-process-toolbar,
+    .projects-catalog-actions,
+    .project-list-toolbar
+  ) {
+    gap: 6px !important;
+    padding: 8px !important;
+  }
+
+  :is(
+    .design-list-toolbar:not(.requirement-catalog-toolbar),
+    .batch-process-toolbar,
+    .projects-catalog-actions,
+    .project-list-toolbar
+  ) > .catalog-search-filter {
+    flex: 1 1 calc(100% - 42px) !important;
+    min-width: 0 !important;
+  }
+
+  :is(
+    .design-list-toolbar:not(.requirement-catalog-toolbar),
+    .batch-process-toolbar,
+    .projects-catalog-actions,
+    .project-list-toolbar
+  ) > :is(button, .catalog-selection-button) {
+    flex: 1 1 auto !important;
+    justify-content: center;
+  }
+
+  :is(
+    .design-list-toolbar:not(.requirement-catalog-toolbar),
+    .batch-process-toolbar,
+    .projects-catalog-actions,
+    .project-list-toolbar
+  ) > .catalog-toolbar-actions {
+    width: 100%;
+    margin-left: 0 !important;
+  }
+
+  .data-table-shell > .table-wrap.catalog-table-wrap {
+    border-radius: 6px !important;
+  }
+
+  .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table {
+    min-width: max(100%, 48rem) !important;
+  }
+
+  .data-table-config-panel {
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+  }
+
+  .requirement-tile-top-row {
+    grid-template-columns: auto minmax(0, 1fr) !important;
+  }
+
+  .requirement-tile-top-row .requirement-top-actions {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .catalog-view-button,
+  .catalog-filter-button,
+  .requirement-catalog-toolbar button,
+  .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr,
+  .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-header-drag-handle,
+  .data-table-config-reorder-actions {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .catalog-view-toggle,
+  .catalog-view-button,
+  .catalog-search-field input,
+  .catalog-filter-button,
+  .requirement-catalog-toolbar,
+  .requirement-catalog-toolbar button,
+  .data-table-shell > .table-wrap.catalog-table-wrap,
+  .data-table-config-panel,
+  .data-table-config-search,
+  .data-table-config-catalog-tabs,
+  .data-table-config-quick-actions button,
+  .data-table-config-reorder-actions button,
+  .catalog-card-description-block {
+    border-color: ButtonText !important;
+    forced-color-adjust: auto;
+  }
+
+  .catalog-view-button[aria-pressed="true"],
+  .catalog-filter-button.is-active,
+  .data-table-config-quick-actions button[aria-pressed="true"] {
+    outline: 2px solid Highlight !important;
+    outline-offset: -2px;
+  }
+
+  .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > thead > tr > th,
+  .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr > td {
+    border-bottom-color: CanvasText !important;
+  }
+
+  .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr.data-table-group-row,
+  .data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr.data-table-group-row > td.data-table-group-cell {
+    background: Canvas !important;
+    color: CanvasText !important;
+  }
+}
+
+/* Story workspace authority: commands remain discoverable, detail fields use
+   the same measured composition as Create Story, and AI actions stay legible. */
+.requirement-catalog-toolbar {
+  align-items: flex-start !important;
+  flex-wrap: wrap !important;
+}
+
+.requirement-toolbar-discovery {
+  flex: 1 1 30rem !important;
+}
+
+.requirement-toolbar-actions {
+  flex: 1 1 46rem !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-end;
+  margin-left: 0;
+  overflow: visible;
+}
+
+.requirement-toolbar-actions > :disabled,
+.requirement-toolbar-actions :is(select, button):disabled {
+  cursor: not-allowed !important;
+  opacity: 0.56 !important;
+}
+
+.requirement-export-button {
+  margin-left: 0 !important;
+}
+
+.requirement-action-dropdown button:disabled {
+  background: #f7f8fa !important;
+  color: #8993a4 !important;
+  cursor: not-allowed !important;
+  opacity: 1 !important;
+}

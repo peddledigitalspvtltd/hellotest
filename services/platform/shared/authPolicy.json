@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "newPasswordMinLength": 10,
+  "passwordMaxLength": 128,
+  "legacyLoginMinLength": 6,
+  "emailPattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+  "loginFailureLimit": 5,
+  "loginFailureWindowMinutes": 15,
+  "loginLockMinutes": 15,
+  "signupAcknowledgement": "If this address can be used, check your inbox for instructions to continue.",
+  "passwordResetAcknowledgement": "If this address is registered, check your inbox for password reset instructions."
+}

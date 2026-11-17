@@ -1,0 +1,591 @@
+
+
+.rovo-provider-status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.72rem 0.78rem;
+  border: 1px solid color-mix(in srgb, var(--accent-primary, var(--primary)) 24%, var(--border-subtle, var(--border)));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent-primary, var(--primary)) 5%, var(--surface-elevated, var(--card-bg)));
+}
+
+.rovo-provider-status.is-compact {
+  padding: 0.55rem 0.62rem;
+}
+
+.rovo-provider-mark {
+  display: grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--accent-primary, var(--primary));
+  color: #fff;
+  font-weight: 850;
+}
+
+.rovo-provider-status > div {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.rovo-provider-status > div strong {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.rovo-provider-status > div span,
+.rovo-provider-status > div small {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.rovo-provider-state.is-available {
+  color: var(--success, #1f845a);
+}
+
+.rovo-provider-state.is-unavailable {
+  color: var(--text-secondary);
+}
+
+.rovo-provider-status + .settings-prompt-grid {
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .rovo-provider-status {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .rovo-provider-status > .count-pill,
+  .rovo-provider-status > button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+.settings-governance-heading strong,
+.settings-metric-methodology strong {
+  color: var(--text-primary);
+  font-size: 0.88rem;
+}
+
+.settings-governance-heading span,
+.settings-metric-methodology p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.settings-metric-parameter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0.8rem;
+  border: 1px solid var(--line, #d8deea);
+  border-radius: 8px;
+}
+
+.settings-metric-parameter-grid legend {
+  padding: 0 0.35rem;
+  color: var(--ink, #172b4d);
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.settings-metric-number-input {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line, #c8d0dc);
+  border-radius: 7px;
+  background: var(--panel-strong, #fff);
+}
+
+.settings-metric-number-input:focus-within {
+  border-color: var(--primary, #0758c9);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #0758c9) 16%, transparent);
+}
+
+.settings-metric-number-input input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-metric-number-input > span {
+  padding: 0 0.65rem;
+  color: var(--muted, #64748b);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+@media (max-width: 720px) {
+  .settings-metric-parameter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.settings-metric-criteria-card {
+  align-content: start;
+}
+
+.settings-metric-methodology {
+  padding: 0.65rem 0.72rem;
+  border-left: 2px solid var(--accent-primary, var(--primary));
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--accent-primary, var(--primary)) 5%, transparent);
+}
+
+.settings-api-create-grid {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1.1fr) minmax(13rem, 0.9fr) auto;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.settings-api-create-button {
+  min-height: 2.55rem;
+  white-space: nowrap;
+}
+
+.settings-api-key-reveal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 1.4fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.8rem;
+  padding: 0.78rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--accent-primary, var(--primary)) 35%, var(--border-subtle, var(--border)));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-primary, var(--primary)) 7%, var(--surface-elevated, var(--card-bg)));
+}
+
+.settings-api-key-reveal > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.14rem;
+}
+
+.settings-api-key-reveal strong,
+.settings-api-key-main strong,
+.settings-api-scope-pill strong {
+  color: var(--text-primary);
+  font-size: 0.88rem;
+}
+
+.settings-api-key-reveal span,
+.settings-api-key-main span,
+.settings-api-key-meta,
+.settings-api-scope-pill span {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.settings-api-key-reveal code,
+.settings-api-key-card code {
+  min-width: 0;
+  padding: 0.4rem 0.52rem;
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 8px;
+  background: var(--surface, #ffffff);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-api-examples {
+  margin-block: 16px;
+}
+
+.settings-api-examples > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.settings-api-examples .detail-stack {
+  margin-top: 12px;
+}
+
+.settings-api-examples code {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.settings-api-scope-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+}
+
+.settings-api-scope-pill {
+  display: grid;
+  gap: 0.14rem;
+  min-width: 0;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 8px;
+  background: var(--surface-elevated, var(--card-bg));
+}
+
+.settings-api-scope-pill.is-selected {
+  border-color: color-mix(in srgb, var(--accent-primary, var(--primary)) 42%, var(--border-subtle, var(--border)));
+  background: color-mix(in srgb, var(--accent-primary, var(--primary)) 8%, var(--surface-elevated, var(--card-bg)));
+}
+
+.settings-api-key-list {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+}
+
+.settings-api-key-card {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(8rem, 0.8fr) minmax(12rem, 1.2fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.72rem 0.8rem;
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 8px;
+  background: var(--surface-elevated, var(--card-bg));
+}
+
+.settings-api-key-card.is-revoked {
+  opacity: 0.7;
+}
+
+.settings-api-key-main {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.settings-api-key-main strong,
+.settings-api-key-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-api-key-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem 0.55rem;
+}
+
+.settings-api-key-meta span:first-child {
+  color: var(--accent-primary, var(--primary));
+  font-weight: 700;
+}
+
+.settings-api-key-card.is-revoked .settings-api-key-meta span:first-child {
+  color: var(--text-secondary);
+}
+
+.feature-flag-provider-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
+  padding: 0.78rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--accent-primary, var(--primary)) 26%, var(--border-subtle, var(--border)));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-primary, var(--primary)) 6%, var(--surface-elevated, var(--card-bg)));
+}
+
+.feature-flag-provider-card > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.feature-flag-provider-card strong {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.feature-flag-provider-card span,
+.feature-flag-provider-card small {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.feature-flag-provider-card small {
+  max-width: min(26rem, 45vw);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.feature-flag-group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 0.8rem;
+}
+
+.feature-flag-group-card {
+  display: grid;
+  min-width: 0;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 8px;
+  background: var(--surface-elevated, var(--card-bg));
+}
+
+.feature-flag-group-head {
+  display: grid;
+  min-width: 0;
+  gap: 0.16rem;
+}
+
+.feature-flag-group-head strong {
+  color: var(--text-primary);
+  font-size: 0.92rem;
+}
+
+.feature-flag-group-head span {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.feature-flag-list {
+  display: grid;
+  gap: 0.46rem;
+}
+
+.feature-flag-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 0.58rem;
+  min-width: 0;
+  padding: 0.58rem 0.62rem;
+  border: 1px solid color-mix(in srgb, var(--border-subtle, var(--border)) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 86%, transparent);
+}
+
+.feature-flag-toggle input {
+  margin-top: 0.15rem;
+  accent-color: var(--accent-primary, var(--primary));
+}
+
+.feature-flag-toggle > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.feature-flag-toggle strong {
+  color: var(--text-primary);
+  font-size: 0.84rem;
+}
+
+.feature-flag-toggle small {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.catalog-run-button {
+  flex: 0 0 auto !important;
+  min-width: max-content !important;
+  border-radius: 999px !important;
+  border-color: color-mix(in srgb, var(--accent-primary, var(--primary)) 22%, var(--border-subtle, var(--border))) !important;
+  background: color-mix(in srgb, var(--accent-primary, var(--primary)) 7%, var(--surface-elevated, var(--card-bg))) !important;
+  color: var(--text-primary) !important;
+  white-space: nowrap !important;
+}
+
+.catalog-run-button:hover:not(:disabled),
+.catalog-run-button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent-primary, var(--primary)) 42%, var(--border-subtle, var(--border))) !important;
+  background: color-mix(in srgb, var(--accent-primary, var(--primary)) 12%, var(--surface-elevated, var(--card-bg))) !important;
+  color: var(--accent-primary, var(--primary)) !important;
+}
+
+.test-case-run-menu-panel {
+  padding: 0.6rem !important;
+  border: 1px solid rgba(13, 157, 108, 0.22) !important;
+  border-radius: 18px !important;
+  background: color-mix(in srgb, #18a873 5%, var(--shell-panel, #ffffff)) !important;
+  box-shadow: 0 18px 40px rgba(13, 157, 108, 0.18) !important;
+}
+
+.test-case-run-menu-item {
+  min-height: 3.1rem !important;
+  padding: 0.72rem 0.88rem !important;
+  border: 1px solid rgba(13, 157, 108, 0.34) !important;
+  border-radius: 999px !important;
+  background: linear-gradient(180deg, #18a873, #0d8f60) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 22px rgba(13, 157, 108, 0.16) !important;
+}
+
+.test-case-run-menu-item:hover:not(:disabled),
+.test-case-run-menu-item:focus-visible:not(:disabled) {
+  border-color: rgba(13, 157, 108, 0.44) !important;
+  background: linear-gradient(180deg, #129b6a, #047857) !important;
+  color: #ffffff !important;
+}
+
+.test-case-run-menu-item strong,
+.test-case-run-menu-item small,
+.test-case-run-menu-item svg {
+  color: inherit !important;
+}
+
+.test-case-run-menu-item small {
+  opacity: 0.84 !important;
+}
+
+.test-case-run-menu-item:disabled {
+  opacity: 0.58 !important;
+  cursor: not-allowed !important;
+}
+
+.agentic-workspace-grid {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.agentic-workspace-grid.has-detail {
+  align-items: start;
+}
+
+.agentic-playground-actions {
+  justify-content: flex-end !important;
+  max-width: 100%;
+}
+
+.agentic-playground-actions > button {
+  flex: 0 0 auto;
+  min-width: max-content;
+}
+
+.agentic-playground-panel .panel-head {
+  align-items: flex-start !important;
+  gap: 0.75rem !important;
+}
+
+.agentic-workflows-toolbar > .catalog-view-toggle {
+  order: 2;
+}
+
+.agentic-workflows-toolbar > .catalog-search-filter {
+  order: 1;
+}
+
+.agentic-workflows-toolbar > .catalog-selection-button,
+.agentic-workflows-toolbar > .agentic-workflows-toolbar-actions {
+  order: 3;
+}
+
+.permission-designer,
+.role-permission-editor {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+}
+
+.permission-designer .permission-group-strip {
+  overflow: auto !important;
+}
+
+.permission-designer .permission-option strong,
+.permission-designer .permission-option small,
+.permission-designer .permission-option code,
+.permission-designer .permission-option span {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+  white-space: normal !important;
+}
+
+.people-create-user-card {
+  width: min(43rem, calc(100vw - 2rem)) !important;
+  border-radius: 10px !important;
+}
+
+.people-create-user-card .people-modal-header {
+  min-height: 5.15rem !important;
+  padding: 1.1rem 2.4rem !important;
+  border-bottom: 1px solid var(--border-subtle, var(--border)) !important;
+}
+
+.people-create-user-card .people-modal-header .eyebrow {
+  color: #17435f !important;
+  font-size: 1.05rem !important;
+  letter-spacing: 0 !important;
+  text-transform: uppercase !important;
+}
+
+.people-create-user-card .people-modal-close {
+  border-color: color-mix(in srgb, #1b6bc4 34%, var(--border-subtle, var(--border))) !important;
+  border-radius: 8px !important;
+  background: #f7fbff !important;
+  color: #17435f !important;
+  box-shadow: 0 0 0 4px rgba(27, 107, 196, 0.08) !important;
+}
+
+.people-create-user-card .people-modal-actions {
+  justify-content: flex-start !important;
+}
+
+@media (min-width: 1180px) {
+  .agentic-workspace-grid.has-detail {
+    grid-template-columns: minmax(23rem, 0.42fr) minmax(0, 1fr);
+  }
+
+  .agentic-workspace-grid.has-detail .agentic-workflows-panel {
+    position: sticky;
+    top: 0.85rem;
+    max-height: calc(100dvh - 1.7rem);
+    overflow: hidden !important;
+  }
+
+  .agentic-workspace-grid.has-detail .agentic-catalog-stage {
+    max-height: calc(100dvh - 15rem) !important;
+    overflow: auto !important;
+  }
+
+  .agentic-workspace-grid.has-detail .agentic-playground-panel,
+  .agentic-workspace-grid.has-detail .agentic-run-detail-panel {
+    min-width: 0;
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-section-heading--with-action {
+    align-items: stretch !important;
+    flex-direction: column !important;
+  }
+
+  .settings-section-heading--with-action .primary-button {
+    justify-content: center;
+    width: 100%;
+  }
+}
+
+/* Phone-only responsive pass: keep desktop and tablet layouts unchanged. */

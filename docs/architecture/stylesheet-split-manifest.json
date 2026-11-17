@@ -1,0 +1,651 @@
+{
+  "version": 1,
+  "max_fragment_lines": 1100,
+  "rationale": "Consecutive complete top-level rules retain original bytes and cascade order. Fragments stay beside their entry so relative url() references retain their base.",
+  "stylesheets": [
+    {
+      "entry": "services/agentic/frontend/workflows/WorkflowStudio.css",
+      "original_sha256": "0869969f9a258e45b98eb6effcc6d7d9150c9923b6660cb871ea0ae1ba95138f",
+      "original_bytes": 55078,
+      "original_lines": 1322,
+      "parts": [
+        {
+          "file": "services/agentic/frontend/workflows/WorkflowStudio.001-studio-node.css",
+          "sha256": "c1cd375ba4c982b5fc3458887e4a00adf55eb0c8476de4db5d17a4adeb9b707d",
+          "original_start_line": 1,
+          "original_end_line": 1099
+        },
+        {
+          "file": "services/agentic/frontend/workflows/WorkflowStudio.002-studio-execution.css",
+          "sha256": "291e60e452b3696211f4c162201fc21413e8ae6df2a0c8b6df893b45f3ff73a1",
+          "original_start_line": 1099,
+          "original_end_line": 1322
+        }
+      ]
+    },
+    {
+      "entry": "services/ai/frontend/components/AgentExperiencePrimitives.css",
+      "original_sha256": "0d97283176887f940ff760b39883cfcb70d8ebee2c1c3f5d4fea014010f60cba",
+      "original_bytes": 74661,
+      "original_lines": 2840,
+      "parts": [
+        {
+          "file": "services/ai/frontend/components/AgentExperiencePrimitives.001-ai-feature.css",
+          "sha256": "f845d426475c17caa056ee8dd468b844ec7ba71fa1cbc5bd4f6d80c8ec14f8b0",
+          "original_start_line": 1,
+          "original_end_line": 1093
+        },
+        {
+          "file": "services/ai/frontend/components/AgentExperiencePrimitives.002-agent-outcome.css",
+          "sha256": "65f7114ec19548fcf0f3cf59f67ca02fac941b33808d0ff4e22d6d60e1d47843",
+          "original_start_line": 1093,
+          "original_end_line": 2190
+        },
+        {
+          "file": "services/ai/frontend/components/AgentExperiencePrimitives.003-agent-evidence.css",
+          "sha256": "94fd0c3a1d1f341f8a8466ae0400f7bccd00c797813228b9316d41b0eb9be011",
+          "original_start_line": 2190,
+          "original_end_line": 2840
+        }
+      ]
+    },
+    {
+      "entry": "services/dashboard/frontend/components/ReleaseReadinessDashboard.css",
+      "original_sha256": "404f80455dcf846080e1c9aae757ad128f16e0a6193f7594b43a2bf2668c799a",
+      "original_bytes": 37306,
+      "original_lines": 1249,
+      "parts": [
+        {
+          "file": "services/dashboard/frontend/components/ReleaseReadinessDashboard.001-release-review.css",
+          "sha256": "72c216683cebf675e8bb760f01a3c23390967b89348cc814802d567e43ce2bd4",
+          "original_start_line": 1,
+          "original_end_line": 1099
+        },
+        {
+          "file": "services/dashboard/frontend/components/ReleaseReadinessDashboard.002-release-review.css",
+          "sha256": "57ae95756fe1959564dd2eb8ee5c2495fdef33b3563579d06fe6bf537c4ec392",
+          "original_start_line": 1099,
+          "original_end_line": 1249
+        }
+      ]
+    },
+    {
+      "entry": "services/platform/frontend/pages/ProjectsPage.css",
+      "original_sha256": "d193524be85046d9287568d0c0c069785d101307466e4e85804789f2bf4962c5",
+      "original_bytes": 50474,
+      "original_lines": 1923,
+      "parts": [
+        {
+          "file": "services/platform/frontend/pages/ProjectsPage.001-project-risk.css",
+          "sha256": "ab2dbcda85c62c9218fc9e72e8eba12399a39c691f8eeda470fbca6255def811",
+          "original_start_line": 1,
+          "original_end_line": 1097
+        },
+        {
+          "file": "services/platform/frontend/pages/ProjectsPage.002-project-traceability.css",
+          "sha256": "c07c41120074b6da4634ac586d4501c31f064857a4f2efb3d1c5af1006a7e743",
+          "original_start_line": 1097,
+          "original_end_line": 1923
+        }
+      ]
+    },
+    {
+      "entry": "services/platform/frontend/src/catalog-list.css",
+      "original_sha256": "bdf5abb452fce7b58dd5f89b1324169a7bd35def1fdbfa9e61232dcc698dd891",
+      "original_bytes": 104877,
+      "original_lines": 3551,
+      "parts": [
+        {
+          "file": "services/platform/frontend/src/catalog-list.001-data-table.css",
+          "sha256": "42611518084369a4e4e102f26ebbc325cadedd1dde87cd1b4bb208293eb6a05e",
+          "original_start_line": 1,
+          "original_end_line": 1096
+        },
+        {
+          "file": "services/platform/frontend/src/catalog-list.002-data-table.css",
+          "sha256": "8a8d6c1e116c732f9a71387af38ab4dc3a4b760ffe0e8aa9144e6ad9e72e59bd",
+          "original_start_line": 1096,
+          "original_end_line": 2190
+        },
+        {
+          "file": "services/platform/frontend/src/catalog-list.003-quality-metric.css",
+          "sha256": "77f907bc4c422ff64963f27c9deb3de20cd6490358960d4d38292637523b4307",
+          "original_start_line": 2190,
+          "original_end_line": 3285
+        },
+        {
+          "file": "services/platform/frontend/src/catalog-list.004-requirement-iteration.css",
+          "sha256": "4062cfae2ff964ca607cb8d754c1415e55d928db7b43d90fe3c9c89ae10b9945",
+          "original_start_line": 3285,
+          "original_end_line": 3551
+        }
+      ]
+    },
+    {
+      "entry": "services/platform/frontend/src/execution-run-builder.css",
+      "original_sha256": "91d76d19af4caf44db8addc5303f3ad762fee0f5b1997ec45d1043a36a74e492",
+      "original_bytes": 45220,
+      "original_lines": 1851,
+      "parts": [
+        {
+          "file": "services/platform/frontend/src/execution-run-builder.001-execution-smart.css",
+          "sha256": "4b0e9be5abc3526a2a5c13d321790c31ea65040bcb4899d7de3580b316dc1d4d",
+          "original_start_line": 1,
+          "original_end_line": 1097
+        },
+        {
+          "file": "services/platform/frontend/src/execution-run-builder.002-execution-smart.css",
+          "sha256": "1ada33f088a9d0b0801ede78b91a769fb749e1e6667cf54a589f5ecba9663380",
+          "original_start_line": 1097,
+          "original_end_line": 1851
+        }
+      ]
+    },
+    {
+      "entry": "services/platform/frontend/src/modal-system.css",
+      "original_sha256": "d43c6d87719e66e182962cb76d9388a608708fd1ee70f4bfc6db31259d31ca1a",
+      "original_bytes": 241222,
+      "original_lines": 9145,
+      "parts": [
+        {
+          "file": "services/platform/frontend/src/modal-system.001-story-ai.css",
+          "sha256": "941bd9cb2652b781d45d681c1edb5d92cfd6c2f1b305ab363967f8e514d51dbf",
+          "original_start_line": 1,
+          "original_end_line": 1074
+        },
+        {
+          "file": "services/platform/frontend/src/modal-system.002-story-ai.css",
+          "sha256": "8b5041836f2d616f4ba48d0abe397532a3c72469698eaa71dd860f6049831457",
+          "original_start_line": 1074,
+          "original_end_line": 2169
+        },
+        {
+          "file": "services/platform/frontend/src/modal-system.003-story-create.css",
+          "sha256": "ee78a2d1cd8dc9832e9760c343029309dce280803df24744c25e951688838c0a",
+          "original_start_line": 2169,
+          "original_end_line": 3263
+        },
+        {
+          "file": "services/platform/frontend/src/modal-system.004-sprint-create.css",
+          "sha256": "80bad54a6364a51569f11f7adc4e9aa223ea80a096b7d0269d93365a0129ab4a",
+          "original_start_line": 3263,
+          "original_end_line": 4356
+        },
+        {
+          "file": "services/platform/frontend/src/modal-system.005-report-bug.css",
+          "sha256": "7b2c182f5165cb4a05da4b22ae298481fc995bdd6fe91d0c9af96b9e044fc1d2",
+          "original_start_line": 4356,
+          "original_end_line": 5441
+        },
+        {
+          "file": "services/platform/frontend/src/modal-system.006-ai-authoring.css",
+          "sha256": "57886cb31264ab3d0ab6d7e112f1f1c02d1bf260f2d2f3869be50d9a950d3b80",
+          "original_start_line": 5441,
+          "original_end_line": 6529
+        },
+        {
+          "file": "services/platform/frontend/src/modal-system.007-project-create.css",
+          "sha256": "149d16f1433e30d72b4bad9132f044a2d1b58736329a12f2188e878514afd553",
+          "original_start_line": 6529,
+          "original_end_line": 7624
+        },
+        {
+          "file": "services/platform/frontend/src/modal-system.008-execution-health.css",
+          "sha256": "3d12a9d279f5607bda2b1650a48925cac9714072cecf3b439f5091cd650c1c0c",
+          "original_start_line": 7624,
+          "original_end_line": 8720
+        },
+        {
+          "file": "services/platform/frontend/src/modal-system.009-test-data.css",
+          "sha256": "fee8dd43c2876b74725633a32935a3d5a24c2f11274ad4161585e9ccd3562255",
+          "original_start_line": 8720,
+          "original_end_line": 9145
+        }
+      ]
+    },
+    {
+      "entry": "services/platform/frontend/src/styles.css",
+      "original_sha256": "279d8a69934b1da1b27b5d9d9a3dc185b52bb17c2cb23befc0eee671f84d8a90",
+      "original_bytes": 1401605,
+      "original_lines": 59983,
+      "parts": [
+        {
+          "file": "services/platform/frontend/src/styles.001-data-table.css",
+          "sha256": "340300468ba7116addca03aca7ac7db6a54bbe56a1d20684d367faad713d15d1",
+          "original_start_line": 1,
+          "original_end_line": 1099
+        },
+        {
+          "file": "services/platform/frontend/src/styles.002-app-type.css",
+          "sha256": "2989b030f5bc3f8c978d7557a871d96c7b9e2307ac7643993efd3756745412d3",
+          "original_start_line": 1099,
+          "original_end_line": 2191
+        },
+        {
+          "file": "services/platform/frontend/src/styles.003-workspace-main.css",
+          "sha256": "5451033d700c49ba5803c9c5994b6e05acf682c2bbd7678d7a566d6704b0adf3",
+          "original_start_line": 2191,
+          "original_end_line": 3281
+        },
+        {
+          "file": "services/platform/frontend/src/styles.004-requirement-sprint.css",
+          "sha256": "7bac795ae2dd29544fe318774f85d051283fffa811454b56a397a65984c960ad",
+          "original_start_line": 3281,
+          "original_end_line": 4379
+        },
+        {
+          "file": "services/platform/frontend/src/styles.005-step-card.css",
+          "sha256": "6dc4daab1f2b270f24dffd93feeba2b2613826b20975f18576b62dfa63a2b288",
+          "original_start_line": 4379,
+          "original_end_line": 5473
+        },
+        {
+          "file": "services/platform/frontend/src/styles.006-automation-response.css",
+          "sha256": "2d28dfbce8d8cb47140ac9c89ab00469a6d03b90ae4f43bd8b77e27a66b1d906",
+          "original_start_line": 5473,
+          "original_end_line": 6568
+        },
+        {
+          "file": "services/platform/frontend/src/styles.007-data-table.css",
+          "sha256": "bb1686fea588751d63e038f8b687f0bb6ee52e8510910e33b7ab32e139ce61cf",
+          "original_start_line": 6568,
+          "original_end_line": 7662
+        },
+        {
+          "file": "services/platform/frontend/src/styles.008-ai-case.css",
+          "sha256": "30d00456c6c2e389386444f87238f104ef0be93cdd045612d40e217b85b71a77",
+          "original_start_line": 7662,
+          "original_end_line": 8757
+        },
+        {
+          "file": "services/platform/frontend/src/styles.009-tile-card.css",
+          "sha256": "1cec0577c3c1e66cbadd74d4066da776475401d57e0bd0a9cbcec03bbceed784",
+          "original_start_line": 8757,
+          "original_end_line": 9853
+        },
+        {
+          "file": "services/platform/frontend/src/styles.010-sidebar.css",
+          "sha256": "aec769a40825b5a5bc5de0d9a93adac1b32814117f00ee5316a0b411a295405f",
+          "original_start_line": 9853,
+          "original_end_line": 10948
+        },
+        {
+          "file": "services/platform/frontend/src/styles.011-auth-carousel.css",
+          "sha256": "64d0a9f60e65cac60d178edce276e2b9660e6d6c51854f202b1ce17267f7a385",
+          "original_start_line": 10948,
+          "original_end_line": 12043
+        },
+        {
+          "file": "services/platform/frontend/src/styles.012-auth-stage.css",
+          "sha256": "ca9c35b257bd9aa3062fc101afae5a3a888955d1093023b7dfc2dd22bcc19e3e",
+          "original_start_line": 12043,
+          "original_end_line": 13141
+        },
+        {
+          "file": "services/platform/frontend/src/styles.013-page-content.css",
+          "sha256": "60be2a1c45f5b36e81d7a6128db67000d3f7e33d2e9ad2fe1721ce0aaf398bab",
+          "original_start_line": 13141,
+          "original_end_line": 14236
+        },
+        {
+          "file": "services/platform/frontend/src/styles.014-requirement-label.css",
+          "sha256": "684c80b8d932d30fc0a92c3215fc24a47ef21bde0c21b1397f185c8a828b3109",
+          "original_start_line": 14236,
+          "original_end_line": 15334
+        },
+        {
+          "file": "services/platform/frontend/src/styles.015-execution-board.css",
+          "sha256": "c6e0a5315e01b25475b9c360a276934a58c22e02d4ddc52f405d0b9b0c1a97e6",
+          "original_start_line": 15334,
+          "original_end_line": 16426
+        },
+        {
+          "file": "services/platform/frontend/src/styles.016-execution-context.css",
+          "sha256": "5b50c4bc1a42d51dde17b4c065f911125983c13137a04d00264fd53964770dab",
+          "original_start_line": 16426,
+          "original_end_line": 17516
+        },
+        {
+          "file": "services/platform/frontend/src/styles.017-data-table.css",
+          "sha256": "4693880c43bec90a0fec8e4fea7c86dcf9163171235f14ff5538114f86bd7f7f",
+          "original_start_line": 17516,
+          "original_end_line": 18613
+        },
+        {
+          "file": "services/platform/frontend/src/styles.018-execution-step.css",
+          "sha256": "abfd9cf3ddd1f15bc67322833f7a229b65e49c7c9cbf25547e8ff8435ff0502e",
+          "original_start_line": 18613,
+          "original_end_line": 19707
+        },
+        {
+          "file": "services/platform/frontend/src/styles.019-workspace-master.css",
+          "sha256": "f666b867add989c336c9f387862facb805997409a3433ea009b9cbc108d0dfc9",
+          "original_start_line": 19707,
+          "original_end_line": 20769
+        },
+        {
+          "file": "services/platform/frontend/src/styles.020-sidebar.css",
+          "sha256": "99145e0a8174ccc68c9104d621b78e190eaf18420d871aac71dd0aa1063dd1a5",
+          "original_start_line": 20769,
+          "original_end_line": 21862
+        },
+        {
+          "file": "services/platform/frontend/src/styles.021-step-parameter.css",
+          "sha256": "7a647ba1eb3b35edb683abb4864e9301f5857957c1008c250d749f3835164bbc",
+          "original_start_line": 21862,
+          "original_end_line": 22958
+        },
+        {
+          "file": "services/platform/frontend/src/styles.022-test-case.css",
+          "sha256": "a678098701e3bb8d477ef4b697cf795e88d25d1d269f040058a87bea1b9d7f66",
+          "original_start_line": 22958,
+          "original_end_line": 24055
+        },
+        {
+          "file": "services/platform/frontend/src/styles.023-project-traceability.css",
+          "sha256": "909d31985b7a5d2a006044709ff2063e40e34abd11f220cfb7fd01d56d62301d",
+          "original_start_line": 24055,
+          "original_end_line": 25151
+        },
+        {
+          "file": "services/platform/frontend/src/styles.024-test-case.css",
+          "sha256": "6d9925d60725826f66c5e79e29b23160111bcd12f76f34e1c0e99f2de0f6fa26",
+          "original_start_line": 25151,
+          "original_end_line": 26244
+        },
+        {
+          "file": "services/platform/frontend/src/styles.025-object-repository.css",
+          "sha256": "f1aaaedcb8f0da0a67679312b61bd7fe7ee5c9e4380c499e72c87a325c4a9a63",
+          "original_start_line": 26244,
+          "original_end_line": 27338
+        },
+        {
+          "file": "services/platform/frontend/src/styles.026-object-repository.css",
+          "sha256": "110f785739faf31cc19c366e1e6616af83d35299bb0ce13006dd277612bc62f5",
+          "original_start_line": 27338,
+          "original_end_line": 28428
+        },
+        {
+          "file": "services/platform/frontend/src/styles.027-ai-requirement.css",
+          "sha256": "68d1aeddc88a42eaad6b0e3a056d93df442c5d1e6e84ffea6b659f7b3f15b5c0",
+          "original_start_line": 28428,
+          "original_end_line": 29524
+        },
+        {
+          "file": "services/platform/frontend/src/styles.028-tile-card.css",
+          "sha256": "4830722136129e2994af2ecb276184723fcffa4bd47de1587e5d22734f77c016",
+          "original_start_line": 29524,
+          "original_end_line": 30615
+        },
+        {
+          "file": "services/platform/frontend/src/styles.029-sidebar.css",
+          "sha256": "56011a10d7f7bf2e20cce0b2bc0d119ae653ca6dbf104fd48a90ebfb513df5da",
+          "original_start_line": 30615,
+          "original_end_line": 31672
+        },
+        {
+          "file": "services/platform/frontend/src/styles.030-test-case.css",
+          "sha256": "a6fe27834325b9ba529c69e089c2415618c080aff919e5880cc8abb69b83c53c",
+          "original_start_line": 31672,
+          "original_end_line": 32761
+        },
+        {
+          "file": "services/platform/frontend/src/styles.031-run-action.css",
+          "sha256": "e5a9d10ca64d3206e91f1d7d7ba90465b94f382421e7a815b5276ab496766aaf",
+          "original_start_line": 32761,
+          "original_end_line": 33851
+        },
+        {
+          "file": "services/platform/frontend/src/styles.032-test-data.css",
+          "sha256": "5a07b52832274bda9d2eba4380ab2b7ca281d7ac8a953f36c63602609aaae285",
+          "original_start_line": 33851,
+          "original_end_line": 34942
+        },
+        {
+          "file": "services/platform/frontend/src/styles.033-sidebar.css",
+          "sha256": "348f05aa1a659598b0d5773937a4914fcdb436fff03037f6e1e453ad89ba2316",
+          "original_start_line": 34942,
+          "original_end_line": 36035
+        },
+        {
+          "file": "services/platform/frontend/src/styles.034-auth-page.css",
+          "sha256": "3a8de8b5b534496bf518fa3e1e3abc39fb16726b6b17e4d6c0458531f411c8da",
+          "original_start_line": 36035,
+          "original_end_line": 37127
+        },
+        {
+          "file": "services/platform/frontend/src/styles.035-sidebar.css",
+          "sha256": "6b6a4dc2bee8d3698dda9867c6329f7155fca1081f4d8857baafed68900512f5",
+          "original_start_line": 37127,
+          "original_end_line": 38220
+        },
+        {
+          "file": "services/platform/frontend/src/styles.036-data-table.css",
+          "sha256": "48f6beaabdce8afba5d4c57f64843d172903468a4ddd5e1591e81597d9474e35",
+          "original_start_line": 38220,
+          "original_end_line": 39313
+        },
+        {
+          "file": "services/platform/frontend/src/styles.037-step-parameter.css",
+          "sha256": "92dcaaa25be5d9ca6373320b344d2025c98a6505bfadfae9d82874a8c201ce4f",
+          "original_start_line": 39313,
+          "original_end_line": 40406
+        },
+        {
+          "file": "services/platform/frontend/src/styles.038-settings-api.css",
+          "sha256": "a626ac7c87d2b0b1a3538e25501033b0baf28df72c23ea36665c6592f1e5899d",
+          "original_start_line": 40406,
+          "original_end_line": 40996
+        },
+        {
+          "file": "services/platform/frontend/src/styles.039-people-role.css",
+          "sha256": "c9dac455c32e282e63746c4a39197da45a7ffcc801c62feca236279f9901ac68",
+          "original_start_line": 40996,
+          "original_end_line": 42076
+        },
+        {
+          "file": "services/platform/frontend/src/styles.040-step-parameter.css",
+          "sha256": "85b6ae699455225e1577a13ed23fed90665be661f50bfcad21ff16558db3690c",
+          "original_start_line": 42076,
+          "original_end_line": 43168
+        },
+        {
+          "file": "services/platform/frontend/src/styles.041-permission-group.css",
+          "sha256": "8bc4a811ed8a75a90fc2dbba91a5196d8a9e4bc0b0c43b6c5f50e2cce83f9c74",
+          "original_start_line": 43168,
+          "original_end_line": 44265
+        },
+        {
+          "file": "services/platform/frontend/src/styles.042-sidebar-scope.css",
+          "sha256": "99ebeacfac3b7022f2645a1e4c9fcfbb09975ded61236f1223ca0e5764a36de1",
+          "original_start_line": 44265,
+          "original_end_line": 45360
+        },
+        {
+          "file": "services/platform/frontend/src/styles.043-rich-text.css",
+          "sha256": "e5dac6ec3080ccebb0ddf818fcf2683001a9d2a8ce3ec7f11128ae3d0ea73d25",
+          "original_start_line": 45360,
+          "original_end_line": 46454
+        },
+        {
+          "file": "services/platform/frontend/src/styles.044-test-case.css",
+          "sha256": "2836a25abd721f084c154f7af51b3fedf47452f18adf2c9c8a026b4e96df1122",
+          "original_start_line": 46454,
+          "original_end_line": 47551
+        },
+        {
+          "file": "services/platform/frontend/src/styles.045-run-action.css",
+          "sha256": "833bf574c99a34400351ea097d1fad7a779b2473a19e35df07c3318559503064",
+          "original_start_line": 47551,
+          "original_end_line": 48645
+        },
+        {
+          "file": "services/platform/frontend/src/styles.046-data-table.css",
+          "sha256": "4aebcabf1a4ed26e215d4c11ec57e7b85c20f8d27c93230758ce8dc500e0f07f",
+          "original_start_line": 48645,
+          "original_end_line": 49742
+        },
+        {
+          "file": "services/platform/frontend/src/styles.047-test-case.css",
+          "sha256": "0413530234076d54fc47d30aaff2bdea003cc573bb568a3c9b2e84861eda47a0",
+          "original_start_line": 49742,
+          "original_end_line": 50836
+        },
+        {
+          "file": "services/platform/frontend/src/styles.048-test-case.css",
+          "sha256": "75cb44476631d2ad2e771600451d5abe15804948146a44582b82622ad61232e8",
+          "original_start_line": 50836,
+          "original_end_line": 51919
+        },
+        {
+          "file": "services/platform/frontend/src/styles.049-people-role.css",
+          "sha256": "2bc7be31780f797471c81f19ba78e81b83a534ae5279586cf213269b4b6bc80a",
+          "original_start_line": 51919,
+          "original_end_line": 53012
+        },
+        {
+          "file": "services/platform/frontend/src/styles.050-test-case.css",
+          "sha256": "478df6047f807a7bd85e26ddf269196ec91bf86c937dc15e67e33e572ebac88f",
+          "original_start_line": 53012,
+          "original_end_line": 54105
+        },
+        {
+          "file": "services/platform/frontend/src/styles.051-test-case.css",
+          "sha256": "2def4f457ff3afe2a0ed5da4f0cff86cd9ac9c375c9791e5ab9c1c5f2aab7cb9",
+          "original_start_line": 54105,
+          "original_end_line": 55190
+        },
+        {
+          "file": "services/platform/frontend/src/styles.052-test-case.css",
+          "sha256": "6c2488be543dea2940c3588e26b190e7c72f20c55fd0644bbb1e8c07f2b7f408",
+          "original_start_line": 55190,
+          "original_end_line": 56285
+        },
+        {
+          "file": "services/platform/frontend/src/styles.053-object-repository.css",
+          "sha256": "451031585ed29a6623433a5a9949dd2a1900d0debeca84d709b0e1dfcde7936f",
+          "original_start_line": 56285,
+          "original_end_line": 57382
+        },
+        {
+          "file": "services/platform/frontend/src/styles.054-object-repository.css",
+          "sha256": "48bfec8c6f366a347e848c6923e6474655108c3ce7e25366ee1bd27953103d1c",
+          "original_start_line": 57382,
+          "original_end_line": 58438
+        },
+        {
+          "file": "services/platform/frontend/src/styles.055-shared-gherkin.css",
+          "sha256": "ec6aff1db803d1cc08744f3ba974fa4175e7c071f39d92a2576d22fc67a9ff54",
+          "original_start_line": 58438,
+          "original_end_line": 59536
+        },
+        {
+          "file": "services/platform/frontend/src/styles.056-automation-editor.css",
+          "sha256": "60cc9d4d9a41d4663042a3a02c4e60e2f33f5be3d560d55ebd1db5e31d139c7a",
+          "original_start_line": 59536,
+          "original_end_line": 59983
+        }
+      ]
+    },
+    {
+      "entry": "services/testing/frontend/components/create-module-modal.css",
+      "original_sha256": "79b91ecfee0a1191b203d715116511071650ed96149bebcbd2c3a77f263abc8d",
+      "original_bytes": 42304,
+      "original_lines": 1507,
+      "parts": [
+        {
+          "file": "services/testing/frontend/components/create-module-modal.001-test-case.css",
+          "sha256": "a68eab14339265437da05044b30bba057988bdd6547197e36ebd5280a16003fb",
+          "original_start_line": 1,
+          "original_end_line": 1072
+        },
+        {
+          "file": "services/testing/frontend/components/create-module-modal.002-test-case.css",
+          "sha256": "3ce6198daaa2579fc398745480f23c78184cf2a999c707b953df0cd22a1c7b97",
+          "original_start_line": 1072,
+          "original_end_line": 1507
+        }
+      ]
+    },
+    {
+      "entry": "services/testing/frontend/components/suite-authoring-reference.css",
+      "original_sha256": "cc45f3e6a4c0e0fc87f65da4478999d66224e9e4f2599e7cc755cf9ca51edff2",
+      "original_bytes": 35935,
+      "original_lines": 1642,
+      "parts": [
+        {
+          "file": "services/testing/frontend/components/suite-authoring-reference.001-test-case.css",
+          "sha256": "dcea96016d1ea8bb302747d666c4cff0c18dcf022e5cf8fa74bcbd35d91ead5a",
+          "original_start_line": 1,
+          "original_end_line": 1090
+        },
+        {
+          "file": "services/testing/frontend/components/suite-authoring-reference.002-suite-reference.css",
+          "sha256": "1a710f8ac4a2a9c8a10c0ebbc03fd46a2118ac36572be206182c444a43e224ff",
+          "original_start_line": 1090,
+          "original_end_line": 1642
+        }
+      ]
+    },
+    {
+      "entry": "services/testing/frontend/pages/ExecutionsPage.case-run.css",
+      "original_sha256": "b6e3510db3f9587a9c040a7b1b1dc969c12947bddd85854d3786b4df9082d31a",
+      "original_bytes": 69035,
+      "original_lines": 1911,
+      "parts": [
+        {
+          "file": "services/testing/frontend/pages/ExecutionsPage.case-run.001-execution-case.css",
+          "sha256": "37e16ecef0590a4a16b35ff9d20c8ab59035abf0f35631f9d3ebc23d1b638dca",
+          "original_start_line": 1,
+          "original_end_line": 1093
+        },
+        {
+          "file": "services/testing/frontend/pages/ExecutionsPage.case-run.002-execution-case.css",
+          "sha256": "af5acc949c264110a97a58ae24ae418bc54ce1e11137b1551aa538b1e2dd9bc5",
+          "original_start_line": 1093,
+          "original_end_line": 1911
+        }
+      ]
+    },
+    {
+      "entry": "services/testing/frontend/pages/ExecutionsPage.command-center.css",
+      "original_sha256": "26ded0ea32cca721a1b4122b204c02a2b0fdc0cfdf9d1aa8288835fd23bd9f52",
+      "original_bytes": 48403,
+      "original_lines": 1910,
+      "parts": [
+        {
+          "file": "services/testing/frontend/pages/ExecutionsPage.command-center.001-execution-command.css",
+          "sha256": "e702856dc90ee678aaab6f6327f3be2eaffc44e268ad00ee771d69719d8c0c9a",
+          "original_start_line": 1,
+          "original_end_line": 1097
+        },
+        {
+          "file": "services/testing/frontend/pages/ExecutionsPage.command-center.002-execution-command.css",
+          "sha256": "30b4a1c04b286a2875d025d907d9247c0ff276c961ced30dc694f08c27088a3c",
+          "original_start_line": 1097,
+          "original_end_line": 1910
+        }
+      ]
+    },
+    {
+      "entry": "services/testing/frontend/pages/IssuesPage.css",
+      "original_sha256": "91a05209f5549b92302d4f4756339bed74dc93893bfc5acbb89b5f7cd6645371",
+      "original_bytes": 36205,
+      "original_lines": 1475,
+      "parts": [
+        {
+          "file": "services/testing/frontend/pages/IssuesPage.001-issue-detail.css",
+          "sha256": "6e7a5ff9275422e2c29506696c92387cff508b2ce59e8078ad69432ff78c0496",
+          "original_start_line": 1,
+          "original_end_line": 1095
+        },
+        {
+          "file": "services/testing/frontend/pages/IssuesPage.002-ai-bug.css",
+          "sha256": "f1d8f723b93ebbf6f7ee0f3b09ab4719fe052f1616cce44ee6c00bec27422708",
+          "original_start_line": 1095,
+          "original_end_line": 1475
+        }
+      ]
+    }
+  ]
+}

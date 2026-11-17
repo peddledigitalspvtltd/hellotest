@@ -1,0 +1,45 @@
+/* The drawer owns one scroll region; its footer never covers a form control. */
+.execution-create-backdrop:has(.execution-create-drawer) {
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  padding: 0;
+}
+.modal-card.execution-create-drawer {
+  width: min(1440px, 96vw);
+  max-width: none;
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 16px 0 0 16px;
+  margin: 0;
+  overflow: hidden;
+}
+.execution-create-drawer .execution-create-form {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+.execution-create-drawer .execution-run-builder-body {
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 24px;
+  scroll-padding-block: 24px;
+}
+.execution-create-drawer .execution-run-config-rail,
+.execution-create-drawer .execution-run-builder-main {
+  overflow: visible;
+  max-height: none;
+}
+.execution-create-drawer .execution-run-builder-footer {
+  position: static;
+  flex-shrink: 0;
+  background: var(--surface, white);
+}
+.case-evidence-lineage { display: grid; gap: 4px; padding-block: 8px; }
+.suite-module-picker { display: grid; gap: 8px; margin-bottom: 16px; }
+@media (max-width: 700px) {
+  .modal-card.execution-create-drawer { width: 100vw; border-radius: 0; }
+  .execution-create-drawer .execution-run-builder-body { display: block; }
+}

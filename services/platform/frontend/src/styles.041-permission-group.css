@@ -1,0 +1,1098 @@
+
+
+.ai-test-data-review {
+  display: grid;
+  gap: 0.62rem;
+  padding-top: 0.68rem;
+  border-top: 1px solid rgba(37, 99, 235, 0.16);
+}
+
+.ai-test-data-apply-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  flex-wrap: wrap;
+}
+
+.ai-test-data-suggestions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: 0.45rem;
+}
+
+.ai-test-data-suggestion {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.48rem;
+  min-width: 0;
+  min-height: 2.65rem;
+  padding: 0.5rem 0.58rem;
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 9px;
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-test-data-suggestion:hover,
+.ai-test-data-suggestion:focus-visible,
+.ai-test-data-suggestion.is-selected {
+  border-color: rgba(37, 99, 235, 0.46);
+  background: rgba(239, 246, 255, 0.96);
+}
+
+.ai-test-data-suggestion code {
+  min-width: 0;
+  color: var(--primary-strong);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.ai-test-data-radio {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid rgba(100, 116, 139, 0.48);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--surface);
+}
+
+.ai-test-data-suggestion.is-selected .ai-test-data-radio {
+  border-color: var(--primary-strong);
+  background: var(--primary-strong);
+}
+
+.test-data-utility-search {
+  align-items: center;
+}
+
+.test-data-utility-search input {
+  width: min(22rem, 60%);
+}
+
+:root[data-theme="dark"] .ai-test-data-utility {
+  background: linear-gradient(145deg, rgba(30, 58, 138, 0.22), rgba(76, 29, 149, 0.16));
+}
+
+:root[data-theme="dark"] .ai-test-data-suggestion:hover,
+:root[data-theme="dark"] .ai-test-data-suggestion:focus-visible,
+:root[data-theme="dark"] .ai-test-data-suggestion.is-selected {
+  background: rgba(30, 58, 138, 0.28);
+}
+
+@media (max-width: 720px) {
+  .ai-test-data-utility-head,
+  .ai-test-data-review-head,
+  .test-data-utility-search {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-test-data-utility-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .test-data-utility-search input {
+    width: 100%;
+  }
+}
+
+.people-create-user-card {
+  width: min(70rem, calc(100vw - 2rem)) !important;
+}
+
+.people-create-user-card .people-modal-body {
+  padding: 1.65rem 3rem 1.35rem !important;
+}
+
+.people-create-user-card .people-modal-body > .record-grid {
+  grid-template-columns: minmax(20rem, 1fr) minmax(20rem, 1fr) !important;
+  column-gap: 15rem !important;
+  row-gap: 1.35rem !important;
+}
+
+.people-create-user-card input,
+.people-create-user-card select {
+  min-height: 3rem !important;
+}
+
+.people-create-user-card .people-modal-actions {
+  padding: 1.05rem 3rem 1.45rem !important;
+}
+
+.permission-group-strip--accordion {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-content: start !important;
+  gap: 0.62rem !important;
+}
+
+.permission-group-strip--accordion .permission-group-card {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: auto auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  border-radius: 10px !important;
+}
+
+.permission-group-strip--accordion .permission-group-card.is-expanded {
+  border-color: color-mix(in srgb, var(--accent-primary, var(--primary)) 34%, var(--permission-option-border, var(--border))) !important;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08) !important;
+}
+
+.permission-group-strip--accordion .permission-group-card.is-collapsed .permission-group-head {
+  border-bottom: 0 !important;
+}
+
+.permission-group-strip--accordion .permission-group-head {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  padding: 0.68rem 0.82rem !important;
+}
+
+.permission-group-expand-button {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.permission-group-expand-button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent-primary, var(--primary)) 28%, transparent);
+  outline-offset: 3px;
+}
+
+.permission-group-chevron {
+  display: inline-grid;
+  width: 1.65rem;
+  height: 1.65rem;
+  place-items: center;
+  border: 1px solid var(--permission-option-border, var(--border));
+  border-radius: 999px;
+  background: var(--surface-elevated, var(--card-bg));
+  color: var(--accent-primary, var(--primary));
+  font-weight: 900;
+  line-height: 1;
+}
+
+.permission-group-copy {
+  display: grid;
+  gap: 0.14rem;
+  min-width: 0;
+}
+
+.permission-group-copy strong,
+.permission-group-copy span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.permission-group-copy span {
+  color: var(--text-secondary, #64748b);
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.permission-group-strip--accordion .permission-option-list {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)) !important;
+  gap: 0.58rem !important;
+  max-height: min(45dvh, 28rem) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding: 0.78rem 0.9rem 0.9rem !important;
+  scrollbar-gutter: stable !important;
+}
+
+.permission-group-strip--accordion .permission-option {
+  min-height: 4.1rem !important;
+}
+
+@media (max-width: 1180px) {
+  .people-create-user-card {
+    width: min(60rem, calc(100vw - 1rem)) !important;
+  }
+
+  .people-create-user-card .people-modal-body > .record-grid {
+    grid-template-columns: minmax(18rem, 1fr) minmax(18rem, 1fr) !important;
+    column-gap: 4rem !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .step-parameter-dialog {
+    width: min(100%, calc(100vw - 0.75rem)) !important;
+  }
+
+  .step-parameter-dialog-body,
+  .step-parameter-list {
+    max-height: min(70dvh, 42rem) !important;
+  }
+
+  .step-parameter-group-items {
+    grid-template-columns: minmax(0, 1fr) !important;
+    padding: 0.7rem !important;
+  }
+
+  .people-create-user-card {
+    width: min(100%, calc(100vw - 0.8rem)) !important;
+  }
+
+  .people-create-user-card .people-modal-body {
+    padding: 1rem !important;
+  }
+
+  .people-create-user-card .people-modal-body > .record-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    column-gap: 0 !important;
+    row-gap: 0.9rem !important;
+  }
+
+  .people-create-user-card .people-modal-actions {
+    padding: 0.9rem 1rem 1rem !important;
+  }
+
+  .permission-group-strip--accordion .permission-group-head,
+  .permission-group-expand-button {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .permission-group-chevron {
+    display: none !important;
+  }
+
+  .permission-toggle-all {
+    justify-self: start !important;
+  }
+}
+
+.people-role-create-card .permission-group-strip {
+  gap: 3.75rem !important;
+  min-height: min(58dvh, 40rem) !important;
+  height: 100% !important;
+}
+
+.people-role-create-card .people-role-create-permissions {
+  gap: 0.1rem !important;
+}
+
+.people-role-create-card .role-permission-editor--create .permission-designer,
+.people-role-create-card .permission-designer {
+  grid-template-rows: auto auto minmax(0, 1fr) !important;
+  gap: 0.35rem !important;
+}
+
+.people-role-create-card .permission-designer-progress {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0.55rem 0.8rem !important;
+}
+
+.people-role-create-card .permission-group-strip.permission-group-strip--accordion {
+  display: block !important;
+  min-height: min(56dvh, 38rem) !important;
+  height: auto !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding: 0.1rem 0.45rem 0.5rem 0.05rem !important;
+}
+
+.people-role-create-card .permission-group-strip.permission-group-strip--accordion .permission-group-card {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: auto auto !important;
+  margin: 0 !important;
+}
+
+.people-role-create-card .permission-group-strip.permission-group-strip--accordion .permission-group-card + .permission-group-card {
+  margin-top: 3.75rem !important;
+}
+
+.people-role-create-card .permission-group-strip.permission-group-strip--accordion .permission-option-list {
+  grid-row: 2 !important;
+  margin-top: 0 !important;
+}
+
+.permission-group-strip--accordion .permission-group-card + .permission-group-card,
+.people-role-create-card .permission-group-strip.permission-group-strip--accordion .permission-group-card + .permission-group-card {
+  margin-top: 0.65rem !important;
+}
+
+.permission-group-strip--accordion .permission-group-card.is-collapsed + .permission-group-card.is-collapsed,
+.people-role-create-card .permission-group-strip.permission-group-strip--accordion .permission-group-card.is-collapsed + .permission-group-card.is-collapsed {
+  margin-top: 0.5rem !important;
+}
+
+.people-role-existing-permissions {
+  display: grid !important;
+  gap: 0.85rem !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+.people-role-existing-permissions .detail-summary {
+  margin: 0 !important;
+}
+
+.people-role-existing-permissions .permission-designer {
+  display: grid !important;
+  grid-template-rows: auto auto minmax(0, 1fr) !important;
+  gap: 0.35rem !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.people-role-existing-permissions .permission-designer-summary {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  margin: 0 !important;
+  padding: 0.72rem 0.82rem !important;
+  border: 1px solid var(--permission-option-border) !important;
+  border-radius: 8px !important;
+  background: var(--surface-muted, #f8fafc) !important;
+}
+
+.people-role-existing-permissions .permission-designer-actions {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-end !important;
+  gap: 0.5rem !important;
+  min-width: min(100%, 18rem) !important;
+  margin-left: auto !important;
+}
+
+.people-role-existing-permissions .permission-designer-progress {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0.55rem 0.8rem !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion {
+  display: block !important;
+  min-height: min(56dvh, 38rem) !important;
+  height: auto !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding: 0.1rem 0.45rem 0.5rem 0.05rem !important;
+  scrollbar-gutter: stable !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-group-card {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: auto auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid var(--permission-card-border, var(--permission-option-border)) !important;
+  border-radius: 10px !important;
+  background: var(--surface-elevated, #ffffff) !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-group-card.is-expanded {
+  border-color: color-mix(in srgb, var(--accent-primary, var(--primary)) 34%, var(--permission-option-border, var(--border))) !important;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08) !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-group-head {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  min-width: 0 !important;
+  padding: 0.68rem 0.82rem !important;
+  border-bottom: 1px solid var(--permission-option-border) !important;
+  background: var(--surface-muted, #f8fafc) !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-group-card.is-collapsed .permission-group-head {
+  border-bottom: 0 !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-group-card + .permission-group-card {
+  margin-top: 0.65rem !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-group-card.is-collapsed + .permission-group-card.is-collapsed {
+  margin-top: 0.5rem !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-option-list {
+  display: grid !important;
+  grid-row: 2 !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)) !important;
+  align-content: start !important;
+  gap: 0.58rem !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-height: min(45dvh, 28rem) !important;
+  margin-top: 0 !important;
+  padding: 0.78rem 0.9rem 0.9rem !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  scrollbar-gutter: stable !important;
+}
+
+.people-role-existing-permissions .permission-group-strip.permission-group-strip--accordion .permission-option {
+  display: grid !important;
+  grid-template-columns: 1rem minmax(0, 1fr) !important;
+  align-items: start !important;
+  gap: 0.55rem !important;
+  min-width: 0 !important;
+  min-height: 4.1rem !important;
+  height: auto !important;
+  padding: 0.62rem 0.68rem !important;
+}
+
+.people-role-existing-permissions .permission-option-copy,
+.people-role-existing-permissions .permission-option-title,
+.people-role-existing-permissions .permission-option-code,
+.people-role-existing-permissions .permission-option-description {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+/* Test data table expand keeps the same resource-table-shell surface with a bounded scroll body. */
+.test-data-form .resource-table-shell {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  min-height: 18rem !important;
+  overflow: hidden !important;
+}
+
+.test-data-form .resource-table-shell .table-wrap,
+.test-data-form .resource-table-shell .resource-sheet-wrap {
+  min-height: 12rem !important;
+  max-height: min(58vh, 38rem) !important;
+  overflow: auto !important;
+  scrollbar-gutter: stable both-edges !important;
+}
+
+.test-data-form .resource-table-shell.is-expanded {
+  position: fixed !important;
+  inset: 0.75rem !important;
+  z-index: 2147482300 !important;
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  gap: 0.85rem !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  padding: 0.85rem !important;
+  overflow: hidden !important;
+  transform: none !important;
+  border: 1px solid rgba(126, 149, 188, 0.2) !important;
+  border-radius: 10px !important;
+  background: var(--panel-strong, #ffffff) !important;
+  box-shadow: 0 30px 80px rgba(8, 18, 32, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.62) !important;
+}
+
+.test-data-form .resource-table-shell.is-expanded .resource-table-toolbar {
+  position: static !important;
+  flex: 0 0 auto !important;
+  min-width: 0 !important;
+}
+
+.test-data-form .resource-table-shell.is-expanded .table-wrap,
+.test-data-form .resource-table-shell.is-expanded .resource-sheet-wrap {
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: none !important;
+  overflow: auto !important;
+  overscroll-behavior: contain !important;
+  border: 1px solid var(--line, rgba(126, 149, 188, 0.2)) !important;
+  border-radius: 10px !important;
+}
+
+.test-data-form .resource-table-shell.is-expanded .resource-data-table {
+  width: max-content !important;
+  min-width: 100% !important;
+}
+
+@media (max-width: 720px) {
+  .test-data-form .resource-table-shell.is-expanded {
+    inset: max(0.5rem, env(safe-area-inset-top)) max(0.5rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.5rem, env(safe-area-inset-left)) !important;
+    padding: 0.65rem !important;
+  }
+
+  .test-data-form .resource-table-shell.is-expanded .resource-table-toolbar,
+  .test-data-form .resource-table-shell.is-expanded .resource-table-actions {
+    align-items: stretch !important;
+    width: 100% !important;
+  }
+
+  .test-data-form .resource-table-shell.is-expanded .resource-table-actions > button {
+    flex: 1 1 8rem !important;
+    justify-content: center !important;
+  }
+}
+
+/* Test case data dialog: keep the desktop default matching the tile-card reference layout. */
+.step-parameter-dialog {
+  width: min(108rem, calc(100vw - 2rem)) !important;
+  max-height: min(92dvh, 62rem) !important;
+}
+
+.step-parameter-dialog-header {
+  padding: 1.35rem 2rem !important;
+}
+
+.step-parameter-dialog-body {
+  max-height: min(72dvh, 48rem) !important;
+  padding: 1.35rem 2rem !important;
+}
+
+.step-parameter-list {
+  max-height: min(68dvh, 44rem) !important;
+}
+
+.step-parameter-group-items {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0.9rem 1.35rem !important;
+  padding: 1rem 1.35rem !important;
+}
+
+.step-parameter-group-items .step-parameter-row {
+  min-height: 9rem !important;
+  padding: 1rem 1.05rem !important;
+}
+
+.step-parameter-group-items .step-parameter-input-row {
+  grid-template-columns: minmax(0, 1fr) 3rem !important;
+  gap: 0.7rem !important;
+}
+
+.step-parameter-group-items .step-parameter-input-row input {
+  min-height: 3rem !important;
+}
+
+.step-parameter-group-items .step-parameter-utility-trigger {
+  width: 3rem !important;
+  min-width: 3rem !important;
+  height: 3rem !important;
+  min-height: 3rem !important;
+}
+
+@media (max-width: 900px) {
+  .step-parameter-dialog {
+    width: min(100%, calc(100vw - 0.75rem)) !important;
+  }
+
+  .step-parameter-dialog-header,
+  .step-parameter-dialog-body {
+    padding: 1rem !important;
+  }
+
+  .step-parameter-group-items {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.75rem !important;
+    padding: 0.85rem !important;
+  }
+}
+
+/* Test data references must consume the whole modal canvas, not the legacy two-column form slot. */
+.step-parameter-dialog .step-parameter-dialog-body {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  overflow: auto !important;
+}
+
+.step-parameter-dialog .step-parameter-dialog-body > *,
+.step-parameter-dialog .step-parameter-list,
+.step-parameter-dialog .step-parameter-group,
+.step-parameter-dialog .step-parameter-group-items {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+}
+
+.step-parameter-dialog .step-parameter-list {
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.step-parameter-dialog .step-parameter-group-items {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)) !important;
+  align-items: stretch !important;
+}
+
+.step-parameter-dialog .step-parameter-row {
+  min-width: 0 !important;
+}
+
+@media (max-width: 900px) {
+  .step-parameter-dialog .step-parameter-group-items {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* Test data references: sections start compact, expanded sections own their vertical scroll. */
+.step-parameter-dialog .step-parameter-dialog-body {
+  max-height: min(74dvh, 50rem) !important;
+  overflow: hidden !important;
+}
+
+.step-parameter-dialog .step-parameter-list {
+  display: grid !important;
+  gap: 0.85rem !important;
+  max-height: min(70dvh, 46rem) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding-right: 0.3rem !important;
+  scrollbar-gutter: stable !important;
+}
+
+.step-parameter-dialog .step-parameter-group {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, auto) !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.step-parameter-dialog .step-parameter-group-head {
+  min-height: 3.3rem !important;
+  cursor: pointer !important;
+}
+
+.step-parameter-dialog .step-parameter-group-head:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent-primary, var(--primary)) 28%, transparent) !important;
+  outline-offset: -3px !important;
+}
+
+.step-parameter-dialog .step-parameter-group-items {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)) !important;
+  max-height: min(54dvh, 34rem) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain !important;
+  padding: 1rem 1.2rem !important;
+  scrollbar-gutter: stable both-edges !important;
+}
+
+.step-parameter-dialog .step-parameter-row {
+  min-height: 9rem !important;
+}
+
+@media (max-width: 900px) {
+  .step-parameter-dialog .step-parameter-dialog-body,
+  .step-parameter-dialog .step-parameter-list {
+    max-height: min(72dvh, 44rem) !important;
+  }
+
+  .step-parameter-dialog .step-parameter-group-items {
+    grid-template-columns: minmax(0, 1fr) !important;
+    max-height: min(58dvh, 36rem) !important;
+  }
+}
+
+/* Agentic workflow redesign: page navigation, credentials, API agents, and visual run snapshots. */
+.agentic-page-stage {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.agentic-page-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  min-width: 0;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(126, 149, 188, 0.22);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(247, 250, 252, 0.96), rgba(255, 255, 255, 0.96));
+}
+
+.agentic-page-heading > div:first-child {
+  display: grid;
+  gap: 0.24rem;
+  min-width: 0;
+}
+
+.agentic-page-heading span {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.agentic-page-heading strong {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 1.24rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.agentic-page-heading p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.agentic-page-heading-metrics {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  flex: 0 0 auto;
+  max-width: 36rem;
+}
+
+.agentic-page-heading-metrics span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  min-height: 2rem;
+  padding: 0 0.7rem;
+  border: 1px solid rgba(126, 149, 188, 0.2);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: none;
+}
+
+.agentic-page-heading-metrics strong {
+  font-size: 0.86rem;
+}
+
+.agentic-credentials-panel,
+.agentic-api-agent-panel,
+.agentic-run-visual-panel,
+.agentic-run-node-panel {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+  padding: 0.95rem;
+  border: 1px solid rgba(126, 149, 188, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.agentic-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.agentic-section-heading > div {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.agentic-section-heading strong {
+  color: var(--text-primary);
+  font-size: 0.96rem;
+  line-height: 1.25;
+}
+
+.agentic-section-heading span {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.agentic-credential-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr));
+  gap: 0.8rem;
+}
+
+.agentic-credential-card {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid rgba(126, 149, 188, 0.22);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.agentic-credential-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.agentic-credential-card-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentic-credential-fields,
+.agentic-api-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.agentic-credential-fields label,
+.agentic-api-agent-grid label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.agentic-credential-fields input,
+.agentic-credential-fields select,
+.agentic-api-agent-grid input,
+.agentic-api-agent-grid select,
+.agentic-api-agent-grid textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.42rem;
+  border: 1px solid rgba(126, 149, 188, 0.34);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.52rem 0.68rem;
+}
+
+.agentic-credential-wide,
+.agentic-api-agent-wide {
+  grid-column: 1 / -1;
+}
+
+.agentic-api-agent-panel {
+  margin-top: 0.2rem;
+  padding: 0.8rem;
+  background: rgba(247, 250, 252, 0.82);
+}
+
+.agentic-api-agent-grid textarea {
+  min-height: 5.2rem;
+  resize: vertical;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+}
+
+.agentic-api-test-button {
+  justify-self: start;
+}
+
+.agentic-api-test-output {
+  max-height: 14rem;
+  margin: 0;
+  overflow: auto;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #e5edf7;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  padding: 0.8rem;
+}
+
+.agentic-flow-node-kicker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.agentic-flow-node-kicker em {
+  max-width: 6rem;
+  padding: 0.12rem 0.38rem;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #1b5fb8;
+  font-size: 0.62rem;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.agentic-flow-shell--run {
+  height: clamp(30rem, 62vh, 48rem);
+}
+
+.agentic-run-page-grid {
+  display: grid;
+  grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.agentic-run-visual-panel {
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 0;
+}
+
+.agentic-run-node-panel {
+  grid-column: 1 / -1;
+}
+
+.agentic-run-summary-status {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+.agentic-run-io-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.agentic-run-node-panel .agentic-json-panel {
+  min-height: 18rem;
+}
+
+.agentic-run-node-panel .agentic-json-panel pre {
+  max-height: 26rem;
+}
+
+:root[data-theme="dark"] .agentic-page-heading,
+:root[data-theme="dark"] .agentic-credentials-panel,
+:root[data-theme="dark"] .agentic-api-agent-panel,
+:root[data-theme="dark"] .agentic-run-visual-panel,
+:root[data-theme="dark"] .agentic-run-node-panel,
+:root[data-theme="dark"] .agentic-credential-card {
+  border-color: rgba(145, 176, 231, 0.22);
+  background: rgba(15, 23, 42, 0.66);
+}
+
+:root[data-theme="dark"] .agentic-page-heading-metrics span,
+:root[data-theme="dark"] .agentic-credential-fields input,
+:root[data-theme="dark"] .agentic-credential-fields select,
+:root[data-theme="dark"] .agentic-api-agent-grid input,
+:root[data-theme="dark"] .agentic-api-agent-grid select,
+:root[data-theme="dark"] .agentic-api-agent-grid textarea {
+  border-color: rgba(145, 176, 231, 0.22);
+  background: rgba(15, 23, 42, 0.76);
+  color: var(--text-primary);
+}
+
+@media (max-width: 980px) {
+  .agentic-page-heading,
+  .agentic-section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .agentic-page-heading-metrics {
+    justify-content: flex-start;
+    max-width: 100%;
+  }
+
+  .agentic-run-page-grid,
+  .agentic-run-io-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agentic-run-visual-panel {
+    grid-column: auto;
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .agentic-page-stage,
+  .agentic-page-heading,
+  .agentic-credentials-panel,
+  .agentic-api-agent-panel,
+  .agentic-run-visual-panel,
+  .agentic-run-node-panel {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .agentic-credential-fields,
+  .agentic-api-agent-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agentic-flow-shell--run {
+    height: 32rem;
+  }
+}
+
+/* Agentic catalog polish: align cards and toolbar with shared catalog pages. */
+.agentic-workflows-toolbar {
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-gutter: stable;
+}
+
+.agentic-workflows-toolbar > .catalog-view-toggle,
+.agentic-workflows-toolbar > .catalog-selection-button,
+.agentic-workflows-toolbar > .agentic-workflows-toolbar-actions {
+  flex: 0 0 auto !important;
+}
+
+.agentic-workflows-toolbar > .catalog-search-filter {
+  flex: 1 1 24rem !important;
+  min-width: 18rem !important;
+  max-width: none !important;
+}
+
+.agentic-workflows-toolbar > .agentic-workflows-toolbar-actions {
+  margin-left: 0 !important;
+}
+
+.agentic-workflow-card {
+  display: grid !important;
+  align-items: stretch !important;
+  gap: 0.9rem !important;
+  min-width: 0 !important;
+  color: inherit !important;
+  text-align: left !important;
+  cursor: pointer !important;
+}

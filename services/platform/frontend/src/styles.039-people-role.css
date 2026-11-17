@@ -1,0 +1,1081 @@
+
+@media (max-width: 720px) {
+  .page,
+  .page-content,
+  .workspace-content,
+  .admin-embedded-page,
+  .settings-admin-page,
+  .people-access-page {
+    max-width: 100% !important;
+    padding-inline: 0.7rem !important;
+    overflow-x: hidden !important;
+  }
+
+  .page-header,
+  .page-header.card,
+  .projects-command-card {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-items: stretch !important;
+    gap: 0.75rem !important;
+    min-width: 0 !important;
+    padding: 0.82rem !important;
+    border-radius: 12px !important;
+  }
+
+  .page-header-text,
+  .page-header-copy,
+  .page-header-title-row {
+    min-width: 0 !important;
+  }
+
+  .page-header-title-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    align-items: start !important;
+    gap: 0.42rem !important;
+  }
+
+  .page-header-title,
+  .projects-command-copy .page-header-title {
+    max-width: 100% !important;
+    font-size: 1.16rem !important;
+    line-height: 1.16 !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  .page-header-eyebrow {
+    font-size: 0.66rem !important;
+  }
+
+  .page-actions,
+  .panel-head-actions,
+  .panel-head-actions-row,
+  .action-row,
+  .suite-toolbar-smart-actions,
+  .execution-step-view-header-actions,
+  .agentic-playground-actions {
+    display: flex !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 0.45rem !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    padding-bottom: 0.15rem !important;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .page-actions::-webkit-scrollbar,
+  .panel-head-actions::-webkit-scrollbar,
+  .panel-head-actions-row::-webkit-scrollbar,
+  .action-row::-webkit-scrollbar,
+  .suite-toolbar-smart-actions::-webkit-scrollbar,
+  .execution-step-view-header-actions::-webkit-scrollbar,
+  .agentic-playground-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .page-actions > *,
+  .panel-head-actions > *,
+  .panel-head-actions-row > *,
+  .action-row > *,
+  .suite-toolbar-smart-actions > *,
+  .execution-step-view-header-actions > *,
+  .agentic-playground-actions > * {
+    flex: 0 0 auto !important;
+    max-width: calc(100vw - 1.8rem) !important;
+    min-width: 0 !important;
+  }
+
+  .page-actions > .primary-button:only-child,
+  .page-actions > .ghost-button:only-child,
+  .panel-head-actions > .primary-button:only-child,
+  .panel-head-actions > .ghost-button:only-child {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  .primary-button,
+  .ghost-button,
+  .danger-button,
+  .catalog-selection-button,
+  .catalog-run-button,
+  .automation-choose-manual-toolbar-button,
+  .projects-catalog-create-button,
+  .projects-catalog-delete-button {
+    min-width: 0 !important;
+    min-height: 2.32rem !important;
+    max-width: 100% !important;
+    padding-inline: 0.68rem !important;
+    border-radius: 10px !important;
+    font-size: 0.8rem !important;
+    line-height: 1.12 !important;
+  }
+
+  .primary-button > span,
+  .ghost-button > span,
+  .danger-button > span,
+  .catalog-selection-button > span,
+  .catalog-run-button > span {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .design-list-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar,
+  .automation-catalog-toolbar,
+  .test-case-catalog-toolbar,
+  .suite-sidebar-toolbar,
+  .requirement-catalog-toolbar,
+  .issue-catalog-toolbar,
+  .resource-catalog-toolbar,
+  .people-catalog-toolbar,
+  .integration-catalog-toolbar,
+  .execution-run-detail-toolbar,
+  .agentic-workflows-toolbar {
+    display: flex !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 0.48rem !important;
+    overflow: visible !important;
+  }
+
+  .design-list-toolbar > .catalog-search-filter,
+  .projects-catalog-actions > .catalog-search-filter,
+  .project-list-toolbar > .catalog-search-filter,
+  .automation-catalog-toolbar > .catalog-search-filter,
+  .test-case-catalog-toolbar > .catalog-search-filter,
+  .suite-sidebar-toolbar > .catalog-search-filter,
+  .requirement-catalog-toolbar > .catalog-search-filter,
+  .issue-catalog-toolbar > .catalog-search-filter,
+  .resource-catalog-toolbar > .catalog-search-filter,
+  .people-catalog-toolbar > .catalog-search-filter,
+  .integration-catalog-toolbar > .catalog-search-filter,
+  .execution-run-detail-toolbar > .catalog-search-filter,
+  .agentic-workflows-toolbar > .catalog-search-filter {
+    order: -40 !important;
+    flex: 1 0 100% !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+  }
+
+  .catalog-view-toggle,
+  .catalog-view-toggle[data-mobile-grid-only="true"],
+  .page-agentic-workflows .catalog-view-toggle {
+    display: none !important;
+  }
+
+  .design-list-toolbar > button,
+  .projects-catalog-actions > button,
+  .project-list-toolbar > button,
+  .automation-catalog-toolbar > button,
+  .test-case-catalog-toolbar > button,
+  .suite-sidebar-toolbar > button,
+  .requirement-catalog-toolbar > button,
+  .issue-catalog-toolbar > button,
+  .resource-catalog-toolbar > button,
+  .people-catalog-toolbar > button,
+  .integration-catalog-toolbar > button,
+  .execution-run-detail-toolbar > button,
+  .agentic-workflows-toolbar > button,
+  .design-list-toolbar > .create-run-action-button,
+  .test-case-catalog-toolbar > .create-run-action-button,
+  .suite-sidebar-toolbar > .create-run-action-button {
+    flex: 1 1 calc(50% - 0.3rem) !important;
+    justify-content: center !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .catalog-action-menu,
+  .step-card-menu.catalog-action-menu {
+    flex: 0 0 2.4rem !important;
+    width: 2.4rem !important;
+    min-width: 2.4rem !important;
+    margin-left: 0 !important;
+  }
+
+  .catalog-action-menu .step-card-menu-trigger {
+    width: 2.4rem !important;
+    min-width: 2.4rem !important;
+    height: 2.32rem !important;
+    min-height: 2.32rem !important;
+  }
+
+  .catalog-toolbar-actions,
+  .integration-header-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    gap: 0.45rem !important;
+  }
+
+  .catalog-toolbar-actions > *,
+  .integration-header-actions > * {
+    width: 100% !important;
+    min-width: 0 !important;
+    justify-content: center !important;
+  }
+
+  .catalog-search-filter,
+  .catalog-search-field,
+  .catalog-search-field input {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .catalog-filter-popover {
+    max-width: calc(100vw - 1rem) !important;
+    border-radius: 12px !important;
+  }
+
+  .tile-browser-grid,
+  .projects-grid,
+  .agentic-workflow-grid,
+  .integration-type-grid,
+  .health-grid,
+  .dashboard-action-grid,
+  .dashboard-pillar-grid,
+  .settings-project-grid,
+  .settings-prompt-grid,
+  .settings-api-create-grid,
+  .settings-api-scope-grid,
+  .settings-preference-grid,
+  .two-column-grid,
+  .record-grid,
+  .form-grid,
+  .execution-create-grid,
+  .automation-case-editor-grid,
+  .automation-hooks-grid,
+  .automation-hook-target-grid,
+  .automation-step-editor-grid,
+  .automation-step-meta-grid,
+  .object-repository-selected-grid,
+  .object-repository-inspector-grid,
+  .execution-run-detail-grid,
+  .execution-engine-signal-grid,
+  .execution-run-impact-grid,
+  .execution-step-card-grid,
+  .execution-saved-data-grid,
+  .execution-log-evidence-grid,
+  .agentic-playground-grid,
+  .agentic-run-detail-grid,
+  .testops-builder-form,
+  .testops-operation-grid,
+  .recorder-insights-grid,
+  .execution-context-grid,
+  .suite-transfer-config-grid,
+  .suite-transfer-scope-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .settings-api-create-button {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  .settings-api-key-reveal,
+  .settings-api-key-card {
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-items: stretch !important;
+  }
+
+  .settings-api-key-reveal code,
+  .settings-api-key-card code {
+    width: 100% !important;
+  }
+
+  .settings-api-key-card .ghost-button,
+  .settings-api-key-reveal .ghost-button {
+    justify-content: center !important;
+    width: 100% !important;
+  }
+
+  .tile-browser-grid,
+  .projects-grid,
+  .agentic-workflow-grid,
+  .integration-type-grid {
+    gap: 0.7rem !important;
+  }
+
+  .tile-browser-grid > *,
+  .projects-grid > *,
+  .tile-browser-grid .record-card,
+  .tile-browser-grid .tile-card,
+  .tile-browser-grid .catalog-card,
+  .tile-browser-grid .virtual-card,
+  .project-portfolio-card,
+  .record-card,
+  .tile-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .tile-card-main,
+  .tile-card-header,
+  .tile-card-title-group,
+  .record-card-body,
+  .stack-item,
+  .stack-item > div {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .tile-card-facts,
+  .test-case-card-stats,
+  .project-card-metrics,
+  .execution-card-facts {
+    grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr)) !important;
+    min-width: 0 !important;
+  }
+
+  .projects-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .project-portfolio-card {
+    gap: 0.72rem !important;
+    padding: 0.82rem !important;
+    border-radius: 14px !important;
+  }
+
+  .project-portfolio-topline {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-items: stretch !important;
+    gap: 0.55rem !important;
+  }
+
+  .project-card-select-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.5rem !important;
+    width: 100% !important;
+    margin-bottom: 0.3rem !important;
+  }
+
+  .project-card-select-row .checkbox-field {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 0.5rem !important;
+    width: 100% !important;
+  }
+
+  .project-card-top-actions {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.45rem !important;
+    width: 100% !important;
+  }
+
+  .project-card-top-actions .project-health-badge {
+    min-width: 0 !important;
+    max-width: calc(100% - 3rem) !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .project-portfolio-title {
+    align-items: flex-start !important;
+    min-width: 0 !important;
+  }
+
+  .project-readiness-row {
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    gap: 0.55rem !important;
+    padding: 0.68rem !important;
+  }
+
+  .project-mini-action {
+    margin-left: auto !important;
+  }
+
+  .project-execution-strip,
+  .project-meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
+    padding: 0.6rem !important;
+  }
+
+  .project-meta-grid {
+    padding: 0 !important;
+  }
+
+  .project-risk-note {
+    align-items: flex-start !important;
+    padding: 0.65rem !important;
+  }
+
+  .subnav-tabs,
+  .section-switch-bar.subnav-tabs,
+  .admin-space-tabs,
+  .agentic-workflows-tabs,
+  .automation-detail-tabs,
+  .object-repository-screen-tabs,
+  .run-hooks-tabs {
+    display: flex !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    flex-wrap: nowrap !important;
+    gap: 0.45rem !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    padding: 0.25rem !important;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .subnav-tabs::-webkit-scrollbar,
+  .section-switch-bar.subnav-tabs::-webkit-scrollbar,
+  .admin-space-tabs::-webkit-scrollbar,
+  .agentic-workflows-tabs::-webkit-scrollbar,
+  .automation-detail-tabs::-webkit-scrollbar,
+  .object-repository-screen-tabs::-webkit-scrollbar,
+  .run-hooks-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .subnav-tab,
+  .section-switch-bar .subnav-tab,
+  .admin-space-tabs .subnav-tab,
+  .agentic-workflows-tabs button,
+  .automation-detail-tabs button,
+  .object-repository-screen-tabs button,
+  .run-hooks-tabs button {
+    flex: 0 0 auto !important;
+    min-width: max-content !important;
+    max-width: 82vw !important;
+    padding-inline: 0.68rem !important;
+  }
+
+  .admin-space-overview {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.75rem !important;
+    padding: 0.82rem !important;
+    border-radius: 12px !important;
+  }
+
+  .admin-space-overview-copy,
+  .admin-space-metrics {
+    min-width: 0 !important;
+  }
+
+  .admin-space-metrics {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
+  }
+
+  .admin-space-metric {
+    min-width: 0 !important;
+    min-height: 5rem !important;
+    padding: 0.58rem !important;
+  }
+
+  .admin-space-metric strong,
+  .admin-space-metric small,
+  .admin-space-metric > span:not(.admin-space-metric-icon) {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .integration-type-section {
+    padding: 0.65rem !important;
+    border-radius: 10px !important;
+  }
+
+  .integration-type-section-header {
+    grid-template-columns: auto minmax(0, 1fr) !important;
+  }
+
+  .integration-type-section-meta {
+    grid-column: 1 / -1 !important;
+    justify-content: flex-start !important;
+  }
+
+  .workspace-master-detail,
+  .workspace-master-detail--split,
+  .people-roles-workspace.workspace-master-detail--split,
+  .automation-cases-master-detail {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.75rem !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .workspace-master-detail--split.is-detail-open .workspace-master-detail-browse-panel,
+  .people-roles-workspace.workspace-master-detail--split.is-detail-open .workspace-master-detail-browse-panel {
+    display: none !important;
+  }
+
+  .workspace-master-detail--split.is-browse-open .workspace-master-detail-detail-panel,
+  .people-roles-workspace.workspace-master-detail--split.is-browse-open .workspace-master-detail-detail-panel {
+    display: none !important;
+  }
+
+  .workspace-master-detail-panel,
+  .workspace-master-detail-panel > .panel,
+  .panel,
+  .card {
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .panel.card {
+    border-radius: 12px !important;
+  }
+
+  .panel-head {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.55rem !important;
+    min-width: 0 !important;
+  }
+
+  .table-wrap,
+  .table-wrap.catalog-table-wrap,
+  .data-table-shell {
+    width: 100% !important;
+    max-width: calc(100vw - 1.4rem) !important;
+    min-width: 0 !important;
+    overflow-x: auto !important;
+  }
+
+  .modal-card,
+  .people-modal-card,
+  .people-create-user-card,
+  .people-role-modal-card,
+  .resource-modal-card,
+  .requirement-create-modal,
+  .step-parameter-dialog {
+    width: min(100%, calc(100vw - 0.8rem)) !important;
+    max-width: calc(100vw - 0.8rem) !important;
+    max-height: calc(100dvh - 0.8rem) !important;
+    border-radius: 12px !important;
+  }
+
+  .people-create-user-card .people-modal-header {
+    min-height: 0 !important;
+    padding: 0.88rem 1rem !important;
+  }
+
+  .people-create-user-card .people-modal-body,
+  .people-role-modal-body,
+  .modal-card .modal-body {
+    max-height: calc(100dvh - 8rem) !important;
+    overflow: auto !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .workspace-main[data-route="/projects"],
+  .workspace-main.main[data-route="/projects"] {
+    height: auto !important;
+    min-height: 100svh !important;
+    max-height: none !important;
+    overflow: visible !important;
+    overscroll-behavior-y: auto;
+  }
+
+  .workspace-main[data-route="/projects"] > .projects-page,
+  .workspace-main[data-route="/projects"] .projects-page,
+  .workspace-main[data-route="/projects"] .projects-page > .workspace-master-detail,
+  .workspace-main[data-route="/projects"] .projects-page .workspace-master-detail-panel,
+  .workspace-main[data-route="/projects"] .projects-page .workspace-master-detail-panel > .panel,
+  .workspace-main[data-route="/projects"] .projects-catalog-panel {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .workspace-main[data-route="/projects"] .projects-page {
+    align-content: start;
+    gap: 0 !important;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+  }
+
+  .workspace-main[data-route="/projects"] .projects-page .workspace-master-detail {
+    align-items: start;
+  }
+}
+
+/* Create User modal: use the available width so paired fields do not feel cramped. */
+.people-create-user-card {
+  width: min(46rem, calc(100vw - 2rem)) !important;
+}
+
+.people-create-user-card .people-modal-body {
+  padding: 1.5rem 2.4rem 1.25rem !important;
+}
+
+.people-create-user-card .people-modal-body > .record-grid {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  column-gap: 2rem !important;
+  row-gap: 1.15rem !important;
+}
+
+.people-create-user-card .form-field,
+.people-create-user-card .people-modal-body > .record-grid > * {
+  min-width: 0 !important;
+}
+
+.people-create-user-card input,
+.people-create-user-card select {
+  width: 100% !important;
+}
+
+.people-create-user-card .people-modal-actions {
+  padding: 1rem 2.4rem 1.35rem !important;
+}
+
+@media (max-width: 720px) {
+  .people-create-user-card {
+    width: min(100%, calc(100vw - 0.8rem)) !important;
+    max-width: calc(100vw - 0.8rem) !important;
+  }
+
+  .people-create-user-card .people-modal-body {
+    padding: 1rem !important;
+  }
+
+  .people-create-user-card .people-modal-body > .record-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.85rem !important;
+  }
+
+  .people-create-user-card .people-modal-actions {
+    padding: 0.85rem 1rem 1rem !important;
+  }
+}
+
+/* Create Role uses the same permission matrix as role details, with enough canvas to select every permission. */
+.people-role-create-card {
+  width: min(92rem, calc(100vw - 1.25rem)) !important;
+  max-height: min(92dvh, 60rem) !important;
+}
+
+.people-role-create-card.is-permission-expanded {
+  width: min(98rem, calc(100vw - 0.75rem)) !important;
+  max-height: min(94dvh, 62rem) !important;
+}
+
+.people-role-create-card .people-modal-form {
+  min-height: 0 !important;
+}
+
+.people-role-create-body {
+  display: grid !important;
+  grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  gap: 0 !important;
+  min-height: min(40rem, calc(92dvh - 9rem)) !important;
+  max-height: calc(92dvh - 9rem) !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.people-role-create-card.is-permission-expanded .people-role-create-body {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.people-role-create-details {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-content: start !important;
+  gap: 1.1rem !important;
+  min-width: 0 !important;
+  padding: 1.25rem !important;
+  border-right: 1px solid var(--border-subtle, #d8dee8) !important;
+  border-bottom: 0 !important;
+  background: var(--surface-muted, #fbfdff) !important;
+}
+
+.people-role-create-details h3 {
+  margin: 0 !important;
+  color: var(--text-primary, #111827) !important;
+  font-size: 1rem !important;
+  font-weight: 850 !important;
+  line-height: 1.2 !important;
+}
+
+.people-role-create-fields {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-items: start !important;
+  gap: 0.85rem !important;
+  min-width: 0 !important;
+}
+
+.people-role-create-fields .detail-summary {
+  min-height: 3rem !important;
+  align-content: center !important;
+  margin: 0 !important;
+}
+
+.people-role-create-permissions {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  gap: 0.85rem !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  padding: 1rem 1.35rem 1.15rem !important;
+  overflow: hidden !important;
+  background: var(--surface-elevated, #ffffff) !important;
+}
+
+.people-role-create-inline-details {
+  display: grid !important;
+  grid-template-columns: minmax(14rem, 0.42fr) minmax(0, 1fr) !important;
+  align-items: end !important;
+  gap: 0.85rem !important;
+  min-width: 0 !important;
+}
+
+.people-role-create-inline-details .detail-summary {
+  margin: 0 !important;
+  min-height: 3rem !important;
+  align-content: center !important;
+}
+
+.people-role-create-permissions .role-permission-editor--create {
+  display: grid !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  gap: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+.role-permission-panel-heading--actions {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content !important;
+  align-items: center !important;
+  gap: 0.85rem !important;
+}
+
+.role-permission-panel-heading-copy {
+  display: grid !important;
+  gap: 0.18rem !important;
+  min-width: 0 !important;
+}
+
+.role-permission-expand-button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.42rem !important;
+  min-width: max-content !important;
+  white-space: nowrap !important;
+}
+
+.people-role-create-card .permission-designer {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+  gap: 0.82rem !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+.people-role-create-card .permission-designer-summary {
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  margin: 0 !important;
+}
+
+.people-role-create-card .permission-designer-actions {
+  justify-content: flex-end !important;
+  margin-left: auto !important;
+}
+
+.people-role-create-card .permission-group-strip {
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-content: start !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+  padding-right: 0.35rem !important;
+}
+
+.people-role-create-card.is-permission-expanded .permission-group-strip {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.people-role-create-card .permission-group-card,
+.people-role-create-card .permission-option {
+  min-width: 0 !important;
+}
+
+.people-role-create-card .permission-group-card {
+  display: grid !important;
+  grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr) !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.people-role-create-card .permission-group-head {
+  align-content: start !important;
+  height: 100% !important;
+  padding: 0.9rem !important;
+  border-right: 1px solid var(--permission-option-border) !important;
+  border-bottom: 0 !important;
+  background: var(--surface-muted, #f8fafc) !important;
+}
+
+.people-role-create-card .permission-option-list {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15.5rem), 1fr)) !important;
+  align-content: start !important;
+  gap: 0.55rem !important;
+  padding: 0.9rem !important;
+}
+
+.people-role-create-card.is-permission-expanded .permission-option-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)) !important;
+}
+
+.people-role-create-card .permission-option {
+  line-height: 1.25 !important;
+}
+
+/* Create Role permission picker: keep every group selectable inside a scrollable viewport. */
+.people-role-create-card .people-modal-form {
+  display: grid !important;
+  grid-template-rows: minmax(0, 1fr) auto !important;
+  max-height: calc(100dvh - 1.25rem) !important;
+}
+
+.people-role-create-card .people-role-create-body {
+  height: min(41rem, calc(100dvh - 12.5rem)) !important;
+  min-height: 0 !important;
+  max-height: calc(100dvh - 12.5rem) !important;
+  overflow: hidden !important;
+}
+
+.people-role-create-card .people-role-create-permissions {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.people-role-create-card.is-permission-expanded .people-role-create-permissions {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+}
+
+.people-role-create-card .people-role-create-inline-details {
+  align-items: start !important;
+}
+
+.people-role-create-card .role-permission-editor--create,
+.people-role-create-card .role-permission-editor--create .permission-designer {
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+
+.people-role-create-card .role-permission-editor--create .permission-designer {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+}
+
+.people-role-create-card .permission-designer-summary {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  padding: 0.72rem 0.82rem !important;
+  border: 1px solid var(--permission-option-border) !important;
+  border-radius: 8px !important;
+  background: var(--surface-muted, #f8fafc) !important;
+}
+
+.people-role-create-card .permission-designer-actions {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-end !important;
+  gap: 0.5rem !important;
+  min-width: min(100%, 18rem) !important;
+  margin-left: auto !important;
+}
+
+.people-role-create-card .permission-group-strip {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-content: start !important;
+  align-items: start !important;
+  gap: 0.75rem !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  padding: 0.15rem 0.4rem 0.15rem 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  scrollbar-gutter: stable both-edges !important;
+}
+
+.people-role-create-card .permission-group-card {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: auto auto !important;
+  gap: 0 !important;
+  min-width: 0 !important;
+  min-height: max-content !important;
+  height: auto !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  border-radius: 10px !important;
+  background: var(--surface-elevated, #ffffff) !important;
+}
+
+.people-role-create-card .permission-group-head {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content !important;
+  align-items: start !important;
+  gap: 0.65rem !important;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 0.78rem 0.9rem !important;
+  border-right: 0 !important;
+  border-bottom: 1px solid var(--permission-option-border) !important;
+  background: var(--surface-muted, #f8fafc) !important;
+}
+
+.people-role-create-card .permission-option-list,
+.people-role-create-card.is-permission-expanded .permission-option-list {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14.75rem), 1fr)) !important;
+  align-content: start !important;
+  gap: 0.58rem !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  padding: 0.78rem 0.9rem 0.9rem !important;
+  overflow: visible !important;
+}
+
+.people-role-create-card .permission-option {
+  display: grid !important;
+  grid-template-columns: 1rem minmax(0, 1fr) !important;
+  align-items: start !important;
+  gap: 0.55rem !important;
+  min-width: 0 !important;
+  min-height: 4rem !important;
+  height: auto !important;
+  padding: 0.62rem 0.68rem !important;
+  overflow: visible !important;
+}
+
+.people-role-create-card .permission-option input {
+  margin-top: 0.18rem !important;
+}
+
+.people-role-create-card .permission-option-copy,
+.people-role-create-card .permission-option-title,
+.people-role-create-card .permission-option-code,
+.people-role-create-card .permission-option-description {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.people-role-create-card .permission-designer-progress {
+  width: 100% !important;
+  margin: 0 !important;
+}
+
+/* Create Role full-canvas layout: details and bulk actions live inline above the scrollable permission editor. */
+.people-role-create-card,
+.people-role-create-card.is-permission-expanded {
+  width: min(98rem, calc(100vw - 0.75rem)) !important;
+  max-height: min(94dvh, 62rem) !important;
+}
+
+.people-role-create-card .people-role-create-body,
+.people-role-create-card.is-permission-expanded .people-role-create-body {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.people-role-create-card .people-role-create-permissions {
+  padding: 1rem 1.25rem 1.15rem !important;
+}
+
+.people-role-create-card .permission-designer-summary--create-role {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content max-content !important;
+  align-items: end !important;
+  gap: 0.85rem !important;
+}
+
+.permission-create-role-inline {
+  display: grid !important;
+  grid-template-columns: minmax(16rem, 0.8fr) minmax(16rem, 1fr) !important;
+  align-items: end !important;
+  gap: 0.85rem !important;
+  min-width: 0 !important;
+}
+
+.permission-create-role-inline .form-field,
+.permission-create-role-default-copy,
+.permission-designer-counts {
+  min-width: 0 !important;
+}
+
+.permission-create-role-inline .form-field {
+  gap: 0.35rem !important;
+}
+
+.permission-create-role-inline input {
+  width: 100% !important;
+}
+
+.permission-create-role-default-copy {
+  min-height: 3rem !important;
+  align-content: center !important;
+  margin: 0 !important;
+  padding: 0.7rem 0.8rem !important;
+}
+
+.permission-designer-counts {
+  display: grid !important;
+  gap: 0.16rem !important;
+  padding: 0.55rem 0 !important;
+}
+
+.people-role-create-card .permission-designer-actions {
+  flex: 0 0 auto !important;
+  min-width: max-content !important;
+}

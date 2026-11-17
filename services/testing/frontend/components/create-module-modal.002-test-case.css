@@ -1,0 +1,435 @@
+
+
+@media (max-width: 960px) {
+  .test-case-create-module-modal .test-case-create-module-body {
+    display: block !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-details,
+  .test-case-create-module-modal .test-case-create-module-picker {
+    padding: 24px !important;
+    overflow: visible !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-details {
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--create-module-border) !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-description > .canonical-rich-text-editor {
+    height: 240px;
+    min-height: 240px !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-picker {
+    min-height: 580px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-picker-panel {
+    min-height: 460px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-picker-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-selection-actions {
+    grid-column: 1 / -1;
+    justify-self: end;
+    padding: 8px 0 0;
+    border-top: 1px solid var(--create-module-border);
+    border-left: 0;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-table-head {
+    display: none;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option {
+    grid-template-columns: 24px minmax(64px, auto) minmax(0, 1fr) auto;
+    grid-template-areas:
+      "check id title status"
+      "check module module updated";
+    row-gap: 6px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option-select {
+    grid-area: check;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option-id {
+    grid-area: id;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option-title {
+    grid-area: title;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option-status {
+    display: flex;
+    grid-area: status;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option-module {
+    display: flex;
+    grid-area: module;
+    min-width: 0;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-cell-label {
+    display: inline;
+    flex: 0 0 auto;
+    color: var(--create-module-muted);
+    font-weight: 650;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option-updated {
+    display: flex;
+    grid-area: updated;
+    min-width: 0;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+}
+
+@media (max-width: 760px) {
+  .test-case-create-module-backdrop.modal-backdrop--scroll {
+    padding: 0 !important;
+  }
+
+  .modal-backdrop > .test-case-create-module-modal {
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-width: 100vw !important;
+    max-height: 100dvh !important;
+    grid-template-rows: 64px minmax(0, 1fr) auto;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-header {
+    padding: 0 18px !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-title p {
+    display: none;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-body {
+    display: block !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-details,
+  .test-case-create-module-modal .test-case-create-module-picker {
+    padding: 22px 18px !important;
+    overflow: visible !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-details {
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--create-module-border) !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-description > .canonical-rich-text-editor {
+    height: 220px;
+    min-height: 220px !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-picker {
+    min-height: 600px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-picker-panel {
+    min-height: 480px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-picker-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-selection-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    padding-top: 8px;
+    padding-left: 0;
+    border-top: 1px solid var(--create-module-border);
+    border-left: 0;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-table-head {
+    display: none;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option {
+    grid-template-columns: 24px minmax(62px, auto) minmax(0, 1fr) auto;
+    grid-template-areas:
+      "check id title status"
+      "check module module updated";
+    row-gap: 6px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option-select {
+    grid-area: check;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option-id {
+    grid-area: id;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option-title {
+    grid-area: title;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option-status {
+    display: flex;
+    grid-area: status;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option-module {
+    display: flex;
+    grid-area: module;
+    min-width: 0;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-cell-label {
+    display: inline;
+    flex: 0 0 auto;
+    color: var(--create-module-muted);
+    font-weight: 650;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option-updated {
+    display: flex;
+    grid-area: updated;
+    min-width: 0;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-footer {
+    min-height: 88px !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px !important;
+    padding: 10px 18px !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-footer > p {
+    grid-column: 1 / -1;
+    min-height: 18px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-footer > p > span {
+    white-space: normal;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-footer > .ghost-button,
+  .test-case-create-module-modal .test-case-create-module-footer > .primary-button {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .test-case-create-module-modal .test-case-create-module-header {
+    padding: 0 12px !important;
+    gap: 8px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-header .dialog-title {
+    font-size: 18px !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-title-row {
+    gap: 8px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-details,
+  .test-case-create-module-modal .test-case-create-module-picker {
+    padding: 18px 12px !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-footer {
+    padding: 10px 12px !important;
+    grid-template-columns: minmax(70px, 0.7fr) minmax(0, 1.3fr);
+  }
+
+  .test-case-create-module-modal .test-case-create-module-footer > .primary-button {
+    padding: 0 8px !important;
+    font-size: 12px !important;
+    gap: 5px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-option {
+    grid-template-columns: 20px minmax(0, 1fr) 28px 54px !important;
+    grid-template-areas: none !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-option > *,
+  .test-case-create-module-modal .test-case-create-module-requirement-identity > * {
+    grid-area: auto !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-picker-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-picker-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .test-case-create-module-modal .test-case-create-module-filter-wrap,
+  .test-case-create-module-modal .test-case-create-module-filter-wrap > .ghost-button {
+    width: 100%;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-selection-actions {
+    grid-column: 1;
+    justify-content: space-between;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "check id status"
+      "check title title"
+      "check module updated";
+  }
+}
+
+@media (max-width: 960px) {
+  .test-case-create-module-modal .test-case-create-module-description > .canonical-rich-text-editor {
+    height: 190px;
+    min-height: 190px !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-panel {
+    height: 360px;
+    min-height: 360px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-toolbar {
+    grid-template-columns: minmax(0, 1fr) 42px auto;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-filter-wrap {
+    width: auto;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-selection-actions {
+    grid-column: auto;
+    justify-content: flex-end;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-table-head {
+    display: grid;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-option {
+    grid-template-columns: 24px minmax(0, 1fr) 44px minmax(70px, auto);
+    grid-template-areas: none;
+    row-gap: 0;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-option > :is(
+    .test-case-create-module-option-select,
+    .test-case-create-module-requirement-identity,
+    .test-case-create-module-requirement-priority,
+    .test-case-create-module-option-status
+  ) {
+    grid-area: auto;
+  }
+}
+
+:root[data-theme="dark"] .test-case-create-module-backdrop.modal-backdrop--scroll {
+  --create-module-border: rgba(148, 163, 184, 0.32);
+  --create-module-ink: #f3f7ff;
+  --create-module-muted: #a9b8cc;
+  --create-module-surface: #111f33;
+  --create-module-subtle: #0b1728;
+}
+
+:root[data-theme="dark"] .test-case-create-module-modal .test-case-create-module-selection-count,
+:root[data-theme="dark"] .test-case-create-module-modal .test-case-create-module-option.is-selected {
+  color: #d9e8ff;
+  background: #17345f;
+}
+
+:root[data-theme="dark"] .test-case-create-module-modal .test-case-create-module-retry-note {
+  color: #d9e8ff;
+  background: #17345f;
+  border-color: #579dff;
+}
+
+:root[data-theme="dark"] .test-case-create-module-modal .test-case-create-module-auto-link-status {
+  color: #d9e8ff;
+  background: #17345f;
+  border-color: #579dff;
+}
+
+:root[data-theme="dark"] .test-case-create-module-modal .test-case-create-module-auto-link-status.is-error {
+  color: #ffd5d2;
+  background: #4f1f1d;
+  border-color: #f87168;
+}
+
+:root[data-theme="dark"] .test-case-create-module-modal .test-case-create-module-selection-actions .ghost-button:hover:not(:disabled) {
+  background: #17345f;
+}
+
+/* Final narrow-pane authority; the tablet rules occur earlier in this file. */
+@media (max-width: 640px) {
+  .test-case-create-module-modal .test-case-create-module-requirement-toolbar {
+    grid-template-columns: minmax(0, 1fr) 42px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-toolbar .test-case-create-module-selection-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    padding: 7px 0 0;
+    border-top: 1px solid var(--create-module-border);
+    border-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .test-case-create-module-modal .test-case-create-module-option {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .modal-backdrop > .test-case-create-module-modal,
+  .test-case-create-module-modal .test-case-create-module-header,
+  .test-case-create-module-modal .test-case-create-module-details,
+  .test-case-create-module-modal .test-case-create-module-picker,
+  .test-case-create-module-modal .test-case-create-module-picker-panel,
+  .test-case-create-module-modal .test-case-create-module-search,
+  .test-case-create-module-modal .test-case-create-module-retry-note,
+  .test-case-create-module-modal .test-case-create-module-auto-link-status,
+  .test-case-create-module-modal .test-case-create-module-option,
+  .test-case-create-module-modal .test-case-create-module-footer {
+    color: CanvasText !important;
+    background: Canvas !important;
+    border-color: CanvasText !important;
+    forced-color-adjust: auto;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-option.is-selected {
+    outline: 2px solid Highlight;
+    box-shadow: none;
+  }
+}

@@ -1,0 +1,1099 @@
+
+
+@media (max-width: 720px) {
+  .resource-modal-card--configuration {
+    width: min(100%, calc(100vw - 1rem));
+  }
+
+  .configuration-matrix-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .configuration-matrix-table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .configuration-matrix-table {
+    display: block;
+    min-width: 0;
+  }
+
+  .configuration-matrix-table caption,
+  .configuration-matrix-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .configuration-matrix-table tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .configuration-matrix-table tr {
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.8rem;
+    border: 1px solid var(--border, #d8e0ec);
+    border-radius: 10px;
+    background: var(--panel-strong, #fff);
+  }
+
+  .configuration-matrix-table td,
+  .configuration-matrix-table th:first-child,
+  .configuration-matrix-table td:first-child,
+  .configuration-matrix-table th:last-child,
+  .configuration-matrix-table td:last-child {
+    display: grid;
+    width: auto;
+    gap: 0.3rem;
+    padding: 0;
+    border: 0;
+  }
+
+  .configuration-matrix-table td[data-label]::before {
+    content: attr(data-label);
+    color: var(--text-secondary, #64748b);
+    font-size: 0.67rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .configuration-matrix-table td:first-child::before,
+  .configuration-matrix-table td:last-child::before {
+    content: none;
+  }
+
+  .configuration-matrix-index {
+    justify-content: space-between;
+  }
+
+  .configuration-matrix-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    padding-top: 0.2rem;
+  }
+
+  .configuration-matrix-action {
+    flex: 1 1 2.75rem;
+  }
+}
+
+@media (forced-colors: active) {
+  .configuration-matrix,
+  .configuration-matrix-table-wrap,
+  .configuration-matrix-table tr,
+  .configuration-matrix-default,
+  .configuration-matrix-action,
+  .configuration-matrix-add,
+  .configuration-matrix-warning {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+}
+
+/* Configuration authoring keeps newly inserted rows visible and makes the
+   target matrix and runtime pairs independently usable inside one modal. */
+.resource-modal-card.resource-modal-card--configuration {
+  width: min(96rem, calc(100vw - 1.5rem)) !important;
+  max-width: min(96rem, calc(100vw - 1.5rem)) !important;
+  height: min(92dvh, 64rem);
+  max-height: min(92dvh, 64rem) !important;
+}
+
+.resource-modal-card--configuration .resource-form--configuration,
+.resource-modal-card--configuration .resource-form-body {
+  min-height: 0;
+}
+
+.resource-modal-card--configuration .resource-form-body {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: auto !important;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scroll-padding-block: 1rem 4.5rem;
+  scrollbar-gutter: stable;
+}
+
+.resource-modal-card--configuration .configuration-matrix-table-wrap {
+  max-height: min(44dvh, 31rem);
+  overflow: auto;
+  overscroll-behavior: auto;
+  scrollbar-gutter: stable both-edges;
+}
+
+.resource-modal-card--configuration .configuration-matrix-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.resource-form--configuration .resource-table-shell--key-value {
+  max-height: none;
+  overflow: visible;
+}
+
+.resource-form--configuration .resource-table-shell--key-value .table-wrap {
+  max-height: none;
+  overflow: visible;
+}
+
+/* Shared Step Group Gherkin is intentionally a behavior-step group, not a
+   full Feature document editor. The stored document remains valid Gherkin. */
+.shared-gherkin-step-group {
+  display: grid;
+  --gherkin-section: #0645d6;
+  --gherkin-parameter: #2f8a26;
+  --gherkin-code-text: #15181d;
+  gap: 1.05rem;
+  min-width: 0;
+  overflow: visible;
+  padding: 18px 20px 20px;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, var(--line, #d8e0ec));
+  border-radius: 6px;
+  background: var(--panel-strong, #fff);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.shared-gherkin-step-group-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0;
+  border: 0;
+}
+
+.shared-gherkin-document-heading {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.shared-gherkin-document-heading > div {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.shared-gherkin-document-heading span {
+  color: var(--gherkin-section);
+  font-size: 0.88rem;
+  font-weight: 850;
+}
+
+.shared-gherkin-document-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gherkin-code-text);
+  font-size: 0.88rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-gherkin-step-group-head p,
+.shared-gherkin-parameter-guide span {
+  margin: 0;
+  color: var(--text-secondary, #64748b);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.shared-gherkin-step-group-head-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.shared-gherkin-step-group-head-actions .ghost-button {
+  min-height: 26px;
+  padding: 2px 7px;
+  border-color: transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  font-size: 0.7rem;
+}
+
+.shared-gherkin-parameter-guide {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.62rem 0.72rem;
+  border: 1px solid color-mix(in srgb, var(--primary, #2168f3) 18%, var(--line, #d8e0ec));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--primary, #2168f3) 5%, var(--panel-strong, #fff));
+}
+
+.shared-gherkin-parameter-guide code {
+  color: var(--primary-strong, #1d4ed8);
+  font-weight: 750;
+}
+
+.shared-gherkin-step-list {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  padding-left: 1.15rem;
+}
+
+.shared-gherkin-step-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 5.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  min-height: 27px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.shared-gherkin-step-row:focus-within { z-index: 12; }
+
+.shared-gherkin-step-number {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.shared-gherkin-step-list { gap: 0; }
+.shared-gherkin-step-row + .shared-gherkin-step-row { padding-top: 0; border-top: 0; }
+.shared-gherkin-step-row .shared-gherkin-keyword select { min-height: 1.7rem; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.shared-gherkin-step-row .shared-gherkin-step-actions { gap: 0.1rem; }
+
+.shared-gherkin-keyword select {
+  width: auto;
+  min-height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  appearance: none;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.shared-gherkin-keyword.is-given select,
+.shared-gherkin-keyword.is-when select,
+.shared-gherkin-keyword.is-and select,
+.shared-gherkin-keyword.is-but select,
+.shared-gherkin-keyword.is-then select {
+  border-color: transparent;
+  background: transparent;
+  color: var(--gherkin-section);
+}
+
+.shared-gherkin-step-content {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.shared-gherkin-step-content input {
+  width: 100%;
+  min-height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-primary, #172033);
+  font-family: "Inter", "Segoe UI", sans-serif;
+  font-size: 0.88rem;
+  font-weight: 560;
+  line-height: 1.4;
+}
+
+.shared-gherkin-step-content input:not(.is-editing):has(+ .shared-gherkin-inline-value) {
+  color: transparent;
+  caret-color: transparent;
+}
+
+.shared-gherkin-inline-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  color: var(--text-primary, #172033);
+  font-size: 0.88rem;
+  font-weight: 560;
+  line-height: 1.4;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-gherkin-inline-value.is-hidden { display: none; }
+.shared-gherkin-inline-value .step-parameter-token {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #047857;
+  font: inherit;
+}
+
+.shared-gherkin-step-preview {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.55rem;
+  color: var(--text-primary, #172033);
+  font-size: 0.86rem;
+  font-weight: 560;
+  line-height: 1.5;
+}
+
+.shared-gherkin-step-preview > span:first-child {
+  color: var(--text-secondary, #64748b);
+  font-size: 0.66rem;
+  font-weight: 850;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.shared-gherkin-parameter-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.shared-gherkin-parameter-values > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  max-width: 100%;
+  padding: 0.24rem 0.45rem;
+  border: 1px solid rgba(100, 116, 139, 0.18);
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.07);
+  color: var(--text-primary, #172033);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+:root[data-theme="dark"] .shared-gherkin-keyword.is-given select,
+:root[data-theme="dark"] .shared-gherkin-keyword.is-when select,
+:root[data-theme="dark"] .shared-gherkin-keyword.is-and select,
+:root[data-theme="dark"] .shared-gherkin-keyword.is-but select,
+:root[data-theme="dark"] .shared-gherkin-keyword.is-then select {
+  border-color: transparent;
+  background: transparent;
+  color: var(--gherkin-section);
+}
+
+:root[data-theme="dark"] .shared-gherkin-step-content input,
+:root[data-theme="dark"] .shared-gherkin-step-preview,
+:root[data-theme="dark"] .shared-gherkin-parameter-values > span {
+  color: #f0f3f6;
+}
+
+.shared-gherkin-parameter-values > span.is-resolved {
+  border-color: rgba(5, 150, 105, 0.22);
+  background: rgba(5, 150, 105, 0.08);
+}
+
+.shared-gherkin-parameter-values code,
+.shared-gherkin-parameter-values strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.shared-gherkin-step-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  opacity: 0.42;
+  transition: opacity 120ms ease;
+}
+
+.shared-gherkin-step-row:hover .shared-gherkin-step-actions,
+.shared-gherkin-step-row:focus-within .shared-gherkin-step-actions { opacity: 1; }
+
+.shared-gherkin-step-actions .ghost-button {
+  width: auto;
+  min-width: 1.25rem;
+  min-height: 1.5rem;
+  padding: 0;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.shared-gherkin-add-step {
+  width: fit-content;
+  gap: 0.4rem;
+  min-height: 1.5rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--gherkin-section) !important;
+  font-family: inherit;
+  font-size: 0.72rem;
+}
+
+:root[data-theme="dark"] .shared-gherkin-step-group {
+  --gherkin-section: #79a9ff;
+  --gherkin-parameter: #83dc78;
+  --gherkin-code-text: #f0f3f6;
+}
+
+/* Test Params follows Test Data's plain field-and-utility workflow. */
+.step-parameter-dialog {
+  width: min(96rem, calc(100vw - 1.5rem)) !important;
+  max-width: min(96rem, calc(100vw - 1.5rem)) !important;
+}
+
+.step-parameter-dialog .step-parameter-dialog-body {
+  max-height: min(72dvh, 48rem) !important;
+  overflow: auto !important;
+  overscroll-behavior: auto !important;
+}
+
+.step-parameter-dialog .step-parameter-list,
+.step-parameter-dialog .step-parameter-group-items {
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.step-parameter-dialog .step-parameter-group-items {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 0 !important;
+  padding: 0 !important;
+}
+
+.step-parameter-dialog .step-parameter-row {
+  min-height: 0 !important;
+  padding: 0.85rem 1rem !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--line, #d8e0ec) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.step-parameter-dialog .step-parameter-row:last-child {
+  border-bottom: 0 !important;
+}
+
+.step-parameter-dialog .step-parameter-input-row {
+  grid-template-columns: minmax(14rem, 1fr) minmax(13rem, 18rem) !important;
+  align-items: stretch;
+  gap: 0.6rem !important;
+}
+
+.step-parameter-utility-select {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.step-parameter-utility-select-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.72rem;
+  z-index: 1;
+  display: inline-flex;
+  color: var(--primary-strong, #1d4ed8);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.step-parameter-utility-select select {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.55rem 2.2rem 0.55rem 2.45rem;
+  border: 1px solid rgba(37, 99, 235, 0.24);
+  border-radius: 9px;
+  background-color: var(--panel-strong, #fff);
+  color: var(--text-primary, #172033);
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.step-parameter-utility-select select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--primary, #2168f3) 24%, transparent);
+  outline-offset: 1px;
+}
+
+.step-parameter-dialog .step-parameter-utility-panel {
+  grid-template-rows: auto auto auto auto auto !important;
+  width: min(46rem, calc(100vw - 1rem)) !important;
+}
+
+@media (max-width: 760px) {
+  .resource-modal-card.resource-modal-card--configuration,
+  .step-parameter-dialog {
+    width: calc(100vw - 0.75rem) !important;
+    max-width: calc(100vw - 0.75rem) !important;
+  }
+
+  .shared-gherkin-step-group-head,
+  .shared-gherkin-step-group-head-actions,
+  .shared-gherkin-parameter-guide {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .shared-gherkin-step-group { padding: 14px; }
+  .shared-gherkin-document-heading > div { grid-template-columns: 4.8rem minmax(0, 1fr); }
+
+  .shared-gherkin-step-row {
+    grid-template-columns: 4.8rem minmax(0, 1fr);
+  }
+
+  .shared-gherkin-step-actions {
+    grid-column: 2;
+  }
+
+  .shared-gherkin-step-actions {
+    justify-content: flex-end;
+  }
+
+  .step-parameter-dialog .step-parameter-input-row {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .shared-gherkin-step-row,
+  .shared-gherkin-keyword select,
+  .shared-gherkin-parameter-values > span,
+  .step-parameter-utility-select select {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+}
+
+/* Final compact authority for the Test Case identity and sectioned Gherkin editor. */
+.test-case-workspace-shell > .panel-head {
+  min-height: 52px !important;
+  padding: 6px 14px !important;
+}
+.test-case-workspace-shell .test-case-workspace-identity { gap: 7px; }
+.test-case-workspace-shell .test-case-workspace-record-id { flex-shrink: 0; }
+.test-case-workspace-shell .test-case-workspace-identity .workspace-back-button {
+  min-width: 0;
+  height: 32px;
+  min-height: 32px;
+  padding-inline: 6px !important;
+}
+.test-case-workspace-shell :is(.test-case-workspace-record-id, .test-case-detail-record-id) {
+  gap: 0.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.test-case-workspace-shell .test-case-workspace-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: clamp(0.95rem, 1.5vw, 1.15rem);
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.test-case-workspace-shell .test-case-detail-grid.editor-accordion {
+  grid-template-columns: minmax(0, 1.9fr) minmax(300px, 0.8fr);
+  gap: 16px;
+  padding: 16px;
+}
+.test-case-workspace-shell :is(.test-case-detail-primary, .test-case-detail-sidebar) { gap: 14px; }
+.test-case-workspace-shell .test-case-detail-identity-card {
+  padding: 6px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.test-case-detail-primary .gherkin-editor {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.test-case-detail-primary .gherkin-editor-toolbar { min-height: 42px; padding: 4px 0 7px; }
+.test-case-detail-primary .gherkin-section-grid { gap: 8px; padding: 8px 0 0; }
+.test-case-detail-primary .gherkin-feature-bar { min-height: 38px; padding: 0; }
+.test-case-detail-primary .gherkin-feature-bar input {
+  min-height: 30px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.test-case-detail-primary :is(.gherkin-section-card, .gherkin-scenario-region) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.test-case-detail-primary :is(.gherkin-section-card > header, .gherkin-scenario-region-head) {
+  min-height: 36px;
+  padding: 3px 0;
+  background: transparent;
+}
+.test-case-detail-primary .gherkin-scenario-list { gap: 7px; padding: 7px 0; }
+.test-case-detail-primary .gherkin-scenario-block { gap: 4px; }
+.test-case-detail-primary .gherkin-scenario-block > .gherkin-section-card.is-examples {
+  margin-left: 1.15rem;
+  border-left: 0;
+}
+.test-case-detail-primary .gherkin-editor-status { padding-inline: 0; }
+
+@media (max-width: 980px) {
+  .test-case-workspace-shell .test-case-detail-grid.editor-accordion {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 10px;
+  }
+}
+
+/* Form controls around the editors use intentionally strong defaults. Keep
+   Gherkin's document-like text controls as the final scoped authority. */
+.test-case-workspace-shell .test-case-details-form .gherkin-editor.is-document-layout :is(
+  .gherkin-feature-bar > input,
+  .gherkin-minimal-heading > input,
+  .gherkin-step-text-input
+) {
+  width: 100% !important;
+  min-height: 26px !important;
+  padding: 1px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--gherkin-code-text) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 0.86rem !important;
+  line-height: 1.45 !important;
+}
+
+.test-case-workspace-shell .test-case-details-form .gherkin-editor.is-document-layout :is(
+  .gherkin-feature-bar > input,
+  .gherkin-minimal-heading > input,
+  .gherkin-step-text-input
+):focus {
+  border-bottom-color: color-mix(in srgb, var(--gherkin-section) 32%, transparent) !important;
+  outline: 0 !important;
+}
+
+.test-case-workspace-shell .test-case-details-form .gherkin-editor.is-document-layout .gherkin-step-text-field.has-parameters.is-previewing .gherkin-step-text-input {
+  color: transparent !important;
+  caret-color: transparent !important;
+}
+
+.test-case-workspace-shell .test-case-details-form .gherkin-editor.is-document-layout .gherkin-minimal-step > select,
+.shared-gherkin-step-group .shared-gherkin-keyword > select {
+  width: auto !important;
+  min-width: 0 !important;
+  min-height: 26px !important;
+  padding: 1px 18px 1px 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--gherkin-section) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 0.86rem !important;
+  font-weight: 850 !important;
+  line-height: 1.45 !important;
+}
+
+.shared-gherkin-step-group .gherkin-step-text-input {
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 26px !important;
+  padding: 1px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--gherkin-code-text) !important;
+  font-family: inherit !important;
+  font-size: 0.88rem !important;
+  line-height: 1.45 !important;
+}
+
+.shared-gherkin-step-group .gherkin-step-text-input:focus {
+  border-bottom-color: color-mix(in srgb, var(--gherkin-section) 32%, transparent) !important;
+  outline: 0 !important;
+}
+
+.shared-gherkin-step-group .gherkin-step-text-field.has-parameters.is-previewing .gherkin-step-text-input {
+  color: transparent !important;
+  caret-color: transparent !important;
+}
+
+/* Automation Case authoring follows the same focused top-tab language as the
+   manual Test Case workspace. Keep one job visible at a time. */
+.automation-command-deck--legacy {
+  display: none;
+}
+
+.automation-workspace-navigation {
+  position: sticky;
+  top: 0;
+  z-index: 9;
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.55rem 0.7rem 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px 8px 0 0;
+  background: color-mix(in srgb, var(--surface) 97%, var(--primary) 3%);
+}
+
+.automation-workspace-identity {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.16rem 0.75rem;
+  padding: 0 0.2rem;
+}
+
+.automation-workspace-identity > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.automation-workspace-identity > strong {
+  grid-column: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-workspace-identity > span {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.automation-detail-navigation {
+  position: static;
+  margin-inline: -0.7rem;
+  padding-inline: 0.45rem !important;
+}
+
+.automation-detail-navigation .detail-section-tab-copy {
+  display: grid;
+  gap: 0.04rem;
+  text-align: left;
+}
+
+.automation-detail-navigation .detail-section-tab-copy strong {
+  font-size: 0.74rem;
+}
+
+.automation-detail-navigation .detail-section-tab-copy small {
+  color: var(--text-secondary);
+  font-size: 0.61rem;
+  font-weight: 600;
+}
+
+.automation-action-catalog {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) auto minmax(10rem, 0.5fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--primary) 4%);
+}
+
+.automation-action-catalog-copy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.automation-action-catalog-copy > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.automation-action-catalog-copy strong {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.automation-action-catalog-copy span:last-child {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-gherkin-keyword {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  color: #155eef;
+  font: 800 0.76rem/1.2 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.automation-platform-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.automation-platform-picker button {
+  min-height: 2rem;
+  padding: 0.35rem 0.55rem;
+  border: 0;
+  border-right: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.automation-platform-picker button:last-child {
+  border-right: 0;
+}
+
+.automation-platform-picker button.is-active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.automation-action-select {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.automation-action-select > span {
+  color: var(--text-secondary);
+  font-size: 0.61rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.automation-action-select select {
+  min-height: 2rem;
+  padding-block: 0.2rem;
+}
+
+.automation-keyword-step-summary .automation-gherkin-keyword {
+  min-width: 2.85rem;
+}
+
+.automation-step-editor-grid {
+  grid-template-columns: minmax(6rem, 0.32fr) minmax(7rem, 0.42fr) minmax(13rem, 1fr) minmax(10rem, 0.65fr);
+}
+
+.automation-step-editor-grid > .automation-api-action-grid {
+  grid-column: 1 / -1;
+}
+
+.automation-api-action-grid {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.24fr) minmax(0, 1fr) minmax(7rem, 0.24fr) minmax(7rem, 0.24fr);
+  gap: 0.65rem;
+  padding: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border-subtle));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface) 97%, var(--primary) 3%);
+}
+
+.automation-api-url-field {
+  min-width: 0;
+}
+
+.automation-api-wide-field {
+  grid-column: 1 / -1;
+}
+
+.automation-new-step-composer {
+  scroll-margin-top: 9rem;
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border-subtle));
+}
+
+.automation-run-profile-panel,
+.automation-repository-tab {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.automation-run-profile-panel {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.automation-repository-tab {
+  padding: 0.9rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.automation-repository-tab-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.automation-repository-tab-head > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.automation-repository-tab-head h3,
+.automation-repository-tab-head p {
+  margin: 0;
+}
+
+.automation-repository-tab-head p {
+  max-width: 52rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.automation-repository-health-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.automation-repository-health-grid article {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.65rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--primary) 4%);
+}
+
+.automation-repository-health-grid article.is-attention {
+  border-color: color-mix(in srgb, #d97706 36%, var(--border-subtle));
+}
+
+.automation-repository-health-grid strong {
+  color: var(--text-primary);
+  font-size: 1.05rem;
+}
+
+.automation-repository-health-grid span {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+}
+
+.automation-object-binding-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.4rem;
+}
+
+.automation-object-binding-list > button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.automation-object-binding-list > button:hover {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border-subtle));
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+}
+
+.automation-object-binding-list > button > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.automation-object-binding-list strong,
+.automation-object-binding-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-object-binding-list strong {
+  font-size: 0.75rem;
+}
+
+.automation-object-binding-list small {
+  color: var(--text-secondary);
+  font-size: 0.64rem;
+}
+
+@media (max-width: 1050px) {
+  .automation-action-catalog,
+  .automation-step-editor-grid,
+  .automation-api-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .automation-action-catalog-copy,
+  .automation-api-action-grid,
+  .automation-api-wide-field {
+    grid-column: 1 / -1;
+  }
+}

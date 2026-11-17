@@ -1,0 +1,1096 @@
+/*
+ * Catalog/list design authority
+ *
+ * This file is intentionally imported after the legacy light and dark layers.
+ * Table rules are limited to DataTable's catalog seam so editor, import-preview,
+ * and other purpose-built tables keep their own interaction and density models.
+ */
+
+:root {
+  --hellotest-font-body: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --hellotest-font-heading: "Hanken Grotesk", "Inter", "Segoe UI", system-ui, sans-serif;
+  --catalog-ink: #0d1c2d;
+  --catalog-text: #344563;
+  --catalog-muted: #505f76;
+  --catalog-subtle: #6b778c;
+  --catalog-border: #c6c6cd;
+  --catalog-divider: #dfe1e6;
+  --catalog-surface: #ffffff;
+  --catalog-surface-subtle: #f8f9ff;
+  --catalog-row-alt: #f8fafc;
+  --catalog-row-hover: #f1f5fb;
+  --catalog-row-active: #e9f2ff;
+  --catalog-group: #eef4ff;
+  --catalog-neutral-chip: #d4e4fa;
+  --catalog-blue: #2563eb;
+  --catalog-blue-hover: #1d4ed8;
+  --catalog-indigo: #4f46e5;
+  --catalog-indigo-hover: #4338ca;
+  --catalog-danger: #dc2626;
+  --catalog-danger-bg: #fef2f2;
+  --catalog-danger-border: #fecaca;
+  --catalog-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+html,
+body,
+#root,
+button,
+input,
+select,
+textarea {
+  font-family: var(--hellotest-font-body);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.page-header-title,
+.panel-title,
+.panel-heading,
+.modal-title,
+.requirement-sprint-heading > strong {
+  font-family: var(--hellotest-font-heading);
+}
+
+/* Keep navigation typography on the same loaded family as every catalog,
+ * even when older sidebar themes declare a more specific legacy face.
+ */
+.app-layout .sidebar,
+.sidebar {
+  font-family: var(--hellotest-font-body) !important;
+}
+
+.sidebar :is(
+  .brand-mark,
+  .brand-copy,
+  .nav-group-label,
+  .nav-link,
+  .nav-branch-link,
+  .nav-sublink,
+  .nav-link-label,
+  .nav-sublink-label,
+  .sidebar-project-picker,
+  .sidebar-context-card,
+  .theme-toggle,
+  .user-chip-copy,
+  .sidebar-signout
+) {
+  font-family: inherit !important;
+}
+
+/* Shared catalog discovery controls */
+.catalog-view-toggle,
+.page-agentic-workflows .catalog-view-toggle {
+  display: inline-flex !important;
+  flex: 0 0 auto;
+  align-items: stretch !important;
+  gap: 0 !important;
+  height: 36px;
+  padding: 0 !important;
+  overflow: hidden;
+  border: 1px solid var(--catalog-border) !important;
+  border-radius: 5px !important;
+  background: var(--catalog-surface) !important;
+  box-shadow: none !important;
+}
+
+.catalog-view-button,
+.page-agentic-workflows .catalog-view-button {
+  width: 36px !important;
+  min-width: 36px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-right: 1px solid var(--catalog-divider) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--catalog-muted) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.catalog-view-button:last-child,
+.page-agentic-workflows .catalog-view-button:last-child {
+  border-right: 0 !important;
+}
+
+.catalog-view-button:hover:not(:disabled),
+.page-agentic-workflows .catalog-view-button:hover:not(:disabled) {
+  background: var(--catalog-surface-subtle) !important;
+  color: var(--catalog-ink) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.catalog-view-button.is-active,
+.catalog-view-button[aria-pressed="true"],
+.page-agentic-workflows .catalog-view-button.is-active,
+.page-agentic-workflows .catalog-view-button[aria-pressed="true"] {
+  background: #e9f2ff !important;
+  color: #0c66e4 !important;
+  box-shadow: inset 0 -2px 0 #0c66e4 !important;
+}
+
+.catalog-view-button:focus-visible,
+.page-agentic-workflows .catalog-view-button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--catalog-blue) !important;
+  outline-offset: -2px;
+}
+
+.catalog-search-filter {
+  flex: 1 1 24rem;
+  width: min(100%, 42rem);
+  min-width: min(100%, 14rem);
+  max-width: 42rem;
+}
+
+.catalog-search-field {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.catalog-search-leading-icon {
+  position: absolute;
+  top: 50%;
+  left: 11px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b778c;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.catalog-search-field input {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 44px 0 35px !important;
+  border: 1px solid var(--catalog-border) !important;
+  border-radius: 5px !important;
+  background: var(--catalog-surface) !important;
+  color: var(--catalog-ink) !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 18px !important;
+  box-shadow: none !important;
+}
+
+.catalog-search-field input::placeholder {
+  color: #6b778c !important;
+  opacity: 1;
+}
+
+.catalog-search-field input:hover {
+  border-color: #a5adba !important;
+}
+
+.catalog-search-field input:focus {
+  border-color: var(--catalog-blue) !important;
+  outline: 0 !important;
+  box-shadow: var(--catalog-focus-ring) !important;
+}
+
+.catalog-search-field .catalog-filter-button,
+.catalog-filter-button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  border: 1px solid transparent !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: var(--catalog-muted) !important;
+  box-shadow: none !important;
+  transform: translateY(-50%) !important;
+}
+
+.catalog-search-field .catalog-filter-button:hover:not(:disabled),
+.catalog-filter-button:hover:not(:disabled) {
+  border-color: var(--catalog-divider) !important;
+  background: var(--catalog-surface-subtle) !important;
+  color: var(--catalog-ink) !important;
+  transform: translateY(-50%) !important;
+}
+
+.catalog-search-field .catalog-filter-button.is-active,
+.catalog-filter-button.is-active {
+  border-color: #b3d4ff !important;
+  background: #e9f2ff !important;
+  color: #0c66e4 !important;
+  transform: translateY(-50%) !important;
+}
+
+.catalog-filter-badge {
+  top: -5px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border: 2px solid var(--catalog-surface);
+  border-radius: 999px;
+  background: var(--catalog-blue);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 11px;
+}
+
+/* Stories command bar: discovery stays together; commands form a separate rail. */
+.requirement-catalog-toolbar {
+  display: flex !important;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  align-items: center !important;
+  gap: 12px !important;
+  margin: 0 0 12px !important;
+  padding: 12px !important;
+  border: 1px solid var(--catalog-border) !important;
+  border-radius: 8px !important;
+  background: var(--catalog-surface) !important;
+  box-shadow: none !important;
+}
+
+.requirement-toolbar-discovery {
+  display: flex;
+  flex: 1 1 42rem;
+  min-width: 18rem;
+  align-items: center;
+  gap: 8px;
+}
+
+.requirement-toolbar-discovery > .catalog-view-toggle {
+  order: 0 !important;
+}
+
+.requirement-toolbar-discovery > .catalog-search-filter {
+  order: 1 !important;
+  flex: 1 1 24rem;
+  width: auto;
+  max-width: 42rem;
+}
+
+.requirement-toolbar-discovery > .catalog-selection-controls {
+  order: 2 !important;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.requirement-toolbar-discovery > .requirement-toolbar-clear,
+.requirement-toolbar-discovery > .catalog-clear-button,
+.requirement-toolbar-discovery > .ghost-button {
+  order: 2 !important;
+  flex: 0 0 auto;
+  min-width: auto !important;
+  min-height: 32px !important;
+  padding: 0 8px !important;
+  border-color: transparent !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: var(--catalog-muted) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  line-height: 14px !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.requirement-toolbar-discovery > .requirement-toolbar-clear:hover:not(:disabled),
+.requirement-toolbar-discovery > .catalog-clear-button:hover:not(:disabled),
+.requirement-toolbar-discovery > .ghost-button:hover:not(:disabled) {
+  background: #ebecf0 !important;
+  color: var(--catalog-ink) !important;
+}
+
+.requirement-toolbar-actions {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
+  padding-left: 12px;
+  border-left: 1px solid var(--catalog-divider);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.requirement-toolbar-actions > * {
+  flex: 0 0 auto !important;
+}
+
+.requirement-toolbar-actions > button,
+.requirement-toolbar-actions > .catalog-selection-button,
+.requirement-toolbar-actions .compact-select,
+.requirement-toolbar-actions .run-action-main,
+.requirement-toolbar-actions .run-action-toggle {
+  min-height: 32px !important;
+  border-radius: 4px !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 14px !important;
+  box-shadow: none !important;
+  transform: none !important;
+  white-space: nowrap;
+}
+
+.requirement-toolbar-actions > button,
+.requirement-toolbar-actions > .catalog-selection-button {
+  gap: 7px !important;
+  padding: 0 12px !important;
+  border: 1px solid #b7bfcc !important;
+  background: #f7f8fa !important;
+  color: var(--catalog-text) !important;
+}
+
+.requirement-toolbar-actions > button:hover:not(:disabled),
+.requirement-toolbar-actions > .catalog-selection-button:hover:not(:disabled) {
+  border-color: #8993a4 !important;
+  background: #ebecf0 !important;
+  color: var(--catalog-ink) !important;
+}
+
+.requirement-toolbar-actions > button:focus-visible,
+.requirement-toolbar-actions > .catalog-selection-button:focus-visible,
+.requirement-toolbar-actions .compact-select:focus-visible {
+  border-color: var(--catalog-blue) !important;
+  outline: 0 !important;
+  box-shadow: var(--catalog-focus-ring) !important;
+}
+
+.requirement-toolbar-actions .catalog-hierarchy-move-control,
+.requirement-toolbar-actions .compact-select {
+  min-width: 0;
+}
+
+.requirement-toolbar-actions .compact-select {
+  height: 32px !important;
+  padding: 0 30px 0 10px !important;
+  border: 1px solid #b7bfcc !important;
+  border-radius: 4px !important;
+  background-color: #f7f8fa !important;
+  color: var(--catalog-text) !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+
+.requirement-toolbar-actions .requirement-split-action-button {
+  height: 32px !important;
+  min-height: 32px !important;
+  overflow: hidden;
+  border: 1px solid #0f1012 !important;
+  border-radius: 4px !important;
+  background: #0f1012 !important;
+  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.18) !important;
+}
+
+.requirement-toolbar-actions .requirement-split-action-button:hover:not(:has(button:disabled)),
+.requirement-toolbar-actions .requirement-split-action-button:focus-within {
+  border-color: #000000 !important;
+  background: #000000 !important;
+}
+
+.requirement-toolbar-actions .requirement-split-action-button:focus-within {
+  box-shadow: var(--catalog-focus-ring) !important;
+}
+
+.requirement-toolbar-actions .requirement-split-action-button .run-action-main,
+.requirement-toolbar-actions .requirement-split-action-button .run-action-toggle {
+  height: 30px !important;
+  min-height: 30px !important;
+  min-width: 0 !important;
+  border-radius: 0 !important;
+  background: #0f1012 !important;
+  color: #ffffff !important;
+}
+
+.requirement-toolbar-actions .requirement-split-action-button .run-action-main {
+  gap: 7px !important;
+  padding: 0 12px !important;
+}
+
+.requirement-toolbar-actions .requirement-split-action-button .run-action-toggle {
+  width: 32px !important;
+  min-width: 32px !important;
+  padding: 0 !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.34) !important;
+  background: #050608 !important;
+}
+
+.requirement-toolbar-actions .requirement-split-action-button.tone-ai,
+.requirement-toolbar-actions .requirement-split-action-button.is-ai {
+  border-color: #4c3ee8 !important;
+  background: #4c3ee8 !important;
+}
+
+.requirement-toolbar-actions .requirement-split-action-button.tone-ai .run-action-main,
+.requirement-toolbar-actions .requirement-split-action-button.tone-ai .run-action-toggle,
+.requirement-toolbar-actions .requirement-split-action-button.is-ai .run-action-main,
+.requirement-toolbar-actions .requirement-split-action-button.is-ai .run-action-toggle {
+  background: #4c3ee8 !important;
+  color: #ffffff !important;
+}
+
+.requirement-toolbar-actions .requirement-split-action-button.tone-ai .run-action-toggle,
+.requirement-toolbar-actions .requirement-split-action-button.is-ai .run-action-toggle {
+  background: #4032d8 !important;
+}
+
+.requirement-toolbar-actions .requirement-split-action-button.tone-ai:hover:not(:has(button:disabled)),
+.requirement-toolbar-actions .requirement-split-action-button.tone-ai:focus-within,
+.requirement-toolbar-actions .requirement-split-action-button.is-ai:hover:not(:has(button:disabled)),
+.requirement-toolbar-actions .requirement-split-action-button.is-ai:focus-within {
+  border-color: #3f31d6 !important;
+  background: #3f31d6 !important;
+}
+
+.requirement-toolbar-actions .requirement-split-action-button.is-single .run-action-main {
+  border-radius: 3px !important;
+}
+
+.requirement-toolbar-actions .requirement-split-action-button :is(.run-action-main, .run-action-toggle) svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
+}
+
+.requirement-toolbar-actions > .danger,
+.requirement-toolbar-actions > .catalog-selection-button.danger {
+  border-color: var(--catalog-danger-border) !important;
+  background: var(--catalog-danger-bg) !important;
+  color: var(--catalog-danger) !important;
+}
+
+.requirement-toolbar-actions > .danger:hover:not(:disabled),
+.requirement-toolbar-actions > .catalog-selection-button.danger:hover:not(:disabled) {
+  border-color: #fca5a5 !important;
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+}
+
+.requirement-toolbar-actions svg,
+.requirement-toolbar-discovery svg {
+  width: 16px;
+  height: 16px;
+}
+
+.requirement-action-dropdown {
+  gap: 2px !important;
+  padding: 4px !important;
+  overflow: hidden !important;
+  border: 1px solid var(--catalog-border) !important;
+  border-radius: 6px !important;
+  background: var(--catalog-surface) !important;
+  box-shadow: 0 8px 24px rgba(9, 30, 66, 0.18) !important;
+  backdrop-filter: none !important;
+}
+
+.requirement-action-dropdown button {
+  grid-template-columns: 28px minmax(0, 1fr) !important;
+  gap: 8px !important;
+  min-height: 40px !important;
+  padding: 7px 8px !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: var(--catalog-text) !important;
+  box-shadow: none !important;
+}
+
+.requirement-action-dropdown button:hover:not(:disabled),
+.requirement-action-dropdown button:focus-visible {
+  background: var(--catalog-surface-subtle) !important;
+  color: var(--catalog-ink) !important;
+  box-shadow: none !important;
+}
+
+.requirement-action-dropdown button:focus-visible {
+  outline: 2px solid var(--catalog-blue) !important;
+  outline-offset: -2px;
+}
+
+.requirement-action-dropdown .run-action-option-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 4px !important;
+  background: #e9f2ff !important;
+  color: var(--catalog-blue) !important;
+}
+
+.requirement-action-dropdown .run-action-option-icon svg,
+.requirement-action-dropdown .run-action-option-title,
+.requirement-action-dropdown .run-action-option-title strong {
+  color: inherit !important;
+}
+
+.requirement-action-dropdown .run-action-option-copy,
+.requirement-action-dropdown .run-action-option-title {
+  min-width: 0 !important;
+}
+
+.requirement-action-dropdown .run-action-option-title {
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 16px !important;
+}
+
+.requirement-action-dropdown .run-action-option-title .info-tooltip-trigger {
+  color: var(--catalog-muted) !important;
+}
+
+/* Shared catalog command bars. Source order is view → search → selection/actions. */
+:is(
+  .design-list-toolbar:not(.requirement-catalog-toolbar),
+  .batch-process-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar
+) {
+  display: flex !important;
+  box-sizing: border-box;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  margin: 0 0 12px !important;
+  padding: 10px !important;
+  overflow: visible !important;
+  border: 1px solid var(--catalog-border) !important;
+  border-radius: 8px !important;
+  background: var(--catalog-surface-subtle) !important;
+  box-shadow: none !important;
+}
+
+:is(
+  .design-list-toolbar:not(.requirement-catalog-toolbar),
+  .batch-process-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar
+) > .catalog-view-toggle {
+  flex: 0 0 auto;
+}
+
+:is(
+  .design-list-toolbar:not(.requirement-catalog-toolbar),
+  .batch-process-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar
+) > .catalog-search-filter {
+  flex: 1 1 24rem !important;
+  width: auto !important;
+  min-width: 14rem !important;
+  max-width: 42rem !important;
+}
+
+:is(
+  .design-list-toolbar:not(.requirement-catalog-toolbar),
+  .batch-process-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar
+) > :is(button, .catalog-selection-button),
+:is(
+  .design-list-toolbar:not(.requirement-catalog-toolbar),
+  .batch-process-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar
+) .catalog-toolbar-actions :is(button, .run-action-main, .run-action-toggle) {
+  flex: 0 0 auto !important;
+  min-height: 36px !important;
+  padding: 0 11px !important;
+  border-radius: 4px !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 14px !important;
+  box-shadow: none !important;
+  transform: none !important;
+  white-space: nowrap;
+}
+
+:is(
+  .design-list-toolbar:not(.requirement-catalog-toolbar),
+  .batch-process-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar
+) > .ghost-button,
+:is(
+  .design-list-toolbar:not(.requirement-catalog-toolbar),
+  .batch-process-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar
+) > .catalog-selection-button {
+  border-color: var(--catalog-border) !important;
+  background: var(--catalog-surface) !important;
+  color: var(--catalog-text) !important;
+}
+
+:is(
+  .design-list-toolbar:not(.requirement-catalog-toolbar),
+  .batch-process-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar
+) > .primary-button {
+  border-color: var(--catalog-blue) !important;
+  background: var(--catalog-blue) !important;
+  color: #ffffff !important;
+}
+
+:is(
+  .design-list-toolbar:not(.requirement-catalog-toolbar),
+  .batch-process-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar
+) > .danger,
+:is(
+  .design-list-toolbar:not(.requirement-catalog-toolbar),
+  .batch-process-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar
+) > .catalog-selection-button.danger {
+  border-color: var(--catalog-danger-border) !important;
+  background: var(--catalog-danger-bg) !important;
+  color: var(--catalog-danger) !important;
+}
+
+:is(
+  .design-list-toolbar:not(.requirement-catalog-toolbar),
+  .batch-process-toolbar,
+  .projects-catalog-actions,
+  .project-list-toolbar
+) > .catalog-toolbar-actions {
+  display: inline-flex !important;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto !important;
+}
+
+/* Shared DataTable catalog list. Do not broaden this selector. */
+.data-table-shell > .table-wrap.catalog-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  max-height: none !important;
+  margin: 0;
+  overflow: auto !important;
+  border: 1px solid var(--catalog-border) !important;
+  border-radius: 8px !important;
+  background: var(--catalog-surface) !important;
+  box-shadow: none !important;
+  scrollbar-gutter: stable;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table {
+  width: 100%;
+  min-width: 100% !important;
+  border: 0 !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  background: var(--catalog-surface) !important;
+  color: var(--catalog-text) !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 18px !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > thead,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > thead > tr {
+  background: var(--catalog-surface) !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: 40px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--catalog-border) !important;
+  border-right: 0 !important;
+  background: var(--catalog-surface) !important;
+  color: var(--catalog-muted) !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 16px !important;
+  letter-spacing: 0.05em !important;
+  text-align: left !important;
+  text-transform: uppercase !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+}
+
+/* Canonical selector retained for design-contract tooling and downstream themes. */
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table thead th {
+  color: var(--catalog-muted) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 16px !important;
+  letter-spacing: 0.05em !important;
+  text-transform: uppercase !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-header-label,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-header-sort-button {
+  color: inherit !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  line-height: inherit !important;
+  letter-spacing: inherit !important;
+  text-transform: inherit !important;
+  white-space: nowrap !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-header-sort-button {
+  display: inline-flex !important;
+  width: auto !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-sort-indicator {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--catalog-subtle) !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr {
+  background: var(--catalog-surface) !important;
+  transition: background-color 120ms ease !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr:not(.data-table-group-row):nth-child(even) {
+  background: var(--catalog-row-alt) !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr:not(.data-table-group-row):hover {
+  background: var(--catalog-row-hover) !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr.is-active-row {
+  background: var(--catalog-row-active) !important;
+  box-shadow: inset 3px 0 0 var(--catalog-blue) !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr > td {
+  height: 56px !important;
+  padding: 9px 12px !important;
+  overflow: hidden;
+  border: 0 !important;
+  border-bottom: 1px solid var(--catalog-divider) !important;
+  border-right: 0 !important;
+  background: transparent !important;
+  color: var(--catalog-muted) !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 18px !important;
+  overflow-wrap: normal !important;
+  text-align: left !important;
+  text-overflow: ellipsis;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+}
+
+.data-table-shell--comfortable > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr > td {
+  height: 56px !important;
+}
+
+.data-table-shell--compact > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr > td {
+  height: 44px !important;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr:last-child > td {
+  border-bottom: 0 !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-primary-title,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-multiline > strong,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .catalog-row-title {
+  color: var(--catalog-ink) !important;
+  font-weight: 600 !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-multiline {
+  gap: 1px;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-multiline-line,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-description-clamp {
+  display: block !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  color: var(--catalog-muted) !important;
+  line-height: 18px !important;
+  overflow-wrap: normal !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  -webkit-box-orient: initial !important;
+  -webkit-line-clamp: initial !important;
+  line-clamp: initial !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .display-id-badge {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .display-id-badge code {
+  color: var(--catalog-blue) !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 16px !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .status-badge,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .status-pill,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .count-pill {
+  min-height: 20px;
+  padding: 2px 7px;
+  border-radius: 2px !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  line-height: 14px !important;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > thead > tr > th.data-table-select-header,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr > td.data-table-select-cell {
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
+  padding-right: 6px !important;
+  padding-left: 12px !important;
+  text-align: left !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-header-checkbox,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-row-checkbox {
+  width: 18px !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-header-checkbox input,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-row-checkbox input,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table td.data-table-select-cell input[type="checkbox"] {
+  width: 14px !important;
+  height: 14px !important;
+  margin: 0 !important;
+  accent-color: var(--catalog-blue);
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > thead > tr > th.data-table-control-header,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr > td.data-table-control-cell {
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
+  padding: 0 6px !important;
+  text-align: center !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr > td.data-table-control-cell {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: var(--catalog-surface) !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr:nth-child(even) > td.data-table-control-cell {
+  background: var(--catalog-row-alt) !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr:hover > td.data-table-control-cell {
+  background: var(--catalog-row-hover) !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr.is-active-row > td.data-table-control-cell {
+  background: var(--catalog-row-active) !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-config-trigger,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .step-card-menu-trigger {
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  border: 1px solid transparent !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: var(--catalog-muted) !important;
+  box-shadow: none !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-config-trigger:hover:not(:disabled),
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .step-card-menu-trigger:hover:not(:disabled) {
+  border-color: var(--catalog-divider) !important;
+  background: var(--catalog-surface-subtle) !important;
+  color: var(--catalog-ink) !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-header-drag-handle {
+  width: 16px !important;
+  height: 24px !important;
+  margin-right: 3px !important;
+  color: var(--catalog-subtle) !important;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table th:hover .data-table-header-drag-handle,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table th:focus-within .data-table-header-drag-handle,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-header-drag-handle:hover,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-header-drag-handle:focus-visible {
+  opacity: 1;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-column-resize-handle {
+  top: 0;
+  right: -6px;
+  bottom: 0;
+  width: 12px;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-column-resize-handle::after {
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--catalog-blue);
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr.data-table-group-row,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr.data-table-group-row:hover {
+  background: var(--catalog-group) !important;
+  box-shadow: none !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table > tbody > tr.data-table-group-row > td.data-table-group-cell {
+  height: auto !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  border-bottom: 1px solid var(--catalog-border) !important;
+  background: var(--catalog-group) !important;
+  color: var(--catalog-ink) !important;
+  white-space: normal !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .data-table-group-cell > .requirement-iteration-list-header {
+  min-height: 52px;
+  margin: 0 !important;
+  padding: 12px !important;
+  gap: 12px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-identity {
+  align-items: center;
+  gap: 8px;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .module-folder-icon {
+  display: inline-flex !important;
+  color: var(--catalog-ink) !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-copy {
+  display: flex !important;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-heading,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-meta {
+  flex-wrap: nowrap;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-heading > strong {
+  color: var(--catalog-ink) !important;
+  font-family: var(--hellotest-font-heading) !important;
+  font-size: 18px !important;
+  font-weight: 600 !important;
+  line-height: 26px !important;
+  letter-spacing: 0 !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-status {
+  min-height: 18px !important;
+  padding: 2px 8px !important;
+  border: 0 !important;
+  border-radius: 2px !important;
+  background: var(--catalog-neutral-chip) !important;
+  color: var(--catalog-muted) !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  line-height: 14px !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-meta,
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-goal {
+  color: var(--catalog-muted) !important;
+  font-family: var(--hellotest-font-body) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 18px !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header .requirement-sprint-dates {
+  color: var(--catalog-muted) !important;
+  font-weight: 400 !important;
+}
+
+.data-table-shell > .table-wrap.catalog-table-wrap > table.catalog-data-table .requirement-iteration-list-header > .hierarchy-parent-actions {
+  gap: 2px !important;
+}

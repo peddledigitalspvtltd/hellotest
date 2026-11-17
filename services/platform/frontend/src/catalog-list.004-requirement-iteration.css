@@ -1,0 +1,266 @@
+
+
+.hierarchy-quick-insight > small {
+  font-size: 9px;
+  font-weight: 550;
+  line-height: 12px;
+}
+
+.hierarchy-quick-insight > strong {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 14px;
+}
+
+.module-toggle-button .hierarchy-toggle-glyph svg,
+.module-toggle-button.is-expanded .hierarchy-toggle-glyph svg {
+  transform: none !important;
+}
+
+.module-toggle-button .hierarchy-toggle-glyph {
+  color: var(--catalog-muted);
+}
+
+.module-toggle-button:hover:not(:disabled) .hierarchy-toggle-glyph,
+.module-toggle-button:focus-visible .hierarchy-toggle-glyph {
+  color: var(--catalog-ink);
+}
+
+:root[data-theme="dark"] .test-case-module-header:not(.requirement-iteration-header):not(.is-drop-ready):not(.is-drop-blocked) {
+  border-color: var(--catalog-divider) !important;
+  background: var(--catalog-surface) !important;
+}
+
+:root[data-theme="dark"] .test-case-module-header:not(.requirement-iteration-header):not(.is-drop-ready):not(.is-drop-blocked):hover {
+  background: var(--catalog-surface-subtle) !important;
+}
+
+:root[data-theme="dark"] .hierarchy-quick-insights,
+:root[data-theme="dark"] .hierarchy-quick-insight,
+:root[data-theme="dark"] .hierarchy-quick-insight-icon {
+  border-top-color: transparent;
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  background: transparent;
+}
+
+@media (max-width: 1180px) {
+  .test-case-module-header > .hierarchy-quick-insights {
+    grid-column: 4 / -1;
+    justify-self: stretch;
+  }
+
+  .hierarchy-quick-insights-grid {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 700px) {
+  .test-case-module-header:not(.requirement-iteration-header) {
+    gap: 0.35rem;
+    padding: 0.45rem 0.5rem;
+  }
+
+  .test-case-module-header > .hierarchy-quick-insights {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .hierarchy-quick-insight {
+    padding-inline: 6px;
+  }
+}
+
+@media (forced-colors: active) {
+  .test-case-module-header:not(.requirement-iteration-header),
+  .hierarchy-quick-insight {
+    border-color: CanvasText !important;
+  }
+
+  .hierarchy-quick-insights {
+    border: 0 !important;
+  }
+}
+
+/* Keep module controls ahead of the metrics so common actions stay predictable. */
+.test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) {
+  grid-template-columns: auto auto auto minmax(8rem, 0.72fr) auto auto minmax(25rem, 1.6fr) !important;
+}
+
+.test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) > .module-case-selection-button {
+  grid-column: 5;
+}
+
+.test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) > .hierarchy-quick-insights,
+.test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) > .module-deferred-summary {
+  grid-column: 7;
+}
+
+.test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) > .action-row {
+  grid-column: 6;
+}
+
+.module-case-selection-button {
+  display: inline-flex;
+  width: max-content;
+  min-width: 0;
+  min-height: 28px;
+  align-items: center;
+  gap: 0;
+  justify-self: end;
+  padding: 0 6px !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--catalog-muted) !important;
+  font-size: 10px;
+  font-weight: 650;
+  box-shadow: none !important;
+}
+
+.module-case-selection-button:hover:not(:disabled),
+.module-case-selection-button[aria-pressed="true"] {
+  background: var(--catalog-surface-subtle) !important;
+  color: var(--catalog-ink) !important;
+}
+
+.module-case-selection-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.module-deferred-summary {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px;
+  color: var(--catalog-muted);
+  white-space: nowrap;
+}
+
+.module-deferred-summary > strong {
+  color: var(--catalog-ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.module-deferred-summary > span {
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.module-deferred-summary > small {
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--catalog-divider);
+  font-size: 9px;
+  font-weight: 550;
+}
+
+.hierarchy-load-more-footer--module {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  padding: 4px 8px 8px;
+}
+
+.hierarchy-load-more-footer--module .hierarchy-load-more-button {
+  min-width: 0;
+  min-height: 24px;
+  padding: 0 4px !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--catalog-muted) !important;
+  font-size: 10px;
+  font-weight: 600;
+  box-shadow: none !important;
+}
+
+.hierarchy-load-more-footer--module .hierarchy-load-more-button:hover:not(:disabled) {
+  background: transparent !important;
+  color: var(--catalog-ink) !important;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+@media (max-width: 1180px) {
+  .test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) {
+    grid-template-columns: auto auto auto minmax(8rem, 1fr) auto auto !important;
+  }
+
+  .test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) > .module-case-selection-button {
+    grid-column: 5;
+    grid-row: 1;
+  }
+
+  .test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) > .action-row {
+    grid-column: 6;
+    grid-row: 1;
+  }
+
+  .test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) > .hierarchy-quick-insights,
+  .test-case-module-header:not(.requirement-iteration-header):not(.is-unassigned) > .module-deferred-summary {
+    grid-column: 4 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 700px) {
+  .module-case-selection-button {
+    justify-self: start;
+  }
+
+  .module-deferred-summary {
+    flex-wrap: wrap;
+  }
+}
+
+/* Sprint summaries use one compact type scale and title-cased Story nouns.
+   Scope this to Sprint headers so module-level evidence keeps its denser scale. */
+.requirement-iteration-header .hierarchy-quick-insight > small,
+.requirement-iteration-header .hierarchy-quick-insight > strong {
+  font-size: 10px;
+  line-height: 14px;
+}
+
+/* Ungrouped is a first-class module summary. Keep its explicit selection action
+   directly beside the Cases metric in both list and tile hierarchies. */
+.test-case-module-header.is-unassigned:not(.requirement-iteration-header) {
+  grid-template-columns: auto auto auto minmax(8rem, 0.72fr) auto minmax(25rem, 1.6fr) !important;
+}
+
+.test-case-module-header.is-unassigned:not(.requirement-iteration-header) > .module-case-selection-button {
+  grid-column: 5;
+}
+
+.test-case-module-header.is-unassigned:not(.requirement-iteration-header) > .hierarchy-quick-insights,
+.test-case-module-header.is-unassigned:not(.requirement-iteration-header) > .module-deferred-summary {
+  grid-column: 6;
+}
+
+.module-case-selection-button {
+  font-size: 9px;
+  font-weight: 550;
+  line-height: 12px;
+}
+
+@media (max-width: 1180px) {
+  .test-case-module-header.is-unassigned:not(.requirement-iteration-header) {
+    grid-template-columns: auto auto auto minmax(8rem, 1fr) auto !important;
+  }
+
+  .test-case-module-header.is-unassigned:not(.requirement-iteration-header) > .module-case-selection-button {
+    grid-column: 5;
+    grid-row: 1;
+  }
+
+  .test-case-module-header.is-unassigned:not(.requirement-iteration-header) > .hierarchy-quick-insights,
+  .test-case-module-header.is-unassigned:not(.requirement-iteration-header) > .module-deferred-summary {
+    grid-column: 4 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    justify-content: flex-start;
+  }
+}

@@ -1,0 +1,1095 @@
+
+
+.admin-space-tabs .subnav-tab-copy strong,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs .subnav-tab-copy strong,
+.admin-space-tabs .subnav-tab-meta,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs .subnav-tab-meta {
+  display: block !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.admin-space-tabs .subnav-tab-meta,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs .subnav-tab-meta {
+  color: #64748b !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs > button > span {
+  grid-column: 3 !important;
+  min-width: 1.35rem !important;
+  height: 1.35rem !important;
+}
+
+/* Final workspace tab/count and split-action refinements. */
+.subnav-tab-meta,
+.admin-space-tabs .subnav-tab-meta,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs .subnav-tab-meta,
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-meta {
+  display: inline !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  color: #64748b !important;
+  font-size: 0.78rem !important;
+  font-weight: 850 !important;
+  line-height: 1 !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: nowrap !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-icon,
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy,
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-meta {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs > .subnav-tab {
+  grid-template-columns: auto minmax(0, auto) !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy {
+  display: flex !important;
+  grid-column: 2 !important;
+  align-items: baseline !important;
+  justify-content: center !important;
+  gap: 0.35rem !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  text-align: center !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy strong {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  color: currentColor !important;
+  font-size: 0.82rem !important;
+  font-weight: 850 !important;
+  line-height: 1 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.run-action-toggle .run-action-toggle-info {
+  display: none !important;
+}
+
+.run-action-dropdown .run-action-option-copy {
+  display: flex !important;
+  min-width: 0 !important;
+}
+
+.run-action-dropdown .run-action-option-title {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.34rem !important;
+  min-width: 0 !important;
+  color: #fff !important;
+}
+
+.run-action-dropdown .run-action-option-title strong,
+.run-action-dropdown .run-action-option-title .info-tooltip-trigger,
+.run-action-dropdown .run-action-option-icon {
+  color: #fff !important;
+}
+
+.run-action-dropdown .run-action-option-title .info-tooltip-trigger {
+  flex: 0 0 auto !important;
+  opacity: 0.95 !important;
+}
+
+.people-role-create-card,
+.people-role-create-card.is-permission-expanded {
+  overflow: hidden !important;
+}
+
+.people-role-create-card .people-modal-form {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.people-role-create-card .people-role-create-body,
+.people-role-create-card.is-permission-expanded .people-role-create-body,
+.people-role-create-card .people-role-create-permissions,
+.people-role-create-card .role-permission-editor--create,
+.people-role-create-card .role-permission-editor--create .permission-designer {
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.people-role-create-card .people-role-create-body,
+.people-role-create-card.is-permission-expanded .people-role-create-body {
+  flex: 1 1 auto !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
+.people-role-create-card .people-role-create-permissions,
+.people-role-create-card .role-permission-editor--create,
+.people-role-create-card .role-permission-editor--create .permission-designer {
+  height: 100% !important;
+}
+
+.people-role-create-card .role-permission-editor--create .permission-designer {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+}
+
+.people-role-create-card .permission-group-strip,
+.people-role-create-card .permission-group-strip.permission-group-strip--accordion {
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding-bottom: 4.5rem !important;
+  scroll-padding-bottom: 4.5rem !important;
+}
+
+.people-role-create-card .permission-group-strip .permission-group-card:last-child {
+  margin-bottom: 3.5rem !important;
+}
+
+/* Final tile-card consistency across catalog card views. */
+.tile-browser-grid .tile-card-title-group,
+.catalog-grid .tile-card-title-group,
+.record-card .tile-card-title-group {
+  display: grid !important;
+  gap: 0.18rem !important;
+  align-items: start !important;
+  min-width: 0 !important;
+}
+
+.tile-browser-grid .tile-card-title-group::before,
+.catalog-grid .tile-card-title-group::before,
+.record-card .tile-card-title-group::before,
+.tile-browser-grid .tile-card-description::before,
+.catalog-grid .tile-card-description::before,
+.record-card .tile-card-description::before {
+  display: block !important;
+  width: 100% !important;
+  margin: 0 0 0.18rem !important;
+  color: #64748b !important;
+  font-size: 0.64rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+}
+
+.tile-browser-grid .tile-card-title-group::before,
+.catalog-grid .tile-card-title-group::before,
+.record-card .tile-card-title-group::before {
+  content: "Title" !important;
+}
+
+.tile-browser-grid .tile-card-description::before,
+.catalog-grid .tile-card-description::before,
+.record-card .tile-card-description::before {
+  content: "Description" !important;
+}
+
+.tile-browser-grid .tile-card-title-group strong,
+.catalog-grid .tile-card-title-group strong,
+.record-card .tile-card-title-group strong {
+  display: -webkit-box !important;
+  overflow: hidden !important;
+  color: #111827 !important;
+  font-size: 0.92rem !important;
+  font-weight: 850 !important;
+  line-height: 1.28 !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  text-overflow: ellipsis !important;
+  white-space: normal !important;
+}
+
+.tile-browser-grid .tile-card-description,
+.catalog-grid .tile-card-description,
+.record-card .tile-card-description {
+  display: block !important;
+  overflow: hidden !important;
+  color: #475569 !important;
+  font-size: 0.82rem !important;
+  line-height: 1.42 !important;
+  white-space: normal !important;
+}
+
+.tile-browser-grid .tile-card-description > *,
+.catalog-grid .tile-card-description > *,
+.record-card .tile-card-description > * {
+  display: -webkit-box !important;
+  overflow: hidden !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  text-overflow: ellipsis !important;
+}
+
+.tile-browser-grid .test-case-requirement-block,
+.catalog-grid .test-case-requirement-block {
+  display: grid !important;
+  gap: 0.18rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.tile-browser-grid .test-case-requirement-block .test-case-requirement-label,
+.catalog-grid .test-case-requirement-block .test-case-requirement-label {
+  display: block !important;
+  margin: 0 0 0.18rem !important;
+  color: #64748b !important;
+  font-size: 0.64rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+}
+
+.tile-browser-grid .test-case-requirement-block p,
+.catalog-grid .test-case-requirement-block p {
+  margin: 0 !important;
+  color: #111827 !important;
+  font-size: 0.92rem !important;
+  font-weight: 850 !important;
+  line-height: 1.28 !important;
+}
+
+.tile-browser-grid .test-case-requirement-block p strong,
+.catalog-grid .test-case-requirement-block p strong {
+  font-size: inherit !important;
+  font-weight: inherit !important;
+}
+
+.tile-browser-pane-footer:not(.is-scrollable),
+.tile-browser-pane-top-button:not(.is-ready) {
+  display: none !important;
+}
+
+.admin-space-tabs .subnav-tab-indicator,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs > .subnav-tab > .subnav-tab-indicator {
+  display: none !important;
+}
+
+/* Final header and toolbar alignment refinements. */
+.page-header-eyebrow {
+  display: none !important;
+}
+
+.page-header-text {
+  flex: 0 1 min(42rem, 100%) !important;
+  max-width: min(42rem, 100%) !important;
+}
+
+.page-header-title {
+  max-width: 22ch !important;
+}
+
+.test-case-split-action-button,
+.test-case-split-action-button:hover:not(:has(button:disabled)),
+.test-case-split-action-button:focus-within,
+.test-case-split-action-button:active,
+.test-case-catalog-toolbar .test-case-split-action-button,
+.test-case-catalog-toolbar .test-case-split-action-button:hover:not(:has(button:disabled)),
+.test-case-catalog-toolbar .test-case-split-action-button:focus-within {
+  border-color: rgba(29, 78, 216, 0.48) !important;
+  background: linear-gradient(180deg, #2563eb, #1e40af) !important;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22) !important;
+}
+
+.test-case-split-action-button .run-action-main,
+.test-case-split-action-button .run-action-toggle,
+.test-case-split-action-button .run-action-main:hover:not(:disabled),
+.test-case-split-action-button .run-action-toggle:hover:not(:disabled) {
+  background: transparent !important;
+  color: #ffffff !important;
+}
+
+.create-run-action-button--test-runs,
+.create-run-action-button--test-suites,
+.create-run-action-button--test-runs:hover:not(:has(button:disabled)),
+.create-run-action-button--test-suites:hover:not(:has(button:disabled)),
+.create-run-action-button--test-runs:focus-within,
+.create-run-action-button--test-suites:focus-within {
+  border-color: rgba(13, 157, 108, 0.38) !important;
+  background: linear-gradient(180deg, #18a873, #0d8f60) !important;
+  box-shadow: 0 12px 26px rgba(13, 157, 108, 0.22) !important;
+}
+
+.create-run-action-button--test-runs .run-action-main,
+.create-run-action-button--test-runs .run-action-toggle,
+.create-run-action-button--test-suites .run-action-main,
+.create-run-action-button--test-suites .run-action-toggle,
+.create-run-action-button--test-runs .run-action-main:hover:not(:disabled),
+.create-run-action-button--test-runs .run-action-toggle:hover:not(:disabled),
+.create-run-action-button--test-suites .run-action-main:hover:not(:disabled),
+.create-run-action-button--test-suites .run-action-toggle:hover:not(:disabled) {
+  background: transparent !important;
+  color: #ffffff !important;
+}
+
+.create-run-action-button--test-runs .run-action-main span,
+.create-run-action-button--test-suites .run-action-main span {
+  color: #ffffff !important;
+  font-weight: 850 !important;
+}
+
+.suite-sidebar-toolbar .suite-toolbar-smart-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  flex: 0 0 auto !important;
+}
+
+.suite-sidebar-toolbar .primary-button.catalog-selection-button,
+.test-case-catalog-toolbar .primary-button.catalog-selection-button {
+  min-height: 2.72rem !important;
+  border-radius: 999px !important;
+}
+
+.requirement-iteration-list-header {
+  margin: 0.25rem 0 0.65rem !important;
+}
+
+/* Final alignment and action-menu cleanup pass. */
+.page-header.card.page-header--no-actions {
+  width: fit-content !important;
+  max-width: min(34rem, 100%) !important;
+  min-height: 0 !important;
+  padding: 0.85rem 1rem !important;
+}
+
+.page-header.card.page-header--no-actions .page-header-text {
+  max-width: min(30rem, 100%) !important;
+}
+
+.page-header.card.page-header--no-actions .page-header-title {
+  max-width: 18ch !important;
+  font-size: clamp(1.12rem, 1.6vw, 1.42rem) !important;
+}
+
+.test-case-catalog-card .tile-card-select-row,
+.test-case-catalog-card .tile-card-select-row > .checkbox-field {
+  gap: 0 !important;
+  column-gap: 0 !important;
+}
+
+.test-case-catalog-card .tile-card-select-row > .display-id-badge,
+.test-case-catalog-card .tile-card-select-row .checkbox-field + .display-id-badge {
+  margin-left: 0 !important;
+}
+
+.test-case-catalog-card .test-case-card-title-group,
+.test-case-catalog-card .test-case-card-title-group--identity {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-items: start !important;
+  justify-items: stretch !important;
+  gap: 0.18rem !important;
+}
+
+.test-case-catalog-card .test-case-card-title-group::before,
+.test-case-catalog-card .test-case-card-title-group--identity::before {
+  grid-column: 1 !important;
+  justify-self: start !important;
+  margin-left: 0 !important;
+}
+
+.test-case-catalog-card .test-case-card-title-group strong,
+.test-case-catalog-card .test-case-card-title-group--identity strong {
+  grid-column: 1 !important;
+  justify-self: start !important;
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+  text-align: left !important;
+}
+
+.run-action-dropdown button,
+.run-action-dropdown button:hover:not(:disabled),
+.requirement-action-dropdown button,
+.test-case-action-dropdown button {
+  border-color: rgba(29, 78, 216, 0.34) !important;
+  background: linear-gradient(180deg, #2563eb, #1e40af) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.18) !important;
+}
+
+.run-action-dropdown--test-runs button,
+.run-action-dropdown--test-suites button,
+.test-case-run-action-dropdown button,
+.run-action-dropdown--test-runs button:hover:not(:disabled),
+.run-action-dropdown--test-suites button:hover:not(:disabled),
+.test-case-run-action-dropdown button:hover:not(:disabled) {
+  border-color: rgba(13, 157, 108, 0.28) !important;
+  background: linear-gradient(180deg, #18a873, #0d8f60) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 22px rgba(13, 157, 108, 0.16) !important;
+}
+
+.run-action-dropdown button strong,
+.run-action-dropdown button .run-action-option-title,
+.run-action-dropdown button .run-action-option-icon,
+.run-action-dropdown button .info-tooltip-trigger {
+  color: #ffffff !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs > .subnav-tab {
+  grid-template-columns: auto minmax(0, auto) !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-icon {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  order: 0 !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  order: 1 !important;
+}
+
+/* Final compact page-header and agentic-tab corrections. */
+.page-header.card {
+  width: fit-content !important;
+  max-width: min(38rem, 100%) !important;
+  min-height: 0 !important;
+}
+
+.page-header.card .page-header-text {
+  max-width: min(32rem, 100%) !important;
+}
+
+.page-header.card .page-actions {
+  margin-left: 0.5rem !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs,
+.page-agentic-workflows .agentic-workflows-tabs.subnav-tabs {
+  display: flex !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+  width: 100% !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs > .subnav-tab {
+  display: inline-flex !important;
+  grid-template-columns: none !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.42rem !important;
+  min-width: 0 !important;
+  padding: 0.52rem 0.65rem 0.62rem !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-icon {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  order: 0 !important;
+  width: 1rem !important;
+  height: 1rem !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  color: currentColor !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy {
+  display: inline-flex !important;
+  flex: 0 1 auto !important;
+  order: 1 !important;
+  align-items: baseline !important;
+  justify-content: center !important;
+  gap: 0.35rem !important;
+  min-width: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy strong {
+  display: inline !important;
+  flex: 0 1 auto !important;
+  color: currentColor !important;
+  font-size: 0.82rem !important;
+  font-weight: 850 !important;
+  line-height: 1 !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-meta {
+  display: inline !important;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #64748b !important;
+  font-size: 0.74rem !important;
+  font-weight: 850 !important;
+  line-height: 1 !important;
+}
+
+/* Targeted workflow/status and action refinements. */
+.settings-api-key-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.icon-only-button {
+  width: 2.15rem !important;
+  min-width: 2.15rem !important;
+  height: 2.15rem !important;
+  padding: 0 !important;
+  justify-content: center;
+}
+
+.status-badge.ai,
+.status-badge.automated {
+  background: rgba(33, 104, 243, 0.1);
+  color: var(--primary-strong);
+}
+
+.status-badge.pending {
+  background: rgba(154, 58, 47, 0.14);
+  color: var(--danger);
+}
+
+.status-badge.draft {
+  background: rgba(193, 120, 32, 0.16);
+  color: #b96b00;
+}
+
+.status-badge.active,
+.status-badge.ready {
+  background: rgba(46, 125, 82, 0.14);
+  color: var(--success);
+}
+
+.status-badge.retired {
+  background: rgba(83, 98, 122, 0.14);
+  color: #53627a;
+}
+
+.project-card-select-row .project-card-top-actions {
+  width: auto !important;
+  min-width: max-content !important;
+  max-width: calc(100% - 1rem) !important;
+}
+
+.project-card-select-row .project-card-top-actions .project-health-badge,
+.project-health-badge {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  align-items: center;
+  width: auto !important;
+  min-width: max-content !important;
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: nowrap !important;
+}
+
+.requirement-split-action-button,
+.requirement-split-action-button:has(button:disabled),
+.requirement-split-action-button:hover,
+.requirement-split-action-button:focus-within {
+  border-color: rgba(29, 78, 216, 0.48) !important;
+  background: linear-gradient(180deg, #2563eb, #1e40af) !important;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22) !important;
+}
+
+.requirement-split-action-button .run-action-main,
+.requirement-split-action-button .run-action-toggle,
+.requirement-split-action-button .run-action-main:disabled,
+.requirement-split-action-button .run-action-toggle:disabled,
+.requirement-split-action-button:hover .run-action-main,
+.requirement-split-action-button:hover .run-action-toggle {
+  background: transparent !important;
+  color: #ffffff !important;
+}
+
+.overview-layout .overview-hero.page-header.card {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  gap: 1rem !important;
+}
+
+.overview-layout .overview-hero.page-header.card .page-header-text {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: min(64rem, 100%) !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 0.45rem !important;
+  text-align: left !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.overview-layout .overview-hero .page-header-title-row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 0.55rem !important;
+  width: 100% !important;
+}
+
+.overview-layout .overview-hero .page-header-title,
+.overview-layout .overview-hero .page-description {
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 !important;
+  text-align: left !important;
+  white-space: normal !important;
+}
+
+.overview-layout .overview-hero.page-header.card .page-actions {
+  flex: 0 0 auto !important;
+  margin-left: auto !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs > .subnav-tab {
+  display: inline-grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  justify-items: start !important;
+  column-gap: 0.45rem !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-icon,
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy,
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-meta {
+  align-self: center !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy {
+  align-items: center !important;
+  line-height: 1 !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs .subnav-tab-copy strong {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* Final width/header/action fixes. */
+.workspace-layout > .workspace-main,
+.workspace-main > .page-header.card,
+.workspace-main > .workspace-content,
+.workspace-main > .page-content,
+.page-content > .page-header.card,
+.workspace-content > .page-header.card {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.page-header.card {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.page-header.card .page-header-text {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: min(64rem, 100%) !important;
+  justify-self: start !important;
+  text-align: left !important;
+}
+
+.page-header.card .page-header-title {
+  max-width: none !important;
+  text-align: left !important;
+}
+
+.page-header.card.page-header--no-actions {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.page-header.card.page-header--no-actions .page-header-text {
+  max-width: min(64rem, 100%) !important;
+}
+
+.people-access-page {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.people-access-page .workspace-master-detail,
+.people-access-page .workspace-master-detail-panel,
+.people-access-page .workspace-master-detail-panel > .panel {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+}
+
+.people-roles-workspace.workspace-master-detail--split {
+  grid-template-columns: minmax(22rem, 0.95fr) minmax(36rem, 1.35fr) !important;
+  width: 100% !important;
+  max-width: none !important;
+  overflow: visible !important;
+}
+
+.people-roles-workspace .workspace-master-detail-detail-panel,
+.people-roles-workspace .workspace-master-detail-browse-panel {
+  overflow: visible !important;
+}
+
+.people-catalog-toolbar .catalog-toolbar-actions,
+.design-list-toolbar .catalog-toolbar-actions {
+  margin-left: 0 !important;
+}
+
+.design-list-toolbar {
+  align-items: center !important;
+}
+
+@media (max-width: 1180px) {
+  .people-roles-workspace.workspace-master-detail--split {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+:root[data-theme="dark"] .workspace-layout > .workspace-main,
+:root[data-theme="dark"] .workspace-main > .workspace-content,
+:root[data-theme="dark"] .workspace-main > .page-content,
+:root[data-theme="dark"] .page-content,
+:root[data-theme="dark"] .workspace-content {
+  background:
+    linear-gradient(180deg, rgba(12, 24, 40, 0.96), rgba(8, 16, 29, 0.94)),
+    #07111f !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .workspace-main > .page-header.card,
+:root[data-theme="dark"] .page-content > .page-header.card,
+:root[data-theme="dark"] .workspace-content > .page-header.card {
+  background:
+    linear-gradient(180deg, rgba(17, 31, 51, 0.98), rgba(12, 24, 40, 0.94)),
+    var(--panel-strong) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+}
+
+.requirements-health-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.requirements-health-strip:is(.is-backlog, .is-sprints) {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.requirements-health-card {
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(126, 149, 188, 0.22);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(248, 251, 255, 0.9)),
+    #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
+}
+
+.requirements-health-card > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.requirements-health-card span {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.requirements-health-card strong {
+  color: #0f172a;
+  font-size: clamp(1.45rem, 2.2vw, 2.1rem);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.requirements-health-card p {
+  min-height: 2.25rem;
+  margin: 0;
+  color: #475569;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.requirements-health-meter {
+  height: 0.42rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.requirements-health-meter span {
+  display: block;
+  height: 100%;
+  min-width: 0.25rem;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #0d9488);
+}
+
+.requirements-health-card.tone-coverage .requirements-health-meter span {
+  background: linear-gradient(90deg, #0d9488, #16a34a);
+}
+
+.requirements-health-card.tone-defects .requirements-health-meter span {
+  background: linear-gradient(90deg, #f59e0b, #dc2626);
+}
+
+@media (max-width: 900px) {
+  .requirements-health-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .requirements-health-strip:is(.is-backlog, .is-sprints) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .requirements-health-strip:is(.is-backlog, .is-sprints) {
+    grid-template-columns: 1fr;
+  }
+}
+
+:root[data-theme="dark"] .requirements-health-card {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background:
+    linear-gradient(180deg, rgba(17, 31, 51, 0.96), rgba(12, 24, 40, 0.94)),
+    var(--panel-strong) !important;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28) !important;
+}
+
+:root[data-theme="dark"] .requirements-health-card span,
+:root[data-theme="dark"] .requirements-health-card p {
+  color: var(--text-secondary) !important;
+}
+
+:root[data-theme="dark"] .requirements-health-card strong {
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .requirements-health-meter {
+  background: rgba(148, 163, 184, 0.18) !important;
+}
+
+/* Final dark-theme coverage for page surfaces, catalog views, and modal dialogs. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #07111f;
+  --bg: #07111f;
+  --card-bg: #0e1a2b;
+  --surface: rgba(12, 24, 40, 0.9);
+  --surface-strong: #111f33;
+  --panel: rgba(12, 24, 40, 0.92);
+  --panel-strong: #111f33;
+  --border: rgba(148, 163, 184, 0.22);
+  --line: rgba(148, 163, 184, 0.22);
+  --text: #e5edf8;
+  --text-primary: #f3f7ff;
+  --text-secondary: #a9b8cc;
+  --muted: #9fb0c6;
+  --primary: #60a5fa;
+  --primary-hover: #3b82f6;
+  --primary-strong: #93c5fd;
+  --accent: #60a5fa;
+  --accent-strong: #bfdbfe;
+  --success: #5ee0a4;
+  --danger: #fb7185;
+  --error: #fb7185;
+  --glass-surface: rgba(15, 23, 42, 0.78);
+  --glass-surface-strong: rgba(17, 31, 51, 0.96);
+  --glass-border: rgba(148, 163, 184, 0.24);
+  --glass-highlight: rgba(255, 255, 255, 0.08);
+  --workspace-master-border: rgba(148, 163, 184, 0.22);
+  --workspace-master-surface: rgba(8, 16, 29, 0.86);
+}
+
+:root[data-theme="dark"],
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] #root {
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.2), transparent 32%),
+    linear-gradient(180deg, #07111f 0%, #050a13 100%) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] ::selection {
+  background: rgba(96, 165, 250, 0.38);
+  color: #ffffff;
+}
+
+:root[data-theme="dark"] * {
+  scrollbar-color: rgba(96, 165, 250, 0.45) rgba(15, 23, 42, 0.9);
+}
+
+:root[data-theme="dark"] .workspace-main,
+:root[data-theme="dark"] .workspace-main.main,
+:root[data-theme="dark"] .workspace-main.main--library-fill,
+:root[data-theme="dark"] .workspace-main.main--library-fill > .page-content,
+:root[data-theme="dark"] .workspace-main.main--library-fill > .page-content.page-content--library-full,
+:root[data-theme="dark"] .workspace-main.main--library-fill > .page-content.page-content--workspace-focus,
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-master-detail,
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-master-detail-pane,
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-master-detail-browse,
+:root[data-theme="dark"] .workspace-main.main--library-fill .workspace-master-detail-detail,
+:root[data-theme="dark"] .workspace-main.main--library-fill .suite-design-workspace,
+:root[data-theme="dark"] .workspace-main.main--library-fill .shared-step-workspace-form,
+:root[data-theme="dark"] .workspace-main.main--library-fill .requirement-detail-column,
+:root[data-theme="dark"] .workspace-main > .page-content,
+:root[data-theme="dark"] .workspace-main > .workspace-content,
+:root[data-theme="dark"] .page-content,
+:root[data-theme="dark"] .workspace-content,
+:root[data-theme="dark"] .page,
+:root[data-theme="dark"] .admin-space-page,
+:root[data-theme="dark"] .auth-page {
+  background:
+    linear-gradient(180deg, rgba(12, 24, 40, 0.94), rgba(8, 16, 29, 0.9)),
+    var(--workspace-master-surface) !important;
+  background-image: linear-gradient(180deg, rgba(12, 24, 40, 0.94), rgba(8, 16, 29, 0.9)) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .page-header,
+:root[data-theme="dark"] .page-header.card,
+:root[data-theme="dark"] .panel,
+:root[data-theme="dark"] .card,
+:root[data-theme="dark"] .record-card,
+:root[data-theme="dark"] .tile-card,
+:root[data-theme="dark"] .catalog-card,
+:root[data-theme="dark"] .virtual-card,
+:root[data-theme="dark"] .stat-card,
+:root[data-theme="dark"] .mini-card,
+:root[data-theme="dark"] .stack-item,
+:root[data-theme="dark"] .segment,
+:root[data-theme="dark"] .step-card,
+:root[data-theme="dark"] .step-create,
+:root[data-theme="dark"] .detail-summary,
+:root[data-theme="dark"] .metric-card,
+:root[data-theme="dark"] .settings-section,
+:root[data-theme="dark"] .settings-prompt-card,
+:root[data-theme="dark"] .settings-api-key-card,
+:root[data-theme="dark"] .feature-flag-group-card,
+:root[data-theme="dark"] .agentic-flow-shell,
+:root[data-theme="dark"] .agentic-inspector-card,
+:root[data-theme="dark"] .agentic-run-summary,
+:root[data-theme="dark"] .agentic-json-panel,
+:root[data-theme="dark"] .automation-detail-panel,
+:root[data-theme="dark"] .automation-description-panel,
+:root[data-theme="dark"] .automation-hook-card,
+:root[data-theme="dark"] .automation-linked-manual-card,
+:root[data-theme="dark"] .automation-create-card,
+:root[data-theme="dark"] .test-case-module-header,
+:root[data-theme="dark"] .permission-group-card,
+:root[data-theme="dark"] .permission-option,
+:root[data-theme="dark"] .permission-transfer-column {
+  border-color: var(--glass-border) !important;
+  background:
+    linear-gradient(180deg, rgba(17, 31, 51, 0.96), rgba(12, 24, 40, 0.94)),
+    var(--panel-strong) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28) !important;
+}
+
+:root[data-theme="dark"] .record-card:hover,
+:root[data-theme="dark"] .tile-card:hover,
+:root[data-theme="dark"] .catalog-card:hover,
+:root[data-theme="dark"] .record-card.is-active,
+:root[data-theme="dark"] .tile-card.is-active,
+:root[data-theme="dark"] .catalog-data-table tbody tr.is-active-row {
+  border-color: rgba(96, 165, 250, 0.5) !important;
+  background:
+    linear-gradient(180deg, rgba(30, 64, 110, 0.64), rgba(15, 35, 65, 0.88)),
+    var(--panel-strong) !important;
+}
+
+:root[data-theme="dark"] .page-header-title,
+:root[data-theme="dark"] .panel-heading,
+:root[data-theme="dark"] .panel-head strong,
+:root[data-theme="dark"] .tile-card-title-group strong,
+:root[data-theme="dark"] .catalog-grid .tile-card-title-group strong,
+:root[data-theme="dark"] .record-card .tile-card-title-group strong,
+:root[data-theme="dark"] .test-case-card-title-group strong,
+:root[data-theme="dark"] .record-card strong,
+:root[data-theme="dark"] .stack-item strong,
+:root[data-theme="dark"] .segment strong,
+:root[data-theme="dark"] .mini-card strong,
+:root[data-theme="dark"] .form-field > span,
+:root[data-theme="dark"] .dialog-header strong,
+:root[data-theme="dark"] .modal-card h2,
+:root[data-theme="dark"] .modal-card h3,
+:root[data-theme="dark"] .data-table-header-label,
+:root[data-theme="dark"] .data-table th {
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .page-description,
+:root[data-theme="dark"] .panel-head p,
+:root[data-theme="dark"] .tile-card-description,
+:root[data-theme="dark"] .tile-card-description > *,
+:root[data-theme="dark"] .record-card span,
+:root[data-theme="dark"] .record-card small,
+:root[data-theme="dark"] .stack-item span,
+:root[data-theme="dark"] .segment span,
+:root[data-theme="dark"] .mini-card span,
+:root[data-theme="dark"] .checkbox-field,
+:root[data-theme="dark"] .modal-card p,
+:root[data-theme="dark"] .modal-card small,
+:root[data-theme="dark"] .data-table td,
+:root[data-theme="dark"] .data-table-description-clamp,
+:root[data-theme="dark"] .empty-state,
+:root[data-theme="dark"] .empty-state p {
+  color: var(--text-secondary) !important;
+}

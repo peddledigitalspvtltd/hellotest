@@ -1,0 +1,3 @@
+{
+  "stages": ["intake", "context", "guardrails", "specialist", "outcome", "evaluation", "review"]
+}

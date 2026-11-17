@@ -1,0 +1,1098 @@
+
+
+@media (max-width: 480px) {
+  .rich-text-ai-review > .rich-text-ai-review__header {
+    gap: 0.18rem;
+  }
+
+  .rich-text-ai-review__header .ai-evidence-button {
+    padding-inline: 0.55rem;
+  }
+
+  .rich-text-ai-review__header .ai-evidence-button > svg:last-child {
+    display: none;
+  }
+}
+
+:root[data-theme="dark"] .rich-text-editor-toolbar {
+  border-color: rgba(145, 176, 231, 0.22);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
+:root[data-theme="dark"] .rich-text-ai-review {
+  border-color: rgba(88, 166, 255, 0.38);
+  background: #0f172a;
+}
+
+:root[data-theme="dark"] .rich-text-ai-review > textarea {
+  border-color: rgba(145, 176, 231, 0.25);
+  background: #111827;
+  color: #e5edf8;
+}
+
+:root[data-theme="dark"] .rich-text-tool-divider {
+  background: rgba(145, 176, 231, 0.24);
+}
+
+:root[data-theme="dark"] .rich-text-tool-button {
+  background: transparent;
+  color: #e5edf8;
+}
+
+:root[data-theme="dark"] .rich-text-tool-button:hover:not(:disabled),
+:root[data-theme="dark"] .rich-text-tool-button:focus-visible {
+  background: rgba(71, 85, 105, 0.55);
+  color: #ffffff;
+}
+
+:root[data-theme="dark"] .settings-section-toggle,
+:root[data-theme="dark"] .settings-input-field,
+:root[data-theme="dark"] .settings-prompt-card,
+:root[data-theme="dark"] .settings-preference-grid .checkbox-field,
+:root[data-theme="dark"] .feature-flag-group-card,
+:root[data-theme="dark"] .feature-flag-toggle,
+:root[data-theme="dark"] .settings-api-scope-pill,
+:root[data-theme="dark"] .settings-api-key-card {
+  border-color: rgba(145, 176, 231, 0.18);
+  background: rgba(15, 23, 42, 0.86);
+  color: var(--text-primary);
+}
+
+:root[data-theme="dark"] .settings-section-toggle:hover,
+:root[data-theme="dark"] .settings-section-toggle:focus-visible,
+:root[data-theme="dark"] .settings-api-scope-pill.is-selected,
+:root[data-theme="dark"] .feature-flag-provider-card {
+  border-color: rgba(96, 165, 250, 0.34);
+  background: rgba(30, 41, 59, 0.92);
+}
+
+:root[data-theme="dark"] .settings-section-toggle-icon,
+:root[data-theme="dark"] .settings-api-key-reveal code,
+:root[data-theme="dark"] .settings-api-key-card code,
+:root[data-theme="dark"] .settings-input-field input,
+:root[data-theme="dark"] .settings-input-field select,
+:root[data-theme="dark"] .settings-prompt-card textarea {
+  border-color: rgba(145, 176, 231, 0.18);
+  background: rgba(2, 6, 23, 0.82);
+  color: var(--text-primary);
+}
+
+:root[data-theme="dark"] .catalog-action-menu-panel,
+:root[data-theme="dark"] .permission-empty-state,
+:root[data-theme="dark"] .modal-card input,
+:root[data-theme="dark"] .modal-card select,
+:root[data-theme="dark"] .modal-card textarea,
+:root[data-theme="dark"] .people-modal-card input,
+:root[data-theme="dark"] .people-modal-card select,
+:root[data-theme="dark"] .people-modal-card textarea {
+  border-color: rgba(145, 176, 231, 0.18);
+  background: rgba(15, 23, 42, 0.94);
+  color: var(--text-primary);
+}
+
+:root[data-theme="dark"] .catalog-action-menu-panel .step-card-menu-item:hover:not(:disabled),
+:root[data-theme="dark"] .catalog-action-menu-panel .step-card-menu-item:focus-visible {
+  background: rgba(71, 85, 105, 0.5);
+}
+
+:root[data-theme="dark"] .step-card-menu-item.is-empty {
+  color: var(--text-secondary);
+}
+
+.automation-workspace-grid--repository {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.automation-workspace-grid--repository.has-config-drawer {
+  grid-template-columns: minmax(0, 1fr) minmax(22.5rem, var(--object-repository-config-width, 27.5rem));
+  align-items: start;
+}
+
+.automation-workspace-grid--repository > .panel:first-child {
+  min-width: 0;
+}
+
+.object-repository-config-drawer {
+  position: sticky;
+  isolation: isolate;
+  top: 0.85rem;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+  width: var(--object-repository-config-width, 27.5rem);
+  max-width: min(var(--object-repository-config-width, 27.5rem), calc(100vw - 2rem));
+  overflow: visible;
+  border-radius: 8px;
+}
+
+.object-repository-config-resize-handle {
+  position: absolute;
+  z-index: 4;
+  inset: 0 auto 0 -0.55rem;
+  width: 0.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.object-repository-config-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 1rem;
+  bottom: 1rem;
+  left: 50%;
+  width: 3px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.18);
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 160ms ease, background 160ms ease;
+}
+
+.object-repository-config-resize-handle:hover::after,
+.object-repository-config-resize-handle:focus-visible::after,
+.object-repository-config-resize-handle:active::after {
+  background: rgba(37, 99, 235, 0.48);
+  opacity: 1;
+}
+
+.object-repository-config-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: start;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.object-repository-config-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.object-repository-config-head strong {
+  color: var(--text-primary);
+  font-size: 1.02rem;
+  line-height: 1.2;
+}
+
+.object-repository-config-head span {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.object-repository-config-close {
+  width: 2.35rem;
+  height: 2.35rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(126, 149, 188, 0.2);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.object-repository-config-close:hover,
+.object-repository-config-close:focus-visible {
+  background: rgba(239, 246, 255, 0.96);
+  color: var(--primary-strong);
+}
+
+.object-repository-config-actions {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.45rem;
+  justify-content: stretch;
+}
+
+.object-repository-config-actions > button {
+  min-height: 2.2rem;
+  padding-inline: 0.55rem;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.object-repository-config-drawer .repository-field-detail {
+  min-height: 0;
+  overflow-y: visible;
+  padding-right: 0.2rem;
+}
+
+.object-repository-config-drawer .object-repository-screen-tabs {
+  overflow: visible;
+}
+
+.object-repository-config-drawer .object-repository-screen-tabs button {
+  min-width: 0;
+}
+
+@media (max-width: 1120px) {
+  .automation-workspace-grid--repository.has-config-drawer {
+    grid-template-columns: minmax(0, 1fr) minmax(21rem, var(--object-repository-config-width, 25rem)) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .project-card-select-row {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+  }
+
+  .project-card-select-row .checkbox-field {
+    grid-column: 1 / -1;
+  }
+
+  .automation-workspace-grid--repository.has-config-drawer {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .object-repository-config-drawer {
+    position: static;
+    width: auto;
+    max-width: none;
+  }
+
+  .object-repository-config-resize-handle {
+    display: none;
+  }
+
+  .object-repository-config-drawer .testops-builder-form {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* 2026-07-04 catalog, settings, and repository refinements */
+.requirement-tile-header {
+  display: grid !important;
+  grid-template-columns: auto auto minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 0.58rem !important;
+}
+
+.requirement-tile-header .display-id-badge,
+.project-card-select-row .project-portfolio-title .display-id-badge {
+  min-width: 0;
+  max-width: min(9.5rem, 32vw) !important;
+}
+
+.requirement-tile-header .tile-card-title-group,
+.project-card-select-row .project-portfolio-title > div {
+  min-width: 0;
+}
+
+.project-card-select-row .project-portfolio-title {
+  display: grid !important;
+  grid-template-columns: auto auto minmax(0, 1fr) !important;
+}
+
+.project-card-select-row .project-card-top-actions {
+  flex-direction: row !important;
+  justify-content: flex-end !important;
+  align-self: start !important;
+}
+
+.project-card-select-row .project-card-top-actions .step-card-menu-trigger {
+  order: 2;
+}
+
+.multi-assignee-picker {
+  position: relative;
+}
+
+.multi-assignee-summary {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--panel-subtle);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.multi-assignee-summary:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.multi-assignee-picker.is-open {
+  z-index: 80;
+}
+
+.multi-assignee-list {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  z-index: 90;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+}
+
+.issue-form-evidence-result-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: var(--space-md);
+}
+
+.issue-form-evidence-result-grid .rich-text-editor {
+  min-height: 12rem;
+}
+
+.settings-top-save-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 8px;
+  background: var(--surface-elevated, var(--card-bg));
+}
+
+.settings-top-save-bar > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.14rem;
+}
+
+.settings-top-save-bar strong {
+  color: var(--text-primary);
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.pom-class-panel,
+.repository-screen-overview,
+.repository-fields-panel {
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.pom-class-panel {
+  align-self: start;
+  align-content: start;
+  grid-auto-rows: max-content;
+  height: auto;
+}
+
+.pom-workspace {
+  align-items: start;
+}
+
+.pom-page-list {
+  max-height: min(72dvh, calc(100dvh - 15rem));
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  scrollbar-gutter: stable;
+}
+
+.pom-class-panel .object-repository-screen-tabs {
+  display: flex !important;
+  align-self: start;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap !important;
+  gap: 0.35rem !important;
+  overflow: visible !important;
+  padding: 0.22rem !important;
+  scrollbar-gutter: auto;
+  margin-bottom: 0;
+}
+
+.pom-class-panel .object-repository-screen-tabs button {
+  flex: 0 0 auto;
+  min-width: max-content;
+}
+
+.object-repository-screen-tabs {
+  display: flex !important;
+  align-items: center;
+  flex-wrap: wrap !important;
+  gap: 0.35rem !important;
+  overflow: visible !important;
+  padding: 0.22rem !important;
+  border-radius: 8px !important;
+}
+
+.object-repository-screen-tabs .subnav-tab {
+  flex: 0 1 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 100%;
+  min-height: 2.15rem;
+  padding: 0.35rem 0.5rem !important;
+  border-radius: 8px !important;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.object-repository-screen-tabs .subnav-tab-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.object-repository-screen-tabs .subnav-tab-copy > strong {
+  font-size: 0.78rem;
+  line-height: 1.1;
+}
+
+.object-repository-screen-tabs .subnav-tab-meta {
+  min-width: 0;
+  height: auto;
+  max-width: 7rem;
+  padding: 0.16rem 0.34rem;
+  border-radius: 5px !important;
+  font-size: 0.66rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.object-repository-screen-tabs .subnav-tab-indicator {
+  height: 2px;
+  border-radius: 999px !important;
+}
+
+.object-repository-config-drawer .testops-builder-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0.65rem;
+}
+
+.repository-screen-overview-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  align-items: start;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.repository-screen-overview-grid .form-field,
+.repository-screen-overview-grid input,
+.repository-screen-overview-grid select,
+.repository-screen-overview-grid textarea,
+.repository-screen-overview-grid .rich-text-editor {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.repository-screen-overview .testops-action-row {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .requirement-tile-header,
+  .project-card-select-row .project-portfolio-title {
+    grid-template-columns: auto auto minmax(0, 1fr) !important;
+  }
+
+  .requirement-tile-header .display-id-badge,
+  .project-card-select-row .project-portfolio-title .display-id-badge {
+    max-width: min(7rem, 28vw) !important;
+  }
+
+  .issue-form-evidence-result-grid,
+  .repository-screen-overview-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .settings-top-save-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+/* Keep project tile identity readable while actions stay anchored to the card corner. */
+.project-portfolio-card {
+  --project-card-action-inset: 1rem;
+  --project-card-action-space: clamp(13rem, 38%, 15.75rem);
+}
+
+.project-card-select-row {
+  position: static !important;
+  width: 100% !important;
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: start !important;
+  column-gap: 0.7rem !important;
+  min-height: 2.7rem;
+  padding-right: var(--project-card-action-space) !important;
+}
+
+.project-card-select-row .project-portfolio-title {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.project-card-select-row .project-card-top-actions {
+  position: absolute !important;
+  top: var(--project-card-action-inset) !important;
+  right: var(--project-card-action-inset) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  flex-wrap: nowrap !important;
+  width: calc(var(--project-card-action-space) - 0.5rem) !important;
+  min-width: 0 !important;
+  max-width: calc(var(--project-card-action-space) - 0.5rem) !important;
+  margin-left: 0 !important;
+}
+
+.project-card-select-row .project-card-top-actions .project-health-badge {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+@media (max-width: 720px) {
+  .project-portfolio-card {
+    --project-card-action-inset: 0.82rem;
+    --project-card-action-space: min(10.5rem, 44vw);
+  }
+
+  .project-card-select-row {
+    grid-template-columns: auto minmax(0, 1fr) !important;
+    min-height: 2.55rem;
+    padding-right: var(--project-card-action-space) !important;
+  }
+
+  .project-card-select-row .checkbox-field {
+    grid-column: auto !important;
+  }
+
+  .project-card-select-row .project-card-top-actions {
+    position: absolute !important;
+    top: var(--project-card-action-inset) !important;
+    right: var(--project-card-action-inset) !important;
+    justify-self: end !important;
+    width: calc(var(--project-card-action-space) - 0.35rem) !important;
+    max-width: calc(var(--project-card-action-space) - 0.35rem) !important;
+    margin-top: 0 !important;
+  }
+
+  .project-card-select-row .project-card-top-actions .project-health-badge {
+    max-width: none !important;
+  }
+}
+
+/* 2026-07 authoring UX alignment */
+.workspace-main.main--library-fill,
+.workspace-main.main--library-fill > .page-content,
+.workspace-main.main--library-fill > .page-content.page-content--library-full,
+.workspace-main.main--library-fill > .page-content.page-content--workspace-focus,
+.workspace-main.main--library-fill .workspace-master-detail,
+.workspace-main.main--library-fill .workspace-master-detail-pane,
+.workspace-main.main--library-fill .workspace-master-detail-browse,
+.workspace-main.main--library-fill .workspace-master-detail-detail,
+.workspace-main.main--library-fill .suite-design-workspace,
+.workspace-main.main--library-fill .shared-step-workspace-form,
+.workspace-main.main--library-fill .requirement-detail-column,
+.modal-backdrop,
+.modal-card,
+.suite-test-case-editor-modal,
+.suite-create-modal {
+  background: #f8fafc !important;
+  background-image: none !important;
+}
+
+.requirement-split-action-button,
+.test-case-split-action-button {
+  border-color: rgba(37, 99, 235, 0.34) !important;
+  background: linear-gradient(180deg, #2f7df5, #1d4ed8) !important;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22) !important;
+}
+
+.requirement-split-action-button:hover:not(:has(button:disabled)),
+.requirement-split-action-button:focus-within,
+.test-case-split-action-button:hover:not(:has(button:disabled)),
+.test-case-split-action-button:focus-within {
+  border-color: rgba(29, 78, 216, 0.48) !important;
+  background: linear-gradient(180deg, #2563eb, #1e40af) !important;
+}
+
+.requirement-action-dropdown,
+.test-case-action-dropdown {
+  border-color: rgba(37, 99, 235, 0.2) !important;
+}
+
+.requirement-action-dropdown button,
+.test-case-action-dropdown button {
+  align-items: start !important;
+  border-color: rgba(37, 99, 235, 0.28) !important;
+  background: linear-gradient(180deg, #2f7df5, #1d4ed8) !important;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.16) !important;
+}
+
+.requirement-action-dropdown button:hover:not(:disabled),
+.test-case-action-dropdown button:hover:not(:disabled) {
+  background: linear-gradient(180deg, #2563eb, #1e40af) !important;
+}
+
+.run-action-option-copy,
+.run-action-option-title {
+  min-width: 0;
+}
+
+.run-action-option-copy {
+  display: grid !important;
+  gap: 0.18rem !important;
+}
+
+.run-action-option-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+}
+
+.run-action-option-copy small {
+  display: block;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.tile-card-select-row .display-id-badge {
+  flex: 0 0 auto;
+  margin-left: 0.32rem;
+}
+
+.requirement-tile-header .tile-card-title-group {
+  min-width: 0;
+}
+
+.test-case-requirement-block p {
+  display: flex !important;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.test-case-requirement-block p strong {
+  min-width: 0;
+  font-size: inherit;
+  font-weight: 850;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.test-case-requirement-block .display-id-badge {
+  flex: 0 0 auto;
+}
+
+.data-table-header-sort-button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 0.18rem !important;
+  width: auto !important;
+}
+
+.data-table-header-label {
+  flex: 0 0 auto;
+}
+
+.data-table-sort-indicator {
+  flex: 0 0 auto;
+  margin-left: 0 !important;
+}
+
+.data-table-description-clamp {
+  display: -webkit-box !important;
+  max-width: min(34rem, 48vw);
+  overflow: hidden !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  line-height: 1.35;
+}
+
+.catalog-data-table tbody td:has(.data-table-description-clamp),
+.data-table tbody td:has(.data-table-description-clamp) {
+  vertical-align: top !important;
+}
+
+@media (max-width: 768px) {
+
+  .data-table-description-clamp {
+    max-width: 18rem;
+  }
+}
+
+/* 2026-07 tab strip and catalog card refinement */
+
+.tile-card-select-row {
+  gap: 0.18rem !important;
+}
+
+.tile-card-select-row > .checkbox-field {
+  flex: 0 0 auto !important;
+  gap: 0 !important;
+}
+
+.tile-card-select-row > .display-id-badge,
+.tile-card-select-row .checkbox-field + .display-id-badge {
+  margin-left: 0 !important;
+  opacity: 0.9;
+}
+
+.tile-card-description,
+.test-case-catalog-card .tile-card-description,
+.requirement-catalog-card .tile-card-description {
+  white-space: normal !important;
+}
+
+.test-case-catalog-card .test-case-requirement-block {
+  display: grid !important;
+  gap: 0.22rem !important;
+}
+
+.tile-card-title-group::before,
+.tile-card-description::before {
+  content: none !important;
+  display: none !important;
+}
+
+.test-case-catalog-card .test-case-requirement-block .test-case-requirement-label {
+  display: block !important;
+  color: #64748b !important;
+  font-size: 0.64rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  text-transform: uppercase;
+}
+
+.test-case-catalog-card .test-case-requirement-block p {
+  margin: 0 !important;
+}
+
+.data-table-sort-indicator,
+.data-table-sort-indicator.is-active,
+.data-table-sort-indicator.is-asc,
+.data-table-sort-indicator.is-desc {
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.data-table-sort-indicator svg {
+  display: block;
+}
+
+.requirement-split-action-button .run-action-main,
+.requirement-split-action-button .run-action-toggle,
+.test-case-split-action-button .run-action-main,
+.test-case-split-action-button .run-action-toggle {
+  color: #ffffff !important;
+}
+
+.requirement-split-action-button,
+.requirement-split-action-button:hover:not(:has(button:disabled)),
+.requirement-split-action-button:focus-within,
+.test-case-split-action-button,
+.test-case-split-action-button:hover:not(:has(button:disabled)),
+.test-case-split-action-button:focus-within {
+  border-color: rgba(29, 78, 216, 0.48) !important;
+  background: linear-gradient(180deg, #2563eb, #1e40af) !important;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22) !important;
+}
+
+.requirement-split-action-button .info-tooltip-trigger,
+.test-case-split-action-button .info-tooltip-trigger,
+.test-case-run-split-action-button .info-tooltip-trigger {
+  color: #ffffff !important;
+  opacity: 0.92;
+}
+
+.test-case-run-split-action-button {
+  border-color: rgba(13, 157, 108, 0.34) !important;
+  background: linear-gradient(180deg, #18a873, #0d8f60) !important;
+  box-shadow: 0 12px 26px rgba(13, 157, 108, 0.22) !important;
+}
+
+.run-action-toggle {
+  position: relative;
+}
+
+.run-action-toggle .run-action-toggle-info {
+  position: absolute;
+  top: 0.18rem;
+  right: 0.22rem;
+  display: inline-flex !important;
+  width: auto;
+  height: auto;
+  transform: scale(0.7);
+  transform-origin: top right;
+  opacity: 0.92;
+}
+
+.run-action-toggle .run-action-toggle-info svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+/* Keep workspace section tabs compact and adjacent on one horizontal line. */
+
+/* Restore consistent tile-card labels and plain requirement text blocks. */
+.tile-card-title-group {
+  display: grid !important;
+  align-items: start !important;
+  gap: 0.18rem !important;
+  min-width: 0 !important;
+}
+
+.tile-card-title-group::before,
+.tile-card-description::before {
+  display: block !important;
+  width: 100% !important;
+  margin: 0 0 0.18rem !important;
+  color: #64748b !important;
+  font-size: 0.64rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  text-transform: uppercase;
+}
+
+.tile-card-title-group::before {
+  content: "Title" !important;
+}
+
+.tile-card-description::before {
+  content: "Description" !important;
+}
+
+.tile-card-title-group strong,
+.tile-card-description {
+  width: 100%;
+}
+
+.tile-card-description,
+.test-case-catalog-card .tile-card-description,
+.requirement-catalog-card .tile-card-description {
+  display: block !important;
+  overflow: hidden !important;
+}
+
+.tile-card-description > *,
+.test-case-catalog-card .tile-card-description > *,
+.requirement-catalog-card .tile-card-description > * {
+  display: -webkit-box !important;
+  overflow: hidden !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
+
+.test-case-catalog-card .test-case-requirement-block,
+.suite-coverage-block {
+  display: grid !important;
+  gap: 0.18rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.test-case-catalog-card .test-case-requirement-block .test-case-requirement-label,
+.suite-coverage-block .test-case-requirement-label {
+  display: block !important;
+  margin: 0 0 0.18rem !important;
+  color: #64748b !important;
+  font-size: 0.64rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  text-transform: uppercase;
+}
+
+.test-case-catalog-card .test-case-requirement-block p,
+.suite-coverage-block p {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 0.35rem !important;
+  margin: 0 !important;
+  color: inherit !important;
+  font-size: inherit !important;
+  line-height: 1.35 !important;
+}
+
+.test-case-catalog-card .test-case-requirement-block p strong {
+  font-size: inherit !important;
+  font-weight: 850 !important;
+}
+
+.tile-card-select-row > .display-id-badge,
+.tile-card-select-row .checkbox-field + .display-id-badge,
+.test-case-catalog-card .display-id-badge {
+  max-width: none !important;
+}
+
+.tile-card-select-row > .display-id-badge code,
+.tile-card-select-row .checkbox-field + .display-id-badge code {
+  color: var(--primary-strong) !important;
+  font-size: 0.78rem !important;
+  font-weight: 800 !important;
+}
+
+.test-case-run-split-action-button:hover:not(:has(button:disabled)),
+.test-case-run-split-action-button:focus-within {
+  border-color: rgba(13, 157, 108, 0.44) !important;
+  background: linear-gradient(180deg, #129b6a, #047857) !important;
+}
+
+.test-case-run-action-dropdown {
+  border-color: rgba(13, 157, 108, 0.2) !important;
+}
+
+.test-case-run-action-dropdown button {
+  border-color: rgba(13, 157, 108, 0.28) !important;
+  background: linear-gradient(180deg, #18a873, #0d8f60) !important;
+  box-shadow: 0 10px 22px rgba(13, 157, 108, 0.16) !important;
+}
+
+.test-case-run-action-dropdown button:hover:not(:disabled) {
+  background: linear-gradient(180deg, #129b6a, #047857) !important;
+}
+
+/* Workspace tabs should read as page-level tabs, evenly distributed across the available row. */
+
+/* Keep sidebar and workspace flush together on wide monitors. */
+@media (min-width: 901px) {
+  .app-shell,
+  .app-shell.app-layout,
+  .app-shell.app-layout--workspace-wide {
+    gap: 0 !important;
+    column-gap: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
+
+  .workspace-main,
+  .workspace-main.main,
+  .workspace-main.main--library-fill {
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+  }
+
+  .app-layout .sidebar,
+  .sidebar {
+    margin-right: 0 !important;
+  }
+
+  .workspace-main[data-route="/"] {
+    padding-left: 0 !important;
+  }
+
+  .workspace-main[data-route="/"] > .page-content.page-content--overview.overview-layout {
+    width: 100% !important;
+    max-width: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+  }
+}
+
+/* Extend workspace section tab styling to other sectioned pages. */
+.admin-space-tabs,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs,
+.page-agentic-workflows .agentic-workflows-tabs {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+  gap: 0 !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.26) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.admin-space-tabs .subnav-tab,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs > .subnav-tab,
+.page-agentic-workflows .agentic-workflows-tabs > button {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, auto) auto !important;
+  align-items: center !important;
+  justify-content: center !important;
+  justify-items: center !important;
+  column-gap: 0.42rem !important;
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  min-height: 2.35rem !important;
+  margin: 0 !important;
+  padding: 0.5rem 0.55rem 0.62rem !important;
+  border: 0 !important;
+  border-radius: 6px 6px 0 0 !important;
+  background: transparent !important;
+  color: #526179 !important;
+  text-align: center !important;
+  box-shadow: none !important;
+}
+
+.admin-space-tabs .subnav-tab.is-active,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs > .subnav-tab.is-active,
+.page-agentic-workflows .agentic-workflows-tabs > button.is-active {
+  color: #1d4ed8 !important;
+  box-shadow: inset 0 -2px 0 #1d4ed8 !important;
+}
+
+.admin-space-tabs .subnav-tab-icon,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs .subnav-tab-icon,
+.page-agentic-workflows .agentic-workflows-tabs > button > svg {
+  grid-column: 1 !important;
+  width: 1rem !important;
+  height: 1rem !important;
+  margin: 0 !important;
+  color: currentColor !important;
+}
+
+.admin-space-tabs .subnav-tab-copy,
+.workspace-main[data-route="/executions"] > .page-content > .subnav-tabs .subnav-tab-copy {
+  grid-column: 2 !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  text-align: center !important;
+}
+
+.page-agentic-workflows .agentic-workflows-tabs > button > strong {
+  grid-column: 2 !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 0.82rem !important;
+  font-weight: 850 !important;
+}

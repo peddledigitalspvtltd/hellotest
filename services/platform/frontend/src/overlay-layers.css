@@ -1,0 +1,40 @@
+/* Existing stacking values, named for their purpose. Keep changes to the scale
+   separate from the legacy cascade split and verify them in overlay fixtures. */
+:root {
+  --z-scope-menu: 1002;
+  --z-dialog-backdrop: 1200;
+  --z-dialog-nested: 1220;
+  --z-context-popover: 1300;
+  --z-action-menu: 1400;
+  --z-run-action-menu: 9999;
+}
+
+.modal-backdrop,
+body > .modal-backdrop {
+  z-index: var(--z-dialog-backdrop) !important;
+}
+
+.nested-modal-backdrop,
+.automation-repository-picker-backdrop,
+.delete-confirmation-backdrop {
+  z-index: var(--z-dialog-nested) !important;
+}
+
+.project-dropdown-menu,
+.app-type-dropdown-menu {
+  z-index: var(--z-scope-menu);
+}
+
+.catalog-filter-popover,
+.sidebar-scope-popover,
+.rich-text-link-backdrop {
+  z-index: var(--z-context-popover);
+}
+
+.requirement-action-dropdown {
+  z-index: var(--z-action-menu);
+}
+
+.run-action-dropdown {
+  z-index: var(--z-run-action-menu);
+}

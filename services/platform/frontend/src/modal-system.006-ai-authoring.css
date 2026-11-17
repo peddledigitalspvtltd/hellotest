@@ -1,0 +1,1089 @@
+
+
+.ai-authoring-dialog .ai-authoring-dialog-primary .primary-button {
+  display: inline-flex;
+  min-height: 38px !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px !important;
+  border: 1px solid var(--dialog-primary) !important;
+  border-radius: 6px !important;
+  background: var(--dialog-primary) !important;
+  background-image: none !important;
+  color: #ffffff !important;
+  white-space: nowrap;
+  box-shadow: 0 3px 8px rgba(19, 27, 46, 0.14) !important;
+}
+
+.ai-authoring-dialog .ai-authoring-dialog-primary .primary-button:hover:not(:disabled) {
+  border-color: var(--dialog-primary-hover) !important;
+  background: var(--dialog-primary-hover) !important;
+}
+
+.ai-authoring-context-status {
+  display: grid;
+  max-width: 210px;
+  gap: 1px;
+  padding: 6px 10px;
+  border: 1px solid var(--dialog-divider);
+  border-radius: 6px;
+  background: var(--dialog-surface-subtle);
+}
+
+.ai-authoring-context-status strong {
+  color: var(--dialog-muted);
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ai-authoring-context-status span {
+  overflow: hidden;
+  color: var(--dialog-ink);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-authoring-context-status.is-inherited {
+  border-color: #b9d1f6;
+  background: #eef5ff;
+}
+
+.ai-authoring-dialog .ai-authoring-toggle {
+  position: relative;
+  display: inline-flex;
+  width: auto;
+  max-width: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--dialog-text);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.ai-authoring-dialog .ai-authoring-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ai-authoring-dialog .ai-authoring-toggle-track {
+  position: relative;
+  display: inline-block !important;
+  width: 34px;
+  height: 19px;
+  flex: 0 0 34px;
+  border: 1px solid #bac5d6;
+  border-radius: 999px;
+  background: #d7deea;
+}
+
+.ai-authoring-dialog .ai-authoring-toggle-track::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.24);
+  content: "";
+  transition: transform 160ms ease;
+}
+
+.ai-authoring-dialog .ai-authoring-toggle input:checked + .ai-authoring-toggle-track {
+  border-color: #5873b7;
+  background: #8295c8;
+}
+
+.ai-authoring-dialog .ai-authoring-toggle input:checked + .ai-authoring-toggle-track::after {
+  transform: translateX(15px);
+}
+
+.ai-authoring-dialog .ai-authoring-toggle input:focus-visible + .ai-authoring-toggle-track {
+  outline: 2px solid var(--dialog-focus);
+  outline-offset: 2px;
+}
+
+.ai-authoring-dialog .ai-authoring-dialog-layout,
+.story-ai-dialog .story-ai-dialog-layout.ai-authoring-dialog-layout {
+  display: grid !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  flex: 1 1 auto !important;
+  grid-template-columns:
+    var(--ai-authoring-context-pane-width, 332px)
+    10px
+    minmax(0, 1fr) !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  background: var(--dialog-canvas) !important;
+}
+
+.ai-authoring-dialog .ai-authoring-dialog-layout.is-sidebar-collapsed,
+.story-ai-dialog .story-ai-dialog-layout.ai-authoring-dialog-layout.is-sidebar-collapsed {
+  grid-template-columns: 46px minmax(0, 1fr) !important;
+}
+
+.ai-authoring-dialog .ai-authoring-dialog-sidebar,
+.story-ai-dialog .story-ai-dialog-context.ai-authoring-dialog-sidebar {
+  box-sizing: border-box;
+  display: block !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  padding: 20px !important;
+  overflow: auto !important;
+  border: 0 !important;
+  border-right: 1px solid var(--dialog-divider) !important;
+  border-radius: 0 !important;
+  background: var(--dialog-surface) !important;
+  box-shadow: none !important;
+  scrollbar-gutter: stable;
+}
+
+.ai-authoring-dialog .ai-authoring-dialog-sidebar.is-collapsed {
+  padding: 7px !important;
+  overflow: hidden !important;
+}
+
+.ai-authoring-dialog .ai-authoring-context-pane-resizer {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  min-width: 10px;
+  min-height: 0;
+  align-items: stretch;
+  justify-content: center;
+  border: 0;
+  background: var(--dialog-canvas);
+  cursor: col-resize;
+  outline: 0;
+  touch-action: none;
+  user-select: none;
+}
+
+.ai-authoring-dialog .ai-authoring-context-pane-resizer > span {
+  width: 1px;
+  background: var(--dialog-divider);
+  transition: width 120ms ease, background-color 120ms ease;
+}
+
+.ai-authoring-dialog .ai-authoring-context-pane-resizer:hover > span,
+.ai-authoring-dialog .ai-authoring-context-pane-resizer:focus-visible > span {
+  width: 3px;
+  background: var(--dialog-primary);
+}
+
+.ai-authoring-dialog .ai-authoring-context-pane-resizer:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--dialog-focus);
+}
+
+.ai-authoring-dialog .ai-authoring-context-pane-heading {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 28px;
+  align-items: start;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.ai-authoring-dialog .ai-authoring-context-pane-heading-icon {
+  display: inline-grid;
+  width: 18px;
+  height: 22px;
+  place-items: center;
+  color: #6681b5;
+}
+
+.ai-authoring-dialog .ai-authoring-context-pane-heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ai-authoring-dialog .ai-authoring-context-pane-heading strong {
+  color: var(--dialog-ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 17px;
+}
+
+.ai-authoring-dialog .ai-authoring-context-pane-heading span {
+  color: var(--dialog-muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 15px;
+}
+
+.ai-authoring-dialog .ai-authoring-sidebar-section-heading {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  margin: 14px 0 10px;
+}
+
+.ai-authoring-dialog .ai-authoring-sidebar-section-heading-icon {
+  display: inline-grid;
+  width: 18px;
+  height: 22px;
+  place-items: center;
+  color: #9ab2d5;
+}
+
+.ai-authoring-dialog .ai-authoring-sidebar-section-heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ai-authoring-dialog .ai-authoring-sidebar-section-heading strong {
+  color: var(--dialog-ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 17px;
+}
+
+.ai-authoring-dialog .ai-authoring-sidebar-section-heading span {
+  color: var(--dialog-muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 15px;
+}
+
+.ai-authoring-dialog .ai-authoring-context-pane-toggle {
+  position: static !important;
+  top: auto !important;
+  margin: -4px -4px 0 0;
+}
+
+.ai-authoring-dialog .ai-authoring-context-pane-toggle svg {
+  transform: none !important;
+  transition: transform 140ms ease;
+}
+
+.ai-authoring-dialog .ai-authoring-context-pane-toggle.is-expanded svg {
+  transform: rotate(180deg) !important;
+}
+
+.ai-authoring-dialog .ai-studio-sidebar-collapsed-bar {
+  justify-content: center;
+}
+
+.ai-authoring-dialog .ai-studio-sidebar-panels {
+  gap: 16px !important;
+}
+
+.ai-authoring-dialog .ai-preview-case-check {
+  display: grid !important;
+  grid-template-columns: 16px minmax(0, 1fr);
+  width: 100%;
+  align-items: start;
+  gap: 10px;
+  text-align: left;
+}
+
+.ai-authoring-dialog .ai-preview-case-check > input {
+  grid-column: 1;
+  margin: 2px 0 0;
+}
+
+.ai-authoring-dialog .ai-preview-case-check > div {
+  display: grid;
+  grid-column: 2;
+  min-width: 0;
+  gap: 2px;
+  text-align: left;
+}
+
+.ai-authoring-dialog .ai-authoring-draft-description {
+  color: var(--dialog-muted);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+.ai-authoring-dialog .ai-smart-context-card {
+  border-color: var(--dialog-divider) !important;
+  background: var(--dialog-surface-subtle) !important;
+  background-image: none !important;
+  color: var(--dialog-ink) !important;
+}
+
+.ai-authoring-dialog .ai-smart-context-card > div:first-child > strong {
+  color: var(--dialog-ink) !important;
+}
+
+.ai-authoring-dialog .ai-smart-context-card > div:first-child > span,
+.ai-authoring-dialog .ai-smart-context-card > .ai-smart-context-note {
+  color: var(--dialog-muted) !important;
+}
+
+.ai-authoring-dialog .ai-smart-context-card > .ai-smart-context-note.is-warning {
+  color: var(--danger, #b42318) !important;
+}
+
+.ai-authoring-dialog .ai-smart-context-actions :is(.ai-context-file-button, .ai-smart-context-button) > span {
+  color: inherit !important;
+}
+
+.ai-authoring-dialog .ai-studio-panel {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.ai-authoring-dialog .ai-studio-sidebar-divider {
+  height: 1px;
+  margin: 1px 0;
+  background: var(--dialog-divider);
+}
+
+.ai-authoring-dialog .ai-studio-sidebar-toggle {
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  border: 1px solid var(--dialog-divider) !important;
+  border-radius: 5px !important;
+  background: var(--dialog-surface) !important;
+  color: var(--dialog-muted) !important;
+}
+
+.ai-authoring-dialog .ai-authoring-dialog-workspace,
+.story-ai-dialog .story-ai-dialog-review.ai-authoring-dialog-workspace {
+  box-sizing: border-box;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--dialog-canvas) !important;
+  box-shadow: none !important;
+  scrollbar-gutter: stable;
+}
+
+.ai-authoring-dialog .ai-modal-grid {
+  grid-template-columns: minmax(230px, 0.42fr) minmax(0, 0.88fr);
+  gap: 16px;
+  padding: 22px 24px;
+}
+
+.ai-authoring-dialog .ai-modal-grid > .detail-stack,
+.ai-authoring-dialog .ai-case-authoring-preview-section,
+.ai-authoring-dialog .ai-case-card,
+.ai-authoring-dialog .ai-bug-review-card {
+  border: 1px solid var(--dialog-divider) !important;
+  border-radius: 8px !important;
+  background: var(--dialog-surface) !important;
+  box-shadow: none !important;
+}
+
+.ai-authoring-dialog .ai-case-card.is-selected {
+  border-color: #9fc1f5 !important;
+  background: #f7faff !important;
+  box-shadow: inset 3px 0 0 #2563eb !important;
+}
+
+.ai-authoring-dialog .ai-studio-requirement-summary {
+  display: grid;
+  gap: 9px;
+}
+
+.ai-authoring-dialog .ai-studio-requirement-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ai-authoring-dialog .ai-studio-requirement-summary > div > strong {
+  color: var(--dialog-ink);
+  font-size: 11px;
+}
+
+.ai-authoring-dialog .ai-studio-requirement-summary > div > span {
+  overflow: hidden;
+  color: var(--dialog-muted);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-authoring-dialog .ai-requirement-dialog-button {
+  width: 100%;
+  justify-content: center;
+  border-color: var(--dialog-border) !important;
+  background: var(--dialog-surface-subtle) !important;
+  color: var(--dialog-ink) !important;
+}
+
+.ai-authoring-scope-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--dialog-divider);
+  border-radius: 6px;
+  background: var(--dialog-surface-subtle);
+}
+
+.ai-authoring-scope-meta span {
+  color: var(--dialog-muted);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ai-authoring-scope-meta strong {
+  overflow: hidden;
+  color: var(--dialog-ink);
+  font-size: 10px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-authoring-context-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #c9daf4;
+  border-radius: 8px;
+  background: #f2f7ff;
+}
+
+.ai-authoring-context-card > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.ai-authoring-context-card > div:first-child span {
+  color: #61718a;
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ai-authoring-context-card > div:first-child strong {
+  color: var(--dialog-ink);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.ai-authoring-context-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.ai-authoring-context-facts span {
+  padding: 3px 7px;
+  border: 1px solid #c9daf4;
+  border-radius: 999px;
+  background: var(--dialog-surface);
+  color: #4d607d;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 13px;
+}
+
+.ai-authoring-context-card p {
+  margin: 0;
+  color: var(--dialog-muted);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.ai-authoring-dialog .ai-studio-actions {
+  position: static;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--dialog-divider);
+  background: var(--dialog-surface);
+  backdrop-filter: none;
+}
+
+.ai-authoring-dialog .ai-studio-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  display: flex !important;
+  min-height: 64px;
+  flex: 0 0 auto;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 10px !important;
+  padding: 12px 24px !important;
+  border-top: 1px solid var(--dialog-divider) !important;
+  background: var(--dialog-surface) !important;
+}
+
+.ai-authoring-dialog .ai-authoring-footer-status {
+  min-width: 0;
+  margin-right: auto;
+  color: var(--dialog-text);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.ai-authoring-dialog .ai-studio-footer .primary-button {
+  min-height: 38px !important;
+  padding: 0 16px !important;
+  border: 1px solid var(--dialog-primary) !important;
+  border-radius: 6px !important;
+  background: var(--dialog-primary) !important;
+  color: #ffffff !important;
+}
+
+.ai-authoring-dialog--case-completion .ai-case-authoring-shell {
+  gap: 0 !important;
+}
+
+.ai-authoring-dialog--case-completion .ai-case-authoring-main {
+  padding: 22px 24px !important;
+}
+
+.ai-authoring-dialog--case-completion .ai-case-authoring-sidebar {
+  padding-right: 20px !important;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-draft-main {
+  display: grid;
+  grid-column: -2 / -1;
+  width: 100%;
+  align-content: start;
+  gap: 16px;
+  padding: 22px 24px !important;
+}
+
+.ai-authoring-dialog--bugs .ai-authoring-dialog-layout > .ai-authoring-dialog-sidebar {
+  grid-column: 1;
+}
+
+.ai-authoring-dialog--bugs .ai-authoring-dialog-layout > .ai-authoring-context-pane-resizer {
+  grid-column: 2;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-intent-panel,
+.ai-authoring-dialog--bugs .ai-bug-draft-main > .ai-studio-panel {
+  padding: 16px !important;
+  border: 1px solid var(--dialog-divider) !important;
+  border-radius: 8px !important;
+  background: var(--dialog-surface) !important;
+}
+
+.ai-authoring-dialog--bugs .ai-bug-review-card {
+  padding: 16px;
+}
+
+:root[data-theme="dark"] .ai-authoring-dialog .ai-authoring-dialog-icon {
+  border-color: #35598a;
+  background: #172b4d;
+  color: #bfdbfe;
+}
+
+:root[data-theme="dark"] .ai-authoring-dialog .ai-authoring-dialog-primary .primary-button,
+:root[data-theme="dark"] .ai-authoring-dialog .ai-studio-footer .primary-button {
+  border-color: #dbeafe !important;
+  background: #dbeafe !important;
+  color: #111827 !important;
+}
+
+:root[data-theme="dark"] .ai-authoring-context-status.is-inherited,
+:root[data-theme="dark"] .ai-authoring-context-card,
+:root[data-theme="dark"] .ai-authoring-dialog .ai-case-card.is-selected {
+  border-color: #35598a !important;
+  background: #172b4d !important;
+}
+
+@media (max-width: 960px) {
+  .modal-backdrop > .ai-authoring-dialog {
+    height: calc(100dvh - 24px) !important;
+    max-height: calc(100dvh - 24px) !important;
+  }
+
+  .ai-authoring-dialog .ai-authoring-dialog-header {
+    gap: 14px !important;
+    padding: 14px 18px !important;
+  }
+
+  .ai-authoring-dialog .ai-authoring-context-status {
+    display: none;
+  }
+
+  .ai-authoring-dialog .ai-authoring-dialog-layout,
+  .story-ai-dialog .story-ai-dialog-layout.ai-authoring-dialog-layout {
+    grid-template-columns:
+      min(var(--ai-authoring-context-pane-width, 332px), 42vw)
+      10px
+      minmax(0, 1fr) !important;
+  }
+
+  .ai-authoring-dialog .ai-authoring-dialog-layout.is-sidebar-collapsed,
+  .story-ai-dialog .story-ai-dialog-layout.ai-authoring-dialog-layout.is-sidebar-collapsed {
+    grid-template-columns: 46px minmax(0, 1fr) !important;
+  }
+
+  .ai-authoring-dialog .ai-modal-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .modal-backdrop:has(> .ai-authoring-dialog) {
+    padding: 0 !important;
+  }
+
+  .modal-backdrop > .ai-authoring-dialog {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+  }
+
+  .ai-authoring-dialog .ai-authoring-dialog-header {
+    min-height: 0;
+    align-items: flex-start !important;
+  }
+
+  .ai-authoring-dialog .ai-authoring-dialog-description,
+  .ai-authoring-dialog .ai-authoring-dialog-secondary,
+  .ai-authoring-dialog .ai-authoring-dialog-action-divider {
+    display: none;
+  }
+
+  .ai-authoring-dialog .ai-authoring-dialog-header-actions {
+    gap: 8px;
+  }
+
+  .ai-authoring-dialog .ai-authoring-dialog-primary .primary-button {
+    min-height: 34px !important;
+    padding-inline: 10px !important;
+  }
+
+  .ai-authoring-dialog .ai-authoring-dialog-layout,
+  .story-ai-dialog .story-ai-dialog-layout.ai-authoring-dialog-layout,
+  .ai-authoring-dialog .ai-authoring-dialog-layout.is-sidebar-collapsed,
+  .story-ai-dialog .story-ai-dialog-layout.ai-authoring-dialog-layout.is-sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: minmax(180px, 38dvh) minmax(0, 1fr);
+  }
+
+  .ai-authoring-dialog .ai-authoring-dialog-layout.is-sidebar-collapsed,
+  .story-ai-dialog .story-ai-dialog-layout.ai-authoring-dialog-layout.is-sidebar-collapsed {
+    grid-template-rows: 46px minmax(0, 1fr);
+  }
+
+  .ai-authoring-dialog .ai-authoring-dialog-sidebar,
+  .story-ai-dialog .story-ai-dialog-context.ai-authoring-dialog-sidebar {
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--dialog-divider) !important;
+  }
+
+  .ai-authoring-dialog .ai-authoring-dialog-sidebar.is-collapsed {
+    min-height: 42px !important;
+  }
+
+  .ai-authoring-dialog .ai-authoring-context-pane-resizer {
+    display: none;
+  }
+
+  .ai-authoring-dialog .ai-modal-grid,
+  .ai-authoring-dialog--case-completion .ai-case-authoring-main,
+  .ai-authoring-dialog--bugs .ai-bug-draft-main {
+    padding: 16px !important;
+  }
+
+  .ai-authoring-dialog .ai-studio-footer {
+    padding: 10px 16px !important;
+  }
+
+  .ai-authoring-dialog--bugs .ai-bug-draft-footer {
+    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+  }
+
+  .ai-authoring-dialog .ai-authoring-footer-status {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-authoring-dialog .ai-authoring-toggle-track::after,
+  .ai-authoring-dialog .ai-authoring-context-pane-resizer > span,
+  .ai-authoring-dialog .ai-authoring-context-pane-toggle svg {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .modal-backdrop > .ai-authoring-dialog,
+  .ai-authoring-dialog .ai-authoring-dialog-sidebar,
+  .ai-authoring-dialog .ai-authoring-context-pane-resizer,
+  .ai-authoring-dialog .ai-authoring-context-card,
+  .ai-authoring-dialog .ai-case-card,
+  .ai-authoring-dialog .ai-bug-review-card {
+    border-color: CanvasText !important;
+    forced-color-adjust: auto;
+  }
+}
+
+/* Keep the screenshot-height Story header authoritative over the shared AI
+   baseline declared immediately above. */
+.story-ai-dialog .ai-authoring-dialog-header {
+  min-height: 78px;
+  padding-block: 13px !important;
+}
+
+/* Cascade guard: keep the shared viewport/scroll contract authoritative after
+   every feature-specific composition above. */
+.modal-backdrop > :is(
+  .modal-card,
+  .resource-modal-card,
+  .people-modal-card,
+  .step-parameter-dialog,
+  .dialog,
+  .hook-picker-dialog
+) {
+  display: flex !important;
+  max-height: calc(100vh - 32px) !important;
+  max-height: calc(100dvh - 32px) !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  overscroll-behavior: contain;
+}
+
+.modal-backdrop > :is(
+  .modal-card,
+  .resource-modal-card,
+  .people-modal-card,
+  .step-parameter-dialog,
+  .dialog,
+  .hook-picker-dialog
+) > :is(form, .dialog-form) {
+  display: flex !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  flex: 1 1 auto !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.modal-backdrop :is(
+  .requirement-create-modal-body,
+  .suite-modal-body,
+  .suite-test-case-editor-body,
+  .execution-create-body,
+  .import-modal-body,
+  .resource-modal-body,
+  .resource-form-body,
+  .people-modal-body,
+  .project-create-modal-body,
+  .project-risk-evidence-body,
+  .step-parameter-dialog-body,
+  .execution-context-modal-body,
+  .execution-evidence-modal-body,
+  .automation-repository-picker-body,
+  .linked-test-case-workspace-body,
+  .suite-link-modal-body,
+  .custom-dashboard-modal-body,
+  .report-bug-modal-body,
+  .ai-insight-preview-body,
+  .story-create-dialog-body,
+  .sprint-create-dialog-body,
+  .review-suggestion-body
+) {
+  min-width: 0 !important;
+  min-height: 0 !important;
+  flex: 1 1 auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modal-backdrop :is(
+  .requirement-create-modal-actions,
+  .suite-modal-actions,
+  .import-modal-actions,
+  .people-modal-actions,
+  .project-create-modal-actions,
+  .step-parameter-dialog-footer,
+  .resource-form-actions,
+  .ai-studio-footer,
+  .ai-insight-preview-footer,
+  .modal-actions,
+  .custom-dashboard-modal-actions,
+  .analytics-layout-footer,
+  .project-risk-evidence-footer,
+  .report-bug-modal-footer,
+  .sprint-create-dialog-footer,
+  .story-ai-dialog-footer,
+  .test-case-create-module-footer,
+  .execution-run-builder-footer,
+  .execution-create-actions,
+  .delete-confirmation-actions
+) {
+  position: sticky;
+  z-index: 5;
+  bottom: 0;
+  min-height: 0;
+  flex: 0 0 auto !important;
+}
+
+.sprint-new-dialog .sprint-story-picker-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.sprint-new-dialog .sprint-story-picker-list {
+  min-height: min(15rem, 38dvh) !important;
+  max-height: min(42dvh, 28rem) !important;
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 960px) and (min-height: 700px) {
+  .modal-backdrop > .sprint-new-dialog {
+    width: min(1120px, calc(100vw - 48px)) !important;
+    max-width: calc(100vw - 48px) !important;
+    height: min(860px, calc(100dvh - 48px)) !important;
+    max-height: calc(100dvh - 48px) !important;
+  }
+
+  .sprint-new-dialog .sprint-create-dialog-body {
+    padding: 24px 32px !important;
+    overflow: hidden !important;
+  }
+
+  .sprint-new-dialog .iteration-create-layout {
+    height: 100%;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1.08fr) minmax(22.5rem, 0.92fr) !important;
+    gap: 28px !important;
+    align-items: stretch !important;
+  }
+
+  .sprint-new-dialog .sprint-create-plan-card {
+    min-height: 0 !important;
+    padding-right: 4px !important;
+    overflow: auto !important;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .sprint-new-dialog .sprint-story-picker {
+    display: flex !important;
+    min-height: 0;
+    flex-direction: column;
+    padding: 0 0 0 28px !important;
+    border-top: 0 !important;
+    border-left: 1px solid var(--sprint-create-border) !important;
+  }
+
+  .sprint-new-dialog .sprint-story-picker-panel {
+    flex: 1 1 auto;
+  }
+
+  .sprint-new-dialog .sprint-story-picker-list {
+    min-height: 0 !important;
+    max-height: none !important;
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-height: 760px) {
+  .modal-backdrop > :is(
+    .modal-card,
+    .resource-modal-card,
+    .people-modal-card,
+    .step-parameter-dialog,
+    .dialog,
+    .hook-picker-dialog
+  ) {
+    max-height: calc(100vh - 16px) !important;
+    max-height: calc(100dvh - 16px) !important;
+  }
+}
+
+/* Create Sprint responsive guard: a two-pane editor needs enough width for
+   readable dates and metadata. Between tablet and full desktop sizes, the
+   dialog keeps one body scroll owner and stacks the Story picker below the
+   plan instead of squeezing both panes. */
+@media (min-width: 960px) and (max-width: 1179px) and (min-height: 700px) {
+  .sprint-new-dialog .sprint-create-dialog-body {
+    overflow-y: auto !important;
+  }
+
+  .sprint-new-dialog .iteration-create-layout {
+    height: auto !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-items: start !important;
+  }
+
+  .sprint-new-dialog.requirement-sprint-modal .iteration-create-details-card.sprint-create-plan-card {
+    padding-right: 0 !important;
+    overflow: visible !important;
+    scrollbar-gutter: auto;
+  }
+
+  .sprint-new-dialog .sprint-story-picker {
+    padding: 24px 0 0 !important;
+    border-top: 1px solid var(--sprint-create-border) !important;
+    border-left: 0 !important;
+  }
+
+  .sprint-new-dialog .sprint-story-picker-list {
+    min-height: min(15rem, 38dvh) !important;
+    max-height: min(42dvh, 28rem) !important;
+    flex: 0 1 auto;
+  }
+}
+
+@media (min-width: 1180px) and (min-height: 700px) {
+  .sprint-new-dialog.requirement-sprint-modal .iteration-create-details-card.sprint-create-plan-card {
+    padding-right: 12px !important;
+  }
+}
+
+@media (min-width: 640px) and (max-height: 760px) {
+  .modal-backdrop.sprint-create-backdrop > .sprint-create-dialog {
+    max-height: calc(100dvh - 48px) !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .sprint-create-dialog .sprint-create-dialog-header {
+    align-items: flex-start !important;
+    flex-direction: row !important;
+  }
+
+  .sprint-create-dialog .sprint-create-dialog-header .requirement-create-title {
+    flex: 1 1 auto;
+  }
+
+  .sprint-create-dialog .sprint-create-dialog-footer.action-row {
+    width: 100% !important;
+    align-items: center !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    justify-content: flex-end !important;
+    overflow: visible !important;
+  }
+
+  .sprint-create-dialog.modal-card .sprint-create-dialog-footer.action-row > button:not(.dialog-close-button) {
+    width: auto !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    min-height: 36px !important;
+    height: auto !important;
+    flex: 0 0 auto !important;
+  }
+}
+
+/* One modal frame for every governed AI workflow. Feature workbenches retain
+   their purpose-built column layouts while sharing depth, clipping, and a
+   predictable viewport boundary with the Test Case generation studio. */
+.modal-backdrop:has(> .ai-feature-dialog) {
+  padding: 16px !important;
+  background: rgba(9, 30, 66, 0.42) !important;
+  -webkit-backdrop-filter: blur(4px) saturate(0.92);
+  backdrop-filter: blur(4px) saturate(0.92);
+}
+
+.modal-backdrop > .ai-feature-dialog {
+  position: relative;
+  isolation: isolate;
+  max-height: calc(100dvh - 32px) !important;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent, #0c66e4) 18%, var(--line, #d0d7de)) !important;
+  border-radius: 16px !important;
+  background: var(--panel-strong, #ffffff);
+  box-shadow: 0 28px 80px rgba(9, 30, 66, 0.28), 0 4px 14px rgba(9, 30, 66, 0.16) !important;
+}
+
+.modal-backdrop > .ai-feature-dialog::before {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  content: "";
+  background: linear-gradient(90deg, #0c66e4 0%, #6554c0 48%, #22a06b 100%);
+  pointer-events: none;
+}
+
+:root[data-theme="dark"] .modal-backdrop > .ai-feature-dialog {
+  border-color: color-mix(in srgb, var(--accent, #579dff) 28%, var(--line, #30363d)) !important;
+  background: var(--panel-strong, #161b22);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.58), 0 4px 18px rgba(0, 0, 0, 0.34) !important;
+}
+
+@media (max-width: 720px) {
+  .modal-backdrop:has(> .ai-feature-dialog) {
+    padding: 0 !important;
+  }
+
+  .modal-backdrop > .ai-feature-dialog {
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+  }
+}
+
+/* Project creation reference treatment
+   The project flow intentionally uses a compact, fixed-header composition so
+   the primary decision remains visible while the configuration body scrolls. */
+:root {
+  --project-create-action: #0758c9;
+  --project-create-action-hover: #0649aa;
+  --project-create-action-ring: rgba(7, 88, 201, 0.24);
+  --project-create-canvas: #fbfaff;
+  --project-create-tint: #f1f4ff;
+  --project-create-line: #cbd2e3;
+  --project-create-ink: #071a3d;
+  --project-create-muted: #5f6678;
+}
+
+.modal-backdrop:has(> .project-create-modal) {
+  align-items: flex-start !important;
+  padding: 0 16px 16px !important;
+  background: #dfe6fb !important;
+}
+
+html:has(.project-create-modal),
+body:has(.project-create-modal) {
+  overflow: hidden !important;
+  scrollbar-gutter: auto !important;
+}
